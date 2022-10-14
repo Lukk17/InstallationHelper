@@ -9,13 +9,6 @@ sudo mkdir /opt/emulator
 sudo cp ./icons/android.png /opt/emulator/android.png
 sudo cp ./shortcuts/android.desktop /usr/share/applications/android.desktop
 
-echo
-echo "Configuring PATH.."
-sudo touch /etc/profile.d/gradle.sh
-echo "export GRADLE_HOME=/opt/gradle/latest" >> /etc/profile.d/gradle.sh
-echo "export PATH=${GRADLE_HOME}/bin:${PATH}" >> /etc/profile.d/gradle.sh
-sudo chmod +x /etc/profile.d/gradle.sh
-source /etc/profile.d/gradle.sh
 
 echo
 echo "Creating files template.."
