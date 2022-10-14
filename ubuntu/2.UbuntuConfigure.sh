@@ -1,77 +1,168 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-echo "Turning Ubuntu dock off.."
-gnome-extensions disable ubuntu-dock@ubuntu.com
-
-echo
-echo "Configuring shortcut for Android Emulator"
-sudo mkdir /opt/emulator
-sudo cp ./icons/android.png /opt/emulator/android.png
-sudo cp ./shortcuts/android.desktop /usr/share/applications/android.desktop
-
+# =====================================================================================
 
 echo
-echo "Creating files template.."
+echo "--------------------------"
+echo "| Setting env variable.. |"
+echo "--------------------------"
+
+background_path=/usr/share/backgrounds/wallpapers/forest-house.jpg
+
+login_background_color=#000000
+login_background_image=/usr/share/backgrounds/wallpapers/forest.jpg
+
+temp_folder_path=~/.lukkInstall
+
+script_location=~/Documents
+
+default_video_app=vlc_vlc.desktop
+default_internetBrowser_app=brave_brave.desktop
+default_pdf_app=okular_okular.desktop
+default_word_app=wps-2019-snap_wps.desktop
+default_excel_app=wps-2019-snap_et.desktop
+default_presentation_app=wps-2019-snap_wpp.desktop
+
+# =====================================================================================
+
+echo
+echo "---------------------------"
+echo "| Copying install files.. |"
+echo "---------------------------"
+
+mkdir $temp_folder_path
+cp -a ./wallpapers/ $temp_folder_path/wallpapers/
+cp $temp_folder_path/wallpapers/wallpapers-config $temp_folder_path/wallpapers-config
+
+
+# =====================================================================================
+
+echo
+echo "-----------------------------"
+echo "| Creating files template.. |"
+echo "-----------------------------"
 touch ~/Templates/file
 touch ~/Templates/text.txt
 touch ~/Templates/Document.docx
 touch ~/Templates/Presentation.pptx
 touch ~/Templates/Spreadsheet.xlsx
 
-echo
-echo "Setting wallpaper.."
-sudo cp -a $temp_folder_path/wallpapers/. /usr/share/backgrounds/wallpapers/
-sudo sed -i '$d' /usr/share/gnome-background-properties/focal-wallpapers.xml
-sudo bash -c "cat $temp_folder_path/wallpapers-config >> /usr/share/gnome-background-properties/focal-wallpapers.xml"
-gsettings set org.gnome.desktop.background picture-uri file:///$backgroud_path
+# =====================================================================================
 
 echo
-echo "Changing login backgroud.."
-sudo apt install git libglib2.0-dev -y
-#wget -qO - https://github.com/PRATAP-KUMAR/focalgdm3/archive/TrailRun.tar.gz | tar zx -C $temp_folder_path/ --strip-components=1 focalgdm3-TrailRun/focalgdm3
-sudo chmod a+x $temp_folder_path/focalgdm3
-sudo bash $temp_folder_path/focalgdm3 $login_background_path
+echo "-----------------------"
+echo "| Setting dark mode.. |"
+echo "-----------------------"
+gsettings set org.gnome.shell.ubuntu color-scheme prefer-dark
+gsettings set org.gnome.desktop.interface gtk-theme Yaru-dark # Legacy apps, can specify an accent such as Yaru-olive-dark
+gsettings set org.gnome.desktop.interface color-scheme prefer-dark # new apps
+gsettings reset org.gnome.shell.ubuntu color-scheme # if changed above
+
+# =====================================================================================
 
 echo
-echo "Configuring WPS.."
+echo "-----------------------"
+echo "| Setting wallpaper.. |"
+echo "-----------------------"
+sudo cp -a $temp_folder_path/wallpapers/ /usr/share/backgrounds/wallpapers/
+gsettings set org.gnome.desktop.background picture-uri-dark "$background_path"
+gsettings set org.gnome.desktop.background picture-uri "$background_path"
+
+# =====================================================================================
+
+echo
+echo "-------------------------------"
+echo "| Changing login background.. |"
+echo "-------------------------------"
+wget -P $temp_folder_path/ https://github.com/PRATAP-KUMAR/ubuntu-gdm-set-background/archive/main.tar.gz
+tar -xf $temp_folder_path/main.tar.gz -C $temp_folder_path/
+sudo cp $temp_folder_path/ubuntu-gdm-set-background-main/ubuntu-gdm-set-background $script_location/
+sudo apt update
+sudo apt install libglib2.0-dev-bin -y
+# change to color:
+sudo $script_location/ubuntu-gdm-set-background --color $login_background_color
+# change to wallpaper:
+#sudo $script_location/ubuntu-gdm-set-background --image "$login_background_image"
+# to reset
+#sudo script_location/ubuntu-gdm-set-background --reset
+
+# =====================================================================================
+
+echo
+echo "-----------------------------------------------"
+echo "| Configuring shortcut for Android Emulator.. |"
+echo "-----------------------------------------------"
+sudo mkdir /opt/emulator
+sudo cp ./icons/android.png /opt/emulator/android.png
+sudo cp ./shortcuts/android.desktop /usr/share/applications/android.desktop
+
+# =====================================================================================
+
+echo
+echo "---------------------"
+echo "| Configuring WPS.. |"
+echo "---------------------"
 sudo snap connect wps-2019-snap:cups-control :cups-control
 sudo snap connect wps-2019-snap:alsa :alsa
 sudo snap connect wps-2019-snap:pulseaudio :pulseaudio
 sudo snap connect wps-2019-snap:removable-media :removable-media
 
+# =====================================================================================
+
 echo
-echo "Configuring touchpad.."
+echo "--------------------------"
+echo "| Configuring touchpad.. |"
+echo "--------------------------"
 gsettings set org.gnome.desktop.peripherals.touchpad click-method 'default'
 gsettings set org.gnome.desktop.peripherals.touchpad edge-scrolling-enabled false
 gsettings set org.gnome.desktop.peripherals.touchpad disable-while-typing true
 gsettings set org.gnome.desktop.peripherals.touchpad two-finger-scrolling-enabled true
 gsettings set org.gnome.desktop.peripherals.touchpad send-events 'enabled'
 gsettings set org.gnome.desktop.peripherals.touchpad speed 0.0
-gsettings set org.gnome.desktop.peripherals.touchpad scroll-method 'two-finger-scrolling'
 gsettings set org.gnome.desktop.peripherals.touchpad natural-scroll true
 gsettings set org.gnome.desktop.peripherals.touchpad middle-click-emulation false
 gsettings set org.gnome.desktop.peripherals.touchpad left-handed 'mouse'
 gsettings set org.gnome.desktop.peripherals.touchpad tap-to-click true
 gsettings set org.gnome.desktop.peripherals.touchpad tap-and-drag true
 
+# =====================================================================================
+
 echo
-echo "Turning on battery procentage displaying.."
+echo "----------------------------------------------"
+echo "| Turning on battery percentage displaying.. |"
+echo "----------------------------------------------"
 gsettings set org.gnome.desktop.interface show-battery-percentage true
 
+# =====================================================================================
+
 echo
-echo "Configuring /tmp to be mounted in RAM.."
+echo "-------------------------------------------"
+echo "| Configuring /tmp to be mounted in RAM.. |"
+echo "-------------------------------------------"
 sudo bash -c 'echo "tmpfs /tmp tmpfs mode=0777 0 0" >> /etc/fstab'
 
-echo
-echo "Configuring favourites apps.."
-gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'firefox.desktop', 'wps-2019-snap_wps.desktop', 'org.gnome.gedit.desktop']"
+# =====================================================================================
 
 echo
-echo "Configuring local time.."
+echo "---------------------------------"
+echo "| Configuring favourites apps.. |"
+echo "---------------------------------"
+gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave_brave.desktop', 'subl.desktop', 'intellij-idea-ultimate.desktop', 'wps-2019-snap_wps.desktop', 'postman.desktop']"
+
+# =====================================================================================
+
+echo
+echo "----------------------------"
+echo "| Configuring local time.. |"
+echo "----------------------------"
 timedatectl set-local-rtc 1 --adjust-system-clock
 
+# =====================================================================================
+
 echo
-echo "Setting default apps.."
+echo "--------------------------"
+echo "| Setting default apps.. |"
+echo "--------------------------"
 xdg-mime default $default_word_app application/msword
 xdg-mime default $default_word_app application/vnd.openxmlformats-officedocument.wordprocessingml.document
 xdg-mime default $default_word_app application/wordperfect
@@ -154,37 +245,64 @@ xdg-mime default $default_video_app x-content/video-dvd
 xdg-mime default $default_video_app x-content/video-vcd
 xdg-mime default $default_video_app x-content/video-svcd
 
+# =====================================================================================
 
 echo
-echo "Setting Dash-to-Dock settings.."
+echo "-----------------------------------"
+echo "| Setting Dash-to-Dock settings.. |"
+echo "-----------------------------------"
+gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
+gsettings set org.gnome.shell.extensions.dash-to-dock background-color '#ffffff'
+gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.7
+gsettings set org.gnome.shell.extensions.dash-to-dock custom-background-color false
 gsettings set org.gnome.shell.extensions.dash-to-dock transparency-mode 'FIXED'
-gsettings set org.gnome.shell.extensions.dash-to-dock multi-monitor false
-gsettings set org.gnome.shell.extensions.dash-to-dock isolate-workspaces false
+
+gsettings set org.gnome.shell.extensions.dash-to-dock dash-max-icon-size 55
+gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
+gsettings set org.gnome.shell.extensions.dash-to-dock height-fraction 0.9
+gsettings set org.gnome.shell.extensions.dash-to-dock dock-fixed true
+
+gsettings set org.gnome.shell.extensions.dash-to-dock intellihide true
+gsettings set org.gnome.shell.extensions.dash-to-dock intellihide-mode 'FOCUS_APPLICATION_WINDOWS'
+gsettings set org.gnome.shell.extensions.dash-to-dock isolate-workspaces true
+gsettings set org.gnome.shell.extensions.dash-to-dock middle-click-action 'launch'
+
+gsettings set org.gnome.shell.extensions.dash-to-dock running-indicator-style 'DOTS'
+gsettings set org.gnome.shell.extensions.dash-to-dock custom-theme-customize-running-dots true
+gsettings set org.gnome.shell.extensions.dash-to-dock custom-theme-running-dots-color '#e95420'
+gsettings set org.gnome.shell.extensions.dash-to-dock custom-theme-shrink true
+
+gsettings set org.gnome.shell.extensions.dash-to-dock animate-show-apps true
 gsettings set org.gnome.shell.extensions.dash-to-dock show-windows-preview true
+gsettings set org.gnome.shell.extensions.dash-to-dock show-delay 0.25
+gsettings set org.gnome.shell.extensions.dash-to-dock hide-delay 0.2
+
 gsettings set org.gnome.shell.extensions.dash-to-dock show-trash true
 gsettings set org.gnome.shell.extensions.dash-to-dock show-favorites true
 gsettings set org.gnome.shell.extensions.dash-to-dock show-running true
-gsettings set org.gnome.shell.extensions.dash-to-dock running-indicator-style 'DOTS'
-gsettings set org.gnome.shell.extensions.dash-to-dock custom-theme-running-dots-color '#e95420'
 gsettings set org.gnome.shell.extensions.dash-to-dock show-show-apps-button true
-gsettings set org.gnome.shell.extensions.dash-to-dock animate-show-apps true
 gsettings set org.gnome.shell.extensions.dash-to-dock show-mounts false
-gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'LEFT'
-gsettings set org.gnome.shell.extensions.dash-to-dock custom-theme-customize-running-dots true
-gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.7
-gsettings set org.gnome.shell.extensions.dash-to-dock middle-click-action 'launch'
-gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
-gsettings set org.gnome.shell.extensions.dash-to-dock dock-fixed false
-gsettings set org.gnome.shell.extensions.dash-to-dock dash-max-icon-size 40
-gsettings set org.gnome.shell.extensions.dash-to-dock intellihide true
+
 gsettings set org.gnome.shell.extensions.dash-to-dock isolate-monitors false
-gsettings set org.gnome.shell.extensions.dash-to-dock background-color '#ffffff'
-gsettings set org.gnome.shell.extensions.dash-to-dock height-fraction 0.9
-gsettings set org.gnome.shell.extensions.dash-to-dock custom-background-color false
+gsettings set org.gnome.shell.extensions.dash-to-dock multi-monitor false
+
 gsettings set org.gnome.shell.extensions.dash-to-dock shortcut-timeout 2.0
-gsettings set org.gnome.shell.extensions.dash-to-dock show-delay 0.25
-gsettings set org.gnome.shell.extensions.dash-to-dock hide-delay 0.2
+
 gsettings set org.gnome.shell.extensions.dash-to-dock max-alpha 0.8
 gsettings set org.gnome.shell.extensions.dash-to-dock min-alpha 0.2
-gsettings set org.gnome.shell.extensions.dash-to-dock intellihide-mode 'FOCUS_APPLICATION_WINDOWS'
 
+
+# =====================================================================================
+
+echo
+echo "--------------"
+echo "| Cleaning.. |"
+echo "--------------"
+yes | sudo rm -R $temp_folder_path
+
+# =====================================================================================
+
+echo
+echo "--------------------"
+echo "| Reboot needed !! |"
+echo "--------------------"
