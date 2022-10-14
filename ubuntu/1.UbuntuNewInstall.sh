@@ -59,25 +59,6 @@ sudo apt autoremove -y
 # =====================================================================================
 
 echo
-echo "----------------------------------"
-echo "| Installing Gnome Tools.. |"
-echo "----------------------------------"
-sudo add-apt-repository universe -y
-sudo apt install gnome-tweaks gnome-online-accounts gnome-shell-extension-gsconnect -y
-sudo apt install gnome-shell-extension-manager gnome-shell-extensions chrome-gnome-shell
-
-# =====================================================================================
-
-echo
-echo "--------------------------------"
-echo "| Installing grub-customizer.. |"
-echo "--------------------------------"
-sudo add-apt-repository ppa:danielrichter2007/grub-customizer -y
-sudo apt-get install grub-customizer -y
-
-# =====================================================================================
-
-echo
 echo "------------------------------"
 echo "| Installing Open Java JDK.. |"
 echo "------------------------------"
@@ -104,25 +85,47 @@ sudo apt autoremove -y
 # =====================================================================================
 
 echo
+echo "----------------------------"
+echo "| Installing Gnome Tools.. |"
+echo "----------------------------"
+sudo add-apt-repository universe -y
+sudo apt install gnome-tweaks gnome-online-accounts gnome-shell-extension-gsconnect -y
+sudo apt install gnome-shell-extension-manager gnome-shell-extensions chrome-gnome-shell
+
+# =====================================================================================
+
+echo
+echo "--------------------------------"
+echo "| Installing grub-customizer.. |"
+echo "--------------------------------"
+sudo add-apt-repository ppa:danielrichter2007/grub-customizer -y
+sudo apt-get install grub-customizer -y
+
+# =====================================================================================
+
+echo
 echo "----------------------"
 echo "| Installing snaps.. |"
 echo "----------------------"
-sudo snap install okular
-sudo snap install freecad
-sudo snap install discord
-sudo snap install cura-slicer
-sudo snap install gimp
-sudo snap install mysql-workbench-community
 sudo snap install android-studio --classic
-sudo snap install spotify
+sudo snap install postman
+sudo snap install freecad
+sudo snap install cura-slicer
+
 sudo snap install sublime-text --classic
 sudo snap install wps-2019-snap
-sudo snap install skype --classic
+sudo snap install okular
+
 sudo snap install chromium
 sudo snap install brave
+
+sudo snap install gimp
+sudo snap install spotify
 sudo snap install vlc
+
+sudo snap install discord
+sudo snap install skype --classic
 sudo snap install telegram-desktop
-sudo snap install postman
 sudo snap install caprine
 sudo snap install whatsapp-for-linux
 sudo snap install slack
@@ -149,12 +152,13 @@ sudo snap install intellij-idea-ultimate --channel=$intellijChannelVersion --cla
 
 echo
 echo "----------------------"
-echo "| Installing MySQL.. |"
+echo "| Installing MySQL and Workbench.. |"
 echo "----------------------"
 # install mysql and give password to installer
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password password $MYSQL_PASSWORD"
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password_again password $MYSQL_PASSWORD"
 sudo apt install mysql-server -y
+sudo snap install mysql-workbench-community
 
 # =====================================================================================
 
@@ -171,7 +175,7 @@ sudo apt install postgresql -y
 
 echo
 echo "-----------------------------------"
-echo "| Installing Mongo DB and Compass |"
+echo "| Installing Mongo DB and Compass.. |"
 echo "-----------------------------------"
 sudo apt install gnupg -y
 wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
@@ -301,6 +305,14 @@ sudo cp ./shortcuts/bitwarden.desktop /usr/share/applications/bitwarden.desktop
 # =====================================================================================
 
 echo
+echo "---------------------"
+echo "| Installing Helm.. |"
+echo "---------------------"
+sudo snap install helm --classic
+
+# =====================================================================================
+
+echo
 echo "--------------"
 echo "| Cleaning.. |"
 echo "--------------"
@@ -317,6 +329,8 @@ sudo apt update
 sudo apt-get full-upgrade -y
 sudo apt autoremove  -y
 
+# =====================================================================================
+
 echo
 echo "-------------------------------------------------"
 echo "| Opening extension install pages in browsers.. |"
@@ -328,7 +342,9 @@ brave https://extensions.gnome.org/extension/307/dash-to-dock/ &>/dev/null & dis
 
 firefox https://addons.mozilla.org/pl/firefox/addon/gnome-shell-integration/ &>/dev/null & disown %%
 
+# =====================================================================================
+
 echo "-------------------------------"
 echo "| Running extension manager.. |"
 echo "-------------------------------"
-extensions-manager
+extension-manager

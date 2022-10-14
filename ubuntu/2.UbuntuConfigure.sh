@@ -147,7 +147,7 @@ echo
 echo "---------------------------------"
 echo "| Configuring favourites apps.. |"
 echo "---------------------------------"
-gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave_brave.desktop', 'subl.desktop', 'intellij-idea-ultimate.desktop', 'wps-2019-snap_wps.desktop', 'postman.desktop']"
+gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave_brave.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'wps-2019-snap_wps.desktop', 'postman_postman.desktop']"
 
 # =====================================================================================
 
