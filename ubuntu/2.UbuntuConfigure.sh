@@ -256,7 +256,6 @@ gsettings set org.gnome.shell.extensions.dash-to-dock background-color '#ffffff'
 gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.7
 gsettings set org.gnome.shell.extensions.dash-to-dock custom-background-color false
 gsettings set org.gnome.shell.extensions.dash-to-dock transparency-mode 'FIXED'
-
 gsettings set org.gnome.shell.extensions.dash-to-dock dash-max-icon-size 55
 gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
 gsettings set org.gnome.shell.extensions.dash-to-dock height-fraction 0.9
@@ -266,6 +265,7 @@ gsettings set org.gnome.shell.extensions.dash-to-dock intellihide true
 gsettings set org.gnome.shell.extensions.dash-to-dock intellihide-mode 'FOCUS_APPLICATION_WINDOWS'
 gsettings set org.gnome.shell.extensions.dash-to-dock isolate-workspaces true
 gsettings set org.gnome.shell.extensions.dash-to-dock middle-click-action 'launch'
+gsettings set org.gnome.shell.extensions.dash-to-dock click-action 'previews'
 
 gsettings set org.gnome.shell.extensions.dash-to-dock running-indicator-style 'DOTS'
 gsettings set org.gnome.shell.extensions.dash-to-dock custom-theme-customize-running-dots true
@@ -291,6 +291,15 @@ gsettings set org.gnome.shell.extensions.dash-to-dock shortcut-timeout 2.0
 gsettings set org.gnome.shell.extensions.dash-to-dock max-alpha 0.8
 gsettings set org.gnome.shell.extensions.dash-to-dock min-alpha 0.2
 
+# =====================================================================================
+
+echo
+echo "----------------------------------------"
+echo "| Making sure extensions are enabled.. |"
+echo "----------------------------------------"
+gnome-extensions enable gsconnect@andyholmes.github.io
+gnome-extensions enable start-overlay-in-application-view@Hex_cz
+gnome-extensions enable dash-to-dock@micxgx.gmail.com
 
 # =====================================================================================
 
