@@ -28,9 +28,6 @@ zoom_download_link=https://zoom.us/client/5.12.2.4816/$zoomVersion
 bitWardenVersion=Bitwarden-2022.10.0-x86_64.AppImage
 bitWarden_download_link=https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion
 
-zenmapVersion=zenmap_7.60-1ubuntu5_all.deb
-zenmap_download_link=http://archive.ubuntu.com/ubuntu/pool/universe/n/nmap/$zenmapVersion
-
 angryIpScannerVersion=ipscan_3.8.2_amd64.deb
 angryIpScanner_download_link=https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion
 
