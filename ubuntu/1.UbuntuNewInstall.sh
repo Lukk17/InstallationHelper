@@ -6,6 +6,10 @@ echo "--------------------------"
 
 temp_folder_path=~/.lukkInstall
 MYSQL_PASSWORD='Lukk1234'
+PGPASSWORD=$MYSQL_PASSWORD
+
+chromeVersion="google-chrome-stable_current_amd64.deb"
+chrome_download_link="https://dl.google.com/linux/direct/$chromeVersion"
 
 githubDesktopVersion=GitHubDesktop-linux-3.0.6-linux1.deb
 githubDesktop_download_link=https://github.com/shiftkey/desktop/releases/download/release-3.0.6-linux1/$githubDesktopVersion
@@ -87,7 +91,8 @@ echo "| Installing Gnome Tools.. |"
 echo "----------------------------"
 sudo add-apt-repository universe -y
 sudo apt install gnome-tweaks gnome-online-accounts gnome-shell-extension-gsconnect -y
-sudo apt install gnome-shell-extension-manager gnome-shell-extensions chrome-gnome-shell
+sudo apt install gnome-shell-extension-manager gnome-shell-extensions chrome-gnome-shell -y
+sudo apt install  gnome-calendar -y
 
 # =====================================================================================
 
@@ -113,7 +118,6 @@ sudo snap install sublime-text --classic
 sudo snap install wps-2019-snap
 sudo snap install okular
 
-sudo snap install chromium
 sudo snap install brave
 
 sudo snap install gimp
@@ -130,6 +134,16 @@ sudo snap install teams
 
 # =====================================================================================
 
+echo
+echo "------------------------"
+echo "| Installing Chrome... |"
+echo "------------------------"
+wget "$chrome_download_link" -cO $temp_folder_path/$chromeVersion
+sudo dpkg -i $temp_folder_path/$chromeVersion
+
+# =====================================================================================
+
+echo
 echo "-------------------------------"
 echo "| Installing GitHubDesktop... |"
 echo "-------------------------------"
@@ -156,6 +170,8 @@ sudo debconf-set-selections <<< "mysql-server mysql-server/root_password passwor
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password_again password $MYSQL_PASSWORD"
 sudo apt install mysql-server -y
 sudo snap install mysql-workbench-community
+# to avoid blocking workbench by linux AppArmor
+sudo snap connect mysql-workbench-community:password-manager-service :password-manager-service
 
 # =====================================================================================
 
@@ -167,6 +183,7 @@ sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)
 wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
 sudo apt update
 sudo apt install postgresql -y
+sudo -u postgres psql -c "alter user postgres with password '$PGPASSWORD';"
 
 # =====================================================================================
 
@@ -334,10 +351,9 @@ echo "| Opening extension install pages in browsers.. |"
 echo "-------------------------------------------------"
 xdg-settings set default-web-browser brave-browser.desktop
 
-brave https://chrome.google.com/webstore/detail/gnome-shell-integration/gphhapmejobijbbhgpjhcjognlahblep &>/dev/null & disown %%
 brave https://extensions.gnome.org/extension/307/dash-to-dock/ &>/dev/null & disown %%
-
-firefox https://addons.mozilla.org/pl/firefox/addon/gnome-shell-integration/ &>/dev/null & disown %%
+brave https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/ &>/dev/null & disown %%
+brave https://extensions.gnome.org/extension/1319/gsconnect/ &>/dev/null & disown %%
 
 # =====================================================================================
 
