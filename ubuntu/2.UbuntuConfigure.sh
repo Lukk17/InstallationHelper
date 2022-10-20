@@ -265,7 +265,7 @@ gsettings set org.gnome.shell.extensions.dash-to-dock intellihide true
 gsettings set org.gnome.shell.extensions.dash-to-dock intellihide-mode 'FOCUS_APPLICATION_WINDOWS'
 gsettings set org.gnome.shell.extensions.dash-to-dock isolate-workspaces true
 gsettings set org.gnome.shell.extensions.dash-to-dock middle-click-action 'launch'
-gsettings set org.gnome.shell.extensions.dash-to-dock click-action 'previews'
+gsettings set org.gnome.shell.extensions.dash-to-dock click-action 'minimize-or-previews'
 
 gsettings set org.gnome.shell.extensions.dash-to-dock running-indicator-style 'DOTS'
 gsettings set org.gnome.shell.extensions.dash-to-dock custom-theme-customize-running-dots true

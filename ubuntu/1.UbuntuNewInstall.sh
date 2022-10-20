@@ -4,39 +4,44 @@ echo "--------------------------"
 echo "| Setting env variable.. |"
 echo "--------------------------"
 
-temp_folder_path=~/.lukkInstall
-MYSQL_PASSWORD='Lukk1234'
-PGPASSWORD=$MYSQL_PASSWORD
+temp_folder_path="$HOME/.lukkInstall"
+MYSQL_PASSWORD="Lukk1234"
+PGPASSWORD="$MYSQL_PASSWORD"
 
 chromeVersion="google-chrome-stable_current_amd64.deb"
 chrome_download_link="https://dl.google.com/linux/direct/$chromeVersion"
 
-githubDesktopVersion=GitHubDesktop-linux-3.0.6-linux1.deb
-githubDesktop_download_link=https://github.com/shiftkey/desktop/releases/download/release-3.0.6-linux1/$githubDesktopVersion
+githubDesktopVersion="GitHubDesktop-linux-3.0.6-linux1.deb"
+githubDesktop_download_link="https://github.com/shiftkey/desktop/releases/download/release-3.0.6-linux1/$githubDesktopVersion"
 
-intellijChannelVersion=2020.3/stable
+intellijChannelVersion="2020.3/stable"
 
-mongoCompassVersion=mongodb-compass_1.33.1_amd64.deb
-mongoCompass_download_link=https://downloads.mongodb.com/compass/$mongoCompassVersion
+mongoCompassVersion="mongodb-compass_1.33.1_amd64.deb"
+mongoCompass_download_link="https://downloads.mongodb.com/compass/$mongoCompassVersion"
 
-minikube_download_link=https://storage.googleapis.com/minikube/releases/latest/minikube_latest_amd64.deb
+minikubeVersion="minikube_latest_amd64.deb"
+minikube_download_link="https://storage.googleapis.com/minikube/releases/latest/$minikubeVersion"
 
-VMware_download_link=https://download3.vmware.com/software/WKST-PLAYER-1624/VMware-Player-Full-16.2.4-20089737.x86_64.bundle
+VMwareVersion="VMware-Player-Full-16.2.4-20089737.x86_64.bundle"
+VMware_download_link="https://download3.vmware.com/software/WKST-PLAYER-1624/$VMwareVersion"
 
-franzVersion=franz_5.9.2_amd64.deb
-franz_download_link=https://github.com/meetfranz/franz/releases/download/v5.9.2/$franzVersion
+franzVersion="franz_5.9.2_amd64.deb"
+franz_download_link="https://github.com/meetfranz/franz/releases/download/v5.9.2/$franzVersion"
 
-zoomVersion=zoom_amd64.deb
-zoom_download_link=https://zoom.us/client/5.12.2.4816/$zoomVersion
+zoomVersion="zoom_amd64.deb"
+zoom_download_link="https://zoom.us/client/5.12.2.4816/$zoomVersion"
 
-bitWardenVersion=Bitwarden-2022.10.0-x86_64.AppImage
-bitWarden_download_link=https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion
+bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
+bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
 
-angryIpScannerVersion=ipscan_3.8.2_amd64.deb
-angryIpScanner_download_link=https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion
+angryIpScannerVersion="ipscan_3.8.2_amd64.deb"
+angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion"
 
-torVersion=tor-browser-linux64-11.5.4_en-US.tar.xz
-tor_download_link=https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion
+torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
+tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
+
+postmanVersion="linux64"
+postman_download_link="https://dl.pstmn.io/download/latest/$postmanVersion"
 
 # =====================================================================================
 
@@ -110,15 +115,12 @@ echo "----------------------"
 echo "| Installing snaps.. |"
 echo "----------------------"
 sudo snap install android-studio --classic
-sudo snap install postman
 sudo snap install freecad
 sudo snap install cura-slicer
 
 sudo snap install sublime-text --classic
 sudo snap install wps-2019-snap
 sudo snap install okular
-
-sudo snap install brave
 
 sudo snap install gimp
 sudo snap install spotify
@@ -147,7 +149,7 @@ echo
 echo "-------------------------------"
 echo "| Installing GitHubDesktop... |"
 echo "-------------------------------"
-sudo wget -P $temp_folder_path/ $githubDesktop_download_link
+sudo wget $githubDesktop_download_link -cO $temp_folder_path/$githubDesktopVersion
 sudo apt install gdebi-core -y
 sudo gdebi $temp_folder_path/$githubDesktopVersion -y
 
@@ -197,7 +199,7 @@ echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb
 sudo apt update
 sudo apt install mongodb-org -y
 sudo systemctl enable mongod
-wget -P $temp_folder_path/ $mongoCompass_download_link
+wget $mongoCompass_download_link -cO $temp_folder_path/$mongoCompassVersion
 sudo dpkg -i $temp_folder_path/$mongoCompassVersion
 #in case dependency problems:
 sudo apt --fix-broken install -y
@@ -226,9 +228,9 @@ echo "| Installing VMware Workstation Player.. |"
 echo "------------------------------------------"
 # Need user input
 sudo apt install build-essential -y
-wget -P $temp_folder_path/ $VMware_download_link
-sudo chmod +x $temp_folder_path/VMware-Player*
-sudo $temp_folder_path/VMware-Player*
+wget $VMware_download_link -cO $temp_folder_path/$VMwareVersion
+sudo chmod +x $temp_folder_path/$VMwareVersion
+sudo $temp_folder_path/$VMwareVersion
 
 # =====================================================================================
 
@@ -236,7 +238,7 @@ echo
 echo "-----------------------------------"
 echo "| Installing Franz Communicator.. |"
 echo "-----------------------------------"
-wget -P $temp_folder_path/ $franz_download_link
+wget $franz_download_link -cO $temp_folder_path/$franzVersion
 sudo apt install $temp_folder_path/$franzVersion -y
 
 # =====================================================================================
@@ -245,7 +247,7 @@ echo
 echo "---------------------"
 echo "| Installing Zoom.. |"
 echo "---------------------"
-wget -P $temp_folder_path/ $zoom_download_link
+wget $zoom_download_link -cO $temp_folder_path/$zoomVersion
 sudo apt install $temp_folder_path/$zoomVersion -y
 
 # =====================================================================================
@@ -254,7 +256,7 @@ echo
 echo "---------------------------------"
 echo "| Installing Angry IP Scanner.. |"
 echo "---------------------------------"
-wget -P $temp_folder_path/ $angryIpScanner_download_link
+wget $angryIpScanner_download_link -cO $temp_folder_path/$angryIpScannerVersion
 sudo apt install $temp_folder_path/$angryIpScannerVersion -y
 
 # =====================================================================================
@@ -273,7 +275,7 @@ echo
 echo "----------------------------"
 echo "| Installing Tor Browser.. |"
 echo "----------------------------"
-wget -P /home/ $tor_download_link
+wget $tor_download_link -cO /home/$torVersion
 tar -xf /home/$torVersion
 sudo chmod +x /home/$torVersion
 /home/$torVersion/start-tor-browser.desktop --register-app
@@ -300,8 +302,8 @@ echo
 echo "-------------------------"
 echo "| Installing minikube.. |"
 echo "-------------------------"
-wget -P $temp_folder_path/ $minikube_download_link
-sudo dpkg -i minikube_latest_amd64.deb
+wget $minikube_download_link -cO $temp_folder_path/$minikubeVersion
+sudo dpkg -i $minikubeVersion
 
 # =====================================================================================
 
@@ -309,7 +311,7 @@ echo
 echo "--------------------------"
 echo "| Installing BitWarden.. |"
 echo "--------------------------"
-wget -P $temp_folder_path/ $bitWarden_download_link
+wget $bitWarden_download_link -cO $temp_folder_path/$bitWardenVersion
 chmod a+x $temp_folder_path/$bitWardenVersion
 sudo mkdir /opt/bitwarden
 sudo cp $temp_folder_path/$bitWardenVersion /opt/bitwarden/bitwarden.AppImage
@@ -324,6 +326,34 @@ echo "| Installing Helm.. |"
 echo "---------------------"
 sudo snap install helm --classic
 
+# =====================================================================================
+
+echo
+echo "------------------------"
+echo "| Installing Postman.. |"
+echo "------------------------"
+# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION
+
+wget $postman_download_link -cO $temp_folder_path/$postmanVersion
+sudo tar -xf $temp_folder_path/$postmanVersion -C $temp_folder_path/
+sudo cp -R $temp_folder_path/Postman /opt/postman/
+sudo mv /opt/postman/Postman /opt/postman/postman
+sudo cp ./shortcuts/postman.desktop /usr/share/applications/postman.desktop
+sudo chmod +x /usr/share/applications/postman.desktop
+echo 'export PATH="$PATH:/opt/postman/postman"' >> ~/.bashrc
+
+# =====================================================================================
+echo
+echo "----------------------"
+echo "| Installing Brave.. |"
+echo "----------------------"
+# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (postman interceptor)
+
+sudo apt install apt-transport-https curl
+sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main"|sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+sudo apt update
+sudo apt install brave-browser
 # =====================================================================================
 
 echo
@@ -342,6 +372,7 @@ echo "---------------------"
 sudo apt update
 sudo apt-get full-upgrade -y
 sudo apt autoremove  -y
+source ~/.bashrc
 
 # =====================================================================================
 
