@@ -14,10 +14,13 @@ login_background_image=/usr/share/backgrounds/wallpapers/forest.jpg
 
 temp_folder_path=~/.lukkInstall
 
+gdmBackgroundVersion="main.tar.gz"
+gdmBackground_download_link="https://github.com/PRATAP-KUMAR/ubuntu-gdm-set-background/archive/$gdmBackgroundVersion"
+
 script_location=~/Documents
 
 default_video_app=vlc_vlc.desktop
-default_internetBrowser_app=brave_brave.desktop
+default_internetBrowser_app=brave-browser.desktop
 default_pdf_app=okular_okular.desktop
 default_word_app=wps-2019-snap_wps.desktop
 default_excel_app=wps-2019-snap_et.desktop
@@ -30,9 +33,9 @@ echo "---------------------------"
 echo "| Copying install files.. |"
 echo "---------------------------"
 
-mkdir $temp_folder_path
-cp -a ./wallpapers/ $temp_folder_path/wallpapers/
-cp $temp_folder_path/wallpapers/wallpapers-config $temp_folder_path/wallpapers-config
+mkdir "$temp_folder_path"
+cp -a ./wallpapers/ "$temp_folder_path"/wallpapers/
+cp "$temp_folder_path"/wallpapers/wallpapers-config "$temp_folder_path"/wallpapers-config
 
 
 # =====================================================================================
@@ -64,7 +67,7 @@ echo
 echo "-----------------------"
 echo "| Setting wallpaper.. |"
 echo "-----------------------"
-sudo cp -a $temp_folder_path/wallpapers/ /usr/share/backgrounds/wallpapers/
+sudo cp -a "$temp_folder_path"/wallpapers/ /usr/share/backgrounds/wallpapers/
 gsettings set org.gnome.desktop.background picture-uri-dark "$background_path"
 gsettings set org.gnome.desktop.background picture-uri "$background_path"
 
@@ -74,17 +77,25 @@ echo
 echo "-------------------------------"
 echo "| Changing login background.. |"
 echo "-------------------------------"
-wget -P $temp_folder_path/ https://github.com/PRATAP-KUMAR/ubuntu-gdm-set-background/archive/main.tar.gz
-tar -xf $temp_folder_path/main.tar.gz -C $temp_folder_path/
-sudo cp $temp_folder_path/ubuntu-gdm-set-background-main/ubuntu-gdm-set-background $script_location/
+wget -P "$temp_folder_path"/ "$gdmBackground_download_link"
+tar -xf "$temp_folder_path"/"$gdmBackgroundVersion" -C "$temp_folder_path"/
+sudo cp "$temp_folder_path"/ubuntu-gdm-set-background-main/ubuntu-gdm-set-background "$script_location"/
 sudo apt update
 sudo apt install libglib2.0-dev-bin -y
 # change to color:
-sudo $script_location/ubuntu-gdm-set-background --color $login_background_color
+sudo "$script_location"/ubuntu-gdm-set-background --color "$login_background_color"
 # change to wallpaper:
 #sudo $script_location/ubuntu-gdm-set-background --image "$login_background_image"
 # to reset
 #sudo script_location/ubuntu-gdm-set-background --reset
+
+# =====================================================================================
+
+echo
+echo "------------------------------"
+echo "| Showing seconds on clock.. |"
+echo "------------------------------"
+gsettings set org.gnome.desktop.interface clock-show-seconds true
 
 # =====================================================================================
 
@@ -147,7 +158,7 @@ echo
 echo "---------------------------------"
 echo "| Configuring favourites apps.. |"
 echo "---------------------------------"
-gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave_brave.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'wps-2019-snap_wps.desktop', 'postman_postman.desktop']"
+gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop']"
 
 # =====================================================================================
 
@@ -256,6 +267,7 @@ gsettings set org.gnome.shell.extensions.dash-to-dock background-color '#ffffff'
 gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.7
 gsettings set org.gnome.shell.extensions.dash-to-dock custom-background-color false
 gsettings set org.gnome.shell.extensions.dash-to-dock transparency-mode 'FIXED'
+
 gsettings set org.gnome.shell.extensions.dash-to-dock dash-max-icon-size 55
 gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
 gsettings set org.gnome.shell.extensions.dash-to-dock height-fraction 0.9
@@ -266,6 +278,7 @@ gsettings set org.gnome.shell.extensions.dash-to-dock intellihide-mode 'FOCUS_AP
 gsettings set org.gnome.shell.extensions.dash-to-dock isolate-workspaces true
 gsettings set org.gnome.shell.extensions.dash-to-dock middle-click-action 'launch'
 gsettings set org.gnome.shell.extensions.dash-to-dock click-action 'minimize-or-previews'
+gsettings set org.gnome.shell.extensions.dash-to-dock show-mounts false
 
 gsettings set org.gnome.shell.extensions.dash-to-dock running-indicator-style 'DOTS'
 gsettings set org.gnome.shell.extensions.dash-to-dock custom-theme-customize-running-dots true
@@ -307,7 +320,7 @@ echo
 echo "--------------"
 echo "| Cleaning.. |"
 echo "--------------"
-yes | sudo rm -R $temp_folder_path
+yes | sudo rm -R "$temp_folder_path"
 
 # =====================================================================================
 
