@@ -37,11 +37,14 @@ bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/
 angryIpScannerVersion="ipscan_3.8.2_amd64.deb"
 angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion"
 
-torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
-tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
+nordvpnVersion="nordvpn-release_1.0.0_all.deb"
+nordvpn_download_link="https://repo.nordvpn.com/deb/nordvpn/debian/pool/main/$nordvpnVersion"
 
 postmanVersion="linux64"
 postman_download_link="https://dl.pstmn.io/download/latest/$postmanVersion"
+
+torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
+tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
 
 # =====================================================================================
 
@@ -50,7 +53,7 @@ echo "------------------------"
 echo "| Making temp folder.. |"
 echo "------------------------"
 
-mkdir $temp_folder_path
+mkdir "$temp_folder_path"
 
 # =====================================================================================
 
@@ -115,6 +118,7 @@ echo "----------------------"
 echo "| Installing snaps.. |"
 echo "----------------------"
 sudo snap install android-studio --classic
+sudo snap install flutter --classic
 sudo snap install freecad
 sudo snap install cura-slicer
 
@@ -140,8 +144,8 @@ echo
 echo "------------------------"
 echo "| Installing Chrome... |"
 echo "------------------------"
-wget "$chrome_download_link" -cO $temp_folder_path/$chromeVersion
-sudo dpkg -i $temp_folder_path/$chromeVersion
+wget "$chrome_download_link" -cO "$temp_folder_path"/"$chromeVersion"
+sudo dpkg -i "$temp_folder_path"/"$chromeVersion"
 
 # =====================================================================================
 
@@ -149,9 +153,9 @@ echo
 echo "-------------------------------"
 echo "| Installing GitHubDesktop... |"
 echo "-------------------------------"
-sudo wget $githubDesktop_download_link -cO $temp_folder_path/$githubDesktopVersion
+sudo wget "$githubDesktop_download_link" -cO "$temp_folder_path"/"$githubDesktopVersion"
 sudo apt install gdebi-core -y
-sudo gdebi $temp_folder_path/$githubDesktopVersion -y
+sudo gdebi -n "$temp_folder_path"/"$githubDesktopVersion"
 
 # =====================================================================================
 
@@ -164,9 +168,9 @@ sudo snap install intellij-idea-ultimate --channel=$intellijChannelVersion --cla
 # =====================================================================================
 
 echo
-echo "----------------------"
+echo "------------------------------------"
 echo "| Installing MySQL and Workbench.. |"
-echo "----------------------"
+echo "------------------------------------"
 # install mysql and give password to installer
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password password $MYSQL_PASSWORD"
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password_again password $MYSQL_PASSWORD"
@@ -199,12 +203,12 @@ echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb
 sudo apt update
 sudo apt install mongodb-org -y
 sudo systemctl enable mongod
-wget $mongoCompass_download_link -cO $temp_folder_path/$mongoCompassVersion
-sudo dpkg -i $temp_folder_path/$mongoCompassVersion
+wget "$mongoCompass_download_link" -cO "$temp_folder_path"/"$mongoCompassVersion"
+sudo dpkg -i "$temp_folder_path"/"$mongoCompassVersion"
 #in case dependency problems:
 sudo apt --fix-broken install -y
 #and reinstall:
-sudo dpkg -i $temp_folder_path/$mongoCompassVersion
+sudo dpkg -i "$temp_folder_path"/"$mongoCompassVersion"
 
 # =====================================================================================
 
@@ -228,9 +232,9 @@ echo "| Installing VMware Workstation Player.. |"
 echo "------------------------------------------"
 # Need user input
 sudo apt install build-essential -y
-wget $VMware_download_link -cO $temp_folder_path/$VMwareVersion
-sudo chmod +x $temp_folder_path/$VMwareVersion
-sudo $temp_folder_path/$VMwareVersion
+wget "$VMware_download_link" -cO "$temp_folder_path"/"$VMwareVersion"
+sudo chmod +x "$temp_folder_path"/"$VMwareVersion"
+sudo "$temp_folder_path"/"$VMwareVersion"
 
 # =====================================================================================
 
@@ -238,8 +242,8 @@ echo
 echo "-----------------------------------"
 echo "| Installing Franz Communicator.. |"
 echo "-----------------------------------"
-wget $franz_download_link -cO $temp_folder_path/$franzVersion
-sudo apt install $temp_folder_path/$franzVersion -y
+wget "$franz_download_link" -cO "$temp_folder_path"/"$franzVersion"
+sudo apt install "$temp_folder_path"/"$franzVersion" -y
 
 # =====================================================================================
 
@@ -247,8 +251,8 @@ echo
 echo "---------------------"
 echo "| Installing Zoom.. |"
 echo "---------------------"
-wget $zoom_download_link -cO $temp_folder_path/$zoomVersion
-sudo apt install $temp_folder_path/$zoomVersion -y
+wget "$zoom_download_link" -cO "$temp_folder_path"/"$zoomVersion"
+sudo apt install "$temp_folder_path"/"$zoomVersion" -y
 
 # =====================================================================================
 
@@ -256,8 +260,8 @@ echo
 echo "---------------------------------"
 echo "| Installing Angry IP Scanner.. |"
 echo "---------------------------------"
-wget $angryIpScanner_download_link -cO $temp_folder_path/$angryIpScannerVersion
-sudo apt install $temp_folder_path/$angryIpScannerVersion -y
+wget "$angryIpScanner_download_link" -cO "$temp_folder_path"/"$angryIpScannerVersion"
+sudo apt install "$temp_folder_path"/"$angryIpScannerVersion" -y
 
 # =====================================================================================
 
@@ -272,21 +276,13 @@ sudo apt install stacer -y
 # =====================================================================================
 
 echo
-echo "----------------------------"
-echo "| Installing Tor Browser.. |"
-echo "----------------------------"
-wget $tor_download_link -cO /home/$torVersion
-tar -xf /home/$torVersion
-sudo chmod +x /home/$torVersion
-/home/$torVersion/start-tor-browser.desktop --register-app
-
-# =====================================================================================
-
-echo
 echo "------------------------"
 echo "| Installing NordVPN.. |"
 echo "------------------------"
-sh <(wget -P $temp_folder_path/ -qO - https://downloads.nordcdn.com/apps/linux/install.sh)
+wget "$nordvpn_download_link" -cO "$temp_folder_path"/"$nordvpnVersion"
+sudo apt-get install "$temp_folder_path"/"$nordvpnVersion"
+sudo apt-get update
+sudo apt-get install nordvpn
 
 # =====================================================================================
 
@@ -302,8 +298,8 @@ echo
 echo "-------------------------"
 echo "| Installing minikube.. |"
 echo "-------------------------"
-wget $minikube_download_link -cO $temp_folder_path/$minikubeVersion
-sudo dpkg -i $minikubeVersion
+wget "$minikube_download_link" -cO "$temp_folder_path"/"$minikubeVersion"
+sudo dpkg -i "$temp_folder_path"/"$minikubeVersion"
 
 # =====================================================================================
 
@@ -311,10 +307,10 @@ echo
 echo "--------------------------"
 echo "| Installing BitWarden.. |"
 echo "--------------------------"
-wget $bitWarden_download_link -cO $temp_folder_path/$bitWardenVersion
-chmod a+x $temp_folder_path/$bitWardenVersion
+wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
+chmod a+x "$temp_folder_path"/"$bitWardenVersion"
 sudo mkdir /opt/bitwarden
-sudo cp $temp_folder_path/$bitWardenVersion /opt/bitwarden/bitwarden.AppImage
+sudo cp "$temp_folder_path"/"$bitWardenVersion" /opt/bitwarden/bitwarden.AppImage
 sudo cp ./icons/bitwarden.png /opt/bitwarden/bitwarden.png
 sudo cp ./shortcuts/bitwarden.desktop /usr/share/applications/bitwarden.desktop
 
@@ -334,9 +330,9 @@ echo "| Installing Postman.. |"
 echo "------------------------"
 # NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION
 
-wget $postman_download_link -cO $temp_folder_path/$postmanVersion
-sudo tar -xf $temp_folder_path/$postmanVersion -C $temp_folder_path/
-sudo cp -R $temp_folder_path/Postman /opt/postman/
+wget "$postman_download_link" -cO "$temp_folder_path"/"$postmanVersion"
+sudo tar -xf "$temp_folder_path"/"$postmanVersion" -C "$temp_folder_path"/
+sudo cp -R "$temp_folder_path"/Postman /opt/postman/
 sudo mv /opt/postman/Postman /opt/postman/postman
 sudo cp ./shortcuts/postman.desktop /usr/share/applications/postman.desktop
 sudo chmod +x /usr/share/applications/postman.desktop
@@ -349,11 +345,38 @@ echo "| Installing Brave.. |"
 echo "----------------------"
 # NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (postman interceptor)
 
-sudo apt install apt-transport-https curl
+sudo apt install apt-transport-https curl -y
 sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main"|sudo tee /etc/apt/sources.list.d/brave-browser-release.list
 sudo apt update
-sudo apt install brave-browser
+sudo apt install brave-browser -y
+sudo echo 'export PATH="$PATH:/usr/bin/brave-browser-stable"' >> ~/.bashrc
+
+# =====================================================================================
+
+echo
+echo "----------------------------"
+echo "| Installing Boot repair.. |"
+echo "----------------------------"
+sudo add-apt-repository ppa:yannubuntu/boot-repair -y
+sudo apt update
+sudo apt install boot-repair -y
+
+# =====================================================================================
+
+echo
+echo "----------------------------"
+echo "| Installing Tor Browser.. |"
+echo "----------------------------"
+wget "$tor_download_link" -cO "$temp_folder_path"/"$torVersion"
+sudo mkdir /opt/tor
+sudo tar -xf "$temp_folder_path"/"$torVersion" -C /opt/tor/
+sudo chmod +rwx -R /opt/tor/
+sudo chown lukk -R /opt/tor/
+cd /opt/tor/tor-browser_en-US/
+./start-tor-browser.desktop --register-app
+cd ~
+
 # =====================================================================================
 
 echo
@@ -382,9 +405,9 @@ echo "| Opening extension install pages in browsers.. |"
 echo "-------------------------------------------------"
 xdg-settings set default-web-browser brave-browser.desktop
 
-brave https://extensions.gnome.org/extension/307/dash-to-dock/ &>/dev/null & disown %%
-brave https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/ &>/dev/null & disown %%
-brave https://extensions.gnome.org/extension/1319/gsconnect/ &>/dev/null & disown %%
+brave-browser-stable https://extensions.gnome.org/extension/307/dash-to-dock/ &>/dev/null & disown %%
+brave-browser-stable https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/ &>/dev/null & disown %%
+brave-browser-stable https://extensions.gnome.org/extension/1319/gsconnect/ &>/dev/null & disown %%
 
 # =====================================================================================
 
