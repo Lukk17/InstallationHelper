@@ -43,6 +43,9 @@ nordvpn_download_link="https://repo.nordvpn.com/deb/nordvpn/debian/pool/main/$no
 postmanVersion="linux64"
 postman_download_link="https://dl.pstmn.io/download/latest/$postmanVersion"
 
+lensVersion="Lens-2022.10.181357-latest.amd64.deb"
+lens_download_link="https://api.k8slens.dev/binaries/$lensVersion"
+
 torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
 tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
 
@@ -61,6 +64,7 @@ echo
 echo "---------------------"
 echo "| Updating system.. |"
 echo "---------------------"
+
 sudo apt --fix-broken install -y
 sudo apt update && sudo apt full-upgrade -y
 sudo apt autoremove -y
@@ -71,6 +75,7 @@ echo
 echo "------------------------------"
 echo "| Installing Open Java JDK.. |"
 echo "------------------------------"
+
 sudo apt install openjdk-17-jdk openjdk-17-jre -y
 
 # =====================================================================================
@@ -79,6 +84,7 @@ echo
 echo "---------------------"
 echo "| Installing apps.. |"
 echo "---------------------"
+
 sudo apt install virtualbox -y
 sudo apt install maven gradle git -y
 sudo apt install wget curl vim nano -y
@@ -90,6 +96,10 @@ sudo apt install hardinfo -y
 sudo apt install libfuse2
 sudo apt install dconf-editor -y
 sudo apt autoremove -y
+# utils like htpasswd (used in kubernetes password creation)
+sudo apt install apache2-utils
+# better cat
+sudo apt install bat
 
 # =====================================================================================
 
@@ -97,6 +107,7 @@ echo
 echo "----------------------------"
 echo "| Installing Gnome Tools.. |"
 echo "----------------------------"
+
 sudo add-apt-repository universe -y
 sudo apt install gnome-tweaks gnome-online-accounts gnome-shell-extension-gsconnect -y
 sudo apt install gnome-shell-extension-manager gnome-shell-extensions chrome-gnome-shell -y
@@ -108,6 +119,7 @@ echo
 echo "--------------------------------"
 echo "| Installing grub-customizer.. |"
 echo "--------------------------------"
+
 sudo add-apt-repository ppa:danielrichter2007/grub-customizer -y
 sudo apt-get install grub-customizer -y
 
@@ -117,6 +129,7 @@ echo
 echo "----------------------"
 echo "| Installing snaps.. |"
 echo "----------------------"
+
 sudo snap install android-studio --classic
 sudo snap install flutter --classic
 sudo snap install freecad
@@ -144,6 +157,7 @@ echo
 echo "------------------------"
 echo "| Installing Chrome... |"
 echo "------------------------"
+
 wget "$chrome_download_link" -cO "$temp_folder_path"/"$chromeVersion"
 sudo dpkg -i "$temp_folder_path"/"$chromeVersion"
 
@@ -153,6 +167,7 @@ echo
 echo "-------------------------------"
 echo "| Installing GitHubDesktop... |"
 echo "-------------------------------"
+
 sudo wget "$githubDesktop_download_link" -cO "$temp_folder_path"/"$githubDesktopVersion"
 sudo apt install gdebi-core -y
 sudo gdebi -n "$temp_folder_path"/"$githubDesktopVersion"
@@ -163,6 +178,7 @@ echo
 echo "-------------------------------------------"
 echo "| Installing Intellij version 2020.3.4 .. |"
 echo "-------------------------------------------"
+
 sudo snap install intellij-idea-ultimate --channel=$intellijChannelVersion --classic
 
 # =====================================================================================
@@ -171,6 +187,7 @@ echo
 echo "------------------------------------"
 echo "| Installing MySQL and Workbench.. |"
 echo "------------------------------------"
+
 # install mysql and give password to installer
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password password $MYSQL_PASSWORD"
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password_again password $MYSQL_PASSWORD"
@@ -185,6 +202,7 @@ echo
 echo "-------------------------"
 echo "| Installing Postgres.. |"
 echo "-------------------------"
+
 sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
 wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
 sudo apt update
@@ -194,9 +212,10 @@ sudo -u postgres psql -c "alter user postgres with password '$PGPASSWORD';"
 # =====================================================================================
 
 echo
-echo "-----------------------------------"
+echo "-------------------------------------"
 echo "| Installing Mongo DB and Compass.. |"
-echo "-----------------------------------"
+echo "-------------------------------------"
+
 sudo apt install gnupg -y
 wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
 echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
@@ -216,6 +235,7 @@ echo
 echo "-----------------------"
 echo "| Installing Docker.. |"
 echo "-----------------------"
+
 sudo mkdir -p /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo \
@@ -230,7 +250,7 @@ echo
 echo "------------------------------------------"
 echo "| Installing VMware Workstation Player.. |"
 echo "------------------------------------------"
-# Need user input
+
 sudo apt install build-essential -y
 wget "$VMware_download_link" -cO "$temp_folder_path"/"$VMwareVersion"
 sudo chmod +x "$temp_folder_path"/"$VMwareVersion"
@@ -242,6 +262,7 @@ echo
 echo "-----------------------------------"
 echo "| Installing Franz Communicator.. |"
 echo "-----------------------------------"
+
 wget "$franz_download_link" -cO "$temp_folder_path"/"$franzVersion"
 sudo apt install "$temp_folder_path"/"$franzVersion" -y
 
@@ -251,6 +272,7 @@ echo
 echo "---------------------"
 echo "| Installing Zoom.. |"
 echo "---------------------"
+
 wget "$zoom_download_link" -cO "$temp_folder_path"/"$zoomVersion"
 sudo apt install "$temp_folder_path"/"$zoomVersion" -y
 
@@ -260,6 +282,7 @@ echo
 echo "---------------------------------"
 echo "| Installing Angry IP Scanner.. |"
 echo "---------------------------------"
+
 wget "$angryIpScanner_download_link" -cO "$temp_folder_path"/"$angryIpScannerVersion"
 sudo apt install "$temp_folder_path"/"$angryIpScannerVersion" -y
 
@@ -269,6 +292,7 @@ echo
 echo "-------------------------------"
 echo "| Installing Stacer cleaner.. |"
 echo "-------------------------------"
+
 sudo add-apt-repository ppa:oguzhaninan/stacer -y
 sudo apt update
 sudo apt install stacer -y
@@ -279,6 +303,7 @@ echo
 echo "------------------------"
 echo "| Installing NordVPN.. |"
 echo "------------------------"
+
 wget "$nordvpn_download_link" -cO "$temp_folder_path"/"$nordvpnVersion"
 sudo apt-get install "$temp_folder_path"/"$nordvpnVersion"
 sudo apt-get update
@@ -290,6 +315,7 @@ echo
 echo "---------------------------"
 echo "| Installing Kubernetes.. |"
 echo "---------------------------"
+
 sudo snap install kubectl --classic
 
 # =====================================================================================
@@ -298,6 +324,7 @@ echo
 echo "-------------------------"
 echo "| Installing minikube.. |"
 echo "-------------------------"
+
 wget "$minikube_download_link" -cO "$temp_folder_path"/"$minikubeVersion"
 sudo dpkg -i "$temp_folder_path"/"$minikubeVersion"
 
@@ -307,6 +334,7 @@ echo
 echo "--------------------------"
 echo "| Installing BitWarden.. |"
 echo "--------------------------"
+
 wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
 chmod a+x "$temp_folder_path"/"$bitWardenVersion"
 sudo mkdir /opt/bitwarden
@@ -320,6 +348,7 @@ echo
 echo "---------------------"
 echo "| Installing Helm.. |"
 echo "---------------------"
+
 sudo snap install helm --classic
 
 # =====================================================================================
@@ -328,7 +357,7 @@ echo
 echo "------------------------"
 echo "| Installing Postman.. |"
 echo "------------------------"
-# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION
+# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (postman interceptor)
 
 wget "$postman_download_link" -cO "$temp_folder_path"/"$postmanVersion"
 sudo tar -xf "$temp_folder_path"/"$postmanVersion" -C "$temp_folder_path"/
@@ -336,7 +365,6 @@ sudo cp -R "$temp_folder_path"/Postman /opt/postman/
 sudo mv /opt/postman/Postman /opt/postman/postman
 sudo cp ./shortcuts/postman.desktop /usr/share/applications/postman.desktop
 sudo chmod +x /usr/share/applications/postman.desktop
-echo 'export PATH="$PATH:/opt/postman/postman"' >> ~/.bashrc
 
 # =====================================================================================
 echo
@@ -350,7 +378,6 @@ sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://b
 echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main"|sudo tee /etc/apt/sources.list.d/brave-browser-release.list
 sudo apt update
 sudo apt install brave-browser -y
-sudo echo 'export PATH="$PATH:/usr/bin/brave-browser-stable"' >> ~/.bashrc
 
 # =====================================================================================
 
@@ -358,6 +385,7 @@ echo
 echo "----------------------------"
 echo "| Installing Boot repair.. |"
 echo "----------------------------"
+
 sudo add-apt-repository ppa:yannubuntu/boot-repair -y
 sudo apt update
 sudo apt install boot-repair -y
@@ -365,9 +393,34 @@ sudo apt install boot-repair -y
 # =====================================================================================
 
 echo
+echo "--------------------------------"
+echo "| Installing Kubernetes Lens.. |"
+echo "--------------------------------"
+
+wget "$lens_download_link" -cO "$temp_folder_path"/"$lensVersion"
+sudo dpkg -i "$temp_folder_path"/"$lensVersion"
+
+# =====================================================================================
+
+echo
+echo "------------------------------"
+echo "| Installing Speedtest CLI.. |"
+echo "------------------------------"
+
+sudo apt install speedtest-cli
+sudo mkdir /opt/speedtest-cli
+sudo cp ./icons/speedtest.png /opt/speedtest-cli/speedtest.png
+sudo cp ./scripts/speedtest-starter.sh /opt/speedtest-cli/speedtest-starter.sh
+sudo chmod +x /opt/speedtest-cli/speedtest-starter.sh
+sudo cp ./shortcuts/speedtest.desktop /usr/share/applications/speedtest.desktop
+
+# =====================================================================================
+
+echo
 echo "----------------------------"
 echo "| Installing Tor Browser.. |"
 echo "----------------------------"
+
 wget "$tor_download_link" -cO "$temp_folder_path"/"$torVersion"
 sudo mkdir /opt/tor
 sudo tar -xf "$temp_folder_path"/"$torVersion" -C /opt/tor/
@@ -383,6 +436,7 @@ echo
 echo "--------------"
 echo "| Cleaning.. |"
 echo "--------------"
+
 # un-pausing updating grub
 sudo apt-mark unhold grub*
 
@@ -392,6 +446,7 @@ echo
 echo "---------------------"
 echo "| Running upgrade.. |"
 echo "---------------------"
+
 sudo apt update
 sudo apt-get full-upgrade -y
 sudo apt autoremove  -y
@@ -403,6 +458,7 @@ echo
 echo "-------------------------------------------------"
 echo "| Opening extension install pages in browsers.. |"
 echo "-------------------------------------------------"
+
 xdg-settings set default-web-browser brave-browser.desktop
 
 brave-browser-stable https://extensions.gnome.org/extension/307/dash-to-dock/ &>/dev/null & disown %%
@@ -414,4 +470,7 @@ brave-browser-stable https://extensions.gnome.org/extension/1319/gsconnect/ &>/d
 echo "-------------------------------"
 echo "| Running extension manager.. |"
 echo "-------------------------------"
-extension-manager
+
+extension-manager & disown
+
+# =====================================================================================

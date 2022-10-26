@@ -5,6 +5,18 @@ echo "| Testing.. |"
 echo "-------------"
 
 temp_folder_path="$HOME/.lukkInstall"
+
+# =====================================================================================
+
+echo
+echo "------------------------"
+echo "| Making temp folder.. |"
+echo "------------------------"
+
+#mkdir "$temp_folder_path"
+
+# =====================================================================================
+
 MYSQL_PASSWORD="Lukk1234"
 PGPASSWORD="$MYSQL_PASSWORD"
 
@@ -55,6 +67,9 @@ tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion
 # gnome-extensions enable <UUID>
 # echo 'export PATH="$PATH:<pathToFile>"' >> ~/.bashrc
 # gsettings get org.gnome.shell favorite-apps
+# source ~/.bashrc
+# source ~/.zshrc
+# kill -9 $PPID
 
 # =====================================================================================
 

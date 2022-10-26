@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Speedtest CLI
+Exec=/opt/speedtest-cli/speedtest-starter.sh
+Terminal=false
+Icon=/opt/speedtest-cli/speedtest.png
