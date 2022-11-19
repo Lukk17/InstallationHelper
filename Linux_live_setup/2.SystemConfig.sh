@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # =====================================================================================
 
@@ -7,12 +7,11 @@ echo "--------------------------"
 echo "| Setting env variable.. |"
 echo "--------------------------"
 
+temp_folder_path=~/.lukkInstall
+
 background_path=/usr/share/backgrounds/wallpapers/forest-house.jpg
 
 login_background_color=#000000
-login_background_image=/usr/share/backgrounds/wallpapers/forest.jpg
-
-temp_folder_path=~/.lukkInstall
 
 gdmBackgroundVersion="main.tar.gz"
 gdmBackground_download_link="https://github.com/PRATAP-KUMAR/ubuntu-gdm-set-background/archive/$gdmBackgroundVersion"
@@ -25,26 +24,6 @@ default_pdf_app=okular_okular.desktop
 default_word_app=wps-2019-snap_wps.desktop
 default_excel_app=wps-2019-snap_et.desktop
 default_presentation_app=wps-2019-snap_wpp.desktop
-
-zsh_download_link="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
-
-spaceshipTheme_download_link="https://github.com/spaceship-prompt/spaceship-prompt.git"
-powerlevel10kTheme_download_link="https://github.com/romkatv/powerlevel10k.git"
-
-nerdFontName="Hack Regular Nerd Font Complete.ttf"
-nerdFont_download_link="https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/Hack/Regular/complete/Hack%20Regular%20Nerd%20Font%20Complete.ttf"
-
-mesloRegularName="MesloLGS NF Regular.ttf"
-mesloRegular_download_link="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"
-
-mesloBoldName="MesloLGS NF Bold.ttf"
-mesloBold_download_link="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf"
-
-mesloItalicName="MesloLGS NF Italic.ttf"
-mesloItalic_download_link="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf"
-
-mesloBoldItalicName="MesloLGS NF Bold Italic.ttf"
-mesloBoldItalic_download_link="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf"
 
 # =====================================================================================
 
@@ -110,8 +89,6 @@ sudo apt update
 sudo apt install libglib2.0-dev-bin -y
 # change to color:
 sudo "$script_location"/ubuntu-gdm-set-background --color "$login_background_color"
-# change to wallpaper:
-#sudo $script_location/ubuntu-gdm-set-background --image "$login_background_image"
 # to reset
 #sudo script_location/ubuntu-gdm-set-background --reset
 
@@ -130,6 +107,7 @@ echo
 echo "-----------------------------------------------"
 echo "| Configuring shortcut for Android Emulator.. |"
 echo "-----------------------------------------------"
+
 sudo mkdir /opt/emulator
 sudo cp ./icons/android.png /opt/emulator/android.png
 sudo cp ./shortcuts/android.desktop /usr/share/applications/android.desktop
@@ -190,7 +168,7 @@ echo "---------------------------------"
 echo "| Configuring favourites apps.. |"
 echo "---------------------------------"
 
-gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
+gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'sublime-text_subl.desktop', 'telegram-desktop_telegram-desktop.desktop', 'ledger-app.desktop', 'android.desktop', 'exodus.desktop']"
 
 # =====================================================================================
 
@@ -200,6 +178,17 @@ echo "| Configuring local time.. |"
 echo "----------------------------"
 
 timedatectl set-local-rtc 1 --adjust-system-clock
+
+# =====================================================================================
+
+echo
+echo "--------------------------------------"
+echo "| Turning off showing hidden files.. |"
+echo "--------------------------------------"
+
+gsettings set org.gtk.Settings.FileChooser show-hidden false
+gsettings set org.gnome.nautilus.preferences show-hidden-files false
+dconf write /org/gtk/settings/show-hidden false
 
 # =====================================================================================
 
@@ -243,7 +232,7 @@ xdg-mime default $default_presentation_app application/vnd.openxmlformats-office
 xdg-mime default $default_pdf_app application/pdf
 xdg-mime default $default_pdf_app application/x-gzpdf
 xdg-mime default $default_pdf_app application/x-xzpdf
-xdg-mime default $default_internetBrowser_app application/xhtml+xml 
+xdg-mime default $default_internetBrowser_app application/xhtml+xml
 xdg-mime default $default_internetBrowser_app text/html
 xdg-mime default $default_internetBrowser_app x-scheme-handler/http
 xdg-mime default $default_internetBrowser_app x-scheme-handler/https
@@ -358,67 +347,5 @@ echo "| Cleaning.. |"
 echo "--------------"
 
 yes | sudo rm -R "$temp_folder_path"
-
-# =====================================================================================
-
-echo "-----------------------------"
-echo "| Installing terminal ZSH.. |"
-echo "-----------------------------"
-
-sudo apt install zsh -y
-sudo chsh -s /bin/zsh -y
-
-# install Oh My Zsh
-bash -c ""echo Y | sh -c "$(curl -fsSL $zsh_download_link)"""
-
-cp ./config/.p10k.zsh "$HOME"/
-cp ./config/.zshrc.pre-oh-my-zsh "$HOME"/
-cp ./config/.zshrc "$HOME"/
-
-# install fonts
-wget "$nerdFont_download_link" -cO "$temp_folder_path"/"$nerdFontName"
-wget "$mesloRegular_download_link" -cO "$temp_folder_path"/"$mesloRegularName"
-wget "$mesloBold_download_link" -cO "$temp_folder_path"/"$mesloBoldName"
-wget "$mesloItalic_download_link" -cO "$temp_folder_path"/"$mesloItalicName"
-wget "$mesloBoldItalic_download_link" -cO "$temp_folder_path"/"$mesloBoldItalicName"
-
-sudo cp "$temp_folder_path"/"$nerdFontName" /usr/share/fonts/
-sudo cp "$temp_folder_path"/"$mesloRegularName" /usr/share/fonts/
-sudo cp "$temp_folder_path"/"$mesloBoldName" /usr/share/fonts/
-sudo cp "$temp_folder_path"/"$mesloItalicName" /usr/share/fonts/
-sudo cp "$temp_folder_path"/"$mesloBoldItalicName" /usr/share/fonts/
-
-# install plugins
-sudo git clone "$spaceshipTheme_download_link" "$ZSH_CUSTOM/themes/spaceship-prompt" --depth=1
-sudo ln -s "$ZSH_CUSTOM/themes/spaceship-prompt/spaceship.zsh-theme" "$ZSH_CUSTOM/themes/spaceship.zsh-theme"
-sudo git clone --depth=1 "$powerlevel10kTheme_download_link" "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"/themes/powerlevel10k
-
-# set gnome terminal to use ZSH
-terminalProfile="$(gsettings get org.gnome.Terminal.ProfilesList default)"
-terminalProfile=${terminalProfile:1:-1} # remove leading and trailing single quotes
-gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:$terminalProfile/" custom-command 'zsh'
-gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:$terminalProfile/" exit-action 'close'
-gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:$terminalProfile/" login-shell true
-gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:$terminalProfile/" use-custom-command true
-
-sudo echo 'export PATH="$PATH:/usr/bin/brave-browser-stable"' >> ~/.bashrc
-sudo echo 'export PATH="$PATH:/usr/bin/brave-browser-stable"' >> ~/.zshrc
-
-echo 'export PATH="$PATH:/opt/postman/postman"' >> ~/.bashrc
-echo 'export PATH="$PATH:/opt/postman/postman"' >> ~/.zshrc
-
-echo
-echo "-----------------------------------"
-echo "| Now you need to setup Oh My Zsh |"
-echo "-----------------------------------"
-
-gnome-terminal
-
-# =====================================================================================
-
-echo
-echo "--------------------"
-echo "| Reboot needed !! |"
-echo "--------------------"
 
 # =====================================================================================
