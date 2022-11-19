@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Android
+Exec=sh -c "~/Android/Sdk/emulator/emulator -gpu on @Pixel"
+Terminal=false
+Icon=/opt/emulator/android.png

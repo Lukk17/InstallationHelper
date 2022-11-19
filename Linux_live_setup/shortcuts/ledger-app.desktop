@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Ledger
+Exec=~/ledger/ledger-app.AppImage
+Terminal=false
+Icon=~/ledger/ledger.png

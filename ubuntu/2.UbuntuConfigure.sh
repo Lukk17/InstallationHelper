@@ -64,6 +64,7 @@ echo
 echo "-----------------------------"
 echo "| Creating files template.. |"
 echo "-----------------------------"
+
 touch ~/Templates/file
 touch ~/Templates/text.txt
 touch ~/Templates/Document.docx
@@ -76,6 +77,7 @@ echo
 echo "-----------------------"
 echo "| Setting dark mode.. |"
 echo "-----------------------"
+
 gsettings set org.gnome.shell.ubuntu color-scheme prefer-dark
 gsettings set org.gnome.desktop.interface gtk-theme Yaru-dark # Legacy apps, can specify an accent such as Yaru-olive-dark
 gsettings set org.gnome.desktop.interface color-scheme prefer-dark # new apps
@@ -89,6 +91,7 @@ echo
 echo "-----------------------"
 echo "| Setting wallpaper.. |"
 echo "-----------------------"
+
 sudo cp -a "$temp_folder_path"/wallpapers/ /usr/share/backgrounds/wallpapers/
 gsettings set org.gnome.desktop.background picture-uri-dark "$background_path"
 gsettings set org.gnome.desktop.background picture-uri "$background_path"
@@ -99,6 +102,7 @@ echo
 echo "-------------------------------"
 echo "| Changing login background.. |"
 echo "-------------------------------"
+
 wget -P "$temp_folder_path"/ "$gdmBackground_download_link"
 tar -xf "$temp_folder_path"/"$gdmBackgroundVersion" -C "$temp_folder_path"/
 sudo cp "$temp_folder_path"/ubuntu-gdm-set-background-main/ubuntu-gdm-set-background "$script_location"/
@@ -117,6 +121,7 @@ echo
 echo "------------------------------"
 echo "| Showing seconds on clock.. |"
 echo "------------------------------"
+
 gsettings set org.gnome.desktop.interface clock-show-seconds true
 
 # =====================================================================================
@@ -135,6 +140,7 @@ echo
 echo "---------------------"
 echo "| Configuring WPS.. |"
 echo "---------------------"
+
 sudo snap connect wps-2019-snap:cups-control :cups-control
 sudo snap connect wps-2019-snap:alsa :alsa
 sudo snap connect wps-2019-snap:pulseaudio :pulseaudio
@@ -146,6 +152,7 @@ echo
 echo "--------------------------"
 echo "| Configuring touchpad.. |"
 echo "--------------------------"
+
 gsettings set org.gnome.desktop.peripherals.touchpad click-method 'default'
 gsettings set org.gnome.desktop.peripherals.touchpad edge-scrolling-enabled false
 gsettings set org.gnome.desktop.peripherals.touchpad disable-while-typing true
@@ -164,6 +171,7 @@ echo
 echo "----------------------------------------------"
 echo "| Turning on battery percentage displaying.. |"
 echo "----------------------------------------------"
+
 gsettings set org.gnome.desktop.interface show-battery-percentage true
 
 # =====================================================================================
@@ -172,6 +180,7 @@ echo
 echo "-------------------------------------------"
 echo "| Configuring /tmp to be mounted in RAM.. |"
 echo "-------------------------------------------"
+
 sudo bash -c 'echo "tmpfs /tmp tmpfs mode=0777 0 0" >> /etc/fstab'
 
 # =====================================================================================
@@ -180,6 +189,7 @@ echo
 echo "---------------------------------"
 echo "| Configuring favourites apps.. |"
 echo "---------------------------------"
+
 gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
 
 # =====================================================================================
@@ -188,6 +198,7 @@ echo
 echo "----------------------------"
 echo "| Configuring local time.. |"
 echo "----------------------------"
+
 timedatectl set-local-rtc 1 --adjust-system-clock
 
 # =====================================================================================
@@ -196,6 +207,7 @@ echo
 echo "--------------------------"
 echo "| Setting default apps.. |"
 echo "--------------------------"
+
 xdg-mime default $default_word_app application/msword
 xdg-mime default $default_word_app application/vnd.openxmlformats-officedocument.wordprocessingml.document
 xdg-mime default $default_word_app application/wordperfect
@@ -284,6 +296,7 @@ echo
 echo "-----------------------------------"
 echo "| Setting Dash-to-Dock settings.. |"
 echo "-----------------------------------"
+
 gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
 gsettings set org.gnome.shell.extensions.dash-to-dock background-color '#ffffff'
 gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.7
@@ -332,6 +345,7 @@ echo
 echo "----------------------------------------"
 echo "| Making sure extensions are enabled.. |"
 echo "----------------------------------------"
+
 gnome-extensions enable gsconnect@andyholmes.github.io
 gnome-extensions enable start-overlay-in-application-view@Hex_cz
 gnome-extensions enable dash-to-dock@micxgx.gmail.com
@@ -342,6 +356,7 @@ echo
 echo "--------------"
 echo "| Cleaning.. |"
 echo "--------------"
+
 yes | sudo rm -R "$temp_folder_path"
 
 # =====================================================================================
