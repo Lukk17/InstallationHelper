@@ -349,6 +349,7 @@ echo "----------------------------------------"
 gnome-extensions enable gsconnect@andyholmes.github.io
 gnome-extensions enable start-overlay-in-application-view@Hex_cz
 gnome-extensions enable dash-to-dock@micxgx.gmail.com
+gnome-extensions disable ubuntu-dock@ubuntu.com
 
 # =====================================================================================
 
