@@ -12,23 +12,20 @@ exodus_download_link="https://downloads.exodus.com/releases/$exodusVersion"
 chromeVersion="google-chrome-stable_current_amd64.deb"
 chrome_download_link="https://dl.google.com/linux/direct/$chromeVersion"
 
-zoomVersion="zoom_amd64.deb"
-zoom_download_link="https://zoom.us/client/5.12.2.4816/$zoomVersion"
-
-bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
-bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
-
 angryIpScannerVersion="ipscan_3.8.2_amd64.deb"
 angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion"
 
 nordvpnVersion="nordvpn-release_1.0.0_all.deb"
 nordvpn_download_link="https://repo.nordvpn.com/deb/nordvpn/debian/pool/main/$nordvpnVersion"
 
-torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
-tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
-
 ledgerVersion="ledger-app.AppImage"
 ledger_download_link="https://download.live.ledger.com/latest/linux"
+
+bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
+bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
+
+torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
+tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
 
 # =====================================================================================
 
@@ -53,6 +50,17 @@ sudo apt autoremove -y
 # =====================================================================================
 
 echo
+echo "-----------------------------------"
+echo "| Installing App-image Launcher.. |"
+echo "-----------------------------------"
+
+sudo add-apt-repository ppa:appimagelauncher-team/stable -y
+sudo apt-get update
+sudo apt-get install appimagelauncher -y
+
+# =====================================================================================
+
+echo
 echo "---------------------"
 echo "| Installing apps.. |"
 echo "---------------------"
@@ -63,11 +71,11 @@ sudo apt install snapd -y
 sudo apt install ca-certificates curl gnupg lsb-release -y
 sudo apt install hardinfo -y
 # lib for installing .AppImage files
-sudo apt install libfuse2
+sudo apt install libfuse2 -y
 sudo apt install dconf-editor -y
 sudo apt autoremove -y
 # better cat
-sudo apt install bat
+sudo apt install bat -y
 
 # =====================================================================================
 
@@ -79,6 +87,18 @@ echo "----------------------------"
 sudo apt install lynis -y
 sudo apt install chkrootkit -y
 sudo apt install clamav -y
+
+# =====================================================================================
+
+echo
+echo "----------------------------"
+echo "| Installing Gnome Tools.. |"
+echo "----------------------------"
+
+sudo add-apt-repository universe -y
+sudo apt install gnome-tweaks gnome-online-accounts gnome-shell-extension-gsconnect -y
+sudo apt install gnome-shell-extension-manager gnome-shell-extensions chrome-gnome-shell -y
+sudo apt install  gnome-calendar -y
 
 # =====================================================================================
 
@@ -109,6 +129,7 @@ echo "| Installing snaps.. |"
 echo "----------------------"
 
 sudo snap install android-studio --classic
+sudo snap install keepassxc
 
 sudo snap install telegram-desktop
 sudo snap install discord
@@ -131,16 +152,6 @@ echo "------------------------"
 
 wget "$chrome_download_link" -cO "$temp_folder_path"/"$chromeVersion"
 sudo dpkg -i "$temp_folder_path"/"$chromeVersion"
-
-# =====================================================================================
-
-echo
-echo "---------------------"
-echo "| Installing Zoom.. |"
-echo "---------------------"
-
-wget "$zoom_download_link" -cO "$temp_folder_path"/"$zoomVersion"
-sudo apt install "$temp_folder_path"/"$zoomVersion" -y
 
 # =====================================================================================
 
@@ -178,20 +189,6 @@ sudo apt-get install nordvpn
 # =====================================================================================
 
 echo
-echo "--------------------------"
-echo "| Installing BitWarden.. |"
-echo "--------------------------"
-
-wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
-chmod a+x "$temp_folder_path"/"$bitWardenVersion"
-sudo mkdir /opt/bitwarden
-sudo cp "$temp_folder_path"/"$bitWardenVersion" /opt/bitwarden/bitwarden.AppImage
-sudo cp ./icons/bitwarden.png /opt/bitwarden/bitwarden.png
-sudo cp ./shortcuts/bitwarden.desktop /usr/share/applications/bitwarden.desktop
-
-# =====================================================================================
-
-echo
 echo "----------------------"
 echo "| Installing Brave.. |"
 echo "----------------------"
@@ -225,24 +222,18 @@ echo "| Installing Ledger.. |"
 echo "-----------------------"
 
 wget "$ledger_download_link" -cO "$temp_folder_path"/"$ledgerVersion"
-sudo chmod +x "$temp_folder_path"/ledger-app.AppImage
+sudo chmod +x "$temp_folder_path"/"$ledgerVersion"
 wget -q -O - "https://raw.githubusercontent.com/LedgerHQ/udev-rules/master/add_udev_rules.sh" | sudo bash
-
-sudo mkdir ~/ledger/
-sudo cp "$temp_folder_path"/"$ledgerVersion" ~/ledger/ledger-app.AppImage
-sudo cp ./icons/ledger.png ~/ledger/ledger.png
-sudo cp ./shortcuts/ledger-app.desktop /usr/share/applications/ledger-app.desktop
-sudo chmod a+x /usr/share/applications/ledger-app.desktop
 
 # =====================================================================================
 
 echo
-echo "--------------"
-echo "| Cleaning.. |"
-echo "--------------"
+echo "--------------------------"
+echo "| Installing BitWarden.. |"
+echo "--------------------------"
 
-# un-pausing updating grub
-sudo apt-mark unhold grub*
+wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
+chmod a+x "$temp_folder_path"/"$bitWardenVersion"
 
 # =====================================================================================
 
@@ -307,3 +298,22 @@ echo "-------------------------------"
 extension-manager & disown
 
 # =====================================================================================
+
+echo
+echo "--------------"
+echo "| Cleaning.. |"
+echo "--------------"
+
+# un-pausing updating grub
+sudo apt-mark unhold grub*
+
+# =====================================================================================
+
+echo
+echo "---------------------------"
+echo "| Running AppImage apps.. |"
+echo "---------------------------"
+
+# app-image launcher will intercept this copy or move it to its default folder and install
+"$temp_folder_path"/"$ledgerVersion"
+"$temp_folder_path"/"$bitWardenVersion"

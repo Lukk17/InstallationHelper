@@ -5,6 +5,7 @@ echo "| Setting env variable.. |"
 echo "--------------------------"
 
 temp_folder_path="$HOME/.lukkInstall"
+
 MYSQL_PASSWORD="Lukk1234"
 PGPASSWORD="$MYSQL_PASSWORD"
 
@@ -72,6 +73,17 @@ sudo apt autoremove -y
 # =====================================================================================
 
 echo
+echo "-----------------------------------"
+echo "| Installing App-image Launcher.. |"
+echo "-----------------------------------"
+
+sudo add-apt-repository ppa:appimagelauncher-team/stable -y
+sudo apt-get update
+sudo apt-get install appimagelauncher -y
+
+# =====================================================================================
+
+echo
 echo "------------------------------"
 echo "| Installing Open Java JDK.. |"
 echo "------------------------------"
@@ -93,13 +105,13 @@ sudo apt install ca-certificates curl gnupg lsb-release -y
 sudo apt install steam-installer -y
 sudo apt install hardinfo -y
 # lib for installing .AppImage files
-sudo apt install libfuse2
+sudo apt install libfuse2 -y
 sudo apt install dconf-editor -y
 sudo apt autoremove -y
 # utils like htpasswd (used in kubernetes password creation)
-sudo apt install apache2-utils
+sudo apt install apache2-utils -y
 # better cat
-sudo apt install bat
+sudo apt install bat -y
 
 # =====================================================================================
 
@@ -337,10 +349,13 @@ echo "--------------------------"
 
 wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
 chmod a+x "$temp_folder_path"/"$bitWardenVersion"
-sudo mkdir /opt/bitwarden
-sudo cp "$temp_folder_path"/"$bitWardenVersion" /opt/bitwarden/bitwarden.AppImage
-sudo cp ./icons/bitwarden.png /opt/bitwarden/bitwarden.png
-sudo cp ./shortcuts/bitwarden.desktop /usr/share/applications/bitwarden.desktop
+# app-image launcher will intercept this copy or move it to its default folder and install
+"$temp_folder_path"/"$bitWardenVersion"
+
+#sudo mkdir /opt/bitwarden
+#sudo cp "$temp_folder_path"/"$bitWardenVersion" /opt/bitwarden/bitwarden.AppImage
+#sudo cp ./icons/bitwarden.png /opt/bitwarden/bitwarden.png
+#sudo cp ./shortcuts/bitwarden.desktop /usr/share/applications/bitwarden.desktop
 
 # =====================================================================================
 
@@ -474,3 +489,12 @@ echo "-------------------------------"
 extension-manager & disown
 
 # =====================================================================================
+
+echo
+echo "---------------------------"
+echo "| Running AppImage apps.. |"
+echo "---------------------------"
+
+# app-image launcher will intercept this copy or move it to its default folder and install
+"$temp_folder_path"/"$bitWardenVersion"
+
