@@ -25,6 +25,11 @@ default_word_app=wps-2019-snap_wps.desktop
 default_excel_app=wps-2019-snap_et.desktop
 default_presentation_app=wps-2019-snap_wpp.desktop
 
+metamask_link="https://chrome.google.com/webstore/detail/metamask/nkbihfbeogaeaoehlefnkodbefgpgknn"
+polkadotJS_link="https://chrome.google.com/webstore/detail/polkadot%7Bjs%7D-extension/mopnmbcafieddcagagdcbnhejhlodfdd"
+tronlink_link="https://chrome.google.com/webstore/detail/tronlink%EF%BC%88%E6%B3%A2%E5%AE%9D%E9%92%B1%E5%8C%85%EF%BC%89/ibnejdfjmmkpcnlpebklmnkoeoihofec"
+bitwarden_link="https://chrome.google.com/webstore/detail/bitwarden-free-password-m/nngceckbapebfimnlniiiahkandclblb"
+
 # =====================================================================================
 
 echo
@@ -101,16 +106,6 @@ echo "------------------------------"
 
 gsettings set org.gnome.desktop.interface clock-show-seconds true
 
-# =====================================================================================
-
-echo
-echo "-----------------------------------------------"
-echo "| Configuring shortcut for Android Emulator.. |"
-echo "-----------------------------------------------"
-
-sudo mkdir /opt/emulator
-sudo cp ./icons/android.png /opt/emulator/android.png
-sudo cp ./shortcuts/android.desktop /usr/share/applications/android.desktop
 
 # =====================================================================================
 
@@ -343,10 +338,31 @@ gnome-extensions disable ubuntu-dock@ubuntu.com
 # =====================================================================================
 
 echo
+echo "-------------------------------------------------"
+echo "| Opening extension install pages in browsers.. |"
+echo "-------------------------------------------------"
+
+xdg-settings set default-web-browser brave-browser.desktop
+
+brave-browser-stable "$metamask_link" &>/dev/null & disown %%
+brave-browser-stable "$polkadotJS_link" &>/dev/null & disown %%
+brave-browser-stable "$tronlink_link" &>/dev/null & disown %%
+brave-browser-stable "$bitwarden_link" &>/dev/null & disown %%
+
+# =====================================================================================
+
+echo
 echo "--------------"
 echo "| Cleaning.. |"
 echo "--------------"
 
 yes | sudo rm -R "$temp_folder_path"
+
+# =====================================================================================
+
+echo
+echo "--------------------"
+echo "| Reboot needed !! |"
+echo "--------------------"
 
 # =====================================================================================
