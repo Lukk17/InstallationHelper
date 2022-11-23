@@ -301,17 +301,6 @@ sudo apt install "$temp_folder_path"/"$angryIpScannerVersion" -y
 # =====================================================================================
 
 echo
-echo "-------------------------------"
-echo "| Installing Stacer cleaner.. |"
-echo "-------------------------------"
-
-sudo add-apt-repository ppa:oguzhaninan/stacer -y
-sudo apt update
-sudo apt install stacer -y
-
-# =====================================================================================
-
-echo
 echo "------------------------"
 echo "| Installing NordVPN.. |"
 echo "------------------------"

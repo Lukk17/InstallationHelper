@@ -27,6 +27,12 @@ bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/
 torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
 tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
 
+dashToDock_link="https://extensions.gnome.org/extension/307/dash-to-dock/"
+
+startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
+
+gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
+
 # =====================================================================================
 
 echo
@@ -166,17 +172,6 @@ sudo apt install "$temp_folder_path"/"$angryIpScannerVersion" -y
 # =====================================================================================
 
 echo
-echo "-------------------------------"
-echo "| Installing Stacer cleaner.. |"
-echo "-------------------------------"
-
-sudo add-apt-repository ppa:oguzhaninan/stacer -y
-sudo apt update
-sudo apt install stacer -y
-
-# =====================================================================================
-
-echo
 echo "------------------------"
 echo "| Installing NordVPN.. |"
 echo "------------------------"
@@ -281,21 +276,10 @@ echo "-------------------------------------------------"
 
 xdg-settings set default-web-browser brave-browser.desktop
 
-brave-browser-stable https://extensions.gnome.org/extension/307/dash-to-dock/ &>/dev/null & disown %%
-brave-browser-stable https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/ &>/dev/null & disown %%
-brave-browser-stable https://extensions.gnome.org/extension/1319/gsconnect/ &>/dev/null & disown %%
-brave-browser-stable https://chrome.google.com/webstore/detail/metamask/nkbihfbeogaeaoehlefnkodbefgpgknn &>/dev/null & disown %%
-brave-browser-stable https://chrome.google.com/webstore/detail/polkadot%7Bjs%7D-extension/mopnmbcafieddcagagdcbnhejhlodfdd &>/dev/null & disown %%
-brave-browser-stable https://chrome.google.com/webstore/detail/tronlink%EF%BC%88%E6%B3%A2%E5%AE%9D%E9%92%B1%E5%8C%85%EF%BC%89/ibnejdfjmmkpcnlpebklmnkoeoihofec &>/dev/null & disown %%
-brave-browser-stable https://chrome.google.com/webstore/detail/bitwarden-free-password-m/nngceckbapebfimnlniiiahkandclblb &>/dev/null & disown %%
-
-# =====================================================================================
-
-echo "-------------------------------"
-echo "| Running extension manager.. |"
-echo "-------------------------------"
-
-extension-manager & disown
+#firefox because of brave first launch will ask about being default and won't open all pages
+firefox "$dashToDock_link" &>/dev/null & disown %%
+firefox "$startOverlayInApplicationView_link" &>/dev/null & disown %%
+firefox "$gsconnect_link" &>/dev/null & disown %%
 
 # =====================================================================================
 
@@ -317,3 +301,12 @@ echo "---------------------------"
 # app-image launcher will intercept this copy or move it to its default folder and install
 "$temp_folder_path"/"$ledgerVersion"
 "$temp_folder_path"/"$bitWardenVersion"
+
+# =====================================================================================
+
+echo
+echo "----------------------------------------------------------------------"
+echo "| Install gnome extensions opened in browser via Extension Manager.. |"
+echo "----------------------------------------------------------------------"
+
+extension-manager & disown
