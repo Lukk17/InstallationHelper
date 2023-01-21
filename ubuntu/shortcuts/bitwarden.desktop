@@ -1,6 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=BitWarden
-Exec=/opt/bitwarden/bitwarden.AppImage
-Terminal=false
-Icon=/opt/bitwarden/bitwarden.png

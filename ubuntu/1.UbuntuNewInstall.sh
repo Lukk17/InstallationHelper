@@ -310,6 +310,10 @@ sudo apt-get install "$temp_folder_path"/"$nordvpnVersion"
 sudo apt-get update
 sudo apt-get install nordvpn
 
+sudo cp ./shortcuts/nordvpn.desktop /usr/share/applications/nordvpn.desktop
+sudo cp ./shortcuts/nordvpn-disconnect.desktop /usr/share/applications/nordvpn-disconnect.desktop
+sudo cp ./shortcuts/nordvpn-startup.desktop /etc/xdg/autostart/nordvpn-startup.desktop
+
 # =====================================================================================
 
 echo
@@ -340,11 +344,6 @@ wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
 chmod a+x "$temp_folder_path"/"$bitWardenVersion"
 # app-image launcher will intercept this copy or move it to its default folder and install
 "$temp_folder_path"/"$bitWardenVersion"
-
-#sudo mkdir /opt/bitwarden
-#sudo cp "$temp_folder_path"/"$bitWardenVersion" /opt/bitwarden/bitwarden.AppImage
-#sudo cp ./icons/bitwarden.png /opt/bitwarden/bitwarden.png
-#sudo cp ./shortcuts/bitwarden.desktop /usr/share/applications/bitwarden.desktop
 
 # =====================================================================================
 
