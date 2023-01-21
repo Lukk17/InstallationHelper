@@ -127,6 +127,16 @@ gsettings set org.gnome.desktop.interface clock-show-seconds true
 # =====================================================================================
 
 echo
+echo "----------------------"
+echo "| Configuring grub.. |"
+echo "----------------------"
+
+sudo sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT="1"/g' /etc/default/grub
+sudo update-grub
+
+# =====================================================================================
+
+echo
 echo "-----------------------------------------------"
 echo "| Configuring shortcut for Android Emulator.. |"
 echo "-----------------------------------------------"
