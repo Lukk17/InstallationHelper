@@ -22,4 +22,3 @@ How to install:
 7. In `Passwords and Keys` app change `Login` keyring password to blank (no character) value.  
    It will disable pop-up when opening brave (because of sync storing in keyring).
    https://askubuntu.com/questions/867/how-can-i-stop-being-prompted-to-unlock-the-default-keyring-on-boot
-8. In `Grub Customizer` change `Boot default entry after` to 1 second.
