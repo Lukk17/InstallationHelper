@@ -35,6 +35,10 @@ zoom_download_link="https://zoom.us/client/5.12.2.4816/$zoomVersion"
 bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
 bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
 
+keepassXC_version="KeePassXC-2.7.4-x86_64.AppImage"
+keepassXC_link="https://github.com/keepassxreboot/keepassxc/releases/download/2.7.4/$keepassXC_version"
+keepassXC_addon_link="https://chrome.google.com/webstore/detail/keepassxc-browser/oboonakemofpalcgghocfoadofidjkkk"
+
 angryIpScannerVersion="ipscan_3.8.2_amd64.deb"
 angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion"
 
@@ -49,6 +53,12 @@ lens_download_link="https://api.k8slens.dev/binaries/$lensVersion"
 
 torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
 tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
+
+dashToDock_link="https://extensions.gnome.org/extension/307/dash-to-dock/"
+
+startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
+
+gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
 
 # =====================================================================================
 
@@ -162,6 +172,28 @@ sudo snap install caprine
 sudo snap install whatsapp-for-linux
 sudo snap install slack
 sudo snap install teams
+
+# =====================================================================================
+
+echo
+echo "------------------------"
+echo "| Installing Firefox.. |"
+echo "------------------------"
+# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (e.g. Postman interceptor, KeepassXC)
+
+sudo snap remove firefox --purge
+sudo apt remove firefox -y
+sudo add-apt-repository ppa:mozillateam/ppa -y
+# change the install priority (default priority is set to snap)
+echo '
+Package: *
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+' | sudo tee /etc/apt/preferences.d/mozilla-firefox
+# allow this repository to be updated by apt
+echo 'Unattended-Upgrade::Allowed-Origins:: "LP-PPA-mozillateam:${distro_codename}";' | sudo tee /etc/apt/apt.conf.d/51unattended-upgrades-firefox
+sudo apt update
+sudo apt install firefox -y
 
 # =====================================================================================
 
@@ -348,6 +380,17 @@ chmod a+x "$temp_folder_path"/"$bitWardenVersion"
 # =====================================================================================
 
 echo
+echo "--------------------------"
+echo "| Installing KeepassXC.. |"
+echo "--------------------------"
+
+wget "$keepassXC_link" -cO "$temp_folder_path"/"$keepassXC_version"
+chmod a+x "$temp_folder_path"/"$keepassXC_version"
+"$temp_folder_path"/"$keepassXC_version"
+
+# =====================================================================================
+
+echo
 echo "---------------------"
 echo "| Installing Helm.. |"
 echo "---------------------"
@@ -464,9 +507,10 @@ echo "-------------------------------------------------"
 
 xdg-settings set default-web-browser brave-browser.desktop
 
-brave-browser-stable https://extensions.gnome.org/extension/307/dash-to-dock/ &>/dev/null & disown %%
-brave-browser-stable https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/ &>/dev/null & disown %%
-brave-browser-stable https://extensions.gnome.org/extension/1319/gsconnect/ &>/dev/null & disown %%
+brave-browser-stable "$dashToDock_link" &>/dev/null & disown %%
+brave-browser-stable "$startOverlayInApplicationView_link" &>/dev/null & disown %%
+brave-browser-stable "$gsconnect_link" &>/dev/null & disown %%
+brave-browser-stable "$keepassXC_addon_link" &>/dev/null & disown %%
 
 # =====================================================================================
 

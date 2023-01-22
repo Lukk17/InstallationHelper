@@ -24,6 +24,9 @@ ledger_download_link="https://download.live.ledger.com/latest/linux"
 bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
 bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
 
+keepassXC_version="KeePassXC-2.7.4-x86_64.AppImage"
+keepassXC_link="https://github.com/keepassxreboot/keepassxc/releases/download/2.7.4/$keepassXC_version"
+
 torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
 tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
 
@@ -135,7 +138,6 @@ echo "| Installing snaps.. |"
 echo "----------------------"
 
 sudo snap install android-studio --classic
-sudo snap install keepassxc
 
 sudo snap install telegram-desktop
 sudo snap install discord
@@ -188,10 +190,31 @@ sudo cp ./shortcuts/nordvpn-startup.desktop /etc/xdg/autostart/nordvpn-startup.d
 # =====================================================================================
 
 echo
+echo "------------------------"
+echo "| Installing Firefox.. |"
+echo "------------------------"
+# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (e.g. Postman interceptor, KeepassXC)
+
+sudo snap remove firefox --purge
+sudo apt remove firefox -y
+sudo add-apt-repository ppa:mozillateam/ppa -y
+# change the install priority (default priority is set to snap)
+echo '
+Package: *
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+' | sudo tee /etc/apt/preferences.d/mozilla-firefox
+# allow this repository to be updated by apt
+echo 'Unattended-Upgrade::Allowed-Origins:: "LP-PPA-mozillateam:${distro_codename}";' | sudo tee /etc/apt/apt.conf.d/51unattended-upgrades-firefox
+sudo apt update
+sudo apt install firefox -y
+
+# =====================================================================================
+echo
 echo "----------------------"
 echo "| Installing Brave.. |"
 echo "----------------------"
-# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (postman interceptor)
+# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (e.g. Postman interceptor, KeepassXC)
 
 sudo apt install apt-transport-https curl -y
 sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
@@ -233,6 +256,17 @@ echo "--------------------------"
 
 wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
 chmod a+x "$temp_folder_path"/"$bitWardenVersion"
+
+# =====================================================================================
+
+echo
+echo "--------------------------"
+echo "| Installing KeepassXC.. |"
+echo "--------------------------"
+
+wget "$keepassXC_link" -cO "$temp_folder_path"/"$keepassXC_version"
+chmod a+x "$temp_folder_path"/"$keepassXC_version"
+"$temp_folder_path"/"$keepassXC_version"
 
 # =====================================================================================
 

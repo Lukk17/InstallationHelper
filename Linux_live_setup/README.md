@@ -6,7 +6,7 @@ desktop shortcuts for apps:
 ```/usr/share/applications```
 
 
-Wallpaper download from wallpapertip.com and wallpaperswide.com
+Wallpaper download from https://wallpapertip.com and https://wallpaperswide.com
 
 
 How to install:
@@ -25,4 +25,3 @@ How to install:
 8. In `Passwords and Keys` app change `Login` keyring password to blank (no character) value.  
    It will disable pop-up when opening brave (because of sync storing in keyring).
    https://askubuntu.com/questions/867/how-can-i-stop-being-prompted-to-unlock-the-default-keyring-on-boot
-9. In `Grub Customizer` change `Boot default entry after` to 1 second.

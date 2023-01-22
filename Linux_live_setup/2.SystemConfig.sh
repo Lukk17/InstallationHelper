@@ -29,6 +29,7 @@ metamask_link="https://chrome.google.com/webstore/detail/metamask/nkbihfbeogaeao
 polkadotJS_link="https://chrome.google.com/webstore/detail/polkadot%7Bjs%7D-extension/mopnmbcafieddcagagdcbnhejhlodfdd"
 tronlink_link="https://chrome.google.com/webstore/detail/tronlink%EF%BC%88%E6%B3%A2%E5%AE%9D%E9%92%B1%E5%8C%85%EF%BC%89/ibnejdfjmmkpcnlpebklmnkoeoihofec"
 bitwarden_link="https://chrome.google.com/webstore/detail/bitwarden-free-password-m/nngceckbapebfimnlniiiahkandclblb"
+keepassXC_link="https://chrome.google.com/webstore/detail/keepassxc-browser/oboonakemofpalcgghocfoadofidjkkk"
 
 # =====================================================================================
 
@@ -357,6 +358,7 @@ brave-browser-stable "$metamask_link" &>/dev/null & disown %%
 brave-browser-stable "$polkadotJS_link" &>/dev/null & disown %%
 brave-browser-stable "$tronlink_link" &>/dev/null & disown %%
 brave-browser-stable "$bitwarden_link" &>/dev/null & disown %%
+brave-browser-stable "$keepassXC_link" &>/dev/null & disown %%
 
 # =====================================================================================
 
