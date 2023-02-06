@@ -2,6 +2,8 @@ echo
 echo "--------------------------------"
 echo "| Chocolatey package install.. |"
 echo "--------------------------------"
+# Disable prompt
+choco feature enable -n=allowGlobalConfirmation
 
 echo
 echo "----------------------"
