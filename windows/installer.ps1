@@ -37,7 +37,7 @@ choco install goggalaxy
 choco install steam
 choco install ea-app
 choco install ubisoft-connect
-choco install epicgameslauncheb
+choco install epicgameslauncher
 
 echo
 echo "--------------------------"
@@ -45,7 +45,6 @@ echo "| System tools install.. |"
 echo "--------------------------"
 
 choco install iobit-uninstaller
-choco install ccleaner
 choco install drivereasyfree
 
 echo
