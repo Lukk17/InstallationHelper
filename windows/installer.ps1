@@ -54,6 +54,8 @@ echo "---------------------------------"
 
 choco install zoom
 choco install discord
+choco install telegram
+choco install whatsapp
 
 echo
 echo "----------------------"
@@ -116,8 +118,6 @@ winget install --source msstore bitwarden
 winget install --source msstore 9NCBCSZSJRSB
 # Microsoft To Do
 winget install --source msstore 9NBLGGH5R558
-winget install --source msstore whatsapp
-winget install --source msstore telegram
 # trello
 winget install --source msstore 9NBLGGH4XXVW
 # netflix
