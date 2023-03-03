@@ -83,7 +83,7 @@ choco install github-desktop
 choco install python3
 choco install nodejs
 choco install kubernetes-cli
-choco install minikubee
+choco install minikube
 choco install lens
 choco install putty
 choco install filezilla
