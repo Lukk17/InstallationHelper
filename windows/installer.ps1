@@ -21,11 +21,7 @@ echo "---------------------"
 choco install geforce-experience
 choco install winrar
 choco install googledrive
-choco install dropbox
-choco install adobereader
 choco install sublimetext3
-choco install itunes
-choco install imgburn
 choco install utorrent
 
 echo
@@ -36,8 +32,6 @@ echo "---------------------------"
 choco install goggalaxy
 choco install steam
 choco install ea-app
-choco install ubisoft-connect
-choco install epicgameslauncher
 
 echo
 echo "--------------------------"
@@ -47,15 +41,6 @@ echo "--------------------------"
 choco install iobit-uninstaller
 choco install drivereasyfree
 
-echo
-echo "---------------------------------"
-echo "| Communication tools install.. |"
-echo "---------------------------------"
-
-choco install zoom
-choco install discord
-choco install telegram
-choco install whatsapp
 
 echo
 echo "----------------------"
@@ -113,15 +98,45 @@ echo "-------------------------------------------"
 echo "| Winget - Microsoft Store apps install.. |"
 echo "-------------------------------------------"
 
-winget install --source msstore bitwarden
-# spotify
-winget install --source msstore 9NCBCSZSJRSB
+winget install --accept-source-agreements --accept-package-agreements --source msstore whatsapp
+winget install --accept-source-agreements --accept-package-agreements --source msstore telegram
+winget install --accept-source-agreements --accept-package-agreements --source msstore skype
+winget install --accept-source-agreements --accept-package-agreements --source msstore bitwarden
+winget install --accept-source-agreements --accept-package-agreements --source msstore powershell
+winget install --accept-source-agreements --accept-package-agreements --source msstore imgburn
+winget install --accept-source-agreements --accept-package-agreements --source msstore slack
+winget install --accept-source-agreements --accept-package-agreements --source msstore vlc
+winget install --accept-source-agreements --accept-package-agreements --source msstore zoom
+winget install --accept-source-agreements --accept-package-agreements --source msstore dropbox
+
+# Spotify
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9NCBCSZSJRSB
 # Microsoft To Do
-winget install --source msstore 9NBLGGH5R558
-# trello
-winget install --source msstore 9NBLGGH4XXVW
-# netflix
-winget install --source msstore 9WZDNCRFJ3TJ
-winget install --source msstore skype
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH5R558
+# Trello
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4XXVW
+# Netflix
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9WZDNCRFJ3TJ
 # Battery Percentage - Pure Battery add-on
-winget install --source msstore 9N3HDTNCF6Z8
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9N3HDTNCF6Z8
+# Teamviewer
+winget install --accept-source-agreements --accept-package-agreements --source msstore XPDM17HK323C4X
+# Razer Cortex addon to Xbox Bar
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9PK9W5QV2PKX
+# Discord
+winget install --accept-source-agreements --accept-package-agreements --source msstore XPDC2RH70K22MN
+# Microsoft Teams
+winget install --accept-source-agreements --accept-package-agreements --source msstore XP8BT8DW290MPQ
+# Visual Studio Code
+winget install --accept-source-agreements --accept-package-agreements --source msstore XP9KHM4BK9FZ7Q
+# Ubisoft Connect
+winget install --accept-source-agreements --accept-package-agreements --source msstore XPDP2QW12DFSFK
+# Adobe Acrobat Reader
+winget install --accept-source-agreements --accept-package-agreements --source msstore XPDP273C0XHQH2
+# iTunes
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9PB2MZ1ZMB1S
+# Epic Games Store
+winget install --accept-source-agreements --accept-package-agreements --source msstore XP99VR1BPSBQJ2
+# Galaxy Buds
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9NHTLWTKFZNB
+
