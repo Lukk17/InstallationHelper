@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Exec=sh -c "$HOME/Documents/startVPN/startVPN.sh"
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name[en_US]=startVPN
+Name=startVPN
+Comment[en_US]=
+Comment=

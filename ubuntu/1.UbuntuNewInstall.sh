@@ -35,8 +35,6 @@ zoom_download_link="https://zoom.us/client/5.12.2.4816/$zoomVersion"
 bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
 bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
 
-keepassXC_version="KeePassXC-2.7.4-x86_64.AppImage"
-keepassXC_link="https://github.com/keepassxreboot/keepassxc/releases/download/2.7.4/$keepassXC_version"
 keepassXC_addon_link="https://chrome.google.com/webstore/detail/keepassxc-browser/oboonakemofpalcgghocfoadofidjkkk"
 
 angryIpScannerVersion="ipscan_3.8.2_amd64.deb"
@@ -160,6 +158,7 @@ sudo snap install cura-slicer
 sudo snap install sublime-text --classic
 sudo snap install wps-2019-snap
 sudo snap install okular
+sudo snap install keepassxc
 
 sudo snap install gimp
 sudo snap install spotify
@@ -344,7 +343,6 @@ sudo apt-get install nordvpn
 
 sudo cp ./shortcuts/nordvpn.desktop /usr/share/applications/nordvpn.desktop
 sudo cp ./shortcuts/nordvpn-disconnect.desktop /usr/share/applications/nordvpn-disconnect.desktop
-sudo cp ./shortcuts/nordvpn-startup.desktop /etc/xdg/autostart/nordvpn-startup.desktop
 
 # =====================================================================================
 
@@ -384,9 +382,9 @@ echo "--------------------------"
 echo "| Installing KeepassXC.. |"
 echo "--------------------------"
 
-wget "$keepassXC_link" -cO "$temp_folder_path"/"$keepassXC_version"
-chmod a+x "$temp_folder_path"/"$keepassXC_version"
-"$temp_folder_path"/"$keepassXC_version"
+# KeepassXC installed already via snap
+sudo chmod +x ./config/keepassxc-snap-helper.sh
+./config/keepassxc-snap-helper.sh
 
 # =====================================================================================
 
