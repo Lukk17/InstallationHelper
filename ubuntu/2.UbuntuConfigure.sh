@@ -205,6 +205,21 @@ gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'bra
 # =====================================================================================
 
 echo
+echo "------------------------------------"
+echo "| Configuring Nautilus bookmarks.. |"
+echo "------------------------------------"
+
+echo "file://$HOME/.local/share/applications applications-local" >> ~/.config/gtk-3.0/bookmarks
+echo "file://$HOME/.config/autostart autostart-config" >> ~/.config/gtk-3.0/bookmarks
+echo "file:///opt opt" >> ~/.config/gtk-3.0/bookmarks
+echo "file:///usr/share/applications applications" >> ~/.config/gtk-3.0/bookmarks
+echo "file:///etc/xdg xdg" >> ~/.config/gtk-3.0/bookmarks
+echo "file:/// /" >> ~/.config/gtk-3.0/bookmarks
+echo "file:///etc/xdg/autostart autostart-xdg" >> ~/.config/gtk-3.0/bookmarks
+
+# =====================================================================================
+
+echo
 echo "----------------------------"
 echo "| Configuring local time.. |"
 echo "----------------------------"
