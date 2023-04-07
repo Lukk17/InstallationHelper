@@ -338,9 +338,9 @@ echo "| Installing NordVPN.. |"
 echo "------------------------"
 
 wget "$nordvpn_download_link" -cO "$temp_folder_path"/"$nordvpnVersion"
-sudo apt-get install "$temp_folder_path"/"$nordvpnVersion"
-sudo apt-get update
-sudo apt-get install nordvpn
+sudo apt install "$temp_folder_path"/"$nordvpnVersion" -y
+sudo apt update
+sudo apt install nordvpn -y
 
 sudo cp ./shortcuts/nordvpn.desktop /usr/share/applications/nordvpn.desktop
 sudo cp ./shortcuts/nordvpn-disconnect.desktop /usr/share/applications/nordvpn-disconnect.desktop
