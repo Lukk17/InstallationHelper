@@ -4,6 +4,6 @@ Type=Application
 Name=NordVPN
 Icon=nordvpn
 MimeType=x-scheme-handler/nordvpn
-Exec=nordvpn connect
+Exec=sh -c "$HOME/Documents/startVPN/startVPN.sh"
 Terminal=false
 
