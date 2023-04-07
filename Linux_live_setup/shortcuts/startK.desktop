@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Exec=sh -c "cat $HOME/Documents/startK/startK | keepassxc --pw-stdin  $HOME/Documents/K3psxc"
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name[en_US]=startK
+Name=startK
+Comment[en_US]=
+Comment=

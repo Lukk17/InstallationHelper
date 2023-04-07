@@ -150,6 +150,7 @@ sudo snap install gimp
 sudo snap install okular
 sudo snap install wps-2019-snap
 sudo snap install sublime-text --classic
+sudo snap install keepassxc
 
 # =====================================================================================
 
@@ -183,9 +184,15 @@ sudo apt-get install "$temp_folder_path"/"$nordvpnVersion"
 sudo apt-get update
 sudo apt-get install nordvpn
 
+# add shortcuts
 sudo cp ./shortcuts/nordvpn.desktop /usr/share/applications/nordvpn.desktop
 sudo cp ./shortcuts/nordvpn-disconnect.desktop /usr/share/applications/nordvpn-disconnect.desktop
-sudo cp ./shortcuts/nordvpn-startup.desktop /etc/xdg/autostart/nordvpn-startup.desktop
+
+# add to autostart
+sudo cp ./shortcuts/nordvpn-startup.desktop "$HOME"/.config/autostart/nordvpn-startup.desktop
+
+sudo mkdir "$HOME"/.config/autostart/startVPN
+sudo cp ./config/startVPN/startVPN.sh "$HOME"/.config/autostart/startVPN/startVPN.sh
 
 # =====================================================================================
 
@@ -264,9 +271,11 @@ echo "--------------------------"
 echo "| Installing KeepassXC.. |"
 echo "--------------------------"
 
-wget "$keepassXC_link" -cO "$temp_folder_path"/"$keepassXC_version"
-chmod a+x "$temp_folder_path"/"$keepassXC_version"
-"$temp_folder_path"/"$keepassXC_version"
+# KeepassXC installed already via snap
+sudo chmod +x ./config/keepassxc-snap-helper.sh
+./config/keepassxc-snap-helper.sh
+
+sudo cp ./shortcuts/startK.desktop $HOME/.config/autostart/startK.desktop
 
 # =====================================================================================
 

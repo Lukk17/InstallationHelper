@@ -17,9 +17,12 @@ How to install:
 5. Android emulator configuration - script `3.ConfigureEmulator.sh` will launch Android Studio.  
    SDK need to be downloaded and create android emulator naming it `Pixel`.
    Then close Android Studio (script will make shortcut then). 
-6. NordVPN need to be logged in with  
+6. NordVPN need to be logged (added to script) in with  
    ```nordvpn login --token <token>```  
+   Token need to be added in:
+   ```"$HOME"/.config/autostart/startVPN/startVPN.sh```
    https://nordvpn.com/download/linux/
+   
 7. NordVPN auto start can be disabled in `Startup Application Preferences`  
    (to open:"super key" and type "Startup Application Preferences")
 8. In `Passwords and Keys` app change `Login` keyring password to blank (no character) value.  
