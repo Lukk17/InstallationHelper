@@ -120,6 +120,7 @@ sudo apt autoremove -y
 sudo apt install apache2-utils -y
 # better cat
 sudo apt install bat -y
+sudo apt install openssl -y
 
 # =====================================================================================
 
