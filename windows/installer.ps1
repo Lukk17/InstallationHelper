@@ -73,6 +73,7 @@ choco install lens
 choco install putty
 choco install filezilla
 choco install dbeaver
+choco install openssl
 
 echo
 echo "---------------------------------------------"
