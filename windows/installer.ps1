@@ -63,6 +63,7 @@ echo "--------------------------"
 echo "| Coding tools install.. |"
 echo "--------------------------"
 
+choco install intellijidea-ultimate
 choco install git
 choco install github-desktop
 choco install python3
