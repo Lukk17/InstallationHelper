@@ -15,8 +15,6 @@ chrome_download_link="https://dl.google.com/linux/direct/$chromeVersion"
 githubDesktopVersion="GitHubDesktop-linux-3.0.6-linux1.deb"
 githubDesktop_download_link="https://github.com/shiftkey/desktop/releases/download/release-3.0.6-linux1/$githubDesktopVersion"
 
-intellijChannelVersion="2020.3/stable"
-
 mongoCompassVersion="mongodb-compass_1.33.1_amd64.deb"
 mongoCompass_download_link="https://downloads.mongodb.com/compass/$mongoCompassVersion"
 
@@ -220,10 +218,10 @@ sudo gdebi -n "$temp_folder_path"/"$githubDesktopVersion"
 
 echo
 echo "-------------------------------------------"
-echo "| Installing Intellij version 2020.3.4 .. |"
+echo "| Installing Intellij Idea... |"
 echo "-------------------------------------------"
 
-sudo snap install intellij-idea-ultimate --channel=$intellijChannelVersion --classic
+sudo snap install intellij-idea-ultimate --classic
 
 # =====================================================================================
 
