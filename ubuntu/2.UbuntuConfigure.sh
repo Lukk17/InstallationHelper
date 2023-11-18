@@ -322,7 +322,7 @@ echo "-----------------------------------"
 echo "| Setting Dash-to-Dock settings.. |"
 echo "-----------------------------------"
 
-gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
+gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'LEFT'
 gsettings set org.gnome.shell.extensions.dash-to-dock background-color '#ffffff'
 gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.7
 gsettings set org.gnome.shell.extensions.dash-to-dock custom-background-color false
@@ -373,8 +373,6 @@ echo "----------------------------------------"
 
 gnome-extensions enable gsconnect@andyholmes.github.io
 gnome-extensions enable start-overlay-in-application-view@Hex_cz
-gnome-extensions enable dash-to-dock@micxgx.gmail.com
-gnome-extensions disable ubuntu-dock@ubuntu.com
 
 # =====================================================================================
 

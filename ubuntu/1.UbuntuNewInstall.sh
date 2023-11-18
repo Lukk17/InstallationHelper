@@ -50,8 +50,6 @@ lens_download_link="https://api.k8slens.dev/binaries/$lensVersion"
 torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
 tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
 
-dashToDock_link="https://extensions.gnome.org/extension/307/dash-to-dock/"
-
 startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
 
 gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
@@ -504,7 +502,6 @@ echo "-------------------------------------------------"
 
 xdg-settings set default-web-browser brave-browser.desktop
 
-brave-browser-stable "$dashToDock_link" &>/dev/null & disown %%
 brave-browser-stable "$startOverlayInApplicationView_link" &>/dev/null & disown %%
 brave-browser-stable "$gsconnect_link" &>/dev/null & disown %%
 brave-browser-stable "$keepassXC_addon_link" &>/dev/null & disown %%
