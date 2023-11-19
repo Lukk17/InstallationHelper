@@ -156,6 +156,7 @@ sudo snap install sublime-text --classic
 sudo snap install wps-2019-snap
 sudo snap install okular
 sudo snap install keepassxc
+sudo snap install trello-desktop
 
 sudo snap install gimp
 sudo snap install spotify
