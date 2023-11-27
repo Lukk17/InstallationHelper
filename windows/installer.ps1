@@ -120,10 +120,6 @@ winget install --accept-source-agreements --accept-package-agreements --source m
 
 # Prime Video
 winget install --accept-source-agreements --accept-package-agreements --source msstore 9P6RC76MSMMJ
-
-# HBO Max - connot be installed on PC, only on Xbox
-#winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
-
 # Disney+
 winget install --accept-source-agreements --accept-package-agreements --source msstore 9NXQXXLFST89
 # Arduino IDE
@@ -159,6 +155,8 @@ winget install --accept-source-agreements --accept-package-agreements --source m
 # Galaxy Buds
 winget install --accept-source-agreements --accept-package-agreements --source msstore 9NHTLWTKFZNB
 
+# HBO Max - connot be installed on PC, only on Xbox
+#winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
 
 echo
 echo "-------------------------------------------------"
