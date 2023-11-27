@@ -118,6 +118,14 @@ winget install --accept-source-agreements --accept-package-agreements --source m
 winget install --accept-source-agreements --accept-package-agreements --source msstore zoom
 winget install --accept-source-agreements --accept-package-agreements --source msstore dropbox
 
+# Prime Video
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9P6RC76MSMMJ
+
+# HBO Max - connot be installed on PC, only on Xbox
+#winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
+
+# Disney+
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9NXQXXLFST89
 # Arduino IDE
 winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4RSD8
 # Spotify
@@ -158,5 +166,6 @@ echo "| Opening additional softwares download links.. |"
 echo "-------------------------------------------------"
 
 Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://download.battle.net/en-us/?platform=windows"
-Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.veracrypt.fr/en/Downloads.html"
 Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.curseforge.com/download/app#download-options"
+Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.veracrypt.fr/en/Downloads.html"
+Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://signup.leagueoflegends.com/en-us/signup/redownload"
