@@ -78,4 +78,11 @@ Restore all apps from Chocolatey exported config, which be found in chocolatey.c
 choco install .\chocolatey.config
 ```
 
+--------------------------------------
+
+Show Microsoft store installed apps:
+
+```powershell
+winget list --source "msstore"
+```
 
