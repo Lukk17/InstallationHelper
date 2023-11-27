@@ -85,4 +85,3 @@ Show Microsoft store installed apps:
 ```powershell
 winget list --source "msstore"
 ```
-
