@@ -4,6 +4,9 @@ echo "| Chocolatey package install.. |"
 echo "--------------------------------"
 # Disable prompt
 choco feature enable -n=allowGlobalConfirmation
+Set-ExecutionPolicy AllSigned
+Set-ExecutionPolicy Bypass -Scope Process
+Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 
 echo
 echo "----------------------"
@@ -23,6 +26,8 @@ choco install winrar
 choco install googledrive
 choco install sublimetext3
 choco install utorrent
+choco install chocolateygui
+choco install adobereader
 
 echo
 echo "---------------------------"
@@ -32,6 +37,7 @@ echo "---------------------------"
 choco install goggalaxy
 choco install steam
 choco install ea-app
+choco install epicgameslauncher
 
 echo
 echo "--------------------------"
@@ -57,13 +63,14 @@ choco install crystaldiskmark
 choco install glasswire
 choco install partition-assistant-standard
 choco install prime95.portable
+choco install hwinfo
 
 echo
 echo "--------------------------"
 echo "| Coding tools install.. |"
 echo "--------------------------"
 
-choco install intellijidea-ultimate
+choco install intellijidea-ultimate --params "/InstallDir=C:\Program Files\JetBrains\IntelliJ IDEA"
 choco install git
 choco install github-desktop
 choco install python3
@@ -84,15 +91,15 @@ echo "---------------------------------------------"
 #scrCpy (android managment)
 # https://github.com/Genymobile/scrcpy
 choco install scrcpy
-choco install adbe
+choco install adb
 
 echo
 echo "----------------------"
 echo "| CAD apps install.. |"
 echo "----------------------"
 
-choco install prusaslice
-choco install freecadr
+choco install prusaslicer
+choco install freecad
 choco install autodesk-fusion360
 
 echo
@@ -111,6 +118,8 @@ winget install --accept-source-agreements --accept-package-agreements --source m
 winget install --accept-source-agreements --accept-package-agreements --source msstore zoom
 winget install --accept-source-agreements --accept-package-agreements --source msstore dropbox
 
+# Arduino IDE
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4RSD8
 # Spotify
 winget install --accept-source-agreements --accept-package-agreements --source msstore 9NCBCSZSJRSB
 # Microsoft To Do
@@ -142,3 +151,12 @@ winget install --accept-source-agreements --accept-package-agreements --source m
 # Galaxy Buds
 winget install --accept-source-agreements --accept-package-agreements --source msstore 9NHTLWTKFZNB
 
+
+echo
+echo "-------------------------------------------------"
+echo "| Opening additional softwares download links.. |"
+echo "-------------------------------------------------"
+
+Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://download.battle.net/en-us/?platform=windows"
+Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.veracrypt.fr/en/Downloads.html"
+Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.curseforge.com/download/app#download-options"
