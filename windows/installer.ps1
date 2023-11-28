@@ -1,25 +1,26 @@
-echo
-echo "--------------------------------"
-echo "| Chocolatey package install.. |"
-echo "--------------------------------"
+Write-Output
+Write-Output "--------------------------------"
+Write-Output "| Chocolatey package install.. |"
+Write-Output "--------------------------------"
 # Disable prompt
 choco feature enable -n=allowGlobalConfirmation
 Set-ExecutionPolicy AllSigned
 Set-ExecutionPolicy Bypass -Scope Process
 Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+choco feature enable -n=useRememberedArgumentsForUpgrades
 
-echo
-echo "----------------------"
-echo "| Browsers install.. |"
-echo "----------------------"
+Write-Output
+Write-Output "----------------------"
+Write-Output "| Browsers install.. |"
+Write-Output "----------------------"
 
 choco install brave
 choco install firefox
 
-echo
-echo "---------------------"
-echo "| Utility install.. |"
-echo "---------------------"
+Write-Output
+Write-Output "---------------------"
+Write-Output "| Utility install.. |"
+Write-Output "---------------------"
 
 choco install geforce-experience
 choco install winrar
@@ -29,29 +30,29 @@ choco install utorrent
 choco install chocolateygui
 choco install adobereader
 
-echo
-echo "---------------------------"
-echo "| Games clients install.. |"
-echo "---------------------------"
+Write-Output
+Write-Output "---------------------------"
+Write-Output "| Games clients install.. |"
+Write-Output "---------------------------"
 
 choco install goggalaxy
 choco install steam
 choco install ea-app
 choco install epicgameslauncher
 
-echo
-echo "--------------------------"
-echo "| System tools install.. |"
-echo "--------------------------"
+Write-Output
+Write-Output "--------------------------"
+Write-Output "| System tools install.. |"
+Write-Output "--------------------------"
 
 choco install iobit-uninstaller
 choco install drivereasyfree
 
 
-echo
-echo "----------------------"
-echo "| OC tools install.. |"
-echo "----------------------"
+Write-Output
+Write-Output "----------------------"
+Write-Output "| OC tools install.. |"
+Write-Output "----------------------"
 
 choco install inssider-lite
 choco install partitionwizard
@@ -65,47 +66,55 @@ choco install partition-assistant-standard
 choco install prime95.portable
 choco install hwinfo
 
-echo
-echo "--------------------------"
-echo "| Coding tools install.. |"
-echo "--------------------------"
+Write-Output
+Write-Output "--------------------------"
+Write-Output "| Coding tools install.. |"
+Write-Output "--------------------------"
 
 choco install intellijidea-ultimate --params "/InstallDir=C:\Program Files\JetBrains\IntelliJ IDEA"
-choco install git
-choco install github-desktop
+choco install oraclejdk
 choco install python3
+choco install gradle
+choco install maven
+choco install git
 choco install nodejs
 choco install kubernetes-cli
 choco install minikube
+choco install flutter
 choco install lens
+choco install github-desktop
 choco install putty
 choco install filezilla
 choco install dbeaver
 choco install openssl
+# no root password
+choco install mysql
+choco install mongodb
+choco install mongodb-compass
 
-echo
-echo "---------------------------------------------"
-echo "| Scrcpy - Android managment tool install.. |"
-echo "---------------------------------------------"
+Write-Output
+Write-Output "---------------------------------------------"
+Write-Output "| Scrcpy - Android managment tool install.. |"
+Write-Output "---------------------------------------------"
 
 #scrCpy (android managment)
 # https://github.com/Genymobile/scrcpy
 choco install scrcpy
 choco install adb
 
-echo
-echo "----------------------"
-echo "| CAD apps install.. |"
-echo "----------------------"
+Write-Output
+Write-Output "----------------------"
+Write-Output "| CAD apps install.. |"
+Write-Output "----------------------"
 
 choco install prusaslicer
 choco install freecad
 choco install autodesk-fusion360
 
-echo
-echo "-------------------------------------------"
-echo "| Winget - Microsoft Store apps install.. |"
-echo "-------------------------------------------"
+Write-Output
+Write-Output "-------------------------------------------"
+Write-Output "| Winget - Microsoft Store apps install.. |"
+Write-Output "-------------------------------------------"
 
 winget install --accept-source-agreements --accept-package-agreements --source msstore whatsapp
 winget install --accept-source-agreements --accept-package-agreements --source msstore telegram
@@ -158,12 +167,47 @@ winget install --accept-source-agreements --accept-package-agreements --source m
 # HBO Max - connot be installed on PC, only on Xbox
 #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
 
-echo
-echo "-------------------------------------------------"
-echo "| Opening additional softwares download links.. |"
-echo "-------------------------------------------------"
 
-Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://download.battle.net/en-us/?platform=windows"
-Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.curseforge.com/download/app#download-options"
-Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.veracrypt.fr/en/Downloads.html"
-Start "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://signup.leagueoflegends.com/en-us/signup/redownload"
+Write-Output
+Write-Output "-----------------------------------"
+Write-Output "| Creating folders and symlinks.. |"
+Write-Output "-----------------------------------"
+
+New-Item -Path "C:\Gry\" -ItemType Directory
+New-Item -ItemType SymbolicLink -Path "C:\Program Files (x86)\Steam\steamapps" -Target "C:\Gry\"
+
+
+Write-Output
+Write-Output "-----------------------------"
+Write-Output "| Enable Windows features.. |"
+Write-Output "-----------------------------"
+
+Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform
+Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux
+Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
+Enable-WindowsOptionalFeature -Online -FeatureName NetFx3
+Enable-WindowsOptionalFeature -Online -FeatureName NetFx4
+
+
+Write-Output
+Write-Output "-----------------------------"
+Write-Output "| Install Android and WSL.. |"
+Write-Output "-----------------------------"
+
+# Ubuntu
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9PDXGNCFSCZV
+# Windows Subsystem for Android
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9P3395VX91NR
+# Amazon Appstore
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9NJHK44TTKSX
+
+
+Write-Output
+Write-Output "-------------------------------------------------"
+Write-Output "| Opening additional softwares download links.. |"
+Write-Output "-------------------------------------------------"
+
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://download.battle.net/en-us/?platform=windows"
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.curseforge.com/download/app#download-options"
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.veracrypt.fr/en/Downloads.html"
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://signup.leagueoflegends.com/en-us/signup/redownload"
