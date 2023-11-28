@@ -120,3 +120,8 @@ Show Microsoft store installed apps:
 ```powershell
 winget list --source "msstore"
 ```
+
+--------------------------------------
+
+If `winget` generate error `CommandNotFoundException` add it to windows path:
+`C:\Users\%USERPROFILE%\AppData\Local\Microsoft\WindowsApps`

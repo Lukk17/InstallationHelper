@@ -116,6 +116,11 @@ Write-Output "-------------------------------------------"
 Write-Output "| Winget - Microsoft Store apps install.. |"
 Write-Output "-------------------------------------------"
 
+# winget installer (Windows Package Manager Source)
+#winget install --accept-source-agreements --accept-package-agreements Microsoft.Winget.Source_8wekyb3d8bbwe
+# App Installer
+#winget install --accept-source-agreements --accept-package-agreements Microsoft.DesktopAppInstaller_8wekyb3d8bbwe
+
 winget install --accept-source-agreements --accept-package-agreements --source msstore whatsapp
 winget install --accept-source-agreements --accept-package-agreements --source msstore telegram
 winget install --accept-source-agreements --accept-package-agreements --source msstore skype
@@ -184,9 +189,10 @@ Write-Output "-----------------------------"
 
 Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform
 Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux
-Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All
+Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All
 Enable-WindowsOptionalFeature -Online -FeatureName NetFx3
-Enable-WindowsOptionalFeature -Online -FeatureName NetFx4
+Enable-WindowsOptionalFeature -Online -FeatureName NetFx4-AdvSrvs
+Enable-WindowsOptionalFeature -Online -FeatureName NetFx4Extended-ASPNET45
 
 
 Write-Output
@@ -198,8 +204,6 @@ Write-Output "-----------------------------"
 winget install --accept-source-agreements --accept-package-agreements --source msstore 9PDXGNCFSCZV
 # Windows Subsystem for Android
 winget install --accept-source-agreements --accept-package-agreements --source msstore 9P3395VX91NR
-# Amazon Appstore
-winget install --accept-source-agreements --accept-package-agreements --source msstore 9NJHK44TTKSX
 
 
 Write-Output
@@ -211,3 +215,10 @@ Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://d
 Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.curseforge.com/download/app#download-options"
 Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.veracrypt.fr/en/Downloads.html"
 Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://signup.leagueoflegends.com/en-us/signup/redownload"
+
+
+Write-Output
+Write-Output "------------------------------------------"
+Write-Output "| Restarting computer after confirming.. |"
+Write-Output "------------------------------------------"
+Read-Host "Press Enter to restart the computer"; Restart-Computer
