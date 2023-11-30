@@ -7,7 +7,6 @@ echo "--------------------------"
 temp_folder_path="$HOME/.lukkInstall"
 
 MYSQL_PASSWORD="Lukk1234"
-PGPASSWORD="$MYSQL_PASSWORD"
 
 chromeVersion="google-chrome-stable_current_amd64.deb"
 chrome_download_link="https://dl.google.com/linux/direct/$chromeVersion"
@@ -21,6 +20,9 @@ mongoCompass_download_link="https://downloads.mongodb.com/compass/$mongoCompassV
 minikubeVersion="minikube_latest_amd64.deb"
 minikube_download_link="https://storage.googleapis.com/minikube/releases/latest/$minikubeVersion"
 
+dockerDesktopVersion="docker-desktop-4.25.2-amd64.deb"
+dockerDesktop_download_link="https://desktop.docker.com/linux/main/amd64/$dockerDesktopVersion"
+
 VMwareVersion="VMware-Player-Full-16.2.4-20089737.x86_64.bundle"
 VMware_download_link="https://download3.vmware.com/software/WKST-PLAYER-1624/$VMwareVersion"
 
@@ -32,8 +34,6 @@ zoom_download_link="https://zoom.us/client/5.12.2.4816/$zoomVersion"
 
 bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
 bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
-
-keepassXC_addon_link="https://chrome.google.com/webstore/detail/keepassxc-browser/oboonakemofpalcgghocfoadofidjkkk"
 
 angryIpScannerVersion="ipscan_3.8.2_amd64.deb"
 angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion"
@@ -51,8 +51,9 @@ torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
 tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
 
 startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
-
 gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
+keepassXC_addon_link="https://chrome.google.com/webstore/detail/keepassxc-browser/oboonakemofpalcgghocfoadofidjkkk"
+notification_addod_link="https://extensions.gnome.org/extension/258/notifications-alert-on-user-menu/"
 
 # =====================================================================================
 
@@ -73,17 +74,6 @@ echo "---------------------"
 sudo apt --fix-broken install -y
 sudo apt update && sudo apt full-upgrade -y
 sudo apt autoremove -y
-
-# =====================================================================================
-
-echo
-echo "-----------------------------------"
-echo "| Installing App-image Launcher.. |"
-echo "-----------------------------------"
-
-sudo add-apt-repository ppa:appimagelauncher-team/stable -y
-sudo apt-get update
-sudo apt-get install appimagelauncher -y
 
 # =====================================================================================
 
@@ -117,6 +107,18 @@ sudo apt install apache2-utils -y
 # better cat
 sudo apt install bat -y
 sudo apt install openssl -y
+sudo apt install dconf-editor -y
+
+# =====================================================================================
+
+echo
+echo "-----------------------------------"
+echo "| Installing App-image Launcher.. |"
+echo "-----------------------------------"
+
+sudo add-apt-repository ppa:appimagelauncher-team/stable -y
+sudo apt-get update
+sudo apt-get install appimagelauncher -y
 
 # =====================================================================================
 
@@ -155,7 +157,6 @@ sudo snap install cura-slicer
 sudo snap install sublime-text --classic
 sudo snap install wps-2019-snap
 sudo snap install okular
-sudo snap install keepassxc
 sudo snap install trello-desktop
 
 sudo snap install gimp
@@ -174,33 +175,11 @@ sudo snap install teams
 
 echo
 echo "------------------------"
-echo "| Installing Firefox.. |"
-echo "------------------------"
-# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (e.g. Postman interceptor, KeepassXC)
-
-sudo snap remove firefox --purge
-sudo apt remove firefox -y
-sudo add-apt-repository ppa:mozillateam/ppa -y
-# change the install priority (default priority is set to snap)
-echo '
-Package: *
-Pin: release o=LP-PPA-mozillateam
-Pin-Priority: 1001
-' | sudo tee /etc/apt/preferences.d/mozilla-firefox
-# allow this repository to be updated by apt
-echo 'Unattended-Upgrade::Allowed-Origins:: "LP-PPA-mozillateam:${distro_codename}";' | sudo tee /etc/apt/apt.conf.d/51unattended-upgrades-firefox
-sudo apt update
-sudo apt install firefox -y
-
-# =====================================================================================
-
-echo
-echo "------------------------"
 echo "| Installing Chrome... |"
 echo "------------------------"
 
 wget "$chrome_download_link" -cO "$temp_folder_path"/"$chromeVersion"
-sudo dpkg -i "$temp_folder_path"/"$chromeVersion"
+sudo apt install "$temp_folder_path"/"$chromeVersion" -y
 
 # =====================================================================================
 
@@ -225,9 +204,9 @@ sudo snap install intellij-idea-ultimate --classic
 # =====================================================================================
 
 echo
-echo "------------------------------------"
-echo "| Installing MySQL and Workbench.. |"
-echo "------------------------------------"
+echo "-------------------"
+echo "| Installing SQL. |"
+echo "-------------------"
 
 # install mysql and give password to installer
 sudo debconf-set-selections <<< "mysql-server mysql-server/root_password password $MYSQL_PASSWORD"
@@ -237,25 +216,14 @@ sudo snap install mysql-workbench-community
 # to avoid blocking workbench by linux AppArmor
 sudo snap connect mysql-workbench-community:password-manager-service :password-manager-service
 
-# =====================================================================================
-
-echo
-echo "-------------------------"
-echo "| Installing Postgres.. |"
-echo "-------------------------"
-
-sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-sudo apt update
-sudo apt install postgresql -y
-sudo -u postgres psql -c "alter user postgres with password '$PGPASSWORD';"
+sudo snap install postgresql
 
 # =====================================================================================
 
 echo
-echo "-------------------------------------"
-echo "| Installing Mongo DB and Compass.. |"
-echo "-------------------------------------"
+echo "----------------------"
+echo "| Installing NoSQL.. |"
+echo "----------------------"
 
 sudo apt install gnupg -y
 wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
@@ -277,13 +245,16 @@ echo "-----------------------"
 echo "| Installing Docker.. |"
 echo "-----------------------"
 
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+wget "$dockerDesktop_download_link" -cO "$temp_folder_path"/"$dockerDesktopVersion"
+sudo chmod +x "$temp_folder_path"/"$dockerDesktopVersion"
+
 sudo apt update
-sudo apt install docker-ce docker-ce-cli containerd.io -y
+sudo apt install ./"$dockerDesktopVersion" -y
+
+# adding user to docker group to docker be available to testcontainers in projects
+# https://docs.docker.com/engine/install/linux-postinstall/
+sudo groupadd docker
+sudo usermod -aG docker $USER
 
 # =====================================================================================
 
@@ -365,22 +336,11 @@ sudo dpkg -i "$temp_folder_path"/"$minikubeVersion"
 
 echo
 echo "--------------------------"
-echo "| Installing BitWarden.. |"
-echo "--------------------------"
-
-wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
-chmod a+x "$temp_folder_path"/"$bitWardenVersion"
-# app-image launcher will intercept this copy or move it to its default folder and install
-"$temp_folder_path"/"$bitWardenVersion"
-
-# =====================================================================================
-
-echo
-echo "--------------------------"
 echo "| Installing KeepassXC.. |"
 echo "--------------------------"
 
-# KeepassXC installed already via snap
+sudo snap install keepassxc
+
 sudo chmod +x ./config/keepassxc-snap-helper.sh
 ./config/keepassxc-snap-helper.sh
 
@@ -475,12 +435,25 @@ cd ~
 # =====================================================================================
 
 echo
+echo "--------------------------"
+echo "| Installing BitWarden.. |"
+echo "--------------------------"
+
+wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
+chmod a+x "$temp_folder_path"/"$bitWardenVersion"
+# app-image launcher will intercept this copy or move it to its default folder and install
+"$temp_folder_path"/"$bitWardenVersion"
+
+# =====================================================================================
+
+echo
 echo "--------------"
 echo "| Cleaning.. |"
 echo "--------------"
 
 # un-pausing updating grub
 sudo apt-mark unhold grub*
+sudo apt --fix-broken install -y
 
 # =====================================================================================
 
@@ -501,11 +474,12 @@ echo "-------------------------------------------------"
 echo "| Opening extension install pages in browsers.. |"
 echo "-------------------------------------------------"
 
-xdg-settings set default-web-browser brave-browser.desktop
+xdg-settings set default-web-browser google-chrome.desktop
 
-brave-browser-stable "$startOverlayInApplicationView_link" &>/dev/null & disown %%
-brave-browser-stable "$gsconnect_link" &>/dev/null & disown %%
-brave-browser-stable "$keepassXC_addon_link" &>/dev/null & disown %%
+google-chrome "$startOverlayInApplicationView_link" &>/dev/null & disown %%
+google-chrome "$gsconnect_link" &>/dev/null & disown %%
+google-chrome "$keepassXC_addon_link" &>/dev/null & disown %%
+google-chrome "$notification_addod_link" &>/dev/null & disown %%
 
 # =====================================================================================
 

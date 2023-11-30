@@ -9,15 +9,7 @@ echo "--------------------------"
 
 background_path=/usr/share/backgrounds/wallpapers/forest-house.jpg
 
-login_background_color=#000000
-login_background_image=/usr/share/backgrounds/wallpapers/forest.jpg
-
 temp_folder_path=~/.lukkInstall
-
-gdmBackgroundVersion="main.tar.gz"
-gdmBackground_download_link="https://github.com/PRATAP-KUMAR/ubuntu-gdm-set-background/archive/$gdmBackgroundVersion"
-
-script_location=~/Documents
 
 default_video_app=vlc_vlc.desktop
 default_internetBrowser_app=brave-browser.desktop
@@ -96,24 +88,16 @@ sudo cp -a "$temp_folder_path"/wallpapers/ /usr/share/backgrounds/wallpapers/
 gsettings set org.gnome.desktop.background picture-uri-dark "$background_path"
 gsettings set org.gnome.desktop.background picture-uri "$background_path"
 
+
 # =====================================================================================
 
 echo
-echo "-------------------------------"
-echo "| Changing login background.. |"
-echo "-------------------------------"
+echo "-----------------------"
+echo "| Enabling services.. |"
+echo "-----------------------"
 
-wget -P "$temp_folder_path"/ "$gdmBackground_download_link"
-tar -xf "$temp_folder_path"/"$gdmBackgroundVersion" -C "$temp_folder_path"/
-sudo cp "$temp_folder_path"/ubuntu-gdm-set-background-main/ubuntu-gdm-set-background "$script_location"/
-sudo apt update
-sudo apt install libglib2.0-dev-bin -y
-# change to color:
-sudo "$script_location"/ubuntu-gdm-set-background --color "$login_background_color"
-# change to wallpaper:
-#sudo $script_location/ubuntu-gdm-set-background --image "$login_background_image"
-# to reset
-#sudo script_location/ubuntu-gdm-set-background --reset
+# sometimes it is not working in 1. script
+sudo systemctl enable mongod
 
 # =====================================================================================
 
@@ -200,7 +184,7 @@ echo "---------------------------------"
 echo "| Configuring favourites apps.. |"
 echo "---------------------------------"
 
-gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
+gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'google-chrome.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
 
 # =====================================================================================
 
@@ -376,15 +360,6 @@ gnome-extensions enable start-overlay-in-application-view@Hex_cz
 
 # =====================================================================================
 
-echo
-echo "--------------"
-echo "| Cleaning.. |"
-echo "--------------"
-
-yes | sudo rm -R "$temp_folder_path"
-
-# =====================================================================================
-
 echo "-----------------------------"
 echo "| Installing terminal ZSH.. |"
 echo "-----------------------------"
@@ -428,8 +403,8 @@ gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/prof
 sudo echo 'export PATH="$PATH:/usr/bin/brave-browser-stable"' >> ~/.bashrc
 sudo echo 'export PATH="$PATH:/usr/bin/brave-browser-stable"' >> ~/.zshrc
 
-echo 'export PATH="$PATH:/opt/postman/postman"' >> ~/.bashrc
-echo 'export PATH="$PATH:/opt/postman/postman"' >> ~/.zshrc
+echo "export PATH='$PATH:/opt/postman/postman'" >> ~/.bashrc
+echo "export PATH='$PATH:/opt/postman/postman'" >> ~/.zshrc
 
 echo
 echo "-----------------------------------"

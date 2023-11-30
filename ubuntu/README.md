@@ -5,9 +5,7 @@ desktop shortcuts for snap:
 desktop shortcuts for apps:  
 ```/usr/share/applications```
 
-
 Wallpaper download from wallpapertip.com and wallpaperswide.com
-
 
 How to install:
 1. Run with `sudo` script `0.PrepareScripts.sh`
@@ -22,3 +20,39 @@ How to install:
 7. In `Passwords and Keys` app change `Login` keyring password to blank (no character) value.  
    It will disable pop-up when opening brave (because of sync storing in keyring).
    https://askubuntu.com/questions/867/how-can-i-stop-being-prompted-to-unlock-the-default-keyring-on-boot
+
+------------------------------------
+
+### After install
+
+Log into Google account in gnome settings "Online Account"
+
+------------------------------------
+
+### Install details
+
+From 23.10 Ubuntu, Firefox is available only via snap.
+
+Postgres is installed via snap
+
+-------------------------------------
+
+### Desktop shortcut names
+
+```text
+'org.gnome.Nautilus.desktop'
+'brave-browser.desktop'
+'sublime-text_subl.desktop'
+'intellij-idea-ultimate_intellij-idea-ultimate.desktop' 
+'lens.desktop'
+'postman.desktop'
+```
+
+-------------------------------------
+
+### Linux commands
+
+```shell
+gsettings get org.gnome.shell favorite-apps
+```
+
