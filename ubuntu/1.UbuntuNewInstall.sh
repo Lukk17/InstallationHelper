@@ -96,7 +96,6 @@ sudo apt install maven gradle git -y
 sudo apt install wget curl vim nano -y
 sudo apt install snapd -y
 sudo apt install ca-certificates curl gnupg lsb-release -y
-sudo apt install steam-installer -y
 sudo apt install hardinfo -y
 # lib for installing .AppImage files
 sudo apt install libfuse2 -y
@@ -107,7 +106,6 @@ sudo apt install apache2-utils -y
 # better cat
 sudo apt install bat -y
 sudo apt install openssl -y
-sudo apt install dconf-editor -y
 
 # =====================================================================================
 
@@ -158,6 +156,8 @@ sudo snap install sublime-text --classic
 sudo snap install wps-2019-snap
 sudo snap install okular
 sudo snap install trello-desktop
+
+sudo snap install steam
 
 sudo snap install gimp
 sudo snap install spotify
