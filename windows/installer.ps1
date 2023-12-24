@@ -6,7 +6,7 @@ Write-Output "--------------------------------"
 choco feature enable -n=allowGlobalConfirmation
 Set-ExecutionPolicy AllSigned
 Set-ExecutionPolicy Bypass -Scope Process
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 choco feature enable -n=useRememberedArgumentsForUpgrades
 
 Write-Output
@@ -31,6 +31,13 @@ choco install chocolateygui
 choco install adobereader
 
 Write-Output
+Write-Output "-------------------------"
+Write-Output "| Social apps install.. |"
+Write-Output "-------------------------"
+choco install messenger
+choco install signal
+
+Write-Output
 Write-Output "---------------------------"
 Write-Output "| Games clients install.. |"
 Write-Output "---------------------------"
@@ -47,7 +54,8 @@ Write-Output "--------------------------"
 
 choco install iobit-uninstaller
 choco install drivereasyfree
-
+choco install virtualbox
+choco install vmware-workstation-player
 
 Write-Output
 Write-Output "----------------------"
@@ -211,9 +219,13 @@ Write-Output "-------------------------------------------------"
 Write-Output "| Opening additional softwares download links.. |"
 Write-Output "-------------------------------------------------"
 
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.veracrypt.fr/en/Downloads.html"
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://github.com/AUTOMATIC1111/stable-diffusion-webui"
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://easydiffusion.github.io/docs/installation/"
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.beeper.com/download"
 Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://download.battle.net/en-us/?platform=windows"
 Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.curseforge.com/download/app#download-options"
-Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.veracrypt.fr/en/Downloads.html"
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.tradeskillmaster.com/install"
 Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://signup.leagueoflegends.com/en-us/signup/redownload"
 
 
