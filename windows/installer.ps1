@@ -141,4 +141,6 @@ winget install --accept-source-agreements --accept-package-agreements --source m
 winget install --accept-source-agreements --accept-package-agreements --source msstore XP99VR1BPSBQJ2
 # Galaxy Buds
 winget install --accept-source-agreements --accept-package-agreements --source msstore 9NHTLWTKFZNB
+# Reddit
+winget install --accept-source-agreements --accept-package-agreements --source msstore 9NS3RBQ5HV5F
 
