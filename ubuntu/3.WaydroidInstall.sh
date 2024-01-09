@@ -6,8 +6,6 @@ echo "--------------------------"
 
 temp_folder_path="$HOME/.lukkInstall"
 
-
-
 auroraStore_version="AuroraStore_4.1.1.apk"
 auroraStore_link="https://files.auroraoss.com/AuroraStore/Stable/$auroraStore_version"
 
