@@ -77,6 +77,8 @@ $installScript = {
     choco install partition-assistant-standard
     choco install prime95.portable
     choco install hwinfo
+    # Speedtest CLI
+    choco install speedtest
 
     Write-Output ""
     Write-Output "--------------------------"
@@ -182,6 +184,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NHTLWTKFZNB
     # Reddit
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NS3RBQ5HV5F
+    # Speedtest by Ookla
+    winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4Z1JC
 
     # HBO Max - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
