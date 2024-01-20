@@ -33,6 +33,7 @@ $installScript = {
     choco install utorrent --ignore-checksums
     choco install chocolateygui
     choco install adobereader
+    choco install handbrake
 
     Write-Output ""
     Write-Output "-------------------------"
@@ -186,6 +187,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NS3RBQ5HV5F
     # Speedtest by Ookla
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4Z1JC
+    # Plex Media Server
+    winget install --accept-source-agreements --accept-package-agreements --source msstore XPFM11Z0W10R7G
 
     # HBO Max - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
