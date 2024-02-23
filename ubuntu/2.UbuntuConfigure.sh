@@ -119,6 +119,14 @@ sudo sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT="1"/g' /etc/default/grub
 sudo update-grub
 
 # =====================================================================================
+echo
+echo "---------------------------------------"
+echo "| Configuring GoogleDrive auto sync.. |"
+echo "---------------------------------------"
+
+(crontab -l 2>/dev/null; echo "*/5 * * * * rclone sync /home/lukk/gDrive gDrive:") | crontab -
+
+# =====================================================================================
 
 echo
 echo "-----------------------------------------------"
