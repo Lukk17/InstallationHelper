@@ -106,6 +106,8 @@ sudo apt install apache2-utils -y
 # better cat
 sudo apt install bat -y
 sudo apt install openssl -y
+# for Google Drive sync
+sudo apt install rclone -y
 
 # =====================================================================================
 
@@ -500,3 +502,14 @@ echo "---------------------------"
 # app-image launcher will intercept this copy or move it to its default folder and install
 "$temp_folder_path"/"$bitWardenVersion"
 
+# =====================================================================================
+
+echo
+echo "--------------------------------------"
+echo "| Running Google Drive Sync Config.. |"
+echo "| Proceed with all defaults.         |"
+echo "--------------------------------------"
+
+rclone config
+
+rclone mount gDrive: "$HOME/gDrive"
