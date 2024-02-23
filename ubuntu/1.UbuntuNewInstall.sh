@@ -17,29 +17,23 @@ githubDesktop_download_link="https://github.com/shiftkey/desktop/releases/downlo
 mongoCompassVersion="mongodb-compass_1.33.1_amd64.deb"
 mongoCompass_download_link="https://downloads.mongodb.com/compass/$mongoCompassVersion"
 
-minikubeVersion="minikube_latest_amd64.deb"
-minikube_download_link="https://storage.googleapis.com/minikube/releases/latest/$minikubeVersion"
-
 dockerDesktopVersion="docker-desktop-4.25.2-amd64.deb"
 dockerDesktop_download_link="https://desktop.docker.com/linux/main/amd64/$dockerDesktopVersion"
 
 VMwareVersion="VMware-Player-Full-16.2.4-20089737.x86_64.bundle"
 VMware_download_link="https://download3.vmware.com/software/WKST-PLAYER-1624/$VMwareVersion"
 
-franzVersion="franz_5.9.2_amd64.deb"
-franz_download_link="https://github.com/meetfranz/franz/releases/download/v5.9.2/$franzVersion"
-
 zoomVersion="zoom_amd64.deb"
 zoom_download_link="https://zoom.us/client/5.12.2.4816/$zoomVersion"
-
-bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
-bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
 
 angryIpScannerVersion="ipscan_3.8.2_amd64.deb"
 angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion"
 
 nordvpnVersion="nordvpn-release_1.0.0_all.deb"
 nordvpn_download_link="https://repo.nordvpn.com/deb/nordvpn/debian/pool/main/$nordvpnVersion"
+
+minikubeVersion="minikube_latest_amd64.deb"
+minikube_download_link="https://storage.googleapis.com/minikube/releases/latest/$minikubeVersion"
 
 postmanVersion="linux64"
 postman_download_link="https://dl.pstmn.io/download/latest/$postmanVersion"
@@ -49,6 +43,12 @@ lens_download_link="https://api.k8slens.dev/binaries/$lensVersion"
 
 torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
 tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
+
+bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
+bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
+
+beeperVersion="beeper.AppImage  "
+beeper_download_link="https://download.beeper.com/linux/appImage/x64"
 
 startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
 gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
@@ -156,6 +156,7 @@ sudo snap install sublime-text --classic
 sudo snap install wps-2019-snap
 sudo snap install okular
 sudo snap install trello-desktop
+sudo snap install obsidian --classic
 
 sudo snap install steam
 
@@ -166,8 +167,6 @@ sudo snap install vlc
 sudo snap install discord
 sudo snap install skype --classic
 sudo snap install telegram-desktop
-sudo snap install caprine
-sudo snap install whatsapp-for-linux
 sudo snap install slack
 sudo snap install teams
 
@@ -267,16 +266,6 @@ sudo apt install build-essential -y
 wget "$VMware_download_link" -cO "$temp_folder_path"/"$VMwareVersion"
 sudo chmod +x "$temp_folder_path"/"$VMwareVersion"
 sudo "$temp_folder_path"/"$VMwareVersion"
-
-# =====================================================================================
-
-echo
-echo "-----------------------------------"
-echo "| Installing Franz Communicator.. |"
-echo "-----------------------------------"
-
-wget "$franz_download_link" -cO "$temp_folder_path"/"$franzVersion"
-sudo apt install "$temp_folder_path"/"$franzVersion" -y
 
 # =====================================================================================
 
@@ -443,6 +432,18 @@ wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
 chmod a+x "$temp_folder_path"/"$bitWardenVersion"
 # app-image launcher will intercept this copy or move it to its default folder and install
 "$temp_folder_path"/"$bitWardenVersion"
+
+# =====================================================================================
+
+echo
+echo "--------------------------"
+echo "| Installing Beeper.. |"
+echo "--------------------------"
+
+wget "$beeper_download_link" -cO "$temp_folder_path"/"$beeperVersion"
+chmod a+x "$temp_folder_path"/"$beeperVersion"
+# app-image launcher will intercept this copy or move it to its default folder and install
+"$temp_folder_path"/"$beeperVersion"
 
 # =====================================================================================
 
