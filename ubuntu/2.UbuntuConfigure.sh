@@ -12,7 +12,7 @@ background_path=/usr/share/backgrounds/wallpapers/forest-house.jpg
 temp_folder_path=~/.lukkInstall
 
 default_video_app=vlc_vlc.desktop
-default_internetBrowser_app=brave-browser.desktop
+default_internetBrowser_app=google-chrome.desktop
 default_pdf_app=okular_okular.desktop
 default_word_app=wps-2019-snap_wps.desktop
 default_excel_app=wps-2019-snap_et.desktop
@@ -217,6 +217,18 @@ echo "| Configuring local time.. |"
 echo "----------------------------"
 
 timedatectl set-local-rtc 1 --adjust-system-clock
+
+# =====================================================================================
+
+echo
+echo "-----------------------------------------------------------"
+echo "| Configuring locale and installing additional language.. |"
+echo "-----------------------------------------------------------"
+
+sudo locale-gen pl_PL.UTF-8
+sudo update-locale LANG=pl_PL.UTF-8
+
+sudo apt-get install language-pack-pl language-pack-gnome-pl language-pack-pl-base
 
 # =====================================================================================
 

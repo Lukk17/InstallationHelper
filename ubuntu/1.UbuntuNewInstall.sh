@@ -8,29 +8,29 @@ temp_folder_path="$HOME/.lukkInstall"
 
 MYSQL_PASSWORD="Lukk1234"
 
+appImageLauncherVersion="appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb"
+appImageLauncher_download_link="https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/$appImageLauncherVersion"
+
 chromeVersion="google-chrome-stable_current_amd64.deb"
 chrome_download_link="https://dl.google.com/linux/direct/$chromeVersion"
 
 githubDesktopVersion="GitHubDesktop-linux-3.0.6-linux1.deb"
 githubDesktop_download_link="https://github.com/shiftkey/desktop/releases/download/release-3.0.6-linux1/$githubDesktopVersion"
 
-mongoCompassVersion="mongodb-compass_1.33.1_amd64.deb"
+mongoCompassVersion="mongodb-compass_1.40.4_amd64.deb"
 mongoCompass_download_link="https://downloads.mongodb.com/compass/$mongoCompassVersion"
 
-dockerDesktopVersion="docker-desktop-4.25.2-amd64.deb"
+dockerDesktopVersion="docker-desktop-4.27.2-amd64.deb"
 dockerDesktop_download_link="https://desktop.docker.com/linux/main/amd64/$dockerDesktopVersion"
 
-VMwareVersion="VMware-Player-Full-16.2.4-20089737.x86_64.bundle"
-VMware_download_link="https://download3.vmware.com/software/WKST-PLAYER-1624/$VMwareVersion"
+VMwareVersion="VMware-Player-Full-17.5.0-22583795.x86_64.bundle"
+VMware_download_link="https://download3.vmware.com/software/WKST-PLAYER-1750/$VMwareVersion"
 
 zoomVersion="zoom_amd64.deb"
-zoom_download_link="https://zoom.us/client/5.12.2.4816/$zoomVersion"
+zoom_download_link="https://zoom.us/client/5.17.5.2543/$zoomVersion"
 
-angryIpScannerVersion="ipscan_3.8.2_amd64.deb"
-angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion"
-
-nordvpnVersion="nordvpn-release_1.0.0_all.deb"
-nordvpn_download_link="https://repo.nordvpn.com/deb/nordvpn/debian/pool/main/$nordvpnVersion"
+angryIpScannerVersion="ipscan_3.9.1_amd64.deb"
+angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.9.1/$angryIpScannerVersion"
 
 minikubeVersion="minikube_latest_amd64.deb"
 minikube_download_link="https://storage.googleapis.com/minikube/releases/latest/$minikubeVersion"
@@ -38,17 +38,14 @@ minikube_download_link="https://storage.googleapis.com/minikube/releases/latest/
 postmanVersion="linux64"
 postman_download_link="https://dl.pstmn.io/download/latest/$postmanVersion"
 
-lensVersion="Lens-2022.10.181357-latest.amd64.deb"
-lens_download_link="https://api.k8slens.dev/binaries/$lensVersion"
-
-torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
-tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
-
-bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
-bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
+torVersion="tor-browser-linux-x86_64-13.0.10.tar.xz"
+tor_download_link="https://www.torproject.org/dist/torbrowser/13.0.10/$torVersion"
 
 beeperVersion="beeper.AppImage  "
 beeper_download_link="https://download.beeper.com/linux/appImage/x64"
+
+lutrisVersion="lutris_0.5.16_all.deb"
+lutris_download_link="https://github.com/lutris/lutris/releases/download/v0.5.16/$lutrisVersion"
 
 startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
 gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
@@ -116,9 +113,8 @@ echo "-----------------------------------"
 echo "| Installing App-image Launcher.. |"
 echo "-----------------------------------"
 
-sudo add-apt-repository ppa:appimagelauncher-team/stable -y
-sudo apt-get update
-sudo apt-get install appimagelauncher -y
+wget "$appImageLauncher_download_link" -cO "$temp_folder_path"/"$appImageLauncherVersion"
+sudo apt install "$temp_folder_path"/"$appImageLauncherVersion" -y
 
 # =====================================================================================
 
@@ -151,6 +147,10 @@ echo "----------------------"
 
 sudo snap install android-studio --classic
 sudo snap install flutter --classic
+sudo snap install kubectl --classic
+sudo snap install kontena-lens --classic
+sudo snap install helm --classic
+
 sudo snap install freecad
 sudo snap install cura-slicer
 
@@ -159,6 +159,7 @@ sudo snap install wps-2019-snap
 sudo snap install okular
 sudo snap install trello-desktop
 sudo snap install obsidian --classic
+sudo snap install bitwarden
 
 sudo snap install steam
 
@@ -227,11 +228,15 @@ echo "| Installing NoSQL.. |"
 echo "----------------------"
 
 sudo apt install gnupg -y
-wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
-echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+   sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+   --dearmor
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
 sudo apt update
 sudo apt install mongodb-org -y
+sudo systemctl start mongod
 sudo systemctl enable mongod
+
 wget "$mongoCompass_download_link" -cO "$temp_folder_path"/"$mongoCompassVersion"
 sudo dpkg -i "$temp_folder_path"/"$mongoCompassVersion"
 #in case dependency problems:
@@ -249,13 +254,21 @@ echo "-----------------------"
 wget "$dockerDesktop_download_link" -cO "$temp_folder_path"/"$dockerDesktopVersion"
 sudo chmod +x "$temp_folder_path"/"$dockerDesktopVersion"
 
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 sudo apt update
+
 sudo apt install ./"$dockerDesktopVersion" -y
 
+# required GPG init with key I already generated for Docker Desktop login
+pass init 51BCD02C6594A6F5B62B0ED42AC807C68C0C71D0
+
+# not required anymore
 # adding user to docker group to docker be available to testcontainers in projects
 # https://docs.docker.com/engine/install/linux-postinstall/
-sudo groupadd docker
-sudo usermod -aG docker $USER
+#sudo groupadd docker
+#sudo usermod -aG docker $USER
 
 # =====================================================================================
 
@@ -292,30 +305,6 @@ sudo apt install "$temp_folder_path"/"$angryIpScannerVersion" -y
 # =====================================================================================
 
 echo
-echo "------------------------"
-echo "| Installing NordVPN.. |"
-echo "------------------------"
-
-wget "$nordvpn_download_link" -cO "$temp_folder_path"/"$nordvpnVersion"
-sudo apt install "$temp_folder_path"/"$nordvpnVersion" -y
-sudo apt update
-sudo apt install nordvpn -y
-
-sudo cp ./shortcuts/nordvpn.desktop /usr/share/applications/nordvpn.desktop
-sudo cp ./shortcuts/nordvpn-disconnect.desktop /usr/share/applications/nordvpn-disconnect.desktop
-
-# =====================================================================================
-
-echo
-echo "---------------------------"
-echo "| Installing Kubernetes.. |"
-echo "---------------------------"
-
-sudo snap install kubectl --classic
-
-# =====================================================================================
-
-echo
 echo "-------------------------"
 echo "| Installing minikube.. |"
 echo "-------------------------"
@@ -334,15 +323,6 @@ sudo snap install keepassxc
 
 sudo chmod +x ./config/keepassxc-snap-helper.sh
 ./config/keepassxc-snap-helper.sh
-
-# =====================================================================================
-
-echo
-echo "---------------------"
-echo "| Installing Helm.. |"
-echo "---------------------"
-
-sudo snap install helm --classic
 
 # =====================================================================================
 
@@ -386,16 +366,6 @@ sudo apt install boot-repair -y
 # =====================================================================================
 
 echo
-echo "--------------------------------"
-echo "| Installing Kubernetes Lens.. |"
-echo "--------------------------------"
-
-wget "$lens_download_link" -cO "$temp_folder_path"/"$lensVersion"
-sudo dpkg -i "$temp_folder_path"/"$lensVersion"
-
-# =====================================================================================
-
-echo
 echo "------------------------------"
 echo "| Installing Speedtest CLI.. |"
 echo "------------------------------"
@@ -415,37 +385,57 @@ echo "| Installing Tor Browser.. |"
 echo "----------------------------"
 
 wget "$tor_download_link" -cO "$temp_folder_path"/"$torVersion"
+
 sudo mkdir /opt/tor
 sudo tar -xf "$temp_folder_path"/"$torVersion" -C /opt/tor/
+
 sudo chmod +rwx -R /opt/tor/
 sudo chown lukk -R /opt/tor/
-cd /opt/tor/tor-browser_en-US/
+
+cd /opt/tor/tor-browser/
 ./start-tor-browser.desktop --register-app
+
 cd ~
 
 # =====================================================================================
 
 echo
-echo "--------------------------"
-echo "| Installing BitWarden.. |"
-echo "--------------------------"
+echo "-----------------------"
+echo "| Installing Beeper.. |"
+echo "-----------------------"
 
-wget "$bitWarden_download_link" -cO "$temp_folder_path"/"$bitWardenVersion"
-chmod a+x "$temp_folder_path"/"$bitWardenVersion"
+wget "$beeper_download_link" -cO "$temp_folder_path"/"$beeperVersion"
+chmod +x "$temp_folder_path"/"$beeperVersion"
 # app-image launcher will intercept this copy or move it to its default folder and install
-"$temp_folder_path"/"$bitWardenVersion"
+"$temp_folder_path"/"$beeperVersion"
 
 # =====================================================================================
 
-echo
-echo "--------------------------"
-echo "| Installing Beeper.. |"
-echo "--------------------------"
+#echo
+#echo "---------------------"
+#echo "| Installing Wine.. |"
+#echo "---------------------"
 
-wget "$beeper_download_link" -cO "$temp_folder_path"/"$beeperVersion"
-chmod a+x "$temp_folder_path"/"$beeperVersion"
-# app-image launcher will intercept this copy or move it to its default folder and install
-"$temp_folder_path"/"$beeperVersion"
+#sudo dpkg --add-architecture i386
+#sudo mkdir -pm755 /etc/apt/keyrings
+#sudo wget -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+#sudo wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/mantic/winehq-mantic.sources
+#sudo apt update
+#sudo apt install --install-recommends winehq-stable
+
+#sudo apt install wine64 winbind winetricks
+#
+#wine winecfg &
+
+# winetricks install
+#wget  https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
+#chmod +x winetricks
+#sudo mv -v winetricks /usr/local/bin
+#sudo apt-get install cabextract p7zip unrar unzip wget zenity
+
+# lutris install
+#wget "$lutris_download_link" -cO "$temp_folder_path"/"$lutrisVersion"
+#sudo apt install "$temp_folder_path"/"$lutrisVersion" -y
 
 # =====================================================================================
 
@@ -500,7 +490,7 @@ echo "| Running AppImage apps.. |"
 echo "---------------------------"
 
 # app-image launcher will intercept this copy or move it to its default folder and install
-"$temp_folder_path"/"$bitWardenVersion"
+
 
 # =====================================================================================
 
@@ -510,6 +500,10 @@ echo "| Running Google Drive Sync Config.. |"
 echo "| Proceed with all defaults.         |"
 echo "--------------------------------------"
 
+mkdir "$HOME/Documents/gDrive"
 rclone config
+rclone copy gDrive: /home/lukk/Documents/gDrive
 
-rclone mount gDrive: "$HOME/gDrive"
+# rclone mount will block terminal and only temporarily show files in folder, files will not be accessible offline
+# even with cache it can be problematic because cache will sometime delete unused files
+#rclone mount gDrive: "$HOME/Documents/gDrive"
