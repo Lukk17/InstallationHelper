@@ -88,7 +88,6 @@ $installScript = {
 
     choco install intellijidea-ultimate --params "/InstallDir=C:\Program Files\JetBrains\IntelliJ IDEA"
     choco install oraclejdk
-    choco install python3
     choco install gradle
     choco install maven
     choco install git
@@ -189,6 +188,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4Z1JC
     # Plex Media Server
     winget install --accept-source-agreements --accept-package-agreements --source msstore XPFM11Z0W10R7G
+    # TreeSize
+    winget install --accept-source-agreements --accept-package-agreements --source msstore xp9m26rsclnt88
 
     # HBO Max - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
