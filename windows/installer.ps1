@@ -99,6 +99,7 @@ $installScript = {
     choco install github-desktop
     choco install putty
     choco install filezilla
+    choco install postman
     choco install dbeaver
     choco install openssl
     # no root password
