@@ -1,5 +1,16 @@
 # Windows Installation
 
+---
+Script won't install (require manual installation):
+```
+Acrylic WiFi Analyzer
+```
+```
+NetSpot
+```
+
+---
+
 To be able to install script paste into admin powershell:
 
 ```powershell

@@ -18,6 +18,7 @@ $installScript = {
     Write-Output "| Browsers install.. |"
     Write-Output "----------------------"
 
+    choco install chrome
     choco install brave
     choco install firefox
 
@@ -34,6 +35,10 @@ $installScript = {
     choco install chocolateygui
     choco install adobereader
     choco install handbrake
+    choco install audacity
+    choco install teamviewer
+#    only for accepting incoming connections:
+#    choco install teamviewer.host
 
     Write-Output ""
     Write-Output "-------------------------"
@@ -41,6 +46,7 @@ $installScript = {
     Write-Output "-------------------------"
     choco install messenger
     choco install signal
+    choco install discord
 
     Write-Output ""
     Write-Output "---------------------------"
@@ -67,7 +73,6 @@ $installScript = {
     Write-Output "| OC tools install.. |"
     Write-Output "----------------------"
 
-    choco install inssider-lite --ignore-checksums
     choco install partitionwizard
     choco install advanced-ip-scanner
     choco install diskgenius
@@ -106,6 +111,10 @@ $installScript = {
     choco install mysql
     choco install mongodb
     choco install mongodb-compass
+    choco install python312
+    choco install python310
+    choco install arduino
+
 
     Write-Output ""
     Write-Output "---------------------------------------------"
@@ -151,8 +160,6 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9P6RC76MSMMJ
     # Disney+
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NXQXXLFST89
-    # Arduino IDE
-    winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4RSD8
     # Spotify
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NCBCSZSJRSB
     # Microsoft To Do
@@ -163,8 +170,6 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9WZDNCRFJ3TJ
     # Battery Percentage - Pure Battery add-on
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9N3HDTNCF6Z8
-    # Teamviewer
-    winget install --accept-source-agreements --accept-package-agreements --source msstore XPDM17HK323C4X
     # Razer Cortex addon to Xbox Bar
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9PK9W5QV2PKX
     # Discord
