@@ -14,9 +14,9 @@ temp_folder_path=~/.lukkInstall
 default_video_app=vlc_vlc.desktop
 default_internetBrowser_app=google-chrome.desktop
 default_pdf_app=okular_okular.desktop
-default_word_app=wps-2019-snap_wps.desktop
-default_excel_app=wps-2019-snap_et.desktop
-default_presentation_app=wps-2019-snap_wpp.desktop
+default_word_app=onlyoffice-desktopeditors.desktop
+default_excel_app=onlyoffice-desktopeditors.desktop
+default_presentation_app=onlyoffice-desktopeditors.desktop
 
 zsh_download_link="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
 
@@ -135,18 +135,6 @@ echo "-----------------------------------------------"
 sudo mkdir /opt/emulator
 sudo cp ./icons/android.png /opt/emulator/android.png
 sudo cp ./shortcuts/android.desktop /usr/share/applications/android.desktop
-
-# =====================================================================================
-
-echo
-echo "---------------------"
-echo "| Configuring WPS.. |"
-echo "---------------------"
-
-sudo snap connect wps-2019-snap:cups-control :cups-control
-sudo snap connect wps-2019-snap:alsa :alsa
-sudo snap connect wps-2019-snap:pulseaudio :pulseaudio
-sudo snap connect wps-2019-snap:removable-media :removable-media
 
 # =====================================================================================
 
