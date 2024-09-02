@@ -6,11 +6,12 @@ $installScript = {
     Write-Output "--------------------------------"
     Write-Output "| Chocolatey package install.. |"
     Write-Output "--------------------------------"
-    # Disable prompt
-    choco feature enable -n=allowGlobalConfirmation
+
     Set-ExecutionPolicy AllSigned
     Set-ExecutionPolicy Bypass -Scope Process
     Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    # Disable prompt
+    choco feature enable -n=allowGlobalConfirmation
     choco feature enable -n=useRememberedArgumentsForUpgrades
 
     Write-Output ""
@@ -18,7 +19,7 @@ $installScript = {
     Write-Output "| Browsers install.. |"
     Write-Output "----------------------"
 
-    choco install chrome
+    choco install googlechrome
     choco install brave
     choco install firefox
 
@@ -31,6 +32,7 @@ $installScript = {
     choco install winrar
     choco install googledrive
     choco install sublimetext3
+    choco install onlyoffice
     choco install utorrent --ignore-checksums
     choco install chocolateygui
     choco install adobereader

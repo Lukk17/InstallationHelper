@@ -155,7 +155,7 @@ sudo snap install freecad
 sudo snap install cura-slicer
 
 sudo snap install sublime-text --classic
-sudo snap install wps-2019-snap
+sudo snap install onlyoffice-desktopeditors
 sudo snap install okular
 sudo snap install trello-desktop
 sudo snap install obsidian --classic
