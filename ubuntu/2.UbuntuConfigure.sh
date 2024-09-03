@@ -75,8 +75,6 @@ gsettings set org.gnome.desktop.interface gtk-theme Yaru-dark # Legacy apps, can
 gsettings set org.gnome.desktop.interface color-scheme prefer-dark # new apps
 gsettings reset org.gnome.shell.ubuntu color-scheme # if changed above
 
-
-
 # =====================================================================================
 
 echo
@@ -96,8 +94,8 @@ echo "-----------------------"
 echo "| Enabling services.. |"
 echo "-----------------------"
 
-# sometimes it is not working in 1. script
-sudo systemctl enable mongod
+sudo systemctl enable docker.service
+sudo systemctl enable containerd.service
 
 # =====================================================================================
 
