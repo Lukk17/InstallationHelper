@@ -198,6 +198,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore XPFM11Z0W10R7G
     # TreeSize
     winget install --accept-source-agreements --accept-package-agreements --source msstore xp9m26rsclnt88
+    # Canon
+    winget install --accept-source-agreements --accept-package-agreements --source msstore 9pmk584kqvc2
 
     # HBO Max - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
