@@ -256,21 +256,21 @@ echo "-----------------------"
 
   sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
+  sudo systemctl enable docker
+  sudo systemctl start docker
+
   sudo groupadd docker || true
   sudo usermod -aG docker "$USER"
   newgrp docker
 
-  mkdir -p ~/.docker
+  mkdir -p "$HOME/.docker"
 
   # Set permissions on .docker directory
   sudo chown "$USER":"$USER" /home/"$USER"/.docker -R
   sudo chmod g+rwx "$HOME/.docker" -R
 
-  sudo apt install "$temp_folder_path"/"$dockerDesktopVersion" -y
-
-  # Set permissions on Docker Desktop directories
-  sudo chmod 666 /var/run/docker.sock
-  sudo chown $USER:$USER /var/run/docker.sock
+#  docker desktop has errors with permissions do not work now at all
+#  sudo apt install "$temp_folder_path"/"$dockerDesktopVersion" -y
 
 } || handle_error "Installing Docker"
 
