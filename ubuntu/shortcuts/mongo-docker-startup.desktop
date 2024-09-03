@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Exec=docker run --name mongodb -p 27017:27017 -v /home/mongo-data:/data/db -d mongo:latest
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Mongo Docker startup
