@@ -13,6 +13,7 @@ $installScript = {
     # Disable prompt
     choco feature enable -n=allowGlobalConfirmation
     choco feature enable -n=useRememberedArgumentsForUpgrades
+    choco config set stoponfirstfailure false
 
     Write-Output ""
     Write-Output "----------------------"
