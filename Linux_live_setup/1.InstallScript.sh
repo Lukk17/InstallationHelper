@@ -12,29 +12,21 @@ exodus_download_link="https://downloads.exodus.com/releases/$exodusVersion"
 chromeVersion="google-chrome-stable_current_amd64.deb"
 chrome_download_link="https://dl.google.com/linux/direct/$chromeVersion"
 
-angryIpScannerVersion="ipscan_3.8.2_amd64.deb"
-angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.8.2/$angryIpScannerVersion"
-
-nordvpnVersion="nordvpn-release_1.0.0_all.deb"
-nordvpn_download_link="https://repo.nordvpn.com/deb/nordvpn/debian/pool/main/$nordvpnVersion"
-
 ledgerVersion="ledger-app.AppImage"
 ledger_download_link="https://download.live.ledger.com/latest/linux"
 
-bitWardenVersion="Bitwarden-2022.10.0-x86_64.AppImage"
-bitWarden_download_link="https://github.com/bitwarden/clients/releases/download/desktop-v2022.10.0/$bitWardenVersion"
+trezorVersion="Trezor-Suite-25.4.2-linux-x86_64.AppImage"
+trezor_download_link="https://data.trezor.io/suite/releases/desktop/latest/$trezorVersion"
 
-keepassXC_version="KeePassXC-2.7.4-x86_64.AppImage"
-keepassXC_link="https://github.com/keepassxreboot/keepassxc/releases/download/2.7.4/$keepassXC_version"
+keepassXC_version="KeePassXC-2.7.10-x86_64.AppImage"
+keepassXC_link="https://github.com/keepassxreboot/keepassxc/releases/download/2.7.10/$keepassXC_version"
 
-torVersion="tor-browser-linux64-11.5.4_en-US.tar.xz"
-tor_download_link="https://www.torproject.org/dist/torbrowser/11.5.4/$torVersion"
+torVersion="tor-browser-linux-x86_64-14.5.tar.xz "
+tor_download_link="https://www.torproject.org/dist/torbrowser/14.5/$torVersion"
 
 dashToDock_link="https://extensions.gnome.org/extension/307/dash-to-dock/"
 
 startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
-
-gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
 
 # =====================================================================================
 
@@ -78,7 +70,6 @@ sudo apt install git -y
 sudo apt install wget curl vim nano -y
 sudo apt install snapd -y
 sudo apt install ca-certificates curl gnupg lsb-release -y
-sudo apt install hardinfo -y
 # lib for installing .AppImage files
 sudo apt install libfuse2 -y
 sudo apt install dconf-editor -y
@@ -96,18 +87,6 @@ echo "----------------------------"
 sudo apt install lynis -y
 sudo apt install chkrootkit -y
 sudo apt install clamav -y
-
-# =====================================================================================
-
-echo
-echo "----------------------------"
-echo "| Installing Gnome Tools.. |"
-echo "----------------------------"
-
-sudo add-apt-repository universe -y
-sudo apt install gnome-tweaks gnome-online-accounts gnome-shell-extension-gsconnect -y
-sudo apt install gnome-shell-extension-manager gnome-shell-extensions chrome-gnome-shell -y
-sudo apt install  gnome-calendar -y
 
 # =====================================================================================
 
@@ -137,8 +116,6 @@ echo "----------------------"
 echo "| Installing snaps.. |"
 echo "----------------------"
 
-sudo snap install android-studio --classic
-
 sudo snap install telegram-desktop
 sudo snap install discord
 sudo snap install whatsapp-for-linux
@@ -152,6 +129,8 @@ sudo snap install wps-2019-snap
 sudo snap install sublime-text --classic
 sudo snap install keepassxc
 
+sudo snap install nordvpn
+
 # =====================================================================================
 
 echo
@@ -161,16 +140,6 @@ echo "------------------------"
 
 wget "$chrome_download_link" -cO "$temp_folder_path"/"$chromeVersion"
 sudo dpkg -i "$temp_folder_path"/"$chromeVersion"
-
-# =====================================================================================
-
-echo
-echo "---------------------------------"
-echo "| Installing Angry IP Scanner.. |"
-echo "---------------------------------"
-
-wget "$angryIpScanner_download_link" -cO "$temp_folder_path"/"$angryIpScannerVersion"
-sudo apt install "$temp_folder_path"/"$angryIpScannerVersion" -y
 
 # =====================================================================================
 
@@ -217,6 +186,7 @@ sudo apt update
 sudo apt install firefox -y
 
 # =====================================================================================
+
 echo
 echo "----------------------"
 echo "| Installing Brave.. |"
@@ -232,20 +202,6 @@ sudo apt install brave-browser -y
 # =====================================================================================
 
 echo
-echo "------------------------------"
-echo "| Installing Speedtest CLI.. |"
-echo "------------------------------"
-
-sudo apt install speedtest-cli
-sudo mkdir /opt/speedtest-cli
-sudo cp ./icons/speedtest.png /opt/speedtest-cli/speedtest.png
-sudo cp ./scripts/speedtest-starter.sh /opt/speedtest-cli/speedtest-starter.sh
-sudo chmod +x /opt/speedtest-cli/speedtest-starter.sh
-sudo cp ./shortcuts/speedtest.desktop /usr/share/applications/speedtest.desktop
-
-# =====================================================================================
-
-echo
 echo "-----------------------"
 echo "| Installing Ledger.. |"
 echo "-----------------------"
@@ -253,6 +209,18 @@ echo "-----------------------"
 wget "$ledger_download_link" -cO "$temp_folder_path"/"$ledgerVersion"
 sudo chmod +x "$temp_folder_path"/"$ledgerVersion"
 wget -q -O - "https://raw.githubusercontent.com/LedgerHQ/udev-rules/master/add_udev_rules.sh" | sudo bash
+
+# =====================================================================================
+
+echo
+echo "-----------------------"
+echo "| Installing Trezor.. |"
+echo "-----------------------"
+
+wget "$trezor_download_link" -cO "$temp_folder_path"/"$trezorVersion"
+sudo chmod +x "$temp_folder_path"/"$trezorVersion"
+wget -q -O "$temp_folder_path"/"$trezor-udev_2_all.deb" "https://data.trezor.io/udev/trezor-udev_2_all.deb"
+sudo apt install "$temp_folder_path"/"$trezor-udev_2_all.deb"
 
 # =====================================================================================
 
@@ -326,7 +294,6 @@ xdg-settings set default-web-browser brave-browser.desktop
 #firefox because of brave first launch will ask about being default and won't open all pages
 firefox "$dashToDock_link" &>/dev/null & disown %%
 firefox "$startOverlayInApplicationView_link" &>/dev/null & disown %%
-firefox "$gsconnect_link" &>/dev/null & disown %%
 
 # =====================================================================================
 
@@ -347,7 +314,7 @@ echo "---------------------------"
 
 # app-image launcher will intercept this copy or move it to its default folder and install
 "$temp_folder_path"/"$ledgerVersion"
-"$temp_folder_path"/"$bitWardenVersion"
+"$temp_folder_path"/"$trezorVersion"
 
 # =====================================================================================
 

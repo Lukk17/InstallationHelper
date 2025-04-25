@@ -11,11 +11,6 @@ temp_folder_path=~/.lukkInstall
 
 background_path=/usr/share/backgrounds/wallpapers/forest-house.jpg
 
-login_background_color=#000000
-
-gdmBackgroundVersion="main.tar.gz"
-gdmBackground_download_link="https://github.com/PRATAP-KUMAR/ubuntu-gdm-set-background/archive/$gdmBackgroundVersion"
-
 script_location=~/Documents
 
 default_video_app=vlc_vlc.desktop
@@ -80,23 +75,6 @@ echo "-----------------------"
 sudo cp -a "$temp_folder_path"/wallpapers/ /usr/share/backgrounds/wallpapers/
 gsettings set org.gnome.desktop.background picture-uri-dark "$background_path"
 gsettings set org.gnome.desktop.background picture-uri "$background_path"
-
-# =====================================================================================
-
-echo
-echo "-------------------------------"
-echo "| Changing login background.. |"
-echo "-------------------------------"
-
-wget -P "$temp_folder_path"/ "$gdmBackground_download_link"
-tar -xf "$temp_folder_path"/"$gdmBackgroundVersion" -C "$temp_folder_path"/
-sudo cp "$temp_folder_path"/ubuntu-gdm-set-background-main/ubuntu-gdm-set-background "$script_location"/
-sudo apt update
-sudo apt install libglib2.0-dev-bin -y
-# change to color:
-sudo "$script_location"/ubuntu-gdm-set-background --color "$login_background_color"
-# to reset
-#sudo script_location/ubuntu-gdm-set-background --reset
 
 # =====================================================================================
 
@@ -173,7 +151,7 @@ echo "---------------------------------"
 echo "| Configuring favourites apps.. |"
 echo "---------------------------------"
 
-gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'sublime-text_subl.desktop', 'telegram-desktop_telegram-desktop.desktop', 'ledger-app.desktop', 'android.desktop', 'exodus.desktop']"
+gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'sublime-text_subl.desktop', 'telegram-desktop_telegram-desktop.desktop']"
 
 # =====================================================================================
 
@@ -340,7 +318,6 @@ echo "----------------------------------------"
 echo "| Making sure extensions are enabled.. |"
 echo "----------------------------------------"
 
-gnome-extensions enable gsconnect@andyholmes.github.io
 gnome-extensions enable start-overlay-in-application-view@Hex_cz
 gnome-extensions enable dash-to-dock@micxgx.gmail.com
 gnome-extensions disable ubuntu-dock@ubuntu.com
