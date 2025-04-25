@@ -77,7 +77,7 @@ echo "-----------------------------------"
 {
   wget $appimagelauncher_donwload_link -cO "$temp_folder_path"/"$appimagelauncherVersion"
   sudo chmod a+x "$temp_folder_path"/"$appimagelauncherVersion"
-  sudo apt install "$temp_folder_path"/"$appimagelauncherVersion"
+  sudo apt install "$temp_folder_path"/"$appimagelauncherVersion" -y
 
 } || handle_error "Installing App-image Launcher"
 
@@ -136,9 +136,9 @@ echo "| Installing Exodus.. |"
 echo "-----------------------"
 
 {
-  wget $exodus_download_link -cO "$temp_folder_path"/"$exodusVersion"
+  wget --user-agent="Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36" $exodus_download_link -cO "$temp_folder_path"/"$exodusVersion"
   sudo chmod a+x "$temp_folder_path"/"$exodusVersion"
-  sudo apt install "$temp_folder_path"/"$exodusVersion"
+  sudo apt install "$temp_folder_path"/"$exodusVersion" -y
 
 } || handle_error "Installing Exodus"
 
@@ -176,7 +176,7 @@ echo "------------------------"
 
 {
   wget "$chrome_download_link" -cO "$temp_folder_path"/"$chromeVersion"
-  sudo apt install "$temp_folder_path"/"$chromeVersion"
+  sudo apt install "$temp_folder_path"/"$chromeVersion" -y
 
 } || handle_error "Installing Chrome"
 
@@ -246,25 +246,9 @@ echo "-----------------------"
   wget "$trezor_download_link" -cO "$temp_folder_path"/"$trezorVersion"
   sudo chmod +x "$temp_folder_path"/"$trezorVersion"
   wget -q -O "$temp_folder_path"/trezor-udev_2_all.deb https://data.trezor.io/udev/trezor-udev_2_all.deb
-  sudo apt install "$temp_folder_path"/trezor-udev_2_all.deb
+  sudo apt install "$temp_folder_path"/trezor-udev_2_all.deb -y
 
 } || handle_error "Installing Trezor"
-
-# =====================================================================================
-
-echo
-echo "--------------------------"
-echo "| Installing KeepassXC.. |"
-echo "--------------------------"
-
-{
-  # KeepassXC installed already via snap
-  sudo chmod +x ./config/keepassxc-snap-helper.sh
-  ./config/keepassxc-snap-helper.sh
-
-  sudo cp ./shortcuts/startK.desktop "$HOME"/.config/autostart/startK.desktop
-
-} || handle_error "Installing KeepassXC"
 
 # =====================================================================================
 
