@@ -56,6 +56,9 @@ tor_download_link="https://www.torproject.org/dist/torbrowser/13.0.10/$torVersio
 beeperVersion="beeper.AppImage  "
 beeper_download_link="https://download.beeper.com/linux/appImage/x64"
 
+dockerDesktopVersion="docker-desktop-amd64.deb"
+dockerDesktop_download_link="https://desktop.docker.com/linux/main/amd64/$dockerDesktopVersion"
+
 startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
 gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
 keepassXC_addon_link="https://chrome.google.com/webstore/detail/keepassxc-browser/oboonakemofpalcgghocfoadofidjkkk"
@@ -475,6 +478,18 @@ echo "-----------------------"
     "$temp_folder_path/$beeperVersion"
 
 } || handle_error "Installing Beeper"
+
+# =====================================================================================
+
+echo
+echo "-------------------------------"
+echo "| Installing Docker Desktop.. |"
+echo "-------------------------------"
+{
+  wget "$dockerDesktop_download_link" -cO "$temp_folder_path"/"$dockerDesktopVersion"
+  sudo apt install "$temp_folder_path"/"$dockerDesktopVersion" -y
+
+} || handle_error "Installing Docker Desktop"
 
 # =====================================================================================
 
