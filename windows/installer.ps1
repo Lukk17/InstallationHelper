@@ -88,6 +88,7 @@ $installScript = {
     choco install hwinfo
     # Speedtest CLI
     choco install speedtest
+    choco install tcpview
 
     Write-Output ""
     Write-Output "--------------------------"
