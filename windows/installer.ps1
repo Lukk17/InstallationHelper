@@ -1,3 +1,4 @@
+$outputLogPath = "$env:USERPROFILE\Desktop\output.txt"
 $errorLogPath = "$env:USERPROFILE\Desktop\errors.txt"
 $warningLogPath = "$env:USERPROFILE\Desktop\warnings.txt"
 
@@ -32,11 +33,10 @@ $installScript = {
     choco install geforce-experience
     choco install winrar
     choco install googledrive
-    choco install sublimetext3
+    choco install sublimetext4
     choco install onlyoffice
     choco install utorrent --ignore-checksums
     choco install chocolateygui
-    choco install adobereader
     choco install handbrake
     choco install audacity
     choco install teamviewer
@@ -47,9 +47,7 @@ $installScript = {
     Write-Output "-------------------------"
     Write-Output "| Social apps install.. |"
     Write-Output "-------------------------"
-    choco install messenger
     choco install signal
-    choco install discord
 
     Write-Output ""
     Write-Output "---------------------------"
@@ -59,43 +57,47 @@ $installScript = {
     choco install goggalaxy
     choco install steam
     choco install ea-app
-    choco install epicgameslauncher
 
     Write-Output ""
     Write-Output "--------------------------"
     Write-Output "| System tools install.. |"
     Write-Output "--------------------------"
 
-    choco install iobit-uninstaller
-    choco install drivereasyfree
-    choco install virtualbox
-    choco install vmware-workstation-player
+#    Use Hyper-V manager instead
+#    choco install virtualbox
+#    choco install vmware-workstation-player
+    choco install bluestacks
 
     Write-Output ""
     Write-Output "----------------------"
     Write-Output "| OC tools install.. |"
     Write-Output "----------------------"
 
+    choco install bulk-crap-uninstaller
+#    MiniTool Partition Wizard
     choco install partitionwizard
     choco install advanced-ip-scanner
-    choco install diskgenius
     choco install hwmonitor
     choco install crystaldiskinfo
     choco install crystaldiskmark
     choco install glasswire
-    choco install partition-assistant-standard
     choco install prime95.portable
+    choco install rufus
     choco install hwinfo
+    choco install wiztree
     # Speedtest CLI
     choco install speedtest
+    #https://learn.microsoft.com/en-us/sysinternals/downloads/tcpview
     choco install tcpview
+    #https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
+    choco install autoruns
 
     Write-Output ""
     Write-Output "--------------------------"
     Write-Output "| Coding tools install.. |"
     Write-Output "--------------------------"
 
-    choco install intellijidea-ultimate --params "/InstallDir=C:\Program Files\JetBrains\IntelliJ IDEA"
+    choco install jetbrainstoolbox
     choco install oraclejdk
     choco install gradle
     choco install maven
@@ -109,26 +111,24 @@ $installScript = {
     choco install putty
     choco install filezilla
     choco install postman
-    choco install dbeaver
     choco install openssl
-    # no root password
-    choco install mysql
-    choco install mongodb
     choco install mongodb-compass
     choco install python312
     choco install python310
+    choco install python313
     choco install arduino
 
 
     Write-Output ""
     Write-Output "---------------------------------------------"
-    Write-Output "| Scrcpy - Android managment tool install.. |"
+    Write-Output "| Android managment tool install..          |"
     Write-Output "---------------------------------------------"
 
+    choco install adb
     #scrCpy (android managment)
     # https://github.com/Genymobile/scrcpy
     choco install scrcpy
-    choco install adb
+    choco install kdeconnect-kde
 
     Write-Output ""
     Write-Output "----------------------"
@@ -159,6 +159,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore vlc
     winget install --accept-source-agreements --accept-package-agreements --source msstore zoom
     winget install --accept-source-agreements --accept-package-agreements --source msstore dropbox
+#    https://learn.microsoft.com/en-us/windows/powertoys/
+    winget install --accept-source-agreements --accept-package-agreements --id Microsoft.PowerToys --source winget
 
     # Prime Video
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9P6RC76MSMMJ
@@ -173,7 +175,7 @@ $installScript = {
     # Netflix
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9WZDNCRFJ3TJ
     # Battery Percentage - Pure Battery add-on
-    winget install --accept-source-agreements --accept-package-agreements --source msstore 9N3HDTNCF6Z8
+#    winget install --accept-source-agreements --accept-package-agreements --source msstore 9N3HDTNCF6Z8
     # Razer Cortex addon to Xbox Bar
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9PK9W5QV2PKX
     # Discord
@@ -193,27 +195,16 @@ $installScript = {
     # Galaxy Buds
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NHTLWTKFZNB
     # Reddit
-    winget install --accept-source-agreements --accept-package-agreements --source msstore 9NS3RBQ5HV5F
+#    winget install --accept-source-agreements --accept-package-agreements --source msstore 9NS3RBQ5HV5F
     # Speedtest by Ookla
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4Z1JC
     # Plex Media Server
     winget install --accept-source-agreements --accept-package-agreements --source msstore XPFM11Z0W10R7G
-    # TreeSize
-    winget install --accept-source-agreements --accept-package-agreements --source msstore xp9m26rsclnt88
     # Canon
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9pmk584kqvc2
 
     # HBO Max - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
-
-
-    Write-Output ""
-    Write-Output "-----------------------------------"
-    Write-Output "| Creating folders and symlinks.. |"
-    Write-Output "-----------------------------------"
-
-    New-Item -Path "C:\Gry\" -ItemType Directory
-    New-Item -ItemType SymbolicLink -Path "C:\Program Files (x86)\Steam\steamapps" -Target "C:\Gry\"
 
 
     Write-Output ""
@@ -227,17 +218,19 @@ $installScript = {
     Enable-WindowsOptionalFeature -Online -FeatureName NetFx3
     Enable-WindowsOptionalFeature -Online -FeatureName NetFx4-AdvSrvs
     Enable-WindowsOptionalFeature -Online -FeatureName NetFx4Extended-ASPNET45
+    Enable-WindowsOptionalFeature -Online -FeatureName "Containers-DisposableClientVM" -All
+    Enable-WindowsOptionalFeature -Online -FeatureName "Microsoft-Hyper-V" -All
+#    Allow to mount and access Linux network shares directly from Windows
+    Enable-WindowsOptionalFeature -Online -FeatureName "ServicesForNFS-Client" -All
 
 
     Write-Output ""
     Write-Output "-----------------------------"
-    Write-Output "| Install Android and WSL.. |"
+    Write-Output "| Install WSL.. |"
     Write-Output "-----------------------------"
 
     # Ubuntu
-    winget install --accept-source-agreements --accept-package-agreements --source msstore 9PDXGNCFSCZV
-    # Windows Subsystem for Android
-    winget install --accept-source-agreements --accept-package-agreements --source msstore 9P3395VX91NR
+    wsl --install -d Ubuntu
 
 
     Write-Output ""
@@ -245,14 +238,15 @@ $installScript = {
     Write-Output "| Opening additional softwares download links.. |"
     Write-Output "-------------------------------------------------"
 
-    Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.veracrypt.fr/en/Downloads.html"
-    Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://github.com/AUTOMATIC1111/stable-diffusion-webui"
-    Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://easydiffusion.github.io/docs/installation/"
-    Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.beeper.com/download"
-    Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://download.battle.net/en-us/?platform=windows"
-    Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.curseforge.com/download/app#download-options"
-    Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://www.tradeskillmaster.com/install"
-    Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" "https://signup.leagueoflegends.com/en-us/signup/redownload"
+    Start-Process "https://www.veracrypt.fr/en/Downloads.html"
+    Start-Process "https://github.com/AUTOMATIC1111/stable-diffusion-webui"
+    Start-Process "https://www.beeper.com/download"
+    Start-Process "https://download.battle.net/en-us/?platform=windows"
+    Start-Process "https://www.curseforge.com/download/app#download-options"
+    Start-Process "https://www.tradeskillmaster.com/install"
+    Start-Process "https://signup.leagueoflegends.com/en-us/signup/redownload"
+    Start-Process "https://learn.microsoft.com/en-us/sysinternals/downloads/process-explorer"
+
 
 
     Write-Output ""
@@ -263,5 +257,4 @@ $installScript = {
 
 }
 
-& $installScript 2> $errorLogPath
-& $installScript 3> $$warningLogPath
+& $installScript *>&1 > $outputLogPath 2> $errorLogPath 3> $warningLogPath
