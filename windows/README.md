@@ -20,7 +20,11 @@
    - You won't need to actually set up for domain join at all, or will this mean domain join.  
      It is just the path to get the local account creation to come up.
 
+---
+## Installing drivers
 
+https://www.aorus.com/motherboards/X470-AORUS-GAMING-7-WIFI-rev-10/Support
+https://www.gigabyte.com/Motherboard/X470-AORUS-GAMING-7-WIFI-rev-10/support#dl
 
 ---
 ## Script won't install 
@@ -50,6 +54,7 @@ Go to script properties (alt + enter) and click on checkbox "unblock"
 
 1. Change the folder to install games in each game app (Ubisoft, EA, GOG).
 
+    <br>
 2. Update shortcuts to programs, games. Put shortcuts into global directory:  
    `C:\ProgramData\Microsoft\Windows\Start Menu\Programs`
 
@@ -57,22 +62,28 @@ Go to script properties (alt + enter) and click on checkbox "unblock"
    `C:\Users\Lukk\AppData\Roaming\Microsoft\Windows\Start Menu\Programs`
 
     Folders to create in a global directory: Android, Dev, Edit, Ent (entertainment), Gry, OC, Social.  
+   <br>
 
-3. Create symlink for steam
-    ```powershell
-    New-Item -ItemType SymbolicLink -Path "C:\Program Files (x86)\Steam\steamapps" -Target "C:\Gry\"
+3. Create symlink for steam  
+   3.1. Navigate to the folder `C:\Program Files (x86)\Steam\steamapps`  
+   3.2. Once the common folder is empty, DELETE IT. Cannot create a junction if a folder with that name already exists.
+   3.3. Open PowerShell as an Administrator and run:
+   ```powershell
+    New-Item -ItemType Junction -Path "C:\Program Files (x86)\Steam\steamapps\common" -Target "E:\"
     ```
+    <br>
 4. Create shortcut in task bar for "PC" etc. Copy this project folder "shortcut" to `%USERPROFILE%\Links\shortcuts\`  
    And folder "icons" to `%USERPROFILE%\Links\shortcuts\icons\`  
    Then right-click on shortcut -> "Show more options" -> "Pin to taskbar"
 
+    <br>
 5. Install Google Keep, Calendar, Gmail, Gemini, X(Grok) as Chrome apps and pin to the taskbar
 
+    <br>
 6. (Optional) Import Hibernation at 2AM task into Task Scheduler (command `shutdown /h /t 0`):
    * `Win + R` type `taskschd.msc`
    * In the Action menu, choose "Import Task..."
    * Open `Hibernate@2AM` task from this project folder `tasks`
-
 
 ---
 ## Windows day-to-day

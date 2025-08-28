@@ -34,7 +34,7 @@ $installScript = {
     choco install winrar
     choco install googledrive
     choco install sublimetext4
-    choco install onlyoffice
+#    choco install onlyoffice
     choco install utorrent --ignore-checksums
     choco install chocolateygui
     choco install handbrake
@@ -42,6 +42,9 @@ $installScript = {
     choco install teamviewer
 #    only for accepting incoming connections:
 #    choco install teamviewer.host
+    choco install gimp
+    choco install krita
+    choco install rawtherapee
 
     Write-Output ""
     Write-Output "-------------------------"
@@ -140,6 +143,14 @@ $installScript = {
     choco install autodesk-fusion360
 
     Write-Output ""
+    Write-Output "--------------------------------------"
+    Write-Output "| Volunteer Computing apps install.. |"
+    Write-Output "--------------------------------------"
+    choco install boinc
+    choco install gridcoinwallet
+
+
+    Write-Output ""
     Write-Output "-------------------------------------------"
     Write-Output "| Winget - Microsoft Store apps install.. |"
     Write-Output "-------------------------------------------"
@@ -151,13 +162,12 @@ $installScript = {
 
     winget install --accept-source-agreements --accept-package-agreements --source msstore whatsapp
     winget install --accept-source-agreements --accept-package-agreements --source msstore telegram
-    winget install --accept-source-agreements --accept-package-agreements --source msstore skype
     winget install --accept-source-agreements --accept-package-agreements --source msstore bitwarden
     winget install --accept-source-agreements --accept-package-agreements --source msstore powershell
     winget install --accept-source-agreements --accept-package-agreements --source msstore imgburn
     winget install --accept-source-agreements --accept-package-agreements --source msstore slack
     winget install --accept-source-agreements --accept-package-agreements --source msstore vlc
-    winget install --accept-source-agreements --accept-package-agreements --source msstore zoom
+#    winget install --accept-source-agreements --accept-package-agreements --source msstore zoom
     winget install --accept-source-agreements --accept-package-agreements --source msstore dropbox
 #    https://learn.microsoft.com/en-us/windows/powertoys/
     winget install --accept-source-agreements --accept-package-agreements --id Microsoft.PowerToys --source winget
@@ -172,6 +182,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH5R558
     # Trello
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4XXVW
+    # Microsoft 365 (Office)
+    winget install --accept-source-agreements --accept-package-agreements --source msstore --id cfq7ttc0k5dm
     # Netflix
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9WZDNCRFJ3TJ
     # Battery Percentage - Pure Battery add-on
@@ -202,6 +214,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore XPFM11Z0W10R7G
     # Canon
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9pmk584kqvc2
+    # Inkscape
+    winget install --accept-source-agreements --accept-package-agreements --source msstore 9pd9bhglfc7h
 
     # HBO Max - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
@@ -240,12 +254,16 @@ $installScript = {
 
     Start-Process "https://www.veracrypt.fr/en/Downloads.html"
     Start-Process "https://github.com/AUTOMATIC1111/stable-diffusion-webui"
+    Start-Process "https://lmstudio.ai/"
     Start-Process "https://www.beeper.com/download"
     Start-Process "https://download.battle.net/en-us/?platform=windows"
     Start-Process "https://www.curseforge.com/download/app#download-options"
     Start-Process "https://www.tradeskillmaster.com/install"
     Start-Process "https://signup.leagueoflegends.com/en-us/signup/redownload"
     Start-Process "https://learn.microsoft.com/en-us/sysinternals/downloads/process-explorer"
+    Start-Process "https://www.torproject.org/download/"
+    Start-Process "https://pawns.app/downloads/"
+    Start-Process "https://geeks3d.com/furmark/downloads/"
 
 
 
