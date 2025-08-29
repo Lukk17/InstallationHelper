@@ -216,6 +216,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9pmk584kqvc2
     # Inkscape
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9pd9bhglfc7h
+    # Nvidia Control Panel
+    winget install --accept-source-agreements --accept-package-agreements --source msstore 9nf8h0h7wmlt
 
     # HBO Max - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
@@ -264,6 +266,7 @@ $installScript = {
     Start-Process "https://www.torproject.org/download/"
     Start-Process "https://pawns.app/downloads/"
     Start-Process "https://geeks3d.com/furmark/downloads/"
+    Start-Process "https://www.nvidia.com/en-us/software/nvidia-app/"
 
 
 
