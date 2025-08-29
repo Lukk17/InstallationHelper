@@ -103,12 +103,14 @@ After installing your software, run Autoruns and uncheck anything in the "Logon"
 
 ### Periodic System Health Checks
 
-```powershell
-sfc /scannow
-```
-
+Repair the core Windows system image by downloading fresh files from Windows Update to fix deep corruption in the component store:
 ```powershell
 DISM /Online /Cleanup-Image /RestoreHealth
+```
+
+Uses healthy (after DISM repair) component store to scan and replace any corrupted files currently in use by the operating system:
+```powershell
+sfc /scannow
 ```
 
 ### Chris Titus Tech tool
