@@ -229,6 +229,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9pd9bhglfc7h
     # Nvidia Control Panel
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9nf8h0h7wmlt
+    # Docker Desktop
+    winget install --accept-source-agreements --accept-package-agreements --source msstore xp8cbj40xlbwkx
 
     # HBO Max - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
@@ -256,6 +258,7 @@ $installScript = {
     Write-Output "| Install WSL.. |"
     Write-Output "-----------------------------"
 
+    wsl --update
     # Ubuntu
     wsl --install -d Ubuntu
 
