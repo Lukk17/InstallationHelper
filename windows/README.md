@@ -5,6 +5,11 @@
 
 1. The "No Internet" Method (Easiest)
    - When you get to the "Let's connect you to a network" screen, do not connect to Wi-Fi or plug in an Ethernet cable. 
+        to skip connection to Wi-Fi or Ethernet in installer you need to `Shift` + `F10` and:
+        ```
+        OOBE\BYPASSNRO
+        ```
+     Computer will restart.
    - Look for and click on the link that says "I don't have internet."
    - On the next screen, it will likely try to convince you again. Click the link that says, "Continue with limited setup."
    - The very next screen will be "Who's going to use this PC?", which is the prompt to create a local account.
