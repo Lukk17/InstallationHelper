@@ -75,17 +75,20 @@ Go to script properties (alt + enter) and click on checkbox "unblock"
    3.3. Open PowerShell as an Administrator and run:
    ```powershell
     New-Item -ItemType Junction -Path "C:\Program Files (x86)\Steam\steamapps\common" -Target "E:\"
-    ```
-    <br>
+   ```
+   <br>
 4. Create shortcut in task bar for "PC" etc. Copy this project folder "shortcut" to `%USERPROFILE%\Links\shortcuts\`  
    And folder "icons" to `%USERPROFILE%\Links\shortcuts\icons\`  
    Then right-click on shortcut -> "Show more options" -> "Pin to taskbar"
 
-    <br>
+   <br>
 5. Install Google Keep, Calendar, Gmail, Gemini, X(Grok) as Chrome apps and pin to the taskbar
-
-    <br>
-6. (Optional) Import Hibernation at 2AM task into Task Scheduler (command `shutdown /h /t 0`):
+   
+   <br>
+6. Update Windows env variables, so latest java and python version will bo on top (so preferred).
+    
+   <br>
+7. (Optional) Import Hibernation at 2AM task into Task Scheduler (command `shutdown /h /t 0`):
    * `Win + R` type `taskschd.msc`
    * In the Action menu, choose "Import Task..."
    * Open `Hibernate@2AM` task from this project folder `tasks`
