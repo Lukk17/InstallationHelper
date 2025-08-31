@@ -21,6 +21,7 @@ $installScript = {
     choco feature enable -n=allowGlobalConfirmation
     choco feature enable -n=useRememberedArgumentsForUpgrades
     choco config set stoponfirstfailure false
+    choco install chocolatey-core.extension
 
     Write-Output ""
     Write-Output "----------------------"
@@ -126,6 +127,10 @@ $installScript = {
     choco install python310
     choco install python313
     choco install arduino
+    choco install temurin17
+    choco install openjdk --version=21.0.2
+    # pin version so it will not be updated to 22 or higher
+    choco pin add -n=openjdk --version=21.0.2
 
 
     Write-Output ""
