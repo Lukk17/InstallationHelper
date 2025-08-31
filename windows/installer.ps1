@@ -2,6 +2,12 @@ $outputLogPath = "$env:USERPROFILE\Desktop\output.txt"
 $errorLogPath = "$env:USERPROFILE\Desktop\errors.txt"
 $warningLogPath = "$env:USERPROFILE\Desktop\warnings.txt"
 
+# Create or clear the log files
+"" | Out-File -FilePath $outputLogPath -Force
+"" | Out-File -FilePath $errorLogPath -Force
+"" | Out-File -FilePath $warningLogPath -Force
+
+
 $installScript = {
     Write-Output ""
     Write-Output "--------------------------------"
@@ -278,4 +284,18 @@ $installScript = {
 
 }
 
-& $installScript *>&1 > $outputLogPath 2> $errorLogPath 3> $warningLogPath
+# Run the script and capture all output
+& $installScript 2>&1 3>&1 | ForEach-Object {
+    # Write to console
+    $_
+
+    # Determine which file to write to based on stream type
+    if ($_ -is [System.Management.Automation.ErrorRecord]) {
+        $_ | Out-File -FilePath $errorLogPath -Append
+    } elseif ($_ -is [System.Management.Automation.WarningRecord]) {
+        $_ | Out-File -FilePath $warningLogPath -Append
+    } else {
+        $_ | Out-File -FilePath $outputLogPath -Append
+    }
+}
+
