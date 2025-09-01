@@ -85,16 +85,65 @@ Go to script properties (alt + enter) and click on checkbox "unblock"
 5. Install Google Keep, Calendar, Gmail, Gemini, X(Grok) as Chrome apps and pin to the taskbar
    
    <br>
-6. Update Windows env variables, so latest java and python version will bo on top (so preferred).
-    
+6. Check Windows env variables, so the latest java and python version will bo on top (so preferred).  
+   Installer script is already calling `env-variable-config.ps1` which will set it up, but can do duplicates.
+   Env variables:
+       
+    | Environment Variable      | Value                                                        |
+    | ------------------------- | ------------------------------------------------------------ |
+    | `ChocolateyToolsLocation` | `C:\tools`                                                   |
+    | `ChocolateyInstall`       | `C:\ProgramData\chocolatey`                                  |
+    | `ANDROID_HOME`            | `C:\tools\android`                                           |
+    | `ANDROID_SDK_ROOT`        | `C:\tools\android`                                           |
+    | `JAVA_HOME`               | `C:\Program Files\OpenJDK\jdk-21.0.2`                        |
+    | `GRADLE_HOME`             | `C:\ProgramData\chocolatey\lib\gradle\tools\gradle-9.0.0`    |
+        
    <br>
-7. (Optional) Import Hibernation at 2AM task into Task Scheduler (command `shutdown /h /t 0`):
-   * `Win + R` type `taskschd.msc`
-   * In the Action menu, choose "Import Task..."
-   * Open `Hibernate@2AM` task from this project folder `tasks`
+7. While installing Visual Studio, install `Desktop development with C++"` for Flutter Windows app development.
+    
+    <br>
+8. Setup Windows terminal
+   In terminal settings duplicate PowerShell profile and name it "Admin PowerShell 7"  
+   and check checkbox "Run profile as Administrator".  
+   In JSON this should look like:
+    ```json
+    {
+        "colorScheme": "Campbell",
+        "commandline": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\"",
+        "elevate": true,
+        "guid": "{14fee2cb-2c5e-4389-967a-f8f66402cb53}",
+        "hidden": false,
+        "icon": "ms-appx:///ProfileIcons/pwsh.png",
+        "name": "Admin PowerShell 7",
+        "startingDirectory": "%USERPROFILE%"
+    }
+    ```
+   <br>
+9. (Optional) update dev apps folder location by running `dev-apps-home-change.ps1`.
+   This will set up maven, gradle to use new location for its folders like `.m2` and `.gradle` to not use home folder.
 
+   <br>
+10. (Optional) Import Hibernation at 2AM task into Task Scheduler (command `shutdown /h /t 0`):
+    - `Win + R` type `taskschd.msc`
+    - In the Action menu, choose "Import Task..."
+    - Open `Hibernate@2AM` task from this project folder `tasks`
+
+<br>
 ---
 ## Windows day-to-day
+
+### Powershell helpful comands
+
+Check lib install location and versions:
+```powershell
+Get-Command java
+```
+```powershell
+Get-Command python
+```
+```powershell
+Get-Command pip
+```
 
 ### Autoruns
 

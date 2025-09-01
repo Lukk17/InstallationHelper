@@ -52,6 +52,7 @@ $installScript = {
     choco install gimp
     choco install krita
     choco install rawtherapee
+    choco install obsidian
 
     Write-Output ""
     Write-Output "-------------------------"
@@ -97,10 +98,13 @@ $installScript = {
     choco install wiztree
     # Speedtest CLI
     choco install speedtest
-    #https://learn.microsoft.com/en-us/sysinternals/downloads/tcpview
+    # https://learn.microsoft.com/en-us/sysinternals/downloads/tcpview
     choco install tcpview
-    #https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
+    # https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
     choco install autoruns
+    # sometime dont work, then download from:
+    # https://www.msi.com/Landing/afterburner/graphics-cards
+    choco install msiafterburner
 
     Write-Output ""
     Write-Output "--------------------------"
@@ -231,6 +235,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9nf8h0h7wmlt
     # Docker Desktop
     winget install --accept-source-agreements --accept-package-agreements --source msstore xp8cbj40xlbwkx
+    # Visual Studio Community
+    winget install --accept-source-agreements --accept-package-agreements --source msstore xpdcfjdklzjlp8
 
     # HBO Max - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
@@ -255,12 +261,19 @@ $installScript = {
 
     Write-Output ""
     Write-Output "-----------------------------"
-    Write-Output "| Install WSL.. |"
+    Write-Output "| Install WSL..             |"
     Write-Output "-----------------------------"
 
     wsl --update
     # Ubuntu
     wsl --install -d Ubuntu
+
+    Write-Output ""
+    Write-Output "-----------------------------"
+    Write-Output "| Configure env variables.. |"
+    Write-Output "-----------------------------"
+
+    .\env-variable-config.ps1
 
 
     Write-Output ""
@@ -281,6 +294,8 @@ $installScript = {
     Start-Process "https://pawns.app/downloads/"
     Start-Process "https://geeks3d.com/furmark/downloads/"
     Start-Process "https://www.nvidia.com/en-us/software/nvidia-app/"
+    Start-Process "https://www.msi.com/Landing/afterburner/graphics-cards"
+    Start-Process "https://learn.microsoft.com/en-us/powershell/scripting/whats-new/migrating-from-windows-powershell-51-to-powershell-7?view=powershell-7.5"
 
 
 
