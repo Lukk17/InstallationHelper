@@ -132,7 +132,7 @@ Go to script properties (alt + enter) and click on checkbox "unblock"
 ---
 ## Windows day-to-day
 
-### Powershell helpful comands
+### Powershell helpful commands
 
 Check lib install location and versions:
 ```powershell
@@ -143,6 +143,24 @@ Get-Command python
 ```
 ```powershell
 Get-Command pip
+```
+
+### Computer name change
+1. Press Windows Key + R, type sysdm.cpl, and press Enter.
+2. On the Computer Name tab, click the Change... button.
+
+Registry keys with computer name: 
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName
+```
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName
+```
+```
+HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters
+```
+```
+Computer\HKEY_USERS\S-1-5-21-4255586283-1945908835-3598866005-1003\Software\Classes\CLSID\{6FDE7A70-351B-11d6-988B-0010B57A8BB7}\InprocServer32
 ```
 
 ### Autoruns
