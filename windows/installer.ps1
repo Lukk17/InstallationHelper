@@ -128,6 +128,7 @@ $installScript = {
     choco install openssl
     choco install mongodb-compass
     choco install python312
+    choco install python311
     choco install python310
     choco install python313
     choco install arduino
@@ -135,6 +136,8 @@ $installScript = {
     choco install openjdk --version=21.0.2
     # pin version so it will not be updated to 22 or higher
     choco pin add -n=openjdk --version=21.0.2
+    # for audio transcription sdk
+    choco install ffmpeg
 
 
     Write-Output ""
