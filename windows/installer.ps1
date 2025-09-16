@@ -136,8 +136,10 @@ $installScript = {
     choco install openjdk --version=21.0.2
     # pin version so it will not be updated to 22 or higher
     choco pin add -n=openjdk --version=21.0.2
-    # for audio transcription sdk
+    # for audio manipulation in transcription
     choco install ffmpeg
+    # for audio trimming
+    choco install sox.portable
 
 
     Write-Output ""
@@ -298,6 +300,7 @@ $installScript = {
     Start-Process "https://geeks3d.com/furmark/downloads/"
     Start-Process "https://www.nvidia.com/en-us/software/nvidia-app/"
     Start-Process "https://www.msi.com/Landing/afterburner/graphics-cards"
+    Start-Process "https://ij.manual.canon/ij/webmanual/WebGS/WGS2/wgs_start.html?lng=pl&type=setup&area=eu&mdl=TS7450&os=w"
     Start-Process "https://learn.microsoft.com/en-us/powershell/scripting/whats-new/migrating-from-windows-powershell-51-to-powershell-7?view=powershell-7.5"
 
 

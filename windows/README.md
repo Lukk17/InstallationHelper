@@ -132,7 +132,7 @@ Go to script properties (alt + enter) and click on checkbox "unblock"
 ---
 ## Windows day-to-day
 
-### Powershell helpful commands
+### PowerShell helpful commands
 
 Check lib install location and versions:
 ```powershell
@@ -161,7 +161,7 @@ HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters
 ```
 ```
 Computer\HKEY_USERS\S-1-5-21-4255586283-1945908835-3598866005-1003\Software\Classes\CLSID\{6FDE7A70-351B-11d6-988B-0010B57A8BB7}\InprocServer32
-```
+```4
 
 ### Autoruns
 
