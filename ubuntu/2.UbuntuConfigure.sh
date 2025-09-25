@@ -38,7 +38,22 @@ mesloItalic_download_link="https://github.com/romkatv/powerlevel10k-media/raw/ma
 mesloBoldItalicName="MesloLGS NF Bold Italic.ttf"
 mesloBoldItalic_download_link="https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf"
 
+startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
+gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
+keepassXC_addon_link="https://chrome.google.com/webstore/detail/keepassxc-browser/oboonakemofpalcgghocfoadofidjkkk"
+notification_addod_link="https://extensions.gnome.org/extension/258/notifications-alert-on-user-menu/"
+
 # =====================================================================================
+
+echo
+echo "--------------------------------"
+echo "| Setting up KeePassXC addon.. |"
+echo "--------------------------------"
+
+./config/keepassxc-snap-helper.sh
+
+# =====================================================================================
+
 
 echo
 echo "---------------------------"
@@ -115,24 +130,6 @@ echo "----------------------"
 
 sudo sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT="1"/g' /etc/default/grub
 sudo update-grub
-
-# =====================================================================================
-echo
-echo "---------------------------------------"
-echo "| Configuring GoogleDrive auto sync.. |"
-echo "---------------------------------------"
-
-(crontab -l 2>/dev/null; echo "*/5 * * * * rclone sync /home/lukk/gDrive gDrive:") | crontab -
-
-# =====================================================================================
-
-echo
-echo "-----------------------------------------------"
-echo "| Configuring shortcut for Android Emulator.. |"
-echo "-----------------------------------------------"
-sudo mkdir /opt/emulator
-sudo cp ./icons/android.png /opt/emulator/android.png
-sudo cp ./shortcuts/android.desktop /usr/share/applications/android.desktop
 
 # =====================================================================================
 
@@ -214,7 +211,7 @@ echo "-----------------------------------------------------------"
 sudo locale-gen pl_PL.UTF-8
 sudo update-locale LANG=pl_PL.UTF-8
 
-sudo apt-get install language-pack-pl language-pack-gnome-pl language-pack-pl-base
+sudo apt-get install language-pack-pl language-pack-gnome-pl language-pack-pl-base -y
 
 # =====================================================================================
 
@@ -258,7 +255,7 @@ xdg-mime default $default_presentation_app application/vnd.openxmlformats-office
 xdg-mime default $default_pdf_app application/pdf
 xdg-mime default $default_pdf_app application/x-gzpdf
 xdg-mime default $default_pdf_app application/x-xzpdf
-xdg-mime default $default_internetBrowser_app application/xhtml+xml 
+xdg-mime default $default_internetBrowser_app application/xhtml+xml
 xdg-mime default $default_internetBrowser_app text/html
 xdg-mime default $default_internetBrowser_app x-scheme-handler/http
 xdg-mime default $default_internetBrowser_app x-scheme-handler/https
@@ -418,6 +415,22 @@ echo "| Now you need to setup Oh My Zsh |"
 echo "-----------------------------------"
 
 gnome-terminal
+
+# =====================================================================================
+
+echo
+echo "-------------------------------------------------"
+echo "| Opening extension install pages in browsers.. |"
+echo "-------------------------------------------------"
+{
+    xdg-settings set default-web-browser google-chrome.desktop
+
+    google-chrome "$startOverlayInApplicationView_link" &>/dev/null & disown %%
+    google-chrome "$gsconnect_link" &>/dev/null & disown %%
+    google-chrome "$keepassXC_addon_link" &>/dev/null & disown %%
+    google-chrome "$notification_addod_link" &>/dev/null & disown %%
+
+} || handle_error "Opening extension install pages in browsers"
 
 # =====================================================================================
 

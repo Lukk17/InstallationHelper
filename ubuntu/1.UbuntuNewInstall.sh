@@ -18,19 +18,8 @@ echo "--------------------------"
 
 temp_folder_path="$HOME/.lukkInstall"
 
-MYSQL_PASSWORD="Lukk1234"
-
 appImageLauncherVersion="appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb"
 appImageLauncher_download_link="https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/$appImageLauncherVersion"
-
-chromeVersion="google-chrome-stable_current_amd64.deb"
-chrome_download_link="https://dl.google.com/linux/direct/$chromeVersion"
-
-githubDesktopVersion="GitHubDesktop-linux-3.0.6-linux1.deb"
-githubDesktop_download_link="https://github.com/shiftkey/desktop/releases/download/release-3.0.6-linux1/$githubDesktopVersion"
-
-mongoCompassVersion="mongodb-compass_1.43.5_amd64.deb"
-mongoCompass_download_link="https://downloads.mongodb.com/compass/$mongoCompassVersion"
 
 dockerDesktopVersion="docker-desktop-amd64.deb"
 dockerDesktop_download_link="https://desktop.docker.com/linux/main/amd64/$dockerDesktopVersion"
@@ -38,31 +27,14 @@ dockerDesktop_download_link="https://desktop.docker.com/linux/main/amd64/$docker
 VMwareVersion="VMware-Player-Full-17.5.0-22583795.x86_64.bundle"
 VMware_download_link="https://download3.vmware.com/software/WKST-PLAYER-1750/$VMwareVersion"
 
-zoomVersion="zoom_amd64.deb"
-zoom_download_link="https://zoom.us/client/5.17.5.2543/$zoomVersion"
-
-angryIpScannerVersion="ipscan_3.9.1_amd64.deb"
-angryIpScanner_download_link="https://github.com/angryip/ipscan/releases/download/3.9.1/$angryIpScannerVersion"
-
 minikubeVersion="minikube_latest_amd64.deb"
 minikube_download_link="https://storage.googleapis.com/minikube/releases/latest/$minikubeVersion"
 
-postmanVersion="linux64"
-postman_download_link="https://dl.pstmn.io/download/latest/$postmanVersion"
+beeperVersion="beeper.AppImage"
+beeper_download_link="https://api.beeper.com/desktop/download/linux/x64/stable/com.automattic.beeper.desktop"
 
-torVersion="tor-browser-linux-x86_64-13.0.10.tar.xz"
-tor_download_link="https://www.torproject.org/dist/torbrowser/13.0.10/$torVersion"
-
-beeperVersion="beeper.AppImage  "
-beeper_download_link="https://download.beeper.com/linux/appImage/x64"
-
-dockerDesktopVersion="docker-desktop-amd64.deb"
-dockerDesktop_download_link="https://desktop.docker.com/linux/main/amd64/$dockerDesktopVersion"
-
-startOverlayInApplicationView_link="https://extensions.gnome.org/extension/5040/start-overlay-in-application-view/"
-gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
-keepassXC_addon_link="https://chrome.google.com/webstore/detail/keepassxc-browser/oboonakemofpalcgghocfoadofidjkkk"
-notification_addod_link="https://extensions.gnome.org/extension/258/notifications-alert-on-user-menu/"
+jetbrainsToolboxVersion="jetbrains-toolbox-2.9.0.56191"
+jetbrainsToolbox_download_link="https://download.jetbrains.com/toolbox/$jetbrainsToolboxVersion.tar.gz"
 
 # =====================================================================================
 
@@ -96,7 +68,7 @@ echo "------------------------------"
 echo "| Installing Open Java JDK.. |"
 echo "------------------------------"
 {
-    sudo apt install openjdk-17-jdk openjdk-17-jre -y
+    sudo apt install openjdk-21-jdk -y
 
 } || handle_error "Installing Open Java JDK"
 
@@ -122,8 +94,6 @@ echo "---------------------"
   # better cat
   sudo apt install bat -y
   sudo apt install openssl -y
-  # for Google Drive sync
-  sudo apt install rclone -y
 
 } || handle_error "Installing apps"
 
@@ -140,6 +110,23 @@ echo "-----------------------------------"
 } || handle_error "Installing App-image Launcher"
 
 # =====================================================================================
+
+
+echo
+echo "-----------------------------------"
+echo "| Installing Flatpak.. |"
+echo "-----------------------------------"
+{
+    sudo apt install flatpak -y
+    sudo apt install gnome-software-plugin-flatpak -y
+    source /etc/profile.d/flatpak.sh
+    sudo flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    sudo flatpak update --system -y
+
+} || handle_error "Installing Flatpak"
+
+# =====================================================================================
+
 
 echo
 echo "----------------------------"
@@ -172,17 +159,17 @@ echo "----------------------"
 echo "| Installing snaps.. |"
 echo "----------------------"
 {
-  sudo snap install android-studio --classic
   sudo snap install flutter --classic
   sudo snap install kubectl --classic
   sudo snap install kontena-lens --classic
   sudo snap install helm --classic
+  sudo snap install node --classic
+  sudo snap install postman
 
   sudo snap install freecad
   sudo snap install cura-slicer
 
   sudo snap install sublime-text --classic
-  sudo snap install onlyoffice-desktopeditors
   sudo snap install okular
   sudo snap install trello-desktop
   sudo snap install obsidian --classic
@@ -191,112 +178,67 @@ echo "----------------------"
   sudo snap install steam
 
   sudo snap install gimp
+  sudo snap install krita
   sudo snap install spotify
   sudo snap install vlc
 
   sudo snap install discord
-  sudo snap install skype --classic
   sudo snap install telegram-desktop
   sudo snap install slack
   sudo snap install teams
+
+  sudo snap install brave
 
 } || handle_error "Installing snaps"
 
 # =====================================================================================
 
+
 echo
-echo "------------------------"
-echo "| Installing Chrome... |"
-echo "------------------------"
+echo "-----------------------------"
+echo "| Installing flatpak apps.. |"
+echo "-----------------------------"
+
 {
-  wget "$chrome_download_link" -cO "$temp_folder_path"/"$chromeVersion" &&
-  sudo apt install "$temp_folder_path"/"$chromeVersion" -y
-} || handle_error "Installing Chrome"
+   sudo flatpak install --system flathub org.angryip.ipscan -y
+   sudo flatpak install --system flathub us.zoom.Zoom -y
+   sudo flatpak install --system flathub com.google.Chrome -y
+   sudo flatpak install --system flathub io.github.shiftey.Desktop -y
+   sudo flatpak install --system flathub com.wps.Office -y
+   sudo flatpak install --system flathub org.torproject.torbrowser-launcher -y
+
+} || handle_error "Installing flatpak apps"
 
 # =====================================================================================
 
 echo
 echo "-------------------------------"
-echo "| Installing GitHubDesktop... |"
+echo "| Installing Docker Desktop.. |"
 echo "-------------------------------"
 {
-    sudo wget "$githubDesktop_download_link" -cO "$temp_folder_path/$githubDesktopVersion" &&
-    sudo apt install -y gdebi-core &&
-    sudo gdebi -n "$temp_folder_path/$githubDesktopVersion"
-} || handle_error "Installing GitHub Desktop"
+    # Add Docker's official GPG key:
+    sudo apt update
+    sudo apt install ca-certificates curl -y
+    sudo install -m 0755 -d /etc/apt/keyrings-y
+    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-# =====================================================================================
+    # Add the repository to Apt sources:
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    sudo apt update
 
-echo
-echo "-------------------------------------------"
-echo "| Installing Intellij Idea... |"
-echo "-------------------------------------------"
-{
-    sudo snap install intellij-idea-ultimate --classic
-} || handle_error "Installing IntelliJ IDEA"
+    sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    sudo systemctl start docker
+    sudo systemctl enable docker
 
-# =====================================================================================
+    wget "$dockerDesktop_download_link" -cO "$temp_folder_path"/"$dockerDesktopVersion"
+    sudo apt install "$temp_folder_path"/"$dockerDesktopVersion" -y
 
-echo
-echo "-----------------------"
-echo "| Installing Docker.. |"
-echo "-----------------------"
-{
-  wget "$dockerDesktop_download_link" -cO "$temp_folder_path"/"$dockerDesktopVersion"
-  sudo chmod +x "$temp_folder_path"/"$dockerDesktopVersion"
+} || handle_error "Installing Docker Desktop"
 
-  sudo apt install ca-certificates curl
-  sudo install -m 0755 -d /etc/apt/keyrings
-  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-  sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-  # Add the repository to Apt sources:
-  echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-  sudo apt update
-
-  sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-  sudo systemctl enable docker
-  sudo systemctl start docker
-
-  sudo groupadd docker || true
-  sudo usermod -aG docker "$USER"
-  newgrp docker
-
-  mkdir -p "$HOME/.docker"
-
-  # Set permissions on .docker directory
-  sudo chown "$USER":"$USER" /home/"$USER"/.docker -R
-  sudo chmod g+rwx "$HOME/.docker" -R
-
-#  docker desktop has errors with permissions do not work now at all
-#  sudo apt install "$temp_folder_path"/"$dockerDesktopVersion" -y
-
-} || handle_error "Installing Docker"
-
-# =====================================================================================
-
-echo
-echo "-------------------"
-echo "| Installing SQL. |"
-echo "-------------------"
-{
-    # Install MySQL and set root password
-    sudo debconf-set-selections <<< "mysql-server mysql-server/root_password password $MYSQL_PASSWORD"
-    sudo debconf-set-selections <<< "mysql-server mysql-server/root_password_again password $MYSQL_PASSWORD"
-    sudo apt install mysql-server -y
-    sudo snap install mysql-workbench-community
-
-    # Avoid blocking workbench by Linux AppArmor
-    sudo snap connect mysql-workbench-community:password-manager-service :password-manager-service
-
-    # Install PostgreSQL
-    sudo snap install postgresql
-
-} || handle_error "Installing SQL"
 
 # =====================================================================================
 
@@ -312,14 +254,7 @@ echo "----------------------"
     cp ./shortcuts/mongo-docker-startup.desktop "$HOME/.config/autostart/"
     chmod +x "$HOME/.config/autostart/mongo-docker-startup.desktop"
 
-    # Install MongoDB Compass
-    wget "$mongoCompass_download_link" -cO "$temp_folder_path/$mongoCompassVersion"
-    sudo dpkg -i "$temp_folder_path/$mongoCompassVersion"
-
-    sudo apt --fix-broken install -y
-
-    # Reinstall MongoDB Compass if needed
-    sudo dpkg -i "$temp_folder_path/$mongoCompassVersion"
+    sudo flatpak --system install flathub com.mongodb.Compass -y
 
 } || handle_error "Installing NoSQL"
 
@@ -336,30 +271,6 @@ echo "------------------------------------------"
     sudo "$temp_folder_path/$VMwareVersion"
 
 } || handle_error "Installing VMware Workstation Player"
-
-# =====================================================================================
-
-echo
-echo "---------------------"
-echo "| Installing Zoom.. |"
-echo "---------------------"
-{
-    wget "$zoom_download_link" -cO "$temp_folder_path/$zoomVersion"
-    sudo apt install "$temp_folder_path/$zoomVersion" -y
-
-} || handle_error "Installing Zoom"
-
-# =====================================================================================
-
-echo
-echo "---------------------------------"
-echo "| Installing Angry IP Scanner.. |"
-echo "---------------------------------"
-{
-    wget "$angryIpScanner_download_link" -cO "$temp_folder_path/$angryIpScannerVersion"
-    sudo apt install "$temp_folder_path/$angryIpScannerVersion" -y
-
-} || handle_error "Installing Angry IP Scanner"
 
 # =====================================================================================
 
@@ -382,41 +293,8 @@ echo "--------------------------"
 {
     sudo snap install keepassxc
     sudo chmod +x ./config/keepassxc-snap-helper.sh
-    ./config/keepassxc-snap-helper.sh
 
 } || handle_error "Installing KeepassXC"
-
-# =====================================================================================
-
-echo
-echo "------------------------"
-echo "| Installing Postman.. |"
-echo "------------------------"
-# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (postman interceptor)
-{
-    wget "$postman_download_link" -cO "$temp_folder_path/$postmanVersion"
-    sudo tar -xf "$temp_folder_path/$postmanVersion" -C "$temp_folder_path/"
-    sudo cp -R "$temp_folder_path/Postman" /opt/postman/
-    sudo mv /opt/postman/Postman /opt/postman/postman
-    sudo cp ./shortcuts/postman.desktop /usr/share/applications/postman.desktop
-    sudo chmod +x /usr/share/applications/postman.desktop
-
-} || handle_error "Installing Postman"
-
-# =====================================================================================
-echo
-echo "----------------------"
-echo "| Installing Brave.. |"
-echo "----------------------"
-# NOT ALL FUNCTIONALITY IS WORKING WITH SNAP INSTALLATION (postman interceptor)
-{
-    sudo apt install apt-transport-https curl -y
-    sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
-    echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main" | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
-    sudo apt update
-    sudo apt install brave-browser -y
-
-} || handle_error "Installing Brave"
 
 # =====================================================================================
 
@@ -447,23 +325,6 @@ echo "------------------------------"
 
 } || handle_error "Installing Speedtest CLI"
 
-# =====================================================================================
-
-echo
-echo "----------------------------"
-echo "| Installing Tor Browser.. |"
-echo "----------------------------"
-{
-    wget "$tor_download_link" -cO "$temp_folder_path/$torVersion"
-    sudo mkdir -p /opt/tor
-    sudo tar -xf "$temp_folder_path/$torVersion" -C /opt/tor/
-    sudo chmod +rwx -R /opt/tor/
-    sudo chown "$USER" -R /opt/tor/
-    cd /opt/tor/tor-browser/ || exit
-    ./start-tor-browser.desktop --register-app
-    cd "$HOME" || exit
-
-} || handle_error "Installing Tor Browser"
 
 # =====================================================================================
 
@@ -482,14 +343,18 @@ echo "-----------------------"
 # =====================================================================================
 
 echo
-echo "-------------------------------"
-echo "| Installing Docker Desktop.. |"
-echo "-------------------------------"
-{
-  wget "$dockerDesktop_download_link" -cO "$temp_folder_path"/"$dockerDesktopVersion"
-  sudo apt install "$temp_folder_path"/"$dockerDesktopVersion" -y
+echo "----------------------------------"
+echo "| Installing Jetbrains Toolbox.. |"
+echo "----------------------------------"
 
-} || handle_error "Installing Docker Desktop"
+{
+    wget "$jetbrainsToolbox_download_link" -cO "$temp_folder_path/$jetbrainsToolboxVersion"
+    sudo mkdir -p /opt/jetbrains
+    sudo tar -xvf "$temp_folder_path/$jetbrainsToolboxVersion" -C /opt/jetbrains
+    /opt/jetbrains/"$jetbrainsToolboxVersion"/bin/jetbrains-toolbox &>/dev/null & disown %%
+
+
+} || handle_error "Installing Jetbrains Toolbox"
 
 # =====================================================================================
 
@@ -514,27 +379,14 @@ echo "---------------------"
     sudo apt update
     sudo apt-get full-upgrade -y
     sudo apt autoremove -y
+    sudo snap refresh
+    sudo flatpak update --system -y
 
     # shellcheck source=/home/username/.bashrc
     source "$HOME/.bashrc"
 
 } || handle_error "Running upgrade"
 
-# =====================================================================================
-
-echo
-echo "-------------------------------------------------"
-echo "| Opening extension install pages in browsers.. |"
-echo "-------------------------------------------------"
-{
-    xdg-settings set default-web-browser google-chrome.desktop
-
-    google-chrome "$startOverlayInApplicationView_link" &>/dev/null & disown %%
-    google-chrome "$gsconnect_link" &>/dev/null & disown %%
-    google-chrome "$keepassXC_addon_link" &>/dev/null & disown %%
-    google-chrome "$notification_addod_link" &>/dev/null & disown %%
-
-} || handle_error "Opening extension install pages in browsers"
 
 # =====================================================================================
 
@@ -548,23 +400,14 @@ echo "-------------------------------"
 
 # =====================================================================================
 
-echo
-echo "--------------------------------------"
-echo "| Running Google Drive Sync Config.. |"
-echo "| Proceed with all defaults.         |"
-echo "--------------------------------------"
-{
-    mkdir -p "$HOME/Documents/gDrive"
-    rclone config
-    rclone copy gDrive: "$HOME/Documents/gDrive"
-
-    # rclone mount will block terminal and only temporarily show files in folder, files will not be accessible offline
-    # even with cache it can be problematic because cache will sometime delete unused files
-    #rclone mount gDrive: "$HOME/Documents/gDrive"
-
-} || handle_error "Running Google Drive Sync Config"
+# Final message indicating where the error log is located
+echo "Installation completed, errors logged in $ERROR_LOG, if any."
 
 # =====================================================================================
 
-# Final message indicating where the error log is located
-echo "Installation completed, errors logged in $ERROR_LOG, if any."
+echo
+echo "--------------------"
+echo "| Reboot needed !! |"
+echo "--------------------"
+
+# =====================================================================================
