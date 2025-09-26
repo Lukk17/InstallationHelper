@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # This script configures hibernation for an existing swap partition.
-# It must be run with root privileges.
+# Uses sudo only for commands that require root privileges.
 
-if [ "$EUID" -ne 0 ]; then
-  echo "Error: This script must be run as root. Please use sudo."
-  exit 1
+# Check if user can use sudo
+if ! sudo -n true 2>/dev/null; then
+    echo "This script requires sudo privileges for system configuration changes."
+    echo "You may be prompted for your password."
 fi
 
 echo "Checking swap size vs RAM..."
@@ -31,7 +32,7 @@ if [ -z "$SWAP_PARTITION" ]; then
 fi
 
 echo "Found swap partition at $SWAP_PARTITION"
-SWAP_UUID=$(blkid -s UUID -o value "$SWAP_PARTITION")
+SWAP_UUID=$(sudo blkid -s UUID -o value "$SWAP_PARTITION")
 
 if [ -z "$SWAP_UUID" ]; then
     echo "Error: Could not determine UUID for $SWAP_PARTITION."
@@ -40,23 +41,32 @@ fi
 
 echo "Swap partition UUID is $SWAP_UUID"
 
+# Create backup directory in user's home
+BACKUP_DIR="$HOME/backup"
+if [ ! -d "$BACKUP_DIR" ]; then
+    mkdir -p "$BACKUP_DIR"
+    echo "Created backup directory: $BACKUP_DIR"
+fi
 
 echo "Configuring GRUB..."
 GRUB_CONFIG="/etc/default/grub"
-cp "$GRUB_CONFIG" "$GRUB_CONFIG.backup.$(date +%Y%m%d_%H%M%S)"
+BACKUP_FILE="$BACKUP_DIR/grub.backup.$(date +%Y%m%d_%H%M%S)"
+sudo cp "$GRUB_CONFIG" "$BACKUP_FILE"
+sudo chown "$USER:$(id -gn)" "$BACKUP_FILE"
+echo "GRUB backup created: $BACKUP_FILE"
 
 # Check if the resume parameter is already set
-if grep -q "resume=UUID=$SWAP_UUID" "$GRUB_CONFIG"; then
+if sudo grep -q "resume=UUID=$SWAP_UUID" "$GRUB_CONFIG"; then
     echo "GRUB resume parameter already correctly set. Skipping."
-elif grep -q "resume=" "$GRUB_CONFIG"; then
+elif sudo grep -q "resume=" "$GRUB_CONFIG"; then
     echo "Warning: Different resume parameter found. Please manually review $GRUB_CONFIG"
     echo "Expected: resume=UUID=$SWAP_UUID"
     exit 1
 else
     # More robust GRUB modification
-    if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_CONFIG"; then
+    if sudo grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$GRUB_CONFIG"; then
         # Add resume parameter to existing GRUB_CMDLINE_LINUX_DEFAULT
-        sed -i "/^GRUB_CMDLINE_LINUX_DEFAULT=/ s/\"$/ resume=UUID=$SWAP_UUID\"/" "$GRUB_CONFIG"
+        sudo sed -i "/^GRUB_CMDLINE_LINUX_DEFAULT=/ s/\"$/ resume=UUID=$SWAP_UUID\"/" "$GRUB_CONFIG"
         echo "GRUB configuration updated."
     else
         echo "Error: GRUB_CMDLINE_LINUX_DEFAULT not found in $GRUB_CONFIG"
@@ -65,15 +75,15 @@ else
 fi
 
 echo "Updating GRUB bootloader..."
-update-grub
+sudo update-grub
 
 echo "Creating PolicyKit rule to show hibernate in menus..."
 # Check if modern PolicyKit directory exists
 MODERN_POLICY_DIR="/etc/polkit-1/rules.d"
-if [ -d "$MODERN_POLICY_DIR" ]; then
+if sudo [ -d "$MODERN_POLICY_DIR" ]; then
     # Use modern .rules format
     POLICY_FILE="$MODERN_POLICY_DIR/10-enable-hibernate.rules"
-    cat > "$POLICY_FILE" <<EOF
+    sudo tee "$POLICY_FILE" > /dev/null <<EOF
 polkit.addRule(function(action, subject) {
     if ((action.id == "org.freedesktop.upower.hibernate" ||
          action.id == "org.freedesktop.login1.hibernate" ||
@@ -87,8 +97,8 @@ EOF
 else
     # Use legacy .pkla format
     POLICY_FILE="/etc/polkit-1/localauthority/50-local.d/com.ubuntu.enable-hibernate.pkla"
-    mkdir -p "/etc/polkit-1/localauthority/50-local.d/"
-    cat > "$POLICY_FILE" <<EOF
+    sudo mkdir -p "/etc/polkit-1/localauthority/50-local.d/"
+    sudo tee "$POLICY_FILE" > /dev/null <<EOF
 [Re-enable hibernate by default in upower]
 Identity=unix-user:*
 Action=org.freedesktop.upower.hibernate
@@ -110,6 +120,10 @@ echo "After reboot, you can test hibernation with: sudo systemctl hibernate"
 echo "Install Hibernation extension so Hibernate button will be visible in power drop down menu"
 google-chrome "https://extensions.gnome.org/extension/755/hibernate-status-button/" &>/dev/null & disown %%
 echo "In extension setup you can decide which buttons to show"
+
+echo
+echo "Available backups in $BACKUP_DIR:"
+ls -la "$BACKUP_DIR"/grub.backup.* 2>/dev/null || echo "  No previous GRUB backups found"
 
 echo
 echo "Please reboot your system for all changes to take effect."

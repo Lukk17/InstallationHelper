@@ -12,21 +12,76 @@ How to install:
 2. `1.UbuntuNewInstall.sh`
 3. Install browsers addons
 4. `2.UbuntuConfigure.sh`
-5. NordVPN need to be logged in with  
-   ```nordvpn login --token <token>```  
-   https://nordvpn.com/download/linux/
-6. NordVPN auto start can be disabled in `Startup Application Preferences`  
-   (to open:"super key" and type "Startup Application Preferences")
-7. In `Passwords and Keys` app change `Login` keyring password to blank (no character) value.  
-   It will disable pop-up when opening brave (because of sync storing in keyring).
-   https://askubuntu.com/questions/867/how-can-i-stop-being-prompted-to-unlock-the-default-keyring-on-boot
+
+5. `3.ToggleWayland` will add `nvidia-drm.modeset=1` parameter to GRUB config,  
+    which is crucial for NVIDIA users on Ubuntu 24.04. 
+    Without it, GDM will force X11 regardless of your Wayland settings.
+
+    For NVIDIA users: GDM blocks Wayland by default with drivers version more recent than 510 on NVIDIA systems.   
+    To override this edit file:
+    ```bash  
+    sudo subl /etc/udev/rules.d/61-gdm.rules  
+    ```
+    comment out lines:
+    
+    75
+    ```
+    #ATTR{version}=="[5-9][1-9][0-9].*", GOTO="gdm_prefer_xorg"
+    ```
+    77
+    ```
+    #GOTO="gdm_prefer_xorg"
+    ```
+
+6. Hibernation
+    Sometimes it can fail due to
+    ```
+    INFO: task setfont:9848 blocked for more than 245 seconds.
+    ```
+    
+    to fix that:
+    
+    Run commands to disable the problematic services _only_ for suspend and hibernate, without affecting the normal operation of your system.
+    
+    ```bash
+    sudo systemctl mask systemd-vconsole-setup.service
+    ```
+    and
+    ```bash
+    sudo systemctl mask console-setup.service
+    ```
+   now reboot system.
+
 
 ------------------------------------
 
 ### After install
 
+#### Google account login
 Log into Google account in gnome settings "Online Account"
 
+#### Mounting shared disk at startup
+
+1. Open the "Disks" application. (You can find it by searching in your activities). 
+2. Select the drive you want to mount from the list on the left. 
+3. In the "Volumes" section, click on the partition you want to mount. 
+4. Click the gear icon below the volumes and select "Edit Mount Options...". 
+5. A new window will open. Toggle off "User Session Defaults" at the top. 
+6. Ensure that "Mount at system startup" is checked.
+7. (Optional but recommended) In the "Display Name" field, you can give the drive a memorable name. 
+8. Click OK and enter your password.
+
+#### Setting the same screen settings for the system login page
+
+```shell
+sudo cp ~/.config/monitors.xml /var/lib/gdm3/.config/
+```
+
+#### Sharing the same project with Windows
+It can be detected as dubious ownership to fix that: 
+```shell
+git config --global --add safe.directory /mnt/01D8E3D9B5224500/Development/projekty-IT/InstallationHelper
+```
 
 ------------------------------------
 

@@ -209,7 +209,7 @@ echo "| Configuring locale and installing additional language.. |"
 echo "-----------------------------------------------------------"
 
 sudo locale-gen pl_PL.UTF-8
-sudo update-locale LANG=pl_PL.UTF-8
+sudo update-locale LANG=en_US.UTF-8
 
 sudo apt-get install language-pack-pl language-pack-gnome-pl language-pack-pl-base -y
 
