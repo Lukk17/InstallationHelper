@@ -53,6 +53,7 @@ $installScript = {
     choco install krita
     choco install rawtherapee
     choco install obsidian
+    choco install vlc
 
     Write-Output ""
     Write-Output "-------------------------"
@@ -175,75 +176,113 @@ $installScript = {
     Write-Output "| Winget - Microsoft Store apps install.. |"
     Write-Output "-------------------------------------------"
 
-    # winget installer (Windows Package Manager Source)
+    # Write-Output "winget installer (Windows Package Manager Source)"
     #winget install --accept-source-agreements --accept-package-agreements Microsoft.Winget.Source_8wekyb3d8bbwe
-    # App Installer
+
+    # Write-Output "App Installer"
     #winget install --accept-source-agreements --accept-package-agreements Microsoft.DesktopAppInstaller_8wekyb3d8bbwe
 
+    Write-Output "whatsapp"
     winget install --accept-source-agreements --accept-package-agreements --source msstore whatsapp
+
+    Write-Output "telegram"
     winget install --accept-source-agreements --accept-package-agreements --source msstore telegram
+
+    Write-Output "bitwarden"
     winget install --accept-source-agreements --accept-package-agreements --source msstore bitwarden
+
+    Write-Output "powershell"
     winget install --accept-source-agreements --accept-package-agreements --source msstore powershell
-    winget install --accept-source-agreements --accept-package-agreements --source msstore imgburn
+
+    Write-Output "slack"
     winget install --accept-source-agreements --accept-package-agreements --source msstore slack
+
+    Write-Output "vlc"
     winget install --accept-source-agreements --accept-package-agreements --source msstore vlc
+
+    # Write-Output "zoom"
 #    winget install --accept-source-agreements --accept-package-agreements --source msstore zoom
+
+    Write-Output "dropbox"
     winget install --accept-source-agreements --accept-package-agreements --source msstore dropbox
+
 #    https://learn.microsoft.com/en-us/windows/powertoys/
+    Write-Output "powertoys"
     winget install --accept-source-agreements --accept-package-agreements --id Microsoft.PowerToys --source winget
 
-    # Prime Video
+    Write-Output "Prime Video"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9P6RC76MSMMJ
-    # Disney+
+
+    Write-Output "Disney+"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NXQXXLFST89
-    # Spotify
+
+    Write-Output "Spotify"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NCBCSZSJRSB
-    # Microsoft To Do
+ 
+    Write-Output "Microsoft To Do"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH5R558
-    # Trello
+
+    Write-Output "Trello"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4XXVW
-    # Microsoft 365 (Office)
-    winget install --accept-source-agreements --accept-package-agreements --source msstore --id cfq7ttc0k5dm
-    # Netflix
+
+    Write-Output "Netflix"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9WZDNCRFJ3TJ
-    # Battery Percentage - Pure Battery add-on
+
+    # Write-Output "Battery Percentage - Pure Battery add-on"
 #    winget install --accept-source-agreements --accept-package-agreements --source msstore 9N3HDTNCF6Z8
-    # Razer Cortex addon to Xbox Bar
+
+    Write-Output "Razer Cortex addon to Xbox Bar"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9PK9W5QV2PKX
-    # Discord
+
+    Write-Output "Discord"
     winget install --accept-source-agreements --accept-package-agreements --source msstore XPDC2RH70K22MN
-    # Microsoft Teams
+
+    Write-Output "Microsoft Teams"
     winget install --accept-source-agreements --accept-package-agreements --source msstore XP8BT8DW290MPQ
-    # Visual Studio Code
+
+    Write-Output "Visual Studio Code"
     winget install --accept-source-agreements --accept-package-agreements --source msstore XP9KHM4BK9FZ7Q
-    # Ubisoft Connect
+
+    Write-Output "Ubisoft Connect"
     winget install --accept-source-agreements --accept-package-agreements --source msstore XPDP2QW12DFSFK
-    # Adobe Acrobat Reader
+
+    Write-Output "Adobe Acrobat Reader"
     winget install --accept-source-agreements --accept-package-agreements --source msstore XPDP273C0XHQH2
-    # iTunes
+
+    Write-Output "iTunes"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9PB2MZ1ZMB1S
-    # Epic Games Store
+
+    Write-Output "Epic Games Store"
     winget install --accept-source-agreements --accept-package-agreements --source msstore XP99VR1BPSBQJ2
-    # Galaxy Buds
+
+    Write-Output "Galaxy Buds"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NHTLWTKFZNB
-    # Reddit
+
+    # Write-Output "Reddit"
 #    winget install --accept-source-agreements --accept-package-agreements --source msstore 9NS3RBQ5HV5F
-    # Speedtest by Ookla
+
+    Write-Output "Speedtest by Ookla"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9NBLGGH4Z1JC
-    # Plex Media Server
+
+    Write-Output "Plex Media Server"
     winget install --accept-source-agreements --accept-package-agreements --source msstore XPFM11Z0W10R7G
-    # Canon
+
+    Write-Output "Canon"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9pmk584kqvc2
-    # Inkscape
+
+    Write-Output "Inkscape"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9pd9bhglfc7h
-    # Nvidia Control Panel
+
+    Write-Output "Nvidia Control Panel"
     winget install --accept-source-agreements --accept-package-agreements --source msstore 9nf8h0h7wmlt
-    # Docker Desktop
+
+    Write-Output "Docker Desktop"
     winget install --accept-source-agreements --accept-package-agreements --source msstore xp8cbj40xlbwkx
-    # Visual Studio Community
+
+    Write-Output "Visual Studio Community"
     winget install --accept-source-agreements --accept-package-agreements --source msstore xpdcfjdklzjlp8
 
-    # HBO Max - connot be installed on PC, only on Xbox
+    # Write-Output "HBO Max" # - connot be installed on PC, only on Xbox
     #winget install --accept-source-agreements --accept-package-agreements --source msstore 9PJJ1K9DZMRS
 
 
@@ -261,7 +300,7 @@ $installScript = {
     Enable-WindowsOptionalFeature -Online -FeatureName "Containers-DisposableClientVM" -All
     Enable-WindowsOptionalFeature -Online -FeatureName "Microsoft-Hyper-V" -All
 #    Allow to mount and access Linux network shares directly from Windows
-    Enable-WindowsOptionalFeature -Online -FeatureName "ServicesForNFS-Client" -All
+    Enable-WindowsOptionalFeature -Online -FeatureName "ServicesForNFS-ClientOnly" -All
 
 
     Write-Output ""
@@ -287,21 +326,34 @@ $installScript = {
     Write-Output "-------------------------------------------------"
 
     Start-Process "https://www.veracrypt.fr/en/Downloads.html"
+    
     Start-Process "https://github.com/AUTOMATIC1111/stable-diffusion-webui"
+    
     Start-Process "https://lmstudio.ai/"
+    
     Start-Process "https://www.beeper.com/download"
+    
     Start-Process "https://download.battle.net/en-us/?platform=windows"
+    
     Start-Process "https://www.curseforge.com/download/app#download-options"
+    
     Start-Process "https://www.tradeskillmaster.com/install"
+    
     Start-Process "https://signup.leagueoflegends.com/en-us/signup/redownload"
+    
     Start-Process "https://learn.microsoft.com/en-us/sysinternals/downloads/process-explorer"
+    
     Start-Process "https://www.torproject.org/download/"
+    
     Start-Process "https://pawns.app/downloads/"
+    
     Start-Process "https://geeks3d.com/furmark/downloads/"
+    
     Start-Process "https://www.nvidia.com/en-us/software/nvidia-app/"
+    
     Start-Process "https://www.msi.com/Landing/afterburner/graphics-cards"
-    Start-Process "https://ij.manual.canon/ij/webmanual/WebGS/WGS2/wgs_start.html?lng=pl&type=setup&area=eu&mdl=TS7450&os=w"
-    Start-Process "https://learn.microsoft.com/en-us/powershell/scripting/whats-new/migrating-from-windows-powershell-51-to-powershell-7?view=powershell-7.5"
+    
+    Start-Process "https://apps.microsoft.com/detail/cfq7ttc0k5dm?hl=en-US&gl=PL"
 
 
 
