@@ -13,11 +13,13 @@ How to install:
 3. Install browsers addons
 4. `2.UbuntuConfigure.sh`
 
-5. `3.ToggleWayland` will add `nvidia-drm.modeset=1` parameter to GRUB config,  
+5. `3.ToggleWayland` - **REQUIRES NVIDIA driver version 535 !!**  
+    will add `nvidia-drm.modeset=1` parameter to GRUB config,  
     which is crucial for NVIDIA users on Ubuntu 24.04. 
     Without it, GDM will force X11 regardless of your Wayland settings.
 
     For NVIDIA users: GDM blocks Wayland by default with drivers version more recent than 510 on NVIDIA systems.   
+    
     To override this edit file:
     ```bash  
     sudo subl /etc/udev/rules.d/61-gdm.rules  
