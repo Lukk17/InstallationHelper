@@ -36,6 +36,12 @@ beeper_download_link="https://api.beeper.com/desktop/download/linux/x64/stable/c
 jetbrainsToolboxVersion="jetbrains-toolbox-2.9.0.56191"
 jetbrainsToolbox_download_link="https://download.jetbrains.com/toolbox/$jetbrainsToolboxVersion.tar.gz"
 
+teamViewerVersion="teamviewer_amd64.deb"
+teamViewer_download_link="https://download.teamviewer.com/download/linux/$teamViewerVersion"
+
+veraCryptVersion="veracrypt-1.26.24-Ubuntu-24.04-amd64.deb"
+veraCrypt_download_link="https://launchpad.net/veracrypt/trunk/1.26.24/+download/$veraCryptVersion"
+
 # =====================================================================================
 
 echo
@@ -94,6 +100,7 @@ echo "---------------------"
   # better cat
   sudo apt install bat -y
   sudo apt install openssl -y
+  sudo apt install scrcpy -y
 
 } || handle_error "Installing apps"
 
@@ -393,6 +400,30 @@ echo "----------------------------------"
   /opt/jetbrains/"$jetbrainsToolboxVersion"/bin/jetbrains-toolbox &>/dev/null & disown %%
 
 } || handle_error "Installing Jetbrains Toolbox"
+
+# =====================================================================================
+
+echo
+echo "---------------------------"
+echo "| Installing TeamViewer.. |"
+echo "---------------------------"
+{
+  wget "$teamViewer_download_link" -cO "$temp_folder_path/$teamViewerVersion"
+  sudo apt install "$temp_folder_path/$teamViewerVersion" -y
+
+} || handle_error "Installing TeamViewer"
+
+# =====================================================================================
+
+echo
+echo "--------------------------"
+echo "| Installing VeraCrypt.. |"
+echo "--------------------------"
+{
+  wget "$veraCrypt_download_link" -cO "$temp_folder_path/$veraCryptVersion"
+  sudo apt install "$temp_folder_path/$veraCryptVersion" -y
+
+} || handle_error "Installing VeraCrypt"
 
 # =====================================================================================
 
