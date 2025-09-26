@@ -423,12 +423,12 @@ echo "-------------------------------------------------"
 echo "| Opening extension install pages in browsers.. |"
 echo "-------------------------------------------------"
 {
-    xdg-settings set default-web-browser google-chrome.desktop
+  xdg-settings set default-web-browser google-chrome.desktop
 
-    google-chrome "$startOverlayInApplicationView_link" &>/dev/null & disown %%
-    google-chrome "$gsconnect_link" &>/dev/null & disown %%
-    google-chrome "$keepassXC_addon_link" &>/dev/null & disown %%
-    google-chrome "$notification_addod_link" &>/dev/null & disown %%
+  google-chrome "$startOverlayInApplicationView_link" &>/dev/null & disown %%
+  google-chrome "$gsconnect_link" &>/dev/null & disown %%
+  google-chrome "$keepassXC_addon_link" &>/dev/null & disown %%
+  google-chrome "$notification_addod_link" &>/dev/null & disown %%
 
 } || handle_error "Opening extension install pages in browsers"
 
