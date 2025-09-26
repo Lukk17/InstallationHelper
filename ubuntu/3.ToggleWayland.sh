@@ -134,4 +134,10 @@ fi
 
 echo "For NVIDIA users: GDM blocks Wayland by default with drivers version more recent than 510 on NVIDIA systems."
 echo "To override this, override rule:"
-echo "sudo touch /etc/udev/rules.d/61-gdm.rules"
+echo "sudo subl /etc/udev/rules.d/61-gdm.rules"
+echo " comment out lines:"
+echo '#ATTR{version}=="[5-9][1-9][0-9].*", GOTO="gdm_prefer_xorg"'
+echo '#GOTO="gdm_prefer_xorg"'
+
+echo
+echo "REQUIRES NVIDIA driver version 535"
