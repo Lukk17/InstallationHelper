@@ -80,7 +80,7 @@ sudo cp ~/.config/monitors.xml /var/lib/gdm3/.config/
 #### Sharing the same project with Windows
 It can be detected as dubious ownership to fix that: 
 ```shell
-git config --global --add safe.directory /mnt/01D8E3D9B5224500/Development/projekty-IT/InstallationHelper
+git config --global --add safe.directory '*'
 ```
 
 ------------------------------------
