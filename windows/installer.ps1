@@ -338,7 +338,9 @@ $installScript = {
     Start-Process "https://www.curseforge.com/download/app#download-options"
     
     Start-Process "https://www.tradeskillmaster.com/install"
-    
+
+    Start-Process "https://www.overwolf.com/app/rpglogs_llc-warcraft_logs_companion"
+
     Start-Process "https://signup.leagueoflegends.com/en-us/signup/redownload"
     
     Start-Process "https://learn.microsoft.com/en-us/sysinternals/downloads/process-explorer"
@@ -352,7 +354,9 @@ $installScript = {
     Start-Process "https://www.nvidia.com/en-us/software/nvidia-app/"
     
     Start-Process "https://www.msi.com/Landing/afterburner/graphics-cards"
-    
+
+    Start-Process "https://github.com/sanraith/razer-taskbar/releases/tag/v0.12.0"
+
     Start-Process "https://apps.microsoft.com/detail/cfq7ttc0k5dm?hl=en-US&gl=PL"
 
 
