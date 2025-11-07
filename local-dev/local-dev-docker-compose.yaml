@@ -1,0 +1,110 @@
+name: local-dev
+
+volumes:
+  mysql_data:
+  mongodb_data:
+  postgres_data:
+
+networks:
+  local-network:
+
+services:
+  mysql:
+    container_name: mysql
+    image: mysql:9.3.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: local
+      MYSQL_DATABASE: test-spring
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - local-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-plocal"]
+      timeout: 20s
+      retries: 10
+
+  mongodb:
+    container_name: mongodb
+    image: mongo:8.0.10
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: articles
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - local-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+
+  postgres:
+    container_name: postgres
+    image: postgres-local:latest
+    restart: unless-stopped
+    networks:
+      - local-network
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    build:
+      context: .
+      dockerfile: ./postgresql/Dockerfile
+      tags:
+        - postgres-local:latest
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -h localhost" ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+
+  keycloak:
+    container_name: keycloak
+    image: keycloak-local:latest
+    restart: unless-stopped
+    networks:
+      - local-network
+    ports:
+      - "9443:9443" # https port
+      - "9000:9000" # management port
+    build:
+      context: ./auth
+      dockerfile: ./Keycloak/Dockerfile
+      tags:
+        - keycloak-local:latest
+    environment:
+      # Database Config
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://host.docker.internal:5432/keycloak
+      - KC_DB_USERNAME=postgres
+      - KC_DB_PASSWORD=local
+      # Hostname Config
+      - KC_HOSTNAME=keycloak.test
+      - KC_HOSTNAME_PORT=9443
+      - KC_HOSTNAME_STRICT=false      # Allows other hosts like 'localhost' or 'keycloak'
+    # Certificates need to be imported everytime Keycloak is starting
+    # Change port from default 8443 to 9443 as it was conflicted with Docker Desktop and WSL
+    command: [
+      "--https-certificate-file=/etc/x509/https/localhost.crt",
+      "--https-certificate-key-file=/etc/x509/https/localhostCert.key",
+      "--https-port=9443"
+    ]
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "-L", "-k", "https://keycloak:9000/health/ready" ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    depends_on:
+      postgres:
+        condition: service_healthy
