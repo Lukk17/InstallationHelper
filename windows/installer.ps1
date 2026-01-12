@@ -54,6 +54,7 @@ $installScript = {
     choco install rawtherapee
     choco install obsidian
     choco install vlc
+    choco install pdfgear
 
     Write-Output ""
     Write-Output "-------------------------"
@@ -162,6 +163,7 @@ $installScript = {
     choco install prusaslicer
     choco install freecad
     choco install autodesk-fusion360
+    choco install kicad
 
     Write-Output ""
     Write-Output "--------------------------------------"
