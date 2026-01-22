@@ -142,6 +142,7 @@ $installScript = {
     choco install ffmpeg
     # for audio trimming
     choco install sox.portable
+    choco install unity-hub
 
 
     Write-Output ""
