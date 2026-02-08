@@ -189,7 +189,8 @@ $installScript = {
     winget install --accept-source-agreements --accept-package-agreements --source msstore whatsapp
 
     Write-Output "telegram"
-    winget install --accept-source-agreements --accept-package-agreements --source msstore telegram
+#    winget install --accept-source-agreements --accept-package-agreements --source msstore telegram
+    winget install --accept-source-agreements --accept-package-agreements --source msstore 9nztwsqntd0s
 
     Write-Output "bitwarden"
     winget install --accept-source-agreements --accept-package-agreements --source msstore bitwarden
