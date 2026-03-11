@@ -134,7 +134,10 @@ $installScript = {
     choco install python310
     choco install python313
     choco install arduino
+    choco install temurin11
     choco install temurin17
+    choco install temurin25
+    choco install temurin21
     choco install openjdk --version=21.0.2
     # pin version so it will not be updated to 22 or higher
     choco pin add -n=openjdk --version=21.0.2
