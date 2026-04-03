@@ -97,8 +97,13 @@ Go to script properties (alt + enter) and click on checkbox "unblock"
     | `ANDROID_SDK_ROOT`        | `C:\tools\android`                                           |
     | `JAVA_HOME`               | `C:\Program Files\OpenJDK\jdk-21.0.2`                        |
     | `GRADLE_HOME`             | `C:\ProgramData\chocolatey\lib\gradle\tools\gradle-9.0.0`    |
-        
+    
+    To add it to Path:        
+    ```
+    %JAVA_HOME%\bin
+    ```
    <br>
+
 7. While installing Visual Studio, install `Desktop development with C++"` for Flutter Windows app development.
     
     <br>
