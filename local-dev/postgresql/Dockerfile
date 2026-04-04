@@ -1,5 +1,5 @@
 # --- Stage 1: The Builder ---
-FROM postgres:17.5 AS builder
+FROM postgres:17.9 AS builder
 
 # Set the initial password required for the setup process.
 ENV POSTGRES_PASSWORD=temporary_password_for_build
@@ -16,7 +16,7 @@ RUN /usr/local/bin/docker-entrypoint.sh postgres & \
 
 
 # --- Stage 2: The Final Image ---
-FROM postgres:17.5
+FROM postgres:17.9
 
 COPY --from=builder /var/lib/postgresql/data /var/lib/postgresql/data
 
