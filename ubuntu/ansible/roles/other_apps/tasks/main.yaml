@@ -3,3 +3,4 @@
 - import_tasks: ppas.yaml
 - import_tasks: snaps.yaml
 - import_tasks: custom_installs.yaml
+- import_tasks: browsers.yaml

@@ -9,6 +9,7 @@ setup_security: true
 install_gaming: true
 install_other_apps: true
 install_waydroid: false
+install_crypto_tools: false
 
 # Specific System Core Settings
 setup_hibernate: false
@@ -22,6 +23,15 @@ default_pdf_app: okular_okular.desktop
 default_word_app: onlyoffice-desktopeditors.desktop
 default_excel_app: onlyoffice-desktopeditors.desktop
 default_presentation_app: onlyoffice-desktopeditors.desktop
+favorite_apps: "['org.gnome.Nautilus.desktop', 'google-chrome.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
+
+# Dash to dock specific settings
+dash_dock_position: 'LEFT'
+dash_dock_disable_ubuntu_dock: false
+
+# Feature Toggles for other specific apps
+install_tor: false
+install_brave: true
 
 # SDKMan / Java Toggles
 install_java: true

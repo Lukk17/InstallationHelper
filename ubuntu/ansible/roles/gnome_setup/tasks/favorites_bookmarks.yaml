@@ -2,7 +2,7 @@
 - name: Set favorite apps
   community.general.dconf:
     key: "/org/gnome/shell/favorite-apps"
-    value: "['org.gnome.Nautilus.desktop', 'google-chrome.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
+    value: "{{ favorite_apps }}"
   become: no
 
 - name: Setup Nautilus Bookmarks

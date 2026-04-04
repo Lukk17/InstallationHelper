@@ -22,3 +22,4 @@
     - { role: gaming, when: install_gaming | bool }
     - { role: other_apps, when: install_other_apps | bool }
     - { role: waydroid, when: install_waydroid | bool }
+    - { role: crypto_tools, when: install_crypto_tools | bool }
