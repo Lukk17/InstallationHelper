@@ -1,0 +1,6 @@
+---
+- name: Restart GDM3
+  ansible.builtin.systemd:
+    name: gdm3
+    state: restarted
+  become: yes

@@ -1,0 +1,24 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: yes
+  vars_files:
+    - group_vars/all.yaml
+
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      become: yes
+      changed_when: false
+
+  roles:
+    - { role: system_core, when: install_system_core | bool }
+    - { role: gnome_setup, when: setup_gnome | bool }
+    - { role: shell_zsh, when: setup_zsh | bool }
+    - { role: dev_tools, when: install_dev_tools | bool }
+    - { role: virtualization, when: install_virtualization | bool }
+    - { role: security, when: setup_security | bool }
+    - { role: gaming, when: install_gaming | bool }
+    - { role: other_apps, when: install_other_apps | bool }
+    - { role: waydroid, when: install_waydroid | bool }

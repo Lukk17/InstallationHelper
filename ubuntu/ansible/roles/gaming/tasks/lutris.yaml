@@ -1,0 +1,6 @@
+---
+- name: Download Lutris
+  ansible.builtin.apt:
+    deb: "https://github.com/lutris/lutris/releases/download/v0.5.16/lutris_0.5.16_all.deb"
+  become: yes
+  when: install_lutris | bool

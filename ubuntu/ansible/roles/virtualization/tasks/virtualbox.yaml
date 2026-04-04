@@ -1,0 +1,9 @@
+---
+- name: Install Virtualbox and Build Essentials
+  ansible.builtin.apt:
+    name:
+      - virtualbox
+      - build-essential
+    state: present
+  become: yes
+  when: install_virtualbox | bool

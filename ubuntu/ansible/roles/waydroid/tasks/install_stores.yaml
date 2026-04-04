@@ -1,0 +1,16 @@
+---
+- name: Download Aurora Store
+  ansible.builtin.get_url:
+    url: "https://files.auroraoss.com/AuroraStore/Stable/AuroraStore_4.1.1.apk"
+    dest: "{{ ansible_env.HOME }}/.lukkInstall/AuroraStore_4.1.1.apk"
+    headers:
+      User-Agent: Mozilla
+  become: no
+
+- name: Download Aurora Droid
+  ansible.builtin.get_url:
+    url: "https://files.auroraoss.com/AuroraDroid/Stable/AuroraDroid_1.0.8.apk"
+    dest: "{{ ansible_env.HOME }}/.lukkInstall/AuroraDroid_1.0.8.apk"
+    headers:
+      User-Agent: Mozilla
+  become: no

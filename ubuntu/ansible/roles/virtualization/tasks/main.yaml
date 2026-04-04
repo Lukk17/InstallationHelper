@@ -1,0 +1,4 @@
+---
+- import_tasks: virtualbox.yaml
+- import_tasks: vmware.yaml
+- import_tasks: kubernetes_tools.yaml

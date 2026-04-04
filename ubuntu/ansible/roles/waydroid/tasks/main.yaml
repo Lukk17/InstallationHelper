@@ -1,0 +1,4 @@
+---
+- import_tasks: install_waydroid.yaml
+- import_tasks: install_stores.yaml
+- import_tasks: configure_wayland.yaml

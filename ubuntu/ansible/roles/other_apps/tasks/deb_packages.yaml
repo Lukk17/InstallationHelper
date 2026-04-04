@@ -1,0 +1,20 @@
+---
+- name: Download AppImageLauncher
+  ansible.builtin.apt:
+    deb: "https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb"
+  become: yes
+
+- name: Download Antigravity
+  ansible.builtin.apt:
+    deb: "https://antigravity.google/download/linux/antigravity.deb"
+  become: yes
+
+- name: Download TeamViewer
+  ansible.builtin.apt:
+    deb: "https://download.teamviewer.com/download/linux/teamviewer_amd64.deb"
+  become: yes
+
+- name: Download VeraCrypt
+  ansible.builtin.apt:
+    deb: "https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-Ubuntu-24.04-amd64.deb"
+  become: yes
