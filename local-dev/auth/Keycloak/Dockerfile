@@ -6,7 +6,7 @@ RUN dnf install --installroot /mnt/rootfs curl --releasever 9 --setopt install_w
     rpm --root /mnt/rootfs -e --nodeps setup
 
 # Stage 2: Build Stage
-FROM quay.io/keycloak/keycloak:26.0 AS builder
+FROM quay.io/keycloak/keycloak:26.5 AS builder
 
 # Environment variables for build to optimized Keycloak
 ENV KC_DB=postgres
@@ -19,7 +19,7 @@ WORKDIR /opt/keycloak
 RUN /opt/keycloak/bin/kc.sh build
 
 # Stage 3: Runtime Stage
-FROM quay.io/keycloak/keycloak:26.0
+FROM quay.io/keycloak/keycloak:26.5
 
 # Environment variables for database connection
 ENV KC_DB=postgres
