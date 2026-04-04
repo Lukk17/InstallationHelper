@@ -1,0 +1,22 @@
+---
+# Profile for Linux Live USB - overrides defaults from all.yaml
+install_dev_tools: false
+install_virtualization: false
+install_gaming: false
+install_waydroid: false
+install_crypto_tools: true
+
+# Gnome specific apps/settings
+default_internetBrowser_app: brave-browser.desktop
+default_word_app: wps-2019-snap_wps.desktop
+default_excel_app: wps-2019-snap_et.desktop
+default_presentation_app: wps-2019-snap_wpp.desktop
+favorite_apps: "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'sublime-text_subl.desktop', 'telegram-desktop_telegram-desktop.desktop']"
+
+# Dash to dock specific settings
+dash_dock_position: 'BOTTOM'
+dash_dock_disable_ubuntu_dock: true
+
+# Feature Toggles for other specific apps
+install_tor: true
+install_brave: true

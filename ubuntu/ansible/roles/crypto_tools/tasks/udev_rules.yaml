@@ -1,0 +1,10 @@
+---
+- name: Add Ledger udev rules
+  ansible.builtin.shell: wget -q -O - "https://raw.githubusercontent.com/LedgerHQ/udev-rules/master/add_udev_rules.sh" | sudo bash
+  become: yes
+  changed_when: false
+
+- name: Add Trezor udev rules
+  ansible.builtin.apt:
+    deb: "https://data.trezor.io/udev/trezor-udev_2_all.deb"
+  become: yes

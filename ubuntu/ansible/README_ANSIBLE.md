@@ -11,6 +11,7 @@ The logic is driven by a master configuration file where you can toggle specific
 
 * **`site.yaml` (The Playbook):** This is the main entry point for Ansible. It tells Ansible which hosts to target (localhost) and maps the roles to execute conditionally based on the master toggles.
 * **`group_vars/all.yaml` (Master Toggles):** This file acts as your central configuration hub. You define boolean variables here (e.g., `install_wine: true`, `setup_hibernate: false`) which dictate exactly what gets installed or configured during a run.
+* **`profiles/`:** This directory contains specific overriding setups (e.g., `linux_live.yaml`) which can inherit everything from `all.yaml` but selectively toggle flags without modifying the master file.
 * **`roles/`:** This directory contains all the modularized setup logic.
   * **`tasks/main.yaml`:** Serves as an index that imports smaller, focused task files (e.g., `docker.yaml`, `kubernetes_tools.yaml`) using `import_tasks` to keep individual files readable.
   * **`defaults/main.yaml`:** Centralized, hardcoded variables specific to a role (e.g., download URLs, version numbers for specific apps).
@@ -45,11 +46,17 @@ sudo apt install ansible -y
 
 ### 2. Configure Your Setup
 Review `ansible/group_vars/all.yaml` and set the flags for the tools and settings you wish to apply to your machine. 
+If you have a specific setup profile, you can override the variables by pointing to it during execution.
 
 ### 3. Run the Playbook
-Run the playbook against your local machine. The `-K` flag ensures Ansible can prompt for the sudo password used for administrative tasks.
+Run the playbook against your local machine using the default variables (`group_vars/all.yaml`). The `-K` flag ensures Ansible can prompt for the sudo password used for administrative tasks.
 
 ```bash
 cd ansible
-ansible-playbook -i localhost, -c local site.yaml -K
+ansible-playbook site.yaml -i localhost, -c local -K
+```
+
+**Using an override profile (e.g., Linux Live USB setup):**
+```bash
+ansible-playbook site.yaml -i localhost, -c local -e "@profiles/linux_live.yaml" -K
 ```

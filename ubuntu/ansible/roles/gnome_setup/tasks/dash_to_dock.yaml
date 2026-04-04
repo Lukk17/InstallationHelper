@@ -4,8 +4,16 @@
     key: "{{ item.key }}"
     value: "{{ item.value }}"
   loop:
-    - { key: "/org/gnome/shell/extensions/dash-to-dock/dock-position", value: "'LEFT'" }
+    - { key: "/org/gnome/shell/extensions/dash-to-dock/dock-position", value: "'{{ dash_dock_position }}'" }
     - { key: "/org/gnome/shell/extensions/dash-to-dock/transparency-mode", value: "'FIXED'" }
     - { key: "/org/gnome/shell/extensions/dash-to-dock/dash-max-icon-size", value: "55" }
     - { key: "/org/gnome/shell/extensions/dash-to-dock/intellihide", value: "true" }
   become: no
+
+- name: Enable Dash to Dock and Disable Ubuntu Dock
+  ansible.builtin.shell: |
+    gnome-extensions enable dash-to-dock@micxgx.gmail.com
+    gnome-extensions disable ubuntu-dock@ubuntu.com
+  become: no
+  changed_when: false
+  when: dash_dock_disable_ubuntu_dock | bool
