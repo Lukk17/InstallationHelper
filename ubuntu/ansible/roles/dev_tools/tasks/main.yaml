@@ -1,0 +1,4 @@
+---
+- import_tasks: java_sdkman.yaml
+- import_tasks: snaps.yaml
+- import_tasks: flatpaks.yaml

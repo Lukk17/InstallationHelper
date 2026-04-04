@@ -42,6 +42,11 @@ teamViewer_download_link="https://download.teamviewer.com/download/linux/$teamVi
 veraCryptVersion="veracrypt-1.26.24-Ubuntu-24.04-amd64.deb"
 veraCrypt_download_link="https://launchpad.net/veracrypt/trunk/1.26.24/+download/$veraCryptVersion"
 
+java11_id="11.0.26-tem"
+java17_id="17.0.14-tem"
+java21_id="21.0.6-tem"
+java25_id="25-tem"
+
 # =====================================================================================
 
 echo
@@ -70,14 +75,33 @@ echo "---------------------"
 # =====================================================================================
 
 echo
-echo "------------------------------"
-echo "| Installing Open Java JDK.. |"
-echo "------------------------------"
+echo "-------------------------------------------"
+echo "| Installing SDKMAN! and Multiple Javas.. |"
+echo "-------------------------------------------"
 {
-  sudo apt install openjdk-21-jdk -y
+  # Install dependencies for SDKMAN
+  sudo apt install zip unzip curl -y
 
-} || handle_error "Installing Open Java JDK"
+  # Install SDKMAN without updating shell configs automatically
+  # (Since your script handles your .zshrc and .bashrc manually)
+  if [ ! -d "$HOME/.sdkman" ]; then
+    curl -s "https://get.sdkman.io?rcupdate=false" | bash
+  fi
 
+  # Load SDKMAN into the current shell session to use the 'sdk' command immediately
+  export SDKMAN_DIR="$HOME/.sdkman"
+  [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+
+  # Install Java versions
+  sdk install java "$java11_id"
+  sdk install java "$java17_id"
+  sdk install java "$java21_id"
+  sdk install java "$java25_id"
+
+  # Set Java 21 as the default for the system
+  sdk default java "$java21_id"
+
+} || handle_error "SDKMAN and Java installation"
 # =====================================================================================
 
 echo

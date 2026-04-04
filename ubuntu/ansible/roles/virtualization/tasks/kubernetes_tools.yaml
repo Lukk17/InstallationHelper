@@ -1,0 +1,14 @@
+---
+- name: Download and Install Minikube
+  ansible.builtin.apt:
+    deb: "{{ minikube_download_link }}"
+  become: yes
+  when: install_minikube | bool
+
+- name: Download Kind
+  ansible.builtin.get_url:
+    url: "{{ kind_download_link }}"
+    dest: /usr/local/bin/kind
+    mode: '0755'
+  become: yes
+  when: install_kind | bool

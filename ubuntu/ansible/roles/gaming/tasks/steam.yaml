@@ -1,0 +1,6 @@
+---
+- name: Install Steam
+  community.general.snap:
+    name: steam
+  become: yes
+  when: install_steam | bool

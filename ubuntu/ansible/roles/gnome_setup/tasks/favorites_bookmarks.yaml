@@ -1,0 +1,21 @@
+---
+- name: Set favorite apps
+  community.general.dconf:
+    key: "/org/gnome/shell/favorite-apps"
+    value: "['org.gnome.Nautilus.desktop', 'google-chrome.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
+  become: no
+
+- name: Setup Nautilus Bookmarks
+  ansible.builtin.lineinfile:
+    path: "{{ ansible_env.HOME }}/.config/gtk-3.0/bookmarks"
+    line: "file://{{ item.path }} {{ item.name }}"
+    create: yes
+  loop:
+    - { path: "{{ ansible_env.HOME }}/.local/share/applications", name: "applications-local" }
+    - { path: "{{ ansible_env.HOME }}/.config/autostart", name: "autostart-config" }
+    - { path: "/opt", name: "opt" }
+    - { path: "/usr/share/applications", name: "applications" }
+    - { path: "/etc/xdg", name: "xdg" }
+    - { path: "/", name: "/" }
+    - { path: "/etc/xdg/autostart", name: "autostart-xdg" }
+  become: no

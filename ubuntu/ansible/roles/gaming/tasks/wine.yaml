@@ -1,0 +1,46 @@
+---
+- name: Add i386 architecture for Wine
+  ansible.builtin.command: dpkg --add-architecture i386
+  become: yes
+  when: install_wine | bool
+  changed_when: false
+
+- name: Create Wine keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  become: yes
+  when: install_wine | bool
+
+- name: Download WineHQ key
+  ansible.builtin.get_url:
+    url: https://dl.winehq.org/wine-builds/winehq.key
+    dest: /etc/apt/keyrings/winehq-archive.key
+  become: yes
+  when: install_wine | bool
+
+- name: Download WineHQ sources
+  ansible.builtin.get_url:
+    url: https://dl.winehq.org/wine-builds/ubuntu/dists/mantic/winehq-mantic.sources
+    dest: /etc/apt/sources.list.d/winehq-mantic.sources
+  become: yes
+  when: install_wine | bool
+
+- name: Install WineHQ Stable
+  ansible.builtin.apt:
+    name: 
+      - winehq-stable
+      - wine64
+      - winbind
+      - winetricks
+      - cabextract
+      - p7zip
+      - unrar
+      - unzip
+      - zenity
+    state: present
+    update_cache: yes
+    install_recommends: yes
+  become: yes
+  when: install_wine | bool

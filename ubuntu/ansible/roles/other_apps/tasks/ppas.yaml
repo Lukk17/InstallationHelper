@@ -1,0 +1,22 @@
+---
+- name: Install Grub Customizer
+  ansible.builtin.apt_repository:
+    repo: ppa:danielrichter2007/grub-customizer
+  become: yes
+
+- name: Install Grub Customizer package
+  ansible.builtin.apt:
+    name: grub-customizer
+    state: present
+  become: yes
+
+- name: Install Boot Repair PPA
+  ansible.builtin.apt_repository:
+    repo: ppa:yannubuntu/boot-repair
+  become: yes
+
+- name: Install Boot Repair
+  ansible.builtin.apt:
+    name: boot-repair
+    state: present
+  become: yes

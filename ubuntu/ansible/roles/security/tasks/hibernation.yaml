@@ -1,0 +1,42 @@
+---
+# 4.HibernationEnabling.sh
+- name: Determine swap partition size
+  ansible.builtin.shell: swapon --show --noheadings | awk '{print $3}' | head -1
+  register: swap_size
+  changed_when: false
+  become: yes
+  when: setup_hibernate | bool
+
+- name: Extract swap partition UUID
+  ansible.builtin.shell: >
+    SWAP_PART=$(swapon --show --noheadings --raw | awk '{print $1}' | head -1);
+    blkid -s UUID -o value $SWAP_PART
+  register: swap_uuid
+  changed_when: false
+  become: yes
+  when: setup_hibernate | bool
+
+- name: Configure GRUB for Hibernation (resume=UUID)
+  ansible.builtin.replace:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT="(.*)(resume=UUID=[a-fA-F0-9-]+)?(.*)"$'
+    replace: 'GRUB_CMDLINE_LINUX_DEFAULT="\1 \3 resume=UUID={{ swap_uuid.stdout }}"'
+  become: yes
+  when: setup_hibernate | bool and swap_uuid.stdout != ''
+  notify: Update GRUB
+
+- name: Create PolicyKit modern rule for hibernation
+  ansible.builtin.copy:
+    dest: /etc/polkit-1/rules.d/10-enable-hibernate.rules
+    content: |
+      polkit.addRule(function(action, subject) {
+          if ((action.id == "org.freedesktop.upower.hibernate" ||
+               action.id == "org.freedesktop.login1.hibernate" ||
+               action.id == "org.freedesktop.login1.hibernate-multiple-sessions") &&
+              subject.isInGroup("sudo")) {
+              return polkit.Result.YES;
+          }
+      });
+    mode: '0644'
+  become: yes
+  when: setup_hibernate | bool

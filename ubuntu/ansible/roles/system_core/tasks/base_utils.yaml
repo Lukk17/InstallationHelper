@@ -1,0 +1,36 @@
+---
+- name: Ensure temporary installation folder exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.lukkInstall"
+    state: directory
+    mode: '0755'
+  become: no
+
+- name: Full system upgrade and autoremove
+  ansible.builtin.apt:
+    upgrade: full
+    autoremove: yes
+  become: yes
+
+- name: Install base system utilities
+  ansible.builtin.apt:
+    name:
+      - git
+      - wget
+      - curl
+      - vim
+      - nano
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - hardinfo
+      - libfuse2
+      - dconf-editor
+      - apache2-utils
+      - bat
+      - openssl
+      - scrcpy
+      - zip
+      - unzip
+    state: present
+  become: yes

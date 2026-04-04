@@ -1,0 +1,41 @@
+---
+- name: Mount /tmp in RAM
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    line: "tmpfs /tmp tmpfs mode=0777 0 0"
+    state: present
+  become: yes
+  when: setup_tmpfs | bool
+
+- name: Set GRUB timeout to 1
+  ansible.builtin.replace:
+    path: /etc/default/grub
+    regexp: '^GRUB_TIMEOUT=.*'
+    replace: 'GRUB_TIMEOUT="1"'
+  become: yes
+  notify: Update GRUB
+
+- name: Setup local time RTC
+  ansible.builtin.command: timedatectl set-local-rtc 1 --adjust-system-clock
+  become: yes
+  changed_when: false
+
+- name: Generate PL locale
+  community.general.locale_gen:
+    name: pl_PL.UTF-8
+    state: present
+  become: yes
+
+- name: Set EN locale as default
+  ansible.builtin.command: update-locale LANG=en_US.UTF-8
+  become: yes
+  changed_when: false
+
+- name: Install language packs
+  ansible.builtin.apt:
+    name:
+      - language-pack-pl
+      - language-pack-gnome-pl
+      - language-pack-pl-base
+    state: present
+  become: yes

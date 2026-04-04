@@ -1,0 +1,33 @@
+---
+- name: Install SDKMAN
+  ansible.builtin.shell: |
+    curl -s "https://get.sdkman.io?rcupdate=false" | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.sdkman/bin/sdkman-init.sh"
+  become: no
+  when: install_java | bool
+
+- name: Install Java versions via SDKMAN
+  ansible.builtin.shell: |
+    source "{{ ansible_env.HOME }}/.sdkman/bin/sdkman-init.sh"
+    sdk install java {{ item }}
+  args:
+    executable: /bin/bash
+  loop:
+    - "{{ java11_id }}"
+    - "{{ java17_id }}"
+    - "{{ java21_id }}"
+    - "{{ java25_id }}"
+  become: no
+  when: install_java | bool
+  changed_when: false
+
+- name: Set Default Java via SDKMAN
+  ansible.builtin.shell: |
+    source "{{ ansible_env.HOME }}/.sdkman/bin/sdkman-init.sh"
+    sdk default java {{ default_java }}
+  args:
+    executable: /bin/bash
+  become: no
+  when: install_java | bool
+  changed_when: false

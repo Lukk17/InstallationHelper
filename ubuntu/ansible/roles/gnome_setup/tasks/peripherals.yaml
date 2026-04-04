@@ -1,0 +1,13 @@
+---
+- name: Set Touchpad preferences
+  community.general.dconf:
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    - { key: "/org/gnome/desktop/peripherals/touchpad/click-method", value: "'default'" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/edge-scrolling-enabled", value: "false" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/disable-while-typing", value: "true" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/two-finger-scrolling-enabled", value: "true" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/natural-scroll", value: "true" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/tap-to-click", value: "true" }
+  become: no

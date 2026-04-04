@@ -1,0 +1,8 @@
+---
+- import_tasks: install_tools.yaml
+- import_tasks: templates.yaml
+- import_tasks: themes.yaml
+- import_tasks: peripherals.yaml
+- import_tasks: favorites_bookmarks.yaml
+- import_tasks: default_apps.yaml
+- import_tasks: dash_to_dock.yaml

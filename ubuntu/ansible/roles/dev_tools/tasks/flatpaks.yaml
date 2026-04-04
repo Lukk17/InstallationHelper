@@ -1,0 +1,31 @@
+---
+- name: Enable Flatpak
+  ansible.builtin.apt:
+    name:
+      - flatpak
+      - gnome-software-plugin-flatpak
+    state: present
+  become: yes
+
+- name: Add Flathub repository
+  community.general.flatpak_remote:
+    name: flathub
+    state: present
+    flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
+  become: yes
+
+- name: Install Flatpak Applications
+  community.general.flatpak:
+    name: "{{ item }}"
+    state: present
+    method: system
+  loop:
+    - com.github.tchx84.Flatseal
+    - org.angryip.ipscan
+    - us.zoom.Zoom
+    - com.google.Chrome
+    - io.github.shiftey.Desktop
+    - com.wps.Office
+    - org.torproject.torbrowser-launcher
+    - com.mongodb.Compass
+  become: yes
