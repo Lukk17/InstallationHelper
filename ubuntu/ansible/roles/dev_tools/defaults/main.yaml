@@ -1,6 +1,0 @@
----
-java11_id: "11.0.26-tem"
-java17_id: "17.0.14-tem"
-java21_id: "21.0.6-tem"
-java25_id: "25-tem"
-default_java: "{{ java21_id }}"
