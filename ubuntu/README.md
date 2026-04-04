@@ -114,3 +114,16 @@ Postgres is installed via snap
 gsettings get org.gnome.shell favorite-apps
 ```
 
+---
+
+### Java SDK versions
+
+To use in terminal given version:
+```shell
+sdk use java 17.0.10-tem
+```
+
+To set global default:
+```shell
+sdk default java 21.0.2-tem
+```

@@ -43,6 +43,13 @@ gsconnect_link="https://extensions.gnome.org/extension/1319/gsconnect/"
 keepassXC_addon_link="https://chrome.google.com/webstore/detail/keepassxc-browser/oboonakemofpalcgghocfoadofidjkkk"
 notification_addod_link="https://extensions.gnome.org/extension/258/notifications-alert-on-user-menu/"
 
+# Helper function to append line to file only if it doesn't exist
+append_if_missing() {
+  local line="$1"
+  local file="$2"
+  grep -qxF "$line" "$file" || echo "$line" >> "$file"
+}
+
 # =====================================================================================
 
 echo
@@ -50,7 +57,9 @@ echo "--------------------------------"
 echo "| Setting up KeePassXC addon.. |"
 echo "--------------------------------"
 
-./config/keepassxc-snap-helper.sh
+if [ -f "./config/keepassxc-snap-helper.sh" ]; then
+  ./config/keepassxc-snap-helper.sh
+fi
 
 # =====================================================================================
 
@@ -60,10 +69,11 @@ echo "---------------------------"
 echo "| Copying install files.. |"
 echo "---------------------------"
 
-mkdir "$temp_folder_path"
-cp -a ./wallpapers/ "$temp_folder_path"/wallpapers/
-cp "$temp_folder_path"/wallpapers/wallpapers-config "$temp_folder_path"/wallpapers-config
-
+mkdir -p "$temp_folder_path"
+if [ -d "./wallpapers/" ]; then
+  cp -a ./wallpapers/ "$temp_folder_path"/wallpapers/
+  cp "$temp_folder_path"/wallpapers/wallpapers-config "$temp_folder_path"/wallpapers-config
+fi
 
 # =====================================================================================
 
@@ -72,6 +82,7 @@ echo "-----------------------------"
 echo "| Creating files template.. |"
 echo "-----------------------------"
 
+mkdir -p ~/Templates
 touch ~/Templates/file
 touch ~/Templates/text.txt
 touch ~/Templates/Document.docx
@@ -86,9 +97,9 @@ echo "| Setting dark mode.. |"
 echo "-----------------------"
 
 gsettings set org.gnome.shell.ubuntu color-scheme prefer-dark
-gsettings set org.gnome.desktop.interface gtk-theme Yaru-dark # Legacy apps, can specify an accent such as Yaru-olive-dark
-gsettings set org.gnome.desktop.interface color-scheme prefer-dark # new apps
-gsettings reset org.gnome.shell.ubuntu color-scheme # if changed above
+gsettings set org.gnome.desktop.interface gtk-theme Yaru-dark
+gsettings set org.gnome.desktop.interface color-scheme prefer-dark
+gsettings reset org.gnome.shell.ubuntu color-scheme
 
 # =====================================================================================
 
@@ -97,10 +108,11 @@ echo "-----------------------"
 echo "| Setting wallpaper.. |"
 echo "-----------------------"
 
-sudo cp -a "$temp_folder_path"/wallpapers/ /usr/share/backgrounds/wallpapers/
-gsettings set org.gnome.desktop.background picture-uri-dark "$background_path"
-gsettings set org.gnome.desktop.background picture-uri "$background_path"
-
+if [ -d "$temp_folder_path/wallpapers/" ]; then
+  sudo cp -a "$temp_folder_path"/wallpapers/ /usr/share/backgrounds/wallpapers/
+  gsettings set org.gnome.desktop.background picture-uri-dark "$background_path"
+  gsettings set org.gnome.desktop.background picture-uri "$background_path"
+fi
 
 # =====================================================================================
 
@@ -166,7 +178,9 @@ echo "-------------------------------------------"
 echo "| Configuring /tmp to be mounted in RAM.. |"
 echo "-------------------------------------------"
 
-sudo bash -c 'echo "tmpfs /tmp tmpfs mode=0777 0 0" >> /etc/fstab'
+if ! grep -q "tmpfs /tmp tmpfs" /etc/fstab; then
+  echo "tmpfs /tmp tmpfs mode=0777 0 0" | sudo tee -a /etc/fstab > /dev/null
+fi
 
 # =====================================================================================
 
@@ -184,13 +198,16 @@ echo "------------------------------------"
 echo "| Configuring Nautilus bookmarks.. |"
 echo "------------------------------------"
 
-echo "file://$HOME/.local/share/applications applications-local" >> ~/.config/gtk-3.0/bookmarks
-echo "file://$HOME/.config/autostart autostart-config" >> ~/.config/gtk-3.0/bookmarks
-echo "file:///opt opt" >> ~/.config/gtk-3.0/bookmarks
-echo "file:///usr/share/applications applications" >> ~/.config/gtk-3.0/bookmarks
-echo "file:///etc/xdg xdg" >> ~/.config/gtk-3.0/bookmarks
-echo "file:/// /" >> ~/.config/gtk-3.0/bookmarks
-echo "file:///etc/xdg/autostart autostart-xdg" >> ~/.config/gtk-3.0/bookmarks
+mkdir -p ~/.config/gtk-3.0
+touch ~/.config/gtk-3.0/bookmarks
+
+append_if_missing "file://$HOME/.local/share/applications applications-local" ~/.config/gtk-3.0/bookmarks
+append_if_missing "file://$HOME/.config/autostart autostart-config" ~/.config/gtk-3.0/bookmarks
+append_if_missing "file:///opt opt" ~/.config/gtk-3.0/bookmarks
+append_if_missing "file:///usr/share/applications applications" ~/.config/gtk-3.0/bookmarks
+append_if_missing "file:///etc/xdg xdg" ~/.config/gtk-3.0/bookmarks
+append_if_missing "file:/// /" ~/.config/gtk-3.0/bookmarks
+append_if_missing "file:///etc/xdg/autostart autostart-xdg" ~/.config/gtk-3.0/bookmarks
 
 # =====================================================================================
 
@@ -210,7 +227,6 @@ echo "-----------------------------------------------------------"
 
 sudo locale-gen pl_PL.UTF-8
 sudo update-locale LANG=en_US.UTF-8
-
 sudo apt-get install language-pack-pl language-pack-gnome-pl language-pack-pl-base -y
 
 # =====================================================================================
@@ -368,14 +384,18 @@ echo "| Installing terminal ZSH.. |"
 echo "-----------------------------"
 
 sudo apt install zsh -y
-sudo chsh -s /bin/zsh -y
+sudo chsh -s "$(which zsh)" "$USER"
 
-# install Oh My Zsh
-bash -c ""echo Y | sh -c "$(curl -fsSL $zsh_download_link)"""
+# install Oh My Zsh safely
+if [ ! -d "$HOME/.oh-my-zsh" ]; then
+  sh -c "$(curl -fsSL $zsh_download_link)" "" --unattended
+fi
 
-cp ./config/.p10k.zsh "$HOME"/
-cp ./config/.zshrc.pre-oh-my-zsh "$HOME"/
-cp ./config/.zshrc "$HOME"/
+if [ -f "./config/.p10k.zsh" ]; then
+  cp ./config/.p10k.zsh "$HOME"/
+  cp ./config/.zshrc.pre-oh-my-zsh "$HOME"/
+  cp ./config/.zshrc "$HOME"/
+fi
 
 # install fonts
 wget "$nerdFont_download_link" -cO "$temp_folder_path"/"$nerdFontName"
@@ -390,24 +410,40 @@ sudo cp "$temp_folder_path"/"$mesloBoldName" /usr/share/fonts/
 sudo cp "$temp_folder_path"/"$mesloItalicName" /usr/share/fonts/
 sudo cp "$temp_folder_path"/"$mesloBoldItalicName" /usr/share/fonts/
 
-# install plugins
-sudo git clone "$spaceshipTheme_download_link" "$ZSH_CUSTOM/themes/spaceship-prompt" --depth=1
-sudo ln -s "$ZSH_CUSTOM/themes/spaceship-prompt/spaceship.zsh-theme" "$ZSH_CUSTOM/themes/spaceship.zsh-theme"
-sudo git clone --depth=1 "$powerlevel10kTheme_download_link" "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"/themes/powerlevel10k
+# Update font cache so system sees new fonts
+sudo fc-cache -f -v
+
+# install plugins without sudo
+export ZSH_CUSTOM="$HOME/.oh-my-zsh/custom"
+
+if [ ! -d "$ZSH_CUSTOM/themes/spaceship-prompt" ]; then
+  git clone "$spaceshipTheme_download_link" "$ZSH_CUSTOM/themes/spaceship-prompt" --depth=1
+fi
+
+if [ ! -f "$ZSH_CUSTOM/themes/spaceship.zsh-theme" ]; then
+  ln -s "$ZSH_CUSTOM/themes/spaceship-prompt/spaceship.zsh-theme" "$ZSH_CUSTOM/themes/spaceship.zsh-theme"
+fi
+
+if [ ! -d "$ZSH_CUSTOM/themes/powerlevel10k" ]; then
+  git clone --depth=1 "$powerlevel10kTheme_download_link" "$ZSH_CUSTOM/themes/powerlevel10k"
+fi
 
 # set gnome terminal to use ZSH
 terminalProfile="$(gsettings get org.gnome.Terminal.ProfilesList default)"
-terminalProfile=${terminalProfile:1:-1} # remove leading and trailing single quotes
+terminalProfile=${terminalProfile:1:-1}
 gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:$terminalProfile/" custom-command 'zsh'
 gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:$terminalProfile/" exit-action 'close'
 gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:$terminalProfile/" login-shell true
 gsettings set "org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles:/:$terminalProfile/" use-custom-command true
 
-sudo echo 'export PATH="$PATH:/usr/bin/brave-browser-stable"' >> ~/.bashrc
-sudo echo 'export PATH="$PATH:/usr/bin/brave-browser-stable"' >> ~/.zshrc
+touch ~/.bashrc
+touch ~/.zshrc
 
-echo "export PATH='$PATH:/opt/postman/postman'" >> ~/.bashrc
-echo "export PATH='$PATH:/opt/postman/postman'" >> ~/.zshrc
+append_if_missing 'export PATH="$PATH:/usr/bin/brave-browser-stable"' ~/.bashrc
+append_if_missing 'export PATH="$PATH:/usr/bin/brave-browser-stable"' ~/.zshrc
+
+append_if_missing 'export PATH="$PATH:/opt/postman/postman"' ~/.bashrc
+append_if_missing 'export PATH="$PATH:/opt/postman/postman"' ~/.zshrc
 
 echo
 echo "-----------------------------------"
@@ -430,7 +466,7 @@ echo "-------------------------------------------------"
   google-chrome "$keepassXC_addon_link" &>/dev/null & disown %%
   google-chrome "$notification_addod_link" &>/dev/null & disown %%
 
-} || handle_error "Opening extension install pages in browsers"
+} || echo "Failed to open browsers"
 
 # =====================================================================================
 
