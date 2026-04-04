@@ -33,9 +33,6 @@ minikube_download_link="https://storage.googleapis.com/minikube/releases/latest/
 beeperVersion="beeper.AppImage"
 beeper_download_link="https://api.beeper.com/desktop/download/linux/x64/stable/com.automattic.beeper.desktop"
 
-jetbrainsToolboxVersion="jetbrains-toolbox-2.9.0.56191"
-jetbrainsToolbox_download_link="https://download.jetbrains.com/toolbox/$jetbrainsToolboxVersion.tar.gz"
-
 teamViewerVersion="teamviewer_amd64.deb"
 teamViewer_download_link="https://download.teamviewer.com/download/linux/$teamViewerVersion"
 
@@ -182,6 +179,7 @@ echo "----------------------"
   sudo snap install trello-desktop
   sudo snap install obsidian --classic
   sudo snap install bitwarden
+  sudo snap install nordvpn
 
   sudo snap install steam
 
@@ -196,6 +194,11 @@ echo "----------------------"
   sudo snap install teams
 
   sudo snap install brave
+
+  sudo snap install intellij-idea --classic
+  sudo snap install datagrip --classic
+  sudo snap install webstorm --classic
+  sudo snap install pycharm --classic
 
 } || handle_error "Installing snaps"
 
@@ -214,6 +217,7 @@ echo "-----------------------------"
   sudo flatpak install --system flathub io.github.shiftey.Desktop -y
   sudo flatpak install --system flathub com.wps.Office -y
   sudo flatpak install --system flathub org.torproject.torbrowser-launcher -y
+  sudo flatpak --system install flathub com.mongodb.Compass -y
 
 } || handle_error "Installing flatpak apps"
 
@@ -284,25 +288,6 @@ EOF
   sudo apt install "$temp_folder_path"/"$dockerDesktopVersion" -y
 
 } || handle_error "Installing Docker Desktop"
-
-
-# =====================================================================================
-
-echo
-echo "----------------------"
-echo "| Installing NoSQL.. |"
-echo "----------------------"
-{
-  docker pull mongodb/mongodb-community-server:latest
-  docker run --name mongodb -p 27017:27017 -d mongodb/mongodb-community-server:latest
-
-  # Copy MongoDB Docker startup shortcut to autostart
-  cp ./shortcuts/mongo-docker-startup.desktop "$HOME/.config/autostart/"
-  chmod +x "$HOME/.config/autostart/mongo-docker-startup.desktop"
-
-  sudo flatpak --system install flathub com.mongodb.Compass -y
-
-} || handle_error "Installing NoSQL"
 
 # =====================================================================================
 
@@ -385,21 +370,6 @@ echo "-----------------------"
   "$temp_folder_path/$beeperVersion"
 
 } || handle_error "Installing Beeper"
-
-# =====================================================================================
-
-echo
-echo "----------------------------------"
-echo "| Installing Jetbrains Toolbox.. |"
-echo "----------------------------------"
-
-{
-  wget "$jetbrainsToolbox_download_link" -cO "$temp_folder_path/$jetbrainsToolboxVersion"
-  sudo mkdir -p /opt/jetbrains
-  sudo tar -xvf "$temp_folder_path/$jetbrainsToolboxVersion" -C /opt/jetbrains
-  /opt/jetbrains/"$jetbrainsToolboxVersion"/bin/jetbrains-toolbox &>/dev/null & disown %%
-
-} || handle_error "Installing Jetbrains Toolbox"
 
 # =====================================================================================
 
