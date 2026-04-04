@@ -4,6 +4,7 @@
   gather_facts: yes
   vars_files:
     - group_vars/all.yaml
+    - group_vars/versions.yaml
 
   pre_tasks:
     - name: Update apt cache

@@ -5,11 +5,11 @@
     dest: "/usr/share/fonts/{{ item.name }}"
     mode: '0644'
   loop:
-    - { url: 'https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/Hack/Regular/complete/Hack%20Regular%20Nerd%20Font%20Complete.ttf', name: 'Hack Regular Nerd Font Complete.ttf' }
-    - { url: 'https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf', name: 'MesloLGS NF Regular.ttf' }
-    - { url: 'https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf', name: 'MesloLGS NF Bold.ttf' }
-    - { url: 'https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Italic.ttf', name: 'MesloLGS NF Italic.ttf' }
-    - { url: 'https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold%20Italic.ttf', name: 'MesloLGS NF Bold Italic.ttf' }
+    - { url: '{{ nerd_font_hack_url }}', name: 'Hack Regular Nerd Font Complete.ttf' }
+    - { url: '{{ meslo_regular_url }}', name: 'MesloLGS NF Regular.ttf' }
+    - { url: '{{ meslo_bold_url }}', name: 'MesloLGS NF Bold.ttf' }
+    - { url: '{{ meslo_italic_url }}', name: 'MesloLGS NF Italic.ttf' }
+    - { url: '{{ meslo_bold_italic_url }}', name: 'MesloLGS NF Bold Italic.ttf' }
   become: yes
   notify: Update Font Cache
 
