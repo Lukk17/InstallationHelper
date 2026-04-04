@@ -1,8 +1,0 @@
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=NordVPN Disconnect
-Icon=nordvpn
-Exec=nordvpn disconnect
-Terminal=false
-
