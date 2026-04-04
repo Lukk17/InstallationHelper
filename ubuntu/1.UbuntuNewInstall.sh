@@ -21,14 +21,17 @@ temp_folder_path="$HOME/.lukkInstall"
 appImageLauncherVersion="appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb"
 appImageLauncher_download_link="https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/$appImageLauncherVersion"
 
-dockerDesktopVersion="docker-desktop-amd64.deb"
-dockerDesktop_download_link="https://desktop.docker.com/linux/main/amd64/$dockerDesktopVersion"
+antigravityVersion="antigravity_latest_amd64.deb"
+antigravity_download_link="https://antigravity.google/download/linux/antigravity.deb"
 
 VMwareVersion="VMware-Player-Full-17.5.0-22583795.x86_64.bundle"
 VMware_download_link="https://download3.vmware.com/software/WKST-PLAYER-1750/$VMwareVersion"
 
 minikubeVersion="minikube_latest_amd64.deb"
 minikube_download_link="https://storage.googleapis.com/minikube/releases/latest/$minikubeVersion"
+
+kindVersion="latest"
+kind_download_link="https://kind.sigs.k8s.io/dl/$kindVersion/kind-linux-amd64"
 
 beeperVersion="beeper.AppImage"
 beeper_download_link="https://api.beeper.com/desktop/download/linux/x64/stable/com.automattic.beeper.desktop"
@@ -126,7 +129,7 @@ echo "-----------------------------------"
   source /etc/profile.d/flatpak.sh
   sudo flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
   sudo flatpak update --system -y
-  sudo flatpak install flathub com.github.tchx84.Flatseal
+  sudo flatpak install --system flathub com.github.tchx84.Flatseal -y
 
 } || handle_error "Installing Flatpak"
 
@@ -224,74 +227,6 @@ echo "-----------------------------"
 # =====================================================================================
 
 echo
-echo "-------------------------------"
-echo "| Installing Docker Desktop.. |"
-echo "-------------------------------"
-{
-  # Add Docker's official GPG key:
-  sudo apt update
-  sudo apt install ca-certificates curl -y
-  sudo install -m 0755 -d /etc/apt/keyrings-y
-  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-  sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-  # Add the repository to Apt sources:
-  echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-    $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
-    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-  sudo apt update
-
-  sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-  # This automates the setup of a GPG key and 'pass' for Docker Desktop login.
-  # Prompt for a secure passphrase
-  read -s -p "Enter a new passphrase for your GPG key: " GPG_PASSPHRASE
-  echo # Newline after password input
-
-  if [ -z "$GPG_PASSPHRASE" ]; then
-      echo "Error: Passphrase cannot be empty."
-      exit 1
-  fi
-
-  # below need to be formated as it is WITHOUT indent ! due to heredoc syntax
-  cat > gpg_params <<EOF
-%echo Generating a GPG key for Docker...
-Key-Type: RSA
-Key-Length: 3072
-Subkey-Type: RSA
-Subkey-Length: 3072
-Name-Real: Docker Login Key
-Name-Email: docker-login@localhost
-Expire-Date: 0
-Passphrase: ${GPG_PASSPHRASE}
-%commit
-%echo done
-EOF
-
-  gpg --batch --gen-key gpg_params
-  KEY_ID=$(gpg --list-secret-keys --with-colons | grep '^sec' | tail -n 1 | cut -d: -f5)
-
-  if [ -z "$KEY_ID" ]; then
-      echo "Error: Could not find the new GPG Key ID."
-      rm gpg_params # Clean up
-      exit 1
-  fi
-
-  pass init "$KEY_ID"
-  rm gpg_params
-
-  sudo systemctl start docker
-  sudo systemctl enable docker
-
-  wget "$dockerDesktop_download_link" -cO "$temp_folder_path"/"$dockerDesktopVersion"
-  sudo apt install "$temp_folder_path"/"$dockerDesktopVersion" -y
-
-} || handle_error "Installing Docker Desktop"
-
-# =====================================================================================
-
-echo
 echo "------------------------------------------"
 echo "| Installing VMware Workstation Player.. |"
 echo "------------------------------------------"
@@ -299,7 +234,7 @@ echo "------------------------------------------"
   sudo apt install build-essential -y
   wget "$VMware_download_link" -cO "$temp_folder_path/$VMwareVersion"
   sudo chmod +x "$temp_folder_path/$VMwareVersion"
-  sudo "$temp_folder_path/$VMwareVersion"
+  sudo "$temp_folder_path/$VMwareVersion" --required --console --eulas-agreed
 
 } || handle_error "Installing VMware Workstation Player"
 
@@ -311,9 +246,34 @@ echo "| Installing minikube.. |"
 echo "-------------------------"
 {
   wget "$minikube_download_link" -cO "$temp_folder_path/$minikubeVersion"
-  sudo dpkg -i "$temp_folder_path/$minikubeVersion"
+  sudo apt install "$temp_folder_path/$minikubeVersion" -y
 
 } || handle_error "Installing minikube"
+
+# =====================================================================================
+
+echo
+echo "---------------------"
+echo "| Installing kind.. |"
+echo "---------------------"
+{
+  wget "$kind_download_link" -cO "$temp_folder_path/kind"
+  chmod +x "$temp_folder_path/kind"
+  sudo mv "$temp_folder_path/kind" /usr/local/bin/kind
+
+} || handle_error "Installing kind"
+
+# =====================================================================================
+
+echo
+echo "--------------------------"
+echo "| Installing Antigravity.. |"
+echo "--------------------------"
+{
+  wget "$antigravity_download_link" -cO "$temp_folder_path/$antigravityVersion"
+  sudo apt install "$temp_folder_path/$antigravityVersion" -y
+
+} || handle_error "Installing Antigravity"
 
 # =====================================================================================
 
@@ -347,7 +307,7 @@ echo "------------------------------"
 echo "| Installing Speedtest CLI.. |"
 echo "------------------------------"
 {
-  sudo apt install speedtest-cli
+  sudo apt install speedtest-cli -y
   sudo mkdir -p /opt/speedtest-cli
   sudo cp ./icons/speedtest.png /opt/speedtest-cli/speedtest.png
   sudo cp ./scripts/speedtest-starter.sh /opt/speedtest-cli/speedtest-starter.sh
