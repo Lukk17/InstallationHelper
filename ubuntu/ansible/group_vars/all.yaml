@@ -12,7 +12,7 @@ install_waydroid: false
 install_crypto_tools: false
 
 # Specific System Core Settings
-setup_hibernate: false
+setup_hibernate: true
 setup_tmpfs: true
 toggle_wayland_nvidia: false
 
@@ -30,7 +30,7 @@ dash_dock_position: 'LEFT'
 dash_dock_disable_ubuntu_dock: false
 
 # Feature Toggles for other specific apps
-install_tor: false
+install_tor: true
 install_brave: true
 
 # SDKMan / Java Toggles
