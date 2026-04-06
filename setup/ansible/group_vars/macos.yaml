@@ -1,0 +1,19 @@
+---
+# -----------------------------------------------------
+# MACOS SPECIFIC TOGGLES
+# -----------------------------------------------------
+
+# MacOS System Configurations
+setup_karabiner: true
+setup_finder_defaults: true
+
+# Mac Only System Alternatives (Alternatives to Windows-only apps)
+install_stats: true            # Alt for HWMonitor
+install_grandperspective: true # Alt for WizTree
+install_lulu: true             # Alt for GlassWire / Firewall
+install_balena_etcher: true    # Alt for Rufus
+
+# Virtualization toggles
+install_virtualbox: true
+install_vmware: true
+install_docker: true

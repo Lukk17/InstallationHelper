@@ -1,7 +1,0 @@
----
-- import_tasks: java_sdkman.yaml
-- import_tasks: python_pyenv.yaml
-- import_tasks: node_nvm.yaml
-- import_tasks: build_tools.yaml
-- import_tasks: snaps.yaml
-- import_tasks: flatpaks.yaml

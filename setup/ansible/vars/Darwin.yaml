@@ -1,0 +1,59 @@
+---
+software_mapping:
+  # Browsers
+  chrome: { manager: "brew_cask", package: "googlechrome" }
+  brave: { manager: "brew_cask", package: "brave-browser" }
+  tor: { manager: "brew_cask", package: "tor-browser" }
+
+  # Dev Tools
+  git: { manager: "brew", package: "git" }
+  maven: { manager: "brew", package: "maven" }
+  gradle: { manager: "brew", package: "gradle" }
+  postman: { manager: "brew_cask", package: "postman" }
+  openssl: { manager: "brew", package: "openssl" }
+  dbeaver: { manager: "brew_cask", package: "dbeaver-community" }
+
+  # IDEs / Editors
+  intellij: { manager: "brew_cask", package: "intellij-idea" }
+  vscode: { manager: "brew_cask", package: "visual-studio-code" }
+  sublime: { manager: "brew_cask", package: "sublime-text" }
+
+  # Communication
+  discord: { manager: "brew_cask", package: "discord" }
+  slack: { manager: "brew_cask", package: "slack" }
+  teams: { manager: "brew_cask", package: "microsoft-teams" }
+  telegram: { manager: "brew_cask", package: "telegram" }
+  signal: { manager: "brew_cask", package: "signal" }
+  whatsapp: { manager: "brew_cask", package: "whatsapp" }
+
+  # Productivity
+  obsidian: { manager: "brew_cask", package: "obsidian" }
+  bitwarden: { manager: "brew_cask", package: "bitwarden" }
+  keepassxc: { manager: "brew_cask", package: "keepassxc" }
+  trello: { manager: "brew_cask", package: "trello" }
+
+  # Media / Design
+  vlc: { manager: "brew_cask", package: "vlc" }
+  spotify: { manager: "brew_cask", package: "spotify" }
+  gimp: { manager: "brew_cask", package: "gimp" }
+  krita: { manager: "brew_cask", package: "krita" }
+
+  # Gaming
+  steam: { manager: "brew_cask", package: "steam" }
+  
+  # CAD / 3D
+  freecad: { manager: "brew_cask", package: "freecad" }
+  prusaslicer: { manager: "brew_cask", package: "prusa-slicer" }
+
+  # Utilities
+  teamviewer: { manager: "brew_cask", package: "teamviewer" }
+
+  # Alternatives
+  stats: { manager: "brew_cask", package: "stats", is_alternative_for: "HWMonitor" }
+  grandperspective: { manager: "brew_cask", package: "grandperspective", is_alternative_for: "WizTree" }
+  lulu: { manager: "brew_cask", package: "lulu", is_alternative_for: "GlassWire" }
+  balena_etcher: { manager: "brew_cask", package: "balenaetcher", is_alternative_for: "Rufus" }
+
+  # Virtualization
+  virtualbox: { manager: "brew_cask", package: "virtualbox" }
+  docker: { manager: "brew_cask", package: "docker" }

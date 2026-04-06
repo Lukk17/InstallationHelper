@@ -1,0 +1,16 @@
+---
+- name: Bootstrap yay AUR Helper
+  become: yes
+  ansible.builtin.shell: |
+    pacman -S --needed git base-devel --noconfirm
+    git clone https://aur.archlinux.org/yay.git /tmp/yay
+    cd /tmp/yay && makepkg -si --noconfirm
+  args:
+    creates: /usr/bin/yay
+
+- name: Enable systemd for Snap
+  become: yes
+  ansible.builtin.systemd:
+    name: snapd.socket
+    state: started
+    enabled: yes

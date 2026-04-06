@@ -1,0 +1,63 @@
+---
+software_mapping:
+  # Browsers
+  chrome: { manager: "dnf_url", package: "google-chrome-stable" }
+  brave: { manager: "dnf_repo", package: "brave-browser" }
+  tor: { manager: "flatpak", package: "org.torproject.torbrowser-launcher" }
+
+  # Dev Tools
+  git: { manager: "dnf", package: "git" }
+  maven: { manager: "dnf", package: "maven" }
+  gradle: { manager: "dnf", package: "gradle" }
+  postman: { manager: "snap", package: "postman" }
+  openssl: { manager: "dnf", package: "openssl" }
+  dbeaver: { manager: "snap", package: "dbeaver-ce" }
+
+  # IDEs / Editors
+  intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
+  vscode: { manager: "dnf_repo", package: "code", classic: true }
+  sublime: { manager: "dnf_repo", package: "sublime-text" }
+
+  # Communication
+  discord: { manager: "flatpak", package: "com.discordapp.Discord" }
+  slack: { manager: "snap", package: "slack" }
+  teams: { manager: "snap", package: "teams" }
+  telegram: { manager: "snap", package: "telegram-desktop" }
+  signal: { manager: "snap", package: "signal-desktop" }
+  whatsapp: { manager: "snap", package: "whatsapp-for-linux" }
+
+  # Productivity
+  obsidian: { manager: "snap", package: "obsidian", classic: true }
+  bitwarden: { manager: "snap", package: "bitwarden" }
+  keepassxc: { manager: "dnf", package: "keepassxc" }
+  trello: { manager: "snap", package: "trello-desktop" }
+  onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
+
+  # Media / Design
+  vlc: { manager: "dnf", package: "vlc" }
+  spotify: { manager: "snap", package: "spotify" }
+  gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
+  krita: { manager: "flatpak", package: "org.kde.krita" }
+
+  # Gaming
+  steam: { manager: "dnf", package: "steam" }
+  
+  # CAD / 3D
+  freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
+  prusaslicer: { manager: "snap", package: "prusa-slicer" }
+
+  # Utilities
+  teamviewer: { manager: "dnf_url", package: "teamviewer" }
+
+  # Alternatives
+  hardinfo: { manager: "dnf", package: "hardinfo", is_alternative_for: "HWMonitor" }
+  lm_sensors: { manager: "dnf", package: "lm_sensors", is_alternative_for: "HWInfo" }
+  greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
+  baobab: { manager: "dnf", package: "baobab", is_alternative_for: "WizTree" }
+  polychromatic: { manager: "dnf_repo", package: "polychromatic", is_alternative_for: "Razer Cortex" }
+  balena_etcher: { manager: "dnf_url", package: "balena-etcher", is_alternative_for: "Rufus" }
+  gputest: { manager: "dnf", package: "gputest", is_alternative_for: "FurMark" }
+
+  # Virtualization
+  virtualbox: { manager: "dnf", package: "VirtualBox" }
+  docker: { manager: "dnf", package: "docker-ce" }

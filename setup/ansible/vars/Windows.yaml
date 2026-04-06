@@ -1,0 +1,63 @@
+---
+software_mapping:
+  # Browsers
+  chrome: { manager: "choco", package: "googlechrome" }
+  brave: { manager: "choco", package: "brave" }
+  tor: { manager: "choco", package: "tor-browser" }
+
+  # Dev Tools
+  git: { manager: "choco", package: "git" }
+  maven: { manager: "choco", package: "maven" }
+  gradle: { manager: "choco", package: "gradle" }
+  postman: { manager: "choco", package: "postman" }
+  openssl: { manager: "choco", package: "openssl" }
+  dbeaver: { manager: "choco", package: "dbeaver" }
+
+  # IDEs / Editors
+  intellij: { manager: "choco", package: "intellijidea-ultimate" }
+  vscode: { manager: "winget", package: "Microsoft.VisualStudioCode" }
+  sublime: { manager: "choco", package: "sublimetext4" }
+
+  # Communication
+  discord: { manager: "winget", package: "Discord.Discord" }
+  slack: { manager: "winget", package: "SlackTechnologies.Slack" }
+  teams: { manager: "winget", package: "Microsoft.Teams" }
+  telegram: { manager: "winget", package: "Telegram.TelegramDesktop" }
+  signal: { manager: "choco", package: "signal" }
+  whatsapp: { manager: "winget", package: "WhatsApp.WhatsApp" }
+
+  # Productivity
+  obsidian: { manager: "choco", package: "obsidian" }
+  bitwarden: { manager: "winget", package: "Bitwarden.Bitwarden" }
+  trello: { manager: "winget", package: "Trello.Trello" }
+
+  # Media / Design
+  vlc: { manager: "winget", package: "VideoLAN.VLC" }
+  spotify: { manager: "winget", package: "Spotify.Spotify" }
+  gimp: { manager: "choco", package: "gimp" }
+  krita: { manager: "choco", package: "krita" }
+
+  # Gaming
+  steam: { manager: "choco", package: "steam" }
+  
+  # CAD / 3D
+  freecad: { manager: "choco", package: "freecad" }
+  prusaslicer: { manager: "choco", package: "prusaslicer" }
+
+  # Utilities
+  teamviewer: { manager: "choco", package: "teamviewer" }
+
+  # Windows Only Native Apps
+  hwmonitor: { manager: "choco", package: "hwmonitor" }
+  crystaldiskinfo: { manager: "choco", package: "crystaldiskinfo" }
+  msiafterburner: { manager: "choco", package: "msiafterburner" }
+  wiztree: { manager: "choco", package: "wiztree" }
+  advanced_ip_scanner: { manager: "choco", package: "advanced-ip-scanner" }
+  glasswire: { manager: "choco", package: "glasswire" }
+  tcpview: { manager: "choco", package: "tcpview" }
+  autoruns: { manager: "choco", package: "autoruns" }
+  rufus: { manager: "choco", package: "rufus" }
+  powertoys: { manager: "winget", package: "Microsoft.PowerToys" }
+
+  # Virtualization
+  docker: { manager: "winget", package: "Docker.DockerDesktop" }

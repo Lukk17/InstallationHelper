@@ -1,0 +1,13 @@
+---
+- name: Install Karabiner-Elements
+  community.general.homebrew_cask:
+    name: karabiner-elements
+    state: present
+  when: setup_karabiner | bool
+
+- name: Set macOS Finder Defaults
+  ansible.builtin.shell: |
+    defaults write com.apple.finder AppleShowAllFiles YES
+    defaults write NSGlobalDomain AppleShowAllExtensions -bool true
+    killall Finder
+  when: setup_finder_defaults | bool

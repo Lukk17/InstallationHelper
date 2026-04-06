@@ -1,0 +1,62 @@
+---
+software_mapping:
+  # Browsers
+  chrome: { manager: "apt", package: "google-chrome-stable" }
+  brave: { manager: "apt", package: "brave-browser" }
+  tor: { manager: "flatpak", package: "org.torproject.torbrowser-launcher" }
+
+  # Dev Tools
+  git: { manager: "apt", package: "git" }
+  maven: { manager: "apt", package: "maven" }
+  gradle: { manager: "apt", package: "gradle" }
+  postman: { manager: "snap", package: "postman" }
+  openssl: { manager: "apt", package: "openssl" }
+  dbeaver: { manager: "snap", package: "dbeaver-ce" }
+
+  # IDEs / Editors
+  intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
+  vscode: { manager: "snap", package: "code", classic: true }
+  sublime: { manager: "apt", package: "sublime-text" }
+
+  # Communication
+  discord: { manager: "flatpak", package: "com.discordapp.Discord" }
+  slack: { manager: "snap", package: "slack" }
+  teams: { manager: "snap", package: "teams" }
+  telegram: { manager: "snap", package: "telegram-desktop" }
+  signal: { manager: "snap", package: "signal-desktop" }
+
+  # Productivity
+  obsidian: { manager: "snap", package: "obsidian", classic: true }
+  bitwarden: { manager: "snap", package: "bitwarden" }
+  keepassxc: { manager: "snap", package: "keepassxc" }
+  trello: { manager: "snap", package: "trello-desktop" }
+  onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
+
+  # Media / Design
+  vlc: { manager: "snap", package: "vlc" }
+  spotify: { manager: "snap", package: "spotify" }
+  gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
+  krita: { manager: "flatpak", package: "org.kde.krita" }
+
+  # Gaming
+  steam: { manager: "snap", package: "steam" }
+  
+  # CAD / 3D
+  freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
+  prusaslicer: { manager: "snap", package: "prusa-slicer" }
+
+  # Utilities
+  teamviewer: { manager: "apt", package: "teamviewer_amd64.deb", is_deb_url: true }
+
+  # Alternatives
+  hardinfo: { manager: "apt", package: "hardinfo", is_alternative_for: "HWMonitor" }
+  lm_sensors: { manager: "apt", package: "lm-sensors", is_alternative_for: "HWInfo" }
+  greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
+  baobab: { manager: "apt", package: "baobab", is_alternative_for: "WizTree" }
+  polychromatic: { manager: "apt", package: "polychromatic", is_alternative_for: "Razer Cortex" }
+  balena_etcher: { manager: "apt_url", package: "balena-etcher", is_alternative_for: "Rufus" }
+  gputest: { manager: "apt", package: "gputest", is_alternative_for: "FurMark" }
+
+  # Virtualization
+  virtualbox: { manager: "apt", package: "virtualbox" }
+  docker: { manager: "snap", package: "docker" }

@@ -1,0 +1,59 @@
+---
+- name: Set Linux Environment Variables
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_env.HOME }}/.bashrc"
+    marker: "# {mark} ANSIBLE DEV APPS CONFIG"
+    block: |
+      export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
+      export DOCKER_CONFIG="$HOME/apps_config/.docker"
+      export M2_HOME="$HOME/apps_config/.m2"
+      export ANDROID_SDK_HOME="$HOME/apps_config/.android"
+      export KUBECONFIG="$HOME/apps_config/.kube/config"
+      export ANDROID_SDK_ROOT="/opt/android"
+      export PATH="$PATH:/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator"
+  when: ansible_system == 'Linux'
+
+- name: Set macOS Environment Variables
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_env.HOME }}/.zshrc"
+    marker: "# {mark} ANSIBLE DEV APPS CONFIG"
+    block: |
+      export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
+      export DOCKER_CONFIG="$HOME/apps_config/.docker"
+      export M2_HOME="$HOME/apps_config/.m2"
+      export ANDROID_SDK_HOME="$HOME/apps_config/.android"
+      export KUBECONFIG="$HOME/apps_config/.kube/config"
+      export ANDROID_SDK_ROOT="/opt/android"
+      export PATH="$PATH:/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator"
+  when: ansible_os_family == 'Darwin'
+
+- name: Create Windows apps_config directory
+  ansible.windows.win_file:
+    path: "{{ ansible_env.USERPROFILE }}\\apps_config"
+    state: directory
+  when: ansible_os_family == 'Windows'
+
+- name: Set Windows User Environment Variables
+  ansible.windows.win_environment:
+    state: present
+    name: "{{ item.name }}"
+    value: "{{ ansible_env.USERPROFILE }}\\apps_config\\{{ item.path }}"
+    level: user
+  loop:
+    - { name: 'GRADLE_USER_HOME', path: '.gradle' }
+    - { name: 'DOCKER_CONFIG', path: '.docker' }
+    - { name: 'M2_HOME', path: '.m2' }
+    - { name: 'ANDROID_SDK_HOME', path: '.android' }
+    - { name: 'KUBECONFIG', path: '.kube\\config' }
+  when: ansible_os_family == 'Windows'
+
+- name: Set Windows Machine Environment Variables (Android)
+  ansible.windows.win_environment:
+    state: present
+    name: "{{ item }}"
+    value: "C:\\tools\\android"
+    level: machine
+  loop:
+    - ANDROID_SDK_ROOT
+    - ANDROID_HOME
+  when: ansible_os_family == 'Windows'

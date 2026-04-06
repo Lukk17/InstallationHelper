@@ -1,0 +1,40 @@
+---
+- name: Install ZSH and curl (Debian)
+  ansible.builtin.apt:
+    name:
+      - zsh
+      - curl
+    state: present
+  become: yes
+  when: ansible_os_family == 'Debian'
+
+- name: Install ZSH and curl (Fedora)
+  ansible.builtin.dnf:
+    name:
+      - zsh
+      - curl
+    state: present
+  become: yes
+  when: ansible_os_family == 'RedHat'
+
+- name: Install ZSH and curl (Archlinux)
+  community.general.pacman:
+    name:
+      - zsh
+      - curl
+    state: present
+  become: yes
+  when: ansible_os_family == 'Archlinux'
+
+- name: Install ZSH (macOS)
+  community.general.homebrew:
+    name: zsh
+    state: present
+  when: ansible_os_family == 'Darwin'
+
+- name: Change user shell to ZSH (Linux/Mac)
+  ansible.builtin.user:
+    name: "{{ ansible_env.USER }}"
+    shell: /usr/bin/zsh
+  become: yes
+  when: ansible_os_family != 'Darwin'

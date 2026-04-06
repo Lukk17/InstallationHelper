@@ -1,0 +1,77 @@
+---
+- name: Add Waydroid repository (Debian)
+  ansible.builtin.shell: |
+    curl https://repo.waydro.id | bash
+  args:
+    creates: /etc/apt/sources.list.d/waydroid.list
+  become: yes
+  when: ansible_os_family == 'Debian'
+
+- name: Install Waydroid (Debian)
+  ansible.builtin.apt:
+    name: waydroid
+    state: present
+  become: yes
+  when: ansible_os_family == 'Debian'
+
+- name: Install Waydroid (Archlinux)
+  become: yes
+  kewlfft.aur.aur:
+    name: waydroid
+    use: yay
+    state: present
+  when: ansible_os_family == 'Archlinux'
+
+- name: Install Waydroid (Fedora)
+  ansible.builtin.dnf:
+    name: waydroid
+    state: present
+  become: yes
+  when: ansible_os_family == 'RedHat'
+
+- name: Set Waydroid Multi-Windows Prop
+  ansible.builtin.command: waydroid prop set persist.waydroid.multi_windows true
+  become: yes
+  changed_when: false
+  ignore_errors: yes
+
+- name: Restart Waydroid Container
+  ansible.builtin.systemd:
+    name: waydroid-container
+    state: restarted
+  become: yes
+  ignore_errors: yes
+
+- name: Download Aurora Store
+  ansible.builtin.get_url:
+    url: "{{ aurora_store_url }}"
+    dest: "{{ ansible_env.HOME }}/.lukkInstall/{{ aurora_store_file }}"
+    headers:
+      User-Agent: Mozilla
+  become: no
+
+- name: Download Aurora Droid
+  ansible.builtin.get_url:
+    url: "{{ aurora_droid_url }}"
+    dest: "{{ ansible_env.HOME }}/.lukkInstall/{{ aurora_droid_file }}"
+    headers:
+      User-Agent: Mozilla
+  become: no
+
+- name: Configure GDM Wayland Enable
+  ansible.builtin.replace:
+    path: /etc/gdm3/custom.conf
+    regexp: '#WaylandEnable=false'
+    replace: 'WaylandEnable=true'
+  become: yes
+  notify: Restart GDM3
+  ignore_errors: yes
+
+- name: Configure NVIDIA Wayland memory allocation
+  ansible.builtin.lineinfile:
+    path: /etc/modprobe.d/nvidia-power-management.conf
+    line: "options nvidia NVreg_PreserveVideoMemoryAllocations=1"
+    create: yes
+  become: yes
+  notify: Restart GDM3
+  ignore_errors: yes

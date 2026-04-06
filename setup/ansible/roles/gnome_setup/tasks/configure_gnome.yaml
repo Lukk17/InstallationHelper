@@ -1,0 +1,118 @@
+---
+- name: Create Templates directory
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/Templates"
+    state: directory
+    mode: '0755'
+  become: no
+
+- name: Create basic template files
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/Templates/{{ item }}"
+    state: touch
+    mode: '0644'
+  loop:
+    - file
+    - text.txt
+    - Document.docx
+    - Presentation.pptx
+    - Spreadsheet.xlsx
+  become: no
+
+- name: Copy wallpapers directory
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../wallpapers"
+    dest: "/usr/share/backgrounds/"
+  become: yes
+  ignore_errors: yes
+
+- name: Set GNOME themes and backgrounds
+  community.general.dconf:
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    - { key: "/org/gnome/desktop/interface/color-scheme", value: "'prefer-dark'" }
+    - { key: "/org/gnome/desktop/interface/gtk-theme", value: "'Yaru-dark'" }
+    - { key: "/org/gnome/desktop/background/picture-uri", value: "'file:///usr/share/backgrounds/wallpapers/forest-house.jpg'" }
+    - { key: "/org/gnome/desktop/background/picture-uri-dark", value: "'file:///usr/share/backgrounds/wallpapers/forest-house.jpg'" }
+    - { key: "/org/gnome/desktop/interface/clock-show-seconds", value: "true" }
+    - { key: "/org/gnome/desktop/interface/show-battery-percentage", value: "true" }
+  become: no
+  ignore_errors: yes
+
+- name: Set Touchpad preferences
+  community.general.dconf:
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    - { key: "/org/gnome/desktop/peripherals/touchpad/click-method", value: "'default'" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/edge-scrolling-enabled", value: "false" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/disable-while-typing", value: "true" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/two-finger-scrolling-enabled", value: "true" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/natural-scroll", value: "true" }
+    - { key: "/org/gnome/desktop/peripherals/touchpad/tap-to-click", value: "true" }
+  become: no
+  ignore_errors: yes
+
+- name: Set favorite apps
+  community.general.dconf:
+    key: "/org/gnome/shell/favorite-apps"
+    value: "{{ favorite_apps }}"
+  become: no
+  ignore_errors: yes
+
+- name: Setup Nautilus Bookmarks
+  ansible.builtin.lineinfile:
+    path: "{{ ansible_env.HOME }}/.config/gtk-3.0/bookmarks"
+    line: "file://{{ item.path }} {{ item.name }}"
+    create: yes
+  loop:
+    - { path: "{{ ansible_env.HOME }}/.local/share/applications", name: "applications-local" }
+    - { path: "{{ ansible_env.HOME }}/.config/autostart", name: "autostart-config" }
+    - { path: "/opt", name: "opt" }
+    - { path: "/usr/share/applications", name: "applications" }
+    - { path: "/etc/xdg", name: "xdg" }
+    - { path: "/", name: "/" }
+    - { path: "/etc/xdg/autostart", name: "autostart-xdg" }
+  become: no
+
+- name: Set Default Apps via xdg-mime
+  ansible.builtin.command: "xdg-mime default {{ item.app }} {{ item.mime }}"
+  loop:
+    - { app: "{{ default_word_app }}", mime: "application/msword" }
+    - { app: "{{ default_excel_app }}", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }
+    - { app: "{{ default_presentation_app }}", mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }
+    - { app: "{{ default_pdf_app }}", mime: "application/pdf" }
+    - { app: "{{ default_internetBrowser_app }}", mime: "text/html" }
+    - { app: "{{ default_video_app }}", mime: "video/mp4" }
+  become: no
+  changed_when: false
+  ignore_errors: yes
+
+- name: Setup Dash-to-Dock
+  community.general.dconf:
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    - { key: "/org/gnome/shell/extensions/dash-to-dock/dock-position", value: "'{{ dash_dock_position }}'" }
+    - { key: "/org/gnome/shell/extensions/dash-to-dock/transparency-mode", value: "'FIXED'" }
+    - { key: "/org/gnome/shell/extensions/dash-to-dock/dash-max-icon-size", value: "55" }
+    - { key: "/org/gnome/shell/extensions/dash-to-dock/intellihide", value: "true" }
+  become: no
+  ignore_errors: yes
+
+- name: Enable Dash to Dock and Disable Ubuntu Dock
+  ansible.builtin.shell: |
+    gnome-extensions enable dash-to-dock@micxgx.gmail.com
+    gnome-extensions disable ubuntu-dock@ubuntu.com
+  become: no
+  changed_when: false
+  when: dash_dock_disable_ubuntu_dock | bool
+  ignore_errors: yes
+
+- name: Set Gnome Screenshot Shortcut
+  ansible.builtin.shell: |
+    gsettings set org.gnome.shell.keybindings show-screenshot-ui "['<Shift><Super>s', 'Print']"
+  become: no
+  changed_when: false
+  ignore_errors: yes

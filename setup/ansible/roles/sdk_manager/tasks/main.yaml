@@ -1,0 +1,5 @@
+---
+- import_tasks: nvm.yaml
+- import_tasks: sdkman.yaml
+- import_tasks: fvm.yaml
+- import_tasks: android_sdk.yaml
