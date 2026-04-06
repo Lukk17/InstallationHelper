@@ -1,7 +1,8 @@
 ---
 # Master Toggles for System Setup
 install_system_core: true
-setup_gnome: true
+setup_gnome: false
+setup_kde_plasma: true
 setup_zsh: true
 install_dev_tools: true
 install_virtualization: true
@@ -16,22 +17,10 @@ setup_hibernate: true
 setup_tmpfs: true
 toggle_wayland_nvidia: false
 
-# Gnome specific apps/settings
-default_video_app: vlc_vlc.desktop
-default_internetBrowser_app: google-chrome.desktop
-default_pdf_app: okular_okular.desktop
-default_word_app: onlyoffice-desktopeditors.desktop
-default_excel_app: onlyoffice-desktopeditors.desktop
-default_presentation_app: onlyoffice-desktopeditors.desktop
-favorite_apps: "['org.gnome.Nautilus.desktop', 'google-chrome.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
-
-# Dash to dock specific settings
-dash_dock_position: 'LEFT'
-dash_dock_disable_ubuntu_dock: false
-
 # Feature Toggles for other specific apps
 install_tor: true
 install_brave: true
+install_ppa_firefox: false
 
 # SDKMan / Java Toggles
 install_java: true

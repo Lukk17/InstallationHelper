@@ -4,17 +4,8 @@
     name: "{{ item }}"
     classic: true
   loop:
-    - flutter
-    - kubectl
     - kontena-lens
-    - helm
-    - node
-    - sublime-text
     - obsidian
-    - intellij-idea
-    - datagrip
-    - webstorm
-    - pycharm
   become: yes
 
 - name: Install Snaps Regular
@@ -22,15 +13,10 @@
     name: "{{ item }}"
   loop:
     - postman
-    - freecad
-    - cura-slicer
     - trello-desktop
     - bitwarden
-    - gimp
-    - krita
     - spotify
     - discord
     - slack
     - teams
-    - brave
   become: yes

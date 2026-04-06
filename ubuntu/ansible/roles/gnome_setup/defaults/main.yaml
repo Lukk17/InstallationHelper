@@ -1,0 +1,10 @@
+---
+default_video_app: vlc_vlc.desktop
+default_internetBrowser_app: google-chrome.desktop
+default_pdf_app: okular_okular.desktop
+default_word_app: onlyoffice-desktopeditors.desktop
+default_excel_app: onlyoffice-desktopeditors.desktop
+default_presentation_app: onlyoffice-desktopeditors.desktop
+favorite_apps: "['org.gnome.Nautilus.desktop', 'google-chrome.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
+dash_dock_position: 'LEFT'
+dash_dock_disable_ubuntu_dock: false

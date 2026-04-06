@@ -1,0 +1,30 @@
+---
+- name: Install pipx and build dependencies for Konsave
+  become: yes
+  ansible.builtin.apt:
+    name:
+      - pipx
+      - g++
+      - extra-cmake-modules
+      - qtbase5-dev
+      - qtdeclarative5-dev
+      - libkf5declarative-dev
+      - libkf5plasma-dev
+      - libkdecorations2-dev
+      - gettext
+      - cmake
+    state: present
+
+- name: Install Konsave via pipx
+  ansible.builtin.shell: pipx ensurepath && pipx install konsave
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/konsave"
+
+- name: Import and apply Konsave profile
+  ansible.builtin.shell: |
+    export PATH="$HOME/.local/bin:$PATH"
+    konsave -i {{ playbook_dir }}/../../config/lukk_desktop_profile.knsv
+    konsave -a lukk_desktop_profile
+  args:
+    executable: /bin/bash
+  ignore_errors: yes

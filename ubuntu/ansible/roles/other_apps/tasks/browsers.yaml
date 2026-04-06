@@ -1,47 +1,23 @@
 ---
-- name: Install Brave Browser repository key
-  ansible.builtin.get_url:
-    url: https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
-    dest: /usr/share/keyrings/brave-browser-archive-keyring.gpg
-    mode: '0644'
-  become: yes
-  when: install_brave | bool
-
-- name: Add Brave Browser repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main"
-    state: present
-    filename: brave-browser-release
-  become: yes
-  when: install_brave | bool
-
-- name: Install Brave Browser
-  ansible.builtin.apt:
-    name: brave-browser
-    state: present
-    update_cache: yes
-  become: yes
-  when: install_brave | bool
-
 - name: Remove Firefox snap
   community.general.snap:
     name: firefox
     state: absent
   become: yes
-  when: install_firefox | bool
+  when: install_ppa_firefox | bool
 
 - name: Remove Firefox apt
   ansible.builtin.apt:
     name: firefox
     state: absent
   become: yes
-  when: install_firefox | bool
+  when: install_ppa_firefox | bool
 
 - name: Add Mozilla Team PPA
   ansible.builtin.apt_repository:
     repo: ppa:mozillateam/ppa
   become: yes
-  when: install_firefox | bool
+  when: install_ppa_firefox | bool
 
 - name: Pin Firefox PPA priority
   ansible.builtin.copy:
@@ -51,14 +27,14 @@
       Pin: release o=LP-PPA-mozillateam
       Pin-Priority: 1001
   become: yes
-  when: install_firefox | bool
+  when: install_ppa_firefox | bool
 
 - name: Allow unattended upgrades for Firefox PPA
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/51unattended-upgrades-firefox
     content: 'Unattended-Upgrade::Allowed-Origins:: "LP-PPA-mozillateam:${distro_codename}";'
   become: yes
-  when: install_firefox | bool
+  when: install_ppa_firefox | bool
 
 - name: Install Firefox from PPA
   ansible.builtin.apt:
@@ -66,7 +42,7 @@
     state: present
     update_cache: yes
   become: yes
-  when: install_firefox | bool
+  when: install_ppa_firefox | bool
 
 - name: Download Tor Browser
   ansible.builtin.get_url:
@@ -101,3 +77,49 @@
   become: no
   when: install_tor | bool
   ignore_errors: yes
+
+- name: Add Brave Browser GPG key
+  become: yes
+  ansible.builtin.get_url:
+    url: https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+    dest: /usr/share/keyrings/brave-browser-archive-keyring.gpg
+    mode: '0644'
+  when: install_brave | bool
+
+- name: Add Brave Browser APT repository
+  become: yes
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/brave-browser-release.list
+    content: |
+      deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main
+    mode: '0644'
+  when: install_brave | bool
+
+- name: Add Google Chrome GPG key
+  become: yes
+  ansible.builtin.shell: curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+  args:
+    creates: /usr/share/keyrings/google-chrome.gpg
+
+- name: Add Google Chrome APT repository
+  become: yes
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/google-chrome.list
+    content: |
+      deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main
+    mode: '0644'
+
+- name: Install Brave Browser
+  become: yes
+  ansible.builtin.apt:
+    name: brave-browser
+    state: present
+    update_cache: yes
+  when: install_brave | bool
+
+- name: Install Google Chrome
+  become: yes
+  ansible.builtin.apt:
+    name: google-chrome-stable
+    state: present
+    update_cache: yes

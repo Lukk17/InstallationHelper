@@ -6,3 +6,4 @@
 - import_tasks: favorites_bookmarks.yaml
 - import_tasks: default_apps.yaml
 - import_tasks: dash_to_dock.yaml
+- import_tasks: shortcuts.yaml
