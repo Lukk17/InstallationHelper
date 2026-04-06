@@ -12,11 +12,18 @@ software_mapping:
   postman: { manager: "choco", package: "postman" }
   openssl: { manager: "choco", package: "openssl" }
   dbeaver: { manager: "choco", package: "dbeaver" }
+  kubectl: { manager: "winget", package: "Kubernetes.kubectl" }
+  minikube: { manager: "winget", package: "Kubernetes.minikube" }
+  lens: { manager: "winget", package: "Mirantis.Lens" }
+  filezilla: { manager: "winget", package: "TimKosse.FileZillaClient" }
+  putty: { manager: "winget", package: "PuTTY.PuTTY" }
 
   # IDEs / Editors
   intellij: { manager: "choco", package: "intellijidea-ultimate" }
   vscode: { manager: "winget", package: "Microsoft.VisualStudioCode" }
   sublime: { manager: "choco", package: "sublimetext4" }
+  arduino: { manager: "winget", package: "ArduinoSA.IDE.stable" }
+  antigravity: { manager: "winget", package: "Google.Antigravity" }
 
   # Communication
   discord: { manager: "winget", package: "Discord.Discord" }
@@ -29,16 +36,23 @@ software_mapping:
   # Productivity
   obsidian: { manager: "choco", package: "obsidian" }
   bitwarden: { manager: "winget", package: "Bitwarden.Bitwarden" }
+  keepassxc: { manager: "winget", package: "KeePassXCTeam.KeePassXC" }
   trello: { manager: "winget", package: "Trello.Trello" }
+  onlyoffice: { manager: "winget", package: "ONLYOFFICE.DesktopEditors" }
 
   # Media / Design
   vlc: { manager: "winget", package: "VideoLAN.VLC" }
   spotify: { manager: "winget", package: "Spotify.Spotify" }
   gimp: { manager: "choco", package: "gimp" }
   krita: { manager: "choco", package: "krita" }
+  handbrake: { manager: "winget", package: "HandBrake.HandBrake" }
+  audacity: { manager: "winget", package: "Audacity.Audacity" }
+  rawtherapee: { manager: "winget", package: "RawTherapee.RawTherapee" }
 
   # Gaming
   steam: { manager: "choco", package: "steam" }
+  gog: { manager: "winget", package: "GOG.Galaxy" }
+  epic: { manager: "winget", package: "EpicGames.EpicGamesLauncher" }
   
   # CAD / 3D
   freecad: { manager: "choco", package: "freecad" }
@@ -46,6 +60,12 @@ software_mapping:
 
   # Utilities
   teamviewer: { manager: "choco", package: "teamviewer" }
+  veracrypt: { manager: "winget", package: "IDRIX.VeraCrypt" }
+  speedtest: { manager: "winget", package: "Ookla.Speedtest" }
+
+  # Crypto
+  boinc: { manager: "winget", package: "SpaceSciencesLaboratory.BOINC" }
+  gridcoin: { manager: "choco", package: "gridcoinresearch" }
 
   # Windows Only Native Apps
   hwmonitor: { manager: "choco", package: "hwmonitor" }

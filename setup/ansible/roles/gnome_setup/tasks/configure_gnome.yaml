@@ -25,6 +25,7 @@
     dest: "/usr/share/backgrounds/"
   become: yes
   ignore_errors: yes
+  when: set_custom_wallpaper | bool
 
 - name: Set GNOME themes and backgrounds
   community.general.dconf:
@@ -33,8 +34,8 @@
   loop:
     - { key: "/org/gnome/desktop/interface/color-scheme", value: "'prefer-dark'" }
     - { key: "/org/gnome/desktop/interface/gtk-theme", value: "'Yaru-dark'" }
-    - { key: "/org/gnome/desktop/background/picture-uri", value: "'file:///usr/share/backgrounds/wallpapers/forest-house.jpg'" }
-    - { key: "/org/gnome/desktop/background/picture-uri-dark", value: "'file:///usr/share/backgrounds/wallpapers/forest-house.jpg'" }
+    - { key: "/org/gnome/desktop/background/picture-uri", value: "'file:///usr/share/backgrounds/wallpapers/{{ default_wallpaper }}'" }
+    - { key: "/org/gnome/desktop/background/picture-uri-dark", value: "'file:///usr/share/backgrounds/wallpapers/{{ default_wallpaper }}'" }
     - { key: "/org/gnome/desktop/interface/clock-show-seconds", value: "true" }
     - { key: "/org/gnome/desktop/interface/show-battery-percentage", value: "true" }
   become: no

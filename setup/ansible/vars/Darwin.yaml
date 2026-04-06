@@ -12,11 +12,17 @@ software_mapping:
   postman: { manager: "brew_cask", package: "postman" }
   openssl: { manager: "brew", package: "openssl" }
   dbeaver: { manager: "brew_cask", package: "dbeaver-community" }
+  kubectl: { manager: "brew", package: "kubectl" }
+  minikube: { manager: "brew", package: "minikube" }
+  lens: { manager: "brew_cask", package: "lens" }
+  filezilla: { manager: "brew_cask", package: "filezilla" }
 
   # IDEs / Editors
   intellij: { manager: "brew_cask", package: "intellij-idea" }
   vscode: { manager: "brew_cask", package: "visual-studio-code" }
   sublime: { manager: "brew_cask", package: "sublime-text" }
+  arduino: { manager: "brew_cask", package: "arduino" }
+  antigravity: { manager: "brew_cask", package: "google-antigravity" }
 
   # Communication
   discord: { manager: "brew_cask", package: "discord" }
@@ -37,6 +43,9 @@ software_mapping:
   spotify: { manager: "brew_cask", package: "spotify" }
   gimp: { manager: "brew_cask", package: "gimp" }
   krita: { manager: "brew_cask", package: "krita" }
+  handbrake: { manager: "brew_cask", package: "handbrake" }
+  audacity: { manager: "brew_cask", package: "audacity" }
+  rawtherapee: { manager: "brew_cask", package: "rawtherapee" }
 
   # Gaming
   steam: { manager: "brew_cask", package: "steam" }
@@ -47,6 +56,12 @@ software_mapping:
 
   # Utilities
   teamviewer: { manager: "brew_cask", package: "teamviewer" }
+  veracrypt: { manager: "brew_cask", package: "veracrypt" }
+  speedtest: { manager: "brew", package: "speedtest-cli" }
+
+  # Crypto
+  boinc: { manager: "brew_cask", package: "boinc" }
+  gridcoin: { manager: "brew_cask", package: "gridcoinresearch" }
 
   # Alternatives
   stats: { manager: "brew_cask", package: "stats", is_alternative_for: "HWMonitor" }

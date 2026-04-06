@@ -64,6 +64,28 @@
     executable: /bin/bash
   ignore_errors: yes
 
+- name: Copy wallpapers directory for KDE
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../wallpapers"
+    dest: "/usr/share/backgrounds/"
+  become: yes
+  ignore_errors: yes
+  when: set_custom_wallpaper | bool
+
+- name: Set KDE Wallpaper
+  ansible.builtin.shell: |
+    dbus-send --session --dest=org.kde.plasmashell --type=method_call /PlasmaShell org.kde.PlasmaShell.evaluateScript 'string:
+    var Desktops = desktops();
+    for (i=0;i<Desktops.length;i++) {
+            d = Desktops[i];
+            d.wallpaperPlugin = "org.kde.image";
+            d.currentConfigGroup = Array("Wallpaper", "org.kde.image", "General");
+            d.writeConfig("Image", "file:///usr/share/backgrounds/wallpapers/{{ default_wallpaper }}");
+    }'
+  when: set_custom_wallpaper | bool
+  ignore_errors: yes
+  changed_when: false
+
 - name: Clone applet-window-buttons repository
   ansible.builtin.git:
     repo: https://github.com/chermnyx/applet-window-buttons.git
