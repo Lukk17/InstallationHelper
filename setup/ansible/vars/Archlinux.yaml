@@ -12,11 +12,17 @@ software_mapping:
   postman: { manager: "snap", package: "postman" }
   openssl: { manager: "pacman", package: "openssl" }
   dbeaver: { manager: "snap", package: "dbeaver-ce" }
+  kubectl: { manager: "pacman", package: "kubectl" }
+  minikube: { manager: "pacman", package: "minikube" }
+  lens: { manager: "aur", package: "lens-bin" }
+  filezilla: { manager: "pacman", package: "filezilla" }
 
   # IDEs / Editors
   intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
   vscode: { manager: "aur", package: "visual-studio-code-bin" }
   sublime: { manager: "aur", package: "sublime-text-4" }
+  arduino: { manager: "pacman", package: "arduino-ide" }
+  antigravity: { manager: "aur", package: "google-antigravity-ide-bin" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
@@ -38,6 +44,9 @@ software_mapping:
   spotify: { manager: "snap", package: "spotify" }
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
+  handbrake: { manager: "pacman", package: "handbrake" }
+  audacity: { manager: "pacman", package: "audacity" }
+  rawtherapee: { manager: "pacman", package: "rawtherapee" }
 
   # Gaming
   steam: { manager: "pacman", package: "steam" }
@@ -48,6 +57,12 @@ software_mapping:
 
   # Utilities
   teamviewer: { manager: "aur", package: "teamviewer" }
+  veracrypt: { manager: "pacman", package: "veracrypt" }
+  speedtest: { manager: "aur", package: "speedtest-cli" }
+
+  # Crypto
+  boinc: { manager: "pacman", package: "boinc" }
+  gridcoin: { manager: "aur", package: "gridcoinresearch-qt" }
 
   # Alternatives
   hardinfo: { manager: "aur", package: "hardinfo-git", is_alternative_for: "HWMonitor" }

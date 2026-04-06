@@ -22,7 +22,6 @@ install_postman: true
 install_openssl: true
 install_dbeaver: true
 install_filezilla: true
-install_putty: true
 
 # IDEs / Editors
 install_intellij: true
@@ -57,8 +56,6 @@ install_rawtherapee: true
 
 # Gaming
 install_steam: true
-install_gog: true
-install_epic: true
 
 # CAD / 3D
 install_freecad: true
@@ -80,3 +77,7 @@ install_claude_code: true
 install_claude_desktop: true
 install_claude_cowork: true
 install_opencode: true
+
+# Global Theme / Wallpaper Settings
+set_custom_wallpaper: true
+default_wallpaper: "forest-house.jpg"

@@ -1,0 +1,107 @@
+---
+- name: Initialize dynamic package list
+  set_fact:
+    install_packages: []
+
+- name: Build list of packages to dynamically install
+  set_fact:
+    install_packages: "{{ install_packages + [item] }}"
+  loop: "{{ os_dict.software_mapping | default({}) | dict2items }}"
+  when: lookup('vars', 'install_' ~ item.key, default=false) | bool
+
+- name: Dynamically Install Packages
+  block:
+    # ------------------ LINUX MANAGERS ------------------
+    - name: Install APT packages
+      become: yes
+      ansible.builtin.apt:
+        name: "{{ item.value.package }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'Debian' and item.value.manager == 'apt' and not item.value.is_deb_url | default(false)
+
+    - name: Install APT from URL (deb)
+      become: yes
+      ansible.builtin.apt:
+        deb: "{{ lookup('vars', item.key ~ '_url') }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'Debian' and (item.value.manager == 'apt_url' or item.value.is_deb_url | default(false))
+
+    - name: Install DNF packages
+      become: yes
+      ansible.builtin.dnf:
+        name: "{{ item.value.package }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'RedHat' and item.value.manager in ['dnf', 'dnf_repo']
+
+    - name: Install DNF from URL (rpm)
+      become: yes
+      ansible.builtin.dnf:
+        name: "{{ lookup('vars', item.key ~ '_url') }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'RedHat' and item.value.manager == 'dnf_url'
+
+    - name: Install Pacman packages
+      become: yes
+      community.general.pacman:
+        name: "{{ item.value.package }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'Archlinux' and item.value.manager == 'pacman'
+
+    - name: Install AUR packages
+      kewlfft.aur.aur:
+        name: "{{ item.value.package }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'Archlinux' and item.value.manager == 'aur'
+
+    - name: Install Snap packages
+      become: yes
+      community.general.snap:
+        name: "{{ item.value.package }}"
+        classic: "{{ item.value.classic | default(false) }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_system == 'Linux' and item.value.manager == 'snap'
+
+    - name: Install Flatpak packages
+      community.general.flatpak:
+        name: "{{ item.value.package }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_system == 'Linux' and item.value.manager == 'flatpak'
+
+    # ------------------ MACOS MANAGERS ------------------
+    - name: Install Homebrew packages
+      community.general.homebrew:
+        name: "{{ item.value.package }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'Darwin' and item.value.manager == 'brew'
+
+    - name: Install Homebrew Cask packages
+      community.general.homebrew_cask:
+        name: "{{ item.value.package }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'Darwin' and item.value.manager == 'brew_cask'
+
+    # ------------------ WINDOWS MANAGERS ------------------
+    - name: Install Chocolatey packages
+      community.windows.win_chocolatey:
+        name: "{{ item.value.package }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'Windows' and item.value.manager == 'choco'
+
+    - name: Install Winget packages
+      community.windows.win_winget:
+        name: "{{ item.value.package }}"
+        state: present
+      loop: "{{ install_packages }}"
+      when: ansible_os_family == 'Windows' and item.value.manager == 'winget'
+  when: install_packages is defined and install_packages | length > 0

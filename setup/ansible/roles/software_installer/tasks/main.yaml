@@ -1,0 +1,2 @@
+---
+- import_tasks: dynamic_install.yaml

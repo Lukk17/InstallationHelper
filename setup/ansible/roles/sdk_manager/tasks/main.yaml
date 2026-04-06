@@ -3,3 +3,4 @@
 - import_tasks: sdkman.yaml
 - import_tasks: fvm.yaml
 - import_tasks: android_sdk.yaml
+- import_tasks: pyenv.yaml

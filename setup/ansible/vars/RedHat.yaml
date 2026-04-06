@@ -12,11 +12,17 @@ software_mapping:
   postman: { manager: "snap", package: "postman" }
   openssl: { manager: "dnf", package: "openssl" }
   dbeaver: { manager: "snap", package: "dbeaver-ce" }
+  kubectl: { manager: "snap", package: "kubectl", classic: true }
+  minikube: { manager: "dnf_url", package: "minikube-latest.x86_64.rpm" }
+  lens: { manager: "snap", package: "lens", classic: true }
+  filezilla: { manager: "dnf", package: "filezilla" }
 
   # IDEs / Editors
   intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
   vscode: { manager: "dnf_repo", package: "code", classic: true }
   sublime: { manager: "dnf_repo", package: "sublime-text" }
+  arduino: { manager: "snap", package: "arduino" }
+  antigravity: { manager: "dnf_url", package: "antigravity.rpm" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
@@ -38,6 +44,9 @@ software_mapping:
   spotify: { manager: "snap", package: "spotify" }
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
+  handbrake: { manager: "dnf", package: "HandBrake-gui" }
+  audacity: { manager: "snap", package: "audacity" }
+  rawtherapee: { manager: "dnf", package: "rawtherapee" }
 
   # Gaming
   steam: { manager: "dnf", package: "steam" }
@@ -48,6 +57,12 @@ software_mapping:
 
   # Utilities
   teamviewer: { manager: "dnf_url", package: "teamviewer" }
+  veracrypt: { manager: "dnf_url", package: "veracrypt.rpm" } 
+  speedtest: { manager: "dnf", package: "speedtest-cli" }
+
+  # Crypto
+  boinc: { manager: "dnf", package: "boinc-client" }
+  gridcoin: { manager: "dnf", package: "gridcoinresearch" }
 
   # Alternatives
   hardinfo: { manager: "dnf", package: "hardinfo", is_alternative_for: "HWMonitor" }

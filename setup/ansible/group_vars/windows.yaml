@@ -33,11 +33,14 @@ install_tcpview: true
 install_autoruns: true
 install_rufus: true
 install_powertoys: true
+install_putty: true
 
-# Gaming Enhancements
+# Gaming Enhancements & Storefronts
 install_wow_logs_companion: true
 install_tsm: true
 install_curseforge: true
+install_gog: true
+install_epic: true
 
 # Virtualization toggles
 install_virtualbox: true
