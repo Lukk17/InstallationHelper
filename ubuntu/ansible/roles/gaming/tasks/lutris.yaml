@@ -1,6 +1,0 @@
----
-- name: Download Lutris
-  ansible.builtin.apt:
-    deb: "{{ lutris_url }}"
-  become: yes
-  when: install_lutris | bool

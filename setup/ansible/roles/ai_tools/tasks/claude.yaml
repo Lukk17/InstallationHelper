@@ -1,0 +1,64 @@
+---
+- name: Install Claude Code CLI (Linux/Mac)
+  ansible.builtin.shell: |
+    . {{ ansible_env.HOME }}/.nvm/nvm.sh
+    npm install -g @anthropic-ai/claude-code
+  args:
+    executable: /bin/bash
+  when: ansible_os_family != 'Windows' and install_claude_code | bool
+  ignore_errors: yes
+
+- name: Install Claude Code CLI (Windows)
+  ansible.windows.win_shell: npm install -g @anthropic-ai/claude-code
+  when: ansible_os_family == 'Windows' and install_claude_code | bool
+  ignore_errors: yes
+
+- name: Add Claude Desktop Linux repository (Linux)
+  become: yes
+  ansible.builtin.shell: curl -fsSL https://patrickjaja.github.io/claude-desktop-bin/install.sh | bash
+  when: ansible_system == 'Linux' and install_claude_desktop | bool
+
+- name: Install Claude Desktop Linux (Linux)
+  become: yes
+  ansible.builtin.apt:
+    name: claude-desktop-bin
+    state: present
+    update_cache: yes
+  when: ansible_os_family == 'Debian' and install_claude_desktop | bool
+
+- name: Install Go compiler for Cowork Service (Debian)
+  become: yes
+  ansible.builtin.apt:
+    name: golang-go
+    state: present
+  when: ansible_os_family == 'Debian' and install_claude_cowork | bool
+
+- name: Install Go compiler for Cowork Service (Arch)
+  become: yes
+  community.general.pacman:
+    name: go
+    state: present
+  when: ansible_os_family == 'Archlinux' and install_claude_cowork | bool
+
+- name: Clone Claude Cowork Service repository (Linux/Mac)
+  ansible.builtin.git:
+    repo: https://github.com/patrickjaja/claude-cowork-service.git
+    dest: "{{ ansible_env.HOME }}/claude-cowork-service"
+    version: main
+    force: yes
+  when: ansible_os_family != 'Windows' and install_claude_cowork | bool
+
+- name: Build and install Claude Cowork Service (Linux/Mac)
+  become: yes
+  ansible.builtin.shell: |
+    make
+    make install
+  args:
+    chdir: "{{ ansible_env.HOME }}/claude-cowork-service"
+  when: ansible_os_family != 'Windows' and install_claude_cowork | bool
+
+- name: Enable and start Claude Cowork background daemon (Linux)
+  ansible.builtin.shell: systemctl --user enable --now claude-cowork
+  args:
+    executable: /bin/bash
+  when: ansible_system == 'Linux' and install_claude_cowork | bool

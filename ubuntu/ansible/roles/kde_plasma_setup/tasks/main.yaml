@@ -1,5 +1,0 @@
----
-- import_tasks: install_kde.yaml
-- import_tasks: configure_konsave.yaml
-- import_tasks: install_widget.yaml
-- import_tasks: apply_shortcuts.yaml

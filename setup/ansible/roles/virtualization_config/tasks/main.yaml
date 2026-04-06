@@ -1,0 +1,14 @@
+---
+- name: Download VMware Workstation Player (Linux)
+  ansible.builtin.get_url:
+    url: "{{ vmware_url }}"
+    dest: "{{ ansible_env.HOME }}/.lukkInstall/{{ vmware_file }}"
+    mode: '0755'
+  when: ansible_system == 'Linux' and install_vmware | bool
+
+- name: Install VMware Workstation Player (Linux)
+  ansible.builtin.command: "{{ ansible_env.HOME }}/.lukkInstall/{{ vmware_file }} --required --console --eulas-agreed"
+  args:
+    creates: /usr/bin/vmplayer
+  become: yes
+  when: ansible_system == 'Linux' and install_vmware | bool

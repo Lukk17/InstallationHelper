@@ -1,0 +1,46 @@
+---
+# -----------------------------------------------------
+# LINUX SPECIFIC TOGGLES
+# -----------------------------------------------------
+
+# Desktop Environments Setup
+install_kde_plasma: false
+configure_kde_plasma: true
+install_gnome: false
+configure_gnome: false
+
+# System Core Configurations
+setup_hibernate: true
+setup_tmpfs: true
+toggle_wayland_nvidia: false
+setup_zsh: true
+
+# Linux Only Native Apps (System / Security)
+install_grub_customizer: true
+install_boot_repair: true
+install_lynis: true
+install_chkrootkit: true
+install_clamav: true
+
+# Linux Only Crypto Hardware Apps
+install_exodus: true
+install_ledger_live: true
+install_trezor_suite: true
+
+# Linux Only Utilities
+install_appimagelauncher: true
+install_waydroid: false
+
+# Hardware/System Alternative Apps (Alternatives to Windows-only apps)
+install_hardinfo: true    # Alt for HWMonitor
+install_lm_sensors: true  # Alt for HWInfo
+install_greenenvy: true   # Alt for MSI Afterburner
+install_baobab: true      # Alt for WizTree
+install_polychromatic: true # Alt for Razer Cortex
+install_balena_etcher: true # Alt for Rufus
+install_gputest: true     # Alt for FurMark
+
+# Virtualization toggles
+install_virtualbox: true
+install_vmware: true
+install_docker: true

@@ -1,0 +1,6 @@
+---
+- import_tasks: install_kde.yaml
+  when: install_kde_plasma | bool
+
+- import_tasks: configure_kde.yaml
+  when: configure_kde_plasma | bool

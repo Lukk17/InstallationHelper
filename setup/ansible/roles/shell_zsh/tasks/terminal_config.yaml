@@ -1,0 +1,10 @@
+---
+- name: Configure GNOME Terminal to use ZSH
+  ansible.builtin.shell: |
+    PROFILE=$(gsettings get org.gnome.Terminal.ProfilesList default | tr -d "'")
+    gsettings set org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles/:${PROFILE}/ custom-command 'zsh'
+    gsettings set org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles/:${PROFILE}/ use-custom-command true
+  become: no
+  changed_when: false
+  when: install_gnome | default(false) | bool or configure_gnome | default(false) | bool
+  ignore_errors: yes

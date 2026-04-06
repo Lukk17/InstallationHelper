@@ -1,0 +1,35 @@
+---
+- name: Download Nerd Fonts
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "/usr/share/fonts/{{ item.name }}"
+    mode: '0644'
+  loop:
+    - { url: '{{ nerd_font_hack_url }}', name: 'Hack Regular Nerd Font Complete.ttf' }
+    - { url: '{{ meslo_regular_url }}', name: 'MesloLGS NF Regular.ttf' }
+    - { url: '{{ meslo_bold_url }}', name: 'MesloLGS NF Bold.ttf' }
+    - { url: '{{ meslo_italic_url }}', name: 'MesloLGS NF Italic.ttf' }
+    - { url: '{{ meslo_bold_italic_url }}', name: 'MesloLGS NF Bold Italic.ttf' }
+  become: yes
+  notify: Update Font Cache
+  when: ansible_system == 'Linux'
+
+- name: Download Nerd Fonts (macOS)
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "~/Library/Fonts/{{ item.name }}"
+    mode: '0644'
+  loop:
+    - { url: '{{ nerd_font_hack_url }}', name: 'Hack Regular Nerd Font Complete.ttf' }
+    - { url: '{{ meslo_regular_url }}', name: 'MesloLGS NF Regular.ttf' }
+    - { url: '{{ meslo_bold_url }}', name: 'MesloLGS NF Bold.ttf' }
+    - { url: '{{ meslo_italic_url }}', name: 'MesloLGS NF Italic.ttf' }
+    - { url: '{{ meslo_bold_italic_url }}', name: 'MesloLGS NF Bold Italic.ttf' }
+  when: ansible_os_family == 'Darwin'
+
+- name: Clone Powerlevel10k Theme
+  ansible.builtin.git:
+    repo: https://github.com/romkatv/powerlevel10k.git
+    dest: "{{ ansible_env.HOME }}/.oh-my-zsh/custom/themes/powerlevel10k"
+    depth: 1
+  become: no

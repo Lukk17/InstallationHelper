@@ -1,0 +1,34 @@
+---
+- name: Install GNOME Desktop (Debian)
+  become: yes
+  ansible.builtin.apt:
+    name:
+      - ubuntu-desktop
+      - gnome-tweaks
+      - gnome-shell-extension-manager
+    state: present
+    update_cache: yes
+  when: ansible_os_family == 'Debian'
+
+- name: Install GNOME Desktop (Fedora)
+  become: yes
+  ansible.builtin.dnf:
+    name: "@GNOME Desktop Environment"
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Install GNOME Desktop (Archlinux)
+  become: yes
+  community.general.pacman:
+    name:
+      - gnome
+      - gnome-tweaks
+    state: present
+  when: ansible_os_family == 'Archlinux'
+
+- name: Enable GDM Service (Fedora/Arch)
+  become: yes
+  ansible.builtin.systemd:
+    name: gdm
+    enabled: yes
+  when: ansible_os_family in ['RedHat', 'Archlinux']

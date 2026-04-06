@@ -1,0 +1,82 @@
+---
+# -----------------------------------------------------
+# GLOBAL SOFTWARE TOGGLES (Cross-Platform Intent)
+# -----------------------------------------------------
+
+# Browsers
+install_chrome: true
+install_brave: true
+install_tor: true
+
+# Dev Tools
+install_git: true
+install_nodejs: true
+install_python: true
+install_java: true
+install_maven: true
+install_gradle: true
+install_kubectl: true
+install_minikube: true
+install_lens: true
+install_postman: true
+install_openssl: true
+install_dbeaver: true
+install_filezilla: true
+install_putty: true
+
+# IDEs / Editors
+install_intellij: true
+install_vscode: true
+install_sublime: true
+install_arduino: true
+install_antigravity: true
+
+# Communication
+install_discord: true
+install_slack: true
+install_teams: true
+install_telegram: true
+install_whatsapp: true
+install_signal: true
+
+# Productivity
+install_obsidian: true
+install_bitwarden: true
+install_keepassxc: true
+install_trello: true
+install_onlyoffice: true
+
+# Media / Design
+install_vlc: true
+install_spotify: true
+install_gimp: true
+install_krita: true
+install_handbrake: true
+install_audacity: true
+install_rawtherapee: true
+
+# Gaming
+install_steam: true
+install_gog: true
+install_epic: true
+
+# CAD / 3D
+install_freecad: true
+install_prusaslicer: true
+
+# Utilities
+install_veracrypt: true
+install_teamviewer: true
+install_speedtest: true
+
+# Crypto / Volunteer
+install_boinc: true
+install_gridcoin: true
+
+# Universal SDK & AI Ecosystem (Installed via custom roles, not basic pkg managers)
+install_stable_diffusion: true
+install_lm_studio: true
+install_claude_code: true
+install_claude_desktop: true
+install_claude_cowork: true
+install_opencode: true

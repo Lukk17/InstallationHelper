@@ -1,0 +1,4 @@
+---
+- import_tasks: claude.yaml
+- import_tasks: opencode.yaml
+- import_tasks: local_llm.yaml

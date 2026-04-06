@@ -1,6 +1,0 @@
----
-- name: Set Gnome Screenshot Shortcut
-  ansible.builtin.shell: |
-    gsettings set org.gnome.shell.keybindings show-screenshot-ui "['<Shift><Super>s', 'Print']"
-  become: no
-  changed_when: false

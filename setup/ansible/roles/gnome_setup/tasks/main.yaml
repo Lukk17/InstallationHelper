@@ -1,0 +1,6 @@
+---
+- import_tasks: install_gnome.yaml
+  when: install_gnome | bool
+
+- import_tasks: configure_gnome.yaml
+  when: configure_gnome | bool

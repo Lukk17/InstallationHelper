@@ -1,0 +1,13 @@
+---
+- name: Ensure temporary installation folder exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.lukkInstall"
+    state: directory
+    mode: '0755'
+  become: no
+
+- name: Full system upgrade and autoremove
+  ansible.builtin.apt:
+    upgrade: full
+    autoremove: yes
+  become: yes

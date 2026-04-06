@@ -1,0 +1,85 @@
+---
+- name: Disable Ubuntu default IBus injection for Wayland compatibility
+  ansible.builtin.copy:
+    dest: "{{ ansible_env.HOME }}/.xinputrc"
+    content: |
+      run_im none
+    mode: '0644'
+  when: ansible_os_family == 'Debian'
+
+- name: Pre-answer display manager prompt for SDDM (Debian)
+  become: yes
+  ansible.builtin.debconf:
+    name: sddm
+    question: shared/default-x-display-manager
+    value: sddm
+    vtype: select
+  when: ansible_os_family == 'Debian'
+
+- name: Install KDE Plasma Wayland (Debian)
+  become: yes
+  ansible.builtin.apt:
+    name:
+      - kde-standard
+      - plasma-workspace-wayland
+      - systemsettings
+      - plasma-desktop
+      - kde-config-sddm
+      - kde-config-gtk-style
+      - kde-config-gtk-style-preview
+      - plasma-look-and-feel-org.kde.breeze.desktop
+      - qt5-style-kvantum
+      - qt6-style-kvantum
+      - sddm-theme-breeze
+      - language-pack-kde-pl
+    state: present
+    update_cache: yes
+  when: ansible_os_family == 'Debian'
+
+- name: Install KDE Plasma Wayland (Fedora)
+  become: yes
+  ansible.builtin.dnf:
+    name: "@KDE Plasma Workspaces"
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Install KDE Plasma Wayland (Archlinux)
+  become: yes
+  community.general.pacman:
+    name:
+      - plasma-meta
+      - kde-applications-meta
+      - sddm
+    state: present
+  when: ansible_os_family == 'Archlinux'
+
+- name: Set SDDM input method config
+  become: yes
+  ansible.builtin.blockinfile:
+    path: /etc/sddm.conf
+    create: yes
+    block: |
+      [General]
+      InputMethod=
+    mode: '0644'
+
+- name: Reconfigure SDDM (Debian)
+  become: yes
+  ansible.builtin.command: dpkg-reconfigure -f noninteractive sddm
+  when: ansible_os_family == 'Debian'
+
+- name: Fix SDDM directory ownership
+  become: yes
+  ansible.builtin.file:
+    path: /var/lib/sddm
+    owner: sddm
+    group: sddm
+    recurse: yes
+  ignore_errors: yes
+
+- name: Enable SDDM Service (Fedora/Arch)
+  become: yes
+  ansible.builtin.systemd:
+    name: sddm
+    enabled: yes
+  when: ansible_os_family in ['RedHat', 'Archlinux']

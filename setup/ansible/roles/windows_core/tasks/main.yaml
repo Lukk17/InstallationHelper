@@ -1,0 +1,29 @@
+---
+- name: Enable Windows Features
+  ansible.windows.win_optional_feature:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - VirtualMachinePlatform
+    - Microsoft-Windows-Subsystem-Linux
+    - HypervisorPlatform
+    - NetFx3
+    - NetFx4-AdvSrvs
+    - NetFx4Extended-ASPNET45
+    - Containers-DisposableClientVM
+    - Microsoft-Hyper-V
+    - ServicesForNFS-ClientOnly
+  when: enable_hyperv | bool
+
+- name: Setup WSL and Ubuntu
+  ansible.windows.win_shell: |
+    wsl --update
+    wsl --install -d Ubuntu
+  when: setup_wsl | bool
+  ignore_errors: yes
+
+- name: Import Hibernate Task
+  ansible.windows.win_shell: |
+    schtasks /Create /XML "{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml" /TN "\Hibernate@2AM"
+  when: import_hibernate_task | bool
+  ignore_errors: yes

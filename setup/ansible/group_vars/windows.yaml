@@ -1,0 +1,45 @@
+---
+# -----------------------------------------------------
+# WINDOWS SPECIFIC TOGGLES
+# -----------------------------------------------------
+
+# Windows System Configurations
+setup_wsl: true
+enable_hyperv: true
+import_hibernate_task: true
+
+# Windows Only Entertainment & Streaming
+install_netflix: true
+install_disney_plus: true
+install_prime_video: true
+install_itunes: true
+
+# Windows Only Hardware & OEM
+install_geforce_experience: true
+install_razer_cortex: true
+install_galaxy_buds: true
+install_canon_app: true
+
+# Windows Only Utilities & Networks
+install_hwmonitor: true
+install_hwinfo: true
+install_crystaldiskinfo: true
+install_crystaldiskmark: true
+install_msiafterburner: true
+install_wiztree: true
+install_advanced_ip_scanner: true
+install_glasswire: true
+install_tcpview: true
+install_autoruns: true
+install_rufus: true
+install_powertoys: true
+
+# Gaming Enhancements
+install_wow_logs_companion: true
+install_tsm: true
+install_curseforge: true
+
+# Virtualization toggles
+install_virtualbox: true
+install_vmware: true
+install_docker: true
