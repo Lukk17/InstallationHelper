@@ -72,6 +72,8 @@ services:
     container_name: keycloak
     image: keycloak-local:latest
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # for linux internal host recognition same as on windows
     networks:
       - local-network
     ports:
