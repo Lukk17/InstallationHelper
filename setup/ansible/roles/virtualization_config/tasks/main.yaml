@@ -1,14 +1,85 @@
 ---
-- name: Download VMware Workstation Player (Linux)
-  ansible.builtin.get_url:
-    url: "{{ vmware_url }}"
-    dest: "{{ ansible_env.HOME }}/.lukkInstall/{{ vmware_file }}"
-    mode: '0755'
-  when: ansible_system == 'Linux' and install_vmware | bool
-
-- name: Install VMware Workstation Player (Linux)
-  ansible.builtin.command: "{{ ansible_env.HOME }}/.lukkInstall/{{ vmware_file }} --required --console --eulas-agreed"
-  args:
-    creates: /usr/bin/vmplayer
+- name: Install QEMU/KVM and virt-manager packages (Debian)
   become: yes
-  when: ansible_system == 'Linux' and install_vmware | bool
+  ansible.builtin.apt:
+    name:
+      - qemu-kvm
+      - libvirt-daemon-system
+      - libvirt-clients
+      - virt-manager
+      - virtinst
+      - bridge-utils
+    state: present
+  when: ansible_os_family == 'Debian' and install_virt_manager | default(false) | bool
+
+- name: Install QEMU/KVM and virt-manager packages (Arch)
+  become: yes
+  community.general.pacman:
+    name:
+      - qemu-full
+      - virt-manager
+      - libvirt
+      - dnsmasq
+      - nftables
+      - bridge-utils
+    state: present
+  when: ansible_os_family == 'Archlinux' and install_virt_manager | default(false) | bool
+
+- name: Install QEMU/KVM and virt-manager packages (Fedora)
+  become: yes
+  ansible.builtin.dnf:
+    name:
+      - qemu-kvm
+      - libvirt
+      - virt-manager
+      - virt-install
+      - bridge-utils
+    state: present
+  when: ansible_os_family == 'RedHat' and install_virt_manager | default(false) | bool
+
+- name: Enable and start libvirtd service (Linux)
+  become: true
+  ansible.builtin.systemd:
+    name: libvirtd
+    state: started
+    enabled: true
+  when: ansible_system == 'Linux' and install_virt_manager | default(false) | bool
+
+- name: Add current user to libvirt group (Linux)
+  become: true
+  ansible.builtin.user:
+    name: "{{ ansible_user_id }}"
+    groups: libvirt
+    append: true
+  when: ansible_system == 'Linux' and install_virt_manager | default(false) | bool
+
+- name: Add current user to kvm group (Linux)
+  become: true
+  ansible.builtin.user:
+    name: "{{ ansible_user_id }}"
+    groups: kvm
+    append: true
+  when: ansible_system == 'Linux' and install_virt_manager | default(false) | bool
+
+- name: Install Docker (Arch)
+  become: true
+  community.general.pacman:
+    name: docker
+    state: present
+  when: ansible_os_family == 'Archlinux' and install_docker | default(false) | bool
+
+- name: Enable and start Docker service (Linux)
+  become: true
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  when: ansible_system == 'Linux' and install_docker | default(false) | bool
+
+- name: Add current user to docker group (Linux)
+  become: true
+  ansible.builtin.user:
+    name: "{{ ansible_user_id }}"
+    groups: docker
+    append: true
+  when: ansible_system == 'Linux' and install_docker | default(false) | bool

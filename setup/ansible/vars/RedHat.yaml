@@ -16,6 +16,7 @@ software_mapping:
   minikube: { manager: "dnf_url", package: "minikube-latest.x86_64.rpm" }
   lens: { manager: "snap", package: "lens", classic: true }
   filezilla: { manager: "dnf", package: "filezilla" }
+  grub_customizer: { manager: "dnf", package: "grub-customizer" }
 
   # IDEs / Editors
   intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
@@ -59,10 +60,14 @@ software_mapping:
   teamviewer: { manager: "dnf_url", package: "teamviewer" }
   veracrypt: { manager: "dnf_url", package: "veracrypt.rpm" } 
   speedtest: { manager: "dnf", package: "speedtest-cli" }
+  appimagelauncher: { manager: "dnf_url", package: "{{ appimage_launcher_rpm_url }}" }
 
   # Crypto
   boinc: { manager: "dnf", package: "boinc-client" }
   gridcoin: { manager: "dnf", package: "gridcoinresearch" }
+  lynis: { manager: "dnf", package: "lynis" }
+  chkrootkit: { manager: "dnf", package: "chkrootkit" }
+  clamav: { manager: "dnf", package: "clamav" }
 
   # Alternatives
   hardinfo: { manager: "dnf", package: "hardinfo", is_alternative_for: "HWMonitor" }
@@ -75,4 +80,5 @@ software_mapping:
 
   # Virtualization
   virtualbox: { manager: "dnf", package: "VirtualBox" }
+  virt_manager: { manager: "dnf", package: "virt-manager" }
   docker: { manager: "dnf", package: "docker-ce" }

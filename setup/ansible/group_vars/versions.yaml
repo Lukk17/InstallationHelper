@@ -2,6 +2,7 @@
 # Software Versions
 appimage_launcher_version: "2.2.0"
 appimage_launcher_file: "appimagelauncher_{{ appimage_launcher_version }}-travis995.0f91801.bionic_amd64.deb"
+appimage_launcher_rpm_file: "appimagelauncher-{{ appimage_launcher_version }}-travis995.0f91801.x86_64.rpm"
 antigravity_file: "antigravity.deb"
 teamviewer_file: "teamviewer_amd64.deb"
 veracrypt_version: "1.26.24"
@@ -20,9 +21,9 @@ ledger_live_file: "ledger-app.AppImage"
 vmware_version: "17.5.0"
 vmware_build: "22583795"
 vmware_file: "VMware-Player-Full-{{ vmware_version }}-{{ vmware_build }}.x86_64.bundle"
-minikube_version: "latest"
+minikube_version: "1.35.0"
 minikube_file: "minikube_{{ minikube_version }}_amd64.deb"
-kind_version: "latest"
+kind_version: "v0.27.0"
 tor_browser_version: "14.5"
 tor_browser_file: "tor-browser-linux-x86_64-{{ tor_browser_version }}.tar.xz"
 
@@ -33,6 +34,29 @@ java21_id: "21.0.6-tem"
 java25_id: "25-tem"
 default_java: "{{ java21_id }}"
 
+# Python Pyenv versions
+python310_id: "3.10.16"
+python311_id: "3.11.11"
+python312_id: "3.12.8"
+python313_id: "3.13.2"
+default_python: "{{ python311_id }}"
+
+# Node NVM version
+nvm_version: "0.39.7"
+
+# Dart SDK
+dart_version: "3.7.2"
+
+# Flutter via FVM
+flutter_channel: "stable"
+
+# Android SDK (update build number from https://developer.android.com/studio#command-line-tools-only)
+android_cmdline_tools_version: "13.0"
+android_cmdline_tools_build: "11076708"
+android_build_tools_version: "35.0.0"
+android_api_level: "35"
+android_home: "{{ ansible_env.HOME }}/Android/Sdk"
+
 # Fonts
 nerd_font_hack_url: "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/Hack/Regular/complete/Hack%20Regular%20Nerd%20Font%20Complete.ttf"
 meslo_regular_url: "https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"
@@ -42,6 +66,7 @@ meslo_bold_italic_url: "https://github.com/romkatv/powerlevel10k-media/raw/maste
 
 # Download Links
 appimage_launcher_url: "https://github.com/TheAssassin/AppImageLauncher/releases/download/v{{ appimage_launcher_version }}/{{ appimage_launcher_file }}"
+appimage_launcher_rpm_url: "https://github.com/TheAssassin/AppImageLauncher/releases/download/v{{ appimage_launcher_version }}/{{ appimage_launcher_rpm_file }}"
 antigravity_url: "https://antigravity.google/download/linux/{{ antigravity_file }}"
 teamviewer_url: "https://download.teamviewer.com/download/linux/{{ teamviewer_file }}"
 veracrypt_url: "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }}/+download/{{ veracrypt_file }}"

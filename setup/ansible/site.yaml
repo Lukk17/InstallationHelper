@@ -4,23 +4,12 @@
   gather_facts: yes
   vars_files:
     - group_vars/all.yaml
-    - "group_vars/{{ 'windows' if ansible_os_family == 'Windows' else 'macos' if ansible_os_family == 'Darwin' else 'linux' }}.yaml"
     - group_vars/versions.yaml
 
   pre_tasks:
-    - name: Assert profile is provided
-      ansible.builtin.assert:
-        that:
-          - (hostvars['localhost'].ansible_run_tags | default([])) | length > 0 or (ansible_env.SSH_CLIENT is defined)
-        msg: |
-          ERROR: No installation profile provided! 
-          Please provide a profile to run this playbook. 
-          Available profiles: 
-          - profiles/ubuntu_dev.yaml
-          - profiles/windows_work.yaml
-          - profiles/macos_dev.yaml
-          Example usage: ansible-playbook site.yaml -e '@profiles/windows_work.yaml' -K
-      ignore_errors: true # Temporarily true so as not to break existing runs during refactor
+    - name: Load OS-specific group vars
+      ansible.builtin.include_vars:
+        file: "group_vars/{{ 'windows' if ansible_os_family == 'Windows' else 'macos' if ansible_os_family == 'Darwin' else 'linux' }}.yaml"
 
     - name: Load OS translation dictionary
       ansible.builtin.include_vars:
@@ -28,7 +17,7 @@
         name: os_dict
 
     - name: Update apt cache (Debian)
-      apt:
+      ansible.builtin.apt:
         update_cache: yes
       become: yes
       changed_when: false

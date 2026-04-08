@@ -1,20 +1,25 @@
 ---
 - name: Install NVM (Linux/Mac)
-  ansible.builtin.shell: >
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash
   args:
     creates: "{{ ansible_env.HOME }}/.nvm/nvm.sh"
-  when: ansible_os_family != 'Windows' and install_nodejs | bool
+    executable: /bin/bash
+  when: ansible_system != 'Win32NT'
 
 - name: Install Node LTS via NVM (Linux/Mac)
-  ansible.builtin.shell: >
-    . {{ ansible_env.HOME }}/.nvm/nvm.sh && nvm install --lts
+  ansible.builtin.shell: |
+    set -o pipefail
+    source {{ ansible_env.HOME }}/.nvm/nvm.sh && nvm install --lts
   args:
     executable: /bin/bash
-  when: ansible_os_family != 'Windows' and install_nodejs | bool
+  register: nvm_install
+  changed_when: "'is already installed' not in nvm_install.stdout"
+  when: ansible_system != 'Win32NT'
 
-- name: Install Node.js (Windows via Choco)
+- name: Install NVM (Windows)
   community.windows.win_chocolatey:
-    name: nodejs
+    name: nvm
     state: present
-  when: ansible_os_family == 'Windows' and install_nodejs | bool
+  when: ansible_system == 'Win32NT' and install_nodejs | bool

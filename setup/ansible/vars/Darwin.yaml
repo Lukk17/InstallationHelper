@@ -37,6 +37,7 @@ software_mapping:
   bitwarden: { manager: "brew_cask", package: "bitwarden" }
   keepassxc: { manager: "brew_cask", package: "keepassxc" }
   trello: { manager: "brew_cask", package: "trello" }
+  onlyoffice: { manager: "brew_cask", package: "onlyoffice" }
 
   # Media / Design
   vlc: { manager: "brew_cask", package: "vlc" }
@@ -58,6 +59,7 @@ software_mapping:
   teamviewer: { manager: "brew_cask", package: "teamviewer" }
   veracrypt: { manager: "brew_cask", package: "veracrypt" }
   speedtest: { manager: "brew", package: "speedtest-cli" }
+  lynis: { manager: "brew", package: "lynis" }
 
   # Crypto
   boinc: { manager: "brew_cask", package: "boinc" }

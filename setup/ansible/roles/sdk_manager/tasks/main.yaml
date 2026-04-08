@@ -1,6 +1,24 @@
 ---
-- import_tasks: nvm.yaml
-- import_tasks: sdkman.yaml
-- import_tasks: fvm.yaml
-- import_tasks: android_sdk.yaml
-- import_tasks: pyenv.yaml
+- name: Setup NVM and Node.js
+  ansible.builtin.include_tasks: nvm.yaml
+  when: install_node | default(false) | bool
+
+- name: Setup SDKMAN and Java
+  ansible.builtin.include_tasks: sdkman.yaml
+  when: install_java | default(false) | bool
+
+- name: Setup Pyenv and Python
+  ansible.builtin.include_tasks: pyenv.yaml
+  when: install_python | default(false) | bool
+
+- name: Setup Dart SDK
+  ansible.builtin.include_tasks: dart.yaml
+  when: install_dart | default(false) | bool
+
+- name: Setup FVM and Flutter
+  ansible.builtin.include_tasks: fvm.yaml
+  when: install_flutter | default(false) | bool
+
+- name: Setup Android SDK
+  ansible.builtin.include_tasks: android_sdk.yaml
+  when: install_android_sdk | default(false) | bool

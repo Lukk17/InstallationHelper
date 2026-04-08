@@ -5,7 +5,7 @@
 
 # Desktop Environments Setup
 install_kde_plasma: false
-configure_kde_plasma: true
+configure_kde_plasma: false
 install_gnome: false
 configure_gnome: false
 
@@ -41,6 +41,5 @@ install_balena_etcher: true # Alt for Rufus
 install_gputest: true     # Alt for FurMark
 
 # Virtualization toggles
-install_virtualbox: true
-install_vmware: true
+install_virt_manager: true
 install_docker: true

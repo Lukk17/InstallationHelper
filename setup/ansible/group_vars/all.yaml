@@ -71,6 +71,9 @@ install_boinc: true
 install_gridcoin: true
 
 # Universal SDK & AI Ecosystem (Installed via custom roles, not basic pkg managers)
+install_dart: true
+install_flutter: true
+install_android_sdk: true
 install_stable_diffusion: true
 install_lm_studio: true
 install_claude_code: true
