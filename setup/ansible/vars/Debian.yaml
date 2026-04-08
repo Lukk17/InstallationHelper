@@ -12,8 +12,7 @@ software_mapping:
   postman: { manager: "snap", package: "postman" }
   openssl: { manager: "apt", package: "openssl" }
   dbeaver: { manager: "snap", package: "dbeaver-ce" }
-  python: { manager: "apt", package: "python3" }
-  java: { manager: "apt", package: "default-jdk" }
+  grub_customizer: { manager: "apt", package: "grub-customizer" }
   kubectl: { manager: "snap", package: "kubectl", classic: true }
   minikube: { manager: "apt_url", package: "minikube_{{ minikube_version }}_amd64.deb", is_deb_url: true }
   lens: { manager: "snap", package: "lens", classic: true }
@@ -64,10 +63,14 @@ software_mapping:
   teamviewer: { manager: "apt_url", package: "teamviewer_amd64.deb", is_deb_url: true }
   veracrypt: { manager: "apt_url", package: "veracrypt.deb", is_deb_url: true }
   speedtest: { manager: "apt", package: "speedtest-cli" }
+  appimagelauncher: { manager: "apt_url", package: "{{ appimage_launcher_url }}", is_deb_url: true }
 
   # Crypto
   boinc: { manager: "apt", package: "boinc-client" }
   gridcoin: { manager: "apt", package: "gridcoinresearch" }
+  lynis: { manager: "apt", package: "lynis" }
+  chkrootkit: { manager: "apt", package: "chkrootkit" }
+  clamav: { manager: "apt", package: "clamav" }
 
   # Alternatives
   hardinfo: { manager: "apt", package: "hardinfo", is_alternative_for: "HWMonitor" }
@@ -80,4 +83,5 @@ software_mapping:
 
   # Virtualization
   virtualbox: { manager: "apt", package: "virtualbox" }
-  docker: { manager: "snap", package: "docker" }
+  virt_manager: { manager: "apt", package: "virt-manager" }
+  docker: { manager: "apt", package: "docker.io" }

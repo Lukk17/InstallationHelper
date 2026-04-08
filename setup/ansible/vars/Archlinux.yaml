@@ -16,6 +16,7 @@ software_mapping:
   minikube: { manager: "pacman", package: "minikube" }
   lens: { manager: "aur", package: "lens-bin" }
   filezilla: { manager: "pacman", package: "filezilla" }
+  grub_customizer: { manager: "aur", package: "grub-customizer" }
 
   # IDEs / Editors
   intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
@@ -59,10 +60,14 @@ software_mapping:
   teamviewer: { manager: "aur", package: "teamviewer" }
   veracrypt: { manager: "pacman", package: "veracrypt" }
   speedtest: { manager: "aur", package: "speedtest-cli" }
+  appimagelauncher: { manager: "aur", package: "appimagelauncher" }
 
   # Crypto
   boinc: { manager: "pacman", package: "boinc" }
   gridcoin: { manager: "aur", package: "gridcoinresearch-qt" }
+  lynis: { manager: "pacman", package: "lynis" }
+  chkrootkit: { manager: "aur", package: "chkrootkit" }
+  clamav: { manager: "pacman", package: "clamav" }
 
   # Alternatives
   hardinfo: { manager: "aur", package: "hardinfo-git", is_alternative_for: "HWMonitor" }
@@ -75,4 +80,5 @@ software_mapping:
 
   # Virtualization
   virtualbox: { manager: "pacman", package: "virtualbox" }
+  virt_manager: { manager: "pacman", package: "virt-manager" }
   docker: { manager: "pacman", package: "docker" }

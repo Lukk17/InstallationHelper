@@ -34,36 +34,11 @@ graph TD
 
 ## 📂 Directory Structure & File Roles
 
-```mermaid
-graph LR
-    Root[setup/] --> Playbook[ansible/site.yaml]
-    Root --> GroupVars[ansible/group_vars/]
-    Root --> Vars[ansible/vars/]
-    Root --> Profiles[ansible/profiles/]
-    Root --> Roles[ansible/roles/]
-    
-    GroupVars --> GV1[all.yaml - Global Intent]
-    GroupVars --> GV2[linux.yaml - OS Toggles]
-    GroupVars --> GV3[windows.yaml - OS Toggles]
-    GroupVars --> GV4[macos.yaml - OS Toggles]
-    
-    Vars --> V1[Debian.yaml - Dictionary]
-    Vars --> V2[Windows.yaml - Dictionary]
-    Vars --> V3[Darwin.yaml - Dictionary]
-    
-    Profiles --> P1[linux_live.yaml - Overrides]
-    
-    Roles --> R1[software_installer - The Router]
-    Roles --> R2[kde_plasma_setup - DE Config]
-    Roles --> R3[sdk_manager - Complex Installs]
-```
-
-* **`ansible/site.yaml` (The Playbook):** This is the main entry point for Ansible. It tells Ansible which hosts to target (localhost) and maps the roles to execute conditionally based on the master toggles.
-* **`ansible/group_vars/all.yaml` (Global Intent):** This file acts as your central configuration hub for cross-platform apps. You define boolean variables here (e.g., `install_chrome: true`) which dictate what gets installed.
-* **`ansible/group_vars/{linux,windows,macos}.yaml` (OS Toggles):** Booleans for apps/settings that only exist on that specific OS (e.g., `setup_wsl: true` for Windows, `install_kde_plasma: true` for Linux).
-* **`ansible/vars/{Debian,RedHat,Archlinux,Windows,Darwin}.yaml` (Translation Dictionaries):** Maps the generic app name to the exact package name, the preferred package manager for that specific OS, and metadata explaining if it's an alternative.
-* **`ansible/profiles/`:** This directory contains specific overriding setups (e.g., `linux_live.yaml`) which can inherit everything from the `group_vars/` but selectively toggle flags without modifying the master files.
-* **`ansible/roles/`:** This directory contains all the modularized setup logic.
+* **`ansible/site.yaml` (The Playbook):** This is the main entry point for Ansible.
+* **`ansible/group_vars/all.yaml` (Global Intent):** This file acts as your central configuration hub for cross-platform apps.
+* **`ansible/group_vars/{linux,windows,macos}.yaml` (OS Toggles):** Booleans for apps/settings that only exist on that specific OS.
+* **`ansible/vars/{Debian,RedHat,Archlinux,Windows,Darwin}.yaml` (Translation Dictionaries):** Maps the generic app name to the exact package name for each OS.
+* **`ansible/profiles/`:** This directory contains specific override profiles (e.g., `linux_live.yaml`) which selectively toggle flags for non-standard setups. For a full default installation, no profile is needed.
 
 ---
 
@@ -79,9 +54,10 @@ We strictly follow this explicit hierarchy per OS defined in the `vars/` diction
 
 ---
 
-## 🚀 Usage Instructions
+## 🚀 Universal Ansible Commands
 
-### 1. Install Ansible (If not already installed)
+### 1. Install Ansible
+First, ensure Ansible is installed on your system.
 
 **Ubuntu/Debian:**
 ```bash
@@ -93,12 +69,12 @@ sudo apt install ansible -y
 
 **Fedora:**
 ```bash
-sudo dnf install ansible
+sudo dnf install ansible -y
 ```
 
 **Archlinux:**
 ```bash
-sudo pacman -S ansible
+sudo pacman -S ansible --noconfirm
 ```
 
 **macOS:**
@@ -117,17 +93,65 @@ Review `setup/ansible/group_vars/all.yaml` (and the OS-specific files) and set t
 If you have a specific setup profile, you can override the variables by pointing to it during execution.
 
 ### 3. Run the Playbook
-Run the playbook against your local machine. **You MUST provide a profile** (or empty profile file) via the `-e` flag, or the playbook will safely abort. The `-K` flag ensures Ansible can prompt for the sudo password used for administrative tasks.
+Run the playbook against your local machine. The `-K` flag ensures Ansible can prompt for the sudo password used for administrative tasks.
 
+First, navigate to the ansible directory:
 ```bash
 cd setup/ansible
-ansible-playbook site.yaml -i localhost, -c local -e "@profiles/default.yaml" -K
 ```
 
-**Using an override profile (e.g., Linux Live USB setup):**
-```bash
-ansible-playbook site.yaml -i localhost, -c local -e "@profiles/linux_live.yaml" -K
-```
+Then, run the command for the profile you wish to use. The `-K` flag will prompt for your `sudo` password.
+
+### **Commands Per OS and Profile**
+
+#### **Ubuntu / Debian**
+
+*   **Full Installation (Default):**
+    ```sh
+    ansible-playbook site.yaml -i localhost, -c local -K
+    ```
+*   **Linux Live Profile (For USB Drives):**
+    ```sh
+    ansible-playbook site.yaml -i localhost, -c local -e "@profiles/linux_live.yaml" -K
+    ```
+
+#### **Fedora**
+
+*   **Full Installation (Default):**
+    ```sh
+    ansible-playbook site.yaml -i localhost, -c local -K
+    ```
+*   **Linux Live Profile (For USB Drives):**
+    ```sh
+    ansible-playbook site.yaml -i localhost, -c local -e "@profiles/linux_live.yaml" -K
+    ```
+
+#### **Arch Linux**
+
+*   **Full Installation (Default):**
+    ```sh
+    ansible-playbook site.yaml -i localhost, -c local -K
+    ```
+*   **Linux Live Profile (For USB Drives):**
+    ```sh
+    ansible-playbook site.yaml -i localhost, -c local -e "@profiles/linux_live.yaml" -K
+    ```
+
+#### **macOS**
+
+*   **Full Installation (Default):**
+    ```sh
+    ansible-playbook site.yaml -i localhost, -c local -K
+    ```
+    *(Note: The `linux_live` profile is not applicable to macOS).*
+
+#### **Windows (via WSL)**
+
+*   **Full Installation (Default):**
+    ```sh
+    ansible-playbook site.yaml -i localhost, -c local -K
+    ```
+    *(Note: The `linux_live` profile is not applicable to Windows).*
 
 ---
 

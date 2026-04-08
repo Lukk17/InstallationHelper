@@ -1,14 +1,27 @@
 ---
-- name: Bootstrap yay AUR Helper
+- name: Install yay build dependencies
   become: yes
+  ansible.builtin.package:
+    name:
+      - git
+      - base-devel
+    state: present
+
+- name: Clone yay AUR helper repository
+  ansible.builtin.git:
+    repo: https://aur.archlinux.org/yay.git
+    dest: /tmp/yay
+    update: no
+  args:
+    creates: /tmp/yay
+
+- name: Build and install yay (must not run as root)
   ansible.builtin.shell: |
-    pacman -S --needed git base-devel --noconfirm
-    git clone https://aur.archlinux.org/yay.git /tmp/yay
     cd /tmp/yay && makepkg -si --noconfirm
   args:
     creates: /usr/bin/yay
 
-- name: Enable systemd for Snap
+- name: Enable systemd socket for Snap
   become: yes
   ansible.builtin.systemd:
     name: snapd.socket
