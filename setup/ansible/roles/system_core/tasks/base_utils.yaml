@@ -6,8 +6,24 @@
     mode: '0755'
   become: no
 
-- name: Full system upgrade and autoremove
+- name: Full system upgrade and autoremove (Debian)
   ansible.builtin.apt:
     upgrade: full
     autoremove: yes
   become: yes
+  when: ansible_os_family == 'Debian'
+
+
+- name: Full system upgrade (Arch)
+  community.general.pacman:
+    update_cache: yes
+    upgrade: yes
+  become: yes
+  when: ansible_os_family == 'Archlinux'
+
+- name: Full system upgrade (Fedora)
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+  become: yes
+  when: ansible_os_family == 'RedHat'

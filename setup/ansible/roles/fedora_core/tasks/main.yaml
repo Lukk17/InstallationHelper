@@ -1,4 +1,48 @@
 ---
+- name: Add Google Chrome repository (Fedora)
+  become: yes
+  ansible.builtin.yum_repository:
+    name: google-chrome
+    description: Google Chrome
+    baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
+    gpgkey: https://dl.google.com/linux/linux_signing_key.pub
+    gpgcheck: yes
+    enabled: yes
+  when: install_chrome | default(false) | bool
+
+- name: Add Brave Browser repository (Fedora)
+  become: yes
+  ansible.builtin.yum_repository:
+    name: brave-browser
+    description: Brave Browser
+    baseurl: https://brave-browser-rpm-release.s3.brave.com/x86_64/
+    gpgkey: https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
+    gpgcheck: yes
+    enabled: yes
+  when: install_brave | default(false) | bool
+
+- name: Add Microsoft VS Code repository (Fedora)
+  become: yes
+  ansible.builtin.yum_repository:
+    name: vscode
+    description: Visual Studio Code
+    baseurl: https://packages.microsoft.com/yumrepos/vscode
+    gpgkey: https://packages.microsoft.com/keys/microsoft.asc
+    gpgcheck: yes
+    enabled: yes
+  when: install_vscode | default(false) | bool
+
+- name: Add Sublime Text repository (Fedora)
+  become: yes
+  ansible.builtin.yum_repository:
+    name: sublime-text
+    description: Sublime Text
+    baseurl: https://download.sublimetext.com/rpm/stable/x86_64/
+    gpgkey: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
+    gpgcheck: yes
+    enabled: yes
+  when: install_sublime | default(false) | bool
+
 - name: Ensure Snap and Flatpak plugins are installed
   become: yes
   ansible.builtin.dnf:

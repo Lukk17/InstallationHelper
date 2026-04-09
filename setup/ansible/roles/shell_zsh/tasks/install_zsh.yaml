@@ -32,9 +32,13 @@
     state: present
   when: ansible_os_family == 'Darwin'
 
-- name: Change user shell to ZSH (Linux/Mac)
+- name: Find ZSH path
+  ansible.builtin.command: which zsh
+  register: zsh_path
+  changed_when: false
+
+- name: Change user shell to ZSH
   ansible.builtin.user:
     name: "{{ ansible_env.USER }}"
-    shell: /usr/bin/zsh
+    shell: "{{ zsh_path.stdout }}"
   become: yes
-  when: ansible_os_family != 'Darwin'

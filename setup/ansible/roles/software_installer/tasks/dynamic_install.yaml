@@ -53,6 +53,7 @@
       when: ansible_os_family == 'Archlinux' and item.value.manager == 'pacman'
 
     - name: Install AUR packages (Native)
+      become: no
       kewlfft.aur.aur:
         name: "{{ item.value.package }}"
         state: present

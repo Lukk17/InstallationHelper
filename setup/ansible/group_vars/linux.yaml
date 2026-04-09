@@ -10,14 +10,15 @@ install_gnome: false
 configure_gnome: false
 
 # System Core Configurations
+install_system_core: true
+setup_systemd_boot: true
+remove_distro_grub: true
 setup_hibernate: true
 setup_tmpfs: true
 toggle_wayland_nvidia: false
 setup_zsh: true
 
 # Linux Only Native Apps (System / Security)
-install_grub_customizer: true
-install_boot_repair: true
 install_lynis: true
 install_chkrootkit: true
 install_clamav: true
@@ -43,3 +44,5 @@ install_gputest: true     # Alt for FurMark
 # Virtualization toggles
 install_virt_manager: true
 install_docker: true
+install_virtualbox: false
+install_vmware: false

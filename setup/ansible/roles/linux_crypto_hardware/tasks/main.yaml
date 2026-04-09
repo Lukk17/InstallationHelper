@@ -1,6 +1,6 @@
 ---
 - name: Add Ledger udev rules
-  ansible.builtin.shell: wget -q -O - "https://raw.githubusercontent.com/LedgerHQ/udev-rules/master/add_udev_rules.sh" | sudo bash
+  ansible.builtin.shell: wget -q -O - "https://raw.githubusercontent.com/LedgerHQ/udev-rules/master/add_udev_rules.sh" | bash
   become: yes
   changed_when: false
   when: install_ledger_live | bool
@@ -12,10 +12,17 @@
   when: install_trezor_suite | bool and ansible_os_family == 'Debian'
 
 - name: Add Trezor udev rules (RedHat)
-  ansible.builtin.dnf:
-    name: "https://data.trezor.io/udev/trezor-udev_2_all.deb"
-    state: present
+  ansible.builtin.get_url:
+    url: "https://data.trezor.io/udev/51-trezor.rules"
+    dest: /etc/udev/rules.d/51-trezor.rules
+    mode: '0644'
   become: yes
+  when: install_trezor_suite | bool and ansible_os_family == 'RedHat'
+
+- name: Reload udev rules (RedHat)
+  ansible.builtin.command: udevadm control --reload-rules
+  become: yes
+  changed_when: false
   when: install_trezor_suite | bool and ansible_os_family == 'RedHat'
 
 - name: Add Trezor udev rules (Archlinux)

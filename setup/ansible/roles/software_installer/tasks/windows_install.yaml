@@ -1,0 +1,14 @@
+---
+- name: Install Chocolatey packages
+  community.windows.win_chocolatey:
+    name: "{{ item.value.package }}"
+    state: present
+  loop: "{{ software_installer_packages }}"
+  when: item.value.manager == 'choco'
+
+- name: Install Winget packages
+  community.windows.win_winget:
+    name: "{{ item.value.package }}"
+    state: present
+  loop: "{{ software_installer_packages }}"
+  when: item.value.manager == 'winget'

@@ -16,7 +16,7 @@ software_mapping:
   minikube: { manager: "dnf_url", package: "minikube-latest.x86_64.rpm" }
   lens: { manager: "snap", package: "lens", classic: true }
   filezilla: { manager: "dnf", package: "filezilla" }
-  grub_customizer: { manager: "dnf", package: "grub-customizer" }
+
 
   # IDEs / Editors
   intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
@@ -57,12 +57,13 @@ software_mapping:
   prusaslicer: { manager: "snap", package: "prusa-slicer" }
 
   # Utilities
-  teamviewer: { manager: "dnf_url", package: "teamviewer" }
-  veracrypt: { manager: "dnf_url", package: "veracrypt.rpm" } 
+  teamviewer: { manager: "dnf_url", package: "teamviewer.rpm" }
+  veracrypt: { manager: "dnf_url", package: "veracrypt.rpm" }
   speedtest: { manager: "dnf", package: "speedtest-cli" }
   appimagelauncher: { manager: "dnf_url", package: "{{ appimage_launcher_rpm_url }}" }
 
-  # Crypto
+  # Crypto / Crypto Hardware
+  exodus: { manager: "dnf_url", package: "exodus.rpm" }
   boinc: { manager: "dnf", package: "boinc-client" }
   gridcoin: { manager: "dnf", package: "gridcoinresearch" }
   lynis: { manager: "dnf", package: "lynis" }
@@ -70,12 +71,13 @@ software_mapping:
   clamav: { manager: "dnf", package: "clamav" }
 
   # Alternatives
+  boot_repair: { manager: "dnf", package: "grubby" }
   hardinfo: { manager: "dnf", package: "hardinfo", is_alternative_for: "HWMonitor" }
   lm_sensors: { manager: "dnf", package: "lm_sensors", is_alternative_for: "HWInfo" }
   greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
   baobab: { manager: "dnf", package: "baobab", is_alternative_for: "WizTree" }
   polychromatic: { manager: "dnf_repo", package: "polychromatic", is_alternative_for: "Razer Cortex" }
-  balena_etcher: { manager: "dnf_url", package: "balena-etcher", is_alternative_for: "Rufus" }
+  balena_etcher: { manager: "dnf_url", package: "balena-etcher.rpm", is_alternative_for: "Rufus" }
   gputest: { manager: "dnf", package: "gputest", is_alternative_for: "FurMark" }
 
   # Virtualization

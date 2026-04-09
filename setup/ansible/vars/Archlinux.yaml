@@ -16,14 +16,14 @@ software_mapping:
   minikube: { manager: "pacman", package: "minikube" }
   lens: { manager: "aur", package: "lens-bin" }
   filezilla: { manager: "pacman", package: "filezilla" }
-  grub_customizer: { manager: "aur", package: "grub-customizer" }
+
 
   # IDEs / Editors
   intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
   vscode: { manager: "aur", package: "visual-studio-code-bin" }
   sublime: { manager: "aur", package: "sublime-text-4" }
   arduino: { manager: "pacman", package: "arduino-ide" }
-  antigravity: { manager: "aur", package: "google-antigravity-ide-bin" }
+  antigravity: { manager: "aur", package: "antigravity" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
@@ -62,7 +62,8 @@ software_mapping:
   speedtest: { manager: "aur", package: "speedtest-cli" }
   appimagelauncher: { manager: "aur", package: "appimagelauncher" }
 
-  # Crypto
+  # Crypto / Crypto Hardware
+  exodus: { manager: "aur", package: "exodus" }
   boinc: { manager: "pacman", package: "boinc" }
   gridcoin: { manager: "aur", package: "gridcoinresearch-qt" }
   lynis: { manager: "pacman", package: "lynis" }

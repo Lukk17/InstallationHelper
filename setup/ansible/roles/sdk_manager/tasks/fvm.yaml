@@ -1,0 +1,35 @@
+---
+- name: Install FVM (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL https://fvm.app/install.sh | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.fvm/bin/fvm"
+    executable: /bin/bash
+  when: ansible_system != 'Win32NT' and install_flutter | bool
+
+- name: Install Flutter via FVM ({{ flutter_channel }})
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PATH="$HOME/.fvm/bin:$PATH"
+    fvm install {{ flutter_channel }}
+  args:
+    creates: "{{ ansible_env.HOME }}/fvm/versions/{{ flutter_channel }}/bin/flutter"
+    executable: /bin/bash
+  when: ansible_system != 'Win32NT' and install_flutter | bool
+
+- name: Set FVM global version ({{ flutter_channel }})
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PATH="$HOME/.fvm/bin:$PATH"
+    fvm global {{ flutter_channel }}
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: ansible_system != 'Win32NT' and install_flutter | bool
+
+- name: Install Flutter (Windows via Winget)
+  community.windows.win_winget:
+    name: Google.Flutter
+    state: present
+  when: ansible_os_family == 'Windows' and install_flutter | bool

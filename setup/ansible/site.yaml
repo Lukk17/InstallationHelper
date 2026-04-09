@@ -24,12 +24,14 @@
       when: ansible_os_family == 'Debian'
 
   roles:
-    # 1. OS-Specific Core Bootstrapping
+    # 1. OS-Specific Core Bootstrapping + Boot
+    - { role: systemd_boot, when: ansible_system == 'Linux' and setup_systemd_boot | default(false) | bool }
+
     - { role: windows_core, when: ansible_os_family == 'Windows' }
     - { role: macos_core, when: ansible_os_family == 'Darwin' }
     - { role: arch_core, when: ansible_os_family == 'Archlinux' }
     - { role: fedora_core, when: ansible_os_family == 'RedHat' }
-    - { role: system_core, when: ansible_os_family == 'Debian' and install_system_core | default(false) | bool }
+    - { role: system_core, when: ansible_system == 'Linux' and install_system_core | default(false) | bool }
 
     # 2. Linux Desktop Environments
     - { role: kde_plasma_setup, when: ansible_system == 'Linux' and (install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool) }
@@ -50,4 +52,4 @@
     - { role: waydroid, when: ansible_system == 'Linux' and install_waydroid | default(false) | bool }
     - { role: linux_crypto_hardware, when: ansible_system == 'Linux' and (install_ledger_live | default(false) | bool or install_trezor_suite | default(false) | bool) }
     - { role: linux_security, when: ansible_system == 'Linux' and setup_hibernate | default(false) | bool }
-    - { role: virtualization_config }
+    - { role: virtualization_config, when: ansible_system == 'Linux' and (install_virt_manager | default(false) | bool or install_docker | default(false) | bool or install_virtualbox | default(false) | bool or install_vmware | default(false) | bool) }
