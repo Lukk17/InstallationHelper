@@ -1,0 +1,52 @@
+---
+- name: Install SDKMAN (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -s "https://get.sdkman.io" | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.sdkman/bin/sdkman-init.sh"
+    executable: /bin/bash
+  when: ansible_system != 'Win32NT'
+
+- name: Install all Java Temurin versions via SDKMAN (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    source {{ ansible_env.HOME }}/.sdkman/bin/sdkman-init.sh && sdk install java {{ item }}
+  args:
+    executable: /bin/bash
+  loop:
+    - "{{ java11_id }}"
+    - "{{ java17_id }}"
+    - "{{ java21_id }}"
+    - "{{ java25_id }}"
+  register: sdk_java_install
+  changed_when: "'is already installed' not in sdk_java_install.stdout"
+  when: ansible_system != 'Win32NT' and install_java | bool
+
+- name: Set default Java via SDKMAN (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    source {{ ansible_env.HOME }}/.sdkman/bin/sdkman-init.sh && sdk default java {{ default_java }}
+  args:
+    executable: /bin/bash
+  register: sdk_java_default
+  changed_when: "'Default java set to' in sdk_java_default.stdout"
+  when: ansible_system != 'Win32NT' and install_java | bool
+
+- name: Install Eclipse Temurin Java versions (Windows via Chocolatey)
+  community.windows.win_chocolatey:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - temurin11
+    - temurin17
+    - temurin21
+    - temurin
+  when: ansible_os_family == 'Windows' and install_java | bool
+
+- name: Set JAVA_HOME to Java 21 (Windows)
+  ansible.windows.win_environment:
+    name: JAVA_HOME
+    value: C:\Program Files\Eclipse Adoptium\jdk-21.0.6+7-hotspot
+    level: machine
+  when: ansible_os_family == 'Windows' and install_java | bool

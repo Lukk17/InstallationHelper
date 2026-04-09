@@ -12,7 +12,6 @@ software_mapping:
   postman: { manager: "snap", package: "postman" }
   openssl: { manager: "apt", package: "openssl" }
   dbeaver: { manager: "snap", package: "dbeaver-ce" }
-  grub_customizer: { manager: "apt", package: "grub-customizer" }
   kubectl: { manager: "snap", package: "kubectl", classic: true }
   minikube: { manager: "apt_url", package: "minikube_{{ minikube_version }}_amd64.deb", is_deb_url: true }
   lens: { manager: "snap", package: "lens", classic: true }
@@ -65,7 +64,8 @@ software_mapping:
   speedtest: { manager: "apt", package: "speedtest-cli" }
   appimagelauncher: { manager: "apt_url", package: "{{ appimage_launcher_url }}", is_deb_url: true }
 
-  # Crypto
+  # Crypto / Crypto Hardware
+  exodus: { manager: "apt_url", package: "exodus.deb", is_deb_url: true }
   boinc: { manager: "apt", package: "boinc-client" }
   gridcoin: { manager: "apt", package: "gridcoinresearch" }
   lynis: { manager: "apt", package: "lynis" }

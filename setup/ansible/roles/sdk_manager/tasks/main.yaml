@@ -1,7 +1,7 @@
 ---
 - name: Setup NVM and Node.js
   ansible.builtin.include_tasks: nvm.yaml
-  when: install_node | default(false) | bool
+  when: install_nodejs | default(false) | bool
 
 - name: Setup SDKMAN and Java
   ansible.builtin.include_tasks: sdkman.yaml

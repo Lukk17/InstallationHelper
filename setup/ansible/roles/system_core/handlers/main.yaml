@@ -1,4 +1,2 @@
 ---
-- name: Update GRUB
-  ansible.builtin.command: update-grub
-  become: yes
+# Handlers reserved for future use

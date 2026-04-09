@@ -1,22 +1,106 @@
 ---
-# Profile for Linux Live USB - overrides defaults from all.yaml
-install_dev_tools: false
-install_virtualization: false
-install_gaming: false
+# Profile for Linux Live USB - minimal install: crypto tools + basic OS tools only
+
+# ---- Browsers (keep minimal) ----
+install_chrome: false
+install_brave: true
+install_tor: true
+
+# ---- Dev Tools (disable heavy tooling) ----
+install_nodejs: false
+install_python: false
+install_java: false
+install_maven: false
+install_gradle: false
+install_kubectl: false
+install_minikube: false
+install_lens: false
+install_postman: false
+install_dbeaver: false
+install_filezilla: false
+# keep: git, openssl
+
+# ---- IDEs / Editors (all off) ----
+install_intellij: false
+install_vscode: false
+install_sublime: true
+install_arduino: false
+install_antigravity: false
+
+# ---- Communication (all off) ----
+install_discord: true
+install_slack: false
+install_teams: false
+install_telegram: true
+install_whatsapp: true
+install_signal: true
+
+# ---- Productivity (keep password managers only) ----
+install_obsidian: true
+install_trello: false
+install_onlyoffice: true
+# keep: bitwarden, keepassxc
+
+# ---- Media / Design (keep VLC only) ----
+install_spotify: false
+install_gimp: true
+install_krita: false
+install_handbrake: false
+install_audacity: false
+install_rawtherapee: false
+# keep: vlc
+
+# ---- Gaming (all off) ----
+install_steam: false
+
+# ---- CAD / 3D (all off) ----
+install_freecad: false
+install_prusaslicer: false
+
+# ---- Utilities ----
+install_teamviewer: false
+# keep: veracrypt, speedtest, balena_etcher
+
+# ---- Volunteer / Crypto (keep) ----
+# install_boinc: true
+install_gridcoin: true
+
+# ---- SDK & AI Ecosystem (all off) ----
+install_dart: false
+install_flutter: false
+install_android_sdk: false
+install_stable_diffusion: false
+install_lm_studio: false
+install_claude_code: false
+install_claude_desktop: false
+install_claude_cowork: false
+install_opencode: false
+
+# ---- Linux System ----
+install_grub_customizer: false
+install_boot_repair: true
+setup_hibernate: false
 install_waydroid: false
-install_crypto_tools: true
 
-# Gnome specific apps/settings
+# ---- Hardware Alternatives (all off) ----
+install_greenenvy: false
+install_polychromatic: false
+install_gputest: false
+install_hardinfo: false
+install_lm_sensors: false
+install_baobab: false
+
+# ---- Virtualization (all off) ----
+install_virt_manager: false
+install_docker: false
+
+# ---- Gnome live settings ----
 default_internetBrowser_app: brave-browser.desktop
-default_word_app: wps-2019-snap_wps.desktop
-default_excel_app: wps-2019-snap_et.desktop
-default_presentation_app: wps-2019-snap_wpp.desktop
-favorite_apps: "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'sublime-text_subl.desktop', 'telegram-desktop_telegram-desktop.desktop']"
+default_word_app: onlyoffice-desktopeditors.desktop
+default_excel_app: onlyoffice-desktopeditors.desktop
+default_presentation_app: onlyoffice-desktopeditors.desktop
+favorite_apps: "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'telegram-desktop_telegram-desktop.desktop']"
 
-# Dash to dock specific settings
+# ---- Dash to dock ----
 dash_dock_position: 'BOTTOM'
 dash_dock_disable_ubuntu_dock: true
-
-# Feature Toggles for other specific apps
-install_tor: true
-install_brave: true

@@ -9,6 +9,7 @@
       - virt-manager
       - virtinst
       - bridge-utils
+      - virtiofsd
     state: present
   when: ansible_os_family == 'Debian' and install_virt_manager | default(false) | bool
 
@@ -22,6 +23,7 @@
       - dnsmasq
       - nftables
       - bridge-utils
+      - virtiofsd
     state: present
   when: ansible_os_family == 'Archlinux' and install_virt_manager | default(false) | bool
 
@@ -34,8 +36,31 @@
       - virt-manager
       - virt-install
       - bridge-utils
+      - virtiofsd
     state: present
   when: ansible_os_family == 'RedHat' and install_virt_manager | default(false) | bool
+
+# Install spice-vdagent when this machine is itself running inside a VM (guest)
+- name: Install spice-vdagent for clipboard/display integration (Debian guest)
+  become: yes
+  ansible.builtin.apt:
+    name: spice-vdagent
+    state: present
+  when: ansible_os_family == 'Debian' and ansible_virtualization_role == 'guest'
+
+- name: Install spice-vdagent for clipboard/display integration (Arch guest)
+  become: yes
+  community.general.pacman:
+    name: spice-vdagent
+    state: present
+  when: ansible_os_family == 'Archlinux' and ansible_virtualization_role == 'guest'
+
+- name: Install spice-vdagent for clipboard/display integration (Fedora guest)
+  become: yes
+  ansible.builtin.dnf:
+    name: spice-vdagent
+    state: present
+  when: ansible_os_family == 'RedHat' and ansible_virtualization_role == 'guest'
 
 - name: Enable and start libvirtd service (Linux)
   become: true
