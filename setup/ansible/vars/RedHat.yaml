@@ -81,6 +81,5 @@ software_mapping:
   gputest: { manager: "dnf", package: "gputest", is_alternative_for: "FurMark" }
 
   # Virtualization
-  virtualbox: { manager: "dnf", package: "VirtualBox" }
   virt_manager: { manager: "dnf", package: "virt-manager" }
   docker: { manager: "dnf", package: "docker-ce" }

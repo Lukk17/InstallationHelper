@@ -80,6 +80,5 @@ software_mapping:
   gputest: { manager: "aur", package: "gputest", is_alternative_for: "FurMark" }
 
   # Virtualization
-  virtualbox: { manager: "pacman", package: "virtualbox" }
   virt_manager: { manager: "pacman", package: "virt-manager" }
   docker: { manager: "pacman", package: "docker" }

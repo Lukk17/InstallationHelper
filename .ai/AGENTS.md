@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agent when working with code in this repository.
 
 ## What This Repo Is
 
@@ -97,3 +97,10 @@ konsave -s lukk_desktop_profile          # Save current config
 konsave -e lukk_desktop_profile -f       # Export to .knsv (use -f to overwrite)
 konsave -i config/lukk_desktop_profile.knsv && konsave -a lukk_desktop_profile  # Import & apply
 ```
+
+## How to be compatible with IDE
+
+Always output file edits using strict SEARCH/REPLACE blocks.
+Ensure exact matching of existing indentation and formatting for the diff viewer to parse correctly.
+Never use the built-in read tool.
+If you need to read a file, use the bash tool to execute cat, head, or grep on the file path instead.

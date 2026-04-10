@@ -72,5 +72,5 @@ software_mapping:
   balena_etcher: { manager: "brew_cask", package: "balenaetcher", is_alternative_for: "Rufus" }
 
   # Virtualization
-  virtualbox: { manager: "brew_cask", package: "virtualbox" }
+  utm: { manager: "brew_cask", package: "utm" }
   docker: { manager: "brew_cask", package: "docker" }

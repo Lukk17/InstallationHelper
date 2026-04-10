@@ -1,0 +1,73 @@
+---
+# On Arch, /boot is typically the ESP (vfat), so kernels live directly on it.
+# Paths in entry files are relative to the ESP root.
+
+- name: Get root partition UUID (Arch)
+  ansible.builtin.shell: findmnt -n -o UUID /
+  register: root_uuid
+  changed_when: false
+
+- name: Check for Intel microcode on ESP (Arch)
+  ansible.builtin.stat:
+    path: "{{ esp_path }}/intel-ucode.img"
+  register: intel_ucode
+
+- name: Check for AMD microcode on ESP (Arch)
+  ansible.builtin.stat:
+    path: "{{ esp_path }}/amd-ucode.img"
+  register: amd_ucode
+
+- name: Create boot entry for Arch Linux
+  become: yes
+  ansible.builtin.copy:
+    dest: "{{ esp_path }}/loader/entries/arch.conf"
+    content: |
+      title   Arch Linux
+      linux   /vmlinuz-linux
+      {% if intel_ucode.stat.exists %}
+      initrd  /intel-ucode.img
+      {% elif amd_ucode.stat.exists %}
+      initrd  /amd-ucode.img
+      {% endif %}
+      initrd  /initramfs-linux.img
+      options root=UUID={{ root_uuid.stdout | trim }} rw quiet
+    mode: '0644'
+
+- name: Create fallback boot entry for Arch Linux
+  become: yes
+  ansible.builtin.copy:
+    dest: "{{ esp_path }}/loader/entries/arch-fallback.conf"
+    content: |
+      title   Arch Linux (fallback initramfs)
+      linux   /vmlinuz-linux
+      {% if intel_ucode.stat.exists %}
+      initrd  /intel-ucode.img
+      {% elif amd_ucode.stat.exists %}
+      initrd  /amd-ucode.img
+      {% endif %}
+      initrd  /initramfs-linux-fallback.img
+      options root=UUID={{ root_uuid.stdout | trim }} rw
+    mode: '0644'
+
+- name: Ensure pacman hooks directory exists (Arch)
+  become: yes
+  ansible.builtin.file:
+    path: /etc/pacman.d/hooks
+    state: directory
+    mode: '0755'
+
+- name: Install pacman hook to update systemd-boot on systemd upgrades (Arch)
+  become: yes
+  ansible.builtin.copy:
+    dest: /etc/pacman.d/hooks/95-systemd-boot.hook
+    content: |
+      [Trigger]
+      Type = Package
+      Operation = Upgrade
+      Target = systemd
+
+      [Action]
+      Description = Updating systemd-boot
+      When = PostTransaction
+      Exec = /usr/bin/bootctl update
+    mode: '0644'

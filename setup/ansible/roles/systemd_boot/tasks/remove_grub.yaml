@@ -1,0 +1,113 @@
+---
+# Removes GRUB from the CURRENT distro only.
+# Other distros' EFI entries on the shared ESP are never touched —
+# systemd-boot auto-discovers them via EFI binary scanning.
+
+- name: Map distro to its GRUB EFI directory name
+  ansible.builtin.set_fact:
+    distro_grub_efi_dir: >-
+      {{
+        {
+          'Ubuntu':    'ubuntu',
+          'Debian':    'debian',
+          'Archlinux': 'arch',
+          'Fedora':    'fedora',
+          'CentOS':    'centos',
+          'AlmaLinux': 'almalinux',
+          'Rocky':     'rocky'
+        }[ansible_distribution] | default(ansible_distribution | lower)
+      }}
+
+# --- Remove GRUB packages ---
+
+- name: Remove GRUB packages (Debian/Ubuntu)
+  become: yes
+  ansible.builtin.apt:
+    name:
+      - grub-efi-amd64
+      - grub-efi-amd64-signed
+      - grub-efi-amd64-bin
+      - grub-common
+      - grub2-common
+      - grub-pc-bin
+      - os-prober
+    state: absent
+    purge: yes
+  when: ansible_os_family == 'Debian'
+  ignore_errors: yes
+
+- name: Remove GRUB packages (Arch)
+  become: yes
+  community.general.pacman:
+    name:
+      - grub
+      - os-prober
+    state: absent
+  when: ansible_os_family == 'Archlinux'
+  ignore_errors: yes
+
+- name: Remove GRUB packages (Fedora)
+  become: yes
+  ansible.builtin.dnf:
+    name:
+      - grub2-efi-x64
+      - grub2-efi-x64-modules
+      - grub2-tools
+      - grub2-tools-extra
+      - grub2-common
+      - os-prober
+    state: absent
+  when: ansible_os_family == 'RedHat'
+  ignore_errors: yes
+
+# --- Remove this distro's GRUB EFI directory from ESP ---
+
+- name: Check if this distro's GRUB EFI directory exists
+  ansible.builtin.stat:
+    path: "{{ esp_path }}/EFI/{{ distro_grub_efi_dir }}"
+  register: distro_grub_dir
+
+- name: Remove this distro's GRUB EFI directory
+  become: yes
+  ansible.builtin.file:
+    path: "{{ esp_path }}/EFI/{{ distro_grub_efi_dir }}"
+    state: absent
+  when: distro_grub_dir.stat.exists
+
+# --- Remove stale NVRAM entry pointing to this distro's GRUB ---
+
+- name: Install efibootmgr if not present (Debian)
+  become: yes
+  ansible.builtin.apt:
+    name: efibootmgr
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Install efibootmgr if not present (Arch)
+  become: yes
+  community.general.pacman:
+    name: efibootmgr
+    state: present
+  when: ansible_os_family == 'Archlinux'
+
+- name: Install efibootmgr if not present (Fedora)
+  become: yes
+  ansible.builtin.dnf:
+    name: efibootmgr
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Find NVRAM boot entries pointing to this distro's GRUB
+  become: yes
+  ansible.builtin.shell: |
+    efibootmgr | grep -i "{{ distro_grub_efi_dir }}" | grep -oP 'Boot\K[0-9A-Fa-f]+'
+  register: grub_nvram_entries
+  changed_when: false
+  ignore_errors: yes
+
+- name: Remove stale GRUB NVRAM entries for this distro
+  become: yes
+  ansible.builtin.command: efibootmgr -b {{ item }} -B
+  loop: "{{ grub_nvram_entries.stdout_lines }}"
+  when: grub_nvram_entries.stdout_lines | length > 0
+  ignore_errors: yes

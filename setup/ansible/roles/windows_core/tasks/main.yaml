@@ -53,3 +53,16 @@
     RUNDLL32.EXE user32.dll,UpdatePerUserSystemParameters
   when: set_custom_wallpaper | bool
   changed_when: false
+
+# VirtualBox and VMware (Docker Desktop is installed via software_installer role)
+- name: Install VirtualBox (Windows)
+  community.windows.win_chocolatey:
+    name: virtualbox
+    state: present
+  when: install_virtualbox | default(false) | bool
+
+- name: Install VMware Workstation Player (Windows)
+  community.windows.win_chocolatey:
+    name: vmware-workstation-player
+    state: present
+  when: install_vmware | default(false) | bool
