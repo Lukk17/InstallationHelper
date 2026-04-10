@@ -3,11 +3,11 @@
   ansible.builtin.git:
     repo: https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
     dest: "{{ ansible_env.HOME }}/stable-diffusion-webui"
-  when: ansible_os_family != 'Windows' and install_stable_diffusion | bool
+  when: ansible_facts['os_family'] != 'Windows' and install_stable_diffusion | bool
 
 - name: Download LM Studio AppImage (Linux)
   ansible.builtin.get_url:
     url: "https://releases.lmstudio.ai/linux/x86_64/standard/latest/LM-Studio-latest-linux-x86_64.AppImage"
     dest: "{{ ansible_env.HOME }}/.lukkInstall/LM-Studio.AppImage"
     mode: '0755'
-  when: ansible_system == 'Linux' and install_lm_studio | bool
+  when: ansible_facts['system'] == 'Linux' and install_lm_studio | bool

@@ -80,6 +80,12 @@ install_claude_code: true
 install_claude_desktop: true
 install_claude_cowork: true
 install_opencode: true
+install_openspec: true
+
+# Logging configuration
+# Set to true to allow playbook to continue if log file creation fails
+# Default: false (playbook fails if cannot write logs)
+allow_callback_failure: false
 
 # Global Theme / Wallpaper Settings
 set_custom_wallpaper: true

@@ -11,7 +11,7 @@
       - bridge-utils
       - virtiofsd
     state: present
-  when: ansible_os_family == 'Debian' and install_virt_manager | default(false) | bool
+  when: ansible_facts['os_family'] == 'Debian' and install_virt_manager | default(false) | bool
 
 - name: Install QEMU/KVM and virt-manager packages (Arch)
   become: yes
@@ -25,7 +25,7 @@
       - bridge-utils
       - virtiofsd
     state: present
-  when: ansible_os_family == 'Archlinux' and install_virt_manager | default(false) | bool
+  when: ansible_facts['os_family'] == 'Archlinux' and install_virt_manager | default(false) | bool
 
 - name: Install QEMU/KVM and virt-manager packages (Fedora)
   become: yes
@@ -38,7 +38,7 @@
       - bridge-utils
       - virtiofsd
     state: present
-  when: ansible_os_family == 'RedHat' and install_virt_manager | default(false) | bool
+  when: ansible_facts['os_family'] == 'RedHat' and install_virt_manager | default(false) | bool
 
 # Install spice-vdagent when this machine is itself running inside a VM (guest)
 - name: Install spice-vdagent for clipboard/display integration (Debian guest)
@@ -46,21 +46,21 @@
   ansible.builtin.apt:
     name: spice-vdagent
     state: present
-  when: ansible_os_family == 'Debian' and ansible_virtualization_role == 'guest'
+  when: ansible_facts['os_family'] == 'Debian' and ansible_virtualization_role == 'guest'
 
 - name: Install spice-vdagent for clipboard/display integration (Arch guest)
   become: yes
   community.general.pacman:
     name: spice-vdagent
     state: present
-  when: ansible_os_family == 'Archlinux' and ansible_virtualization_role == 'guest'
+  when: ansible_facts['os_family'] == 'Archlinux' and ansible_virtualization_role == 'guest'
 
 - name: Install spice-vdagent for clipboard/display integration (Fedora guest)
   become: yes
   ansible.builtin.dnf:
     name: spice-vdagent
     state: present
-  when: ansible_os_family == 'RedHat' and ansible_virtualization_role == 'guest'
+  when: ansible_facts['os_family'] == 'RedHat' and ansible_virtualization_role == 'guest'
 
 - name: Enable and start libvirtd service (Linux)
   become: true
@@ -68,7 +68,7 @@
     name: libvirtd
     state: started
     enabled: true
-  when: ansible_system == 'Linux' and install_virt_manager | default(false) | bool
+  when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
 
 - name: Add current user to libvirt group (Linux)
   become: true
@@ -76,7 +76,7 @@
     name: "{{ ansible_user_id }}"
     groups: libvirt
     append: true
-  when: ansible_system == 'Linux' and install_virt_manager | default(false) | bool
+  when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
 
 - name: Add current user to kvm group (Linux)
   become: true
@@ -84,14 +84,14 @@
     name: "{{ ansible_user_id }}"
     groups: kvm
     append: true
-  when: ansible_system == 'Linux' and install_virt_manager | default(false) | bool
+  when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
 
 - name: Install Docker (Arch)
   become: true
   community.general.pacman:
     name: docker
     state: present
-  when: ansible_os_family == 'Archlinux' and install_docker | default(false) | bool
+  when: ansible_facts['os_family'] == 'Archlinux' and install_docker | default(false) | bool
 
 - name: Enable and start Docker service (Linux)
   become: true
@@ -99,7 +99,7 @@
     name: docker
     state: started
     enabled: true
-  when: ansible_system == 'Linux' and install_docker | default(false) | bool
+  when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool
 
 - name: Add current user to docker group (Linux)
   become: true
@@ -107,4 +107,4 @@
     name: "{{ ansible_user_id }}"
     groups: docker
     append: true
-  when: ansible_system == 'Linux' and install_docker | default(false) | bool
+  when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool

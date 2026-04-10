@@ -5,7 +5,7 @@
     content: |
       run_im none
     mode: '0644'
-  when: ansible_os_family == 'Debian'
+  when: ansible_facts['os_family'] == 'Debian'
 
 - name: Pre-answer display manager prompt for SDDM (Debian)
   become: yes
@@ -14,7 +14,7 @@
     question: shared/default-x-display-manager
     value: sddm
     vtype: select
-  when: ansible_os_family == 'Debian'
+  when: ansible_facts['os_family'] == 'Debian'
 
 - name: Install KDE Plasma Wayland (Debian)
   become: yes
@@ -34,14 +34,14 @@
       - language-pack-kde-pl
     state: present
     update_cache: yes
-  when: ansible_os_family == 'Debian'
+  when: ansible_facts['os_family'] == 'Debian'
 
 - name: Install KDE Plasma Wayland (Fedora)
   become: yes
   ansible.builtin.dnf:
     name: "@KDE Plasma Workspaces"
     state: present
-  when: ansible_os_family == 'RedHat'
+  when: ansible_facts['os_family'] == 'RedHat'
 
 - name: Install KDE Plasma Wayland (Archlinux)
   become: yes
@@ -51,7 +51,7 @@
       - kde-applications-meta
       - sddm
     state: present
-  when: ansible_os_family == 'Archlinux'
+  when: ansible_facts['os_family'] == 'Archlinux'
 
 - name: Set SDDM input method config
   become: yes
@@ -66,7 +66,7 @@
 - name: Reconfigure SDDM (Debian)
   become: yes
   ansible.builtin.command: dpkg-reconfigure -f noninteractive sddm
-  when: ansible_os_family == 'Debian'
+  when: ansible_facts['os_family'] == 'Debian'
 
 - name: Fix SDDM directory ownership
   become: yes
@@ -82,4 +82,4 @@
   ansible.builtin.systemd:
     name: sddm
     enabled: yes
-  when: ansible_os_family in ['RedHat', 'Archlinux']
+  when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']

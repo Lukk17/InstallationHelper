@@ -9,7 +9,7 @@
   ansible.builtin.apt:
     deb: "https://data.trezor.io/udev/trezor-udev_2_all.deb"
   become: yes
-  when: install_trezor_suite | bool and ansible_os_family == 'Debian'
+  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'Debian'
 
 - name: Add Trezor udev rules (RedHat)
   ansible.builtin.get_url:
@@ -17,13 +17,13 @@
     dest: /etc/udev/rules.d/51-trezor.rules
     mode: '0644'
   become: yes
-  when: install_trezor_suite | bool and ansible_os_family == 'RedHat'
+  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'RedHat'
 
 - name: Reload udev rules (RedHat)
   ansible.builtin.command: udevadm control --reload-rules
   become: yes
   changed_when: false
-  when: install_trezor_suite | bool and ansible_os_family == 'RedHat'
+  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'RedHat'
 
 - name: Add Trezor udev rules (Archlinux)
   become: yes
@@ -31,4 +31,4 @@
     name: trezor-udev
     use: yay
     state: present
-  when: install_trezor_suite | bool and ansible_os_family == 'Archlinux'
+  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'Archlinux'

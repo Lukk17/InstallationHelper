@@ -1,0 +1,4 @@
+---
+- name: Install Claude Code CLI (Windows)
+  ansible.windows.win_shell: npm install -g @anthropic-ai/claude-code
+  ignore_errors: yes

@@ -1,0 +1,28 @@
+---
+- name: Create Windows apps_config directory
+  ansible.windows.win_file:
+    path: "{{ ansible_env.USERPROFILE }}\\apps_config"
+    state: directory
+
+- name: Set Windows User Environment Variables
+  ansible.windows.win_environment:
+    state: present
+    name: "{{ item.name }}"
+    value: "{{ ansible_env.USERPROFILE }}\\apps_config\\{{ item.path }}"
+    level: user
+  loop:
+    - { name: 'GRADLE_USER_HOME', path: '.gradle' }
+    - { name: 'DOCKER_CONFIG', path: '.docker' }
+    - { name: 'M2_HOME', path: '.m2' }
+    - { name: 'ANDROID_SDK_HOME', path: '.android' }
+    - { name: 'KUBECONFIG', path: '.kube\\config' }
+
+- name: Set Windows Machine Environment Variables (Android)
+  ansible.windows.win_environment:
+    state: present
+    name: "{{ item }}"
+    value: "C:\\tools\\android"
+    level: machine
+  loop:
+    - ANDROID_SDK_ROOT
+    - ANDROID_HOME

@@ -1,0 +1,28 @@
+---
+- name: Set Linux Environment Variables
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_env.HOME }}/.bashrc"
+    marker: "# {mark} ANSIBLE DEV APPS CONFIG"
+    block: |
+      export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
+      export DOCKER_CONFIG="$HOME/apps_config/.docker"
+      export M2_HOME="$HOME/apps_config/.m2"
+      export ANDROID_SDK_HOME="$HOME/apps_config/.android"
+      export KUBECONFIG="$HOME/apps_config/.kube/config"
+      export ANDROID_SDK_ROOT="/opt/android"
+      export PATH="$PATH:/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator"
+  when: ansible_facts['system'] == 'Linux'
+
+- name: Set macOS Environment Variables
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_env.HOME }}/.zshrc"
+    marker: "# {mark} ANSIBLE DEV APPS CONFIG"
+    block: |
+      export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
+      export DOCKER_CONFIG="$HOME/apps_config/.docker"
+      export M2_HOME="$HOME/apps_config/.m2"
+      export ANDROID_SDK_HOME="$HOME/apps_config/.android"
+      export KUBECONFIG="$HOME/apps_config/.kube/config"
+      export ANDROID_SDK_ROOT="/opt/android"
+      export PATH="$PATH:/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator"
+  when: ansible_facts['os_family'] == 'Darwin'

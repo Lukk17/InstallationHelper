@@ -1,0 +1,16 @@
+---
+- name: Install Eclipse Temurin Java versions (Windows via Chocolatey)
+  community.windows.win_chocolatey:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - temurin11
+    - temurin17
+    - temurin21
+    - temurin
+
+- name: Set JAVA_HOME to Java 21 (Windows)
+  ansible.windows.win_environment:
+    name: JAVA_HOME
+    value: C:\Program Files\Eclipse Adoptium\jdk-21.0.6+7-hotspot
+    level: machine

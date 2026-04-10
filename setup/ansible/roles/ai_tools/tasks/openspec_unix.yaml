@@ -1,0 +1,8 @@
+---
+- name: Install OpenSpec CLI via NVM (Unix)
+  ansible.builtin.shell: |
+    . {{ ansible_env.HOME }}/.nvm/nvm.sh
+    npm install -g openspec
+  args:
+    executable: /bin/bash
+  ignore_errors: yes

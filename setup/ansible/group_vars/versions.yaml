@@ -82,8 +82,6 @@ aurora_store_url: "https://files.auroraoss.com/AuroraStore/Stable/{{ aurora_stor
 aurora_droid_url: "https://files.auroraoss.com/AuroraDroid/Stable/{{ aurora_droid_file }}"
 exodus_url: "https://downloads.exodus.com/releases/{{ exodus_file }}"
 exodus_rpm_url: "https://downloads.exodus.com/releases/{{ exodus_rpm_file }}"
-teamviewer_rpm_url: "https://download.teamviewer.com/download/linux/teamviewer.x86_64.rpm"
-veracrypt_rpm_url: "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }}/+download/veracrypt-{{ veracrypt_version }}-cs9.x86_64.rpm"
 chrome_url: "https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm"
 claude_desktop_deb_url: "https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/signed/Claude-linux-x86_64.deb"
 trezor_suite_url: "https://data.trezor.io/suite/releases/desktop/latest/{{ trezor_suite_file }}"

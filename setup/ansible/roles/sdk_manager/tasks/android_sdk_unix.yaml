@@ -1,0 +1,51 @@
+---
+- name: Create Android SDK directory
+  ansible.builtin.file:
+    path: "{{ android_home }}/cmdline-tools"
+    state: directory
+    mode: '0755'
+
+- name: Download Android Command Line Tools (Linux)
+  ansible.builtin.get_url:
+    url: "https://dl.google.com/android/repository/commandlinetools-linux-{{ android_cmdline_tools_build }}_latest.zip"
+    dest: "/tmp/cmdline-tools.zip"
+    mode: '0644'
+  when: ansible_facts['os_family'] not in ['Windows', 'Darwin']
+
+- name: Download Android Command Line Tools (macOS)
+  ansible.builtin.get_url:
+    url: "https://dl.google.com/android/repository/commandlinetools-mac-{{ android_cmdline_tools_build }}_latest.zip"
+    dest: "/tmp/cmdline-tools.zip"
+    mode: '0644'
+  when: ansible_facts['os_family'] == 'Darwin'
+
+- name: Extract Android Command Line Tools
+  ansible.builtin.unarchive:
+    src: "/tmp/cmdline-tools.zip"
+    dest: "{{ android_home }}/cmdline-tools"
+    remote_src: yes
+    creates: "{{ android_home }}/cmdline-tools/cmdline-tools"
+
+- name: Rename extracted cmdline-tools to stable layout
+  ansible.builtin.command: >
+    mv {{ android_home }}/cmdline-tools/cmdline-tools {{ android_home }}/cmdline-tools/latest
+  args:
+    creates: "{{ android_home }}/cmdline-tools/latest"
+
+- name: Accept Android SDK licenses
+  ansible.builtin.shell: |
+    set -o pipefail
+    yes | {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses
+  args:
+    executable: /bin/bash
+  register: sdk_licenses
+  changed_when: "'All SDK package licenses accepted' not in sdk_licenses.stdout"
+
+- name: Install Android Platform and Build Tools
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ android_home }}/cmdline-tools/latest/bin/sdkmanager "platforms;android-{{ android_api_level }}" "build-tools;{{ android_build_tools_version }}" "platform-tools"
+  args:
+    executable: /bin/bash
+  register: sdk_install
+  changed_when: "'done' in sdk_install.stdout"

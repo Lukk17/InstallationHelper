@@ -1,0 +1,9 @@
+---
+- name: Install Chocolatey packages
+  community.windows.win_chocolatey:
+    name: "{{ item.value.package }}"
+    state: present
+  loop: "{{ software_mapping | dict2items }}"
+  when:
+    - item.value.manager == 'choco'
+    - vars[item.key] | default(false) | bool

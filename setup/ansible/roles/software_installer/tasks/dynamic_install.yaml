@@ -18,7 +18,7 @@
         state: present
       become: true
       loop: "{{ software_installer_packages }}"
-      when: ansible_os_family == 'Debian' and item.value.manager == 'apt' and not item.value.is_deb_url | default(false)
+      when: ansible_facts['os_family'] == 'Debian' and item.value.manager == 'apt' and not item.value.is_deb_url | default(false)
 
     - name: Install APT from URL (deb)
       ansible.builtin.apt:
@@ -26,7 +26,7 @@
         state: present
       become: true
       loop: "{{ software_installer_packages }}"
-      when: ansible_os_family == 'Debian' and (item.value.manager == 'apt_url' or item.value.is_deb_url | default(false))
+      when: ansible_facts['os_family'] == 'Debian' and (item.value.manager == 'apt_url' or item.value.is_deb_url | default(false))
 
     - name: Install DNF packages (Native)
       ansible.builtin.dnf:
@@ -34,7 +34,7 @@
         state: present
       become: true
       loop: "{{ software_installer_packages }}"
-      when: ansible_os_family == 'RedHat' and item.value.manager in ['dnf', 'dnf_repo']
+      when: ansible_facts['os_family'] == 'RedHat' and item.value.manager in ['dnf', 'dnf_repo']
 
     - name: Install DNF from URL (rpm)
       ansible.builtin.dnf:
@@ -42,7 +42,7 @@
         state: present
       become: true
       loop: "{{ software_installer_packages }}"
-      when: ansible_os_family == 'RedHat' and item.value.manager == 'dnf_url'
+      when: ansible_facts['os_family'] == 'RedHat' and item.value.manager == 'dnf_url'
 
     - name: Install Pacman packages (Native)
       community.general.pacman:
@@ -50,7 +50,7 @@
         state: present
       become: true
       loop: "{{ software_installer_packages }}"
-      when: ansible_os_family == 'Archlinux' and item.value.manager == 'pacman'
+      when: ansible_facts['os_family'] == 'Archlinux' and item.value.manager == 'pacman'
 
     - name: Install AUR packages (Native)
       become: no
@@ -58,7 +58,7 @@
         name: "{{ item.value.package }}"
         state: present
       loop: "{{ software_installer_packages }}"
-      when: ansible_os_family == 'Archlinux' and item.value.manager == 'aur'
+      when: ansible_facts['os_family'] == 'Archlinux' and item.value.manager == 'aur'
 
     - name: Install Snap packages (Classic/Native)
       community.general.snap:
@@ -67,14 +67,14 @@
         state: present
       become: true
       loop: "{{ software_installer_packages }}"
-      when: ansible_system == 'Linux' and item.value.manager == 'snap'
+      when: ansible_facts['system'] == 'Linux' and item.value.manager == 'snap'
 
     - name: Install Flatpak packages (Native)
       community.general.flatpak:
         name: "{{ item.value.package }}"
         state: present
       loop: "{{ software_installer_packages }}"
-      when: ansible_system == 'Linux' and item.value.manager == 'flatpak'
+      when: ansible_facts['system'] == 'Linux' and item.value.manager == 'flatpak'
 
     # ------------------ MACOS MANAGERS ------------------
     - name: Install Homebrew packages (Native)
@@ -82,17 +82,17 @@
         name: "{{ item.value.package }}"
         state: present
       loop: "{{ software_installer_packages }}"
-      when: ansible_os_family == 'Darwin' and item.value.manager == 'brew'
+      when: ansible_facts['os_family'] == 'Darwin' and item.value.manager == 'brew'
 
     - name: Install Homebrew Cask packages (Native)
       community.general.homebrew_cask:
         name: "{{ item.value.package }}"
         state: present
       loop: "{{ software_installer_packages }}"
-      when: ansible_os_family == 'Darwin' and item.value.manager == 'brew_cask'
+      when: ansible_facts['os_family'] == 'Darwin' and item.value.manager == 'brew_cask'
 
     # ------------------ WINDOWS MANAGERS ------------------
     - name: Include Windows installation tasks
       ansible.builtin.include_tasks: windows_install.yaml
-      when: ansible_os_family == 'Windows'
+      when: ansible_facts['os_family'] == 'Windows'
   when: software_installer_packages is defined and software_installer_packages | length > 0
