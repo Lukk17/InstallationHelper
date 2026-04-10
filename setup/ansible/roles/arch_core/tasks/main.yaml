@@ -1,4 +1,9 @@
 ---
+- name: Update pacman package database
+  become: yes
+  ansible.builtin.command: pacman -Sy
+  changed_when: false
+
 - name: Install yay build dependencies
   become: yes
   ansible.builtin.package:
@@ -19,18 +24,30 @@
     dest: /tmp/yay
   when: not yay_pkgbuild.stat.exists
 
-- name: Build and install yay (must not run as root)
-  become: no
+- name: Build yay package (non-root)
   ansible.builtin.shell: |
-    cd /tmp/yay && makepkg -si --noconfirm
-  args:
-    creates: /usr/bin/yay
-
-- name: Install snapd via yay
+    cd /tmp/yay && makepkg -s --noconfirm
   become: no
-  kewlfft.aur.aur:
+  args:
+    creates: /tmp/yay/*.pkg.tar.zst
+
+- name: Find built yay package
+  ansible.builtin.find:
+    paths: /tmp/yay
+    patterns: "*.pkg.tar.zst"
+    excludes: "*-debug-*"
+  register: yay_pkg_file
+
+- name: Install built yay package (root)
+  ansible.builtin.command: >
+    pacman -U --noconfirm {{ yay_pkg_file.files[0].path }}
+  become: yes
+  when: yay_pkg_file.files | length > 0
+
+- name: Install snapd via pacman (official repo)
+  become: yes
+  ansible.builtin.package:
     name: snapd
-    use: yay
     state: present
 
 - name: Create snapd symlink (required on Arch)

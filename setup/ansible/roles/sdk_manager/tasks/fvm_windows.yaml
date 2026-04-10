@@ -1,0 +1,5 @@
+---
+- name: Install Flutter (Windows via Winget)
+  community.windows.win_winget:
+    name: Google.Flutter
+    state: present

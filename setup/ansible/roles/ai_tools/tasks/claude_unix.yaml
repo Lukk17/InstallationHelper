@@ -1,0 +1,30 @@
+---
+- name: Install Claude Code CLI via NPM (Unix)
+  ansible.builtin.shell: |
+    set -o pipefail
+    source {{ ansible_env.HOME }}/.nvm/nvm.sh && npm install -g @anthropic-ai/claude-code
+  args:
+    executable: /bin/bash
+  register: claude_code_install
+  changed_when: "'changed' not in claude_code_install.stdout"
+
+- name: Check if Claude Desktop is installed (Linux)
+  ansible.builtin.stat:
+    path: /usr/bin/claude-desktop
+  register: claude_desktop_installed
+  when: ansible_facts['os_family'] != 'Darwin'
+
+- name: Install Claude Desktop (Linux)
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -sL https://anthropic-claude-desktop-app.s3.amazonaws.com/install.sh | bash
+  args:
+    executable: /bin/bash
+    creates: /usr/bin/claude-desktop
+  when: ansible_facts['os_family'] != 'Darwin'
+
+- name: Install Claude Desktop (macOS)
+  community.general.homebrew_cask:
+    name: claude
+    state: present
+  when: ansible_facts['os_family'] == 'Darwin'

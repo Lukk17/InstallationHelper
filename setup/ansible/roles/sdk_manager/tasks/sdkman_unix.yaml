@@ -1,0 +1,31 @@
+---
+- name: Install SDKMAN (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -s "https://get.sdkman.io" | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.sdkman/bin/sdkman-init.sh"
+    executable: /bin/bash
+
+- name: Install all Java Temurin versions via SDKMAN (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    source {{ ansible_env.HOME }}/.sdkman/bin/sdkman-init.sh && sdk install java {{ item }}
+  args:
+    executable: /bin/bash
+  loop:
+    - "{{ java11_id }}"
+    - "{{ java17_id }}"
+    - "{{ java21_id }}"
+    - "{{ java25_id }}"
+  register: sdk_java_install
+  changed_when: "'is already installed' not in sdk_java_install.stdout"
+
+- name: Set default Java via SDKMAN (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    source {{ ansible_env.HOME }}/.sdkman/bin/sdkman-init.sh && sdk default java {{ default_java }}
+  args:
+    executable: /bin/bash
+  register: sdk_java_default
+  changed_when: "'Default java set to' in sdk_java_default.stdout"

@@ -1,0 +1,36 @@
+---
+- name: Install Pyenv (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl https://pyenv.run | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.pyenv/bin/pyenv"
+    executable: /bin/bash
+
+- name: Install all Python versions via Pyenv (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PYENV_ROOT="{{ ansible_env.HOME }}/.pyenv"
+    export PATH="$PYENV_ROOT/bin:$PATH"
+    eval "$(pyenv init -)"
+    pyenv install {{ item }}
+  args:
+    executable: /bin/bash
+  loop:
+    - "{{ python310_id }}"
+    - "{{ python311_id }}"
+    - "{{ python312_id }}"
+    - "{{ python313_id }}"
+  register: pyenv_install
+  changed_when: "'already installed' not in pyenv_install.stderr"
+
+- name: Set default Python via Pyenv (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PYENV_ROOT="{{ ansible_env.HOME }}/.pyenv"
+    export PATH="$PYENV_ROOT/bin:$PATH"
+    eval "$(pyenv init -)"
+    pyenv global {{ default_python }}
+  args:
+    executable: /bin/bash
+  changed_when: true

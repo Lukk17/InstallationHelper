@@ -9,11 +9,11 @@
   pre_tasks:
     - name: Load OS-specific group vars
       ansible.builtin.include_vars:
-        file: "group_vars/{{ 'windows' if ansible_os_family == 'Windows' else 'macos' if ansible_os_family == 'Darwin' else 'linux' }}.yaml"
+        file: "group_vars/{{ 'windows' if ansible_facts['os_family'] == 'Windows' else 'macos' if ansible_facts['os_family'] == 'Darwin' else 'linux' }}.yaml"
 
     - name: Load OS translation dictionary
       ansible.builtin.include_vars:
-        file: "vars/{{ ansible_os_family }}.yaml"
+        file: "vars/{{ ansible_facts['os_family'] }}.yaml"
         name: os_dict
 
     - name: Update apt cache (Debian)
@@ -21,25 +21,25 @@
         update_cache: yes
       become: yes
       changed_when: false
-      when: ansible_os_family == 'Debian'
+      when: ansible_facts['os_family'] == 'Debian'
 
   roles:
     # 1. OS-Specific Core Bootstrapping + Boot
-    - { role: systemd_boot, when: ansible_system == 'Linux' and setup_systemd_boot | default(false) | bool }
+    - { role: systemd_boot, when: "ansible_facts['system'] == 'Linux' and setup_systemd_boot | default(false) | bool" }
 
-    - { role: windows_core, when: ansible_os_family == 'Windows' }
-    - { role: macos_core, when: ansible_os_family == 'Darwin' }
-    - { role: arch_core, when: ansible_os_family == 'Archlinux' }
-    - { role: fedora_core, when: ansible_os_family == 'RedHat' }
-    - { role: system_core, when: ansible_system == 'Linux' and install_system_core | default(false) | bool }
+    - { role: windows_core, when: "ansible_facts['os_family'] == 'Windows'" }
+    - { role: macos_core, when: "ansible_facts['os_family'] == 'Darwin'" }
+    - { role: arch_core, when: "ansible_facts['os_family'] == 'Archlinux'" }
+    - { role: fedora_core, when: "ansible_facts['os_family'] == 'RedHat'" }
+    - { role: system_core, when: "ansible_facts['system'] == 'Linux' and install_system_core | default(false) | bool" }
 
     # 2. Linux Desktop Environments
-    - { role: kde_plasma_setup, when: ansible_system == 'Linux' and (install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool) }
-    - { role: gnome_setup, when: ansible_system == 'Linux' and (install_gnome | default(false) | bool or configure_gnome | default(false) | bool) }
+    - { role: kde_plasma_setup, when: "ansible_facts['system'] == 'Linux' and (install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool)" }
+    - { role: gnome_setup, when: "ansible_facts['system'] == 'Linux' and (install_gnome | default(false) | bool or configure_gnome | default(false) | bool)" }
 
     # 3. Cross-Platform Settings
     - { role: env_variables }
-    - { role: shell_zsh, when: setup_zsh | default(false) | bool and ansible_os_family != 'Windows' }
+    - { role: shell_zsh, when: "setup_zsh | default(false) | bool and ansible_facts['os_family'] != 'Windows'" }
 
     # 4. Universal Complex Roles (SDKs & AI)
     - { role: sdk_manager }
@@ -49,7 +49,7 @@
     - { role: software_installer }
 
     # 6. Linux Advanced Apps
-    - { role: waydroid, when: ansible_system == 'Linux' and install_waydroid | default(false) | bool }
-    - { role: linux_crypto_hardware, when: ansible_system == 'Linux' and (install_ledger_live | default(false) | bool or install_trezor_suite | default(false) | bool) }
-    - { role: linux_security, when: ansible_system == 'Linux' and setup_hibernate | default(false) | bool }
-    - { role: virtualization_config, when: ansible_system == 'Linux' and (install_virt_manager | default(false) | bool or install_docker | default(false) | bool or install_virtualbox | default(false) | bool or install_vmware | default(false) | bool) }
+    - { role: waydroid, when: "ansible_facts['system'] == 'Linux' and install_waydroid | default(false) | bool" }
+    - { role: linux_crypto_hardware, when: "ansible_facts['system'] == 'Linux' and (install_ledger_live | default(false) | bool or install_trezor_suite | default(false) | bool)" }
+    - { role: linux_security, when: "ansible_facts['system'] == 'Linux' and setup_hibernate | default(false) | bool" }
+    - { role: virtualization_config, when: "ansible_facts['system'] == 'Linux' and (install_virt_manager | default(false) | bool or install_docker | default(false) | bool or install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)" }

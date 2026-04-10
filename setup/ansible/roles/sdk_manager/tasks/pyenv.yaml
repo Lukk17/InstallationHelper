@@ -1,45 +1,8 @@
 ---
-- name: Install Pyenv (Linux/Mac)
-  ansible.builtin.shell: |
-    set -o pipefail
-    curl https://pyenv.run | bash
-  args:
-    creates: "{{ ansible_env.HOME }}/.pyenv/bin/pyenv"
-    executable: /bin/bash
-  when: ansible_system != 'Win32NT' and install_python | bool
+- name: Include Pyenv Unix tasks
+  ansible.builtin.include_tasks: pyenv_unix.yaml
+  when: ansible_facts['os_family'] != 'Windows' and install_python | default(false) | bool
 
-- name: Install all Python versions via Pyenv (Linux/Mac)
-  ansible.builtin.shell: |
-    set -o pipefail
-    export PYENV_ROOT="{{ ansible_env.HOME }}/.pyenv"
-    export PATH="$PYENV_ROOT/bin:$PATH"
-    eval "$(pyenv init -)"
-    pyenv install {{ item }}
-  args:
-    executable: /bin/bash
-  loop:
-    - "{{ python310_id }}"
-    - "{{ python311_id }}"
-    - "{{ python312_id }}"
-    - "{{ python313_id }}"
-  register: pyenv_install
-  changed_when: "'already installed' not in pyenv_install.stderr"
-  when: ansible_system != 'Win32NT' and install_python | bool
-
-- name: Set default Python via Pyenv (Linux/Mac)
-  ansible.builtin.shell: |
-    set -o pipefail
-    export PYENV_ROOT="{{ ansible_env.HOME }}/.pyenv"
-    export PATH="$PYENV_ROOT/bin:$PATH"
-    eval "$(pyenv init -)"
-    pyenv global {{ default_python }}
-  args:
-    executable: /bin/bash
-  changed_when: true
-  when: ansible_system != 'Win32NT' and install_python | bool
-
-- name: Install Python (Windows via Winget)
-  community.windows.win_winget:
-    name: Python.Python.3.11
-    state: present
-  when: ansible_system == 'Win32NT' and install_python | bool
+- name: Include Pyenv Windows tasks
+  ansible.builtin.include_tasks: pyenv_windows.yaml
+  when: ansible_facts['os_family'] == 'Windows' and install_python | default(false) | bool

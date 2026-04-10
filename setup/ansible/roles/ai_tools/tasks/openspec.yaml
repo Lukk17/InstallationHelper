@@ -1,14 +1,8 @@
 ---
-- name: Install OpenSpec CLI via NVM (Linux/Mac)
-  ansible.builtin.shell: |
-    . {{ ansible_env.HOME }}/.nvm/nvm.sh
-    npm install -g openspec
-  args:
-    executable: /bin/bash
-  when: ansible_os_family != 'Windows'
-  ignore_errors: yes
+- name: Include OpenSpec Unix tasks
+  ansible.builtin.include_tasks: openspec_unix.yaml
+  when: ansible_facts['os_family'] != 'Windows' and install_openspec | default(false) | bool
 
-- name: Install OpenSpec CLI via Windows NPM (Windows)
-  ansible.windows.win_shell: npm install -g openspec
-  when: ansible_os_family == 'Windows'
-  ignore_errors: yes
+- name: Include OpenSpec Windows tasks
+  ansible.builtin.include_tasks: openspec_windows.yaml
+  when: ansible_facts['os_family'] == 'Windows' and install_openspec | default(false) | bool

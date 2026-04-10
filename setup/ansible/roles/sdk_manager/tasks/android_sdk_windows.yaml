@@ -1,0 +1,5 @@
+---
+- name: Install Android SDK (Windows via Winget)
+  community.windows.win_winget:
+    name: Google.AndroidStudio
+    state: present

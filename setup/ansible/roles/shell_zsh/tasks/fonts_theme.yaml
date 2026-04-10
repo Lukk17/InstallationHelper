@@ -12,7 +12,7 @@
     - { url: '{{ meslo_bold_italic_url }}', name: 'MesloLGS NF Bold Italic.ttf' }
   become: yes
   notify: Update Font Cache
-  when: ansible_system == 'Linux'
+  when: ansible_facts['system'] == 'Linux'
 
 - name: Download Nerd Fonts (macOS)
   ansible.builtin.get_url:
@@ -25,7 +25,7 @@
     - { url: '{{ meslo_bold_url }}', name: 'MesloLGS NF Bold.ttf' }
     - { url: '{{ meslo_italic_url }}', name: 'MesloLGS NF Italic.ttf' }
     - { url: '{{ meslo_bold_italic_url }}', name: 'MesloLGS NF Bold Italic.ttf' }
-  when: ansible_os_family == 'Darwin'
+  when: ansible_facts['os_family'] == 'Darwin'
 
 - name: Clone Powerlevel10k Theme
   ansible.builtin.git:

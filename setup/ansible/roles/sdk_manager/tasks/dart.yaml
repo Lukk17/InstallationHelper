@@ -5,7 +5,7 @@
     name: dart
     state: present
   become: true
-  when: ansible_os_family == 'Archlinux' and install_dart | bool
+  when: ansible_facts['os_family'] == 'Archlinux' and install_dart | bool
 
 - name: Add Dart apt signing key (Debian)
   ansible.builtin.shell: |
@@ -15,7 +15,7 @@
   args:
     creates: /usr/share/keyrings/dart.gpg
     executable: /bin/bash
-  when: ansible_os_family == 'Debian' and install_dart | bool
+  when: ansible_facts['os_family'] == 'Debian' and install_dart | bool
 
 - name: Add Dart apt repository (Debian)
   ansible.builtin.apt_repository:
@@ -23,7 +23,7 @@
     state: present
     filename: dart_stable
   become: true
-  when: ansible_os_family == 'Debian' and install_dart | bool
+  when: ansible_facts['os_family'] == 'Debian' and install_dart | bool
 
 - name: Install Dart SDK (Debian)
   ansible.builtin.apt:
@@ -31,17 +31,17 @@
     state: present
     update_cache: true
   become: true
-  when: ansible_os_family == 'Debian' and install_dart | bool
+  when: ansible_facts['os_family'] == 'Debian' and install_dart | bool
 
 - name: Install Dart SDK (Fedora)
   ansible.builtin.dnf:
     name: dart
     state: present
   become: true
-  when: ansible_os_family == 'RedHat' and install_dart | bool
+  when: ansible_facts['os_family'] == 'RedHat' and install_dart | bool
 
 - name: Install Dart SDK (macOS)
   community.general.homebrew:
     name: dart
     state: present
-  when: ansible_os_family == 'Darwin' and install_dart | bool
+  when: ansible_facts['os_family'] == 'Darwin' and install_dart | bool

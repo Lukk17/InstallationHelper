@@ -1,25 +1,8 @@
 ---
-- name: Install NVM (Linux/Mac)
-  ansible.builtin.shell: |
-    set -o pipefail
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash
-  args:
-    creates: "{{ ansible_env.HOME }}/.nvm/nvm.sh"
-    executable: /bin/bash
-  when: ansible_system != 'Win32NT'
+- name: Include NVM Unix tasks
+  ansible.builtin.include_tasks: nvm_unix.yaml
+  when: ansible_facts['os_family'] != 'Windows' and install_nodejs | default(false) | bool
 
-- name: Install Node LTS via NVM (Linux/Mac)
-  ansible.builtin.shell: |
-    set -o pipefail
-    source {{ ansible_env.HOME }}/.nvm/nvm.sh && nvm install --lts
-  args:
-    executable: /bin/bash
-  register: nvm_install
-  changed_when: "'is already installed' not in nvm_install.stdout"
-  when: ansible_system != 'Win32NT'
-
-- name: Install NVM (Windows)
-  community.windows.win_chocolatey:
-    name: nvm
-    state: present
-  when: ansible_system == 'Win32NT' and install_nodejs | bool
+- name: Include NVM Windows tasks
+  ansible.builtin.include_tasks: nvm_windows.yaml
+  when: ansible_facts['os_family'] == 'Windows' and install_nodejs | default(false) | bool

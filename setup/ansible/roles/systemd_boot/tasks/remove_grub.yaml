@@ -15,7 +15,7 @@
           'CentOS':    'centos',
           'AlmaLinux': 'almalinux',
           'Rocky':     'rocky'
-        }[ansible_distribution] | default(ansible_distribution | lower)
+        }[ansible_facts['distribution']] | default(ansible_facts['distribution'] | lower)
       }}
 
 # --- Remove GRUB packages ---
@@ -33,7 +33,7 @@
       - os-prober
     state: absent
     purge: yes
-  when: ansible_os_family == 'Debian'
+  when: ansible_facts['os_family'] == 'Debian'
   ignore_errors: yes
 
 - name: Remove GRUB packages (Arch)
@@ -43,7 +43,7 @@
       - grub
       - os-prober
     state: absent
-  when: ansible_os_family == 'Archlinux'
+  when: ansible_facts['os_family'] == 'Archlinux'
   ignore_errors: yes
 
 - name: Remove GRUB packages (Fedora)
@@ -57,7 +57,7 @@
       - grub2-common
       - os-prober
     state: absent
-  when: ansible_os_family == 'RedHat'
+  when: ansible_facts['os_family'] == 'RedHat'
   ignore_errors: yes
 
 # --- Remove this distro's GRUB EFI directory from ESP ---
@@ -81,21 +81,21 @@
   ansible.builtin.apt:
     name: efibootmgr
     state: present
-  when: ansible_os_family == 'Debian'
+  when: ansible_facts['os_family'] == 'Debian'
 
 - name: Install efibootmgr if not present (Arch)
   become: yes
   community.general.pacman:
     name: efibootmgr
     state: present
-  when: ansible_os_family == 'Archlinux'
+  when: ansible_facts['os_family'] == 'Archlinux'
 
 - name: Install efibootmgr if not present (Fedora)
   become: yes
   ansible.builtin.dnf:
     name: efibootmgr
     state: present
-  when: ansible_os_family == 'RedHat'
+  when: ansible_facts['os_family'] == 'RedHat'
 
 - name: Find NVRAM boot entries pointing to this distro's GRUB
   become: yes
