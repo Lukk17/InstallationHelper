@@ -82,6 +82,5 @@ software_mapping:
   gputest: { manager: "apt", package: "gputest", is_alternative_for: "FurMark" }
 
   # Virtualization
-  virtualbox: { manager: "apt", package: "virtualbox" }
   virt_manager: { manager: "apt", package: "virt-manager" }
   docker: { manager: "apt", package: "docker.io" }

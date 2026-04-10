@@ -1,0 +1,80 @@
+---
+- name: Check if system uses UEFI
+  ansible.builtin.stat:
+    path: /sys/firmware/efi
+  register: efi_dir
+
+- name: Abort if not UEFI
+  ansible.builtin.fail:
+    msg: "systemd-boot requires UEFI. BIOS/legacy boot detected — skipping."
+  when: not efi_dir.stat.exists
+
+- name: Detect ESP mount point
+  ansible.builtin.shell: |
+    if mountpoint -q /efi; then echo "/efi"
+    elif mountpoint -q /boot/efi; then echo "/boot/efi"
+    elif mountpoint -q /boot && [ "$(findmnt -n -o FSTYPE /boot)" = "vfat" ]; then echo "/boot"
+    else echo "/boot/efi"
+    fi
+  register: esp_raw
+  changed_when: false
+
+- name: Set ESP path fact
+  ansible.builtin.set_fact:
+    esp_path: "{{ esp_raw.stdout | trim }}"
+
+- name: Check if GRUB exists on ESP (never remove — needed for multi-boot)
+  ansible.builtin.find:
+    paths: "{{ esp_path }}/EFI"
+    patterns: "*.efi"
+    recurse: yes
+  register: efi_files
+
+- name: Report existing EFI bootloaders found on ESP
+  ansible.builtin.debug:
+    msg: >
+      Existing EFI entries detected: {{ efi_files.files | map(attribute='path') | list }}.
+      These are preserved. systemd-boot will be added alongside them as the new UEFI default.
+  when: efi_files.files | length > 0
+
+- name: Install systemd-boot to ESP
+  become: yes
+  ansible.builtin.command: bootctl install --esp-path={{ esp_path }}
+  args:
+    creates: "{{ esp_path }}/EFI/systemd/systemd-bootx64.efi"
+
+- name: Create loader directory
+  become: yes
+  ansible.builtin.file:
+    path: "{{ esp_path }}/loader/entries"
+    state: directory
+    mode: '0755'
+
+- name: Configure loader.conf
+  become: yes
+  ansible.builtin.copy:
+    dest: "{{ esp_path }}/loader/loader.conf"
+    content: |
+      timeout 3
+      default @saved
+      console-mode auto
+      editor no
+    mode: '0644'
+
+- name: Include Arch Linux boot entry setup
+  ansible.builtin.include_tasks: arch.yaml
+  when: ansible_os_family == 'Archlinux'
+
+- name: Include Debian boot entry setup
+  ansible.builtin.include_tasks: debian.yaml
+  when: ansible_os_family == 'Debian'
+
+- name: Include Fedora boot entry setup
+  ansible.builtin.include_tasks: fedora.yaml
+  when: ansible_os_family == 'RedHat'
+
+# Remove GRUB from this distro only — runs after systemd-boot is fully installed
+# so the system is always bootable even if removal fails.
+- name: Remove this distro's GRUB installation
+  ansible.builtin.include_tasks: remove_grub.yaml
+  when: remove_distro_grub | default(true) | bool

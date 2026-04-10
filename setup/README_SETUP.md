@@ -54,7 +54,9 @@ We strictly follow this explicit hierarchy per OS defined in the `vars/` diction
 
 ---
 
-## 🚀 Universal Ansible Commands
+## 🚀 Quick Start
+
+**Working Directory:** All Ansible commands must be run from the `setup/ansible` directory.
 
 ### 1. Install Ansible
 First, ensure Ansible is installed on your system.
@@ -88,25 +90,25 @@ You must run Ansible from within WSL (Windows Subsystem for Linux).
 2. Open Ubuntu in WSL and install Ansible via the Ubuntu/Debian instructions above.
 3. Configure WinRM on Windows to allow Ansible to connect from WSL.
 
-### 2. Install Required Ansible Collections
+### 2. Navigate to Ansible Directory
+
+**⚠️ Important:** All subsequent commands must be run from this directory:
 ```bash
 cd setup/ansible
+```
+
+### 3. Install Required Ansible Collections
+```bash
 ansible-galaxy collection install -r requirements.yaml
 ```
 
-### 3. Configure Your Setup
-Review `setup/ansible/group_vars/all.yaml` (and the OS-specific files) and set the flags for the tools and settings you wish to apply to your machine. 
+### 4. Configure Your Setup
+Review `group_vars/all.yaml` (and the OS-specific files in `group_vars/`) and set the flags for the tools and settings you wish to apply to your machine.
+
 If you have a specific setup profile, you can override the variables by pointing to it during execution.
 
-### 4. Run the Playbook
-Run the playbook against your local machine. The `-K` flag ensures Ansible can prompt for the sudo password used for administrative tasks.
-
-First, navigate to the ansible directory:
-```bash
-cd setup/ansible
-```
-
-Then, run the command for the profile you wish to use. The `-K` flag will prompt for your `sudo` password.
+### 5. Run the Playbook
+The `-K` flag ensures Ansible can prompt for the sudo password used for administrative tasks.
 
 ### **Commands Per OS and Profile**
 
@@ -200,7 +202,7 @@ Certain software installations cannot be abstracted by package managers and have
 * **`linux_crypto_hardware`**: Installs udev rules for Trezor/Ledger.
 * **`waydroid`**: Configures kernel parameters and custom GDM files for Wayland container execution.
 * **`system_core`**: Full system upgrade, tmpfs, GRUB timeout, RTC fix, and locale setup (all distros).
-* **`virtualization_config`**: Installs QEMU/KVM + virt-manager + virtiofsd; auto-installs `spice-vdagent` when running inside a VM guest.
+* **`virtualization_config`**: Installs QEMU/KVM + virt-manager + virtiofsd on Linux; auto-installs `spice-vdagent` when running inside a VM guest. On macOS, UTM is used for native virtualization. On Windows, VirtualBox and VMware Workstation Player are available via Chocolatey.
 
 ---
 
@@ -217,6 +219,16 @@ Software below is **not** installed via the default package manager for that OS 
 | **Claude Cowork** | Build from source via `go` + `make install` | ← same | ← same | ← same | — |
 | **OpenCode** | `npm install -g opencode-ai` | ← same | ← same | ← same | ← same |
 | **OpenSpec** | `npm install -g openspec` | ← same | ← same | ← same | ← same |
+
+### Virtualization Tools
+
+| Software | Ubuntu/Debian | Arch Linux | Fedora | macOS | Windows |
+|---|---|---|---|---|---|
+| **QEMU/KVM + virt-manager** | Native `apt` packages | Native `pacman` packages | Native `dnf` packages | — | — |
+| **UTM** | — | — | — | `brew install --cask utm` (native Apple Virtualization) | — |
+| **VirtualBox** | — | — | — | — | Chocolatey: `virtualbox` |
+| **VMware Workstation** | — | — | — | — | Chocolatey: `vmware-workstation-player` |
+| **Docker** | Native `docker.io` package | Native `docker` package | Native `docker-ce` package | `brew install --cask docker` (Docker Desktop) | Winget: `Docker.DockerDesktop` |
 
 ### SDK Managers (`roles/sdk_manager`)
 
