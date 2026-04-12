@@ -141,7 +141,7 @@ or use --extra-vars "allow_callback_failure=true"
         hosts = sorted(stats.processed.keys())
         for host in hosts:
             host_stats = stats.summarize(host)
-            msg = f"host}: ok={host_stats['ok']} changed={host_stats['changed']} unreachable={host_stats['unreachable']} failed={host_stats['failures']} skipped={host_stats['skipped']} rescued={host_stats['rescued']} ignored={host_stats['ignored']}"
+            msg = f"{host}: ok={host_stats['ok']} changed={host_stats['changed']} unreachable={host_stats['unreachable']} failed={host_stats['failures']} skipped={host_stats['skipped']} rescued={host_stats['rescued']} ignored={host_stats['ignored']}"
             self._write_log(msg, 'INFO')
         self._close_logs()
     
