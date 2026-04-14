@@ -10,7 +10,6 @@
     src: "{{ playbook_dir }}/../wallpapers/{{ default_wallpaper }}"
     dest: "{{ ansible_env.PUBLIC }}\\Pictures\\Backgrounds\\{{ default_wallpaper }}"
   when: set_custom_wallpaper | bool
-  ignore_errors: yes
 
 - name: Set Windows Wallpaper
   ansible.windows.win_regedit:

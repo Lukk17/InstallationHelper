@@ -5,4 +5,3 @@
     npm install -g openspec
   args:
     executable: /bin/bash
-  ignore_errors: yes

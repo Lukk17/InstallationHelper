@@ -72,7 +72,7 @@
   ansible.builtin.file:
     path: "{{ esp_path }}/EFI/{{ distro_grub_efi_dir }}"
     state: absent
-  when: distro_grub_dir.stat.exists
+  when: distro_grub_dir.stat.exists | default(false)
 
 # --- Remove stale NVRAM entry pointing to this distro's GRUB ---
 

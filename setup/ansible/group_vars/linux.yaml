@@ -31,6 +31,7 @@ install_trezor_suite: true
 # Linux Only Utilities
 install_appimagelauncher: true
 install_waydroid: false
+install_snapd: true
 
 # Hardware/System Alternative Apps (Alternatives to Windows-only apps)
 install_hardinfo: true    # Alt for HWMonitor

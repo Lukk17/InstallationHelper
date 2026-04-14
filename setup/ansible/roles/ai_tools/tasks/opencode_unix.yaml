@@ -5,4 +5,3 @@
     npm install -g opencode-ai
   args:
     executable: /bin/bash
-  ignore_errors: yes

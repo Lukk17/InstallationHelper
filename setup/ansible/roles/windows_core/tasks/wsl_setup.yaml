@@ -4,10 +4,8 @@
     wsl --update
     wsl --install -d Ubuntu
   when: setup_wsl | bool
-  ignore_errors: yes
 
 - name: Import Hibernate Task
   ansible.windows.win_shell: |
     schtasks /Create /XML "{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml" /TN "\Hibernate@2AM"
   when: import_hibernate_task | bool
-  ignore_errors: yes

@@ -62,14 +62,12 @@
     konsave -a lukk_desktop_profile
   args:
     executable: /bin/bash
-  ignore_errors: yes
 
 - name: Copy wallpapers directory for KDE
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../wallpapers"
     dest: "/usr/share/backgrounds/"
   become: yes
-  ignore_errors: yes
   when: set_custom_wallpaper | bool
 
 - name: Set KDE Wallpaper
@@ -83,7 +81,6 @@
             d.writeConfig("Image", "file:///usr/share/backgrounds/wallpapers/{{ default_wallpaper }}");
     }'
   when: set_custom_wallpaper | bool
-  ignore_errors: yes
   changed_when: false
 
 - name: Clone applet-window-buttons repository
@@ -127,20 +124,16 @@
     kbuildsycoca5 --noincremental
   args:
     executable: /bin/bash
-  ignore_errors: yes
 
 - name: Set Spectacle Shortcut
   ansible.builtin.command: kwriteconfig5 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot "Meta+Shift+S,Meta+Shift+Print,Capture Rectangular Region"
-  ignore_errors: yes
 
 - name: Restart Plasma global accel service
   ansible.builtin.shell: systemctl --user restart plasma-kglobalaccel.service
   args:
     executable: /bin/bash
-  ignore_errors: yes
 
 - name: Restart Plasma shell to load the new widget
   ansible.builtin.shell: systemctl --user restart plasma-plasmashell.service
   args:
     executable: /bin/bash
-  ignore_errors: yes

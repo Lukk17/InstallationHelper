@@ -75,7 +75,6 @@
     owner: sddm
     group: sddm
     recurse: yes
-  ignore_errors: yes
 
 - name: Enable SDDM Service (Fedora/Arch)
   become: yes
