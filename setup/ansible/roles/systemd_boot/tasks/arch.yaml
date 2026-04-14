@@ -24,9 +24,9 @@
     content: |
       title   Arch Linux
       linux   /vmlinuz-linux
-      {% if intel_ucode.stat.exists %}
+      {% if intel_ucode.stat.exists | default(false) %}
       initrd  /intel-ucode.img
-      {% elif amd_ucode.stat.exists %}
+      {% elif amd_ucode.stat.exists | default(false) %}
       initrd  /amd-ucode.img
       {% endif %}
       initrd  /initramfs-linux.img
@@ -40,9 +40,9 @@
     content: |
       title   Arch Linux (fallback initramfs)
       linux   /vmlinuz-linux
-      {% if intel_ucode.stat.exists %}
+      {% if intel_ucode.stat.exists | default(false) %}
       initrd  /intel-ucode.img
-      {% elif amd_ucode.stat.exists %}
+      {% elif amd_ucode.stat.exists | default(false) %}
       initrd  /amd-ucode.img
       {% endif %}
       initrd  /initramfs-linux-fallback.img

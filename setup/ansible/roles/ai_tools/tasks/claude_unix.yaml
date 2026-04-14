@@ -8,11 +8,7 @@
   register: claude_code_install
   changed_when: "'changed' not in claude_code_install.stdout"
 
-- name: Check if Claude Desktop is installed (Linux)
-  ansible.builtin.stat:
-    path: /usr/bin/claude-desktop
-  register: claude_desktop_installed
-  when: ansible_facts['os_family'] != 'Darwin'
+
 
 - name: Install Claude Desktop (Linux)
   ansible.builtin.shell: |

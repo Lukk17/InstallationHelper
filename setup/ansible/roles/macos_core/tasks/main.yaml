@@ -17,12 +17,10 @@
     src: "{{ playbook_dir }}/../wallpapers"
     dest: "/Library/Desktop Pictures/"
   become: yes
-  ignore_errors: yes
   when: set_custom_wallpaper | bool
 
 - name: Set macOS Wallpaper
   ansible.builtin.shell: |
     osascript -e 'tell application "System Events" to tell every desktop to set picture to "/Library/Desktop Pictures/wallpapers/{{ default_wallpaper }}"'
   when: set_custom_wallpaper | bool
-  ignore_errors: yes
   changed_when: false

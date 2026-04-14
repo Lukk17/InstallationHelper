@@ -24,7 +24,6 @@
     src: "{{ playbook_dir }}/../wallpapers"
     dest: "/usr/share/backgrounds/"
   become: yes
-  ignore_errors: yes
   when: set_custom_wallpaper | bool
 
 - name: Set GNOME themes and backgrounds
@@ -39,7 +38,6 @@
     - { key: "/org/gnome/desktop/interface/clock-show-seconds", value: "true" }
     - { key: "/org/gnome/desktop/interface/show-battery-percentage", value: "true" }
   become: no
-  ignore_errors: yes
 
 - name: Set Touchpad preferences
   community.general.dconf:
@@ -53,14 +51,12 @@
     - { key: "/org/gnome/desktop/peripherals/touchpad/natural-scroll", value: "true" }
     - { key: "/org/gnome/desktop/peripherals/touchpad/tap-to-click", value: "true" }
   become: no
-  ignore_errors: yes
 
 - name: Set favorite apps
   community.general.dconf:
     key: "/org/gnome/shell/favorite-apps"
     value: "{{ favorite_apps }}"
   become: no
-  ignore_errors: yes
 
 - name: Setup Nautilus Bookmarks
   ansible.builtin.lineinfile:
@@ -88,7 +84,6 @@
     - { app: "{{ default_video_app }}", mime: "video/mp4" }
   become: no
   changed_when: false
-  ignore_errors: yes
 
 - name: Setup Dash-to-Dock
   community.general.dconf:
@@ -100,7 +95,6 @@
     - { key: "/org/gnome/shell/extensions/dash-to-dock/dash-max-icon-size", value: "55" }
     - { key: "/org/gnome/shell/extensions/dash-to-dock/intellihide", value: "true" }
   become: no
-  ignore_errors: yes
 
 - name: Enable Dash to Dock and Disable Ubuntu Dock
   ansible.builtin.shell: |
@@ -109,11 +103,9 @@
   become: no
   changed_when: false
   when: dash_dock_disable_ubuntu_dock | bool
-  ignore_errors: yes
 
 - name: Set Gnome Screenshot Shortcut
   ansible.builtin.shell: |
     gsettings set org.gnome.shell.keybindings show-screenshot-ui "['<Shift><Super>s', 'Print']"
   become: no
   changed_when: false
-  ignore_errors: yes

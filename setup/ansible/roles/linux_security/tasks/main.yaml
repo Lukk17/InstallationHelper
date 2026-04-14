@@ -36,4 +36,3 @@
       });
     mode: '0644'
   become: yes
-  ignore_errors: yes

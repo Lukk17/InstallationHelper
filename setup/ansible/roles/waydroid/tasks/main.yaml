@@ -33,14 +33,12 @@
   ansible.builtin.command: waydroid prop set persist.waydroid.multi_windows true
   become: yes
   changed_when: false
-  ignore_errors: yes
 
 - name: Restart Waydroid Container
   ansible.builtin.systemd:
     name: waydroid-container
     state: restarted
   become: yes
-  ignore_errors: yes
 
 - name: Download Aurora Store
   ansible.builtin.get_url:
@@ -65,7 +63,6 @@
     replace: 'WaylandEnable=true'
   become: yes
   notify: Restart GDM3
-  ignore_errors: yes
 
 - name: Configure NVIDIA Wayland memory allocation
   ansible.builtin.lineinfile:
@@ -74,4 +71,3 @@
     create: yes
   become: yes
   notify: Restart GDM3
-  ignore_errors: yes

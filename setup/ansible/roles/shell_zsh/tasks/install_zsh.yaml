@@ -36,6 +36,7 @@
   ansible.builtin.command: which zsh
   register: zsh_path
   changed_when: false
+  failed_when: zsh_path.rc > 1
 
 - name: Change user shell to ZSH
   ansible.builtin.user:

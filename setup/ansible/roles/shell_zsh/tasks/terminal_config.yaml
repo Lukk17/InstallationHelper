@@ -7,4 +7,3 @@
   become: no
   changed_when: false
   when: install_gnome | default(false) | bool or configure_gnome | default(false) | bool
-  ignore_errors: yes

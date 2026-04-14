@@ -4,6 +4,12 @@
   ansible.builtin.command: pacman -Sy
   changed_when: false
 
+- name: Check if yay is already installed
+  ansible.builtin.command: which yay
+  register: yay_check
+  changed_when: false
+  failed_when: yay_check.rc > 1
+
 - name: Install yay build dependencies
   become: yes
   ansible.builtin.package:
@@ -12,17 +18,15 @@
       - base-devel
       - go
     state: present
-
-- name: Check if yay source is already cloned
-  ansible.builtin.stat:
-    path: /tmp/yay/PKGBUILD
-  register: yay_pkgbuild
+  when: yay_check.rc != 0
 
 - name: Clone yay AUR helper repository
   ansible.builtin.git:
     repo: https://aur.archlinux.org/yay.git
     dest: /tmp/yay
-  when: not yay_pkgbuild.stat.exists
+    force: no
+    update: no
+  when: yay_check.rc != 0
 
 - name: Build yay package (non-root)
   ansible.builtin.shell: |
@@ -30,6 +34,7 @@
   become: no
   args:
     creates: /tmp/yay/*.pkg.tar.zst
+  when: yay_check.rc != 0
 
 - name: Find built yay package
   ansible.builtin.find:
@@ -37,29 +42,93 @@
     patterns: "*.pkg.tar.zst"
     excludes: "*-debug-*"
   register: yay_pkg_file
+  when: yay_check.rc != 0
+
+- name: Set yay package path fact
+  ansible.builtin.set_fact:
+    yay_package_path: "{{ yay_pkg_file.files[0].path if yay_pkg_file.files | length > 0 else '' }}"
+  when: yay_check.rc != 0 and yay_pkg_file is defined and not yay_pkg_file.skipped
 
 - name: Install built yay package (root)
   ansible.builtin.command: >
-    pacman -U --noconfirm {{ yay_pkg_file.files[0].path }}
+    pacman -U --noconfirm {{ yay_package_path }}
   become: yes
-  when: yay_pkg_file.files | length > 0
+  when: yay_package_path | length > 0
 
-- name: Install snapd via pacman (official repo)
+
+
+- name: Check if paru is already installed
+  ansible.builtin.command: which paru
+  register: paru_installed
+  changed_when: false
+  failed_when: paru_installed.rc > 1
+
+- name: Install paru build dependencies (rust, cargo)
   become: yes
   ansible.builtin.package:
-    name: snapd
+    name:
+      - rust
+      - cargo
+      - git
+      - base-devel
     state: present
+  when: paru_installed.rc != 0
 
-- name: Create snapd symlink (required on Arch)
+- name: Clone paru AUR helper repository
+  ansible.builtin.git:
+    repo: https://aur.archlinux.org/paru.git
+    dest: /tmp/paru
+    force: no
+    update: no
+  when: paru_installed.rc != 0
+
+- name: Build paru package (non-root)
+  ansible.builtin.shell: |
+    cd /tmp/paru && makepkg -s --noconfirm
+  become: no
+  args:
+    creates: /tmp/paru/*.pkg.tar.zst
+  when: paru_installed.rc != 0
+
+- name: Find built paru package
+  ansible.builtin.find:
+    paths: /tmp/paru
+    patterns: "*.pkg.tar.zst"
+    excludes: "*-debug-*"
+  register: paru_pkg_file
+  when: paru_installed.rc != 0
+
+- name: Set paru package path fact
+  ansible.builtin.set_fact:
+    paru_package_path: "{{ paru_pkg_file.files[0].path if paru_pkg_file.files | length > 0 else '' }}"
+  when: paru_installed.rc != 0 and paru_pkg_file is defined and not paru_pkg_file.skipped
+
+- name: Install built paru package (root)
+  ansible.builtin.command: >
+    pacman -U --noconfirm {{ paru_package_path }}
+  become: yes
+  when: paru_package_path | length > 0
+
+
+
+- name: Install snapd via paru
+  ansible.builtin.command: paru -S --needed --noconfirm snapd
+  args:
+    creates: /usr/bin/snap
+  when: install_snapd | default(false) | bool
+
+- name: Create snapd symlink for classic mode
   become: yes
   ansible.builtin.file:
     src: /var/lib/snapd/snap
     dest: /snap
     state: link
+  when: install_snapd | default(false) | bool
 
-- name: Enable systemd socket for Snap
+- name: Enable snapd socket
   become: yes
   ansible.builtin.systemd:
     name: snapd.socket
     state: started
     enabled: yes
+  when: install_snapd | default(false) | bool

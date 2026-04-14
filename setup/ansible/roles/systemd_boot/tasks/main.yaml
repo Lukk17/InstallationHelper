@@ -7,7 +7,7 @@
 - name: Abort if not UEFI
   ansible.builtin.fail:
     msg: "systemd-boot requires UEFI. BIOS/legacy boot detected — skipping."
-  when: not efi_dir.stat.exists
+  when: not (efi_dir.stat.exists | default(false))
 
 - name: Detect ESP mount point
   ansible.builtin.shell: |
