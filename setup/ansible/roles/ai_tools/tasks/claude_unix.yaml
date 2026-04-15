@@ -1,12 +1,21 @@
 ---
+- name: Check if Claude Code CLI is already installed (Unix)
+  ansible.builtin.shell: |
+    source {{ ansible_env.HOME }}/.nvm/nvm.sh
+    npm list -g @anthropic-ai/claude-code --depth=0 2>/dev/null | grep -q claude-code
+  args:
+    executable: /bin/bash
+  register: claude_code_check
+  changed_when: false
+  failed_when: false
+
 - name: Install Claude Code CLI via NPM (Unix)
   ansible.builtin.shell: |
     set -o pipefail
     source {{ ansible_env.HOME }}/.nvm/nvm.sh && npm install -g @anthropic-ai/claude-code
   args:
     executable: /bin/bash
-  register: claude_code_install
-  changed_when: "'changed' not in claude_code_install.stdout"
+  when: claude_code_check.rc != 0
 
 
 

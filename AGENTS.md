@@ -34,9 +34,9 @@ The playbook (`site.yaml`) follows this execution order:
 2. **OS core roles**: `windows_core`, `macos_core`, `arch_core`, `fedora_core`, `system_core` — bootstrap the specific OS.
 3. **Desktop environments**: `kde_plasma_setup`, `gnome_setup` — gated by `install_kde_plasma`/`configure_kde_plasma` and `install_gnome`/`configure_gnome` flags.
 4. **Cross-platform settings**: `env_variables`, `shell_zsh`.
-5. **Complex roles**: `sdk_manager` (Pyenv, NVM, SDKMAN, FVM, Android SDK, Dart/Flutter), `ai_tools` (Claude Code, OpenCode).
+5. **Complex roles**: `sdk_manager` (Pyenv, NVM, SDKMAN, FVM, Android SDK, Dart/Flutter), `ai_tools` (Claude Code, Claude Desktop, OpenCode, OpenSpec).
 6. **Software router**: `software_installer` — dynamic package dispatch using `os_dict`.
-7. **Linux advanced**: `waydroid`, `linux_crypto_hardware`, `linux_security`, `virtualization_config`.
+7. **Linux advanced**: `systemd_boot`, `waydroid`, `linux_crypto_hardware`, `linux_security`, `virtualization_config`.
 
 ### Configuration Files
 
@@ -49,6 +49,7 @@ The playbook (`site.yaml`) follows this execution order:
 | `group_vars/versions.yaml` | Pinned version numbers for tools |
 | `vars/{OS}.yaml` | Translation dictionaries mapping generic app name → `{manager, package}` |
 | `profiles/linux_live.yaml` | Override profile for USB/live installs |
+| `SOFTWARE.md` | Complete per-OS software list with installation methods |
 
 ### How Software Installation Works
 
@@ -58,7 +59,7 @@ The playbook (`site.yaml`) follows this execution order:
 chrome: { manager: "apt", package: "google-chrome-stable" }
 ```
 
-The `software_installer` role (`roles/software_installer/tasks/dynamic_install.yaml`) iterates over enabled toggles, looks up the OS dict, and dispatches to the correct package manager. Supported managers: `apt`, `apt_url`, `dnf`, `pacman`, `yay`, `snap`, `flatpak`, `brew`, `cask`, `choco`, `winget`.
+The `software_installer` role (`roles/software_installer/tasks/dynamic_install.yaml`) iterates over enabled toggles, looks up the OS dict, and dispatches to the correct package manager. Supported managers: `apt`, `apt_url`, `dnf`, `dnf_url`, `dnf_repo`, `pacman`, `aur`, `snap`, `flatpak`, `brew`, `brew_cask`, `choco`, `winget`.
 
 **Package manager priority per OS:**
 - **Windows:** Official installer > Chocolatey > Winget

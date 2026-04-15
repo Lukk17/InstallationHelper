@@ -20,6 +20,10 @@
     - "{{ java25_id }}"
   register: sdk_java_install
   changed_when: "'is already installed' not in sdk_java_install.stdout"
+  failed_when: >
+    sdk_java_install.rc != 0 and
+    'is already installed' not in sdk_java_install.stdout and
+    'is already installed' not in sdk_java_install.stderr
 
 - name: Set default Java via SDKMAN (Linux/Mac)
   ansible.builtin.shell: |

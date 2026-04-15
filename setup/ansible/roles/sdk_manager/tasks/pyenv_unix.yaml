@@ -13,7 +13,7 @@
     export PYENV_ROOT="{{ ansible_env.HOME }}/.pyenv"
     export PATH="$PYENV_ROOT/bin:$PATH"
     eval "$(pyenv init -)"
-    pyenv install {{ item }}
+    pyenv install --skip-existing {{ item }}
   args:
     executable: /bin/bash
   loop:
@@ -22,7 +22,8 @@
     - "{{ python312_id }}"
     - "{{ python313_id }}"
   register: pyenv_install
-  changed_when: "'already installed' not in pyenv_install.stderr"
+  changed_when: "'already installed' not in pyenv_install.stderr and 'already exists' not in pyenv_install.stderr"
+  failed_when: pyenv_install.rc != 0 and 'already exists' not in pyenv_install.stderr
 
 - name: Set default Python via Pyenv (Linux/Mac)
   ansible.builtin.shell: |
