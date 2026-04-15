@@ -50,7 +50,22 @@
         state: present
       become: true
       loop: "{{ software_installer_packages }}"
+      register: pacman_result
+      failed_when: false
       when: ansible_facts['os_family'] == 'Archlinux' and item.value.manager == 'pacman'
+
+    - name: Check Pacman install results
+      ansible.builtin.debug:
+        msg: "[WARNING] Package not found. Enable multilib."
+      loop: "{{ software_installer_packages }}"
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - item.value.manager == 'pacman'
+        - pacman_result.results is defined
+        - pacman_result.results[item_loop_index] is defined
+        - "'could not find' in (pacman_result.results[item_loop_index].msg | default(''))"
+      vars:
+        item_loop_index: "{{ software_installer_packages.index(item) }}"
 
     - name: Install AUR packages (Native)
       become: no

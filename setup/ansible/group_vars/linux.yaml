@@ -47,3 +47,7 @@ install_virt_manager: true
 install_docker: true
 install_virtualbox: false
 install_vmware: false
+
+# AI Tools - Linux specific
+# Claude Desktop AUR requires compiling from source (1+ hour), CLI is faster
+install_claude_desktop: false
