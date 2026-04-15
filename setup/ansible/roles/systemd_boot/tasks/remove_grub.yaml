@@ -100,7 +100,7 @@
 - name: Find NVRAM boot entries pointing to this distro's GRUB
   become: yes
   ansible.builtin.shell: |
-    efibootmgr | grep -i "{{ distro_grub_efi_dir }}" | grep -oP 'Boot\K[0-9A-Fa-f]+'
+    efibootmgr | grep -i "{{ distro_grub_efi_dir }}" | grep -oP 'Boot\K[0-9A-Fa-f]+' || true
   register: grub_nvram_entries
   changed_when: false
   ignore_errors: yes

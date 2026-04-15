@@ -4,6 +4,48 @@
     PROFILE=$(gsettings get org.gnome.Terminal.ProfilesList default | tr -d "'")
     gsettings set org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles/:${PROFILE}/ custom-command 'zsh'
     gsettings set org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles/:${PROFILE}/ use-custom-command true
+  args:
+    executable: /bin/bash
   become: no
   changed_when: false
   when: install_gnome | default(false) | bool or configure_gnome | default(false) | bool
+
+- name: Find ZSH path for Konsole
+  ansible.builtin.command: which zsh
+  register: konsole_zsh_path
+  changed_when: false
+  failed_when: false
+  when: install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool
+
+- name: Ensure Konsole profile directory exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.local/share/konsole"
+    state: directory
+    mode: '0755'
+  become: no
+  when: install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool
+
+- name: Configure Konsole default profile to use ZSH
+  ansible.builtin.ini_file:
+    path: "{{ ansible_env.HOME }}/.local/share/konsole/Default.profile"
+    section: General
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    mode: '0644'
+  loop:
+    - { option: "Name", value: "Default" }
+    - { option: "Command", value: "{{ konsole_zsh_path.stdout | default('/usr/bin/zsh') }}" }
+  become: no
+  when: >
+    (install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool)
+    and konsole_zsh_path.rc | default(1) == 0
+
+- name: Set Konsole default profile in konsolerc
+  ansible.builtin.ini_file:
+    path: "{{ ansible_env.HOME }}/.config/konsolerc"
+    section: Desktop Entry
+    option: DefaultProfile
+    value: Default.profile
+    mode: '0644'
+  become: no
+  when: install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool

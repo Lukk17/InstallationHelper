@@ -4,6 +4,14 @@
   ansible.builtin.command: pacman -Sy
   changed_when: false
 
+- name: Install unzip and zip
+  become: yes
+  community.general.pacman:
+    name:
+      - unzip
+      - zip
+    state: present
+
 - name: Check if yay is already installed
   ansible.builtin.command: which yay
   register: yay_check
@@ -47,13 +55,16 @@
 - name: Set yay package path fact
   ansible.builtin.set_fact:
     yay_package_path: "{{ yay_pkg_file.files[0].path if yay_pkg_file.files | length > 0 else '' }}"
-  when: yay_check.rc != 0 and yay_pkg_file is defined and not yay_pkg_file.skipped
+  when:
+    - yay_check.rc != 0
+    - yay_pkg_file is defined
+    - yay_pkg_file.files | length > 0
 
 - name: Install built yay package (root)
   ansible.builtin.command: >
     pacman -U --noconfirm {{ yay_package_path }}
   become: yes
-  when: yay_package_path | length > 0
+  when: yay_package_path is defined and yay_package_path | length > 0
 
 
 
@@ -101,15 +112,28 @@
 - name: Set paru package path fact
   ansible.builtin.set_fact:
     paru_package_path: "{{ paru_pkg_file.files[0].path if paru_pkg_file.files | length > 0 else '' }}"
-  when: paru_installed.rc != 0 and paru_pkg_file is defined and not paru_pkg_file.skipped
+  when:
+    - paru_installed.rc != 0
+    - paru_pkg_file is defined
+    - paru_pkg_file.files | length > 0
 
 - name: Install built paru package (root)
   ansible.builtin.command: >
     pacman -U --noconfirm {{ paru_package_path }}
   become: yes
-  when: paru_package_path | length > 0
+  when: paru_package_path is defined and paru_package_path | length > 0
 
 
+
+- name: Configure passwordless sudo for current user
+  become: yes
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/99-ansible-user
+    line: "{{ ansible_user_id }} ALL=(ALL) NOPASSWD: ALL"
+    create: yes
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  when: install_snapd | default(false) | bool
 
 - name: Install snapd via paru
   ansible.builtin.command: paru -S --needed --noconfirm snapd

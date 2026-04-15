@@ -27,3 +27,30 @@
     state: latest
   become: yes
   when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Install unzip and zip (Arch)
+  community.general.pacman:
+    name:
+      - unzip
+      - zip
+    state: present
+  become: yes
+  when: ansible_facts['os_family'] == 'Archlinux'
+
+- name: Install unzip and zip (Debian)
+  ansible.builtin.apt:
+    name:
+      - unzip
+      - zip
+    state: present
+  become: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install unzip and zip (Fedora)
+  ansible.builtin.dnf:
+    name:
+      - unzip
+      - zip
+    state: present
+  become: yes
+  when: ansible_facts['os_family'] == 'RedHat'

@@ -1,7 +1,19 @@
 ---
+- name: Check if OpenCode CLI is already installed (Unix)
+  ansible.builtin.shell: |
+    . {{ ansible_env.HOME }}/.nvm/nvm.sh
+    npm list -g opencode-ai --depth=0 2>/dev/null | grep -q opencode-ai
+  args:
+    executable: /bin/bash
+  register: opencode_check
+  changed_when: false
+  failed_when: false
+
 - name: Install OpenCode CLI via NVM (Unix)
   ansible.builtin.shell: |
+    set -o pipefail
     . {{ ansible_env.HOME }}/.nvm/nvm.sh
     npm install -g opencode-ai
   args:
     executable: /bin/bash
+  when: opencode_check.rc != 0
