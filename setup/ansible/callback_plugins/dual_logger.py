@@ -3,6 +3,7 @@
 
 import datetime
 import os
+import re
 import sys
 from ansible import constants as C
 from ansible.plugins.callback import CallbackBase
@@ -43,12 +44,11 @@ class CallbackModule(CallbackBase):
         self.allow_failure = False
         self._log_initialized = False
 
-    def set_options(self, task_keys=None, var_options=None, direct=None):
+    def set_options(self, task_keys=None, var_options=None, direct=None) -> None:
         super(CallbackModule, self).set_options(
             task_keys=task_keys, var_options=var_options, direct=direct
         )
 
-        # Check for allow_callback_failure toggle
         env_val = os.environ.get("ALLOW_CALLBACK_FAILURE", "").lower()
         if env_val in ("true", "1", "yes"):
             self.allow_failure = True
@@ -58,7 +58,6 @@ class CallbackModule(CallbackBase):
             self.allow_failure = self.get_option("allow_callback_failure") or False
 
     def _open_logs(self):
-        """Open log files for writing. Fail playbook if cannot open (unless allowed)."""
         if self._log_initialized:
             return
 
@@ -96,12 +95,10 @@ or use --extra-vars "allow_callback_failure=true"
                 sys.stderr.write(error_msg)
                 sys.exit(1)
 
-    def _get_timestamp(self):
-        """Return current timestamp in HH:MM:SS format."""
+    def _get_timestamp(self) -> str:
         return datetime.datetime.now().strftime("%H:%M:%S")
 
-    def _write_log(self, msg, level="INFO"):
-        """Write message to full log, and to issues log if warning/error."""
+    def _write_log(self, msg: str, level: str = "INFO") -> None:
         if not self._log_initialized:
             self._open_logs()
 
@@ -112,29 +109,25 @@ or use --extra-vars "allow_callback_failure=true"
             try:
                 self.full_log.write(log_msg + "\n")
                 self.full_log.flush()
-            except (IOError, OSError) as e:
+            except (IOError, OSError):
                 pass
 
         if self.issues_log and level in ("WARNING", "ERROR", "CRITICAL", "FATAL"):
             try:
                 self.issues_log.write(log_msg + "\n")
                 self.issues_log.flush()
-            except (IOError, OSError) as e:
+            except (IOError, OSError):
                 pass
 
-    def _display_and_log(self, msg, level="INFO", include_output=False, result=None):
-        """Display to console and log to file."""
+    def _display_and_log(self, msg: str, level: str = "INFO", include_output: bool = False, result=None) -> None:
         timestamp = self._get_timestamp()
-        # Include timestamp in console output
         console_msg = f"[{timestamp}] {msg}"
         self._display.display(console_msg)
-        # Also log to file
         self._write_log(msg, level)
 
         # Show full output for tasks that produced stdout/stderr
         if include_output and result is not None:
             result_dict = result._result if hasattr(result, "_result") else {}
-            # Show stdout if present
             if "stdout" in result_dict and result_dict["stdout"]:
                 stdout = result_dict["stdout"]
                 if isinstance(stdout, str) and stdout.strip():
@@ -151,39 +144,23 @@ or use --extra-vars "allow_callback_failure=true"
                             self._display.display(f"  {line}")
                             self._write_log(f"  {line}", "WARNING")
 
-    def _extract_item_display(self, item):
-        """Extract a clean display string from loop item.
-        
-        Handles various item formats used in Ansible loops:
-        - dict with 'name' key: {'name': 'applications-local'} -> 'applications-local'
-        - dict with 'key' key: {'key': '/org/gnome/...'} -> '/org/gnome/...'
-        - dict with 'path' key: {'path': '/home/.../applications'} -> 'applications'
-        - dict with 'app' + 'mime': {'app': 'default', 'mime': 'app/msword'} -> 'default -> app/msword'
-        - simple string: 'file' -> 'file'
-        - dict with 'value' key (complex): fallback to full repr
-        """
-        import os
-        import re
-        
+    def _extract_item_display(self, item) -> str:
         if item is None:
             return "unknown"
         
         # Handle simple string or number
         if isinstance(item, str):
-            # Trim whitespace (common in toggle-based loops)
             return item.strip()
         if isinstance(item, (int, float)):
             return str(item)
         
         # Handle dict
         if isinstance(item, dict):
-            # Priority: name > key > path > app+mime
             if "name" in item and item["name"]:
                 return str(item["name"])
             if "key" in item and item["key"]:
                 return str(item["key"])
             if "path" in item and item["path"]:
-                # Get basename of path
                 path = item["path"]
                 return os.path.basename(path)
             if "app" in item and "mime" in item:
@@ -193,10 +170,7 @@ or use --extra-vars "allow_callback_failure=true"
             if "option" in item and "value" in item:
                 return f"{item['option']}: {item['value']}"
             
-            # Fallback: try to get something useful or return repr
             return repr(item)
-        
-        # Fallback for other types
         return repr(item)
 
     # Mapping of role names to related toggle names
@@ -243,15 +217,7 @@ or use --extra-vars "allow_callback_failure=true"
         'jetbrains_toolbox': ['install_jetbrains_toolbox'],
     }
 
-    def _extract_task_role(self, task_name):
-        """Extract role name prefix from task name.
-        
-        Examples:
-        - 'gnome_setup : Create Templates directory' -> 'gnome_setup'
-        - 'kde_plasma_setup : Install Konsave via pipx' -> 'kde_plasma_setup'
-        - 'shell_zsh : Copy ZSH configuration files' -> 'shell_zsh'
-        - 'install_intellij' -> None (no role prefix, just software toggle)
-        """
+    def _extract_task_role(self, task_name: str) -> str | None:
         if not task_name or not isinstance(task_name, str):
             return None
         
@@ -263,13 +229,7 @@ or use --extra-vars "allow_callback_failure=true"
         
         return None
 
-    def _extract_skipped_toggles(self, result):
-        """Extract toggle names from skipped result using skipped_reason.
-        
-        First tries to get toggle names from result._result['skipped_reason'],
-        then falls back to task name analysis if not available.
-        Returns list of toggles that caused the skip.
-        """
+    def _extract_skipped_toggles(self, result) -> list[str]:
         toggles = []
         
         try:
@@ -280,7 +240,6 @@ or use --extra-vars "allow_callback_failure=true"
         skipped_reason = result_dict.get("skipped_reason", "")
         
         if skipped_reason:
-            import re
             toggle_pattern = re.compile(r'((?:install|configure|setup|enabl|set|use|allow)_[\w_]+)')
             found = toggle_pattern.findall(skipped_reason)
             if found:
@@ -300,7 +259,6 @@ or use --extra-vars "allow_callback_failure=true"
                     toggles = self.ROLE_TOGGLE_MAPPING[role_name].copy()
                 
                 if not toggles:
-                    import re
                     toggle_match = re.compile(r'((?:install|configure|setup|enabl|set|use|allow)_[\w_]+)')
                     match = toggle_match.search(task_name)
                     if match:
@@ -308,17 +266,15 @@ or use --extra-vars "allow_callback_failure=true"
         
         return toggles
 
-    def v2_runner_on_task_start(self, host, task, is_conditional):
-        """Log when a task starts - shows user what's being executed."""
+    def v2_runner_on_task_start(self, host: str, task, is_conditional: bool) -> None:
         task_name = task.get_name()
         self._display_and_log(f"Starting: [{host}] {task_name}", "INFO")
 
-    def v2_runner_on_ok(self, result):
+    def v2_runner_on_ok(self, result) -> None:
         host = result._host.get_name()
         self._display_and_log(f"ok: [{host}]", "INFO", include_output=True, result=result)
 
-    def _extract_error_details(self, result):
-        """Extract detailed error information from result."""
+    def _extract_error_details(self, result) -> list[str]:
         error_details = []
         result_dict = result._result if hasattr(result, "_result") else {}
 
@@ -390,7 +346,7 @@ or use --extra-vars "allow_callback_failure=true"
 
         return error_details
 
-    def v2_runner_on_failed(self, result, ignore_errors=False):
+    def v2_runner_on_failed(self, result, ignore_errors: bool = False) -> None:
         host = result._host.get_name()
         task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
         msg = f"fatal: [{host}]: FAILED! => TASK: {task_name}"
@@ -401,12 +357,18 @@ or use --extra-vars "allow_callback_failure=true"
         for detail in error_details:
             self._display_and_log(detail, "ERROR")
 
-    def v2_runner_on_skipped(self, result):
+    def v2_runner_on_skipped(self, result) -> None:
         host = result._host.get_name()
         task_name = result._task.get_name() if hasattr(result, "_task") else ""
 
-        # OS-specific task names to suppress (Arch Linux, Debian, Fedora, macOS, Windows variants)
-        os_keywords = ["Arch", "Debian", "Fedora", "macOS", "Darwin", "Windows", "(Debian)", "(Arch)", "(Fedora)", "(Mac)"]
+        # OS-specific task names and package managers to suppress when not matching OS
+        os_keywords = [
+            "Arch", "Debian", "Fedora", "macOS", "Darwin", "Windows",
+            "(Debian)", "(Arch)", "(Fedora)", "(Mac)",
+            # Package managers - suppress when not matching OS
+            "APT ", "DNF ", "Pacman", "Snap ", "Flatpak", "Homebrew", "brew_cask",
+            "Windows_"  # Windows-specific task prefixes
+        ]
 
         # Check if this is an OS-specific task being skipped due to different OS
         is_os_skip = any(keyword in task_name for keyword in os_keywords)
@@ -433,32 +395,36 @@ or use --extra-vars "allow_callback_failure=true"
             else:
                 self._display_and_log(f"skipping: [{host}] {task_name}{skip_reason}", "INFO")
 
-    def v2_runner_on_unreachable(self, result):
+    def v2_runner_on_unreachable(self, result) -> None:
         host = result._host.get_name()
         task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
         self._display_and_log(f"unreachable: [{host}] TASK: {task_name}", "ERROR")
 
-    def v2_playbook_on_start(self, playbook):
+    def v2_playbook_on_start(self, playbook) -> None:
         self._open_logs()
         if playbook._entries:
             self._display_and_log(f"PLAY [{playbook._entries[0].get_name()}]", "INFO")
         else:
             self._display_and_log("PLAY [unknown]", "INFO")
 
-    def v2_playbook_on_task_start(self, task, is_conditional=False):
+    def v2_playbook_on_task_start(self, task, is_conditional: bool = False) -> None:
         self._display_and_log(f"TASK [{task.get_name()}]", "INFO")
 
-    def v2_playbook_on_handler_task_start(self, task):
+    def v2_playbook_on_handler_task_start(self, task) -> None:
         self._display_and_log(f"RUNNING HANDLER [{task.get_name()}]", "INFO")
 
-    def v2_playbook_on_play_start(self, play):
+    def v2_playbook_on_play_start(self, play) -> None:
         self._display_and_log(f"PLAY [{play.get_name()}]", "INFO")
 
-    def v2_playbook_on_stats(self, stats):
+    def v2_playbook_on_stats(self, stats) -> None:
         hosts = sorted(stats.processed.keys())
         for host in hosts:
             host_stats = stats.summarize(host)
-            msg = f"{host}: ok={host_stats['ok']} changed={host_stats['changed']} unreachable={host_stats['unreachable']} failed={host_stats['failures']} skipped={host_stats['skipped']} rescued={host_stats['rescued']} ignored={host_stats['ignored']}"
+            msg = (
+                f"{host}: ok={host_stats['ok']} changed={host_stats['changed']} "
+                f"unreachable={host_stats['unreachable']} failed={host_stats['failures']} "
+                f"skipped={host_stats['skipped']} rescued={host_stats['rescued']} ignored={host_stats['ignored']}"
+            )
             self._display_and_log(msg, "INFO")
 
         if self.full_log:
@@ -466,17 +432,17 @@ or use --extra-vars "allow_callback_failure=true"
         if self.issues_log:
             self.issues_log.close()
 
-    def v2_on_file_diff(self, result):
+    def v2_on_file_diff(self, result) -> None:
         if result._result.get("diff"):
             self._display_and_log(f"diff: {result._result['diff']}", "INFO")
 
-    def v2_runner_item_on_ok(self, result):
+    def v2_runner_item_on_ok(self, result) -> None:
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
         item_display = self._extract_item_display(item)
         self._display_and_log(f"ok: [{host}] => {item_display}", "INFO")
 
-    def v2_runner_item_on_failed(self, result):
+    def v2_runner_item_on_failed(self, result) -> None:
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
         item_display = self._extract_item_display(item)
@@ -489,7 +455,7 @@ or use --extra-vars "allow_callback_failure=true"
         for detail in error_details:
             self._display_and_log(detail, "ERROR")
 
-    def v2_runner_item_on_skipped(self, result):
+    def v2_runner_item_on_skipped(self, result) -> None:
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
         item_display = self._extract_item_display(item)
@@ -504,24 +470,24 @@ or use --extra-vars "allow_callback_failure=true"
         else:
             self._display_and_log(f"skipping: [{host}] => {item_display}", "INFO")
 
-    def v2_playbook_on_include(self, included_file):
+    def v2_playbook_on_include(self, included_file) -> None:
         self._display_and_log(f"included: {included_file._filename}", "INFO")
 
-    def v2_playbook_on_import_for_host(self, result, imported_file):
+    def v2_playbook_on_import_for_host(self, result, imported_file: str) -> None:
         host = result._host.get_name()
         self._display_and_log(f"imported: {imported_file} for host {host}", "INFO")
 
-    def v2_playbook_on_not_import_for_host(self, result, missing_file):
+    def v2_playbook_on_not_import_for_host(self, result, missing_file: str) -> None:
         host = result._host.get_name()
         self._display_and_log(
             f"NOT imported: {missing_file} for host {host}", "WARNING"
         )
 
-    def v2_playbook_on_no_hosts_matched(self):
+    def v2_playbook_on_no_hosts_matched(self) -> None:
         self._display_and_log("no hosts matched", "WARNING")
 
-    def v2_playbook_on_no_hosts_remaining(self):
+    def v2_playbook_on_no_hosts_remaining(self) -> None:
         self._display_and_log("NO MORE HOSTS LEFT", "ERROR")
 
-    def v2_playbook_on_notify(self, handler, host):
+    def v2_playbook_on_notify(self, handler, host) -> None:
         self._display_and_log(f"NOTIFIED HANDLER {handler} for host {host}", "INFO")

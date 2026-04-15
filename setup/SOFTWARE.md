@@ -45,7 +45,7 @@ All software installed by the Ansible playbook, organized by OS family with exac
 | Gradle | Arch: `pacman`<br>Debian: `apt`<br>Fedora: `dnf` |
 | Postman | `snap` (all distros) |
 | OpenSSL | Arch: `pacman`<br>Debian: `apt`<br>Fedora: `dnf` |
-| DBeaver CE | `snap` (all distros) |
+| DBeaver CE | `flatpak` (Linux), `snap` (macOS), `choco` (Windows) |
 | kubectl | Arch: `pacman`<br>Debian: `snap`<br>Fedora: `snap` |
 | Minikube | Arch: `pacman`<br>Debian: `download + apt`<br>Fedora: `download + dnf` |
 | Lens | Arch: `aur`<br>Debian: `snap`<br>Fedora: `snap` |
@@ -73,7 +73,7 @@ All software installed by the Ansible playbook, organized by OS family with exac
 |---|---|
 | Discord | `flatpak` (all distros) |
 | Slack | `snap` (all distros) |
-| Microsoft Teams | `snap` (all distros) |
+| Microsoft Teams | *Not available on Linux* |
 | Telegram Desktop | Arch: `pacman`<br>Debian: `snap`<br>Fedora: `snap` |
 | Signal | Arch: `pacman`<br>Debian: `snap`<br>Fedora: `snap` |
 | WhatsApp | `snap` (all distros) |

@@ -141,6 +141,17 @@
     creates: /usr/bin/snap
   when: install_snapd | default(false) | bool
 
+- name: Install snapd core channel
+  become: yes
+  ansible.builtin.command: snap install core
+  changed_when: false
+  when: install_snapd | default(false) | bool
+
+- name: Wait for snapd to be ready
+  pause:
+    seconds: 5
+  when: install_snapd | default(false) | bool
+
 - name: Create snapd symlink for classic mode
   become: yes
   ansible.builtin.file:
