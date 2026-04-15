@@ -44,3 +44,4 @@
     name: dart
     state: present
   when: ansible_facts['os_family'] == 'Darwin' and install_dart | bool
+

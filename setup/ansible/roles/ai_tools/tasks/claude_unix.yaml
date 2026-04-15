@@ -1,7 +1,7 @@
 ---
 - name: Check if Claude Code CLI is already installed (Unix)
   ansible.builtin.shell: |
-    source {{ ansible_env.HOME }}/.nvm/nvm.sh
+    source {{ ansible_facts['env']['HOME'] }}/.nvm/nvm.sh
     npm list -g @anthropic-ai/claude-code --depth=0 2>/dev/null | grep -q claude-code
   args:
     executable: /bin/bash
@@ -12,7 +12,7 @@
 - name: Install Claude Code CLI via NPM (Unix)
   ansible.builtin.shell: |
     set -o pipefail
-    source {{ ansible_env.HOME }}/.nvm/nvm.sh && npm install -g @anthropic-ai/claude-code
+    source {{ ansible_facts['env']['HOME'] }}/.nvm/nvm.sh && npm install -g @anthropic-ai/claude-code
   args:
     executable: /bin/bash
   when: claude_code_check.rc != 0
@@ -30,7 +30,7 @@
 - name: Download Claude Desktop .deb (Linux Debian)
   ansible.builtin.get_url:
     url: "{{ claude_desktop_deb_url }}"
-    dest: "{{ ansible_env.HOME }}/.lukkInstall/claude-desktop.deb"
+    dest: "{{ ansible_facts['env']['HOME'] }}/.lukkInstall/claude-desktop.deb"
     mode: '0644'
   become: no
   when:
@@ -40,7 +40,7 @@
 
 - name: Install Claude Desktop .deb (Linux Debian)
   ansible.builtin.apt:
-    deb: "{{ ansible_env.HOME }}/.lukkInstall/claude-desktop.deb"
+    deb: "{{ ansible_facts['env']['HOME'] }}/.lukkInstall/claude-desktop.deb"
     state: present
   become: yes
   when:
@@ -74,3 +74,4 @@
   when:
     - install_claude_desktop | default(false) | bool
     - ansible_facts['os_family'] == 'Darwin'
+

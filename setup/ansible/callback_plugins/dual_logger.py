@@ -151,6 +151,163 @@ or use --extra-vars "allow_callback_failure=true"
                             self._display.display(f"  {line}")
                             self._write_log(f"  {line}", "WARNING")
 
+    def _extract_item_display(self, item):
+        """Extract a clean display string from loop item.
+        
+        Handles various item formats used in Ansible loops:
+        - dict with 'name' key: {'name': 'applications-local'} -> 'applications-local'
+        - dict with 'key' key: {'key': '/org/gnome/...'} -> '/org/gnome/...'
+        - dict with 'path' key: {'path': '/home/.../applications'} -> 'applications'
+        - dict with 'app' + 'mime': {'app': 'default', 'mime': 'app/msword'} -> 'default -> app/msword'
+        - simple string: 'file' -> 'file'
+        - dict with 'value' key (complex): fallback to full repr
+        """
+        import os
+        import re
+        
+        if item is None:
+            return "unknown"
+        
+        # Handle simple string or number
+        if isinstance(item, str):
+            # Trim whitespace (common in toggle-based loops)
+            return item.strip()
+        if isinstance(item, (int, float)):
+            return str(item)
+        
+        # Handle dict
+        if isinstance(item, dict):
+            # Priority: name > key > path > app+mime
+            if "name" in item and item["name"]:
+                return str(item["name"])
+            if "key" in item and item["key"]:
+                return str(item["key"])
+            if "path" in item and item["path"]:
+                # Get basename of path
+                path = item["path"]
+                return os.path.basename(path)
+            if "app" in item and "mime" in item:
+                return f"{item['app']} -> {item['mime']}"
+            if "url" in item and "name" in item:
+                return str(item["name"])
+            if "option" in item and "value" in item:
+                return f"{item['option']}: {item['value']}"
+            
+            # Fallback: try to get something useful or return repr
+            return repr(item)
+        
+        # Fallback for other types
+        return repr(item)
+
+    # Mapping of role names to related toggle names
+    ROLE_TOGGLE_MAPPING = {
+        # Desktop Environments
+        'gnome_setup': ['install_gnome', 'configure_gnome'],
+        'kde_plasma_setup': ['install_kde_plasma', 'configure_kde_plasma'],
+        
+        # Shell & Environment
+        'shell_zsh': ['setup_zsh'],
+        'env_variables': ['set_custom_env', 'configure_env'],
+        
+        # System Core
+        'system_core': ['install_system_core'],
+        'systemd_boot': ['setup_systemd_boot', 'remove_distro_grub'],
+        'snapper': ['install_snapper'],
+        
+        # SDK Managers
+        'sdk_manager': [
+            'install_dart', 'install_flutter', 'install_android_sdk',
+            'install_nodejs', 'install_python', 'install_java', 'install_maven', 'install_gradle'
+        ],
+        
+        # AI Tools
+        'ai_tools': [
+            'install_claude_code', 'install_claude_desktop', 'install_claude_cowork',
+            'install_lm_studio', 'install_stable_diffusion',
+            'install_opencode', 'install_openspec'
+        ],
+        
+        # Software Installer
+        'software_installer': [],  # Mapped dynamically based on software toggles
+        
+        # Virtualization
+        'virtualization_config': ['install_virt_manager', 'install_docker'],
+        
+        # Security
+        'linux_security': ['install_lynis', 'install_chkrootkit', 'install_clamav'],
+        
+        # Waydroid
+        'waydroid': ['install_waydroid'],
+        
+        # JetBrains
+        'jetbrains_toolbox': ['install_jetbrains_toolbox'],
+    }
+
+    def _extract_task_role(self, task_name):
+        """Extract role name prefix from task name.
+        
+        Examples:
+        - 'gnome_setup : Create Templates directory' -> 'gnome_setup'
+        - 'kde_plasma_setup : Install Konsave via pipx' -> 'kde_plasma_setup'
+        - 'shell_zsh : Copy ZSH configuration files' -> 'shell_zsh'
+        - 'install_intellij' -> None (no role prefix, just software toggle)
+        """
+        if not task_name or not isinstance(task_name, str):
+            return None
+        
+        # Pattern: "role_name : task description" or just task description
+        if ' : ' in task_name:
+            # Extract the part before the colon
+            role_part = task_name.split(' : ')[0].strip()
+            return role_part
+        
+        return None
+
+    def _extract_skipped_toggles(self, result):
+        """Extract toggle names from skipped result using skipped_reason.
+        
+        First tries to get toggle names from result._result['skipped_reason'],
+        then falls back to task name analysis if not available.
+        Returns list of toggles that caused the skip.
+        """
+        toggles = []
+        
+        try:
+            result_dict = result._result if hasattr(result, "_result") else {}
+        except (AttributeError, TypeError):
+            result_dict = {}
+        
+        skipped_reason = result_dict.get("skipped_reason", "")
+        
+        if skipped_reason:
+            import re
+            toggle_pattern = re.compile(r'((?:install|configure|setup|enabl|set|use|allow)_[\w_]+)')
+            found = toggle_pattern.findall(skipped_reason)
+            if found:
+                toggles = found
+        
+        if not toggles:
+            try:
+                task = result._task
+                task_name = task.get_name() if hasattr(task, 'get_name') else str(task)
+            except (AttributeError, TypeError):
+                task_name = ""
+            
+            if task_name:
+                role_name = self._extract_task_role(task_name)
+                
+                if role_name and role_name in self.ROLE_TOGGLE_MAPPING:
+                    toggles = self.ROLE_TOGGLE_MAPPING[role_name].copy()
+                
+                if not toggles:
+                    import re
+                    toggle_match = re.compile(r'((?:install|configure|setup|enabl|set|use|allow)_[\w_]+)')
+                    match = toggle_match.search(task_name)
+                    if match:
+                        toggles = [match.group(1)]
+        
+        return toggles
+
     def v2_runner_on_task_start(self, host, task, is_conditional):
         """Log when a task starts - shows user what's being executed."""
         task_name = task.get_name()
@@ -259,7 +416,6 @@ or use --extra-vars "allow_callback_failure=true"
             pass
         else:
             # Show toggle-based skips with clearer format
-            # Try to extract toggle name from task or result
             result_dict = result._result if hasattr(result, "_result") else {}
             skip_reason = ""
 
@@ -267,7 +423,15 @@ or use --extra-vars "allow_callback_failure=true"
             if "skipped_reason" in result_dict:
                 skip_reason = f" - {result_dict['skipped_reason']}"
 
-            self._display_and_log(f"skipping: [{host}] {task_name}{skip_reason}", "INFO")
+            # Extract toggles that caused the skip
+            toggles = self._extract_skipped_toggles(result)
+
+            # Only show [due: X] if toggles is non-empty, otherwise just skip
+            if toggles:
+                toggle_msg = f" [due: {','.join(toggles)}]"
+                self._display_and_log(f"skipping: [{host}] {task_name}{toggle_msg}{skip_reason}", "INFO")
+            else:
+                self._display_and_log(f"skipping: [{host}] {task_name}{skip_reason}", "INFO")
 
     def v2_runner_on_unreachable(self, result):
         host = result._host.get_name()
@@ -309,13 +473,15 @@ or use --extra-vars "allow_callback_failure=true"
     def v2_runner_item_on_ok(self, result):
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
-        self._display_and_log(f"ok: [{host}] => (item={item})", "INFO")
+        item_display = self._extract_item_display(item)
+        self._display_and_log(f"ok: [{host}] => {item_display}", "INFO")
 
     def v2_runner_item_on_failed(self, result):
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
+        item_display = self._extract_item_display(item)
         task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
-        msg = f"failed: [{host}] => (item={item}) TASK: {task_name}"
+        msg = f"failed: [{host}] => {item_display} TASK: {task_name}"
         self._display_and_log(msg, "ERROR")
 
         # Extract and display detailed error information
@@ -326,7 +492,17 @@ or use --extra-vars "allow_callback_failure=true"
     def v2_runner_item_on_skipped(self, result):
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
-        self._display_and_log(f"skipping: [{host}] => (item={item})", "INFO")
+        item_display = self._extract_item_display(item)
+
+        # Extract toggles that caused the skip
+        toggles = self._extract_skipped_toggles(result)
+
+        # Only show [due: X] if toggles is non-empty, otherwise just skip
+        if toggles:
+            toggle_msg = f" [due: {','.join(toggles)}]"
+            self._display_and_log(f"skipping: [{host}] => {item_display}{toggle_msg}", "INFO")
+        else:
+            self._display_and_log(f"skipping: [{host}] => {item_display}", "INFO")
 
     def v2_playbook_on_include(self, included_file):
         self._display_and_log(f"included: {included_file._filename}", "INFO")

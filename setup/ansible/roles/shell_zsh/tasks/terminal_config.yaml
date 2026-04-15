@@ -19,7 +19,7 @@
 
 - name: Ensure Konsole profile directory exists
   ansible.builtin.file:
-    path: "{{ ansible_env.HOME }}/.local/share/konsole"
+    path: "{{ ansible_facts['env']['HOME'] }}/.local/share/konsole"
     state: directory
     mode: '0755'
   become: no
@@ -27,7 +27,7 @@
 
 - name: Configure Konsole default profile to use ZSH
   ansible.builtin.ini_file:
-    path: "{{ ansible_env.HOME }}/.local/share/konsole/Default.profile"
+    path: "{{ ansible_facts['env']['HOME'] }}/.local/share/konsole/Default.profile"
     section: General
     option: "{{ item.option }}"
     value: "{{ item.value }}"
@@ -42,10 +42,11 @@
 
 - name: Set Konsole default profile in konsolerc
   ansible.builtin.ini_file:
-    path: "{{ ansible_env.HOME }}/.config/konsolerc"
+    path: "{{ ansible_facts['env']['HOME'] }}/.config/konsolerc"
     section: Desktop Entry
     option: DefaultProfile
     value: Default.profile
     mode: '0644'
   become: no
   when: install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool
+

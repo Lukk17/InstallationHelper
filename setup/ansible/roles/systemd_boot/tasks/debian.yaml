@@ -38,3 +38,4 @@
       #!/bin/sh
       bootctl update --no-variables 2>/dev/null || true
     mode: '0755'
+

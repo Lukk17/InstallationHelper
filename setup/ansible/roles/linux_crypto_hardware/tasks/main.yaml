@@ -32,3 +32,4 @@
     use: yay
     state: present
   when: install_trezor_suite | bool and ansible_facts['os_family'] == 'Archlinux'
+

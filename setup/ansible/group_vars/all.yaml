@@ -78,6 +78,7 @@ install_stable_diffusion: true
 install_lm_studio: true
 install_claude_code: true
 install_claude_desktop: true
+install_jetbrains_toolbox: true
 install_claude_cowork: true
 install_opencode: true
 install_openspec: true
@@ -90,3 +91,4 @@ allow_callback_failure: false
 # Global Theme / Wallpaper Settings
 set_custom_wallpaper: true
 default_wallpaper: "forest-house.jpg"
+

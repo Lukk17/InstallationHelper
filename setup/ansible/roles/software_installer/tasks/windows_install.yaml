@@ -6,3 +6,4 @@
 - name: Include Winget installation tasks
   ansible.builtin.include_tasks: windows_winget.yaml
   when: ansible_facts['os_family'] == 'Windows'
+

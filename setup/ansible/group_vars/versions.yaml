@@ -62,7 +62,7 @@ android_cmdline_tools_version: "13.0"
 android_cmdline_tools_build: "11076708"
 android_build_tools_version: "35.0.0"
 android_api_level: "35"
-android_home: "{{ ansible_env.HOME }}/Android/Sdk"
+android_home: "{{ ansible_facts['env']['HOME'] }}/Android/Sdk"
 
 # Fonts
 meslo_regular_url: "https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"
@@ -89,3 +89,4 @@ vmware_url: "https://download3.vmware.com/software/WKST-PLAYER-1750/{{ vmware_fi
 minikube_url: "https://storage.googleapis.com/minikube/releases/{{ minikube_version }}/{{ minikube_file }}"
 kind_url: "https://kind.sigs.k8s.io/dl/{{ kind_version }}/kind-linux-amd64"
 tor_browser_url: "https://dist.torproject.org/torbrowser/{{ tor_browser_version }}/{{ tor_browser_file }}"
+

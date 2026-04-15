@@ -7,3 +7,4 @@
   when:
     - item.value.manager == 'choco'
     - vars[item.key] | default(false) | bool
+

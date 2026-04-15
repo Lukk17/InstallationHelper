@@ -23,6 +23,7 @@ software_mapping:
   sublime: { manager: "brew_cask", package: "sublime-text" }
   arduino: { manager: "brew_cask", package: "arduino" }
   antigravity: { manager: "brew_cask", package: "google-antigravity" }
+  bruno: { manager: "brew_cask", package: "bruno" }
 
   # Communication
   discord: { manager: "brew_cask", package: "discord" }
@@ -74,3 +75,4 @@ software_mapping:
   # Virtualization
   utm: { manager: "brew_cask", package: "utm" }
   docker: { manager: "brew_cask", package: "docker" }
+

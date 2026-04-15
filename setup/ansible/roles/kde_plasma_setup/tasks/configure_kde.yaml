@@ -53,7 +53,7 @@
 - name: Install Konsave via pipx
   ansible.builtin.shell: pipx ensurepath && pipx install konsave
   args:
-    creates: "{{ ansible_env.HOME }}/.local/bin/konsave"
+    creates: "{{ ansible_facts['env']['HOME'] }}/.local/bin/konsave"
 
 - name: Import and apply Konsave profile
   ansible.builtin.shell: |
@@ -86,37 +86,37 @@
 - name: Clone applet-window-buttons repository
   ansible.builtin.git:
     repo: https://github.com/chermnyx/applet-window-buttons.git
-    dest: "{{ ansible_env.HOME }}/applet-window-buttons"
+    dest: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons"
     version: dumb_5.27_support
     force: yes
 
 - name: Create build directory
   ansible.builtin.file:
-    path: "{{ ansible_env.HOME }}/applet-window-buttons/build"
+    path: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
     state: directory
 
 - name: Run CMake with explicit Ubuntu multiarch paths
   ansible.builtin.command:
     cmd: cmake -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON -DKDE_INSTALL_QMLDIR=/usr/lib/x86_64-linux-gnu/qt5/qml ..
-    chdir: "{{ ansible_env.HOME }}/applet-window-buttons/build"
+    chdir: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
   when: ansible_facts['os_family'] == 'Debian'
 
 - name: Run CMake (Fedora/Arch)
   ansible.builtin.command:
     cmd: cmake -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON ..
-    chdir: "{{ ansible_env.HOME }}/applet-window-buttons/build"
+    chdir: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
   when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']
 
 - name: Compile the widget
   ansible.builtin.command:
     cmd: "make -j{{ ansible_processor_vcpus }}"
-    chdir: "{{ ansible_env.HOME }}/applet-window-buttons/build"
+    chdir: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
 
 - name: Install the compiled widget binaries
   become: yes
   ansible.builtin.command:
     cmd: make install
-    chdir: "{{ ansible_env.HOME }}/applet-window-buttons/build"
+    chdir: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
 
 - name: Clear KDE QML and system configuration caches
   ansible.builtin.shell: |
@@ -137,3 +137,4 @@
   ansible.builtin.shell: systemctl --user restart plasma-plasmashell.service
   args:
     executable: /bin/bash
+

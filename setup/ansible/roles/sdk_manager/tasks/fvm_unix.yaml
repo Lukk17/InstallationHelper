@@ -38,7 +38,7 @@
     export PATH="$HOME/.fvm/bin:$HOME/.pub-cache/bin:$PATH"
     fvm install {{ flutter_channel }}
   args:
-    creates: "{{ ansible_env.HOME }}/fvm/versions/{{ flutter_channel }}/bin/flutter"
+    creates: "{{ ansible_facts['env']['HOME'] }}/fvm/versions/{{ flutter_channel }}/bin/flutter"
     executable: /bin/bash
 
 - name: Set FVM global version ({{ flutter_channel }})
@@ -49,3 +49,4 @@
   args:
     executable: /bin/bash
   changed_when: true
+

@@ -2,12 +2,12 @@
 - name: Clone Stable Diffusion WebUI (Linux/Mac)
   ansible.builtin.git:
     repo: https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
-    dest: "{{ ansible_env.HOME }}/stable-diffusion-webui"
+    dest: "{{ ansible_facts['env']['HOME'] }}/stable-diffusion-webui"
   when: ansible_facts['os_family'] != 'Windows' and install_stable_diffusion | bool
 
 - name: Check if LM Studio is already installed (Linux)
   ansible.builtin.stat:
-    path: "{{ ansible_env.HOME }}/.local/bin/lms"
+    path: "{{ ansible_facts['env']['HOME'] }}/.local/bin/lms"
   register: lms_installed
   when: ansible_facts['system'] == 'Linux' and install_lm_studio | bool
 
@@ -20,3 +20,4 @@
     - ansible_facts['system'] == 'Linux'
     - install_lm_studio | bool
     - not (lms_installed.stat.exists | default(false))
+

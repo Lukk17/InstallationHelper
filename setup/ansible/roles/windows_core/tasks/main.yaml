@@ -14,3 +14,4 @@
 - name: Include Windows Virtualization tasks
   ansible.builtin.include_tasks: virtualization_windows.yaml
   when: ansible_facts['os_family'] == 'Windows' and (install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)
+

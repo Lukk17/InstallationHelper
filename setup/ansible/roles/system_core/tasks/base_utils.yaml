@@ -1,7 +1,7 @@
 ---
 - name: Ensure temporary installation folder exists
   ansible.builtin.file:
-    path: "{{ ansible_env.HOME }}/.lukkInstall"
+    path: "{{ ansible_facts['env']['HOME'] }}/.lukkInstall"
     state: directory
     mode: '0755'
   become: no

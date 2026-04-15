@@ -17,3 +17,4 @@ install_balena_etcher: true    # Alt for Rufus
 install_virtualbox: true
 install_vmware: true
 install_docker: true
+

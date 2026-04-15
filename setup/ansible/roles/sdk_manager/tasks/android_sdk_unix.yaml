@@ -44,7 +44,7 @@
 
 - name: Accept Android SDK licenses
   ansible.builtin.shell: |
-    export JAVA_HOME="{{ ansible_env.HOME }}/.sdkman/candidates/java/current"
+    export JAVA_HOME="{{ ansible_facts['env']['HOME'] }}/.sdkman/candidates/java/current"
     export PATH="$JAVA_HOME/bin:$PATH"
     yes 2>/dev/null | {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses || true
   args:
@@ -58,7 +58,7 @@
 - name: Install Android Platform and Build Tools
   ansible.builtin.shell: |
     set -o pipefail
-    export JAVA_HOME="{{ ansible_env.HOME }}/.sdkman/candidates/java/current"
+    export JAVA_HOME="{{ ansible_facts['env']['HOME'] }}/.sdkman/candidates/java/current"
     export PATH="$JAVA_HOME/bin:$PATH"
     {{ android_home }}/cmdline-tools/latest/bin/sdkmanager \
       "platforms;android-{{ android_api_level }}" \
@@ -68,3 +68,4 @@
     executable: /bin/bash
   register: sdk_install
   changed_when: "'done' in sdk_install.stdout"
+

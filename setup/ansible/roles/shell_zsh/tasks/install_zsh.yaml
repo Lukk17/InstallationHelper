@@ -43,3 +43,4 @@
     name: "{{ ansible_env.USER }}"
     shell: "{{ zsh_path.stdout }}"
   become: yes
+

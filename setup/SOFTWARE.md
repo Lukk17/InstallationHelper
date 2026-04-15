@@ -56,7 +56,12 @@ All software installed by the Ansible playbook, organized by OS family with exac
 
 | Software | Installation Method |
 |---|---|
-| IntelliJ IDEA Ultimate | `snap` (all distros) |
+| JetBrains Toolbox | `curl script` (all distros) |
+| → IntelliJ IDEA Ultimate | via Toolbox |
+| → PyCharm Professional | via Toolbox |
+| → WebStorm | via Toolbox |
+| → DataGrip | via Toolbox |
+| → Rider | via Toolbox |
 | VS Code | Arch: `aur`<br>Debian: `snap`<br>Fedora: `dnf` (official repo) |
 | Sublime Text | Arch: `aur`<br>Debian: `apt` (official repo)<br>Fedora: `dnf` (official repo) |
 | Arduino IDE | Arch: `pacman`<br>Debian: `snap`<br>Fedora: `snap` |

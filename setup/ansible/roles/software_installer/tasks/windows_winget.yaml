@@ -7,3 +7,4 @@
   when:
     - item.value.manager == 'winget'
     - vars[item.key] | default(false) | bool
+
