@@ -122,14 +122,43 @@ or use --extra-vars "allow_callback_failure=true"
             except (IOError, OSError) as e:
                 pass
 
-    def _display_and_log(self, msg, level="INFO"):
+    def _display_and_log(self, msg, level="INFO", include_output=False, result=None):
         """Display to console and log to file."""
-        self._display.display(msg)
+        timestamp = self._get_timestamp()
+        # Include timestamp in console output
+        console_msg = f"[{timestamp}] {msg}"
+        self._display.display(console_msg)
+        # Also log to file
         self._write_log(msg, level)
+
+        # Show full output for tasks that produced stdout/stderr
+        if include_output and result is not None:
+            result_dict = result._result if hasattr(result, "_result") else {}
+            # Show stdout if present
+            if "stdout" in result_dict and result_dict["stdout"]:
+                stdout = result_dict["stdout"]
+                if isinstance(stdout, str) and stdout.strip():
+                    for line in stdout.strip().split("\n"):
+                        if line.strip():
+                            self._display.display(f"  {line}")
+                            self._write_log(f"  {line}", level)
+            # Show stderr if present (usually contains warnings)
+            if "stderr" in result_dict and result_dict["stderr"]:
+                stderr = result_dict["stderr"]
+                if isinstance(stderr, str) and stderr.strip():
+                    for line in stderr.strip().split("\n"):
+                        if line.strip():
+                            self._display.display(f"  {line}")
+                            self._write_log(f"  {line}", "WARNING")
+
+    def v2_runner_on_task_start(self, host, task, is_conditional):
+        """Log when a task starts - shows user what's being executed."""
+        task_name = task.get_name()
+        self._display_and_log(f"Starting: [{host}] {task_name}", "INFO")
 
     def v2_runner_on_ok(self, result):
         host = result._host.get_name()
-        self._display_and_log(f"ok: [{host}]", "INFO")
+        self._display_and_log(f"ok: [{host}]", "INFO", include_output=True, result=result)
 
     def _extract_error_details(self, result):
         """Extract detailed error information from result."""
@@ -217,7 +246,28 @@ or use --extra-vars "allow_callback_failure=true"
 
     def v2_runner_on_skipped(self, result):
         host = result._host.get_name()
-        self._display_and_log(f"skipping: [{host}]", "INFO")
+        task_name = result._task.get_name() if hasattr(result, "_task") else ""
+
+        # OS-specific task names to suppress (Arch Linux, Debian, Fedora, macOS, Windows variants)
+        os_keywords = ["Arch", "Debian", "Fedora", "macOS", "Darwin", "Windows", "(Debian)", "(Arch)", "(Fedora)", "(Mac)"]
+
+        # Check if this is an OS-specific task being skipped due to different OS
+        is_os_skip = any(keyword in task_name for keyword in os_keywords)
+
+        if is_os_skip:
+            # Suppress OS-difference skips - don't print
+            pass
+        else:
+            # Show toggle-based skips with clearer format
+            # Try to extract toggle name from task or result
+            result_dict = result._result if hasattr(result, "_result") else {}
+            skip_reason = ""
+
+            # If there's a 'skipped_reason' in result, use it
+            if "skipped_reason" in result_dict:
+                skip_reason = f" - {result_dict['skipped_reason']}"
+
+            self._display_and_log(f"skipping: [{host}] {task_name}{skip_reason}", "INFO")
 
     def v2_runner_on_unreachable(self, result):
         host = result._host.get_name()

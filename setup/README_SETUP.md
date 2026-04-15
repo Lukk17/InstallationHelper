@@ -29,6 +29,14 @@ sudo dnf install ansible -y
 sudo pacman -S ansible --noconfirm
 ```
 
+**⚠️ Arch Linux Prerequisites (Optional):**
+If you want to install **Steam** via the playbook, you need to enable the multilib repository:
+```bash
+sudo sed -i '/#\[multilib\]/s/^#//' /etc/pacman.conf
+sudo pacman -Sy
+```
+Then run the playbook. Without multilib enabled, Steam installation will be skipped with a warning.
+
 **macOS:**
 ```bash
 brew install ansible

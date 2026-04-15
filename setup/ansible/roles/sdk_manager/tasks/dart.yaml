@@ -1,10 +1,9 @@
 ---
 - name: Install Dart SDK (Arch)
-  become: yes
+  become: true
   community.general.pacman:
     name: dart
     state: present
-  become: true
   when: ansible_facts['os_family'] == 'Archlinux' and install_dart | bool
 
 - name: Add Dart apt signing key (Debian)

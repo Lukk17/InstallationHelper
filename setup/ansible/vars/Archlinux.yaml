@@ -22,7 +22,7 @@ software_mapping:
   intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
   vscode: { manager: "aur", package: "visual-studio-code-bin" }
   sublime: { manager: "aur", package: "sublime-text-4" }
-  arduino: { manager: "pacman", package: "arduino-ide" }
+  arduino: { manager: "pacman", package: "arduino" }
   antigravity: { manager: "aur", package: "antigravity" }
 
   # Communication

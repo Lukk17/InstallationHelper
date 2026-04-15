@@ -58,13 +58,10 @@
     - ansible_facts['os_family'] == 'Archlinux'
 
 - name: Install Claude Desktop via AUR (Arch Linux)
-  ansible.builtin.shell: |
-    yay -S --noconfirm --needed --mflags "--skippgpcheck" claude-desktop
-  args:
-    executable: /bin/bash
   become: no
-  async: 1800
-  poll: 30
+  kewlfft.aur.aur:
+    name: claude-desktop
+    state: present
   when:
     - install_claude_desktop | default(false) | bool
     - ansible_facts['os_family'] == 'Archlinux'
