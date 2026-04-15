@@ -24,7 +24,7 @@ install_dbeaver: true
 install_filezilla: true
 
 # IDEs / Editors
-install_intellij: true
+# install_intellij: true  # Removed - use JetBrains Toolbox instead
 install_vscode: true
 install_sublime: true
 install_arduino: true
@@ -33,7 +33,7 @@ install_antigravity: true
 # Communication
 install_discord: true
 install_slack: true
-install_teams: true
+# install_teams: true  # Removed - not available on Linux
 install_telegram: true
 install_whatsapp: true
 install_signal: true

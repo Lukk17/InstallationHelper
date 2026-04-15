@@ -39,7 +39,7 @@ install_lm_sensors: true  # Alt for HWInfo
 install_greenenvy: true   # Alt for MSI Afterburner
 install_baobab: true      # Alt for WizTree
 install_polychromatic: true # Alt for Razer Cortex
-install_balena_etcher: true # Alt for Rufus
+# install_balena_etcher: true # Disabled - causes nodejs dependency conflicts
 install_gputest: true     # Alt for FurMark
 
 # Virtualization toggles

@@ -9,14 +9,17 @@ software_mapping:
   git: { manager: "pacman", package: "git" }
   maven: { manager: "pacman", package: "maven" }
   gradle: { manager: "pacman", package: "gradle" }
-  postman: { manager: "snap", package: "postman" }
+  postman: { manager: "flatpak", package: "com.getpostman.Postman" }
   openssl: { manager: "pacman", package: "openssl" }
-  dbeaver: { manager: "snap", package: "dbeaver-ce" }
+  dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }  # Changed: snap failed on Arch
   kubectl: { manager: "pacman", package: "kubectl" }
   minikube: { manager: "pacman", package: "minikube" }
   lens: { manager: "aur", package: "lens-bin" }
   filezilla: { manager: "pacman", package: "filezilla" }
 
+
+  # IDEs / Editors (JetBrains via AUR)
+  jetbrains_toolbox: { manager: "aur", package: "jetbrains-toolbox" }
 
   # IDEs / Editors
 
@@ -28,22 +31,22 @@ software_mapping:
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
-  slack: { manager: "snap", package: "slack" }
-  teams: { manager: "snap", package: "teams" }
+  slack: { manager: "flatpak", package: "com.slack.Slack" }
+  # teams: removed - not on Flathub
   telegram: { manager: "pacman", package: "telegram-desktop" }
   signal: { manager: "pacman", package: "signal-desktop" }
-  whatsapp: { manager: "snap", package: "whatsapp-for-linux" }
+  # whatsapp: removed - not on Flathub
 
   # Productivity
-  obsidian: { manager: "snap", package: "obsidian", classic: true }
-  bitwarden: { manager: "snap", package: "bitwarden" }
+  obsidian: { manager: "flatpak", package: "md.obsidian.Obsidian" }
+  bitwarden: { manager: "flatpak", package: "com.bitwarden.desktop" }
   keepassxc: { manager: "pacman", package: "keepassxc" }
-  trello: { manager: "snap", package: "trello-desktop" }
+  # trello: removed - not on Flathub
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
   # Media / Design
   vlc: { manager: "pacman", package: "vlc" }
-  spotify: { manager: "snap", package: "spotify" }
+  spotify: { manager: "flatpak", package: "com.spotify.Client" }
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
   handbrake: { manager: "pacman", package: "handbrake" }
@@ -77,7 +80,8 @@ software_mapping:
   greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
   baobab: { manager: "pacman", package: "baobab", is_alternative_for: "WizTree" }
   polychromatic: { manager: "aur", package: "polychromatic", is_alternative_for: "Razer Cortex" }
-  balena_etcher: { manager: "aur", package: "balena-etcher", is_alternative_for: "Rufus" }
+  # balena_etcher - disabled due to nodejs conflict with AUR. Use AppImage manually or via other method.
+  # balena_etcher: { manager: "aur", package: "balena-etcher", is_alternative_for: "Rufus" }
   gputest: { manager: "aur", package: "gputest", is_alternative_for: "FurMark" }
 
   # Virtualization

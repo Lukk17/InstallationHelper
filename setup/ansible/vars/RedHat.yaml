@@ -9,9 +9,9 @@ software_mapping:
   git: { manager: "dnf", package: "git" }
   maven: { manager: "dnf", package: "maven" }
   gradle: { manager: "dnf", package: "gradle" }
-  postman: { manager: "snap", package: "postman" }
+  postman: { manager: "flatpak", package: "com.getpostman.Postman" }
   openssl: { manager: "dnf", package: "openssl" }
-  dbeaver: { manager: "snap", package: "dbeaver-ce" }
+  dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }  # Changed: more reliable
   kubectl: { manager: "snap", package: "kubectl", classic: true }
   minikube: { manager: "dnf_url", package: "minikube-latest.x86_64.rpm" }
   lens: { manager: "snap", package: "lens", classic: true }
@@ -19,7 +19,7 @@ software_mapping:
 
 
   # IDEs / Editors
-  intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
+  # intellij: removed - use JetBrains Toolbox instead
   vscode: { manager: "dnf_repo", package: "code", classic: true }
   sublime: { manager: "dnf_repo", package: "sublime-text" }
   arduino: { manager: "snap", package: "arduino" }
@@ -28,22 +28,22 @@ software_mapping:
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
-  slack: { manager: "snap", package: "slack" }
-  teams: { manager: "snap", package: "teams" }
+  slack: { manager: "flatpak", package: "com.slack.Slack" }
+  # teams: removed - not on Flathub
   telegram: { manager: "snap", package: "telegram-desktop" }
   signal: { manager: "snap", package: "signal-desktop" }
-  whatsapp: { manager: "snap", package: "whatsapp-for-linux" }
+  # whatsapp: removed - not on Flathub
 
   # Productivity
-  obsidian: { manager: "snap", package: "obsidian", classic: true }
-  bitwarden: { manager: "snap", package: "bitwarden" }
+  obsidian: { manager: "flatpak", package: "md.obsidian.Obsidian" }
+  bitwarden: { manager: "flatpak", package: "com.bitwarden.desktop" }
   keepassxc: { manager: "dnf", package: "keepassxc" }
-  trello: { manager: "snap", package: "trello-desktop" }
+  # trello: removed - not on Flathub
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
   # Media / Design
   vlc: { manager: "dnf", package: "vlc" }
-  spotify: { manager: "snap", package: "spotify" }
+  spotify: { manager: "flatpak", package: "com.spotify.Client" }
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
   handbrake: { manager: "dnf", package: "HandBrake-gui" }

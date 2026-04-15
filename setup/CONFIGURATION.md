@@ -6,6 +6,17 @@ This document lists all configuration tasks performed by the Ansible playbook, o
 
 ---
 
+## Notes
+
+### Removed Packages
+
+| Package | Reason |
+|---------|--------|
+| Microsoft Teams | Not available on Linux - use web version or Windows/macOS |
+| balena-etcher (AUR) | Node.js dependency conflict - use AppImage manually |
+
+---
+
 ## Linux
 
 ### KDE Plasma (when `configure_kde_plasma: true`)
