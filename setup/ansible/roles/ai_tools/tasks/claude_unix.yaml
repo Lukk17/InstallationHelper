@@ -19,17 +19,61 @@
 
 
 
-- name: Install Claude Desktop (Linux)
+- name: Check if Claude Desktop is installed (Linux Debian)
+  ansible.builtin.stat:
+    path: /usr/bin/claude-desktop
+  register: claude_desktop_stat
+  when:
+    - install_claude_desktop | default(false) | bool
+    - ansible_facts['os_family'] == 'Debian'
+
+- name: Download Claude Desktop .deb (Linux Debian)
+  ansible.builtin.get_url:
+    url: "{{ claude_desktop_deb_url }}"
+    dest: "{{ ansible_env.HOME }}/.lukkInstall/claude-desktop.deb"
+    mode: '0644'
+  become: no
+  when:
+    - install_claude_desktop | default(false) | bool
+    - ansible_facts['os_family'] == 'Debian'
+    - not (claude_desktop_stat.stat.exists | default(false))
+
+- name: Install Claude Desktop .deb (Linux Debian)
+  ansible.builtin.apt:
+    deb: "{{ ansible_env.HOME }}/.lukkInstall/claude-desktop.deb"
+    state: present
+  become: yes
+  when:
+    - install_claude_desktop | default(false) | bool
+    - ansible_facts['os_family'] == 'Debian'
+    - not (claude_desktop_stat.stat.exists | default(false))
+
+- name: Check if Claude Desktop is installed (Arch Linux)
+  ansible.builtin.command: pacman -Q claude-desktop
+  register: claude_desktop_arch_check
+  changed_when: false
+  failed_when: false
+  when:
+    - install_claude_desktop | default(false) | bool
+    - ansible_facts['os_family'] == 'Archlinux'
+
+- name: Install Claude Desktop via AUR (Arch Linux)
   ansible.builtin.shell: |
-    set -o pipefail
-    curl -sL https://anthropic-claude-desktop-app.s3.amazonaws.com/install.sh | bash
+    yay -S --noconfirm --needed --mflags "--skippgpcheck" claude-desktop
   args:
     executable: /bin/bash
-    creates: /usr/bin/claude-desktop
-  when: ansible_facts['os_family'] != 'Darwin'
+  become: no
+  async: 1800
+  poll: 30
+  when:
+    - install_claude_desktop | default(false) | bool
+    - ansible_facts['os_family'] == 'Archlinux'
+    - claude_desktop_arch_check.rc != 0
 
 - name: Install Claude Desktop (macOS)
   community.general.homebrew_cask:
     name: claude
     state: present
-  when: ansible_facts['os_family'] == 'Darwin'
+  when:
+    - install_claude_desktop | default(false) | bool
+    - ansible_facts['os_family'] == 'Darwin'
