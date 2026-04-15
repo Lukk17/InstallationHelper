@@ -24,6 +24,7 @@ software_mapping:
   sublime: { manager: "apt", package: "sublime-text" }
   arduino: { manager: "snap", package: "arduino" }
   antigravity: { manager: "apt_url", package: "antigravity.deb", is_deb_url: true }
+  bruno: { manager: "flatpak", package: "com.usebruno.Bruno" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
@@ -84,3 +85,4 @@ software_mapping:
   # Virtualization
   virt_manager: { manager: "apt", package: "virt-manager" }
   docker: { manager: "apt", package: "docker.io" }
+

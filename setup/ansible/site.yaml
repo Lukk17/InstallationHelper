@@ -44,6 +44,7 @@
     # 4. Universal Complex Roles (SDKs & AI)
     - { role: sdk_manager }
     - { role: ai_tools }
+    - { role: jetbrains_toolbox, when: "install_jetbrains_toolbox | default(false) | bool" }
 
     # 5. Core Software Router (Replaces dev_tools, other_apps, gaming, crypto_tools, etc.)
     - { role: software_installer }
@@ -52,4 +53,6 @@
     - { role: waydroid, when: "ansible_facts['system'] == 'Linux' and install_waydroid | default(false) | bool" }
     - { role: linux_crypto_hardware, when: "ansible_facts['system'] == 'Linux' and (install_ledger_live | default(false) | bool or install_trezor_suite | default(false) | bool)" }
     - { role: linux_security, when: "ansible_facts['system'] == 'Linux' and setup_hibernate | default(false) | bool" }
+    - { role: snapper, when: "ansible_facts['system'] == 'Linux' and install_snapper | default(false) | bool" }
     - { role: virtualization_config, when: "ansible_facts['system'] == 'Linux' and (install_virt_manager | default(false) | bool or install_docker | default(false) | bool or install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)" }
+

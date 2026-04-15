@@ -3,3 +3,4 @@
 - import_tasks: oh_my_zsh.yaml
 - import_tasks: fonts_theme.yaml
 - import_tasks: terminal_config.yaml
+

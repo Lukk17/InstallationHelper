@@ -24,6 +24,7 @@ software_mapping:
   sublime: { manager: "dnf_repo", package: "sublime-text" }
   arduino: { manager: "snap", package: "arduino" }
   antigravity: { manager: "dnf_url", package: "antigravity.rpm" }
+  bruno: { manager: "flatpak", package: "com.usebruno.Bruno" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
@@ -83,3 +84,4 @@ software_mapping:
   # Virtualization
   virt_manager: { manager: "dnf", package: "virt-manager" }
   docker: { manager: "dnf", package: "docker-ce" }
+

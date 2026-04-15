@@ -3,3 +3,4 @@
   community.windows.win_winget:
     name: Python.Python.3.11
     state: present
+

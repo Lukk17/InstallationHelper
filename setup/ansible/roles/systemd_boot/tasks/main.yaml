@@ -78,3 +78,4 @@
 - name: Remove this distro's GRUB installation
   ansible.builtin.include_tasks: remove_grub.yaml
   when: remove_distro_grub | default(true) | bool
+

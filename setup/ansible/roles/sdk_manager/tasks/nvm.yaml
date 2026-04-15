@@ -6,3 +6,4 @@
 - name: Include NVM Windows tasks
   ansible.builtin.include_tasks: nvm_windows.yaml
   when: ansible_facts['os_family'] == 'Windows' and install_nodejs | default(false) | bool
+

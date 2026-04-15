@@ -8,3 +8,4 @@ default_presentation_app: onlyoffice-desktopeditors.desktop
 favorite_apps: "['org.gnome.Nautilus.desktop', 'google-chrome.desktop', 'sublime-text_subl.desktop', 'intellij-idea-ultimate_intellij-idea-ultimate.desktop', 'lens.desktop', 'postman.desktop']"
 dash_dock_position: 'LEFT'
 dash_dock_disable_ubuntu_dock: false
+

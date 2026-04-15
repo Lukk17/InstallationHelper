@@ -1,0 +1,73 @@
+---
+# JetBrains Toolbox and IDEs Installation
+
+- name: Check if JetBrains Toolbox is installed
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['env']['HOME'] }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
+  register: toolbox_binary
+
+- name: Install JetBrains Toolbox (Linux/macOS)
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL https://raw.githubusercontent.com/nickmilo/JetBrains-Toolbox/main/install.sh | bash
+  args:
+    executable: /bin/bash
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] in ['Linux', 'Darwin']
+    - not toolbox_binary.stat.exists
+
+- name: Install IntelliJ IDEA via Toolbox
+  ansible.builtin.shell: |
+    set -o pipefail
+    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install idea
+  args:
+    executable: /bin/bash
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - not toolbox_binary.stat.exists
+  failed_when: false
+
+- name: Install PyCharm via Toolbox
+  ansible.builtin.shell: |
+    set -o pipefail
+    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install pycharm
+  args:
+    executable: /bin/bash
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - not toolbox_binary.stat.exists
+  failed_when: false
+
+- name: Install WebStorm via Toolbox
+  ansible.builtin.shell: |
+    set -o pipefail
+    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install webstorm
+  args:
+    executable: /bin/bash
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - not toolbox_binary.stat.exists
+  failed_when: false
+
+- name: Install DataGrip via Toolbox
+  ansible.builtin.shell: |
+    set -o pipefail
+    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install datagrip
+  args:
+    executable: /bin/bash
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - not toolbox_binary.stat.exists
+  failed_when: false
+
+- name: Install Rider via Toolbox
+  ansible.builtin.shell: |
+    set -o pipefail
+    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install rider
+  args:
+    executable: /bin/bash
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - not toolbox_binary.stat.exists
+  failed_when: false

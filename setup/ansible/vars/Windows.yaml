@@ -1,17 +1,17 @@
 ---
 software_mapping:
   # Browsers
-  chrome: { manager: "choco", package: "googlechrome" }
-  brave: { manager: "choco", package: "brave" }
-  tor: { manager: "choco", package: "tor-browser" }
+  chrome: { manager: "winget", package: "Google.Chrome" }
+  brave: { manager: "winget", package: "Brave.Brave" }
+  tor: { manager: "winget", package: "TorProject.TorBrowser" }
 
   # Dev Tools
-  git: { manager: "choco", package: "git" }
-  maven: { manager: "choco", package: "maven" }
-  gradle: { manager: "choco", package: "gradle" }
-  postman: { manager: "choco", package: "postman" }
-  openssl: { manager: "choco", package: "openssl" }
-  dbeaver: { manager: "choco", package: "dbeaver" }
+  git: { manager: "winget", package: "Git.Git" }
+  maven: { manager: "winget", package: "Apache.Maven" }
+  gradle: { manager: "winget", package: "Gradle.Gradle" }
+  postman: { manager: "winget", package: "Postman.Postman" }
+  openssl: { manager: "winget", package: "ShiningLight.OpenSSL.Dev" }
+  dbeaver: { manager: "winget", package: "DBeaver.DBeaver.Community" }
   kubectl: { manager: "winget", package: "Kubernetes.kubectl" }
   minikube: { manager: "winget", package: "Kubernetes.minikube" }
   lens: { manager: "winget", package: "Mirantis.Lens" }
@@ -19,22 +19,23 @@ software_mapping:
   putty: { manager: "winget", package: "PuTTY.PuTTY" }
 
   # IDEs / Editors
-  intellij: { manager: "choco", package: "intellijidea-ultimate" }
+  intellij: { manager: "winget", package: "JetBrains.IntelliJIDEA.Ultimate" }
   vscode: { manager: "winget", package: "Microsoft.VisualStudioCode" }
-  sublime: { manager: "choco", package: "sublimetext4" }
+  sublime: { manager: "winget", package: "SublimeHQ.SublimeText.4" }
   arduino: { manager: "winget", package: "ArduinoSA.IDE.stable" }
   antigravity: { manager: "winget", package: "Google.Antigravity" }
+  bruno: { manager: "winget", package: "Bruno.Bruno" }
 
   # Communication
   discord: { manager: "winget", package: "Discord.Discord" }
   slack: { manager: "winget", package: "SlackTechnologies.Slack" }
   teams: { manager: "winget", package: "Microsoft.Teams" }
   telegram: { manager: "winget", package: "Telegram.TelegramDesktop" }
-  signal: { manager: "choco", package: "signal" }
+  signal: { manager: "winget", package: "OpenWhisperSystems.Signal" }
   whatsapp: { manager: "winget", package: "WhatsApp.WhatsApp" }
 
   # Productivity
-  obsidian: { manager: "choco", package: "obsidian" }
+  obsidian: { manager: "winget", package: "Obsidian.Obsidian" }
   bitwarden: { manager: "winget", package: "Bitwarden.Bitwarden" }
   keepassxc: { manager: "winget", package: "KeePassXCTeam.KeePassXC" }
   trello: { manager: "winget", package: "Trello.Trello" }
@@ -43,41 +44,42 @@ software_mapping:
   # Media / Design
   vlc: { manager: "winget", package: "VideoLAN.VLC" }
   spotify: { manager: "winget", package: "Spotify.Spotify" }
-  gimp: { manager: "choco", package: "gimp" }
-  krita: { manager: "choco", package: "krita" }
+  gimp: { manager: "winget", package: "GIMP.GIMP.3" }
+  krita: { manager: "winget", package: "KDE.Krita" }
   handbrake: { manager: "winget", package: "HandBrake.HandBrake" }
   audacity: { manager: "winget", package: "Audacity.Audacity" }
   rawtherapee: { manager: "winget", package: "RawTherapee.RawTherapee" }
 
   # Gaming
-  steam: { manager: "choco", package: "steam" }
+  steam: { manager: "winget", package: "Valve.Steam" }
   gog: { manager: "winget", package: "GOG.Galaxy" }
   epic: { manager: "winget", package: "EpicGames.EpicGamesLauncher" }
   
   # CAD / 3D
-  freecad: { manager: "choco", package: "freecad" }
-  prusaslicer: { manager: "choco", package: "prusaslicer" }
+  freecad: { manager: "winget", package: "FreeCAD.FreeCAD" }
+  prusaslicer: { manager: "winget", package: "Prusa3D.PrusaSlicer" }
 
   # Utilities
-  teamviewer: { manager: "choco", package: "teamviewer" }
+  teamviewer: { manager: "winget", package: "TeamViewer.TeamViewer" }
   veracrypt: { manager: "winget", package: "IDRIX.VeraCrypt" }
   speedtest: { manager: "winget", package: "Ookla.Speedtest" }
 
   # Crypto
   boinc: { manager: "winget", package: "SpaceSciencesLaboratory.BOINC" }
-  gridcoin: { manager: "choco", package: "gridcoinresearch" }
+  gridcoin: { manager: "winget", package: "Gridcoin.Client" }
 
   # Windows Only Native Apps
-  hwmonitor: { manager: "choco", package: "hwmonitor" }
-  crystaldiskinfo: { manager: "choco", package: "crystaldiskinfo" }
-  msiafterburner: { manager: "choco", package: "msiafterburner" }
-  wiztree: { manager: "choco", package: "wiztree" }
-  advanced_ip_scanner: { manager: "choco", package: "advanced-ip-scanner" }
-  glasswire: { manager: "choco", package: "glasswire" }
-  tcpview: { manager: "choco", package: "tcpview" }
-  autoruns: { manager: "choco", package: "autoruns" }
-  rufus: { manager: "choco", package: "rufus" }
+  hwmonitor: { manager: "winget", package: "CPUID.HWMonitor" }
+  crystaldiskinfo: { manager: "winget", package: "CrystalDewWorld.CrystalDiskInfo" }
+  msiafterburner: { manager: "winget", package: "Guru3D.Afterburner" }
+  wiztree: { manager: "winget", package: "AntibodySoftware.WizTree" }
+  angry_ip_scanner: { manager: "winget", package: "angryziber.AngryIPScanner" }
+  glasswire: { manager: "winget", package: "GlassWire.GlassWire" }
+  tcpview: { manager: "winget", package: "Microsoft.Sysinternals.TCPView" }
+  autoruns: { manager: "winget", package: "Microsoft.Sysinternals.Autoruns" }
+  rufus: { manager: "winget", package: "Rufus.Rufus" }
   powertoys: { manager: "winget", package: "Microsoft.PowerToys" }
 
   # Virtualization
   docker: { manager: "winget", package: "Docker.DockerDesktop" }
+

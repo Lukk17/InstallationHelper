@@ -1,7 +1,7 @@
 ---
 - name: Check if Oh-My-Zsh is already installed
   ansible.builtin.stat:
-    path: "{{ ansible_env.HOME }}/.oh-my-zsh"
+    path: "{{ ansible_facts['env']['HOME'] }}/.oh-my-zsh"
   register: omz_dir
   become: no
 
@@ -15,10 +15,11 @@
 - name: Copy ZSH configuration files
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../config/{{ item }}"
-    dest: "{{ ansible_env.HOME }}/{{ item }}"
+    dest: "{{ ansible_facts['env']['HOME'] }}/{{ item }}"
   loop:
     - ".p10k.zsh"
     - ".zshrc.pre-oh-my-zsh"
     - ".zshrc"
   become: no
   when: not omz_dir.stat.exists
+

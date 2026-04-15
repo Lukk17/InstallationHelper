@@ -22,3 +22,4 @@
 - name: Setup Android SDK
   ansible.builtin.include_tasks: android_sdk.yaml
   when: install_android_sdk | default(false) | bool
+

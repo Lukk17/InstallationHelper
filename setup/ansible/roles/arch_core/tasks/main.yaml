@@ -156,3 +156,4 @@
     state: started
     enabled: yes
   when: install_snapd | default(false) | bool
+

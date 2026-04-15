@@ -51,3 +51,7 @@ install_vmware: false
 # AI Tools - Linux specific
 # Claude Desktop AUR requires compiling from source (1+ hour), CLI is faster
 install_claude_desktop: false
+
+# Btrfs Snapshots with Snapper
+install_snapper: true
+

@@ -6,3 +6,4 @@
 - name: Include Pyenv Windows tasks
   ansible.builtin.include_tasks: pyenv_windows.yaml
   when: ansible_facts['os_family'] == 'Windows' and install_python | default(false) | bool
+

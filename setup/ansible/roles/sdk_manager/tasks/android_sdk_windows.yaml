@@ -3,3 +3,4 @@
   community.windows.win_winget:
     name: Google.AndroidStudio
     state: present
+

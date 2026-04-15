@@ -11,3 +11,4 @@
     name: vmware-workstation-player
     state: present
   when: install_vmware | default(false) | bool
+

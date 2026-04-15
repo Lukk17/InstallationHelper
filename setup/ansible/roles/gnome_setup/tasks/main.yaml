@@ -4,3 +4,4 @@
 
 - import_tasks: configure_gnome.yaml
   when: configure_gnome | bool
+

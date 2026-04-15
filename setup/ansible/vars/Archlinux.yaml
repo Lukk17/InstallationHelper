@@ -19,11 +19,12 @@ software_mapping:
 
 
   # IDEs / Editors
-  intellij: { manager: "snap", package: "intellij-idea-ultimate", classic: true }
+
   vscode: { manager: "aur", package: "visual-studio-code-bin" }
   sublime: { manager: "aur", package: "sublime-text-4" }
   arduino: { manager: "pacman", package: "arduino" }
   antigravity: { manager: "aur", package: "antigravity" }
+  bruno: { manager: "flatpak", package: "com.usebruno.Bruno" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
@@ -82,3 +83,4 @@ software_mapping:
   # Virtualization
   virt_manager: { manager: "pacman", package: "virt-manager" }
   docker: { manager: "pacman", package: "docker" }
+

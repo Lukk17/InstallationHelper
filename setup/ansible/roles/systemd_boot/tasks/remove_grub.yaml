@@ -111,3 +111,4 @@
   loop: "{{ grub_nvram_entries.stdout_lines }}"
   when: grub_nvram_entries.stdout_lines | length > 0
   ignore_errors: yes
+
