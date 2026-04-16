@@ -98,9 +98,33 @@ or use --extra-vars "allow_callback_failure=true"
     def _get_timestamp(self) -> str:
         return datetime.datetime.now().strftime("%H:%M:%S")
 
+    # Patterns to filter out from BOTH logs (full_log and issues_log)
+    IGNORE_PATTERNS = [
+        "already installed",
+        "subvolume already covered",
+    ]
+    PROGRESS_REGEX = re.compile(r'^[#\s%]+$')
+
+    def _should_skip_line(self, line: str) -> bool:
+        """Check if a line should be skipped from logging (both logs)"""
+        if not line:
+            return False
+        # Check exact substring matches
+        for pattern in self.IGNORE_PATTERNS:
+            if pattern in line:
+                return True
+        # Check progress-only lines (only #, space, %)
+        if self.PROGRESS_REGEX.match(line):
+            return True
+        return False
+
     def _write_log(self, msg: str, level: str = "INFO") -> None:
         if not self._log_initialized:
             self._open_logs()
+
+        # Check if we should skip this line (filter noise from both logs)
+        if self._should_skip_line(msg):
+            return
 
         timestamp = self._get_timestamp()
         log_msg = f"[{timestamp}] {msg}"
@@ -112,7 +136,7 @@ or use --extra-vars "allow_callback_failure=true"
             except (IOError, OSError):
                 pass
 
-        if self.issues_log and level in ("WARNING", "ERROR", "CRITICAL", "FATAL"):
+        if self.issues_log and level in ("ERROR", "CRITICAL", "FATAL"):
             try:
                 self.issues_log.write(log_msg + "\n")
                 self.issues_log.flush()
@@ -133,6 +157,9 @@ or use --extra-vars "allow_callback_failure=true"
                 if isinstance(stdout, str) and stdout.strip():
                     for line in stdout.strip().split("\n"):
                         if line.strip():
+                            # Apply filter to stdout lines as well
+                            if self._should_skip_line(line):
+                                continue
                             self._display.display(f"  {line}")
                             self._write_log(f"  {line}", level)
             # Show stderr if present (usually contains warnings)
@@ -141,6 +168,9 @@ or use --extra-vars "allow_callback_failure=true"
                 if isinstance(stderr, str) and stderr.strip():
                     for line in stderr.strip().split("\n"):
                         if line.strip():
+                            # Apply filter to stderr lines as well
+                            if self._should_skip_line(line):
+                                continue
                             self._display.display(f"  {line}")
                             self._write_log(f"  {line}", "WARNING")
 

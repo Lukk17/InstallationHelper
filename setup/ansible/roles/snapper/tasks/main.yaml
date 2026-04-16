@@ -42,11 +42,11 @@
   ignore_errors: yes
 
 - name: Set snapshot cleanup policy
-  ansible.builtin.shell: >
-    snapper -c root set-config TIMELINE_MIN_AGE=1800
-    snapper -c root set-config TIMELINE_LIMIT_HOURLY=24
-    snapper -c root set-config TIMELINE_LIMIT_DAILY=7
-    snapper -c root set-config TIMELINE_LIMIT_WEEKLY=4
+  ansible.builtin.shell: |
+    snapper -c root set-config TIMELINE_MIN_AGE=1800 &&
+    snapper -c root set-config TIMELINE_LIMIT_HOURLY=24 &&
+    snapper -c root set-config TIMELINE_LIMIT_DAILY=7 &&
+    snapper -c root set-config TIMELINE_LIMIT_WEEKLY=4 &&
     snapper -c root set-config TIMELINE_LIMIT_MONTHLY=6
   become: yes
   when: root_fs_type.stdout == 'btrfs'
@@ -81,5 +81,3 @@
   when: root_fs_type.stdout == 'btrfs'
   ignore_errors: yes
   become: yes
-  when: root_fs_type.stdout == 'btrfs'
-  ignore_errors: yes
