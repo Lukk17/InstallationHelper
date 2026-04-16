@@ -22,7 +22,6 @@
       - libvirt
       - dnsmasq
       - nftables
-      - bridge-utils
       - virtiofsd
     state: present
   when: ansible_facts['os_family'] == 'Archlinux' and install_virt_manager | default(false) | bool

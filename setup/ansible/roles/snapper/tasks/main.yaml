@@ -77,7 +77,9 @@
   when: ansible_facts['os_family'] == 'RedHat' and root_fs_type.stdout == 'btrfs'
 
 - name: Create initial snapshot
-  ansible.builtin.shell: snapper -c root create -t timeline --description "Initial Ansible snapshot"
+  ansible.builtin.shell: snapper -c root create -t single --description "Initial Ansible snapshot"
+  when: root_fs_type.stdout == 'btrfs'
+  ignore_errors: yes
   become: yes
   when: root_fs_type.stdout == 'btrfs'
   ignore_errors: yes
