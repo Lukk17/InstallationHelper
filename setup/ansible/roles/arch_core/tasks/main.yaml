@@ -168,3 +168,25 @@
     enabled: yes
   when: install_snapd | default(false) | bool
 
+
+# Install Flatpak (required for flatpak packages in software_installer)
+- name: Check if flatpak is already installed
+  ansible.builtin.command: which flatpak
+  register: flatpak_check
+  changed_when: false
+  failed_when: flatpak_check.rc > 1
+
+- name: Install flatpak via pacman
+  become: yes
+  community.general.pacman:
+    name:
+      - flatpak
+    state: present
+  when: flatpak_check.rc != 0
+
+- name: Add Flathub remote if not exists
+  become: yes
+  ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+  ignore_errors: true
+  when: flatpak_check.rc != 0
+
