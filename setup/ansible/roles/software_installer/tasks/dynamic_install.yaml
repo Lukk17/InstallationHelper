@@ -87,9 +87,17 @@
     - name: Install Flatpak packages (Native)
       community.general.flatpak:
         name: "{{ item.value.package }}"
+        remote: flathub
         state: present
       loop: "{{ software_installer_packages }}"
+      failed_when: false
+      register: flatpak_result
       when: ansible_facts['system'] == 'Linux' and item.value.manager == 'flatpak'
+
+    - name: Show Flatpak installation results
+      ansible.builtin.debug:
+        msg: "Flatpak result: {{ flatpak_result }}"
+      when: flatpak_result is defined
 
     # ------------------ MACOS MANAGERS ------------------
     - name: Install Homebrew packages (Native)
@@ -110,5 +118,8 @@
     - name: Include Windows installation tasks
       ansible.builtin.include_tasks: windows_install.yaml
       when: ansible_facts['os_family'] == 'Windows'
+  rescue:
+    - name: Show installation errors
+      ansible.builtin.debug:
+        msg: "[WARNING] Some packages failed to install. Check individual errors above."
   when: software_installer_packages is defined and software_installer_packages | length > 0
-

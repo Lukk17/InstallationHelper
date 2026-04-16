@@ -84,6 +84,10 @@ software_mapping:
   # balena_etcher: { manager: "aur", package: "balena-etcher", is_alternative_for: "Rufus" }
   gputest: { manager: "aur", package: "gputest", is_alternative_for: "FurMark" }
 
+  # Utilities
+  gparted: { manager: "pacman", package: "gparted" }
+  partitionmanager: { manager: "pacman", package: "partitionmanager" }
+
   # Virtualization
   virt_manager: { manager: "pacman", package: "virt-manager" }
   docker: { manager: "pacman", package: "docker" }

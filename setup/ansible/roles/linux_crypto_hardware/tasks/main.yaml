@@ -27,9 +27,15 @@
 
 - name: Add Trezor udev rules (Archlinux)
   become: yes
-  kewlfft.aur.aur:
-    name: trezor-udev
-    use: yay
-    state: present
+  ansible.builtin.get_url:
+    url: "https://data.trezor.io/udev/51-trezor.rules"
+    dest: /etc/udev/rules.d/51-trezor.rules
+    mode: '0644'
+  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'Archlinux'
+
+- name: Reload udev rules (Archlinux)
+  become: yes
+  ansible.builtin.command: udevadm control --reload-rules
+  changed_when: false
   when: install_trezor_suite | bool and ansible_facts['os_family'] == 'Archlinux'
 

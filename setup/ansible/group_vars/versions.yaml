@@ -35,10 +35,10 @@ tor_browser_version: "14.5"
 tor_browser_file: "tor-browser-linux-x86_64-{{ tor_browser_version }}.tar.xz"
 
 # Java SDKMAN versions
-java11_id: "11.0.26-tem"
-java17_id: "17.0.14-tem"
-java21_id: "21.0.6-tem"
-java25_id: "25-tem"
+java11_id: "11.0.30-tem"
+java17_id: "17.0.18-tem"
+java21_id: "21.0.10-tem"
+java25_id: "25.0.2-tem"
 default_java: "{{ java21_id }}"
 
 # Python Pyenv versions
@@ -62,7 +62,7 @@ android_cmdline_tools_version: "13.0"
 android_cmdline_tools_build: "11076708"
 android_build_tools_version: "35.0.0"
 android_api_level: "35"
-android_home: "{{ ansible_facts['env']['HOME'] }}/Android/Sdk"
+android_home: "{{ ansible_facts['user_dir'] }}/Android/Sdk"
 
 # Fonts
 meslo_regular_url: "https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"

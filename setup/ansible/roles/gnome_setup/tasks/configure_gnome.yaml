@@ -1,14 +1,14 @@
 ---
 - name: Create Templates directory
   ansible.builtin.file:
-    path: "{{ ansible_facts['env']['HOME'] }}/Templates"
+    path: "{{ ansible_facts['user_dir'] }}/Templates"
     state: directory
     mode: '0755'
   become: no
 
 - name: Create basic template files
   ansible.builtin.file:
-    path: "{{ ansible_facts['env']['HOME'] }}/Templates/{{ item }}"
+    path: "{{ ansible_facts['user_dir'] }}/Templates/{{ item }}"
     state: touch
     mode: '0644'
   loop:
@@ -60,12 +60,12 @@
 
 - name: Setup Nautilus Bookmarks
   ansible.builtin.lineinfile:
-    path: "{{ ansible_facts['env']['HOME'] }}/.config/gtk-3.0/bookmarks"
+    path: "{{ ansible_facts['user_dir'] }}/.config/gtk-3.0/bookmarks"
     line: "file://{{ item.path }} {{ item.name }}"
     create: yes
   loop:
-    - { path: "{{ ansible_facts['env']['HOME'] }}/.local/share/applications", name: "applications-local" }
-    - { path: "{{ ansible_facts['env']['HOME'] }}/.config/autostart", name: "autostart-config" }
+    - { path: "{{ ansible_facts['user_dir'] }}/.local/share/applications", name: "applications-local" }
+    - { path: "{{ ansible_facts['user_dir'] }}/.config/autostart", name: "autostart-config" }
     - { path: "/opt", name: "opt" }
     - { path: "/usr/share/applications", name: "applications" }
     - { path: "/etc/xdg", name: "xdg" }

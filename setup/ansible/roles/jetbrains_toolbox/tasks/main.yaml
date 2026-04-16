@@ -3,7 +3,7 @@
 
 - name: Check if JetBrains Toolbox is installed
   ansible.builtin.stat:
-    path: "{{ ansible_facts['env']['HOME'] }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
+    path: "{{ ansible_facts['user_dir'] }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
   register: toolbox_binary
 
 - name: Check if JetBrains Toolbox is installed via AUR
@@ -32,6 +32,8 @@
     bash /tmp/jetbrains-toolbox-installer.sh
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   when:
     - install_jetbrains_toolbox | default(true) | bool
     - ansible_facts['system'] in ['Linux', 'Darwin']
@@ -44,6 +46,8 @@
     ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install idea
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   when:
     - install_jetbrains_toolbox | default(true) | bool
     - toolbox_binary.stat.exists
@@ -55,6 +59,8 @@
     ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install pycharm
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   when:
     - install_jetbrains_toolbox | default(true) | bool
     - toolbox_binary.stat.exists
@@ -66,6 +72,8 @@
     ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install webstorm
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   when:
     - install_jetbrains_toolbox | default(true) | bool
     - toolbox_binary.stat.exists
@@ -77,6 +85,8 @@
     ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install datagrip
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   when:
     - install_jetbrains_toolbox | default(true) | bool
     - toolbox_binary.stat.exists
@@ -88,6 +98,8 @@
     ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install rider
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   when:
     - install_jetbrains_toolbox | default(true) | bool
     - toolbox_binary.stat.exists

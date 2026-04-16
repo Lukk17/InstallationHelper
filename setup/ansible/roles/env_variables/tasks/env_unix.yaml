@@ -1,8 +1,9 @@
 ---
 - name: Set Linux Environment Variables
   ansible.builtin.blockinfile:
-    path: "{{ ansible_facts['env']['HOME'] }}/.bashrc"
+    path: "{{ ansible_facts['user_dir'] }}/.bashrc"
     marker: "# {mark} ANSIBLE DEV APPS CONFIG"
+    create: yes
     block: |
       export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
       export DOCKER_CONFIG="$HOME/apps_config/.docker"
@@ -15,8 +16,9 @@
 
 - name: Set macOS Environment Variables
   ansible.builtin.blockinfile:
-    path: "{{ ansible_facts['env']['HOME'] }}/.zshrc"
+    path: "{{ ansible_facts['user_dir'] }}/.zshrc"
     marker: "# {mark} ANSIBLE DEV APPS CONFIG"
+    create: yes
     block: |
       export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
       export DOCKER_CONFIG="$HOME/apps_config/.docker"
