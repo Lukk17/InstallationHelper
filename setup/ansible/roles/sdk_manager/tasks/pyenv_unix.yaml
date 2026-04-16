@@ -4,18 +4,22 @@
     set -o pipefail
     curl https://pyenv.run | bash
   args:
-    creates: "{{ ansible_facts['env']['HOME'] }}/.pyenv/bin/pyenv"
+    creates: "{{ ansible_facts['user_dir'] }}/.pyenv/bin/pyenv"
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
 
 - name: Install all Python versions via Pyenv (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    export PYENV_ROOT="{{ ansible_facts['env']['HOME'] }}/.pyenv"
+    export PYENV_ROOT="{{ ansible_facts['user_dir'] }}/.pyenv"
     export PATH="$PYENV_ROOT/bin:$PATH"
     eval "$(pyenv init -)"
     pyenv install --skip-existing {{ item }}
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   loop:
     - "{{ python310_id }}"
     - "{{ python311_id }}"
@@ -28,11 +32,13 @@
 - name: Set default Python via Pyenv (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    export PYENV_ROOT="{{ ansible_facts['env']['HOME'] }}/.pyenv"
+    export PYENV_ROOT="{{ ansible_facts['user_dir'] }}/.pyenv"
     export PATH="$PYENV_ROOT/bin:$PATH"
     eval "$(pyenv init -)"
     pyenv global {{ default_python }}
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   changed_when: true
 

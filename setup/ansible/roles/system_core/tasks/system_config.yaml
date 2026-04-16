@@ -9,8 +9,8 @@
   become: yes
   when: setup_tmpfs | bool
 
-- name: Setup local time RTC (dual-boot Windows fix)
-  ansible.builtin.command: timedatectl set-local-rtc 1 --adjust-system-clock
+- name: Setup UTC time RTC (recommended for Linux-only)
+  ansible.builtin.command: timedatectl set-local-rtc 0
   become: yes
   changed_when: false
 

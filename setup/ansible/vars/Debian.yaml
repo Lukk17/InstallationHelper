@@ -82,6 +82,10 @@ software_mapping:
   balena_etcher: { manager: "apt_url", package: "balena-etcher", is_alternative_for: "Rufus", is_deb_url: true }
   gputest: { manager: "apt", package: "gputest", is_alternative_for: "FurMark" }
 
+  # Utilities
+  gparted: { manager: "apt", package: "gparted" }
+  partitionmanager: { manager: "apt", package: "partitionmanager" }
+
   # Virtualization
   virt_manager: { manager: "apt", package: "virt-manager" }
   docker: { manager: "apt", package: "docker.io" }

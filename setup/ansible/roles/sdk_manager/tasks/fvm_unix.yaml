@@ -8,6 +8,8 @@
     exit 1
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   register: fvm_check
   changed_when: false
   failed_when: false
@@ -18,6 +20,8 @@
     dart pub global activate fvm
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   when:
     - fvm_check.rc != 0
     - ansible_facts['os_family'] == 'Archlinux'
@@ -28,6 +32,8 @@
     curl -fsSL https://fvm.app/install.sh | bash
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   when:
     - fvm_check.rc != 0
     - ansible_facts['os_family'] != 'Archlinux'
@@ -38,8 +44,10 @@
     export PATH="$HOME/.fvm/bin:$HOME/.pub-cache/bin:$PATH"
     fvm install {{ flutter_channel }}
   args:
-    creates: "{{ ansible_facts['env']['HOME'] }}/fvm/versions/{{ flutter_channel }}/bin/flutter"
+    creates: "{{ ansible_facts['user_dir'] }}/fvm/versions/{{ flutter_channel }}/bin/flutter"
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
 
 - name: Set FVM global version ({{ flutter_channel }})
   ansible.builtin.shell: |
@@ -48,5 +56,7 @@
     fvm global {{ flutter_channel }}
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
   changed_when: true
 

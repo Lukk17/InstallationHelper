@@ -1,7 +1,7 @@
 ---
 - name: Disable Ubuntu default IBus injection for Wayland compatibility
   ansible.builtin.copy:
-    dest: "{{ ansible_facts['env']['HOME'] }}/.xinputrc"
+    dest: "{{ ansible_facts['user_dir'] }}/.xinputrc"
     content: |
       run_im none
     mode: '0644'

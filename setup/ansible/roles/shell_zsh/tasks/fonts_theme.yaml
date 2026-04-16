@@ -28,7 +28,7 @@
 - name: Clone Powerlevel10k Theme
   ansible.builtin.git:
     repo: https://github.com/romkatv/powerlevel10k.git
-    dest: "{{ ansible_facts['env']['HOME'] }}/.oh-my-zsh/custom/themes/powerlevel10k"
+    dest: "{{ ansible_facts['user_dir'] }}/.oh-my-zsh/custom/themes/powerlevel10k"
     depth: 1
-  become: no
+  become: yes
 

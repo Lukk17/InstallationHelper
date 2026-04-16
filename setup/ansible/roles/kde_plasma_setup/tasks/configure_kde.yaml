@@ -53,7 +53,9 @@
 - name: Install Konsave via pipx
   ansible.builtin.shell: pipx ensurepath && pipx install konsave
   args:
-    creates: "{{ ansible_facts['env']['HOME'] }}/.local/bin/konsave"
+    creates: "{{ ansible_facts['user_dir'] }}/.local/bin/konsave"
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
 
 - name: Import and apply Konsave profile
   ansible.builtin.shell: |
@@ -62,6 +64,8 @@
     konsave -a lukk_desktop_profile
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
 
 - name: Copy wallpapers directory for KDE
   ansible.builtin.copy:
@@ -82,41 +86,43 @@
     }'
   when: set_custom_wallpaper | bool
   changed_when: false
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
 
 - name: Clone applet-window-buttons repository
   ansible.builtin.git:
     repo: https://github.com/chermnyx/applet-window-buttons.git
-    dest: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons"
+    dest: "{{ ansible_facts['user_dir'] }}/applet-window-buttons"
     version: dumb_5.27_support
     force: yes
 
 - name: Create build directory
   ansible.builtin.file:
-    path: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
+    path: "{{ ansible_facts['user_dir'] }}/applet-window-buttons/build"
     state: directory
 
 - name: Run CMake with explicit Ubuntu multiarch paths
   ansible.builtin.command:
     cmd: cmake -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON -DKDE_INSTALL_QMLDIR=/usr/lib/x86_64-linux-gnu/qt5/qml ..
-    chdir: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
+    chdir: "{{ ansible_facts['user_dir'] }}/applet-window-buttons/build"
   when: ansible_facts['os_family'] == 'Debian'
 
 - name: Run CMake (Fedora/Arch)
   ansible.builtin.command:
     cmd: cmake -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON ..
-    chdir: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
+    chdir: "{{ ansible_facts['user_dir'] }}/applet-window-buttons/build"
   when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']
 
 - name: Compile the widget
   ansible.builtin.command:
     cmd: "make -j{{ ansible_processor_vcpus }}"
-    chdir: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
+    chdir: "{{ ansible_facts['user_dir'] }}/applet-window-buttons/build"
 
 - name: Install the compiled widget binaries
   become: yes
   ansible.builtin.command:
     cmd: make install
-    chdir: "{{ ansible_facts['env']['HOME'] }}/applet-window-buttons/build"
+    chdir: "{{ ansible_facts['user_dir'] }}/applet-window-buttons/build"
 
 - name: Clear KDE QML and system configuration caches
   ansible.builtin.shell: |
@@ -124,6 +130,8 @@
     kbuildsycoca5 --noincremental
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
 
 - name: Set Spectacle Shortcut
   ansible.builtin.command: kwriteconfig5 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot "Meta+Shift+S,Meta+Shift+Print,Capture Rectangular Region"
@@ -137,4 +145,6 @@
   ansible.builtin.shell: systemctl --user restart plasma-plasmashell.service
   args:
     executable: /bin/bash
+  environment:
+    HOME: "{{ ansible_facts['user_dir'] }}"
 

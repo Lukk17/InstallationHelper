@@ -278,6 +278,22 @@ or use --extra-vars "allow_callback_failure=true"
         error_details = []
         result_dict = result._result if hasattr(result, "_result") else {}
 
+        # Get exception traceback if present (most useful for debugging)
+        if "exception" in result_dict and result_dict["exception"]:
+            exc = result_dict["exception"]
+            # Get last 15 lines of traceback for clarity
+            exc_lines = exc.strip().split("\n")
+            if len(exc_lines) > 15:
+                error_details.append(f"  Exception (last 15 lines):")
+                for line in exc_lines[-15:]:
+                    if line.strip():
+                        error_details.append(f"    {line}")
+            else:
+                error_details.append(f"  Exception:")
+                for line in exc_lines:
+                    if line.strip():
+                        error_details.append(f"    {line}")
+
         # Get the main error message
         if "msg" in result_dict:
             error_details.append(f"  Error: {result_dict['msg']}")
@@ -342,7 +358,16 @@ or use --extra-vars "allow_callback_failure=true"
                         if k != "_ansible_check_mode" and v is not None:
                             cmd_parts.append(f"{k}={v}")
                     if cmd_parts:
-                        error_details.append(f"  Args: {' '.join(cmd_parts[:3])}")
+                        error_details.append(f"  Args: {' '.join(cmd_parts[:6])}")
+
+        # Fallback: dump full result dict as YAML for debugging (don't show empty dicts)
+        if not error_details or len(error_details) <= 2:
+            import yaml
+            result_str = yaml.dump(result_dict, default_flow_style=False, sort_keys=False)
+            if result_str.strip() and len(result_str) < 2000:
+                error_details.append(f"  Full result: {result_str[:500]}")
+            elif result_str.strip():
+                error_details.append(f"  Full result (truncated): {result_str[:500]}")
 
         return error_details
 

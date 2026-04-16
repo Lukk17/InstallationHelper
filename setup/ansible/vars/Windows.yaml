@@ -80,6 +80,9 @@ software_mapping:
   rufus: { manager: "winget", package: "Rufus.Rufus" }
   powertoys: { manager: "winget", package: "Microsoft.PowerToys" }
 
+  # Utilities
+  partition_wizard: { manager: "winget", package: "MiniTool.PartitionWizard.Free" }
+
   # Virtualization
   docker: { manager: "winget", package: "Docker.DockerDesktop" }
 

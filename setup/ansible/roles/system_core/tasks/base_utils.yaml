@@ -1,10 +1,12 @@
 ---
 - name: Ensure temporary installation folder exists
   ansible.builtin.file:
-    path: "{{ ansible_facts['env']['HOME'] }}/.lukkInstall"
+    path: "{{ ansible_facts['user_dir'] }}/.lukkInstall"
     state: directory
     mode: '0755'
-  become: no
+    owner: "{{ ansible_facts['user_id'] }}"
+    group: "{{ ansible_facts['user_id'] }}"
+  become: yes
 
 - name: Full system upgrade and autoremove (Debian)
   ansible.builtin.apt:

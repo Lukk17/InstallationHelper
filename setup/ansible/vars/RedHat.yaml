@@ -81,6 +81,10 @@ software_mapping:
   balena_etcher: { manager: "dnf_url", package: "balena-etcher.rpm", is_alternative_for: "Rufus" }
   gputest: { manager: "dnf", package: "gputest", is_alternative_for: "FurMark" }
 
+  # Utilities
+  gparted: { manager: "dnf", package: "gparted" }
+  partitionmanager: { manager: "dnf", package: "partitionmanager" }
+
   # Virtualization
   virt_manager: { manager: "dnf", package: "virt-manager" }
   docker: { manager: "dnf", package: "docker-ce" }
