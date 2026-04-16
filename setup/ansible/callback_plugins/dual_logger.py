@@ -417,23 +417,31 @@ or use --extra-vars "allow_callback_failure=true"
         host = result._host.get_name()
         task_name = result._task.get_name() if hasattr(result, "_task") else ""
         
-        # Extract item that was skipped
-        item = result._result.get('skip Reason', 'unknown') if hasattr(result, '_result') else 'unknown'
+        # Extract item that was skipped - FIX: use correct key 'skip_reason'
+        result_dict = result._result if hasattr(result, '_result') else {}
+        item = result_dict.get('skip_reason', result_dict.get('item', 'unknown'))
+        
+        # Get the actual skip reason if available
+        skip_reason = result_dict.get('skipped_reason', '')
         
         # Check parent task name for package manager keywords
         os_keywords = [
-            "APT", "DNF", "Pacman", "Snap", "Flatpak", "Homebrew", "brew_cask",
+            "APT ", "DNF ", "Pacman", "Snap ", "Flatpak", "Homebrew", "brew_cask",
             "AUR"
         ]
         
         # Check if this is from a non-matching package manager task
-        is_os_skip = any(keyword in task_name for keyword in os_keywords)
+        is_os_task = any(keyword in task_name for keyword in os_keywords)
+        
+        # Only suppress if OS-specific task AND reason contains 'was not certain'
+        # (which means the 'when:' condition failed due to OS mismatch)
+        is_os_skip = is_os_task and 'was not certain' in str(skip_reason)
         
         if is_os_skip:
             # Suppress output entirely for non-OS package manager items
             return  # Don't print anything
         else:
-            # Show toggle-based skips
+            # Show all other skips (toggle-based)
             self._display_and_log(f"skipping: [{host}] => {item}", "INFO")
 
     def v2_runner_on_skipped(self, result) -> None:
