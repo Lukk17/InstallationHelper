@@ -30,7 +30,9 @@
   when: ansible_facts['os_family'] == 'RedHat' and root_fs_type.stdout == 'btrfs'
 
 - name: Create snapper config for root
-  ansible.builtin.shell: snapper -c root create-config /
+  ansible.builtin.command: snapper -c root create-config /
+  args:
+    creates: /etc/snapper/configs/root
   become: yes
   when: root_fs_type.stdout == 'btrfs'
   ignore_errors: yes
