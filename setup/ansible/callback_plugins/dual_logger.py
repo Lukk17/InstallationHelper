@@ -412,6 +412,30 @@ or use --extra-vars "allow_callback_failure=true"
         for detail in error_details:
             self._display_and_log(detail, "ERROR")
 
+    def v2_runner_on_item_skipped(self, result, ignore_errors=False) -> None:
+        """Handle loop item skips - suppress output for non-matching OS package managers"""
+        host = result._host.get_name()
+        task_name = result._task.get_name() if hasattr(result, "_task") else ""
+        
+        # Extract item that was skipped
+        item = result._result.get('skip Reason', 'unknown') if hasattr(result, '_result') else 'unknown'
+        
+        # Check parent task name for package manager keywords
+        os_keywords = [
+            "APT", "DNF", "Pacman", "Snap", "Flatpak", "Homebrew", "brew_cask",
+            "AUR"
+        ]
+        
+        # Check if this is from a non-matching package manager task
+        is_os_skip = any(keyword in task_name for keyword in os_keywords)
+        
+        if is_os_skip:
+            # Suppress output entirely for non-OS package manager items
+            return  # Don't print anything
+        else:
+            # Show toggle-based skips
+            self._display_and_log(f"skipping: [{host}] => {item}", "INFO")
+
     def v2_runner_on_skipped(self, result) -> None:
         host = result._host.get_name()
         task_name = result._task.get_name() if hasattr(result, "_task") else ""
