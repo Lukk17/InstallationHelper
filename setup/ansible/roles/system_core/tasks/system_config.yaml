@@ -10,9 +10,9 @@
   when: setup_tmpfs | bool
 
 - name: Setup UTC time RTC (recommended for Linux-only)
-  ansible.builtin.command: timedatectl set-local-rtc 0
+  community.general.timezone:
+    hwclock: UTC
   become: yes
-  changed_when: false
 
 # --- Locale: Debian ---
 
@@ -24,9 +24,12 @@
   when: ansible_facts['os_family'] == 'Debian'
 
 - name: Set EN locale as default (Debian)
-  ansible.builtin.command: update-locale LANG=en_US.UTF-8
+  ansible.builtin.lineinfile:
+    path: /etc/default/locale
+    regexp: '^LANG='
+    line: "LANG=en_US.UTF-8"
+    create: true
   become: yes
-  changed_when: false
   when: ansible_facts['os_family'] == 'Debian'
 
 - name: Install Polish language packs (Debian)
@@ -50,14 +53,16 @@
   when: ansible_facts['os_family'] == 'Archlinux'
 
 - name: Generate locales (Arch)
-  ansible.builtin.command: locale-gen
+  community.general.locale_gen:
+    name: pl_PL.UTF-8
+    state: present
   become: yes
-  changed_when: false
   when: ansible_facts['os_family'] == 'Archlinux'
 
 - name: Set EN locale as default (Arch)
   ansible.builtin.lineinfile:
     path: /etc/locale.conf
+    regexp: '^LANG='
     line: "LANG=en_US.UTF-8"
     create: yes
     state: present
@@ -67,9 +72,12 @@
 # --- Locale: Fedora ---
 
 - name: Set EN locale as default (Fedora)
-  ansible.builtin.command: localectl set-locale LANG=en_US.UTF-8
+  ansible.builtin.lineinfile:
+    path: /etc/locale.conf
+    regexp: '^LANG='
+    line: "LANG=en_US.UTF-8"
+    create: true
   become: yes
-  changed_when: false
   when: ansible_facts['os_family'] == 'RedHat'
 
 - name: Install Polish locale support (Fedora)

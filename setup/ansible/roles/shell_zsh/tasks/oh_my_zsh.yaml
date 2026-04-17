@@ -3,13 +3,11 @@
   ansible.builtin.stat:
     path: "{{ ansible_facts['user_dir'] }}/.oh-my-zsh"
   register: omz_dir
-  become: yes
 
 - name: Install Oh-My-Zsh
   ansible.builtin.shell: 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
   args:
     executable: /bin/bash
-  become: yes
   when: not omz_dir.stat.exists
 
 - name: Copy ZSH configuration files
@@ -20,6 +18,5 @@
     - ".p10k.zsh"
     - ".zshrc.pre-oh-my-zsh"
     - ".zshrc"
-  become: yes
   when: not omz_dir.stat.exists
 
