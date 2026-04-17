@@ -1,8 +1,10 @@
 ---
 - name: Add Ledger udev rules
-  ansible.builtin.shell: wget -q -O - "https://raw.githubusercontent.com/LedgerHQ/udev-rules/master/add_udev_rules.sh" | bash
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/LedgerHQ/udev-rules/master/20-hw1.rules"
+    dest: /etc/udev/rules.d/20-hw1.rules
+    mode: '0644'
   become: yes
-  changed_when: false
   when: install_ledger_live | bool
 
 - name: Add Trezor udev rules (Debian)

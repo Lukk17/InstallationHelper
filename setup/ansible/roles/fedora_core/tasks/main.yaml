@@ -43,12 +43,11 @@
     enabled: yes
   when: install_sublime | default(false) | bool
 
-- name: Ensure Snap and Flatpak plugins are installed
+- name: Ensure Snap plugin is installed
   become: yes
   ansible.builtin.dnf:
     name:
       - snapd
-      - flatpak
     state: present
 
 - name: Enable Snapd socket

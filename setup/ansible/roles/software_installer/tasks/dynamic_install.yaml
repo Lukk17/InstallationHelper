@@ -84,20 +84,50 @@
       loop: "{{ software_installer_packages }}"
       when: ansible_facts['system'] == 'Linux' and item.value.manager == 'snap'
 
+    - name: Ensure flatpak daemon is natively installed for the user's OS
+      ansible.builtin.package:
+        name: flatpak
+        state: present
+      become: true
+      when: >
+        ansible_facts['system'] == 'Linux' and
+        (software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0)
+
+    - name: Proactive Health Probe -> Check flatpak repository state
+      ansible.builtin.command: flatpak remotes
+      register: flatpak_health
+      changed_when: false
+      failed_when: false
+      become: true
+      when: >
+        ansible_facts['system'] == 'Linux' and
+        (software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0)
+
+    - name: Self-Healing Rescue -> Purging corrupted ostree repository silently
+      ansible.builtin.file:
+        path: /var/lib/flatpak/repo
+        state: absent
+      become: true
+      when: >
+        ansible_facts['system'] == 'Linux' and
+        (software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0) and
+        flatpak_health.rc != 0
+
+    - name: Add Flathub remote to global repository
+      ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      become: true
+      when: >
+        ansible_facts['system'] == 'Linux' and
+        (software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0)
+
     - name: Install Flatpak packages (Native)
       community.general.flatpak:
         name: "{{ item.value.package }}"
         remote: flathub
         state: present
+      become: true
       loop: "{{ software_installer_packages }}"
-      failed_when: false
-      register: flatpak_result
       when: ansible_facts['system'] == 'Linux' and item.value.manager == 'flatpak'
-
-    - name: Show Flatpak installation results
-      ansible.builtin.debug:
-        msg: "Flatpak result: {{ flatpak_result }}"
-      when: flatpak_result is defined
 
     # ------------------ MACOS MANAGERS ------------------
     - name: Install Homebrew packages (Native)
