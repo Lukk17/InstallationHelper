@@ -122,6 +122,10 @@ wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projek
 - Installing collections from requirements.yaml
 - Modifying any file in `setup/ansible/`
 
+## Proactive Skill Usage
+
+Always invoke relevant project skills (`/skill-name`) before starting implementation work. Skills provide domain-specific standards and patterns that must be followed. For example, invoke `/code-reviewer` before reviewing code, `/security-review` before auditing for vulnerabilities, or `/coding-standards` before writing new code. Check `.claude/skills/` for available skills matching the current task.
+
 ## How to be compatible with IDE
 
 Always output file edits using strict SEARCH/REPLACE blocks.
