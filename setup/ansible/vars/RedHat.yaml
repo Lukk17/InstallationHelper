@@ -87,5 +87,5 @@ software_mapping:
 
   # Virtualization
   virt_manager: { manager: "dnf", package: "virt-manager" }
-  docker: { manager: "dnf", package: "docker-ce" }
+  docker: { manager: "dnf", package: "moby-engine" }
 

@@ -18,7 +18,7 @@
 
 - name: Set macOS Environment Variables
   ansible.builtin.blockinfile:
-    path: "{{ ansible_facts['user_dir'] }}/.zshrc"
+    path: "{{ non_root_home }}/.zshrc"
     marker: "# {mark} ANSIBLE DEV APPS CONFIG"
     create: yes
     block: |
@@ -29,5 +29,7 @@
       export KUBECONFIG="$HOME/apps_config/.kube/config"
       export ANDROID_SDK_ROOT="/opt/android"
       export PATH="$PATH:/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator"
+  become: yes
+  become_user: "{{ non_root_user }}"
   when: ansible_facts['os_family'] == 'Darwin'
 

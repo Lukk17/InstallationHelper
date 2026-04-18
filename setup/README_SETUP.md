@@ -4,7 +4,41 @@ This project has been fully migrated from monolithic bash/powershell scripts to 
 
 ---
 
-## 🚀 Quick Start
+## Using the Setup Script
+
+The recommended way to run the playbook is via the interactive setup script. It auto-detects your OS, installs Ansible if needed, installs required Ansible collections, and presents an interactive checklist to choose what to install.
+
+**Run as your regular user — do NOT use sudo:**
+
+Linux / macOS:
+```bash
+bash setup/setup.sh
+```
+
+Windows (PowerShell 7+):
+```powershell
+pwsh setup/setup.ps1
+```
+
+**What the script does:**
+1. Detects your OS and distribution
+2. Installs Ansible automatically if not already present (using the correct package manager for your distro)
+3. Installs required Ansible Galaxy collections
+4. Presents an interactive menu to choose a desktop environment
+5. Optionally lets you review and toggle individual software and feature flags
+6. Runs the Ansible playbook with your selections, prompting for sudo password when needed
+
+**Requirements:**
+- Linux (Ubuntu/Debian, Fedora, Arch) or macOS — internet connection — `sudo` access
+- Windows: PowerShell 7+ and WSL installed (`wsl --install`)
+
+---
+
+## Manual Quick Start
+
+> Use this section only if you prefer to run Ansible manually without the setup script.
+
+**Working Directory:** All Ansible commands must be run from the `setup/ansible` directory.
 
 **Working Directory:** All Ansible commands must be run from the `setup/ansible` directory.
 
