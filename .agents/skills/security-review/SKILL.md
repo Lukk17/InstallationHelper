@@ -99,6 +99,17 @@ function validateFileUpload(file: File) {
 }
 ```
 
+**Always validate magic bytes (binary signature) — not just extension or MIME header:**
+
+```python
+import magic
+
+def validate_upload(file_bytes: bytes, allowed_types: list[str]) -> bool:
+    # Check binary signature (magic bytes) — not just extension or MIME header
+    detected = magic.from_buffer(file_bytes, mime=True)
+    return detected in allowed_types
+```
+
 #### Verification Steps
 - [ ] All user inputs validated with schemas
 - [ ] File uploads restricted (size, type, extension)
@@ -168,6 +179,28 @@ export async function deleteUser(userId: string, requesterId: string) {
 }
 ```
 
+#### Password Hashing
+
+- **Primary (recommended):** Argon2id — `argon2-cffi` (Python) / `Argon2PasswordEncoder` (Spring)
+- **Acceptable fallback:** BCrypt with cost factor >= 12
+- **Prohibited:** MD5, SHA-1, SHA-256 (unsalted), PBKDF2 with < 100,000 iterations
+
+```python
+# Python — argon2-cffi
+from argon2 import PasswordHasher
+
+ph = PasswordHasher()
+hash = ph.hash(password)         # hash and store
+ph.verify(hash, password)        # verify on login
+```
+
+```java
+// Spring Security
+PasswordEncoder encoder = new Argon2PasswordEncoder(16, 32, 1, 65536, 3);
+String hash = encoder.encode(rawPassword);
+encoder.matches(rawPassword, hash);
+```
+
 #### Row Level Security (Supabase)
 ```sql
 -- Enable RLS on all tables
@@ -208,26 +241,37 @@ function renderUserContent(html: string) {
 ```
 
 #### Content Security Policy
+
+**Rule: No `unsafe-inline` or `unsafe-eval` in Content Security Policy. Use nonces for inline scripts/styles if necessary.**
+
 ```typescript
 // next.config.js
+const nonce = generateSecureNonce() // cryptographically random per request
+
 const securityHeaders = [
   {
     key: 'Content-Security-Policy',
-    value: `
-      default-src 'self';
-      script-src 'self' 'unsafe-eval' 'unsafe-inline';
-      style-src 'self' 'unsafe-inline';
-      img-src 'self' data: https:;
-      font-src 'self';
-      connect-src 'self' https://api.example.com;
-    `.replace(/\s{2,}/g, ' ').trim()
+    value: [
+      "default-src 'self'",
+      `script-src 'self' 'nonce-${nonce}'`,
+      `style-src 'self' 'nonce-${nonce}'`,
+      "img-src 'self' data:",
+      "font-src 'self'",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+    ].join('; ')
   }
 ]
 ```
 
+Full recommended CSP header:
+```
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{random}'; style-src 'self' 'nonce-{random}'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'
+```
+
 #### Verification Steps
 - [ ] User-provided HTML sanitized
-- [ ] CSP headers configured
+- [ ] CSP headers configured with nonces — no `unsafe-inline` or `unsafe-eval`
 - [ ] No unvalidated dynamic content rendering
 - [ ] React's built-in XSS protection used
 
@@ -493,3 +537,105 @@ Before ANY production deployment:
 ---
 
 **Remember**: Security is not optional. One vulnerability can compromise the entire platform. When in doubt, err on the side of caution.
+
+---
+
+## OAuth 2.1 / PKCE
+
+- **Mandate PKCE** for all authorization code flows (S256 code challenge)
+- **Prohibit Implicit Grant** — removed in OAuth 2.1; use authorization code + PKCE instead
+- **Prohibit ROPC** (Resource Owner Password Credentials) — no exceptions
+- **Refresh Token Rotation:** issue a new refresh token on every use; invalidate the old one immediately
+- **Access token lifetime:** maximum **15 minutes**
+
+## JWT Validation Checklist
+
+Always validate:
+- `alg` claim: **explicitly reject `none` algorithm** — configure allowed algorithms allowlist
+- `exp`: token must not be expired
+- `iss`: must match expected issuer exactly
+- `aud`: must match expected audience
+
+```python
+import jwt
+
+def decode_token(token: str) -> dict:
+    return jwt.decode(
+        token,
+        public_key,
+        algorithms=["RS256"],  # Explicit allowlist — never use algorithms=["*"]
+        options={"require": ["exp", "iss", "aud"]},
+        audience="my-api",
+        issuer="https://auth.example.com",
+    )
+```
+
+## mTLS — Service-to-Service
+
+For internal microservice communication, enforce mutual TLS:
+- Both client and server present certificates
+- Use a private CA for internal service certificates
+- Short certificate lifetimes (< 24h) via cert-manager or Vault PKI
+
+## Required Security Headers
+
+```http
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{random}'; frame-ancestors 'none'
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+Referrer-Policy: strict-origin-when-cross-origin
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+```
+
+## Zero Trust Architecture
+
+Principles:
+- **Never trust, always verify** — no implicit trust based on network location
+- Every request must be authenticated and authorized, even between internal services
+- **Network policies:** default-deny; explicit allow rules for required communication paths
+- **Short-lived credentials:** rotate tokens, certificates, and secrets automatically
+- **Least privilege:** service accounts have only the permissions they need
+
+## Supply Chain Security
+
+- Generate **SBOM** (Software Bill of Materials) for every release (CycloneDX or SPDX format)
+- **Sign container images** with cosign (Sigstore) on every production push
+- **Pin all dependencies** to exact versions in lock files; prohibit unpinned ranges in production
+- Block CI on **CRITICAL/HIGH CVEs** with available fixes (Trivy, Grype, `npm audit`)
+
+## Audit Logging Requirements
+
+Every security-relevant event must produce an immutable audit log entry with:
+- `timestamp` (UTC ISO 8601)
+- `actor` (user ID or service account)
+- `action` (what was done)
+- `resource` (what was acted upon)
+- `outcome` (success/failure)
+- `ip_address` and `user_agent` for user-initiated actions
+
+Rules:
+- Write to a **write-only log sink** (append-only storage, separate account)
+- Retain for **minimum 12 months**
+- Never expose raw audit logs to end users
+
+## Privacy by Design
+
+- **Data minimization:** collect only what is strictly necessary
+- **Legal basis:** document the legal basis (consent, legitimate interest, etc.) for each data category
+- **Right to erasure:** implement within **30 days** of request
+- **DPIA (Data Protection Impact Assessment):** required before introducing a feature that processes sensitive personal data at scale
+- **Pseudonymization in non-production:** never use real PII in dev/staging environments
+
+## Encryption at Rest
+
+- Symmetric encryption: **AES-256-GCM** for field-level encryption
+- Asymmetric: **RSA-4096** or **ECDSA P-384** for key wrapping
+- **KMS/HSM** for cryptographic key management — never store master keys in application config
+- Rotate encryption keys annually or after suspected compromise
+
+## SAST / DAST Pipeline
+
+- **SAST:** run on every PR (Semgrep, SonarQube, or Bandit for Python)
+- **DAST:** run weekly or before every major release using **OWASP ZAP** against a staging environment
+- **Dependency scanning:** `npm audit`, `pip-audit`, `trivy fs` on every PR

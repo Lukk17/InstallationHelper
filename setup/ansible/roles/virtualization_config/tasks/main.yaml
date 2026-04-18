@@ -72,7 +72,7 @@
 - name: Add current user to libvirt group (Linux)
   become: true
   ansible.builtin.user:
-    name: "{{ ansible_user_id }}"
+    name: "{{ non_root_user }}"
     groups: libvirt
     append: true
   when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
@@ -80,7 +80,7 @@
 - name: Add current user to kvm group (Linux)
   become: true
   ansible.builtin.user:
-    name: "{{ ansible_user_id }}"
+    name: "{{ non_root_user }}"
     groups: kvm
     append: true
   when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
@@ -103,7 +103,7 @@
 - name: Add current user to docker group (Linux)
   become: true
   ansible.builtin.user:
-    name: "{{ ansible_user_id }}"
+    name: "{{ non_root_user }}"
     groups: docker
     append: true
   when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool

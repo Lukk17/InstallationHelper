@@ -55,3 +55,7 @@ install_claude_desktop: false
 # Btrfs Snapshots with Snapper
 install_snapper: true
 
+# The actual human user running the playbook (not root).
+# User Identity for privilege-safe operations (Linux)
+non_root_home: "/home/{{ non_root_user }}"
+

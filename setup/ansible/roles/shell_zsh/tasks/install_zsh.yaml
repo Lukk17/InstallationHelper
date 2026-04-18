@@ -40,7 +40,7 @@
 
 - name: Change user shell to ZSH
   ansible.builtin.user:
-    name: "{{ ansible_env.USER }}"
+    name: "{{ non_root_user }}"
     shell: "{{ zsh_path.stdout }}"
   become: yes
 

@@ -1,12 +1,12 @@
 ---
 - name: Check if OpenSpec CLI is already installed (Unix)
   ansible.builtin.shell: |
-    . {{ ansible_facts['user_dir'] }}/.nvm/nvm.sh
+    . {{ non_root_home }}/.nvm/nvm.sh
     npm list -g openspec --depth=0 2>/dev/null | grep -q openspec
   args:
     executable: /bin/bash
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   register: openspec_check
   changed_when: false
   failed_when: false
@@ -14,11 +14,10 @@
 - name: Install OpenSpec CLI via NVM (Unix)
   ansible.builtin.shell: |
     set -o pipefail
-    . {{ ansible_facts['user_dir'] }}/.nvm/nvm.sh
+    . {{ non_root_home }}/.nvm/nvm.sh
     npm install -g openspec
   args:
     executable: /bin/bash
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   when: openspec_check.rc != 0
-

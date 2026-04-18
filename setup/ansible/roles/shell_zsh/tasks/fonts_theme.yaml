@@ -14,6 +14,8 @@
   when: ansible_facts['system'] == 'Linux'
 
 - name: Download Nerd Fonts (macOS)
+  become: yes
+  become_user: "{{ non_root_user }}"
   ansible.builtin.get_url:
     url: "{{ item.url }}"
     dest: "~/Library/Fonts/{{ item.name }}"
@@ -26,9 +28,10 @@
   when: ansible_facts['os_family'] == 'Darwin'
 
 - name: Clone Powerlevel10k Theme
+  become: yes
+  become_user: "{{ non_root_user }}"
   ansible.builtin.git:
     repo: https://github.com/romkatv/powerlevel10k.git
-    dest: "{{ ansible_facts['user_dir'] }}/.oh-my-zsh/custom/themes/powerlevel10k"
+    dest: "{{ non_root_home }}/.oh-my-zsh/custom/themes/powerlevel10k"
     depth: 1
-  become: yes
 

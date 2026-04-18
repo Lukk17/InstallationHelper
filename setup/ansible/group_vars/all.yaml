@@ -95,3 +95,8 @@ allow_callback_failure: false
 set_custom_wallpaper: true
 default_wallpaper: "forest-house.jpg"
 
+# User Identity for privilege-safe operations
+# ansible_env.SUDO_USER captures who ran `sudo ansible-playbook`.
+# Falls back to ansible_user_id if not using sudo.
+non_root_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
+

@@ -68,10 +68,13 @@
         item_loop_index: "{{ software_installer_packages.index(item) }}"
 
     - name: Install AUR packages (Native)
-      become: no
+      become: yes
+      become_user: "{{ non_root_user }}"
       kewlfft.aur.aur:
         name: "{{ item.value.package }}"
         state: present
+        use: paru
+        extra_args: "--noconfirm --skipreview"
       loop: "{{ software_installer_packages }}"
       when: ansible_facts['os_family'] == 'Archlinux' and item.value.manager == 'aur'
 

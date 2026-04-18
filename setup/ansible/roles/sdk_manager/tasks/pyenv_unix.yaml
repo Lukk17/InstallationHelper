@@ -4,22 +4,22 @@
     set -o pipefail
     curl https://pyenv.run | bash
   args:
-    creates: "{{ ansible_facts['user_dir'] }}/.pyenv/bin/pyenv"
+    creates: "{{ non_root_home }}/.pyenv/bin/pyenv"
     executable: /bin/bash
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
 
 - name: Install all Python versions via Pyenv (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    export PYENV_ROOT="{{ ansible_facts['user_dir'] }}/.pyenv"
+    export PYENV_ROOT="{{ non_root_home }}/.pyenv"
     export PATH="$PYENV_ROOT/bin:$PATH"
     eval "$(pyenv init -)"
     pyenv install --skip-existing {{ item }}
   args:
     executable: /bin/bash
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   loop:
     - "{{ python310_id }}"
     - "{{ python311_id }}"
@@ -32,13 +32,13 @@
 - name: Set default Python via Pyenv (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    export PYENV_ROOT="{{ ansible_facts['user_dir'] }}/.pyenv"
+    export PYENV_ROOT="{{ non_root_home }}/.pyenv"
     export PATH="$PYENV_ROOT/bin:$PATH"
     eval "$(pyenv init -)"
     pyenv global {{ default_python }}
   args:
     executable: /bin/bash
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   changed_when: true
 

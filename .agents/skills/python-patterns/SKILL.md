@@ -541,8 +541,8 @@ from fastapi import FastAPI
 from mypackage.models import User
 from mypackage.utils import format_name
 
-# Good: Use isort for automatic import sorting
-# pip install isort
+# Good: Use ruff for automatic import sorting (replaces isort)
+# ruff check --select I --fix .
 ```
 
 ### __init__.py for Package Exports
@@ -617,29 +617,33 @@ result = buffer.getvalue()
 
 ## Python Tooling Integration
 
+### Package Manager: uv
+
+Use `uv` as the default package manager (replaces pip + virtualenv):
+
+```bash
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+uv pip compile requirements.in -o requirements.txt   # pin all dependencies
+uv audit                                              # CVE scan in CI
+```
+
 ### Essential Commands
 
 ```bash
-# Code formatting
-black .
-isort .
-
-# Linting
+# Linting + formatting (ruff replaces black, isort, flake8, pylint — one tool)
 ruff check .
-pylint mypackage/
+ruff format .
 
-# Type checking
-mypy .
+# Type checking (strict mode required as CI gate)
+mypy --strict .
 
 # Testing
 pytest --cov=mypackage --cov-report=html
 
 # Security scanning
 bandit -r .
-
-# Dependency management
-pip-audit
-safety check
+uv audit
 ```
 
 ### pyproject.toml Configuration
@@ -648,38 +652,55 @@ safety check
 [project]
 name = "mypackage"
 version = "1.0.0"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 dependencies = [
-    "requests>=2.31.0",
+    "fastapi>=0.111.0",
     "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.5.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "mypy>=1.9.0",
+    "ruff>=0.4.0",
 ]
 
-[tool.black]
-line-length = 88
-target-version = ['py39']
-
 [tool.ruff]
-line-length = 88
-select = ["E", "F", "I", "N", "W"]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "S", "B", "A"]
 
 [tool.mypy]
-python_version = "3.9"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
+strict = true
+python_version = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 addopts = "--cov=mypackage --cov-report=term-missing"
+```
+
+### Pre-commit Hooks
+
+Commit `.pre-commit-config.yaml` to the repository:
+
+```yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.0
+    hooks:
+      - id: ruff
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.9.0
+    hooks:
+      - id: mypy
+        args: [--strict]
 ```
 
 ## Quick Reference: Python Idioms
@@ -748,3 +769,124 @@ except SpecificError as e:
 ```
 
 __Remember__: Python code should be readable, explicit, and follow the principle of least surprise. When in doubt, prioritize clarity over cleverness.
+
+---
+
+## Project-Specific Rules (FastAPI / FastMCP Stack)
+
+### Framework Mandate
+
+- HTTP APIs: use **FastAPI** — do not use Flask or Django for new projects
+- MCP servers: use **FastMCP**
+
+### `Any` Type Policy
+
+Never use `Any` in domain code. Use `Any` only at system boundaries:
+
+```python
+# Allowed: untyped external library return, raw JSON payload from third party
+from typing import Any
+raw: Any = legacy_library.get_result()
+
+# Not allowed: in business logic, service methods, domain models
+# Use object, TypeVar, Protocol, or explicit union types instead
+def process(data: object) -> str: ...   # Good
+def process(data: Any) -> str: ...     # Bad — avoid in domain code
+```
+
+### Error Handling (Hybrid Approach)
+
+```python
+# Centralized: map domain exceptions → HTTP responses at the boundary
+@app.exception_handler(NotFoundError)
+async def not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+# Allowed: try/except in business logic for expected, recoverable errors
+async def load_user(user_id: str) -> User:
+    try:
+        return await user_repo.get(user_id)
+    except TimeoutError:
+        raise ServiceUnavailableError("User service timeout")
+
+# Prohibited: HTTP status codes or JSONResponse inside business logic
+# Prohibited: bare except: pass
+```
+
+### Configuration (pydantic-settings)
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    database_url: str
+    secret_key: str
+    debug: bool = False
+
+    model_config = SettingsConfigDict(env_file=".env")
+
+settings = Settings()
+```
+
+### FastAPI Lifespan
+
+Use `lifespan` context manager — do NOT use deprecated `@app.on_event`:
+
+```python
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.connect()
+    yield
+    await db.disconnect()
+
+app = FastAPI(lifespan=lifespan)
+```
+
+### Database Access
+
+```python
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+
+engine = create_async_engine(settings.database_url)
+# Use Alembic for all schema migrations — never modify schema outside migration scripts
+# Never execute raw SQL strings — use SQLAlchemy Core expressions or ORM
+```
+
+### Singleton Services
+
+```python
+# Initialize once at module level with a descriptive name
+user_service = UserService()
+email_service = EmailService(settings.smtp_host)
+```
+
+### Logging
+
+```python
+import logging
+
+logging.basicConfig(
+    format="[MyService] %(asctime)s %(levelname)s %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
+# Do not use print() for operational output
+```
+
+### Project Layout
+
+```
+src/
+  myapp/
+    __init__.py
+    main.py            # sole entry point
+    domain/
+    application/
+    infrastructure/
+tests/
+pyproject.toml
+```
+
+Always use absolute imports: `from src.myapp.domain.user import User`

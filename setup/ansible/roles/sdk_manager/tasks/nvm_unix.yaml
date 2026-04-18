@@ -4,19 +4,19 @@
     set -o pipefail
     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash
   args:
-    creates: "{{ ansible_facts['user_dir'] }}/.nvm/nvm.sh"
+    creates: "{{ non_root_home }}/.nvm/nvm.sh"
     executable: /bin/bash
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
 
 - name: Install Node LTS via NVM (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    source {{ ansible_facts['user_dir'] }}/.nvm/nvm.sh && nvm install --lts
+    source {{ non_root_home }}/.nvm/nvm.sh && nvm install --lts
   args:
     executable: /bin/bash
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   register: nvm_install
   changed_when: "'is already installed' not in nvm_install.stdout"
 

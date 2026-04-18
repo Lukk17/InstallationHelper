@@ -16,5 +16,6 @@ install_balena_etcher: true    # Alt for Rufus
 # Virtualization toggles
 install_virtualbox: true
 install_vmware: true
-install_docker: true
+# User Identity for privilege-safe operations (macOS)
+non_root_home: "/Users/{{ non_root_user }}"
 

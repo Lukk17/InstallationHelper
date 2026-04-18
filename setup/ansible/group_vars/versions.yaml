@@ -62,7 +62,7 @@ android_cmdline_tools_version: "13.0"
 android_cmdline_tools_build: "11076708"
 android_build_tools_version: "35.0.0"
 android_api_level: "35"
-android_home: "{{ ansible_facts['user_dir'] }}/Android/Sdk"
+android_home: "{{ non_root_home }}/Android/Sdk"
 
 # Fonts
 meslo_regular_url: "https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"

@@ -75,7 +75,7 @@ software_mapping:
   clamav: { manager: "pacman", package: "clamav" }
 
   # Alternatives
-  hardinfo: { manager: "aur", package: "hardinfo-git", is_alternative_for: "HWMonitor" }
+  hardinfo: { manager: "pacman", package: "hardinfo2", is_alternative_for: "HWMonitor" }
   lm_sensors: { manager: "pacman", package: "lm_sensors", is_alternative_for: "HWInfo" }
   greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
   baobab: { manager: "pacman", package: "baobab", is_alternative_for: "WizTree" }

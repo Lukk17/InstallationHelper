@@ -145,3 +145,44 @@ SELECT pg_reload_conf();
 ---
 
 *Based on Supabase Agent Skills (credit: Supabase team) (MIT License)*
+
+---
+
+## Read Replica Routing
+
+Route queries based on consistency requirements:
+- **Writes** → primary only
+- **Reads** → replica (acceptable eventual consistency)
+- **Post-write reads within the same request** → primary (to avoid read-your-own-writes issues)
+
+## Monitoring Alert Thresholds
+
+Configure alerts for:
+| Metric | Alert threshold |
+|---|---|
+| Query duration | > 500ms |
+| Connection pool utilization | > 80% for > 30s |
+| Replication lag | > 30s |
+| Disk usage | > 80% |
+
+Use `pg_stat_statements` for slow query analysis.
+
+## EXPLAIN ANALYZE Rule
+
+Before merging any query that touches more than **10,000 rows**, run `EXPLAIN ANALYZE` and include the output in the PR description.
+
+## Backup Requirements
+
+- Daily full backup + hourly WAL archiving
+- Backups stored in a **separate cloud account** (not the application account)
+- AES-256 encryption at rest
+- **Quarterly restore drills** — verify RTO and RPO targets
+- Document RTO (Recovery Time Objective) and RPO (Recovery Point Objective) in the runbook
+
+## GDPR — Right to Erasure
+
+Implement within **30 days** of erasure request. Options:
+1. **Soft-delete + background purge**: set `deleted_at`, purge after 30-day window
+2. **Pseudonymization**: replace PII with a non-reversible hash in-place
+
+Never hard-delete without first checking cascade requirements and audit log retention.
