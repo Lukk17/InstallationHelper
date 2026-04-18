@@ -1,4 +1,13 @@
 ---
+- name: Configure passwordless sudo for non-root user
+  become: yes
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/99-ansible-user
+    line: "{{ non_root_user }} ALL=(ALL) NOPASSWD: ALL"
+    create: yes
+    mode: '0440'
+    validate: 'visudo -cf %s'
+
 - name: Update pacman package database
   become: yes
   ansible.builtin.command: pacman -Sy
@@ -28,7 +37,16 @@
     state: present
   when: yay_check.rc != 0
 
+- name: Ensure clean yay build directory exists
+  become: yes
+  ansible.builtin.file:
+    path: /tmp/yay
+    state: absent
+  when: yay_check.rc != 0
+
 - name: Clone yay AUR helper repository
+  become: yes
+  become_user: "{{ non_root_user }}"
   ansible.builtin.git:
     repo: https://aur.archlinux.org/yay.git
     dest: /tmp/yay
@@ -39,9 +57,8 @@
 - name: Build yay package (non-root)
   ansible.builtin.shell: |
     cd /tmp/yay && makepkg -s --noconfirm
-  become: no
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   args:
     creates: /tmp/yay/*.pkg.tar.zst
   when: yay_check.rc != 0
@@ -87,7 +104,16 @@
     state: present
   when: paru_installed.rc != 0
 
+- name: Ensure clean paru build directory exists
+  become: yes
+  ansible.builtin.file:
+    path: /tmp/paru
+    state: absent
+  when: paru_installed.rc != 0
+
 - name: Clone paru AUR helper repository
+  become: yes
+  become_user: "{{ non_root_user }}"
   ansible.builtin.git:
     repo: https://aur.archlinux.org/paru.git
     dest: /tmp/paru
@@ -98,9 +124,8 @@
 - name: Build paru package (non-root)
   ansible.builtin.shell: |
     cd /tmp/paru && makepkg -s --noconfirm
-  become: no
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   args:
     creates: /tmp/paru/*.pkg.tar.zst
   when: paru_installed.rc != 0
@@ -129,17 +154,9 @@
 
 
 
-- name: Configure passwordless sudo for current user
-  become: yes
-  ansible.builtin.lineinfile:
-    path: /etc/sudoers.d/99-ansible-user
-    line: "{{ ansible_user_id }} ALL=(ALL) NOPASSWD: ALL"
-    create: yes
-    mode: '0440'
-    validate: 'visudo -cf %s'
-  when: install_snapd | default(false) | bool
-
 - name: Install snapd via paru
+  become: yes
+  become_user: "{{ non_root_user }}"
   ansible.builtin.command: paru -S --needed --noconfirm snapd
   args:
     creates: /usr/bin/snap

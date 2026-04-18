@@ -1,19 +1,23 @@
 ---
 - name: Check if Oh-My-Zsh is already installed
   ansible.builtin.stat:
-    path: "{{ ansible_facts['user_dir'] }}/.oh-my-zsh"
+    path: "{{ non_root_home }}/.oh-my-zsh"
   register: omz_dir
 
 - name: Install Oh-My-Zsh
+  become: yes
+  become_user: "{{ non_root_user }}"
   ansible.builtin.shell: 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
   args:
     executable: /bin/bash
   when: not omz_dir.stat.exists
 
 - name: Copy ZSH configuration files
+  become: yes
+  become_user: "{{ non_root_user }}"
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../config/{{ item }}"
-    dest: "{{ ansible_facts['user_dir'] }}/{{ item }}"
+    dest: "{{ non_root_home }}/{{ item }}"
   loop:
     - ".p10k.zsh"
     - ".zshrc.pre-oh-my-zsh"

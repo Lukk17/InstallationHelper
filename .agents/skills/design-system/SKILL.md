@@ -80,3 +80,72 @@ Identifies generic AI-generated design patterns:
 ```
 /design-system slop-check
 ```
+
+---
+
+## Styling Architecture
+
+### SCSS 7-1 Architecture
+
+Organise stylesheets into seven folders plus one main entry file:
+
+```
+styles/
+├── abstracts/    # Variables, functions, mixins, placeholders
+├── base/         # Reset, typography, base element styles
+├── components/   # Component-specific styles (BEM)
+├── layout/       # Grid, header, footer, sidebar
+├── pages/        # Page-specific overrides
+├── themes/       # Light/dark theme token overrides
+├── vendors/      # Third-party library overrides
+└── main.scss     # Import-only file; no styles here
+```
+
+Rules:
+- `abstracts/` contains only SCSS logic — no output CSS
+- Never import `components/` into `abstracts/`
+- BEM naming in `components/`: `.block__element--modifier`
+
+### Tailwind v4 — CSS-First Configuration
+
+Tailwind v4 removes `tailwind.config.js`. Use the `@theme` block in your CSS:
+
+```css
+/* styles/main.css */
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #2563eb;
+  --color-primary-foreground: #ffffff;
+  --font-sans: "Inter Variable", sans-serif;
+  --radius-md: 0.5rem;
+  --spacing-18: 4.5rem;
+}
+
+/* Custom components go in @layer components */
+@layer components {
+  .btn-primary {
+    @apply bg-[--color-primary] text-[--color-primary-foreground] rounded-[--radius-md] px-4 py-2;
+  }
+}
+```
+
+- No `tailwind.config.js` — all configuration lives in `@theme`
+- Use CSS custom properties from `@theme` via `var(--token)` or the bracket shorthand `[--token]`
+- Design tokens defined in `@theme` are automatically available as Tailwind utilities
+
+### Design Token Naming Convention
+
+```
+--{category}-{variant}-{scale}
+
+Examples:
+--color-primary-500
+--color-surface-default
+--color-text-muted
+--shadow-card-default
+--radius-button-default
+--spacing-section-gap
+```
+
+Never create tokens with hardcoded pixel values in the name (`--padding-16px` is wrong; `--spacing-4` is correct).

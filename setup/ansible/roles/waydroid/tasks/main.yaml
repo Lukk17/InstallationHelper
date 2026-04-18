@@ -16,9 +16,11 @@
 
 - name: Install Waydroid (Archlinux)
   become: yes
+  become_user: "{{ non_root_user }}"
   kewlfft.aur.aur:
     name: waydroid
-    use: yay
+    use: paru
+    extra_args: "--noconfirm --skipreview"
     state: present
   when: ansible_facts['os_family'] == 'Archlinux'
 
@@ -44,18 +46,20 @@
 - name: Download Aurora Store
   ansible.builtin.get_url:
     url: "{{ aurora_store_url }}"
-    dest: "{{ ansible_facts['user_dir'] }}/.lukkInstall/{{ aurora_store_file }}"
+    dest: "{{ non_root_home }}/.lukkInstall/{{ aurora_store_file }}"
     headers:
       User-Agent: Mozilla
-  become: no
+  become: yes
+  become_user: "{{ non_root_user }}"
 
 - name: Download Aurora Droid
   ansible.builtin.get_url:
     url: "{{ aurora_droid_url }}"
-    dest: "{{ ansible_facts['user_dir'] }}/.lukkInstall/{{ aurora_droid_file }}"
+    dest: "{{ non_root_home }}/.lukkInstall/{{ aurora_droid_file }}"
     headers:
       User-Agent: Mozilla
-  become: no
+  become: yes
+  become_user: "{{ non_root_user }}"
 
 - name: Configure GDM Wayland Enable
   ansible.builtin.replace:

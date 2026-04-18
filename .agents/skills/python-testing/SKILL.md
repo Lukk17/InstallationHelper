@@ -814,3 +814,38 @@ pytest --pdb
 | `assert` | Simple and readable assertions |
 
 **Remember**: Tests are code too. Keep them clean, readable, and maintainable. Good tests catch bugs; great tests prevent them.
+
+---
+
+## Testing FastAPI Endpoints (httpx + ASGITransport)
+
+For async FastAPI apps, use `httpx.AsyncClient` with `ASGITransport` — no running server needed:
+
+```python
+import pytest
+from httpx import AsyncClient, ASGITransport
+from src.myapp.main import app
+
+@pytest.fixture
+async def client():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+async def test_create_user(client: AsyncClient):
+    response = await client.post("/users", json={"name": "Alice", "email": "alice@example.com"})
+    assert response.status_code == 201
+    assert response.json()["name"] == "Alice"
+
+async def test_get_user_not_found(client: AsyncClient):
+    response = await client.get("/users/nonexistent")
+    assert response.status_code == 404
+```
+
+Configure `pytest-asyncio` in `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+asyncio_mode = "auto"   # all async test functions run automatically
+```
+
+**Rule**: Always use `pytest` from the project root — never run single test files to validate a fix (`pytest` runs all; `pytest tests/test_x.py` only if explicitly scoping a suite).

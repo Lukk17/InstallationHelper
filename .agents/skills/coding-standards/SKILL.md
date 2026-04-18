@@ -547,3 +547,94 @@ setTimeout(callback, DEBOUNCE_DELAY_MS)
 ```
 
 **Remember**: Code quality is not negotiable. Clear, maintainable code enables rapid development and confident refactoring.
+
+---
+
+## TypeScript / Node.js Project Standards
+
+### Package Manager & Monorepo
+
+Use **pnpm** with workspaces and **Turborepo** for monorepos:
+
+```json
+// package.json (root)
+{ "packageManager": "pnpm@9.0.0" }
+```
+
+```bash
+pnpm install          # install all workspaces
+pnpm -F myapp dev     # run command in specific workspace
+turbo build           # cached parallel builds
+```
+
+Monorepo layout: `packages/` for shared libs, `apps/` for deployable services.
+
+### TypeScript Configuration
+
+Enable strict additional flags in `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": { "@/*": ["./src/*"] }
+  }
+}
+```
+
+Use **path aliases** over deep relative imports:
+
+```typescript
+import { UserService } from '@/services/user'   // Good
+import { UserService } from '../../../services/user'  // Avoid
+```
+
+### Function Style
+
+Prefer `function` declarations for top-level named functions (better stack traces, hoisting):
+
+```typescript
+// Good — top-level named function
+function processOrder(order: Order): Result { ... }
+
+// Good — arrow for callbacks and class methods
+const sorted = orders.sort((a, b) => a.createdAt - b.createdAt)
+```
+
+### Testing Tooling
+
+- Test runner: **Vitest** (not Jest)
+- HTTP mocking: **msw** (Mock Service Worker) — do not mock `fetch`/`axios` directly
+- Pre-commit: **lint-staged** + **husky**
+
+```bash
+pnpm add -D vitest msw lint-staged husky
+```
+
+### CI Quality Gates
+
+All of these must pass before merge:
+- ESLint (strict `@typescript-eslint/recommended-type-checked`) — **zero warnings** policy
+- Prettier formatting check
+- `pnpm audit` (fail on HIGH/CRITICAL CVEs)
+- Dependency licence check: **prohibit GPL/AGPL/LGPL** in production dependencies (use `license-checker`)
+
+### Observability
+
+Instrument with OpenTelemetry SDK:
+
+```typescript
+import { NodeSDK } from '@opentelemetry/sdk-node'
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
+
+const sdk = new NodeSDK({
+  traceExporter: new OTLPTraceExporter({ url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT }),
+  instrumentations: [getNodeAutoInstrumentations()],
+})
+sdk.start()
+```

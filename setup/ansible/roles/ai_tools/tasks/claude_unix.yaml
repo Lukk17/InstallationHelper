@@ -1,12 +1,12 @@
 ---
 - name: Check if Claude Code CLI is already installed (Unix)
   ansible.builtin.shell: |
-    source {{ ansible_facts['user_dir'] }}/.nvm/nvm.sh
+    source {{ non_root_home }}/.nvm/nvm.sh
     npm list -g @anthropic-ai/claude-code --depth=0 2>/dev/null | grep -q claude-code
   args:
     executable: /bin/bash
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   register: claude_code_check
   changed_when: false
   failed_when: false
@@ -14,11 +14,11 @@
 - name: Install Claude Code CLI via NPM (Unix)
   ansible.builtin.shell: |
     set -o pipefail
-    source {{ ansible_facts['user_dir'] }}/.nvm/nvm.sh && npm install -g @anthropic-ai/claude-code
+    source {{ non_root_home }}/.nvm/nvm.sh && npm install -g @anthropic-ai/claude-code
   args:
     executable: /bin/bash
-  environment:
-    HOME: "{{ ansible_facts['user_dir'] }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   when: claude_code_check.rc != 0
 
 
@@ -34,9 +34,10 @@
 - name: Download Claude Desktop .deb (Linux Debian)
   ansible.builtin.get_url:
     url: "{{ claude_desktop_deb_url }}"
-    dest: "{{ ansible_facts['user_dir'] }}/.lukkInstall/claude-desktop.deb"
+    dest: "{{ non_root_home }}/.lukkInstall/claude-desktop.deb"
     mode: '0644'
-  become: no
+  become: yes
+  become_user: "{{ non_root_user }}"
   when:
     - install_claude_desktop | default(false) | bool
     - ansible_facts['os_family'] == 'Debian'
@@ -44,7 +45,7 @@
 
 - name: Install Claude Desktop .deb (Linux Debian)
   ansible.builtin.apt:
-    deb: "{{ ansible_facts['user_dir'] }}/.lukkInstall/claude-desktop.deb"
+    deb: "{{ non_root_home }}/.lukkInstall/claude-desktop.deb"
     state: present
   become: yes
   when:
@@ -62,9 +63,12 @@
     - ansible_facts['os_family'] == 'Archlinux'
 
 - name: Install Claude Desktop via AUR (Arch Linux)
-  become: no
+  become: yes
+  become_user: "{{ non_root_user }}"
   kewlfft.aur.aur:
     name: claude-desktop
+    use: paru
+    extra_args: "--noconfirm --skipreview"
     state: present
   when:
     - install_claude_desktop | default(false) | bool
