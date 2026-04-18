@@ -76,6 +76,16 @@ This ensures you can pull updates from the central repository, but Git will bloc
 
 ### Step 1: Initial Setup
 
+Enable symlink support in Git:
+Globally
+```shell
+git config --global core.symlinks true
+```
+Locally for this repository only
+```shell
+git config core.symlinks true
+```
+
 Run these commands in the root of this project to add the remote, disable pushing, and extract the specific payload files into your workspace.
 
 ```bash
