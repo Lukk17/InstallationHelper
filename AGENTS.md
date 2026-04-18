@@ -99,15 +99,21 @@ konsave -e lukk_desktop_profile -f       # Export to .knsv (use -f to overwrite)
 konsave -i config/lukk_desktop_profile.knsv && konsave -a lukk_desktop_profile  # Import & apply
 ```
 
-## Ansible Syntax Validation
+## Windows Development: All Ansible via WSL
 
-**On Windows, Ansible syntax checks MUST be run via WSL** because:
-- Windows-native Python Ansible cannot reliably parse Linux/Unix YAML paths
+**On Windows, ALL Ansible operations MUST be run via WSL (not PowerShell or Git Bash):**
+- Ansible does not run natively on Windows — it requires a Linux environment
 - The playbook uses POSIX-shell conditionals and path structures
+- Use `wsl -d Ubuntu bash -c "..."` to avoid Git Bash path munging
 
-Run the syntax check command:
+**Do NOT:**
+- Run `ansible-playbook` directly in PowerShell or Git Bash
+- Test `setup/setup.sh` in Git Bash or PowerShell — it is a Linux-only script
+- Use WSL's `/etc/os-release` to test OS detection — WSL configs differ from real Linux installs
+
+Syntax check command:
 ```bash
-wsl -d Ubuntu -e ansible-playbook --syntax-check /mnt/d/Development/projekty-IT/InstallationHelper/setup/ansible/site.yaml
+wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projekty-IT/InstallationHelper/setup/ansible/site.yaml"
 ```
 
 **Always run this check after:**

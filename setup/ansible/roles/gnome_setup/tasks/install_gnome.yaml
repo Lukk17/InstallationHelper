@@ -1,4 +1,9 @@
 ---
+- name: Check if GNOME Shell is already installed
+  ansible.builtin.stat:
+    path: /usr/bin/gnome-shell
+  register: gnome_shell_stat
+
 - name: Install GNOME Desktop (Debian)
   become: yes
   ansible.builtin.apt:
@@ -8,14 +13,18 @@
       - gnome-shell-extension-manager
     state: present
     update_cache: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - not gnome_shell_stat.stat.exists
 
 - name: Install GNOME Desktop (Fedora)
   become: yes
   ansible.builtin.dnf:
     name: "@GNOME Desktop Environment"
     state: present
-  when: ansible_facts['os_family'] == 'RedHat'
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - not gnome_shell_stat.stat.exists
 
 - name: Install GNOME Desktop (Archlinux)
   become: yes
@@ -24,7 +33,9 @@
       - gnome
       - gnome-tweaks
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - not gnome_shell_stat.stat.exists
 
 - name: Enable GDM Service (Fedora/Arch)
   become: yes

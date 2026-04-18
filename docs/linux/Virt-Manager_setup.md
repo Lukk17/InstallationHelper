@@ -4,7 +4,7 @@
 
 ### VM Configuration
 
-1. Open `Virt-Manager` on your Ubuntu host.
+1. Open `Virt-Manager` on your Linux host.
 2. Click the icon to create a new virtual machine.
 3. Choose Local install media and select your downloaded ISO file.
 4. Allocate RAM and CPU cores. Give it at least 4096 MB of RAM and 4 CPUs if your host can handle it.
@@ -23,69 +23,114 @@
 1. Click Play to start the virtual machine.
 2. Follow the standard installation steps for whatever operating system you chose.
 3. Once the installation is done, reboot the virtual machine.
-4. Make sure the guest agent is installed inside the virtual machine.
+4. Install the guest agent inside the virtual machine (see per-OS instructions below).
 
-For Arch Linux:
+#### Linux Guests — Install SPICE Agent
+
+Arch Linux:
+```bash
 sudo pacman -S spice-vdagent
+```
 
-For Ubuntu/Debian:
+Ubuntu/Debian:
+```bash
 sudo apt install spice-vdagent
+```
 
-For Fedora:
+Fedora:
+```bash
 sudo dnf install spice-vdagent
+```
 
-For Windows:
-Download and install the Windows SPICE Guest Tools executable: 
+#### Windows Guests — Install SPICE Guest Tools
+
+Download and install the Windows SPICE Guest Tools executable:
 https://www.spice-space.org/download/windows/spice-guest-tools/spice-guest-tools-latest.exe
+
+#### macOS Guests — KVM (Advanced)
+
+> **Warning:** Running macOS inside KVM on a Linux host is highly complex, legally restricted to Apple hardware per Apple's EULA, and outside standard Virt-Manager scope. It requires the OpenCore bootloader and specific QEMU CPU flags. SPICE clipboard is not available.
+>
+> Use the [OSX-KVM project](https://github.com/kholia/OSX-KVM) for a complete setup guide. Key requirements:
+> - OVMF firmware with Secure Boot disabled
+> - OpenCore as the boot EFI image
+> - QEMU CPU set to `host-passthrough` with CPUID masking for Apple model detection
+> - Clipboard sharing is not supported; use VNC mode as a workaround
 
 ---
 
-### Clipboard Share Wayland Fix
+### Clipboard Sharing
 
-1. Do not use X11 session. Stay on Wayland.
-2. Inside your Arch virtual machine, open System Settings.
-3. Navigate to Security & Privacy.
-4. Select Application Permissions.
-5. Select Legacy X11 App Support.
-6. Find the setting for clipboard access and change it to allow access without asking.
-7. Click Apply.
-8. Open your Arch terminal and kill any stuck processes from previous attempts:
+#### Primary — Systemd Service (recommended, works for most guests)
+
+Enable the SPICE agent daemon inside the guest after installing `spice-vdagent`:
+
+```bash
+sudo systemctl enable --now spice-vdagentd
+```
+
+Clipboard will work automatically between guest and host after the service starts.
+
+---
+
+#### Fallback — X11 Workaround (KDE Plasma Wayland guests only)
+
+Use this only when the systemd service does not bridge clipboard under KDE Plasma running on Wayland. The service alone cannot reach the Wayland clipboard — it must be forced through the X11/Plasma bridge.
+
+1. Stay on the Wayland session. Do not switch to X11.
+2. Inside the guest, open System Settings.
+3. Navigate to Security & Privacy → Application Permissions → Legacy X11 App Support.
+4. Find the clipboard access setting and change it to allow access without asking.
+5. Click Apply.
+6. Kill any stuck processes from previous attempts:
 
     ```bash
     killall -9 spice-vdagent
     ```
 
-9. Force the spice agent to run strictly on the X11 backend so it reads from the Plasma bridge:
-    
+7. Force the agent to run on the X11 backend so it reads from the Plasma clipboard bridge:
+
     ```bash
     GDK_BACKEND=x11 spice-vdagent -x &
     ```
 
-10. Copying from the guest to the host will now work natively.
+8. Copying from the guest to the host will now work.
 
 ---
 
-### Filesystem Folder Share Virtio-FS
+### Filesystem Folder Share (VirtIO-FS)
 
-1. Install the missing background daemon on your Ubuntu Host so it can process the bridge:
-    
+#### Host Setup
+
+1. Install the VirtIO-FS daemon on your Linux host:
+
+    Debian/Ubuntu:
     ```bash
-    sudo apt update
-    sudo apt install virtiofsd
+    sudo apt update && sudo apt install virtiofsd
     ```
 
-2. Create the exact shared folder on your Ubuntu Host:
-    
+    Arch Linux:
     ```bash
-    mkdir -p /home/lukk/Documents/VM_Share
+    sudo pacman -S virtiofsd
     ```
 
-3. Open the permissions on your Ubuntu Host so the hypervisor can actually read your home directory:
-    
+    Fedora:
     ```bash
-    chmod +x /home/lukk
-    chmod +x /home/lukk/Documents
-    chmod 777 /home/lukk/Documents/VM_Share
+    sudo dnf install virtiofsd
+    ```
+
+2. Create the shared folder on your Linux host:
+
+    ```bash
+    mkdir -p ~/Documents/VM-Share
+    ```
+
+3. Open permissions so the hypervisor can read the directory:
+
+    ```bash
+    chmod +x ~
+    chmod +x ~/Documents
+    chmod 777 ~/Documents/VM-Share
     ```
 
 4. Shut down the virtual machine completely.
@@ -93,23 +138,33 @@ https://www.spice-space.org/download/windows/spice-guest-tools/spice-guest-tools
 6. Check the box for Enable shared memory and apply.
 7. Click Add Hardware and select Filesystem.
 8. Set Driver to `virtiofs`.
-9. Set `Source path` to `/home/lukk/Documents/VM_Share`.
-10. Set `Target path` to `VM_Share`.
+9. Set Source path to `~/Documents/VM-Share` (use the full path, e.g. `/home/<username>/Documents/VM-Share`).
+10. Set Target path to `VM-Share`.
 11. Click Finish and boot the virtual machine.
-12. Inside the virtual machine, create the exact matching folder to mount the share:
-    
+
+#### Guest Setup
+
+1. Create the matching mount point inside the virtual machine:
+
     ```bash
-    mkdir -p /home/lukk/Documents/VM_Share
+    mkdir -p ~/Documents/VM-Share
     ```
 
-13. Mount the folder using the target tag you created:
-    
+2. Mount the folder using the target tag:
+
     ```bash
-    sudo mount -t virtiofs VM_Share /home/lukk/Documents/VM_Share
+    sudo mount -t virtiofs VM-Share ~/Documents/VM-Share
     ```
 
-14. To make the mount permanent, add this line to your /etc/fstab file inside the virtual machine:
+3. To make the mount permanent, add this line to `/etc/fstab` inside the virtual machine (replace `<username>` with your actual username):
 
-```text
-VM_Share /home/lukk/Documents/VM_Share virtiofs defaults 0 0
-```
+    ```text
+    VM-Share /home/<username>/Documents/VM-Share virtiofs defaults 0 0
+    ```
+
+4. Apply the fstab change:
+
+    ```bash
+    sudo systemctl daemon-reload
+    sudo mount -a
+    ```

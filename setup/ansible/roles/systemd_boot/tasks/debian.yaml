@@ -1,13 +1,4 @@
 ---
-# On Debian/Ubuntu the ESP is typically /boot/efi and kernels live in /boot (ext4).
-# kernel-install with BLS layout copies kernels into the ESP automatically.
-
-- name: Install systemd-boot package (Debian)
-  become: yes
-  ansible.builtin.apt:
-    name: systemd-boot
-    state: present
-
 - name: Configure kernel-install for BLS layout (Debian)
   become: yes
   ansible.builtin.copy:

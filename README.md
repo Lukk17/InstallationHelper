@@ -2,6 +2,28 @@
 
 Welcome to the unified, cross-platform Installation Helper! This project automates the setup, installation, and configuration of development environments, utilities, and desktop settings across multiple operating systems.
 
+## Quick Start
+
+Run the interactive setup wizard — it handles everything automatically (Ansible install, collections, interactive software selection):
+
+**Linux / macOS** — run as your regular user, not root:
+```bash
+bash setup/setup.sh
+```
+
+**Windows** — run in PowerShell 7+ (not as Administrator):
+```powershell
+pwsh setup/setup.ps1
+```
+
+The script will prompt for your sudo/admin password only when performing privileged operations.
+
+For full details, manual instructions, and configuration options see:
+
+👉 **[View the Setup Documentation](setup/README_SETUP.md)**
+
+---
+
 ## 🚀 Getting Started
 
 The entire installation logic has been modernized and migrated to **Ansible**. It now supports a dynamic, data-driven approach allowing it to easily scale across different Linux distributions, macOS, and Windows.

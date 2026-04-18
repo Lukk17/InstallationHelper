@@ -37,9 +37,16 @@
       These are preserved. systemd-boot will be added alongside them as the new UEFI default.
   when: efi_files.files | length > 0
 
+- name: Ensure systemd-boot package is present (Debian/Ubuntu)
+  become: yes
+  ansible.builtin.apt:
+    name: systemd-boot
+    state: present
+  when: ansible_facts['os_family'] == 'Debian'
+
 - name: Install systemd-boot to ESP
   become: yes
-  ansible.builtin.command: bootctl install --esp-path={{ esp_path }}
+  ansible.builtin.command: bootctl install --esp-path={{ esp_path }} --no-variables
   args:
     creates: "{{ esp_path }}/EFI/systemd/systemd-bootx64.efi"
 
