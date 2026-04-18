@@ -474,6 +474,14 @@ or use --extra-vars "allow_callback_failure=true"
         self._display_and_log(f"PLAY [{play.get_name()}]", "INFO")
 
     def v2_playbook_on_stats(self, stats) -> None:
+        if self.full_log:
+            try:
+                self.full_log.write("\n")
+                self.full_log.flush()
+            except (IOError, OSError):
+                pass
+
+        self._display_and_log("PLAY RECAP", "INFO")
         hosts = sorted(stats.processed.keys())
         for host in hosts:
             host_stats = stats.summarize(host)
@@ -484,10 +492,22 @@ or use --extra-vars "allow_callback_failure=true"
             )
             self._display_and_log(msg, "INFO")
 
+            if (host_stats['failures'] > 0 or host_stats['unreachable'] > 0) and self.issues_log:
+                timestamp = self._get_timestamp()
+                try:
+                    self.issues_log.write(f"[{timestamp}] RECAP: {msg}\n")
+                    self.issues_log.flush()
+                except (IOError, OSError):
+                    pass
+
+        finish_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._display_and_log(f"Playbook Finished at {finish_time}", "INFO")
+
         if self.full_log:
             self.full_log.close()
         if self.issues_log:
             self.issues_log.close()
+
 
     def v2_on_file_diff(self, result) -> None:
         if result._result.get("diff"):
