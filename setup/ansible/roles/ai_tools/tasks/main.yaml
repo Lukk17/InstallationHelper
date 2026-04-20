@@ -4,8 +4,3 @@
 - import_tasks: openspec.yaml
 - import_tasks: local_llm.yaml
 
-- name: Install JetBrains Toolbox and IDEs
-  import_role:
-    name: jetbrains_toolbox
-  when: install_jetbrains_toolbox | default(true) | bool
-

@@ -2,6 +2,10 @@
 - hosts: localhost
   connection: local
   gather_facts: yes
+  environment:
+    # Suppress locale warnings from sudo that corrupt module JSON output
+    LANG: "C.UTF-8"
+    LC_ALL: "C.UTF-8"
   vars_files:
     - group_vars/all.yaml
     - group_vars/versions.yaml
@@ -72,8 +76,13 @@
     - ansible.builtin.import_role:
         name: env_variables
 
-    - ansible.builtin.import_role:
-        name: shell_zsh
+    - name: Run shell_zsh
+      block:
+        - ansible.builtin.include_role:
+            name: shell_zsh
+      rescue:
+        - ansible.builtin.debug:
+            msg: "Role shell_zsh failed — check ~/installation_issues.log for details."
       when: "setup_zsh | default(false) | bool and ansible_facts['os_family'] != 'Windows'"
 
     # 4. Universal Complex Roles (non-critical)
@@ -162,6 +171,12 @@
       ansible.builtin.set_fact:
         playbook_succeeded: true
 
+    - name: Check if flatpak is installed
+      ansible.builtin.command: which flatpak
+      register: flatpak_check
+      changed_when: false
+      failed_when: false
+
     - name: Clean Flatpak unused runtimes
       ansible.builtin.command: flatpak uninstall --unused -y
       become: yes
@@ -170,6 +185,7 @@
       when:
         - playbook_succeeded | bool
         - ansible_facts['system'] == 'Linux'
+        - flatpak_check.rc == 0
 
     - name: Clean Flatpak per-user app caches
       ansible.builtin.shell: |

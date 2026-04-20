@@ -13,21 +13,27 @@
   when:
     - ansible_facts['os_family'] == "Archlinux"
 
-- name: Download JetBrains Toolbox installer
+- name: Download JetBrains Toolbox tarball
   ansible.builtin.get_url:
-    url: "https://data.services.jetbrains.com/toolbox/shell-downloader/11.0.1/build/11.0.1.sh"
-    dest: /tmp/jetbrains-toolbox-installer.sh
-    mode: '0755'
+    url: "https://data.services.jetbrains.com/products/download?platform=linux&code=TBA"
+    dest: /tmp/jetbrains-toolbox.tar.gz
+    mode: '0644'
+  become: yes
+  become_user: "{{ non_root_user }}"
   when:
     - install_jetbrains_toolbox | default(true) | bool
     - ansible_facts['system'] in ['Linux', 'Darwin']
     - not toolbox_binary.stat.exists
     - ansible_facts['os_family'] != "Archlinux"
 
-- name: Install JetBrains Toolbox (Linux/macOS)
+- name: Extract and install JetBrains Toolbox (Linux/macOS)
   ansible.builtin.shell: |
     set -o pipefail
-    bash /tmp/jetbrains-toolbox-installer.sh
+    tar -xzf /tmp/jetbrains-toolbox.tar.gz -C /tmp/
+    TOOLBOX_DIR=$(find /tmp -maxdepth 1 -name 'jetbrains-toolbox-*' -type d | head -1)
+    if [ -n "$TOOLBOX_DIR" ] && [ -f "$TOOLBOX_DIR/jetbrains-toolbox" ]; then
+      "$TOOLBOX_DIR/jetbrains-toolbox" --install
+    fi
   args:
     executable: /bin/bash
   become: yes

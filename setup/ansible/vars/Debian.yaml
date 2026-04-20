@@ -1,8 +1,8 @@
 ---
 software_mapping:
   # Browsers
-  chrome: { manager: "apt", package: "google-chrome-stable" }
-  brave: { manager: "apt", package: "brave-browser" }
+  chrome: { manager: "apt_url", package: "google-chrome-stable_current_amd64.deb", is_deb_url: true }
+  brave: { manager: "flatpak", package: "com.brave.Browser" }
   tor: { manager: "flatpak", package: "org.torproject.torbrowser-launcher" }
 
   # Dev Tools
@@ -14,16 +14,16 @@ software_mapping:
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }  # Changed: more reliable
   kubectl: { manager: "snap", package: "kubectl", classic: true }
   minikube: { manager: "apt_url", package: "minikube_{{ minikube_version }}_amd64.deb", is_deb_url: true }
-  lens: { manager: "snap", package: "lens", classic: true }
+  # lens: removed from Snap Store — install manually from k8slens.dev
   filezilla: { manager: "apt", package: "filezilla" }
   putty: { manager: "apt", package: "putty" }
 
   # IDEs / Editors
   # intellij: removed - use JetBrains Toolbox instead
   vscode: { manager: "snap", package: "code", classic: true }
-  sublime: { manager: "apt", package: "sublime-text" }
+  sublime: { manager: "snap", package: "sublime-text", classic: true }
   arduino: { manager: "snap", package: "arduino" }
-  antigravity: { manager: "apt_url", package: "antigravity.deb", is_deb_url: true }
+  # antigravity: download URL dead (404)
   bruno: { manager: "flatpak", package: "com.usebruno.Bruno" }
 
   # Communication
@@ -37,17 +37,17 @@ software_mapping:
   # Productivity
   obsidian: { manager: "flatpak", package: "md.obsidian.Obsidian" }
   bitwarden: { manager: "flatpak", package: "com.bitwarden.desktop" }
-  keepassxc: { manager: "snap", package: "keepassxc" }
+  keepassxc: { manager: "apt", package: "keepassxc" }
   # trello: removed - not on Flathub
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
   # Media / Design
-  vlc: { manager: "snap", package: "vlc" }
+  vlc: { manager: "apt", package: "vlc" }
   spotify: { manager: "flatpak", package: "com.spotify.Client" }
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
   handbrake: { manager: "apt", package: "handbrake" }
-  audacity: { manager: "snap", package: "audacity" }
+  audacity: { manager: "apt", package: "audacity" }
   rawtherapee: { manager: "apt", package: "rawtherapee" }
 
   # Gaming
@@ -57,7 +57,7 @@ software_mapping:
   
   # CAD / 3D
   freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
-  prusaslicer: { manager: "snap", package: "prusa-slicer" }
+  prusaslicer: { manager: "apt", package: "prusa-slicer" }
 
   # Utilities
   teamviewer: { manager: "apt_url", package: "teamviewer_amd64.deb", is_deb_url: true }
@@ -66,9 +66,9 @@ software_mapping:
   appimagelauncher: { manager: "apt_url", package: "{{ appimage_launcher_url }}", is_deb_url: true }
 
   # Crypto / Crypto Hardware
-  exodus: { manager: "apt_url", package: "exodus.deb", is_deb_url: true }
+  # exodus: direct deb download blocked (403) — install manually from exodus.com
   boinc: { manager: "apt", package: "boinc-client" }
-  gridcoin: { manager: "apt", package: "gridcoinresearch" }
+  # gridcoin: not in default Ubuntu repos — requires PPA or manual install
   lynis: { manager: "apt", package: "lynis" }
   chkrootkit: { manager: "apt", package: "chkrootkit" }
   clamav: { manager: "apt", package: "clamav" }
@@ -78,9 +78,9 @@ software_mapping:
   lm_sensors: { manager: "apt", package: "lm-sensors", is_alternative_for: "HWInfo" }
   greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
   baobab: { manager: "apt", package: "baobab", is_alternative_for: "WizTree" }
-  polychromatic: { manager: "apt", package: "polychromatic", is_alternative_for: "Razer Cortex" }
+  # polychromatic: not in default Ubuntu repos — requires PPA
   balena_etcher: { manager: "apt_url", package: "balena-etcher", is_alternative_for: "Rufus", is_deb_url: true }
-  gputest: { manager: "apt", package: "gputest", is_alternative_for: "FurMark" }
+  # gputest: not in default Ubuntu repos
 
   # Utilities
   gparted: { manager: "apt", package: "gparted" }

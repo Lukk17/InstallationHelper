@@ -1,7 +1,7 @@
 ---
 software_mapping:
   # Browsers
-  chrome: { manager: "dnf_url", package: "google-chrome-stable" }
+  chrome: { manager: "dnf", package: "google-chrome-stable" }
   brave: { manager: "dnf_repo", package: "brave-browser" }
   tor: { manager: "flatpak", package: "org.torproject.torbrowser-launcher" }
 
@@ -14,7 +14,7 @@ software_mapping:
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }  # Changed: more reliable
   kubectl: { manager: "snap", package: "kubectl", classic: true }
   minikube: { manager: "dnf_url", package: "minikube-latest.x86_64.rpm" }
-  lens: { manager: "snap", package: "lens", classic: true }
+  # lens: removed from Snap Store — install manually from k8slens.dev
   filezilla: { manager: "dnf", package: "filezilla" }
 
 

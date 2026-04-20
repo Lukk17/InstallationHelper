@@ -74,9 +74,21 @@
         name: "{{ item.value.package }}"
         state: present
         use: paru
-        extra_args: "--noconfirm --skipreview"
+        extra_args: "--noconfirm --skipreview --needed"
       loop: "{{ software_installer_packages }}"
       when: ansible_facts['os_family'] == 'Archlinux' and item.value.manager == 'aur'
+      async: 1200
+      poll: 30
+      register: aur_results
+      ignore_errors: yes
+
+    - name: Report timed-out or failed AUR packages
+      ansible.builtin.debug:
+        msg: "WARNING: AUR package '{{ item.item.value.package }}' failed or timed out (20min limit)."
+      loop: "{{ aur_results.results | default([]) }}"
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - item.failed | default(false)
 
     - name: Install Snap packages (Classic/Native)
       community.general.snap:

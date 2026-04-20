@@ -11,8 +11,11 @@ configure_gnome: false
 
 # System Core Configurations
 install_system_core: true
-setup_systemd_boot: true
-remove_distro_grub: true
+# Bootloader (only one should be true; both false = keep existing bootloader)
+setup_systemd_boot: false
+setup_grub: false
+remove_distro_grub: false
+remove_distro_systemd_boot: false
 setup_hibernate: true
 setup_tmpfs: true
 toggle_wayland_nvidia: false
@@ -24,7 +27,7 @@ install_chkrootkit: true
 install_clamav: true
 
 # Linux Only Crypto Hardware Apps
-install_exodus: true
+# install_exodus: removed — no reliable automated install method (403 on direct download, no snap/flatpak)
 install_ledger_live: true
 install_trezor_suite: true
 
