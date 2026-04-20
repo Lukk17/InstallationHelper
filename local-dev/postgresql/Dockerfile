@@ -10,8 +10,10 @@ COPY ./auth/Keycloak/export/database/keycloak-dump.sql /docker-entrypoint-initdb
 # Start a temporary PostgreSQL instance, entrypoint script automatically runs init.sh
 # The result is a fully configured database in the /var/lib/postgresql/data directory.
 RUN /usr/local/bin/docker-entrypoint.sh postgres & \
-    sleep 15 && \
-    su - postgres -c "/usr/lib/postgresql/17/bin/pg_isready -U \"$POSTGRES_USER\" -h 127.0.0.1 -p 5432" && \
+    for i in $(seq 1 30); do \
+      su - postgres -c "/usr/lib/postgresql/17/bin/pg_isready -U postgres -h 127.0.0.1 -p 5432" && break; \
+      sleep 1; \
+    done && \
     su - postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D \"$PGDATA\" -m fast -w stop"
 
 

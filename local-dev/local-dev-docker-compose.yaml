@@ -4,9 +4,8 @@ volumes:
   mysql_data:
   mongodb_data:
   postgres_data:
-
-networks:
-  local-network:
+  qdrant_data:
+  minio_data:
 
 services:
   mysql:
@@ -20,12 +19,12 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-    networks:
-      - local-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-plocal"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-plocal" ]
+      interval: 5s
       timeout: 20s
       retries: 10
+      start_period: 10s
 
   mongodb:
     container_name: mongodb
@@ -37,10 +36,8 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
-    networks:
-      - local-network
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -50,8 +47,6 @@ services:
     container_name: postgres
     image: postgres-local:latest
     restart: unless-stopped
-    networks:
-      - local-network
     ports:
       - "5432:5432"
     volumes:
@@ -68,14 +63,44 @@ services:
       retries: 30
       start_period: 15s
 
+  qdrant:
+    image: qdrant/qdrant:v1.16
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    networks:
+      default:
+        aliases:
+          - mem0_store
+          - qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: [ "CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/localhost/6333'" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   keycloak:
     container_name: keycloak
     image: keycloak-local:latest
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway" # for linux internal host recognition same as on windows
-    networks:
-      - local-network
     ports:
       - "9443:9443" # https port
       - "9000:9000" # management port
@@ -110,3 +135,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: minio
+    restart: unless-stopped
+    ports:
+      - "9070:9000"
+      - "9071:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5

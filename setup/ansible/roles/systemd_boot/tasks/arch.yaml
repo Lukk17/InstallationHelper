@@ -2,11 +2,6 @@
 # On Arch, /boot is typically the ESP (vfat), so kernels live directly on it.
 # Paths in entry files are relative to the ESP root.
 
-- name: Get root partition UUID (Arch)
-  ansible.builtin.shell: findmnt -n -o UUID /
-  register: root_uuid
-  changed_when: false
-
 - name: Check for Intel microcode on ESP (Arch)
   ansible.builtin.stat:
     path: "{{ esp_path }}/intel-ucode.img"
@@ -16,6 +11,14 @@
   ansible.builtin.stat:
     path: "{{ esp_path }}/amd-ucode.img"
   register: amd_ucode
+
+- name: Build boot options line (Arch)
+  ansible.builtin.set_fact:
+    boot_options: "root=UUID={{ root_uuid.stdout | trim }} rw quiet{{ ' resume=UUID=' ~ swap_uuid.stdout | trim if swap_uuid.stdout | default('') | trim != '' else '' }}"
+
+- name: Build fallback boot options line (Arch)
+  ansible.builtin.set_fact:
+    boot_options_fallback: "root=UUID={{ root_uuid.stdout | trim }} rw{{ ' resume=UUID=' ~ swap_uuid.stdout | trim if swap_uuid.stdout | default('') | trim != '' else '' }}"
 
 - name: Create boot entry for Arch Linux
   become: yes
@@ -30,7 +33,7 @@
       initrd  /amd-ucode.img
       {% endif %}
       initrd  /initramfs-linux.img
-      options root=UUID={{ root_uuid.stdout | trim }} rw quiet
+      options {{ boot_options }}
     mode: '0644'
 
 - name: Create fallback boot entry for Arch Linux
@@ -46,7 +49,7 @@
       initrd  /amd-ucode.img
       {% endif %}
       initrd  /initramfs-linux-fallback.img
-      options root=UUID={{ root_uuid.stdout | trim }} rw
+      options {{ boot_options_fallback }}
     mode: '0644'
 
 - name: Ensure pacman hooks directory exists (Arch)

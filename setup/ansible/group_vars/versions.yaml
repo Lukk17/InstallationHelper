@@ -28,7 +28,7 @@ veracrypt_rpm_url: "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }
 vmware_version: "17.5.0"
 vmware_build: "22583795"
 vmware_file: "VMware-Player-Full-{{ vmware_version }}-{{ vmware_build }}.x86_64.bundle"
-minikube_version: "1.35.0"
+minikube_version: "latest"
 minikube_file: "minikube_{{ minikube_version }}_amd64.deb"
 kind_version: "v0.27.0"
 tor_browser_version: "14.5"
@@ -72,6 +72,7 @@ meslo_bold_italic_url: "https://github.com/romkatv/powerlevel10k-media/raw/maste
 
 # Download Links
 appimage_launcher_url: "https://github.com/TheAssassin/AppImageLauncher/releases/download/v{{ appimage_launcher_version }}/{{ appimage_launcher_file }}"
+appimagelauncher_url: "{{ appimage_launcher_url }}"
 appimage_launcher_rpm_url: "https://github.com/TheAssassin/AppImageLauncher/releases/download/v{{ appimage_launcher_version }}/{{ appimage_launcher_rpm_file }}"
 antigravity_url: "https://antigravity.google/download/linux/{{ antigravity_file }}"
 teamviewer_url: "https://download.teamviewer.com/download/linux/{{ teamviewer_file }}"
@@ -81,7 +82,8 @@ aurora_store_url: "https://files.auroraoss.com/AuroraStore/Stable/{{ aurora_stor
 aurora_droid_url: "https://files.auroraoss.com/AuroraDroid/Stable/{{ aurora_droid_file }}"
 exodus_url: "https://downloads.exodus.com/releases/{{ exodus_file }}"
 exodus_rpm_url: "https://downloads.exodus.com/releases/{{ exodus_rpm_file }}"
-chrome_url: "https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm"
+chrome_url: "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
+chrome_rpm_url_dynamic: "https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm"
 claude_desktop_deb_url: "https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/signed/Claude-linux-x86_64.deb"
 trezor_suite_url: "https://data.trezor.io/suite/releases/desktop/latest/{{ trezor_suite_file }}"
 ledger_live_url: "https://download.live.ledger.com/latest/linux"

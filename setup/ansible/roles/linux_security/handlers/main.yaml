@@ -1,5 +1,2 @@
 ---
-- name: Update GRUB
-  ansible.builtin.command: update-grub
-  become: yes
-
+# No handlers — GRUB configuration moved to bootloader roles.

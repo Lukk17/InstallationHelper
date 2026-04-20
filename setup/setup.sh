@@ -115,8 +115,11 @@ ensure_ansible() {
     case "${OS_FAMILY}" in
         Debian)
             sudo apt-get update -q
-            sudo apt-get install -y software-properties-common
-            sudo add-apt-repository --yes --update ppa:ansible/ansible
+            # Ubuntu: use PPA for latest Ansible. Debian: ansible is in default repos.
+            if command -v add-apt-repository &>/dev/null || apt-cache show software-properties-common &>/dev/null 2>&1; then
+                sudo apt-get install -y software-properties-common
+                sudo add-apt-repository --yes --update ppa:ansible/ansible 2>/dev/null || true
+            fi
             sudo apt-get install -y ansible ;;
         RedHat)    sudo dnf install -y ansible ;;
         Archlinux) sudo pacman -S --noconfirm ansible ;;
@@ -250,18 +253,126 @@ load_profiles() {
 }
 
 # ---------------------------------------------------------------------------
-# Whiptail screens (radiolist + yesno — simple enough for whiptail)
+# Reusable radio-select TUI — consistent arrow/button navigation
+#
+# Usage: radio_tui "Title" key1 "Label 1" key2 "Label 2" ...
+# Sets _RESULT=selected_key, _RC=0 on select, _RC=1 on back/esc.
+#
+# Navigation:
+#   ↑↓           — move cursor between items
+#   Space        — mark item (radio dot ●)
+#   Enter/Tab    — move focus to buttons
+#   ↓ at last    — move focus to buttons
+#   ↑ on buttons — return to list
+#   Esc          — back
+# ---------------------------------------------------------------------------
+
+radio_tui() {
+    local title="$1"; shift
+    local -a keys=() labels=()
+    while [[ $# -ge 2 ]]; do
+        keys+=("$1"); labels+=("$2"); shift 2
+    done
+    local total=${#keys[@]}
+    [[ ${total} -eq 0 ]] && _RC=1 && return 0
+
+    local tw; tw=$(tput cols)
+    local cur=0 selected=0 mode="list" btn=0
+    local HDR=5
+
+    tput civis 2>/dev/null || true
+    clear
+
+    # Header
+    local sep; sep=$(printf '%*s' "${tw}" '' | tr ' ' '-')
+    tput cup 0 0
+    printf "${_G}%s${_RST}\n" "${sep}"
+    printf "${_BG}  %s — %-*s${_RST}\n" "${title}" $(( tw - ${#title} - 6 )) "${DISTRO}"
+    printf "${_G}%s${_RST}\n" "${sep}"
+    printf "${_DG}  ↑↓ move  Space mark  Enter/Tab → buttons  Esc back${_RST}\n"
+    printf '\n'
+
+    while true; do
+        # Items
+        for (( i=0; i<total; i++ )); do
+            tput cup $(( HDR + i )) 0
+            local radio="○"; (( i == selected )) && radio="●"
+            local row="  ${radio} ${labels[$i]}"
+            local pad=$(( tw - ${#row} ))
+            (( pad < 0 )) && pad=0
+            if (( i == cur )) && [[ "${mode}" == "list" ]]; then
+                printf "${_SEL}%s%*s${_RST}" "${row}" "${pad}" ''
+            elif (( i == selected )); then
+                printf "${_G}%s%*s${_RST}" "${row}" "${pad}" ''
+            else
+                printf "${_DG}%s%*s${_RST}" "${row}" "${pad}" ''
+            fi
+        done
+
+        # Blank + buttons
+        tput cup $(( HDR + total )) 0
+        printf '%-*s' "${tw}" ''
+        tput cup $(( HDR + total + 1 )) 0
+        if [[ "${mode}" == "buttons" && ${btn} -eq 0 ]]; then
+            printf "  ${_BTN_ON}[ Select ]${_RST}"
+        else
+            printf "  ${_BTN_OFF}  Select  ${_RST}"
+        fi
+        printf '   '
+        if [[ "${mode}" == "buttons" && ${btn} -eq 1 ]]; then
+            printf "${_BTN_ON}[ Back ]${_RST}"
+        else
+            printf "${_BTN_OFF}  Back  ${_RST}"
+        fi
+        printf '%-*s' $(( tw - 28 )) ''
+
+        _cl_read_key
+
+        if [[ "${mode}" == "list" ]]; then
+            case "${_KEY}" in
+                $'\x1b[A')  (( cur > 0 )) && (( cur-- )) || true ;;
+                $'\x1b[B')
+                    if (( cur < total - 1 )); then
+                        (( cur++ )) || true
+                    else
+                        mode="buttons"; btn=0
+                    fi ;;
+                ' ')         selected=${cur} ;;                      # Space = mark radio
+                $'\t'|ENTER) mode="buttons"; btn=0 ;;               # Tab/Enter = go to buttons
+                $'\x11')     cleanup_exit ;;
+                $'\x1b')     tput cvvis 2>/dev/null || true; clear; _RC=1; return 0 ;;
+            esac
+        else
+            case "${_KEY}" in
+                $'\x1b[D')           btn=0 ;;                        # Left → Select
+                $'\x1b[C')           btn=1 ;;                        # Right → Back
+                $'\x1b[A')           mode="list" ;;                  # Up → back to list
+                $'\x1b[B')           ;;                              # Down — at bottom
+                $'\t')               btn=$(( 1 - btn )) ;;
+                $'\x11')             cleanup_exit ;;
+                $'\x1b')             mode="list" ;;
+                ' '|ENTER)                                           # Enter/Space = activate button
+                    tput cvvis 2>/dev/null || true; clear
+                    if (( btn == 0 )); then
+                        _RESULT="${keys[$selected]}"; _RC=0
+                    else
+                        _RC=1
+                    fi
+                    return 0 ;;
+            esac
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Screens using radio_tui and whiptail (yesno dialogs stay as whiptail)
 # ---------------------------------------------------------------------------
 
 screen_de() {
-    _tui whiptail \
-        --title "  Installation Helper — Step 1/3: Desktop Environment  " \
-        --nocancel --ok-button "  Next  " \
-        --radiolist $'\nArrow keys  |  Space select  |  Enter confirm  |  Esc exit\n' \
-        18 70 4 \
-        "none"  "No desktop environment (server / headless)" ON  \
-        "kde"   "KDE Plasma (Wayland)"                       OFF \
-        "gnome" "GNOME"                                      OFF
+    radio_tui "Step 1/3: Desktop Environment" \
+        "none"  "No desktop environment (server / headless)" \
+        "kde"   "KDE Plasma (Wayland)" \
+        "gnome" "GNOME"
 }
 
 screen_configure_de() {
@@ -274,22 +385,67 @@ screen_configure_de() {
 }
 
 screen_review() {
-    _tui whiptail \
-        --title "  Step 2/3: Software Selection  " \
-        --ok-button "  Select  " --cancel-button "  Back  " \
-        --menu $'\nHow do you want to configure software?\n\nArrow keys  |  Enter confirm  |  Esc back\n' \
-        16 66 3 \
+    radio_tui "Step 2/3: Software Selection" \
         "defaults"  "Use group_vars settings as-is" \
         "customise" "Open checklist to toggle individual software" \
         "profile"   "Load a preset profile (e.g. Linux Live)"
 }
 
 screen_confirm() {
-    _tui whiptail \
-        --title "  Step 3/3: Confirm & Run  " \
-        --yes-button "  Run  " --no-button "  Cancel  " \
-        --yesno "$(printf '\nReady to run:\n\n  %s\n\nEnter = Run  |  Tab = Cancel  |  Esc = back\n' "$1")" \
-        14 78
+    local cmd="$1"
+    local tw; tw=$(tput cols)
+    local btn=0
+    local HDR=5
+
+    tput civis 2>/dev/null || true
+    clear
+
+    # Header
+    local sep; sep=$(printf '%*s' "${tw}" '' | tr ' ' '-')
+    tput cup 0 0
+    printf "${_G}%s${_RST}\n" "${sep}"
+    printf "${_BG}  Step 3/3: Confirm & Run — %-*s${_RST}\n" $(( tw - 30 )) "${DISTRO}"
+    printf "${_G}%s${_RST}\n" "${sep}"
+    printf "${_DG}  ←→/Tab switch buttons  Enter/Space activate  Esc back${_RST}\n"
+    printf '\n'
+
+    # Command display
+    tput cup ${HDR} 0
+    printf "${_G}  Ready to run:${_RST}\n\n"
+    # Word-wrap command to fit terminal
+    printf "${_BG}  %s${_RST}\n" "${cmd}" | fold -s -w $(( tw - 4 ))
+    printf '\n'
+
+    local btn_row=$(( HDR + 5 ))
+
+    while true; do
+        tput cup ${btn_row} 0
+        if (( btn == 0 )); then
+            printf "  ${_BTN_ON}[ Run ]${_RST}"
+        else
+            printf "  ${_BTN_OFF}  Run  ${_RST}"
+        fi
+        printf '   '
+        if (( btn == 1 )); then
+            printf "${_BTN_ON}[ Cancel ]${_RST}"
+        else
+            printf "${_BTN_OFF}  Cancel  ${_RST}"
+        fi
+        printf '%-*s' $(( tw - 26 )) ''
+
+        _cl_read_key
+        case "${_KEY}" in
+            $'\x1b[D'|$'\x1b[A') btn=0 ;;
+            $'\x1b[C'|$'\x1b[B') btn=1 ;;
+            $'\t')               btn=$(( 1 - btn )) ;;
+            $'\x11')             cleanup_exit ;;
+            $'\x1b')             tput cvvis 2>/dev/null || true; clear; _RC=1; return 0 ;;
+            ' '|ENTER)
+                tput cvvis 2>/dev/null || true; clear
+                if (( btn == 0 )); then _RC=0; else _RC=1; fi
+                return 0 ;;
+        esac
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -439,10 +595,10 @@ profiles_tui() {
     while true; do
         _pr_draw_frame "${tw}" "${ppage}" "${cur}" "${scroll}" "${mode}" "${btn}"
 
-        local key; key=$(_cl_read_key)
+        _cl_read_key
 
         if [[ "${mode}" == "list" ]]; then
-            case "${key}" in
+            case "${_KEY}" in
                 $'\x1b[A')   # Up
                     if (( cur > 0 )); then
                         (( cur-- )) || true
@@ -465,7 +621,7 @@ profiles_tui() {
                 $'\x1b[F'|$'\x1b[4~')                          # End
                     cur=$(( total - 1 ))
                     (( cur >= scroll + ppage )) && (( scroll = cur - ppage + 1 )) || true ;;
-                ' '|$'\n'|$'\r')                               # Enter/Space → select profile
+                ' '|ENTER)                                     # Enter/Space → select profile
                     tput cvvis 2>/dev/null || true; clear
                     _RESULT="${cur}"; _RC=0; return 0 ;;
                 $'\t')       mode="buttons"; btn=0 ;;          # Tab → buttons
@@ -473,7 +629,7 @@ profiles_tui() {
                 $'\x1b')     tput cvvis 2>/dev/null || true; clear; _RC=1; return 0 ;;
             esac
         else  # buttons mode
-            case "${key}" in
+            case "${_KEY}" in
                 $'\x1b[D')           (( btn > 0 )) && (( btn-- )) || true ;;  # Left
                 $'\x1b[C')           (( btn < 1 )) && (( btn++ )) || true ;;  # Right
                 $'\x1b[A')           mode="list" ;;                            # Up → back to list
@@ -481,7 +637,7 @@ profiles_tui() {
                 $'\t')               btn=$(( 1 - btn )) ;;                     # Tab toggle
                 $'\x11')             cleanup_exit ;;                            # Ctrl+Q
                 $'\x1b')             mode="list" ;;                             # Esc → list
-                ' '|$'\n'|$'\r')                                                # Activate
+                ' '|ENTER)                                                      # Activate
                     tput cvvis 2>/dev/null || true; clear
                     if (( btn == 0 )); then
                         _RESULT="${cur}"; _RC=0
@@ -520,21 +676,28 @@ profiles_tui() {
 #   Esc (in list)               — same as Back (exit)
 # ---------------------------------------------------------------------------
 
+_KEY=""
 _cl_read_key() {
-    local k rest
-    IFS= read -rsn1 k
-    if [[ "${k}" == $'\x1b' ]]; then
-        IFS= read -rsn2 -t 0.05 rest || rest=''
+    local rest
+    IFS= read -rsn1 _KEY
+    # Enter key produces empty string — normalize
+    if [[ -z "${_KEY}" ]]; then
+        _KEY="ENTER"
+        return
+    fi
+    if [[ "${_KEY}" == $'\x1b' ]]; then
+        IFS= read -rsn2 -t 0.1 rest || rest=''
         # Handle 3-char sequences (PgUp/PgDn/Home/End)
         if [[ "${rest}" == $'[5' || "${rest}" == $'[6' \
            || "${rest}" == $'[1' || "${rest}" == $'[4' ]]; then
             local extra
-            IFS= read -rsn1 -t 0.05 extra || extra=''
+            IFS= read -rsn1 -t 0.1 extra || extra=''
             rest="${rest}${extra}"
         fi
-        k="${k}${rest}"
+        _KEY="${_KEY}${rest}"
+        # Drain any leftover bytes from fast key repeat
+        while IFS= read -rsn1 -t 0.01 _ 2>/dev/null; do :; done
     fi
-    printf '%s' "${k}"
 }
 
 _cl_draw_header() {
@@ -652,10 +815,10 @@ checklist_tui() {
     while true; do
         _cl_draw_frame "${tw}" "${page}" "${cur}" "${scroll}" "${mode}" "${btn}" states
 
-        local key; key=$(_cl_read_key)
+        _cl_read_key
 
         if [[ "${mode}" == "list" ]]; then
-            case "${key}" in
+            case "${_KEY}" in
                 $'\x1b[A')   # Up
                     if (( cur > 0 )); then
                         (( cur-- )) || true
@@ -679,18 +842,18 @@ checklist_tui() {
                     cur=$(( total - 1 ))
                     (( cur >= scroll + page )) && (( scroll = cur - page + 1 )) || true ;;
                 ' ')         states[$cur]=$(( 1 - states[$cur] )) ;;  # Space toggle
-                $'\t'|$'\n'|$'\r') mode="buttons"; btn=0 ;;          # Tab/Enter → buttons
+                $'\t'|ENTER) mode="buttons"; btn=0 ;;                # Tab/Enter → buttons
                 $'\x11')     cleanup_exit ;;   # Ctrl+Q
                 $'\x1b')     tput cvvis 2>/dev/null || true; clear; _RC=1; return 0 ;;
             esac
         else  # buttons mode (0=Apply, 1=Back)
-            case "${key}" in
+            case "${_KEY}" in
                 $'\x1b[D'|$'\x1b[A') btn=0 ;;                               # Left/Up → Apply
                 $'\x1b[C'|$'\x1b[B') btn=1 ;;                               # Right/Down → Back
                 $'\t')               btn=$(( 1 - btn )) ;;                   # Tab toggle
                 $'\x11')             cleanup_exit ;;                          # Ctrl+Q
                 $'\x1b')             mode="list" ;;                           # Esc → back to list
-                ' '|$'\n'|$'\r')                                              # Enter/Space → activate
+                ' '|ENTER)                                                    # Enter/Space → activate
                     tput cvvis 2>/dev/null || true; clear
                     if (( btn == 0 )); then  # Apply
                         local -a out=()
@@ -831,15 +994,15 @@ main() {
                 [[ ${#all_extra[@]} -gt 0 ]] \
                     && extra_str=$(printf ' %s' "${all_extra[@]}") && extra_str="${extra_str:1}"
 
+                export ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg"
                 local ansible_cmd="ansible-playbook ${ANSIBLE_DIR}/site.yaml -i localhost, -c local -K"
                 [[ -n "${extra_str}" ]] && ansible_cmd+=" --extra-vars \"${extra_str}\""
 
                 screen_confirm "${ansible_cmd}"
-                if [[ ${_RC} -eq 255 ]]; then
+                if [[ ${_RC} -ne 0 ]]; then
                     state=$([[ "${have_pkg_vars}" == true ]] && echo "checklist" || echo "review")
                     continue
                 fi
-                [[ ${_RC} -ne 0 ]] && clear && echo "Cancelled." && exit 0
 
                 clear
                 echo "Running: ${ansible_cmd}"

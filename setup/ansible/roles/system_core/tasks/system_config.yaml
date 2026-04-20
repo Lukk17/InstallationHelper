@@ -32,7 +32,7 @@
   become: yes
   when: ansible_facts['os_family'] == 'Debian'
 
-- name: Install Polish language packs (Debian)
+- name: Install Polish language packs (Ubuntu)
   ansible.builtin.apt:
     name:
       - language-pack-pl
@@ -40,7 +40,16 @@
       - language-pack-pl-base
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ansible_facts['os_family'] == 'Debian' and ansible_facts['distribution'] == 'Ubuntu'
+
+- name: Install Polish locale support (Debian)
+  ansible.builtin.apt:
+    name:
+      - locales
+      - task-polish
+    state: present
+  become: yes
+  when: ansible_facts['os_family'] == 'Debian' and ansible_facts['distribution'] != 'Ubuntu'
 
 # --- Locale: Arch ---
 

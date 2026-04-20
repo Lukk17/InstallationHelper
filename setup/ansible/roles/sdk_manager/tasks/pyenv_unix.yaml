@@ -1,4 +1,56 @@
 ---
+- name: Install Pyenv build dependencies (Debian)
+  become: yes
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - libssl-dev
+      - zlib1g-dev
+      - libbz2-dev
+      - libreadline-dev
+      - libsqlite3-dev
+      - libncursesw5-dev
+      - xz-utils
+      - tk-dev
+      - libxml2-dev
+      - libxmlsec1-dev
+      - libffi-dev
+      - liblzma-dev
+      - curl
+    state: present
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install Pyenv build dependencies (Fedora)
+  become: yes
+  ansible.builtin.dnf:
+    name:
+      - gcc
+      - make
+      - zlib-devel
+      - bzip2-devel
+      - readline-devel
+      - sqlite-devel
+      - openssl-devel
+      - tk-devel
+      - libffi-devel
+      - xz-devel
+      - curl
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Install Pyenv build dependencies (Arch)
+  become: yes
+  community.general.pacman:
+    name:
+      - base-devel
+      - openssl
+      - zlib
+      - xz
+      - tk
+      - curl
+    state: present
+  when: ansible_facts['os_family'] == 'Archlinux'
+
 - name: Install Pyenv (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail

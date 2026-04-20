@@ -23,6 +23,17 @@
   ansible.builtin.set_fact:
     esp_path: "{{ esp_raw.stdout | trim }}"
 
+- name: Get root partition UUID
+  ansible.builtin.shell: findmnt -n -o UUID /
+  register: root_uuid
+  changed_when: false
+
+- name: Get swap partition UUID (for hibernate resume)
+  ansible.builtin.shell: swapon --show --noheadings --raw | awk '{print $1}' | head -1 | xargs -r blkid -s UUID -o value
+  register: swap_uuid
+  changed_when: false
+  failed_when: false
+
 - name: Check if GRUB exists on ESP (never remove — needed for multi-boot)
   ansible.builtin.find:
     paths: "{{ esp_path }}/EFI"
@@ -46,7 +57,7 @@
 
 - name: Install systemd-boot to ESP
   become: yes
-  ansible.builtin.command: bootctl install --esp-path={{ esp_path }} --no-variables
+  ansible.builtin.command: bootctl install --esp-path="{{ esp_path }}" --no-variables
   args:
     creates: "{{ esp_path }}/EFI/systemd/systemd-bootx64.efi"
 
@@ -80,9 +91,30 @@
   ansible.builtin.include_tasks: fedora.yaml
   when: ansible_facts['os_family'] == 'RedHat'
 
-# Remove GRUB from this distro only — runs after systemd-boot is fully installed
-# so the system is always bootable even if removal fails.
+# --- Verification gate: ensure at least one valid boot entry exists ---
+
+- name: Check for boot entries in loader/entries/
+  ansible.builtin.find:
+    paths: "{{ esp_path }}/loader/entries"
+    patterns: "*.conf"
+  register: boot_entry_files
+
+- name: Set verification fact
+  ansible.builtin.set_fact:
+    systemd_boot_verified: "{{ boot_entry_files.matched > 0 }}"
+
+- name: WARN if no boot entries found — GRUB will NOT be removed
+  ansible.builtin.debug:
+    msg: >
+      WARNING: systemd-boot installed but NO boot entries found in {{ esp_path }}/loader/entries/.
+      GRUB will NOT be removed to keep the system bootable.
+      Check kernel-install output or create entries manually.
+  when: not systemd_boot_verified | bool
+
+# --- Remove GRUB only if verified AND explicitly requested ---
+
 - name: Remove this distro's GRUB installation
   ansible.builtin.include_tasks: remove_grub.yaml
-  when: remove_distro_grub | default(true) | bool
-
+  when:
+    - remove_distro_grub | default(false) | bool
+    - systemd_boot_verified | bool

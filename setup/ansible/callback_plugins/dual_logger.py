@@ -39,10 +39,16 @@ class CallbackModule(CallbackBase):
         super(CallbackModule, self).__init__()
         self.full_log_path = os.path.expanduser("~/installation_full.log")
         self.issues_log_path = os.path.expanduser("~/installation_issues.log")
+        self.skipped_log_path = os.path.expanduser("~/installation_skipped.log")
         self.full_log = None
         self.issues_log = None
+        self.skipped_log = None
         self.allow_failure = False
         self._log_initialized = False
+        # End-of-run summary lists
+        self.installed_items = []
+        self.failed_items = []
+        self.skipped_items = []
 
     def set_options(self, task_keys=None, var_options=None, direct=None) -> None:
         super(CallbackModule, self).set_options(
@@ -68,12 +74,16 @@ class CallbackModule(CallbackBase):
 
             self.full_log = open(self.full_log_path, "w", encoding="utf-8")
             self.issues_log = open(self.issues_log_path, "w", encoding="utf-8")
+            self.skipped_log = open(self.skipped_log_path, "w", encoding="utf-8")
             self._log_initialized = True
 
             self.full_log.write("# Ansible Playbook Log - Started\n")
             self.full_log.write(f"# Full Log: {self.full_log_path}\n")
             self.full_log.write(f"# Issues Log: {self.issues_log_path}\n")
+            self.full_log.write(f"# Skipped Log: {self.skipped_log_path}\n")
             self.full_log.flush()
+            self.skipped_log.write("# Skipped Software Log\n")
+            self.skipped_log.flush()
 
         except (IOError, OSError, PermissionError) as e:
             error_msg = f"""
@@ -90,6 +100,7 @@ or use --extra-vars "allow_callback_failure=true"
                 )
                 self.full_log = None
                 self.issues_log = None
+                self.skipped_log = None
                 self._log_initialized = True
             else:
                 sys.stderr.write(error_msg)
@@ -215,7 +226,7 @@ or use --extra-vars "allow_callback_failure=true"
         
         # System Core
         'system_core': ['install_system_core'],
-        'systemd_boot': ['setup_systemd_boot', 'remove_distro_grub'],
+        'systemd_boot': ['setup_systemd_boot', 'setup_grub', 'remove_distro_grub', 'remove_distro_systemd_boot'],
         'snapper': ['install_snapper'],
         
         # SDK Managers
@@ -500,6 +511,27 @@ or use --extra-vars "allow_callback_failure=true"
                 except (IOError, OSError):
                     pass
 
+        # --- End-of-run summaries ---
+
+        # Failed software → console + full log + issues log
+        if self.failed_items:
+            self._display_and_log("", "INFO")
+            self._display_and_log("═══ FAILED SOFTWARE ═══", "ERROR")
+            for item in self.failed_items:
+                line = f"  - {item['name']} (Error: {item['error']})"
+                self._display_and_log(line, "ERROR")
+            self._display_and_log("", "INFO")
+
+        # Skipped software → skipped log final summary
+        if self.skipped_items and self.skipped_log:
+            try:
+                self.skipped_log.write("\n═══ SKIPPED SOFTWARE SUMMARY ═══\n")
+                for item in self.skipped_items:
+                    self.skipped_log.write(f"  - {item['name']} [{item['reason']}]\n")
+                self.skipped_log.flush()
+            except (IOError, OSError):
+                pass
+
         finish_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self._display_and_log(f"Playbook Finished at {finish_time}", "INFO")
 
@@ -507,6 +539,8 @@ or use --extra-vars "allow_callback_failure=true"
             self.full_log.close()
         if self.issues_log:
             self.issues_log.close()
+        if self.skipped_log:
+            self.skipped_log.close()
 
 
     def v2_on_file_diff(self, result) -> None:
@@ -518,14 +552,30 @@ or use --extra-vars "allow_callback_failure=true"
         item = result._result.get("item", "unknown")
         item_display = self._extract_item_display(item)
         self._display_and_log(f"ok: [{host}] => {item_display}", "INFO")
+        # Track installed software items
+        task_name = result._task.get_name() if hasattr(result, "_task") else ""
+        if "software_installer" in task_name or "Install" in task_name:
+            if isinstance(item, dict) and "key" in item:
+                self.installed_items.append(item["key"])
 
     def v2_runner_item_on_failed(self, result) -> None:
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
         item_display = self._extract_item_display(item)
         task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
-        msg = f"failed: [{host}] => {item_display} TASK: {task_name}"
+        result_dict = result._result if hasattr(result, "_result") else {}
+
+        # Extract short error for inline display
+        short_error = result_dict.get("msg", result_dict.get("stderr", "unknown error"))
+        if isinstance(short_error, str) and len(short_error) > 80:
+            short_error = short_error[:80] + "..."
+
+        msg = f"failed: [{host}] => {item_display} [Error: {short_error}]"
         self._display_and_log(msg, "ERROR")
+
+        # Track failed items for end-of-run summary
+        item_key = item.get("key", item_display) if isinstance(item, dict) else item_display
+        self.failed_items.append({"name": item_key, "error": short_error})
 
         # Extract and display detailed error information
         error_details = self._extract_error_details(result)
@@ -557,18 +607,32 @@ or use --extra-vars "allow_callback_failure=true"
         is_os_skip = is_os_task and ('was not certain' in str(skip_reason) or 'Conditional result was False' in str(skip_reason))
 
         if is_os_skip:
-            # Suppress output entirely for non-OS package manager items
+            # Suppress output entirely for non-OS package manager items — wrong OS
             return
 
-        # Extract toggles that caused the skip
+        # Determine skip reason category
         toggles = self._extract_skipped_toggles(result)
+        item_key = item.get("key", item_display) if isinstance(item, dict) else item_display
 
-        # Only show [due: X] if toggles is non-empty, otherwise just skip
         if toggles:
-            toggle_msg = f" [due: {','.join(toggles)}]"
-            self._display_and_log(f"skipping: [{host}] => {item_display}{toggle_msg}", "INFO")
+            reason = f"toggle disabled: {','.join(t + '=false' for t in toggles)}"
+        elif "Conditional result was False" in str(skip_reason):
+            reason = "unavailable on this OS"
         else:
-            self._display_and_log(f"skipping: [{host}] => {item_display}", "INFO")
+            reason = skip_reason if skip_reason else "condition not met"
+
+        msg = f"skipping: [{host}] => {item_key} [{reason}]"
+        self._display_and_log(msg, "INFO")
+
+        # Track and write to skipped log
+        self.skipped_items.append({"name": item_key, "reason": reason})
+        if self.skipped_log:
+            try:
+                timestamp = self._get_timestamp()
+                self.skipped_log.write(f"[{timestamp}] {item_key} [{reason}]\n")
+                self.skipped_log.flush()
+            except (IOError, OSError):
+                pass
 
     def v2_playbook_on_include(self, included_file) -> None:
         self._display_and_log(f"included: {included_file._filename}", "INFO")
