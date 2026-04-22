@@ -20,13 +20,13 @@ All software installed by the Ansible playbook with exact install commands per O
 |---|---|
 | Git | Arch: `pacman -S git`<br>Debian: `apt install git`<br>Fedora: `dnf install git`<br>macOS: `brew install git`<br>Windows: `winget install Git.Git` |
 | Maven | Arch: `pacman -S maven`<br>Debian: `apt install maven`<br>Fedora: `dnf install maven`<br>macOS: `brew install maven`<br>Windows: `winget install Apache.Maven` |
-| Gradle | Arch: `pacman -S gradle`<br>Debian: `apt install gradle`<br>Fedora: `dnf install gradle`<br>macOS: `brew install gradle`<br>Windows: `winget install Gradle.Gradle` |
+| Gradle | Arch: `pacman -S gradle`<br>Debian: `apt install gradle`<br>Fedora: — *(not in repos; installed via SDKMAN)*<br>macOS: `brew install gradle`<br>Windows: `winget install Gradle.Gradle` |
 | Postman | Arch/Debian/Fedora: `flatpak install com.getpostman.Postman`<br>macOS: `brew install --cask postman`<br>Windows: `winget install Postman.Postman` |
 | OpenSSL | Arch: `pacman -S openssl`<br>Debian: `apt install openssl`<br>Fedora: `dnf install openssl`<br>macOS: `brew install openssl`<br>Windows: `winget install ShiningLight.OpenSSL.Dev` |
 | DBeaver CE | Arch/Debian/Fedora: `flatpak install io.dbeaver.DBeaverCommunity`<br>macOS: `brew install --cask dbeaver-community`<br>Windows: `winget install DBeaver.DBeaver.Community` |
 | kubectl | Arch: `pacman -S kubectl`<br>Debian/Fedora: `snap install kubectl --classic`<br>macOS: `brew install kubectl`<br>Windows: `winget install Kubernetes.kubectl` |
 | Minikube | Arch: `pacman -S minikube`<br>Debian: `apt install ./minikube_latest_amd64.deb`<br>Fedora: `dnf install minikube-latest.x86_64.rpm`<br>macOS: `brew install minikube`<br>Windows: `winget install Kubernetes.minikube` |
-| Lens | Arch: `paru -S lens-bin`<br>Debian/Fedora: — *(removed from Snap Store)*<br>macOS: `brew install --cask lens`<br>Windows: `winget install Mirantis.Lens` |
+| Lens | Arch: `paru -S lens-bin`<br>Debian/Fedora: AppImage download from k8slens.dev<br>macOS: `brew install --cask lens`<br>Windows: `winget install Mirantis.Lens` |
 | FileZilla | Arch: `pacman -S filezilla`<br>Debian: `apt install filezilla`<br>Fedora: `dnf install filezilla`<br>macOS: `brew install --cask filezilla`<br>Windows: `winget install TimKosse.FileZillaClient` |
 
 ### IDEs / Editors
@@ -36,7 +36,8 @@ All software installed by the Ansible playbook with exact install commands per O
 | JetBrains Toolbox | Arch: `paru -S jetbrains-toolbox`<br>Debian/Fedora: auto-download tarball + extract<br>macOS: `brew install --cask jetbrains-toolbox` |
 | VS Code | Arch: `paru -S visual-studio-code-bin`<br>Debian: `snap install code --classic`<br>Fedora: `dnf install code`<br>macOS: `brew install --cask visual-studio-code`<br>Windows: `winget install Microsoft.VisualStudioCode` |
 | Sublime Text | Arch: `paru -S sublime-text-4`<br>Debian: `snap install sublime-text --classic`<br>Fedora: `dnf install sublime-text`<br>macOS: `brew install --cask sublime-text`<br>Windows: `winget install SublimeHQ.SublimeText.4` |
-| Arduino IDE | Arch: `pacman -S arduino`<br>Debian/Fedora: `snap install arduino`<br>macOS: `brew install --cask arduino`<br>Windows: `winget install ArduinoSA.IDE.stable` |
+| Arduino IDE | Arch: `pacman -S arduino`<br>Debian/Fedora: `flatpak install cc.arduino.IDE2`<br>macOS: `brew install --cask arduino`<br>Windows: `winget install ArduinoSA.IDE.stable` |
+| Antigravity | Arch: `paru -S antigravity`<br>Debian: `apt install antigravity` (Google APT repo)<br>Fedora: `dnf install antigravity` (Google YUM repo)<br>macOS: `brew install --cask google-antigravity`<br>Windows: `winget install Google.Antigravity` |
 | Bruno | Arch/Debian/Fedora: `flatpak install com.usebruno.Bruno`<br>macOS: `brew install --cask bruno`<br>Windows: `winget install Bruno.Bruno` |
 
 ### Communication
@@ -45,8 +46,8 @@ All software installed by the Ansible playbook with exact install commands per O
 |---|---|
 | Discord | Arch/Debian/Fedora: `flatpak install com.discordapp.Discord`<br>macOS: `brew install --cask discord`<br>Windows: `winget install Discord.Discord` |
 | Slack | Arch/Debian/Fedora: `flatpak install com.slack.Slack`<br>macOS: `brew install --cask slack`<br>Windows: `winget install SlackTechnologies.Slack` |
-| Telegram | Arch: `pacman -S telegram-desktop`<br>Debian/Fedora: `snap install telegram-desktop`<br>macOS: `brew install --cask telegram`<br>Windows: `winget install Telegram.TelegramDesktop` |
-| Signal | Arch: `pacman -S signal-desktop`<br>Debian/Fedora: `snap install signal-desktop`<br>macOS: `brew install --cask signal`<br>Windows: `winget install OpenWhisperSystems.Signal` |
+| Telegram | Arch: `pacman -S telegram-desktop`<br>Debian/Fedora: `flatpak install org.telegram.desktop`<br>macOS: `brew install --cask telegram`<br>Windows: `winget install Telegram.TelegramDesktop` |
+| Signal | Arch: `pacman -S signal-desktop`<br>Debian/Fedora: `flatpak install org.signal.Signal`<br>macOS: `brew install --cask signal`<br>Windows: `winget install OpenWhisperSystems.Signal` |
 | WhatsApp | Linux: — *(not available)*<br>macOS: `brew install --cask whatsapp`<br>Windows: `winget install WhatsApp.WhatsApp` |
 | Microsoft Teams | Linux: — *(not available)*<br>macOS: `brew install --cask microsoft-teams`<br>Windows: `winget install Microsoft.Teams` |
 
@@ -68,7 +69,7 @@ All software installed by the Ansible playbook with exact install commands per O
 | Spotify | Arch/Debian/Fedora: `flatpak install com.spotify.Client`<br>macOS: `brew install --cask spotify`<br>Windows: `winget install Spotify.Spotify` |
 | GIMP | Arch/Debian/Fedora: `flatpak install org.gimp.GIMP`<br>macOS: `brew install --cask gimp`<br>Windows: `winget install GIMP.GIMP.3` |
 | Krita | Arch/Debian/Fedora: `flatpak install org.kde.krita`<br>macOS: `brew install --cask krita`<br>Windows: `winget install KDE.Krita` |
-| HandBrake | Arch: `pacman -S handbrake`<br>Debian: `apt install handbrake`<br>Fedora: `dnf install HandBrake-gui`<br>macOS: `brew install --cask handbrake`<br>Windows: `winget install HandBrake.HandBrake` |
+| HandBrake | Arch: `pacman -S handbrake`<br>Debian: `apt install handbrake`<br>Fedora: `flatpak install fr.handbrake.ghb`<br>macOS: `brew install --cask handbrake`<br>Windows: `winget install HandBrake.HandBrake` |
 | Audacity | Arch: `pacman -S audacity`<br>Debian: `apt install audacity`<br>Fedora: `snap install audacity`<br>macOS: `brew install --cask audacity`<br>Windows: `winget install Audacity.Audacity` |
 | RawTherapee | Arch: `pacman -S rawtherapee`<br>Debian: `apt install rawtherapee`<br>Fedora: `dnf install rawtherapee`<br>macOS: `brew install --cask rawtherapee`<br>Windows: `winget install RawTherapee.RawTherapee` |
 
@@ -76,7 +77,7 @@ All software installed by the Ansible playbook with exact install commands per O
 
 | Software | Install Command |
 |---|---|
-| Steam | Arch: `pacman -S steam`<br>Debian: `snap install steam`<br>Fedora: `dnf install steam`<br>macOS: `brew install --cask steam`<br>Windows: `winget install Valve.Steam` |
+| Steam | Arch: `pacman -S steam`<br>Debian/Fedora: `flatpak install com.valvesoftware.Steam`<br>macOS: `brew install --cask steam`<br>Windows: `winget install Valve.Steam` |
 
 ### CAD / 3D
 
@@ -98,7 +99,7 @@ All software installed by the Ansible playbook with exact install commands per O
 | Software | Install Command |
 |---|---|
 | BOINC | Arch: `pacman -S boinc`<br>Debian: `apt install boinc-client`<br>Fedora: `dnf install boinc-client`<br>macOS: `brew install --cask boinc`<br>Windows: `winget install SpaceSciencesLaboratory.BOINC` |
-| Gridcoin | Arch: `paru -S gridcoinresearch-qt`<br>Debian: — *(not in repos)*<br>Fedora: `dnf install gridcoinresearch`<br>macOS: `brew install --cask gridcoinresearch`<br>Windows: `winget install Gridcoin.Client` |
+| Gridcoin | All Linux: `flatpak install --bundle gridcoin.flatpak` (GitHub release)<br>macOS: `brew install --cask gridcoinresearch`<br>Windows: `winget install Gridcoin.Client` |
 
 ---
 
@@ -171,8 +172,8 @@ Installed via `shell_zsh` role.
 | lm_sensors | HWInfo | Stats | Arch: `pacman -S lm_sensors`<br>Debian: `apt install lm-sensors`<br>Fedora: `dnf install lm_sensors` |
 | GreenWithEnvy | MSI Afterburner | — | Arch/Debian/Fedora: `flatpak install com.leinardi.gwe` |
 | Baobab | WizTree | GrandPerspective | Arch: `pacman -S baobab`<br>Debian: `apt install baobab`<br>Fedora: `dnf install baobab` |
-| Polychromatic | Razer Cortex | — | Arch: `paru -S polychromatic`<br>Debian: — *(not in repos)*<br>Fedora: `dnf install polychromatic` |
-| GpuTest | FurMark | — | Arch: `paru -S gputest`<br>Debian: — *(not in repos)*<br>Fedora: `dnf install gputest` |
+| Polychromatic | Razer Cortex | — | All Linux: `flatpak install app.polychromatic.controller` |
+| GpuTest | FurMark | — | Arch: `paru -S gputest`<br>Debian/Fedora: binary download from ozone3d.net |
 
 ### Virtualization & System
 

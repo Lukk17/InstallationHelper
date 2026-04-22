@@ -163,6 +163,11 @@
     - name: Include Windows installation tasks
       ansible.builtin.include_tasks: windows_install.yaml
       when: ansible_facts['os_family'] == 'Windows'
+
+    # ------------------ CUSTOM INSTALLS (flatpak bundles, AppImages, binaries) --
+    - name: Include custom install tasks
+      ansible.builtin.include_tasks: custom_installs.yaml
+      when: ansible_facts['system'] == 'Linux'
   rescue:
     - name: Show installation errors
       ansible.builtin.debug:

@@ -1,0 +1,96 @@
+---
+# Custom install tasks for packages that can't use standard package managers.
+# Called from dynamic_install.yaml after standard package manager tasks.
+
+# --- Gridcoin: flatpak bundle from GitHub (not on Flathub) ---
+
+- name: Download Gridcoin flatpak bundle
+  ansible.builtin.get_url:
+    url: "{{ gridcoin_flatpak_url }}"
+    dest: /tmp/gridcoin.flatpak
+    mode: '0644'
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_gridcoin | default(false) | bool
+
+- name: Install Gridcoin flatpak bundle
+  ansible.builtin.command: flatpak install --bundle --noninteractive /tmp/gridcoin.flatpak
+  become: yes
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_gridcoin | default(false) | bool
+  register: gridcoin_install
+  changed_when: "'Installing' in gridcoin_install.stdout or gridcoin_install.rc == 0"
+  failed_when: false
+
+# --- Lens: AppImage download (Debian/Fedora only, Arch uses AUR) ---
+
+- name: Download Lens AppImage
+  ansible.builtin.get_url:
+    url: "{{ lens_appimage_url }}"
+    dest: "{{ non_root_home }}/.local/bin/Lens.AppImage"
+    mode: '0755'
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_lens | default(false) | bool
+
+- name: Ensure Lens .local/bin directory exists
+  ansible.builtin.file:
+    path: "{{ non_root_home }}/.local/bin"
+    state: directory
+    mode: '0755'
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_lens | default(false) | bool
+
+# --- GpuTest: binary zip download (Debian/Fedora only, Arch uses AUR) ---
+
+- name: Download GpuTest binary archive
+  ansible.builtin.get_url:
+    url: "{{ gputest_url }}"
+    dest: /tmp/gputest.zip
+    mode: '0644'
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_gputest | default(false) | bool
+
+- name: Create GpuTest directory
+  ansible.builtin.file:
+    path: /opt/gputest
+    state: directory
+    mode: '0755'
+  become: yes
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_gputest | default(false) | bool
+
+- name: Extract GpuTest binary
+  ansible.builtin.unarchive:
+    src: /tmp/gputest.zip
+    dest: /opt/gputest
+    remote_src: yes
+  become: yes
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_gputest | default(false) | bool
+
+- name: Create GpuTest symlink
+  ansible.builtin.file:
+    src: /opt/gputest/GpuTest
+    dest: /usr/local/bin/GpuTest
+    state: link
+  become: yes
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_gputest | default(false) | bool
+  failed_when: false

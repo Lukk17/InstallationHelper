@@ -20,6 +20,14 @@ Docker and Docker Compose best practices for containerized development.
 
 ### Standard Web App Stack
 
+> **Rule: Named volumes only.** Never use anonymous volumes (e.g., `- /app/node_modules`).
+> Why:
+> 1. **Unidentifiable** — no name; cannot be targeted by backup scripts or `docker volume inspect`
+> 2. **Orphaned silently** — persist as dangling volumes after `docker-compose down`; accumulate disk usage invisibly
+> 3. **Not shareable** — cannot be referenced between services or compose files
+> 4. **Breaks reproducibility** — volume names become random hashes; nothing can reliably reference them
+> 5. **Production foot-gun** — data is tied to container lifecycle rather than a managed named resource
+
 ```yaml
 # docker-compose.yml
 services:
@@ -31,7 +39,7 @@ services:
       - "3000:3000"
     volumes:
       - .:/app                        # Bind mount for hot reload
-      - /app/node_modules             # Anonymous volume -- preserves container deps
+      - node_modules:/app/node_modules  # Named volume -- preserves container deps
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/app_dev
       - REDIS_URL=redis://redis:6379/0
@@ -76,6 +84,7 @@ services:
 volumes:
   pgdata:
   redisdata:
+  node_modules:
 ```
 
 ### Development vs Production Dockerfile
@@ -202,8 +211,8 @@ volumes:
   # Bind mount: maps host directory into container (for development)
   # - ./src:/app/src
 
-  # Anonymous volume: preserves container-generated content from bind mount override
-  # - /app/node_modules
+  # Named volume for container-generated content (never use anonymous volumes)
+  # node_modules:/app/node_modules
 ```
 
 ### Common Patterns
@@ -212,14 +221,19 @@ volumes:
 services:
   app:
     volumes:
-      - .:/app                   # Source code (bind mount for hot reload)
-      - /app/node_modules        # Protect container's node_modules from host
-      - /app/.next               # Protect build cache
+      - .:/app                          # Source code (bind mount for hot reload)
+      - node_modules:/app/node_modules  # Named volume: protect container's node_modules from host
+      - next_cache:/app/.next           # Named volume: protect build cache
 
   db:
     volumes:
       - pgdata:/var/lib/postgresql/data          # Persistent data
       - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql  # Init scripts
+
+volumes:
+  node_modules:
+  next_cache:
+  pgdata:
 ```
 
 ## Container Security
@@ -283,21 +297,109 @@ services:
 
 ## .dockerignore
 
+Always create a `.dockerignore` at the same level as the `Dockerfile`:
+
 ```
 node_modules
+dist
+build
+*.log
 .git
+.gitignore
 .env
 .env.*
-dist
 coverage
-*.log
-.next
-.cache
-docker-compose*.yml
-Dockerfile*
-README.md
+**/*.test.ts
+**/*.spec.ts
 tests/
 ```
+
+## Base Image Policy
+
+| Use case | Preferred base |
+|---|---|
+| Compiled binaries (Go, Rust) | `gcr.io/distroless/static` or `scratch` |
+| JVM (Spring Boot) | `gcr.io/distroless/java21` |
+| Node.js | `node:22-alpine` |
+| Python | `python:3.12-slim` |
+
+Never use `ubuntu:latest` or `debian:latest` as a runtime base — use a specific slim or distroless image.
+
+## apt-get Best Practice
+
+Always combine install + cleanup in a single RUN layer:
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+## OCI Image Labels
+
+Every published Dockerfile must include standard labels:
+
+```dockerfile
+LABEL org.opencontainers.image.source="https://github.com/org/repo" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="${VERSION}"
+```
+
+## Supply Chain Security
+
+### Image Scanning (Trivy)
+
+Scan every image in CI before pushing:
+
+```bash
+trivy image --exit-code 1 --severity CRITICAL,HIGH myimage:tag
+```
+
+- Block the pipeline on CRITICAL/HIGH CVEs with available fixes
+- Store the scan report as a CI artifact
+
+### SBOM Generation
+
+Generate a Software Bill of Materials and attach as OCI referrer:
+
+```bash
+syft myimage:tag -o cyclonedx-json > sbom.json
+```
+
+### Container Signing (cosign / Sigstore)
+
+Sign every production image after push:
+
+```bash
+cosign sign --key cosign.key myregistry/myimage:tag
+```
+
+Verify before deploy:
+
+```bash
+cosign verify --key cosign.pub myregistry/myimage:tag
+```
+
+## Build-Time Secrets
+
+Use `--mount=type=secret` instead of `ARG` / `ENV` for sensitive values:
+
+```dockerfile
+# Dockerfile
+RUN --mount=type=secret,id=npm_token \
+    NPM_TOKEN=$(cat /run/secrets/npm_token) npm install
+
+# Build command
+docker build --secret id=npm_token,src=.npmrc .
+```
+
+## Registry Retention Policy
+
+- Keep last **10 tagged releases** in the registry
+- Auto-delete dangling (untagged) images after **7 days**
+- Implement via registry lifecycle policies (ECR, GCR, Docker Hub retention)
 
 ## Debugging
 
@@ -361,4 +463,7 @@ docker network inspect <project>_default
 
 # BAD: Putting secrets in docker-compose.yml
 # Use .env files (gitignored) or Docker secrets
+
+# BAD: Using anonymous volumes (e.g., - /app/node_modules)
+# Always use named volumes so they are identifiable, shareable, and manageable
 ```
