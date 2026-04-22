@@ -49,8 +49,8 @@ software_mapping:
   spotify: { manager: "flatpak", package: "com.spotify.Client" }
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
-  handbrake: { manager: "pacman", package: "handbrake" }
-  audacity: { manager: "pacman", package: "audacity" }
+  handbrake: { manager: "aur", package: "handbrake" }
+  audacity: { manager: "flatpak", package: "org.audacityteam.Audacity" }
   rawtherapee: { manager: "pacman", package: "rawtherapee" }
 
   # Gaming
@@ -58,7 +58,7 @@ software_mapping:
   
   # CAD / 3D
   freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
-  prusaslicer: { manager: "pacman", package: "prusa-slicer" }
+  prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
   teamviewer: { manager: "aur", package: "teamviewer" }

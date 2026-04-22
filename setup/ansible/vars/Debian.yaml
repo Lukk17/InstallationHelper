@@ -8,7 +8,7 @@ software_mapping:
   # Dev Tools
   git: { manager: "apt", package: "git" }
   maven: { manager: "apt", package: "maven" }
-  gradle: { manager: "apt", package: "gradle" }
+  # gradle: removed - use SDKMAN (sdk_manager role) instead
   postman: { manager: "flatpak", package: "com.getpostman.Postman" }
   openssl: { manager: "apt", package: "openssl" }
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }  # Changed: more reliable
@@ -46,8 +46,8 @@ software_mapping:
   spotify: { manager: "flatpak", package: "com.spotify.Client" }
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
-  handbrake: { manager: "apt", package: "handbrake" }
-  audacity: { manager: "apt", package: "audacity" }
+  handbrake: { manager: "flatpak", package: "fr.handbrake.ghb" }
+  audacity: { manager: "flatpak", package: "org.audacityteam.Audacity" }
   rawtherapee: { manager: "apt", package: "rawtherapee" }
 
   # Gaming
@@ -57,7 +57,7 @@ software_mapping:
   
   # CAD / 3D
   freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
-  prusaslicer: { manager: "apt", package: "prusa-slicer" }
+  prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
   teamviewer: { manager: "apt_url", package: "teamviewer_amd64.deb", is_deb_url: true }
@@ -68,7 +68,7 @@ software_mapping:
   # Crypto / Crypto Hardware
   # exodus: direct deb download blocked (403) — install manually from exodus.com
   boinc: { manager: "apt", package: "boinc-client" }
-  # gridcoin: installed via custom flatpak bundle task (not on Flathub)
+  # gridcoin: use PPA - need manual add-apt-repository ppa:gridcoin/gridcoin-stable && apt install gridcoinresearch
   lynis: { manager: "apt", package: "lynis" }
   chkrootkit: { manager: "apt", package: "chkrootkit" }
   clamav: { manager: "apt", package: "clamav" }

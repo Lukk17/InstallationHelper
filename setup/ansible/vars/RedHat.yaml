@@ -47,7 +47,7 @@ software_mapping:
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
   handbrake: { manager: "flatpak", package: "fr.handbrake.ghb" }
-  audacity: { manager: "snap", package: "audacity" }
+  audacity: { manager: "flatpak", package: "org.audacityteam.Audacity" }
   rawtherapee: { manager: "dnf", package: "rawtherapee" }
 
   # Gaming
@@ -55,7 +55,7 @@ software_mapping:
   
   # CAD / 3D
   freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
-  prusaslicer: { manager: "snap", package: "prusa-slicer" }
+  prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
   teamviewer: { manager: "dnf_url", package: "teamviewer.rpm" }
@@ -66,7 +66,7 @@ software_mapping:
   # Crypto / Crypto Hardware
   exodus: { manager: "dnf_url", package: "exodus.rpm" }
   boinc: { manager: "dnf", package: "boinc-client" }
-  # gridcoin: installed via custom flatpak bundle task (not on Flathub)
+  # gridcoin: installed via custom install task (OpenSUSE repo not yet added)
   lynis: { manager: "dnf", package: "lynis" }
   chkrootkit: { manager: "dnf", package: "chkrootkit" }
   clamav: { manager: "dnf", package: "clamav" }
@@ -87,5 +87,5 @@ software_mapping:
 
   # Virtualization
   virt_manager: { manager: "dnf", package: "virt-manager" }
-  docker: { manager: "dnf", package: "moby-engine" }
+  docker: { manager: "dnf_repo", package: "docker-ce" }
 

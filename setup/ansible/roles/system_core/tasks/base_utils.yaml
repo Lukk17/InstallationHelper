@@ -8,6 +8,27 @@
     group: "{{ non_root_user }}"
   become: yes
 
+# --- Flatpak: Required for flatpak applications ---
+- name: Install flatpak (RedHat/Fedora)
+  ansible.builtin.dnf:
+    name: flatpak
+    state: present
+  become: yes
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Install flatpak (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: flatpak
+    state: present
+  become: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Add Flathub repository (Linux)
+  ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/flathub.flatpakrepo
+  become: yes
+  when: ansible_facts['system'] == 'Linux'
+  ignore_errors: true
+
 - name: Full system upgrade and autoremove (Debian)
   ansible.builtin.apt:
     upgrade: full
@@ -48,11 +69,12 @@
   become: yes
   when: ansible_facts['os_family'] == 'Debian'
 
-- name: Install unzip and zip (Fedora)
+- name: Install unzip, zip and patch (Fedora)
   ansible.builtin.dnf:
     name:
       - unzip
       - zip
+      - patch
     state: present
   become: yes
   when: ansible_facts['os_family'] == 'RedHat'
