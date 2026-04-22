@@ -101,11 +101,11 @@ git fetch agent-standards
 ```
 
 ```bash
-git checkout agent-standards/master -- .agents .claude kilo.jsonc.example opencode.json.example AGENTS.md.example
+git checkout agent-standards/master -- .agents .claude .kilocode .opencode .codex AGENTS.md.example kilo.jsonc.example opencode.json.example
 ```
 
 ```bash
-git commit -m "Import central agent-standards (.agents and .claude)"
+git commit -m "Import central agent-standards"
 ```
 
 ### Step 2: Pulling Future Updates
@@ -117,9 +117,109 @@ git fetch agent-standards
 ```
 
 ```bash
-git checkout agent-standards/master -- .agents .claude
+git checkout agent-standards/master -- .agents .claude .kilocode .opencode .codex
 ```
 
 ```bash
 git commit -m "Update AI standards from central repository"
 ```
+
+---
+
+### OpenSpec Integration
+
+[OpenSpec](https://github.com/Fission-AI/OpenSpec) is a spec-driven development framework that installs skills and commands into each agent's native directories.
+
+#### How the symlinks work with OpenSpec
+
+The `.kilocode/skills/`, `.opencode/skills/`, and `.codex/skills/` directories are all symlinked to `.agents/skills/`. When `openspec init` writes skills to any of these directories, they land in `.agents/skills/` — the canonical location already read by all agents.
+
+Commands are tool-specific (different formats per agent) and cannot be centralized. OpenSpec creates them in each tool's native commands directory, which is expected and correct.
+#### Using OpenSpec in a project that imports agent-standards
+
+After running Step 1 above, initialize OpenSpec in your project:
+
+```bash
+# Install OpenSpec globally
+npm install -g @fission-ai/openspec@latest
+
+# Initialize with all agents
+# Skills land in .agents/skills/ via existing symlinks
+# Commands are created in each tool's native commands directory
+openspec init --tools "claude,kilocode,opencode,codex"
+```
+
+What `openspec init` creates:
+
+```text
+openspec/
+  config.yaml              # OpenSpec project config
+  specs/                   # Living documentation of your system
+  changes/                 # Active feature work
+    archive/               # Completed changes
+
+# Skills (via symlinks, all land in .agents/skills/):
+.agents/skills/openspec-workflow/SKILL.md
+.agents/skills/openspec-specs/SKILL.md
+
+# Commands (tool-specific, not symlinked):
+.claude/commands/opsx/propose.md
+.kilocode/workflows/opsx-propose.md
+.opencode/commands/opsx-propose.md
+```
+
+Restart IDE and terminal after openspec initialization.
+
+#### OpenSpec tool directories reference
+
+| Tool | Skills written to | Commands written to |
+|---|---|---|
+| Claude Code | `.claude/skills/openspec-*/` -> `.agents/skills/` | `.claude/commands/opsx/*.md` |
+| Kilo Code | `.kilocode/skills/openspec-*/` -> `.agents/skills/` | `.kilocode/workflows/opsx-*.md` |
+| OpenCode | `.opencode/skills/openspec-*/` -> `.agents/skills/` | `.opencode/commands/opsx-*.md` |
+| Codex | `.codex/skills/openspec-*/` -> `.agents/skills/` | `$CODEX_HOME/prompts/opsx-*.md` |
+
+#### The Full OpenSpec Workflow
+
+Once initialized, invoke OpenSpec skills from your agent using the full artifact-driven lifecycle:
+
+#### 0. Run Coding Agent
+You need to start coding agent first - for example, by running in terminal:
+```shell
+claude
+```
+
+#### 1. Propose the change
+Use multiline prompts to include logs or detailed context.
+Inside coding agent shell run: 
+```
+/opsx:propose add dark mode support
+
+(Optional: paste relevant UI constraints or error logs here)
+```
+The agent creates the proposal, design, and implementation tasks under `openspec/changes/`.
+
+#### 2. Apply the code
+Review the generated `tasks.md` by manaully editing md files or just telling agent what is wrong with it.
+
+After plan approval agent can start implementation:
+
+```text
+/opsx:apply
+```
+The agent writes the code and checks off the boxes in your `tasks.md`.
+
+#### 3. Verify and refine
+If bugs occur or tests fail, pass the logs back to refine the implementation.
+
+```text
+/opsx:verify The toggle button is invisible on mobile. Fix it.
+```
+
+#### 4. Archive the change
+Once the code is working and tested, merge the documentation.
+
+```text
+/opsx:archive
+```
+The agent merges the delta specs into `openspec/specs/` and moves the change folder to `openspec/changes/archive/`.
