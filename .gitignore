@@ -1,5 +1,6 @@
 .claude/
 !.claude/CLAUDE.md
+!.claude/commands
 
 .openspec/state.json
 .env.ai
