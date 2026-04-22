@@ -2,9 +2,47 @@
 # Custom install tasks for packages that can't use standard package managers.
 # Called from dynamic_install.yaml after standard package manager tasks.
 
-# --- Gridcoin: flatpak bundle from GitHub (not on Flathub) ---
+# --- Gridcoin: OpenSUSE repo (Fedora) / PPA (Debian/Ubuntu) / AUR (Arch) ---
+# Note: Currently uses flatpak bundle fallback - can be improved with proper repos
 
-- name: Download Gridcoin flatpak bundle
+- name: Add OpenSUSE repo for Gridcoin (Fedora)
+  ansible.builtin.yum_repository:
+    name: gridcoin-opensuse
+    description: Gridcoin from OpenSUSE build service
+    baseurl: https://download.opensuse.org/repositories/home:theMarix/Fedora_Rawhide/
+    enabled: yes
+    gpgcheck: no
+  become: yes
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - install_gridcoin | default(false) | bool
+  ignore_errors: true
+
+- name: Add Gridcoin PPA (Debian/Ubuntu)
+  become: yes
+  ansible.builtin.shell: add-apt-repository -y ppa:gridcoin/gridcoin-stable
+  args:
+    creates: /etc/apt/sources.list.d/gridcoin-ubuntu-gridcoin-stable-*
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - install_gridcoin | default(false) | bool
+  register: gridcoin_ppa_add
+  failed_when: false
+  ignore_errors: true
+
+- name: Install Gridcoin (Debian/Ubuntu via PPA)
+  become: yes
+  ansible.builtin.apt:
+    name: gridcoinresearch
+    state: present
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - install_gridcoin | default(false) | bool
+    - gridcoin_ppa_add.rc == 0
+  register: gridcoin_apt_install
+  ignore_errors: true
+
+- name: Download Gridcoin flatpak bundle (fallback)
   ansible.builtin.get_url:
     url: "{{ gridcoin_flatpak_url }}"
     dest: /tmp/gridcoin.flatpak

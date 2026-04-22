@@ -1,6 +1,21 @@
 # Software Installation Reference
 
-All software installed by the Ansible playbook with exact install commands per OS/distro.
+> **IMPORTANT: Package Installation Order**
+> The playbook MUST install packages in this order to avoid failures:
+> 1. **Base System**: gcc, make, curl, git, wget
+> 2. **JVM**: OpenJDK 17+ (required by SDKMAN, other tools)
+> 3. **SDKMAN**: Install before Gradle, Maven
+> 4. **Snapd**: For snap packages
+> 5. **Flatpak + Flathub**: BEFORE any flatpak applications
+> 6. **Application Packages**
+
+---
+
+> **Quick Reference - Gradle**: Use SDKMAN on ALL Linux distros (not apt/dnf/pacman)
+> - Command: `sdk install gradle`
+> - Reason: Version management, works on all distros
+
+---
 
 ---
 
@@ -11,7 +26,7 @@ All software installed by the Ansible playbook with exact install commands per O
 | Software | Install Command |
 |---|---|
 | Google Chrome | Arch: `paru -S google-chrome`<br>Debian: `apt install ./google-chrome-stable_current_amd64.deb`<br>Fedora: `dnf install google-chrome-stable`<br>macOS: `brew install --cask googlechrome`<br>Windows: `winget install Google.Chrome` |
-| Brave Browser | Arch: `paru -S brave-bin`<br>Debian/Fedora: `flatpak install com.brave.Browser`<br>macOS: `brew install --cask brave-browser`<br>Windows: `winget install Brave.Brave` |
+| Brave Browser | Arch: `paru -S brave-bin`<br>Debian: `flatpak install com.brave.Browser`<br>Fedora: `dnf install brave-browser`<br>macOS: `brew install --cask brave-browser`<br>Windows: `winget install Brave.Brave` |
 | Tor Browser | Arch/Debian/Fedora: `flatpak install org.torproject.torbrowser-launcher`<br>macOS: `brew install --cask tor-browser`<br>Windows: `winget install TorProject.TorBrowser` |
 
 ### Dev Tools
@@ -20,7 +35,7 @@ All software installed by the Ansible playbook with exact install commands per O
 |---|---|
 | Git | Arch: `pacman -S git`<br>Debian: `apt install git`<br>Fedora: `dnf install git`<br>macOS: `brew install git`<br>Windows: `winget install Git.Git` |
 | Maven | Arch: `pacman -S maven`<br>Debian: `apt install maven`<br>Fedora: `dnf install maven`<br>macOS: `brew install maven`<br>Windows: `winget install Apache.Maven` |
-| Gradle | Arch: `pacman -S gradle`<br>Debian: `apt install gradle`<br>Fedora: — *(not in repos; installed via SDKMAN)*<br>macOS: `brew install gradle`<br>Windows: `winget install Gradle.Gradle` |
+| Gradle | Arch: `pacman -S gradle` *(AUR also available)*<br>Debian/Ubuntu: `sdk install gradle`<br>Fedora: `sdk install gradle`<br>macOS: `brew install gradle`<br>Windows: `winget install Gradle.Gradle` |
 | Postman | Arch/Debian/Fedora: `flatpak install com.getpostman.Postman`<br>macOS: `brew install --cask postman`<br>Windows: `winget install Postman.Postman` |
 | OpenSSL | Arch: `pacman -S openssl`<br>Debian: `apt install openssl`<br>Fedora: `dnf install openssl`<br>macOS: `brew install openssl`<br>Windows: `winget install ShiningLight.OpenSSL.Dev` |
 | DBeaver CE | Arch/Debian/Fedora: `flatpak install io.dbeaver.DBeaverCommunity`<br>macOS: `brew install --cask dbeaver-community`<br>Windows: `winget install DBeaver.DBeaver.Community` |
@@ -69,8 +84,8 @@ All software installed by the Ansible playbook with exact install commands per O
 | Spotify | Arch/Debian/Fedora: `flatpak install com.spotify.Client`<br>macOS: `brew install --cask spotify`<br>Windows: `winget install Spotify.Spotify` |
 | GIMP | Arch/Debian/Fedora: `flatpak install org.gimp.GIMP`<br>macOS: `brew install --cask gimp`<br>Windows: `winget install GIMP.GIMP.3` |
 | Krita | Arch/Debian/Fedora: `flatpak install org.kde.krita`<br>macOS: `brew install --cask krita`<br>Windows: `winget install KDE.Krita` |
-| HandBrake | Arch: `pacman -S handbrake`<br>Debian: `apt install handbrake`<br>Fedora: `flatpak install fr.handbrake.ghb`<br>macOS: `brew install --cask handbrake`<br>Windows: `winget install HandBrake.HandBrake` |
-| Audacity | Arch: `pacman -S audacity`<br>Debian: `apt install audacity`<br>Fedora: `snap install audacity`<br>macOS: `brew install --cask audacity`<br>Windows: `winget install Audacity.Audacity` |
+| HandBrake | Arch: `paru -S handbrake`<br>Debian/Fedora: `flatpak install fr.handbrake.ghb`<br>macOS: `brew install --cask handbrake`<br>Windows: `winget install HandBrake.HandBrake` |
+| Audacity | Arch/Debian/Fedora: `flatpak install org.audacityteam.Audacity`<br>macOS: `brew install --cask audacity`<br>Windows: `winget install Audacity.Audacity` |
 | RawTherapee | Arch: `pacman -S rawtherapee`<br>Debian: `apt install rawtherapee`<br>Fedora: `dnf install rawtherapee`<br>macOS: `brew install --cask rawtherapee`<br>Windows: `winget install RawTherapee.RawTherapee` |
 
 ### Gaming
@@ -84,7 +99,7 @@ All software installed by the Ansible playbook with exact install commands per O
 | Software | Install Command |
 |---|---|
 | FreeCAD | Arch/Debian/Fedora: `flatpak install org.freecadweb.FreeCAD`<br>macOS: `brew install --cask freecad`<br>Windows: `winget install FreeCAD.FreeCAD` |
-| PrusaSlicer | Arch: `pacman -S prusa-slicer`<br>Debian: `apt install prusa-slicer`<br>Fedora: `snap install prusa-slicer`<br>macOS: `brew install --cask prusa-slicer`<br>Windows: `winget install Prusa3D.PrusaSlicer` |
+| PrusaSlicer | Arch/Debian/Fedora: `flatpak install com.prusa3d.PrusaSlicer`<br>macOS: `brew install --cask prusa-slicer`<br>Windows: `winget install Prusa3D.PrusaSlicer` |
 
 ### Utilities
 
@@ -99,7 +114,7 @@ All software installed by the Ansible playbook with exact install commands per O
 | Software | Install Command |
 |---|---|
 | BOINC | Arch: `pacman -S boinc`<br>Debian: `apt install boinc-client`<br>Fedora: `dnf install boinc-client`<br>macOS: `brew install --cask boinc`<br>Windows: `winget install SpaceSciencesLaboratory.BOINC` |
-| Gridcoin | All Linux: `flatpak install --bundle gridcoin.flatpak` (GitHub release)<br>macOS: `brew install --cask gridcoinresearch`<br>Windows: `winget install Gridcoin.Client` |
+| Gridcoin | Arch: custom flatpak bundle task<br>Debian/Ubuntu: `add-apt-repository ppa:gridcoin/gridcoin-stable && apt install gridcoinresearch`<br>Fedora: custom task (OpenSUSE repo)<br>macOS: `brew install --cask gridcoinresearch`<br>Windows: `winget install Gridcoin.Client` |
 
 ---
 
@@ -180,10 +195,10 @@ Installed via `shell_zsh` role.
 | Software | Install Command |
 |---|---|
 | Virt-Manager + QEMU/KVM | Arch: `pacman -S virt-manager qemu-full libvirt dnsmasq nftables bridge-utils virtiofsd`<br>Debian: `apt install qemu-kvm libvirt-daemon-system virt-manager virtinst bridge-utils virtiofsd`<br>Fedora: `dnf install qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd` |
-| Docker | Arch: `pacman -S docker`<br>Debian: `apt install docker.io`<br>Fedora: `dnf install moby-engine` |
+| Docker | Arch: `pacman -S docker`<br>Debian: `apt install docker.io`<br>Fedora: `dnf install docker-ce`<br>macOS: `brew install --cask docker`<br>Windows: `winget install Docker.DockerDesktop` |
 | AppImageLauncher | Arch: `paru -S appimagelauncher`<br>Debian: `apt install ./appimagelauncher.deb`<br>Fedora: `dnf install appimagelauncher.rpm` |
 | GParted | Arch: `pacman -S gparted`<br>Debian: `apt install gparted`<br>Fedora: `dnf install gparted` |
-| KDE Partition Manager | Arch: `pacman -S partitionmanager`<br>Debian: `apt install partitionmanager`<br>Fedora: `dnf install partitionmanager` |
+| KDE Partition Manager | Arch: `pacman -S partitionmanager`<br>Debian: `apt install partitionmanager`<br>Fedora: `dnf install kde-partitionmanager` |
 | PuTTY | Debian: `apt install putty`<br>*(other distros: use built-in SSH)* |
 
 ### Arch Linux Only
@@ -242,3 +257,55 @@ Installed via `shell_zsh` role.
 ---
 
 > **Note:** All Linux/macOS SDK managers (NVM, SDKMAN, Pyenv, FVM) and AI tools (Claude Code, OpenCode, OpenSpec) are installed via custom Ansible roles (`sdk_manager`, `ai_tools`). Windows equivalents use the `*_windows.yaml` task files in those roles.
+
+---
+
+## Detailed Installation Order
+
+This section documents the precise order in which software must be installed to satisfy dependencies.
+
+### Installation Phases
+
+#### Phase 1: Foundation System Packages
+- **Role**: system_core (`base_utils.yaml`)
+- **Packages**: `unzip`, `zip`, `patch`
+
+#### Phase 2: SDK / Runtime Managers (Custom Roles)
+1. **JVM** - Required by build tools
+2. **pyenv** - Python version manager
+3. **nvm** - Node.js version manager
+4. **SDKMAN** - Java/Groovy tools
+5. **FVM** - Flutter version manager
+
+**Order matters**: JVM must be installed before SDKMAN, and SDKMAN must be ready before installing Gradle.
+
+#### Phase 3: Core Package Managers
+- **Snapd** - Required for snap packages on Debian/Fedora
+- **Flatpak + Flathub** - Required for Flatpak packages
+
+#### Phase 4: Software Groups (via software_installer)
+After Phases 1-3 are complete, software groups can be installed in this order:
+
+1. **Browsers** - Chrome, Brave, Firefox (first, as they're most commonly needed)
+2. **Dev Tools** - Git, Maven, Gradle (via SDKMAN), kubectl
+3. **IDEs / Editors** - VSCode, IntelliJ, Sublime
+4. **Communication** - Discord, Slack, Telegram
+5. **Productivity** - Obsidian, OnlyOffice, KeePassXC
+6. **Media / Design** - VLC, GIMP, Krita, Audacity (via Flatpak), HandBrake (via Flatpak), PrusaSlicer (via Flatpak)
+7. **Gaming** - Steam (via Flatpak)
+8. **Utilities** - TeamViewer, VeraCrypt
+9. **Crypto / Volunteer** - Gridcoin, BOINC (via repo/Flatpak)
+
+### Why This Order Matters
+
+- **Gradle** requires JDK to be installed first (via SDKMAN)
+- **Flatpak** packages require flatpak to be installed first
+- **Snap** packages require snapd to be installed first
+- **Python builds** via pyenv require `patch` command (added to Phase 1)
+
+### Custom Installation Tasks
+
+Some software requires custom install tasks:
+- **Antigravity** repository: Requires APT keyring setup in `debian_core`
+- **Gridcoin**: Fedora uses OpenSUSE repo, Debian/Ubuntu uses PPA (ppa:gridcoin/gridcoin-stable)
+- **Docker**: Fedora requires docker-ce repo setup before installation
