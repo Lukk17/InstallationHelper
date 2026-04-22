@@ -26,6 +26,7 @@
     name:
       - gcc
       - make
+      - patch
       - zlib-devel
       - bzip2-devel
       - readline-devel

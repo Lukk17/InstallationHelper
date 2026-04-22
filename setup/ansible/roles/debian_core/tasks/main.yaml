@@ -1,0 +1,69 @@
+---
+- name: Install snapd (Debian non-Ubuntu)
+  become: yes
+  ansible.builtin.apt:
+    name: snapd
+    state: present
+  when: ansible_facts['distribution'] != 'Ubuntu'
+
+- name: Enable snapd socket (Debian non-Ubuntu)
+  become: yes
+  ansible.builtin.systemd:
+    name: snapd.socket
+    state: started
+    enabled: yes
+  when: ansible_facts['distribution'] != 'Ubuntu'
+
+- name: Create classic snap symlink (Debian non-Ubuntu)
+  become: yes
+  ansible.builtin.file:
+    src: /var/lib/snapd/snap
+    dest: /snap
+    state: link
+  when: ansible_facts['distribution'] != 'Ubuntu'
+
+- name: Ensure /sbin is in PATH for all users (Debian)
+  become: yes
+  ansible.builtin.copy:
+    dest: /etc/profile.d/sbin-path.sh
+    content: |
+      # Ensure /sbin and /usr/sbin are in PATH (needed for ldconfig, etc.)
+      if ! echo "$PATH" | grep -q "/sbin"; then
+        export PATH="$PATH:/sbin:/usr/sbin"
+      fi
+    mode: '0644'
+
+# --- Antigravity APT repository ---
+
+- name: Create APT keyrings directory
+  become: yes
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  when: install_antigravity | default(false) | bool
+
+- name: Download Antigravity APT signing key
+  become: yes
+  ansible.builtin.shell: |
+    curl -fsSL https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg | gpg --dearmor --yes -o /etc/apt/keyrings/antigravity-repo-key.gpg
+  args:
+    creates: /etc/apt/keyrings/antigravity-repo-key.gpg
+    executable: /bin/bash
+  when: install_antigravity | default(false) | bool
+
+- name: Add Antigravity APT repository
+  become: yes
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/antigravity.list
+    content: |
+      deb [signed-by=/etc/apt/keyrings/antigravity-repo-key.gpg] https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev/ antigravity-debian main
+    mode: '0644'
+  when: install_antigravity | default(false) | bool
+
+- name: Update APT cache after adding Antigravity repo
+  become: yes
+  ansible.builtin.apt:
+    update_cache: yes
+  when: install_antigravity | default(false) | bool
+  changed_when: false

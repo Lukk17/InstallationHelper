@@ -64,3 +64,15 @@
     dest: /snap
     state: link
 
+# --- Antigravity YUM repository ---
+
+- name: Add Antigravity YUM repository (Fedora)
+  become: yes
+  ansible.builtin.yum_repository:
+    name: antigravity-rpm
+    description: Antigravity RPM Repository
+    baseurl: https://us-central1-yum.pkg.dev/projects/antigravity-auto-updater-dev/antigravity-rpm
+    enabled: yes
+    gpgcheck: no
+  when: install_antigravity | default(false) | bool
+

@@ -8,13 +8,13 @@ software_mapping:
   # Dev Tools
   git: { manager: "dnf", package: "git" }
   maven: { manager: "dnf", package: "maven" }
-  gradle: { manager: "dnf", package: "gradle" }
+  # gradle: not in Fedora repos — already installed via SDKMAN (sdk_manager role)
   postman: { manager: "flatpak", package: "com.getpostman.Postman" }
   openssl: { manager: "dnf", package: "openssl" }
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }  # Changed: more reliable
   kubectl: { manager: "snap", package: "kubectl", classic: true }
   minikube: { manager: "dnf_url", package: "minikube-latest.x86_64.rpm" }
-  # lens: removed from Snap Store — install manually from k8slens.dev
+  # lens: installed via custom AppImage download task in custom_installs.yaml
   filezilla: { manager: "dnf", package: "filezilla" }
 
 
@@ -22,16 +22,16 @@ software_mapping:
   # intellij: removed - use JetBrains Toolbox instead
   vscode: { manager: "dnf_repo", package: "code", classic: true }
   sublime: { manager: "dnf_repo", package: "sublime-text" }
-  arduino: { manager: "snap", package: "arduino" }
-  antigravity: { manager: "dnf_url", package: "antigravity.rpm" }
+  arduino: { manager: "flatpak", package: "cc.arduino.IDE2" }
+  antigravity: { manager: "dnf", package: "antigravity" }
   bruno: { manager: "flatpak", package: "com.usebruno.Bruno" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
   slack: { manager: "flatpak", package: "com.slack.Slack" }
   # teams: removed - not on Flathub
-  telegram: { manager: "snap", package: "telegram-desktop" }
-  signal: { manager: "snap", package: "signal-desktop" }
+  telegram: { manager: "flatpak", package: "org.telegram.desktop" }
+  signal: { manager: "flatpak", package: "org.signal.Signal" }
   # whatsapp: removed - not on Flathub
 
   # Productivity
@@ -46,12 +46,12 @@ software_mapping:
   spotify: { manager: "flatpak", package: "com.spotify.Client" }
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
-  handbrake: { manager: "dnf", package: "HandBrake-gui" }
+  handbrake: { manager: "flatpak", package: "fr.handbrake.ghb" }
   audacity: { manager: "snap", package: "audacity" }
   rawtherapee: { manager: "dnf", package: "rawtherapee" }
 
   # Gaming
-  steam: { manager: "dnf", package: "steam" }
+  steam: { manager: "flatpak", package: "com.valvesoftware.Steam" }
   
   # CAD / 3D
   freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
@@ -66,24 +66,24 @@ software_mapping:
   # Crypto / Crypto Hardware
   exodus: { manager: "dnf_url", package: "exodus.rpm" }
   boinc: { manager: "dnf", package: "boinc-client" }
-  gridcoin: { manager: "dnf", package: "gridcoinresearch" }
+  # gridcoin: installed via custom flatpak bundle task (not on Flathub)
   lynis: { manager: "dnf", package: "lynis" }
   chkrootkit: { manager: "dnf", package: "chkrootkit" }
   clamav: { manager: "dnf", package: "clamav" }
 
   # Alternatives
   boot_repair: { manager: "dnf", package: "grubby" }
-  hardinfo: { manager: "dnf", package: "hardinfo", is_alternative_for: "HWMonitor" }
+  hardinfo: { manager: "dnf", package: "hardinfo2", is_alternative_for: "HWMonitor" }
   lm_sensors: { manager: "dnf", package: "lm_sensors", is_alternative_for: "HWInfo" }
   greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
   baobab: { manager: "dnf", package: "baobab", is_alternative_for: "WizTree" }
-  polychromatic: { manager: "dnf_repo", package: "polychromatic", is_alternative_for: "Razer Cortex" }
+  polychromatic: { manager: "flatpak", package: "app.polychromatic.controller", is_alternative_for: "Razer Cortex" }
   balena_etcher: { manager: "dnf_url", package: "balena-etcher.rpm", is_alternative_for: "Rufus" }
-  gputest: { manager: "dnf", package: "gputest", is_alternative_for: "FurMark" }
+  # gputest: installed via custom binary download task in custom_installs.yaml
 
   # Utilities
   gparted: { manager: "dnf", package: "gparted" }
-  partitionmanager: { manager: "dnf", package: "partitionmanager" }
+  partitionmanager: { manager: "dnf", package: "kde-partitionmanager" }
 
   # Virtualization
   virt_manager: { manager: "dnf", package: "virt-manager" }
