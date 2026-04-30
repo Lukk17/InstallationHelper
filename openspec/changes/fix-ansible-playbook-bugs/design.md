@@ -52,9 +52,9 @@ apt install gridcoinresearch
 ### Decision 4: Docker on Fedora
 **Choice**: Official Docker repository
 ```bash
-dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+dnf config-manager addrepo --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo
 dnf install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-systemctl enable docker
+systemctl enable --now docker
 ```
 
 ### Decision 5: Flatpak Pre-requisite
@@ -63,8 +63,8 @@ systemctl enable docker
 # Install flatpak
 dnf install flatpak
 
-# Add flathub
-flatpak remote-add --if-not-exists flathub https://flathub.org/flathub.flatpakrepo
+# Add flathub (NEW URL)
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 ```
 
 ### Decision 6: Snapd Installation
@@ -108,3 +108,35 @@ apt install antigravity
 
 - **[Risk]**: SDKMAN requires bash
   - **Mitigation**: Ensure bash is installed first
+
+## New Decisions from Log Analysis (2026-04)
+
+### Decision 8: Curl Dependency (Debian/Ubuntu)
+**Choice**: Install curl BEFORE Antigravity task
+```bash
+apt update && apt install curl
+```
+**Rationale**: curl is needed to download GPG key
+
+### Decision 9: Debian contrib non-free repos
+**Choice**: Enable contrib non-free repos
+```bash
+echo "deb http://deb.debian.org/debian bookworm contrib non-free non-free-firmware" | tee /etc/apt/sources.list.d/contrib-non-free.list
+```
+**Rationale**: Some packages require contrib/non-free
+
+### Decision 10: Flathub URL Fix
+**Choice**: Use NEW Flathub URL (old one returns 404)
+```bash
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+```
+**Rationale**: https://flathub.org/flathub.flatpakrepo returns 404
+
+### Decision 11: virtualization_config run order (ALL DISTROS)
+**Choice**: virtualization_config MUST run AFTER docker installation
+```bash
+# In site.yaml, order must be:
+# 1. software_installer (docker installed here)
+# 2. virtualization_config (runs AFTER docker)
+```
+**Rationale**: virtualization_config task requires docker to be already installed

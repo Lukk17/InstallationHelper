@@ -24,7 +24,7 @@
   when: ansible_facts['os_family'] == 'Debian'
 
 - name: Add Flathub repository (Linux)
-  ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/flathub.flatpakrepo
+  ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
   become: yes
   when: ansible_facts['system'] == 'Linux'
   ignore_errors: true

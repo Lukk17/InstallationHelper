@@ -1,10 +1,28 @@
 ---
-- name: Install software-properties-common (Debian - for add-apt-repository)
+# --- Enable contrib and non-free repos (Debian) ---
+
+- name: Enable contrib and non-free Debian repositories
+  become: yes
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/contrib-non-free.list
+    content: |
+      deb http://deb.debian.org/debian bookworm contrib non-free non-free-firmware
+    mode: '0644'
+  when: ansible_facts['distribution'] == 'Debian'
+
+- name: Update APT cache after enabling contrib/non-free
   become: yes
   ansible.builtin.apt:
-    name: software-properties-common
+    update_cache: yes
+  changed_when: false
+  when: ansible_facts['distribution'] == 'Debian'
+
+- name: Install curl (Debian - required for Antigravity)
+  become: yes
+  ansible.builtin.apt:
+    name: curl
     state: present
-  when: ansible_facts['distribution'] != 'Ubuntu'
+  when: ansible_facts['distribution'] == 'Debian'
 
 - name: Install snapd (Debian non-Ubuntu)
   become: yes
