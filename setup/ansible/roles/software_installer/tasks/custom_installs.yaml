@@ -2,6 +2,20 @@
 # Custom install tasks for packages that can't use standard package managers.
 # Called from dynamic_install.yaml after standard package manager tasks.
 
+# --- Docker CE: Official Docker repository (Fedora) ---
+# Must add repo BEFORE installing docker-ce package
+
+- name: Add Docker CE repository (Fedora)
+  ansible.builtin.shell: |
+    dnf config-manager addrepo --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo
+  args:
+    creates: /etc/yum.repos.d/docker-ce.repo
+  become: yes
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - install_docker | default(false) | bool
+  ignore_errors: true
+
 # --- Gridcoin: OpenSUSE repo (Fedora) / PPA (Debian/Ubuntu) / AUR (Arch) ---
 # Note: Currently uses flatpak bundle fallback - can be improved with proper repos
 

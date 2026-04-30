@@ -126,6 +126,30 @@ wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projek
 
 Always invoke relevant project skills (`/skill-name`) before starting implementation work. Skills provide domain-specific standards and patterns that must be followed. For example, invoke `/code-reviewer` before reviewing code, `/security-review` before auditing for vulnerabilities, or `/coding-standards` before writing new code. Check `.claude/skills/` for available skills matching the current task.
 
+## OpenSpec Change Workflow
+
+When working on OpenSpec changes (in `openspec/changes/`), follow these rules:
+
+### Before Starting Implementation
+- **Never start coding automatically** - if there are questions or considerations in planning mode, always ask clarifying questions first
+- Read the existing `proposal.md`, `design.md`, `spec.md`, and `tasks.md` to understand what needs to be done
+- If something is unclear, ask questions before proceeding with implementation
+
+### Detailed Planning Requirements
+- The `proposal.md` file should be **very detailed-oriented** and contain all necessary information
+- Include all commands, file paths, links, and specific implementation steps
+- All research must be done **while planning** and creating the documentation
+- The implementer should know exactly how to implement without guessing or needing additional research
+
+### Keeping Documentation Updated
+- Always keep `design.md`, `spec.md`, `tasks.md`, and `proposal.md` up to date
+- Update progress in `tasks.md` immediately after completing each task or subtask
+- Mark completed tasks in the markdown file as `[x]` for done, `[ ]` for pending
+
+### Applying Tasks from OpenSpec
+- When applying a task from an OpenSpec change, follow the detailed specifications in the proposal.md
+- Do not deviate from the documented approach without first updating the documentation
+
 ## How to be compatible with IDE
 
 Always output file edits using strict SEARCH/REPLACE blocks.
