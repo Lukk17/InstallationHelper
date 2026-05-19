@@ -21,7 +21,6 @@ install_filezilla: false
 # keep: git, openssl
 
 # ---- IDEs / Editors (all off) ----
-install_intellij: false
 install_vscode: false
 install_sublime: true
 install_arduino: false
@@ -30,14 +29,12 @@ install_antigravity: false
 # ---- Communication (all off) ----
 install_discord: true
 install_slack: false
-install_teams: false
 install_telegram: true
 install_whatsapp: true
 install_signal: true
 
 # ---- Productivity (keep password managers only) ----
 install_obsidian: true
-install_trello: false
 install_onlyoffice: true
 # keep: bitwarden, keepassxc
 
