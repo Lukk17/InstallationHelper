@@ -90,6 +90,10 @@ InstallationHelper.iml
 # Ansible retry files
 *.retry
 
+# Editor / IDE configs (per-user, not repo-shared)
+.vscode/
+.idea/
+
 # Python bytecode
 __pycache__/
 *.py[cod]
