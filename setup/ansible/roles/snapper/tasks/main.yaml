@@ -1,18 +1,17 @@
 ---
-# Btrfs Snapshot Configuration with Snapper
-# Installs snapper and configures automatic snapshots for btrfs filesystems
-
-- name: Check if root is btrfs
-  ansible.builtin.shell: df -T / | awk 'NR==2 {print $2}'
+- name: Detect root filesystem type
+  ansible.builtin.command: findmnt -no FSTYPE /
   register: root_fs_type
   changed_when: false
 
 - name: Install snapper (Arch)
-  ansible.builtin.pacman:
+  community.general.pacman:
     name: snapper
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Archlinux' and root_fs_type.stdout == 'btrfs'
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - root_fs_type.stdout == 'btrfs'
 
 - name: Install snapper (Debian)
   ansible.builtin.apt:
@@ -20,14 +19,18 @@
     state: present
     update_cache: yes
   become: yes
-  when: ansible_facts['os_family'] == 'Debian' and root_fs_type.stdout == 'btrfs'
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - root_fs_type.stdout == 'btrfs'
 
 - name: Install snapper (RedHat)
   ansible.builtin.dnf:
     name: snapper
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'RedHat' and root_fs_type.stdout == 'btrfs'
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - root_fs_type.stdout == 'btrfs'
 
 - name: Create snapper config for root
   ansible.builtin.command: snapper -c root create-config /
@@ -35,51 +38,53 @@
     creates: /etc/snapper/configs/root
   become: yes
   when: root_fs_type.stdout == 'btrfs'
-  ignore_errors: yes
 
-- name: Configure timeline for root snapper config
-  ansible.builtin.shell: snapper -c root set-config TIMELINE_CREATE=yes
+- name: Read current snapper config for root
+  ansible.builtin.command: snapper -c root get-config
+  register: snapper_root_config
+  changed_when: false
   become: yes
   when: root_fs_type.stdout == 'btrfs'
-  ignore_errors: yes
 
-- name: Set snapshot cleanup policy
-  ansible.builtin.shell: |
-    snapper -c root set-config TIMELINE_MIN_AGE=1800 &&
-    snapper -c root set-config TIMELINE_LIMIT_HOURLY=24 &&
-    snapper -c root set-config TIMELINE_LIMIT_DAILY=7 &&
-    snapper -c root set-config TIMELINE_LIMIT_WEEKLY=4 &&
-    snapper -c root set-config TIMELINE_LIMIT_MONTHLY=6
+- name: Apply snapper config values
+  ansible.builtin.command: "snapper -c root set-config {{ item.key }}={{ item.value }}"
+  become: yes
+  loop:
+    - { key: 'TIMELINE_CREATE',         value: 'yes' }
+    - { key: 'TIMELINE_MIN_AGE',        value: '1800' }
+    - { key: 'TIMELINE_LIMIT_HOURLY',   value: '24' }
+    - { key: 'TIMELINE_LIMIT_DAILY',    value: '7' }
+    - { key: 'TIMELINE_LIMIT_WEEKLY',   value: '4' }
+    - { key: 'TIMELINE_LIMIT_MONTHLY',  value: '6' }
+  when:
+    - root_fs_type.stdout == 'btrfs'
+    - snapper_root_config is defined
+    - snapper_root_config.stdout is defined
+    - ('| ' ~ item.key ~ ' ' ~ ' ' * (28 - item.key | length) ~ '| ' ~ item.value) not in snapper_root_config.stdout
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+
+- name: Enable snapper systemd timer
+  ansible.builtin.systemd:
+    name: snapper-timeline.timer
+    enabled: yes
+    state: started
+  become: yes
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - root_fs_type.stdout == 'btrfs'
+
+- name: Check for existing snapper snapshots
+  ansible.builtin.command: snapper -c root list --columns number
+  register: snapper_snapshots
+  changed_when: false
   become: yes
   when: root_fs_type.stdout == 'btrfs'
-  ignore_errors: yes
-
-- name: Enable snapper systemd timer (Arch)
-  ansible.builtin.systemd:
-    name: snapper-timeline.timer
-    enabled: yes
-    state: started
-  become: yes
-  when: ansible_facts['os_family'] == 'Archlinux' and root_fs_type.stdout == 'btrfs'
-
-- name: Enable snapper systemd timer (Debian)
-  ansible.builtin.systemd:
-    name: snapper-timeline.timer
-    enabled: yes
-    state: started
-  become: yes
-  when: ansible_facts['os_family'] == 'Debian' and root_fs_type.stdout == 'btrfs'
-
-- name: Enable snapper systemd timer (RedHat)
-  ansible.builtin.systemd:
-    name: snapper-timeline.timer
-    enabled: yes
-    state: started
-  become: yes
-  when: ansible_facts['os_family'] == 'RedHat' and root_fs_type.stdout == 'btrfs'
 
 - name: Create initial snapshot
-  ansible.builtin.shell: snapper -c root create -t single --description "Initial Ansible snapshot"
-  when: root_fs_type.stdout == 'btrfs'
-  ignore_errors: yes
+  ansible.builtin.command: snapper -c root create -t single --description "Initial Ansible snapshot"
   become: yes
+  when:
+    - root_fs_type.stdout == 'btrfs'
+    - snapper_snapshots is defined
+    - (snapper_snapshots.stdout_lines | default([]) | length) <= 2

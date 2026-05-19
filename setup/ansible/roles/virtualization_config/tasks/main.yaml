@@ -1,16 +1,30 @@
 ---
-- name: Install QEMU/KVM and virt-manager packages (Debian)
-  become: yes
-  ansible.builtin.apt:
-    name:
-      - qemu-kvm
-      - libvirt-daemon-system
-      - libvirt-clients
-      - virt-manager
-      - virtinst
-      - bridge-utils
-      - virtiofsd
-    state: present
+# Debian/Ubuntu apt tasks use shell+file-redirect (Ubuntu hit the 2.19
+# deserialization bug on long apt installs). Arch and Fedora kept on the
+# native modules — they ran cleanly in the last full run.
+
+- name: Install QEMU/KVM and virt-manager packages (Debian) via apt-get → log file
+  ansible.builtin.shell: |
+    apt-get install -yqq \
+      -o DPkg::Lock::Timeout=300 \
+      -o Dpkg::Options::=--force-confdef \
+      -o Dpkg::Options::=--force-confold \
+      qemu-kvm libvirt-daemon-system libvirt-clients virt-manager virtinst \
+      bridge-utils virtiofsd \
+      >> /var/log/installation-virt-apt.log 2>&1
+  args:
+    executable: /bin/bash
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    APT_LISTCHANGES_FRONTEND: none
+    NEEDRESTART_MODE: a
+    NEEDRESTART_SUSPEND: "1"
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+  become: true
+  register: virt_apt_result
+  changed_when: virt_apt_result.rc | default(0) == 0
+  failed_when: virt_apt_result.rc | default(0) != 0
   when: ansible_facts['os_family'] == 'Debian' and install_virt_manager | default(false) | bool
 
 - name: Install QEMU/KVM and virt-manager packages (Arch)
@@ -39,22 +53,29 @@
     state: present
   when: ansible_facts['os_family'] == 'RedHat' and install_virt_manager | default(false) | bool
 
-# Install spice-vdagent when this machine is itself running inside a VM (guest)
-- name: Install spice-vdagent for clipboard/display integration (Debian guest)
-  become: yes
-  ansible.builtin.apt:
-    name: spice-vdagent
-    state: present
+# spice-vdagent — only when this machine is itself a guest VM.
+- name: Install spice-vdagent (Debian guest) via apt-get → log file
+  ansible.builtin.shell: |
+    apt-get install -yqq spice-vdagent >> /var/log/installation-virt-apt.log 2>&1
+  args:
+    executable: /bin/bash
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    NEEDRESTART_MODE: a
+  become: true
+  register: spice_apt_result
+  changed_when: spice_apt_result.rc | default(0) == 0
+  failed_when: spice_apt_result.rc | default(0) != 0
   when: ansible_facts['os_family'] == 'Debian' and ansible_virtualization_role == 'guest'
 
-- name: Install spice-vdagent for clipboard/display integration (Arch guest)
+- name: Install spice-vdagent (Arch guest)
   become: yes
   community.general.pacman:
     name: spice-vdagent
     state: present
   when: ansible_facts['os_family'] == 'Archlinux' and ansible_virtualization_role == 'guest'
 
-- name: Install spice-vdagent for clipboard/display integration (Fedora guest)
+- name: Install spice-vdagent (Fedora guest)
   become: yes
   ansible.builtin.dnf:
     name: spice-vdagent
@@ -85,12 +106,75 @@
     append: true
   when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
 
+# Docker — installed here for ALL Linux distros so the service-start task can
+# rely on the package being present. The matching APT/DNF repos are provisioned
+# by `software_installer/tasks/{debian_repos,fedora_repos}.yaml` when the toggle
+# is on.
+
+# Same shell+apt-get pattern as the batched software install — Ubuntu's apt
+# module reliably trips "Module result deserialization failed" when a docker
+# install's containerd.io / docker-ce postinst writes to stdout (systemctl
+# daemon-reload, needrestart messages). Bypass via shell.
+- name: Install Docker CE (Debian) via apt-get → log file
+  ansible.builtin.shell: |
+    apt-get install -yqq \
+      -o DPkg::Lock::Timeout=300 \
+      -o Dpkg::Options::=--force-confdef \
+      -o Dpkg::Options::=--force-confold \
+      docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin \
+      >> /var/log/installation-docker-apt.log 2>&1
+  args:
+    executable: /bin/bash
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    APT_LISTCHANGES_FRONTEND: none
+    NEEDRESTART_MODE: a
+    NEEDRESTART_SUSPEND: "1"
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+  become: true
+  register: docker_apt_result
+  changed_when: docker_apt_result.rc | default(0) == 0
+  failed_when: docker_apt_result.rc | default(0) != 0
+  when: ansible_facts['os_family'] == 'Debian' and install_docker | default(false) | bool
+
+- name: Install Docker CE (Fedora)
+  become: true
+  ansible.builtin.dnf:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat' and install_docker | default(false) | bool
+
 - name: Install Docker (Arch)
   become: true
   community.general.pacman:
-    name: docker
+    name:
+      - docker
+      - docker-buildx
+      - docker-compose
+      # iptables-nft replaces iptables and is the variant docker.service
+      # expects on Arch. Without it docker daemon fails to start.
+      # bridge-utils is NOT needed (iproute2 ships those tools and
+      # bridge-utils is no longer in the Arch repos).
+      - iptables-nft
     state: present
   when: ansible_facts['os_family'] == 'Archlinux' and install_docker | default(false) | bool
+
+- name: Probe for docker.service unit (Linux)
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: docker_service_units
+  loop:
+    - /lib/systemd/system/docker.service
+    - /usr/lib/systemd/system/docker.service
+    - /etc/systemd/system/docker.service
+  when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool
 
 - name: Enable and start Docker service (Linux)
   become: true
@@ -98,7 +182,11 @@
     name: docker
     state: started
     enabled: true
-  when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_docker | default(false) | bool
+    - docker_service_units is defined
+    - docker_service_units.results | selectattr('stat.exists', 'equalto', true) | list | length > 0
 
 - name: Add current user to docker group (Linux)
   become: true

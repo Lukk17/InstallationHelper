@@ -1,4 +1,34 @@
 ---
+# Bootstrap Homebrew first — every brew/brew_cask task in software_installer
+# depends on it being present.
+- name: Check if Homebrew is installed
+  ansible.builtin.command: command -v brew
+  register: brew_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Homebrew (non-interactive)
+  ansible.builtin.shell: |
+    set -e
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  args:
+    creates: /opt/homebrew/bin/brew
+  when: brew_check.rc != 0
+
+- name: Add Homebrew to PATH for current play (Apple Silicon)
+  ansible.builtin.set_fact:
+    ansible_env: "{{ ansible_env | combine({'PATH': '/opt/homebrew/bin:/opt/homebrew/sbin:' + ansible_env.PATH}) }}"
+  when:
+    - ansible_facts['architecture'] == 'arm64'
+    - brew_check.rc != 0
+
+- name: Add Homebrew to PATH for current play (Intel)
+  ansible.builtin.set_fact:
+    ansible_env: "{{ ansible_env | combine({'PATH': '/usr/local/bin:/usr/local/sbin:' + ansible_env.PATH}) }}"
+  when:
+    - ansible_facts['architecture'] == 'x86_64'
+    - brew_check.rc != 0
+
 - name: Install Karabiner-Elements
   community.general.homebrew_cask:
     name: karabiner-elements

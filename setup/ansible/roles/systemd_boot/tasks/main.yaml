@@ -1,27 +1,61 @@
 ---
-- name: Check if system uses UEFI
+# Bootloader-rewrite role: re-checks the toggle and UEFI here so a
+# `--tags systemd_boot` run can't bypass the site.yaml gate and brick a
+# BIOS host. No-ops via `meta: end_host`, never `fail:`, so the outer
+# playbook survives a mis-enable.
+
+- name: Validate systemd_boot toggle and UEFI prerequisites
   ansible.builtin.stat:
     path: /sys/firmware/efi
   register: efi_dir
 
-- name: Abort if not UEFI
-  ansible.builtin.fail:
-    msg: "systemd-boot requires UEFI. BIOS/legacy boot detected — skipping."
-  when: not (efi_dir.stat.exists | default(false))
+- name: Skip systemd-boot setup gracefully on BIOS / when toggle is off
+  ansible.builtin.debug:
+    msg: >-
+      Skipping systemd-boot: setup_systemd_boot={{ setup_systemd_boot | default(false) }},
+      uefi_present={{ efi_dir.stat.exists | default(false) }}.
+  when: not (setup_systemd_boot | default(false) | bool) or not (efi_dir.stat.exists | default(false))
+
+- name: End systemd_boot role early on BIOS or disabled toggle
+  ansible.builtin.meta: end_host
+  when: not (setup_systemd_boot | default(false) | bool) or not (efi_dir.stat.exists | default(false))
 
 - name: Detect ESP mount point
   ansible.builtin.shell: |
+    set -o pipefail
     if mountpoint -q /efi; then echo "/efi"
     elif mountpoint -q /boot/efi; then echo "/boot/efi"
     elif mountpoint -q /boot && [ "$(findmnt -n -o FSTYPE /boot)" = "vfat" ]; then echo "/boot"
-    else echo "/boot/efi"
+    else echo ""
     fi
+  args:
+    executable: /bin/bash
   register: esp_raw
   changed_when: false
+
+- name: Fail if no ESP could be detected
+  ansible.builtin.fail:
+    msg: >-
+      systemd-boot requires a mounted ESP (vfat) at /efi, /boot/efi, or /boot.
+      Detected none of these. Mount your EFI partition before running this role.
+  when: (esp_raw.stdout | trim) | length == 0
 
 - name: Set ESP path fact
   ansible.builtin.set_fact:
     esp_path: "{{ esp_raw.stdout | trim }}"
+
+- name: Verify ESP is a vfat filesystem
+  ansible.builtin.command: findmnt -n -o FSTYPE "{{ esp_path }}"
+  register: esp_fstype
+  changed_when: false
+
+- name: Refuse to write to non-vfat ESP
+  ansible.builtin.fail:
+    msg: >-
+      ESP at {{ esp_path }} reports FSTYPE={{ esp_fstype.stdout | trim }} —
+      systemd-boot only writes to vfat ESPs. Aborting to avoid corrupting
+      a non-EFI filesystem.
+  when: (esp_fstype.stdout | trim) != 'vfat'
 
 - name: Get root partition UUID
   ansible.builtin.shell: findmnt -n -o UUID /
@@ -29,7 +63,13 @@
   changed_when: false
 
 - name: Get swap partition UUID (for hibernate resume)
-  ansible.builtin.shell: swapon --show --noheadings --raw | awk '{print $1}' | head -1 | xargs -r blkid -s UUID -o value
+  ansible.builtin.shell: |
+    set -o pipefail
+    swapon --show --noheadings --raw 2>/dev/null \
+      | awk '$2 == "partition" {print $1; exit}' \
+      | xargs -r blkid -s UUID -o value
+  args:
+    executable: /bin/bash
   register: swap_uuid
   changed_when: false
   failed_when: false
@@ -55,11 +95,39 @@
     state: present
   when: ansible_facts['os_family'] == 'Debian'
 
-- name: Install systemd-boot to ESP
+- name: Backup existing loader entries before any write
+  become: yes
+  ansible.builtin.shell: |
+    set -o pipefail
+    if [ -d "{{ esp_path }}/loader/entries" ] && \
+       [ -n "$(ls -A "{{ esp_path }}/loader/entries" 2>/dev/null)" ]; then
+      ts="$(date +%Y%m%d-%H%M%S)"
+      mkdir -p "{{ esp_path }}/loader/entries.bak.${ts}"
+      cp -a "{{ esp_path }}/loader/entries/." "{{ esp_path }}/loader/entries.bak.${ts}/"
+      echo "backed_up_to={{ esp_path }}/loader/entries.bak.${ts}"
+    else
+      echo "no_existing_entries"
+    fi
+  args:
+    executable: /bin/bash
+  register: loader_entries_backup
+  changed_when: "'backed_up_to=' in loader_entries_backup.stdout"
+
+- name: Install systemd-boot to ESP (idempotent via creates:)
   become: yes
   ansible.builtin.command: bootctl install --esp-path="{{ esp_path }}" --no-variables
   args:
     creates: "{{ esp_path }}/EFI/systemd/systemd-bootx64.efi"
+
+- name: Update systemd-boot binaries on ESP when already installed
+  become: yes
+  ansible.builtin.command: bootctl update --esp-path="{{ esp_path }}" --no-variables
+  register: bootctl_update
+  changed_when: "'Updated' in (bootctl_update.stdout | default(''))"
+  failed_when:
+    - bootctl_update.rc != 0
+    - "'Skipping' not in (bootctl_update.stderr | default(''))"
+    - "'is up-to-date' not in (bootctl_update.stdout | default(''))"
 
 - name: Create loader directory
   become: yes
