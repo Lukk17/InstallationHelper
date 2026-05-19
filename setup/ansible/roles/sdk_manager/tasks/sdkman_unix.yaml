@@ -13,10 +13,14 @@
   delay: 10
   until: sdkman_bootstrap is succeeded
 
-# `sdk` is a shell function — wrap in bash -c so the timed sub-shell can
-# resolve it. Fire all 4 JDKs in parallel (poll: 0) and collect with
-# async_status to save 12-20 min on a fresh box.
-- name: Fire all Java Temurin installs via SDKMAN (parallel)
+# SDKMAN's `sdk install` writes to shared state files (~/.sdkman/etc/config,
+# ~/.sdkman/var/, the installed-candidates registry under candidates/) without
+# locking. Concurrent installs of different versions of the same candidate
+# (Java) race and leave the registry incoherent — the on-disk extract under
+# ~/.sdkman/candidates/java/X.Y-tem/ may succeed but `sdk default java X.Y-tem`
+# still reports "is not installed on your system". Stay serial. `sdk` is a
+# shell function so the timeout wrapper uses bash -c to find it.
+- name: Install all Java Temurin versions via SDKMAN (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
     timeout 900 bash -c 'source {{ non_root_home }}/.sdkman/bin/sdkman-init.sh && sdk install java {{ item }} <<<"n"'
@@ -31,26 +35,11 @@
     - "{{ java25_id }}"
   loop_control:
     label: "{{ item }}"
-  async: 1200
-  poll: 0
-  register: sdk_java_jobs
-  changed_when: false
-
-- name: Wait for parallel SDKMAN Java installs to finish
-  ansible.builtin.async_status:
-    jid: "{{ item.ansible_job_id }}"
-  loop: "{{ sdk_java_jobs.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-  become: yes
-  become_user: "{{ non_root_user }}"
   register: sdk_java_install
-  until: sdk_java_install.finished
-  retries: 60
-  delay: 30
+  async: 1200
+  poll: 30
   changed_when: "'is already installed' not in (sdk_java_install.stdout | default(''))"
   failed_when: >
-    sdk_java_install.finished and
     sdk_java_install.rc | default(0) != 0 and
     'is already installed' not in (sdk_java_install.stdout | default('')) and
     'is already installed' not in (sdk_java_install.stderr | default(''))
