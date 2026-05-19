@@ -1,6 +1,121 @@
 # AGENTS.md
 
-This file provides guidance to coding agent when working with code in this repository.
+This file provides shared instructions to all AI coding agents working in this repository (Claude Code, Kilo Code, OpenCode, Codex CLI). Standards and skills are imported from [agent-standards](https://github.com/Lukk17/agent-standards).
+
+## Skills
+
+This project includes agent skills in `.agents/skills/`. Invoke relevant skills before starting implementation work. Examples:
+
+- `/code-reviewer` before reviewing code
+- `/security-review` before auditing for vulnerabilities
+- `/coding-standards` before writing new code
+- `/tdd-workflow` before adding features or fixing bugs
+
+Slash commands may appear as `/name` or `/name.md` in your agent's autocomplete — use whichever your agent shows.
+
+## Subagents
+
+This project ships 26 specialised subagents — narrow-scope agents the main session delegates to. Claude Code reads `.claude/agents/`; OpenCode and Kilo Code both read `.opencode/agents/`. Codex CLI has no per-agent file mechanism — it sees `AGENTS.md` plus skills only.
+
+These files are generated artifacts pulled from agent-standards. Do **not** hand-edit them — changes will be overwritten on the next pull. To modify a subagent permanently, edit its canonical source in the agent-standards repo (`subagents/<name>.md`), regenerate there, and re-import.
+
+A few of the most-used:
+
+- `code-reviewer` — security-aware diff review before merge
+- `test-automator` — write missing tests and fix failures without weakening assertions
+- `security-auditor` — threat modelling, secure-coding review, compliance gap analysis
+- `backend-architect` — contract-first service and API design
+- `database-expert` — schema design and query / index optimisation
+- `debugger` — root-cause analysis for a single failing test or runtime error
+- `devops-troubleshooter` — live incident response with postmortem
+
+Full catalogue: see the agent-standards README's "Subagents catalog" section, or list `.claude/agents/*.md` (or `.opencode/agents/*.md`) in this project.
+
+## Working With Agents
+
+All supported agents read this `AGENTS.md` from the project root and auto-discover skills from `.agents/skills/`. Start your agent from the project root:
+
+- **Claude Code** — run `claude`. Reads `.claude/CLAUDE.md`, which imports this file.
+- **Kilo Code** — reads `AGENTS.md` automatically. Optional `kilo.jsonc` for extra config.
+- **OpenCode** — reads `AGENTS.md` automatically. Optional `opencode.json` at project root.
+- **Codex CLI** — run `codex`. Reads `AGENTS.md` automatically. Global settings in `~/.codex/config.toml`.
+
+## Working Principles
+
+Apply these to every task, in order. They govern *how* you work; the `coding-standards` skill governs *what the code should look like*.
+
+### 1. Think Before Coding
+
+State assumptions explicitly. When the prompt is ambiguous, surface the interpretations and ask — do not pick one silently and run with it. If a simpler approach exists, propose it before writing code. Stop and ask when genuinely unsure — a clarifying question costs less than a wrong implementation.
+
+### 2. Simplicity First
+
+Write the minimum code that solves the problem.
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for scenarios that cannot happen.
+- If 200 lines could be 50, rewrite it.
+
+Test: would a senior engineer call this overcomplicated? If yes, simplify.
+
+### 3. Surgical Changes
+
+Touch only what the task requires.
+
+- Do not "improve" adjacent code, comments, or formatting.
+- Do not refactor code that is not broken.
+- Match existing style, even if you would write it differently.
+- If you notice unrelated dead code, mention it — do not delete it.
+- Remove imports, variables, and helpers that *your* changes orphan. Leave pre-existing dead code alone unless asked.
+
+Test: every changed line should trace directly to the request.
+
+### 4. Goal-Driven Execution
+
+Define success before starting. Convert vague asks into verifiable goals:
+
+| Instead of...       | Transform to...                                                       |
+| ------------------- | --------------------------------------------------------------------- |
+| "Add validation"    | "Write tests for invalid inputs, then make them pass"                 |
+| "Fix the bug"       | "Write a failing test that reproduces it, then make it pass"          |
+| "Refactor X"        | "Ensure tests pass before and after, behavior unchanged"              |
+
+For multi-step work, state the plan first:
+
+1. `<step>` → verify: `<check>`
+2. `<step>` → verify: `<check>`
+3. `<step>` → verify: `<check>`
+
+Then loop until each check passes. Do not claim a task is done without running the verification.
+
+## OpenSpec Workflow
+
+This project uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven development. Specs and changes live under `openspec/`.
+
+The full lifecycle (run inside your agent shell):
+
+1. **Propose a change** — agent generates proposal, design, and `tasks.md` under `openspec/changes/`:
+   ```text
+   /opsx:propose add dark mode support
+   ```
+2. **Apply the code** — after reviewing/editing `tasks.md`, agent implements and checks off tasks:
+   ```text
+   /opsx:apply
+   ```
+3. **Verify and refine** — pass back logs or bug reports to refine:
+   ```text
+   /opsx:verify The toggle button is invisible on mobile. Fix it.
+   ```
+4. **Archive** — once tested, merge delta specs into `openspec/specs/` and archive the change folder:
+   ```text
+   /opsx:archive
+   ```
+
+Some agents render commands as `/opsx-propose.md` instead of `/opsx:propose` — both work; use what appears in your autocomplete.
+
+Use multiline prompts when you need to include logs or detailed context with a command.
 
 ## What This Repo Is
 
@@ -8,23 +123,6 @@ A cross-platform Ansible-based system setup and local development toolkit. It ha
 
 1. **`setup/`** — Ansible playbook to automate OS configuration and software installation across Ubuntu/Debian, Fedora, Arch Linux, macOS, and Windows (via WSL).
 2. **`local-dev/`** — Docker Compose stack for local development services (MySQL, PostgreSQL, MongoDB, Keycloak).
-
-## Running the Ansible Playbook
-
-All commands are run from `setup/ansible/`. Install required collections first (one-time):
-
-```bash
-cd setup/ansible
-ansible-galaxy collection install -r requirements.yaml
-
-# Standard run (any OS)
-ansible-playbook site.yaml -i localhost, -c local -K
-
-# Linux Live / USB profile
-ansible-playbook site.yaml -i localhost, -c local -e "@profiles/linux_live.yaml" -K
-```
-
-The `-K` flag prompts for the sudo password. Windows must run from within WSL.
 
 ## Ansible Architecture
 
@@ -110,6 +208,23 @@ Before recommending changes to the `raw` callsites or claiming the workaround is
 
 The check is cheap (one `gh pr view 86739` or a `WebFetch` of the PR URL) and prevents the workaround from outliving its reason.
 
+## Running the Ansible Playbook
+
+All commands are run from `setup/ansible/`. Install required collections first (one-time):
+
+```bash
+cd setup/ansible
+ansible-galaxy collection install -r requirements.yaml
+
+# Standard run (any OS)
+ansible-playbook site.yaml -i localhost, -c local -K
+
+# Linux Live / USB profile
+ansible-playbook site.yaml -i localhost, -c local -e "@profiles/linux_live.yaml" -K
+```
+
+The `-K` flag prompts for the sudo password. Windows must run from within WSL.
+
 ## Local Dev Stack
 
 Start all services from the project root:
@@ -158,13 +273,16 @@ wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projek
 - Installing collections from requirements.yaml
 - Modifying any file in `setup/ansible/`
 
-## Proactive Skill Usage
+## How to be compatible with IDE
 
-Always invoke relevant project skills (`/skill-name`) before starting implementation work. Skills provide domain-specific standards and patterns that must be followed. For example, invoke `/code-reviewer` before reviewing code, `/security-review` before auditing for vulnerabilities, or `/coding-standards` before writing new code. Check `.claude/skills/` for available skills matching the current task.
+Always output file edits using strict SEARCH/REPLACE blocks.
+Ensure exact matching of existing indentation and formatting for the diff viewer to parse correctly.
+Never use the built-in read tool.
+If you need to read a file, use the bash tool to execute cat, head, or grep on the file path instead.
 
-## OpenSpec Change Workflow
+## OpenSpec Project Conventions
 
-When working on OpenSpec changes (in `openspec/changes/`), follow these rules:
+Project-specific rules layered on top of the canonical OpenSpec lifecycle above. When working on OpenSpec changes (in `openspec/changes/`), follow these rules:
 
 ### Before Starting Implementation
 - **Never start coding automatically** - if there are questions or considerations in planning mode, always ask clarifying questions first
@@ -185,10 +303,3 @@ When working on OpenSpec changes (in `openspec/changes/`), follow these rules:
 ### Applying Tasks from OpenSpec
 - When applying a task from an OpenSpec change, follow the detailed specifications in the proposal.md
 - Do not deviate from the documented approach without first updating the documentation
-
-## How to be compatible with IDE
-
-Always output file edits using strict SEARCH/REPLACE blocks.
-Ensure exact matching of existing indentation and formatting for the diff viewer to parse correctly.
-Never use the built-in read tool.
-If you need to read a file, use the bash tool to execute cat, head, or grep on the file path instead.
