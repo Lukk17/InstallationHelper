@@ -8,10 +8,26 @@
     mode: '0440'
     validate: 'visudo -cf %s'
 
-- name: Update pacman package database
+# Steam, lib32-* and many other native Arch packages live in the multilib
+# repo. Enable it before any pacman invocation so steam install doesn't fail
+# with "could not find or read package".
+- name: Enable multilib repository in /etc/pacman.conf (Arch)
   become: yes
-  ansible.builtin.command: pacman -Sy
-  changed_when: false
+  ansible.builtin.blockinfile:
+    path: /etc/pacman.conf
+    marker: "# {mark} ANSIBLE MANAGED BLOCK multilib"
+    block: |
+      [multilib]
+      Include = /etc/pacman.d/mirrorlist
+  register: multilib_enabled
+
+# Always do a full sync + upgrade. Partial upgrades on rolling-release Arch
+# are unsupported and cause download 404s when the local db is stale.
+- name: Sync package database and upgrade system (Arch)
+  become: yes
+  community.general.pacman:
+    update_cache: yes
+    upgrade: yes
 
 - name: Install unzip and zip
   become: yes
@@ -56,12 +72,21 @@
 
 - name: Build yay package (non-root)
   ansible.builtin.shell: |
-    cd /tmp/yay && makepkg -s --noconfirm
+    set -o pipefail
+    timeout 1500 makepkg -s --noconfirm </dev/null
+  args:
+    chdir: /tmp/yay
+    executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  args:
-    creates: /tmp/yay/*.pkg.tar.zst
   when: yay_check.rc != 0
+  async: 1800
+  poll: 30
+  register: yay_build
+  changed_when: yay_build.rc == 0
+  failed_when:
+    - yay_build.rc is defined
+    - yay_build.rc != 0
 
 - name: Find built yay package
   ansible.builtin.find:
@@ -123,12 +148,21 @@
 
 - name: Build paru package (non-root)
   ansible.builtin.shell: |
-    cd /tmp/paru && makepkg -s --noconfirm
+    set -o pipefail
+    timeout 1800 makepkg -s --noconfirm </dev/null
+  args:
+    chdir: /tmp/paru
+    executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  args:
-    creates: /tmp/paru/*.pkg.tar.zst
   when: paru_installed.rc != 0
+  async: 2100
+  poll: 30
+  register: paru_build
+  changed_when: paru_build.rc == 0
+  failed_when:
+    - paru_build.rc is defined
+    - paru_build.rc != 0
 
 - name: Find built paru package
   ansible.builtin.find:
@@ -176,7 +210,7 @@
   when: install_snapd | default(false) | bool and snap_core_install.rc != 0
 
 - name: Wait for snapd to be ready
-  pause:
+  ansible.builtin.pause:
     seconds: 5
   when: install_snapd | default(false) | bool
 

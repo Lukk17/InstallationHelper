@@ -2,21 +2,34 @@
 - name: Install NVM (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash
+    curl -fsSL --max-time 120 -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash
   args:
     creates: "{{ non_root_home }}/.nvm/nvm.sh"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  register: nvm_bootstrap
+  retries: 3
+  delay: 10
+  until: nvm_bootstrap is succeeded
 
+# `nvm` is a shell function, not a binary — `timeout nvm …` fails with
+# "No such file or directory" because timeout uses execve(). Wrap the
+# whole call in `bash -c` so the function is defined inside the timed
+# sub-shell.
 - name: Install Node LTS via NVM (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    source {{ non_root_home }}/.nvm/nvm.sh && nvm install --lts
+    timeout 900 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm install --lts </dev/null'
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
   register: nvm_install
-  changed_when: "'is already installed' not in nvm_install.stdout"
-
+  async: 1200
+  poll: 30
+  changed_when: "'is already installed' not in (nvm_install.stdout | default(''))"
+  failed_when:
+    - nvm_install.rc is defined
+    - nvm_install.rc != 0
+    - "'is already installed' not in (nvm_install.stdout | default(''))"

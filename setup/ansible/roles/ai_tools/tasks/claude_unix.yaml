@@ -1,6 +1,7 @@
 ---
 - name: Check if Claude Code CLI is already installed (Unix)
   ansible.builtin.shell: |
+    set -o pipefail
     source {{ non_root_home }}/.nvm/nvm.sh
     npm list -g @anthropic-ai/claude-code --depth=0 2>/dev/null | grep -q claude-code
   args:
@@ -11,14 +12,24 @@
   changed_when: false
   failed_when: false
 
+ # Wrap in bash -c so the timeout sub-shell sees the nvm function + the
+# Node version's bin/npm on PATH. Sourcing nvm.sh alone doesn't activate
+# any Node version unless `default` alias was set — nvm use --lts
+# guarantees one is active for this invocation.
 - name: Install Claude Code CLI via NPM (Unix)
   ansible.builtin.shell: |
     set -o pipefail
-    source {{ non_root_home }}/.nvm/nvm.sh && npm install -g @anthropic-ai/claude-code
+    timeout 600 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g @anthropic-ai/claude-code </dev/null'
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  register: claude_code_install
+  async: 900
+  poll: 15
+  retries: 2
+  delay: 15
+  until: claude_code_install is succeeded
   when: claude_code_check.rc != 0
 
 
@@ -36,8 +47,13 @@
     url: "{{ claude_desktop_deb_url }}"
     dest: "{{ non_root_home }}/.lukkInstall/claude-desktop.deb"
     mode: '0644'
+    timeout: 60
   become: yes
   become_user: "{{ non_root_user }}"
+  register: claude_desktop_download
+  retries: 3
+  delay: 10
+  until: claude_desktop_download is succeeded
   when:
     - install_claude_desktop | default(false) | bool
     - ansible_facts['os_family'] == 'Debian'

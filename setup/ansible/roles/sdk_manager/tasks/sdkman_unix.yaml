@@ -2,17 +2,24 @@
 - name: Install SDKMAN (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    curl -s "https://get.sdkman.io" | bash
+    curl -fsSL --max-time 120 "https://get.sdkman.io" | bash
   args:
     creates: "{{ non_root_home }}/.sdkman/bin/sdkman-init.sh"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  register: sdkman_bootstrap
+  retries: 3
+  delay: 10
+  until: sdkman_bootstrap is succeeded
 
-- name: Install all Java Temurin versions via SDKMAN (Linux/Mac)
+# `sdk` is a shell function — wrap in bash -c so the timed sub-shell can
+# resolve it. Fire all 4 JDKs in parallel (poll: 0) and collect with
+# async_status to save 12-20 min on a fresh box.
+- name: Fire all Java Temurin installs via SDKMAN (parallel)
   ansible.builtin.shell: |
     set -o pipefail
-    source {{ non_root_home }}/.sdkman/bin/sdkman-init.sh && echo "n" | sdk install java {{ item }}
+    timeout 900 bash -c 'source {{ non_root_home }}/.sdkman/bin/sdkman-init.sh && sdk install java {{ item }} <<<"n"'
   args:
     executable: /bin/bash
   become: yes
@@ -22,12 +29,31 @@
     - "{{ java17_id }}"
     - "{{ java21_id }}"
     - "{{ java25_id }}"
+  loop_control:
+    label: "{{ item }}"
+  async: 1200
+  poll: 0
+  register: sdk_java_jobs
+  changed_when: false
+
+- name: Wait for parallel SDKMAN Java installs to finish
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  loop: "{{ sdk_java_jobs.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   register: sdk_java_install
-  changed_when: "'is already installed' not in sdk_java_install.stdout"
+  until: sdk_java_install.finished
+  retries: 60
+  delay: 30
+  changed_when: "'is already installed' not in (sdk_java_install.stdout | default(''))"
   failed_when: >
-    sdk_java_install.rc != 0 and
-    'is already installed' not in sdk_java_install.stdout and
-    'is already installed' not in sdk_java_install.stderr
+    sdk_java_install.finished and
+    sdk_java_install.rc | default(0) != 0 and
+    'is already installed' not in (sdk_java_install.stdout | default('')) and
+    'is already installed' not in (sdk_java_install.stderr | default(''))
 
 - name: Set default Java via SDKMAN (Linux/Mac)
   ansible.builtin.shell: |

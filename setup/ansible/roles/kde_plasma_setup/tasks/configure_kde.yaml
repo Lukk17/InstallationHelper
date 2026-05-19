@@ -57,8 +57,14 @@
   become: yes
   become_user: "{{ non_root_user }}"
 
+- name: Probe Konsave profile source file
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../config/lukk_desktop_profile.knsv"
+  register: konsave_profile_file
+
 - name: Import and apply Konsave profile
   ansible.builtin.shell: |
+    set -o pipefail
     export PATH="$HOME/.local/bin:$PATH"
     konsave -i {{ playbook_dir }}/../config/lukk_desktop_profile.knsv
     konsave -a lukk_desktop_profile
@@ -66,6 +72,7 @@
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  when: konsave_profile_file.stat.exists
 
 - name: Copy wallpapers directory for KDE
   ansible.builtin.copy:
@@ -89,6 +96,27 @@
   become: yes
   become_user: "{{ non_root_user }}"
 
+- name: Probe for installed applet-window-buttons widget
+  ansible.builtin.stat:
+    path: /usr/lib/x86_64-linux-gnu/qt5/qml/org/kde/plasma/applet_window_buttons
+  register: applet_window_buttons_installed
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Probe for installed applet-window-buttons widget (RedHat/Arch)
+  ansible.builtin.stat:
+    path: /usr/lib64/qt5/qml/org/kde/plasma/applet_window_buttons
+  register: applet_window_buttons_installed_other
+  when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+
+- name: Determine if applet-window-buttons needs build
+  ansible.builtin.set_fact:
+    applet_window_buttons_needs_build: >-
+      {{ (ansible_facts['os_family'] == 'Debian'
+          and not (applet_window_buttons_installed.stat.exists | default(false)))
+         or
+         (ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+          and not (applet_window_buttons_installed_other.stat.exists | default(false))) }}
+
 - name: Clone applet-window-buttons repository
   become: yes
   become_user: "{{ non_root_user }}"
@@ -96,7 +124,9 @@
     repo: https://github.com/chermnyx/applet-window-buttons.git
     dest: "{{ non_root_home }}/applet-window-buttons"
     version: dumb_5.27_support
-    force: yes
+    force: no
+    update: no
+  when: applet_window_buttons_needs_build | bool
 
 - name: Create build directory
   become: yes
@@ -104,6 +134,8 @@
   ansible.builtin.file:
     path: "{{ non_root_home }}/applet-window-buttons/build"
     state: directory
+    mode: '0755'
+  when: applet_window_buttons_needs_build | bool
 
 - name: Run CMake with explicit Ubuntu multiarch paths
   become: yes
@@ -111,7 +143,10 @@
   ansible.builtin.command:
     cmd: cmake -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON -DKDE_INSTALL_QMLDIR=/usr/lib/x86_64-linux-gnu/qt5/qml ..
     chdir: "{{ non_root_home }}/applet-window-buttons/build"
-  when: ansible_facts['os_family'] == 'Debian'
+    creates: "{{ non_root_home }}/applet-window-buttons/build/Makefile"
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - applet_window_buttons_needs_build | bool
 
 - name: Run CMake (Fedora/Arch)
   become: yes
@@ -119,29 +154,49 @@
   ansible.builtin.command:
     cmd: cmake -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON ..
     chdir: "{{ non_root_home }}/applet-window-buttons/build"
-  when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+    creates: "{{ non_root_home }}/applet-window-buttons/build/Makefile"
+  when:
+    - ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+    - applet_window_buttons_needs_build | bool
 
 - name: Compile the widget
+  ansible.builtin.shell: |
+    set -o pipefail
+    timeout 900 make -j{{ ansible_processor_vcpus }} </dev/null
+  args:
+    chdir: "{{ non_root_home }}/applet-window-buttons/build"
+    creates: "{{ non_root_home }}/applet-window-buttons/build/applet/plasma_applet_window_appmenu.so"
+    executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  ansible.builtin.command:
-    cmd: "make -j{{ ansible_processor_vcpus }}"
-    chdir: "{{ non_root_home }}/applet-window-buttons/build"
+  async: 1200
+  poll: 30
+  register: applet_window_buttons_compile
+  changed_when: applet_window_buttons_compile.rc == 0
+  failed_when:
+    - applet_window_buttons_compile.rc is defined
+    - applet_window_buttons_compile.rc != 0
+  when: applet_window_buttons_needs_build | bool
 
 - name: Install the compiled widget binaries
   become: yes
   ansible.builtin.command:
     cmd: make install
     chdir: "{{ non_root_home }}/applet-window-buttons/build"
+  register: applet_window_buttons_install
+  changed_when: applet_window_buttons_install.rc == 0
+  when: applet_window_buttons_needs_build | bool
 
 - name: Clear KDE QML and system configuration caches
   ansible.builtin.shell: |
-    rm -rf ~/.cache/qmlcache ~/.cache/ksycoca5*
+    set -o pipefail
+    rm -rf "$HOME/.cache/qmlcache" "$HOME"/.cache/ksycoca5*
     kbuildsycoca5 --noincremental
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  when: applet_window_buttons_install is defined and applet_window_buttons_install is changed
 
 - name: Set Spectacle Shortcut
   ansible.builtin.command: kwriteconfig5 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot "Meta+Shift+S,Meta+Shift+Print,Capture Rectangular Region"

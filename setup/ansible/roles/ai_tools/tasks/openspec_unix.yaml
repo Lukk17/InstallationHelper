@@ -1,6 +1,7 @@
 ---
 - name: Check if OpenSpec CLI is already installed (Unix)
   ansible.builtin.shell: |
+    set -o pipefail
     . {{ non_root_home }}/.nvm/nvm.sh
     npm list -g openspec --depth=0 2>/dev/null | grep -q openspec
   args:
@@ -14,8 +15,7 @@
 - name: Install OpenSpec CLI via NVM (Unix)
   ansible.builtin.shell: |
     set -o pipefail
-    . {{ non_root_home }}/.nvm/nvm.sh
-    npm install -g openspec
+    bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g openspec'
   args:
     executable: /bin/bash
   become: yes

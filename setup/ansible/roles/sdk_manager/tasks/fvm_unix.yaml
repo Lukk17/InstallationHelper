@@ -1,6 +1,7 @@
 ---
 - name: Check if FVM is already installed (Linux/Mac)
   ansible.builtin.shell: |
+    set -o pipefail
     export PATH="{{ non_root_home }}/.fvm/bin:{{ non_root_home }}/.pub-cache/bin:$PATH"
     command -v fvm 2>/dev/null && exit 0
     test -f "{{ non_root_home }}/.fvm/bin/fvm" && exit 0
@@ -22,6 +23,10 @@
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  register: fvm_arch_install
+  retries: 3
+  delay: 10
+  until: fvm_arch_install is succeeded
   when:
     - fvm_check.rc != 0
     - ansible_facts['os_family'] == 'Archlinux'
@@ -30,17 +35,22 @@
   ansible.builtin.shell: |
     set -o pipefail
     export HOME="{{ non_root_home }}"
-    curl -fsSL https://fvm.app/install.sh | bash
+    curl -fsSL --max-time 120 https://fvm.app/install.sh | bash
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  register: fvm_script_install
+  retries: 3
+  delay: 10
+  until: fvm_script_install is succeeded
   when:
     - fvm_check.rc != 0
     - ansible_facts['os_family'] != 'Archlinux'
 
 - name: Locate FVM binary after install
   ansible.builtin.shell: |
+    set -o pipefail
     for p in "{{ non_root_home }}/fvm/bin" "{{ non_root_home }}/.fvm/bin" "{{ non_root_home }}/.pub-cache/bin" "/usr/local/bin"; do
       [ -f "$p/fvm" ] && echo "$p" && exit 0
     done
@@ -53,16 +63,77 @@
   changed_when: false
   failed_when: false
 
-- name: Install Flutter via FVM ({{ flutter_channel }})
+- name: Probe whether Flutter channel is already installed via FVM
+  ansible.builtin.stat:
+    path: "{{ non_root_home }}/fvm/versions/{{ flutter_channel }}/bin/flutter"
+  register: flutter_channel_installed
+
+- name: Disable Flutter analytics consent prompts (pre-precache)
+  ansible.builtin.copy:
+    dest: "{{ non_root_home }}/{{ item }}"
+    content: |
+      {"firstRun":false,"enabled":false,"analytics-opt-out":true}
+    mode: '0644'
+  become: yes
+  become_user: "{{ non_root_user }}"
+  loop:
+    - .flutter
+    - .dart-tool/dart-flutter-telemetry.config
+  failed_when: false
+  when: fvm_bin_dir.rc == 0
+
+- name: Fire Flutter install via FVM ({{ flutter_channel }})
   ansible.builtin.shell: |
     set -o pipefail
     export PATH="{{ fvm_bin_dir.stdout | trim }}:{{ non_root_home }}/.pub-cache/bin:$PATH"
-    fvm install {{ flutter_channel }}
+    export HOME="{{ non_root_home }}"
+    export CI=true
+    export FLUTTER_SUPPRESS_ANALYTICS=true
+    export PUB_CACHE="{{ non_root_home }}/.pub-cache"
+    timeout 1500 fvm install {{ flutter_channel }} </dev/null
   args:
-    creates: "{{ non_root_home }}/fvm/versions/{{ flutter_channel }}/bin/flutter"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  async: 1800
+  poll: 0
+  register: fvm_install_job
+  changed_when: false
+  when:
+    - fvm_bin_dir.rc == 0
+    - not flutter_channel_installed.stat.exists
+
+- name: Wait for FVM Flutter install to finish
+  ansible.builtin.async_status:
+    jid: "{{ fvm_install_job.ansible_job_id }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: fvm_install_result
+  until: fvm_install_result.finished
+  retries: 80
+  delay: 30
+  changed_when: fvm_install_result.finished and fvm_install_result.rc == 0
+  failed_when:
+    - fvm_install_result.finished
+    - fvm_install_result.rc | default(0) != 0
+  when:
+    - fvm_bin_dir.rc == 0
+    - not flutter_channel_installed.stat.exists
+    - fvm_install_job is defined
+    - fvm_install_job.ansible_job_id is defined
+
+- name: Read current FVM global channel
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PATH="{{ fvm_bin_dir.stdout | trim }}:{{ non_root_home }}/.pub-cache/bin:$PATH"
+    fvm global 2>/dev/null || true
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: fvm_current_global
+  changed_when: false
+  failed_when: false
   when: fvm_bin_dir.rc == 0
 
 - name: Set FVM global version ({{ flutter_channel }})
@@ -74,6 +145,6 @@
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  changed_when: true
-  when: fvm_bin_dir.rc == 0
-
+  when:
+    - fvm_bin_dir.rc == 0
+    - flutter_channel not in (fvm_current_global.stdout | default(''))

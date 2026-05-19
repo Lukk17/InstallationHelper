@@ -18,8 +18,14 @@
     url: "https://data.services.jetbrains.com/products/download?platform=linux&code=TBA"
     dest: /tmp/jetbrains-toolbox.tar.gz
     mode: '0644'
+    checksum: "{{ download_checksums.jetbrains_toolbox | default(omit) }}"
+    timeout: 60
   become: yes
   become_user: "{{ non_root_user }}"
+  register: toolbox_download
+  retries: 3
+  delay: 10
+  until: toolbox_download is succeeded
   when:
     - install_jetbrains_toolbox | default(true) | bool
     - ansible_facts['system'] in ['Linux', 'Darwin']
@@ -36,6 +42,7 @@
     fi
   args:
     executable: /bin/bash
+    creates: "{{ non_root_home }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
   become: yes
   become_user: "{{ non_root_user }}"
   when:
@@ -44,67 +51,53 @@
     - not toolbox_binary.stat.exists
     - ansible_facts['os_family'] != "Archlinux"
 
-- name: Install IntelliJ IDEA via Toolbox
-  ansible.builtin.shell: |
-    set -o pipefail
-    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install idea
-  args:
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  when:
-    - install_jetbrains_toolbox | default(true) | bool
-    - toolbox_binary.stat.exists
-  failed_when: false
+- name: Probe Toolbox apps directory existence
+  ansible.builtin.stat:
+    path: "{{ non_root_home }}/.local/share/JetBrains/Toolbox/apps"
+  register: toolbox_apps_dir
 
-- name: Install PyCharm via Toolbox
-  ansible.builtin.shell: |
-    set -o pipefail
-    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install pycharm
-  args:
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  when:
-    - install_jetbrains_toolbox | default(true) | bool
-    - toolbox_binary.stat.exists
-  failed_when: false
+- name: Probe currently-installed Toolbox IDEs
+  ansible.builtin.find:
+    paths: "{{ non_root_home }}/.local/share/JetBrains/Toolbox/apps"
+    file_type: directory
+    depth: 1
+  register: toolbox_installed_ides
+  changed_when: false
+  when: toolbox_apps_dir.stat.exists and toolbox_apps_dir.stat.isdir
 
-- name: Install WebStorm via Toolbox
-  ansible.builtin.shell: |
-    set -o pipefail
-    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install webstorm
-  args:
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  when:
-    - install_jetbrains_toolbox | default(true) | bool
-    - toolbox_binary.stat.exists
-  failed_when: false
+- name: Build set of installed Toolbox IDE slugs
+  ansible.builtin.set_fact:
+    toolbox_installed_slugs: >-
+      {{ (toolbox_installed_ides.files | default([]))
+         | map(attribute='path')
+         | map('basename')
+         | map('lower')
+         | list }}
 
-- name: Install DataGrip via Toolbox
+# Each IDE install is a ~1 GB download. async+poll plus a hard POSIX
+# timeout dodge the 2.19 ansiballz race and prevent indefinite hangs.
+- name: Install JetBrains IDEs via Toolbox
   ansible.builtin.shell: |
     set -o pipefail
-    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install datagrip
+    timeout 1800 "{{ non_root_home }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox" install {{ item.cli }} </dev/null
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  loop:
+    - { cli: 'idea',     match: 'intellij' }
+    - { cli: 'pycharm',  match: 'pycharm' }
+    - { cli: 'webstorm', match: 'webstorm' }
+    - { cli: 'datagrip', match: 'datagrip' }
+    - { cli: 'rider',    match: 'rider' }
+  loop_control:
+    label: "{{ item.cli }}"
+  register: toolbox_ide_install
+  async: 2100
+  poll: 30
+  changed_when: toolbox_ide_install.rc | default(0) == 0
+  failed_when: false
   when:
     - install_jetbrains_toolbox | default(true) | bool
-    - toolbox_binary.stat.exists
-  failed_when: false
-
-- name: Install Rider via Toolbox
-  ansible.builtin.shell: |
-    set -o pipefail
-    ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox install rider
-  args:
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  when:
-    - install_jetbrains_toolbox | default(true) | bool
-    - toolbox_binary.stat.exists
-  failed_when: false
+    - toolbox_binary.stat.exists or (toolbox_download is defined and toolbox_download is changed)
+    - toolbox_installed_slugs is not search(item.match)

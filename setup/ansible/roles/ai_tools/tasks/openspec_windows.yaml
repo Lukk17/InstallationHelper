@@ -1,4 +1,24 @@
 ---
-- name: Install OpenSpec CLI via Windows NPM (Windows)
-  ansible.windows.win_shell: npm install -g openspec
+- name: Check npm availability (Windows)
+  ansible.windows.win_command: where.exe npm
+  register: npm_where
+  changed_when: false
+  failed_when: false
 
+- name: Check if OpenSpec CLI is already installed (Windows)
+  ansible.windows.win_shell: npm list -g openspec --depth=0 2>$null
+  register: openspec_check
+  changed_when: false
+  failed_when: false
+  when: npm_where.rc == 0
+
+- name: Install OpenSpec CLI (Windows)
+  ansible.windows.win_shell: npm install -g openspec
+  when:
+    - npm_where.rc == 0
+    - openspec_check.rc | default(1) != 0 or 'openspec' not in (openspec_check.stdout | default(''))
+
+- name: Skip OpenSpec (Windows, npm missing)
+  ansible.builtin.debug:
+    msg: "npm not found on PATH — install Node.js first (sdk_manager role enables nvm via choco). Skipping OpenSpec."
+  when: npm_where.rc != 0

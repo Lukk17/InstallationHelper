@@ -1,0 +1,112 @@
+---
+# Each DMG chain uses block: + always: so the volume is detached even when
+# the copy step fails — otherwise stale /Volumes/ mounts collide on rerun.
+
+# --- Google Antigravity ---
+- name: Resolve Antigravity DMG URL for this Mac's architecture
+  ansible.builtin.set_fact:
+    antigravity_dmg_resolved_url: "{{ antigravity_dmg_arm64_url if ansible_facts['architecture'] == 'arm64' else antigravity_dmg_x64_url }}"
+  when: install_antigravity | default(false) | bool
+
+- name: Install Antigravity from DMG
+  when: install_antigravity | default(false) | bool
+  block:
+    - name: Download Antigravity DMG
+      ansible.builtin.get_url:
+        url: "{{ antigravity_dmg_resolved_url }}"
+        dest: "/tmp/Antigravity.dmg"
+        mode: '0644'
+        checksum: "{{ download_checksums.antigravity_macos | default(omit) }}"
+        timeout: 60
+      register: antigravity_dmg_download
+      retries: 3
+      delay: 10
+      until: antigravity_dmg_download is succeeded
+
+    - name: Mount Antigravity DMG and capture mount-point
+      ansible.builtin.shell: |
+        set -e -o pipefail
+        hdiutil attach -nobrowse -noautoopen "/tmp/Antigravity.dmg" \
+          | awk -F '\t' '/\/Volumes\// {print $NF; exit}'
+      args:
+        executable: /bin/bash
+      register: antigravity_mount
+      changed_when: true
+
+    - name: Find Antigravity .app inside mounted volume
+      ansible.builtin.find:
+        paths: "{{ antigravity_mount.stdout }}"
+        patterns: "*.app"
+        file_type: directory
+        recurse: false
+      register: antigravity_app
+      when: antigravity_mount.stdout | length > 0
+
+    - name: Copy Antigravity.app to /Applications
+      ansible.builtin.command: cp -R "{{ antigravity_app.files[0].path }}" /Applications/
+      args:
+        creates: "/Applications/{{ antigravity_app.files[0].path | basename }}"
+      become: true
+      when:
+        - antigravity_app is defined
+        - antigravity_app.files | default([]) | length > 0
+  always:
+    - name: Detach Antigravity DMG
+      ansible.builtin.command: hdiutil detach -quiet "{{ antigravity_mount.stdout }}"
+      changed_when: true
+      failed_when: false
+      when:
+        - antigravity_mount is defined
+        - antigravity_mount.stdout | default('') | length > 0
+
+# --- Gridcoin ---
+- name: Install Gridcoin from DMG
+  when: install_gridcoin | default(false) | bool
+  block:
+    - name: Download Gridcoin DMG
+      ansible.builtin.get_url:
+        url: "{{ gridcoin_macos_dmg_url }}"
+        dest: "/tmp/gridcoin.dmg"
+        mode: '0644'
+        checksum: "{{ download_checksums.gridcoin_macos | default(omit) }}"
+        timeout: 60
+      register: gridcoin_dmg_download
+      retries: 3
+      delay: 10
+      until: gridcoin_dmg_download is succeeded
+
+    - name: Mount Gridcoin DMG and capture mount-point
+      ansible.builtin.shell: |
+        set -e -o pipefail
+        hdiutil attach -nobrowse -noautoopen "/tmp/gridcoin.dmg" \
+          | awk -F '\t' '/\/Volumes\// {print $NF; exit}'
+      args:
+        executable: /bin/bash
+      register: gridcoin_mount
+      changed_when: true
+
+    - name: Find Gridcoin .app inside mounted volume
+      ansible.builtin.find:
+        paths: "{{ gridcoin_mount.stdout }}"
+        patterns: "*.app"
+        file_type: directory
+        recurse: false
+      register: gridcoin_app
+      when: gridcoin_mount.stdout | length > 0
+
+    - name: Copy Gridcoin.app to /Applications
+      ansible.builtin.command: cp -R "{{ gridcoin_app.files[0].path }}" /Applications/
+      args:
+        creates: "/Applications/{{ gridcoin_app.files[0].path | basename }}"
+      become: true
+      when:
+        - gridcoin_app is defined
+        - gridcoin_app.files | default([]) | length > 0
+  always:
+    - name: Detach Gridcoin DMG
+      ansible.builtin.command: hdiutil detach -quiet "{{ gridcoin_mount.stdout }}"
+      changed_when: true
+      failed_when: false
+      when:
+        - gridcoin_mount is defined
+        - gridcoin_mount.stdout | default('') | length > 0

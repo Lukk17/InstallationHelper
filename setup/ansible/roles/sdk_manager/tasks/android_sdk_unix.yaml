@@ -44,32 +44,40 @@
 
 - name: Accept Android SDK licenses
   ansible.builtin.shell: |
+    set -o pipefail
     export JAVA_HOME="{{ non_root_home }}/.sdkman/candidates/java/current"
     export PATH="$JAVA_HOME/bin:$PATH"
-    yes 2>/dev/null | {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses || true
+    timeout 300 bash -c 'yes 2>/dev/null | {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses' || true
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
   register: sdk_licenses
-  changed_when: "'All SDK package licenses accepted' in sdk_licenses.stdout"
+  changed_when: "'All SDK package licenses accepted' in (sdk_licenses.stdout | default(''))"
   failed_when: >
-    'All SDK package licenses accepted' not in sdk_licenses.stdout and
-    sdk_licenses.rc != 0
+    'All SDK package licenses accepted' not in (sdk_licenses.stdout | default('')) and
+    sdk_licenses.rc | default(0) != 0
 
+# sdkmanager downloads several hundred MB of platforms + build-tools.
+# async+poll dodges the 2.19 ansiballz race on the long-running call.
 - name: Install Android Platform and Build Tools
   ansible.builtin.shell: |
     set -o pipefail
     export JAVA_HOME="{{ non_root_home }}/.sdkman/candidates/java/current"
     export PATH="$JAVA_HOME/bin:$PATH"
-    {{ android_home }}/cmdline-tools/latest/bin/sdkmanager \
+    timeout 1500 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager \
       "platforms;android-{{ android_api_level }}" \
       "build-tools;{{ android_build_tools_version }}" \
-      "platform-tools"
+      "platform-tools" </dev/null
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
   register: sdk_install
-  changed_when: "'done' in sdk_install.stdout"
+  async: 1800
+  poll: 30
+  changed_when: "'done' in (sdk_install.stdout | default(''))"
+  failed_when:
+    - sdk_install.rc is defined
+    - sdk_install.rc != 0
 
