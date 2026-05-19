@@ -1,23 +1,68 @@
 #!/usr/bin/env pwsh
 #Requires -Version 7
 
+<#
+.SYNOPSIS
+    Installation Helper bootstrap wizard for Windows (WSL backend).
+.DESCRIPTION
+    Detects WSL, ensures Ansible inside the default distro, then runs the
+    playbook with optional desktop-environment and software selection.
+    Uses Microsoft.PowerShell.ConsoleGuiTools (Out-ConsoleGridView) for
+    rich multi-select pickers with filter-as-you-type.
+.PARAMETER Profile
+    Name of a preset profile under setup/ansible/profiles/. When given,
+    skips interactive selection and applies the profile directly.
+.PARAMETER NonInteractive
+    Use group_vars defaults; never prompt.
+.PARAMETER NoColor
+    Disable themed output (also honored via $env:NO_COLOR).
+.EXAMPLE
+    .\setup.ps1
+.EXAMPLE
+    .\setup.ps1 -Profile linux_live -NonInteractive
+#>
+[CmdletBinding(SupportsShouldProcess)]
+param(
+    [string] $Profile,
+    [switch] $NonInteractive,
+    [switch] $NoColor,
+    [switch] $SkipSystemUpgrade
+)
+
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $AnsibleDir = Join-Path $ScriptDir 'ansible'
 $AllVars    = Join-Path $AnsibleDir 'group_vars\all.yaml'
 $LinuxVars  = Join-Path $AnsibleDir 'group_vars\linux.yaml'
+$ProfilesDir = Join-Path $AnsibleDir 'profiles'
 
 $ExcludedVars = @(
-    'non_root_user', 'non_root_home', 'allow_callback_failure',
-    'default_wallpaper', 'set_custom_wallpaper'
+    # User/path identity — derived, not user-toggleable.
+    'non_root_user', 'non_root_home',
+    # Logging / theming — set in group_vars only.
+    'allow_callback_failure', 'default_wallpaper', 'set_custom_wallpaper',
+    # Baseline system settings — kept out of the per-app checklist so they
+    # can't be accidentally unticked. They stay at their group_vars default.
+    'install_system_core', 'setup_tmpfs', 'toggle_wayland_nvidia',
+    'setup_zsh', 'setup_karabiner', 'setup_finder_defaults',
+    'setup_hibernate', 'setup_systemd_boot', 'setup_grub',
+    'remove_distro_grub', 'remove_distro_systemd_boot'
 )
 
+if ($env:NO_COLOR -or $NoColor) {
+    $script:UseColor = $false
+} else {
+    $script:UseColor = $true
+}
+
 # ---------------------------------------------------------------------------
-# Theme
+# Output helpers
 # ---------------------------------------------------------------------------
 
 function Set-Theme {
+    if (-not $script:UseColor) { Clear-Host; return }
     [Console]::BackgroundColor = [ConsoleColor]::Black
     [Console]::ForegroundColor = [ConsoleColor]::DarkGreen
     Clear-Host
@@ -27,37 +72,22 @@ function Write-Banner {
     $w = [Math]::Max(60, [Console]::WindowWidth)
     $border = '=' * $w
     Write-Host $border -ForegroundColor Green
-    $t1 = '  INSTALLATION HELPER SETUP  '
-    $t2 = '  Ansible Deployment Wizard  '
-    Write-Host $t1.PadRight($w) -ForegroundColor Green
-    Write-Host $t2.PadRight($w) -ForegroundColor DarkGreen
+    Write-Host '  INSTALLATION HELPER SETUP'.PadRight($w) -ForegroundColor Green
+    Write-Host '  Ansible Deployment Wizard'.PadRight($w) -ForegroundColor DarkGreen
     Write-Host $border -ForegroundColor Green
     Write-Host
 }
 
-function Write-Section {
-    param([string]$Title)
+function Write-Section { param([string]$Title)
     Write-Host
     Write-Host "  >> $Title" -ForegroundColor Green
-    Write-Host ("  " + ("-" * ($Title.Length + 4))) -ForegroundColor DarkGreen
+    Write-Host ('  ' + ('-' * ($Title.Length + 4))) -ForegroundColor DarkGreen
     Write-Host
 }
 
-function Write-Hint {
-    param([string]$Text)
-    Write-Host "  $Text" -ForegroundColor DarkGreen
-}
-
-function Write-Status {
-    param([string]$Text)
-    Write-Host "  [*] $Text" -ForegroundColor Green
-}
-
-function Write-Err {
-    param([string]$Text)
-    Write-Host "  [!] $Text" -ForegroundColor Red
-    exit 1
-}
+function Write-Hint   { param([string]$Text) Write-Host "  $Text" -ForegroundColor DarkGreen }
+function Write-Status { param([string]$Text) Write-Host "  [*] $Text" -ForegroundColor Green }
+function Write-Err    { param([string]$Text) Write-Host "  [!] $Text" -ForegroundColor Red; throw $Text }
 
 # ---------------------------------------------------------------------------
 # Guards
@@ -73,7 +103,11 @@ function Assert-NotAdmin {
 function Assert-Wsl {
     $null = wsl --status 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Err 'WSL is not installed or not running. Run: wsl --install'
+        Write-Err 'WSL is not installed. Run: wsl --install -d Ubuntu'
+    }
+    $distros = (wsl --list --quiet 2>$null) -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    if (-not $distros) {
+        Write-Err 'WSL is installed but no Linux distro is registered. Run: wsl --install -d Ubuntu'
     }
 }
 
@@ -94,29 +128,108 @@ function ConvertTo-WslPath {
     return $result.Trim()
 }
 
-function Ensure-AnsibleInWsl {
+function Install-AnsibleInWsl {
     $null = wsl bash -c 'command -v ansible-playbook' 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Status 'Ansible not found in WSL — detecting distro...'
-        $distroId = (wsl bash -c 'source /etc/os-release 2>/dev/null; echo "${ID_LIKE:-$ID}"').Trim()
-        Write-Status "Distro family: $distroId"
-        if ($distroId -match 'debian|ubuntu') {
-            wsl bash -c 'sudo apt-get update -q && sudo apt-get install -y software-properties-common && sudo add-apt-repository --yes --update ppa:ansible/ansible && sudo apt-get install -y ansible'
-        } elseif ($distroId -match 'fedora|rhel|centos') {
-            wsl bash -c 'sudo dnf install -y ansible'
-        } elseif ($distroId -match 'arch') {
-            wsl bash -c 'sudo pacman -S --noconfirm ansible'
-        } else {
-            Write-Err "Cannot auto-install Ansible for distro '$distroId'. Install manually inside WSL."
-        }
+    if ($LASTEXITCODE -eq 0) { return }
+    Write-Status 'Ansible not found in WSL — detecting distro...'
+    $distroId = (wsl bash -c 'source /etc/os-release 2>/dev/null; echo "${ID_LIKE:-$ID}"').Trim()
+    Write-Status "Distro family: $distroId"
+    if ($distroId -match 'debian|ubuntu') {
+        wsl bash -c 'sudo apt-get update -q && sudo apt-get install -y software-properties-common && sudo add-apt-repository --yes --update ppa:ansible/ansible && sudo apt-get install -y ansible'
+    } elseif ($distroId -match 'fedora|rhel|centos') {
+        wsl bash -c 'sudo dnf install -y ansible'
+    } elseif ($distroId -match 'arch') {
+        wsl bash -c 'sudo pacman -S --noconfirm ansible'
+    } else {
+        Write-Err "Cannot auto-install Ansible for distro '$distroId'. Install manually inside WSL."
     }
+}
+
+function Invoke-WindowsSystemUpgrade {
+    if ($SkipSystemUpgrade) {
+        Write-Status 'Skipping Windows system upgrade (-SkipSystemUpgrade).'
+        return
+    }
+    Write-Status 'Upgrading Windows packages before Ansible (skip with -SkipSystemUpgrade)...'
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Status 'winget: upgrading all installed packages...'
+        & winget upgrade --all --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+        if ($LASTEXITCODE -ne 0) {
+            Write-Hint "winget exited with code $LASTEXITCODE (some packages may have no upgrade); continuing."
+        }
+    } else {
+        Write-Hint 'winget not found; skipping winget upgrade.'
+    }
+
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        Write-Status 'chocolatey: upgrading all installed packages...'
+        & choco upgrade all -y --no-progress
+        if ($LASTEXITCODE -ne 0) {
+            Write-Hint "choco exited with code $LASTEXITCODE; continuing."
+        }
+    } else {
+        Write-Hint 'chocolatey not found; skipping choco upgrade.'
+    }
+
+    Write-Hint 'Windows Update (OS patches) is not triggered automatically — handled by Windows itself or Settings > Windows Update.'
 }
 
 function Install-Collections {
     param([string]$WslAnsibleDir)
+    $required = (wsl bash -c "grep -E '^\s*-\s*name:\s*' '$WslAnsibleDir/requirements.yaml' | awk '{print `$NF}'") -split "`n" | Where-Object { $_ }
+    $installed = (wsl bash -c "ansible-galaxy collection list 2>/dev/null | awk '/^[a-z]/{print `$1}'") -split "`n" | Where-Object { $_ }
+    $missing = @($required | Where-Object { $_ -notin $installed })
+    if ($missing.Count -eq 0) {
+        Write-Status 'Ansible collections already installed.'
+        return
+    }
     Write-Status 'Installing Ansible collections...'
     wsl bash -c "ansible-galaxy collection install -r '$WslAnsibleDir/requirements.yaml'"
     if ($LASTEXITCODE -ne 0) { Write-Err 'Failed to install Ansible collections.' }
+}
+
+function Invoke-AnsiblePlaybook {
+    param(
+        [string]   $WslAnsibleDir,
+        [string[]] $ExtraVars,
+        [string]   $ProfileName
+    )
+    $argList = @(
+        'ansible-playbook',
+        "$WslAnsibleDir/site.yaml",
+        '-i', 'localhost,',
+        '-c', 'local',
+        '-K'
+    )
+    if ($ProfileName) {
+        $argList += @('-e', "@$WslAnsibleDir/profiles/$ProfileName.yaml")
+    }
+    if ($ExtraVars -and $ExtraVars.Count -gt 0) {
+        $joined = ($ExtraVars -join ' ')
+        $argList += @('--extra-vars', "`"$joined`"")
+    }
+    $cmd = ($argList -join ' ')
+    Write-Status "Running: $cmd"
+    Write-Host
+    wsl bash -c $cmd
+    return $LASTEXITCODE
+}
+
+# ---------------------------------------------------------------------------
+# ConsoleGuiTools bootstrap — required for the new picker UX
+# ---------------------------------------------------------------------------
+
+function Install-ConsoleGuiTools {
+    if (Get-Module -ListAvailable -Name Microsoft.PowerShell.ConsoleGuiTools) {
+        return
+    }
+    Write-Status 'Installing Microsoft.PowerShell.ConsoleGuiTools (one-time)...'
+    try {
+        Install-Module -Name Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser -Force -AcceptLicense -ErrorAction Stop
+    } catch {
+        Write-Err "Could not install Microsoft.PowerShell.ConsoleGuiTools: $_"
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -136,196 +249,104 @@ function Read-Toggles {
         }
 }
 
+function Get-ProfilePaths {
+    if (-not (Test-Path $ProfilesDir)) { return @() }
+    Get-ChildItem -Path $ProfilesDir -Filter '*.yaml' | ForEach-Object {
+        $base = [IO.Path]::GetFileNameWithoutExtension($_.Name)
+        $desc = 'No description'
+        foreach ($line in (Get-Content $_.FullName -TotalCount 5)) {
+            if ($line -match '^---$') { continue }
+            if ($line -match '^#\s*(.+)$') { $desc = $Matches[1]; break }
+            break
+        }
+        [PSCustomObject]@{
+            File = $base
+            Name = ((($base -split '_') | ForEach-Object { (Get-Culture).TextInfo.ToTitleCase($_) }) -join ' ')
+            Description = $desc
+        }
+    }
+}
+
 # ---------------------------------------------------------------------------
-# TUI components
+# Picker screens — Out-ConsoleGridView for multi-select, PromptForChoice for yes/no
 # ---------------------------------------------------------------------------
 
-function Show-Radiolist {
+function Show-Choice {
     param(
         [string]   $Title,
         [string]   $Prompt,
         [string[]] $Options,
-        [string[]] $Labels,
-        [int]      $DefaultIndex = 0
+        [string[]] $HelpMessages = $null
     )
-
-    $current = $DefaultIndex
-    $w       = [Math]::Max(60, [Console]::WindowWidth)
-
-    Set-Theme
-    Write-Banner
     Write-Section $Title
-    Write-Hint $Prompt
-    Write-Hint '  arrow keys navigate  |  Enter select  |  Esc cancel'
-    Write-Host
-
-    $startRow = [Console]::CursorTop
-
-    while ($true) {
-        [Console]::SetCursorPosition(0, $startRow)
-
-        for ($i = 0; $i -lt $Options.Length; $i++) {
-            $marker = if ($i -eq $current) { ' (*) ' } else { ' ( ) ' }
-            $line   = "$marker$($Labels[$i])"
-            $pad    = ' ' * [Math]::Max(0, $w - $line.Length - 1)
-            if ($i -eq $current) {
-                Write-Host "$line$pad" -ForegroundColor Black -BackgroundColor Green
-            } else {
-                Write-Host "$line$pad" -ForegroundColor DarkGreen -BackgroundColor Black
-            }
-        }
-
-        $key = [Console]::ReadKey($true)
-        switch ($key.Key) {
-            'UpArrow'   { if ($current -gt 0) { $current-- } }
-            'DownArrow' { if ($current -lt $Options.Length - 1) { $current++ } }
-            'Enter'     { Write-Host; return $Options[$current] }
-            'Escape'    { Write-Host; return $null }
-        }
+    $choices = @()
+    for ($i = 0; $i -lt $Options.Length; $i++) {
+        $label = $Options[$i]
+        $help = if ($HelpMessages -and $i -lt $HelpMessages.Length) { $HelpMessages[$i] } else { $label }
+        $choices += [System.Management.Automation.Host.ChoiceDescription]::new("&$label", $help)
     }
+    $idx = $Host.UI.PromptForChoice('', $Prompt, $choices, 0)
+    return $Options[$idx]
 }
 
 function Show-YesNo {
-    param(
-        [string] $Title,
-        [string] $Prompt,
-        [bool]   $DefaultYes = $true
-    )
-
-    $current = if ($DefaultYes) { 0 } else { 1 }
-    $w       = [Math]::Max(60, [Console]::WindowWidth)
-
-    Set-Theme
-    Write-Banner
+    param([string]$Title, [string]$Prompt, [bool]$DefaultYes = $true)
     Write-Section $Title
-    Write-Hint $Prompt
-    Write-Hint '  arrow keys navigate  |  Enter select  |  Y / N keys'
-    Write-Host
-
-    $startRow = [Console]::CursorTop
-
-    while ($true) {
-        [Console]::SetCursorPosition(0, $startRow)
-
-        $yesStyle = if ($current -eq 0) { @{ Fg = 'Black'; Bg = 'Green'     } } else { @{ Fg = 'DarkGreen'; Bg = 'Black' } }
-        $noStyle  = if ($current -eq 1) { @{ Fg = 'Black'; Bg = 'Green'     } } else { @{ Fg = 'DarkGreen'; Bg = 'Black' } }
-
-        Write-Host -NoNewline '  '
-        Write-Host -NoNewline '  YES  ' -ForegroundColor $yesStyle.Fg -BackgroundColor $yesStyle.Bg
-        Write-Host -NoNewline '    '
-        Write-Host -NoNewline '   NO  ' -ForegroundColor $noStyle.Fg  -BackgroundColor $noStyle.Bg
-        Write-Host (' ' * [Math]::Max(0, $w - 24))
-
-        $key  = [Console]::ReadKey($true)
-        $char = $key.KeyChar.ToString().ToLower()
-        switch ($key.Key) {
-            'LeftArrow'  { $current = 0 }
-            'RightArrow' { $current = 1 }
-            'UpArrow'    { $current = 0 }
-            'DownArrow'  { $current = 1 }
-            'Enter'      { Write-Host; return ($current -eq 0) }
-            'Escape'     { Write-Host; return $DefaultYes }
-        }
-        if ($char -eq 'y') { Write-Host; return $true  }
-        if ($char -eq 'n') { Write-Host; return $false }
-    }
+    $choices = @(
+        [System.Management.Automation.Host.ChoiceDescription]::new('&Yes', 'Confirm')
+        [System.Management.Automation.Host.ChoiceDescription]::new('&No',  'Decline')
+    )
+    $default = if ($DefaultYes) { 0 } else { 1 }
+    return ($Host.UI.PromptForChoice('', $Prompt, $choices, $default) -eq 0)
 }
 
-function Show-Checklist {
-    param(
-        [string]           $Title,
-        [string]           $Prompt,
-        [PSCustomObject[]] $Items
-    )
-
+function Show-SoftwarePicker {
+    param([PSCustomObject[]] $Items)
     if ($Items.Length -eq 0) { return @() }
 
-    [bool[]] $states = $Items | ForEach-Object { $_.Enabled }
-    $current         = 0
-    $w               = [Math]::Max(60, [Console]::WindowWidth)
-    $pageSize        = [Math]::Max(5, [Console]::WindowHeight - 12)
-    $scrollOffset    = 0
-    $total           = $Items.Length
+    Import-Module Microsoft.PowerShell.ConsoleGuiTools -ErrorAction Stop
 
-    Set-Theme
-    Write-Banner
-    Write-Section $Title
-    Write-Hint $Prompt
-    Write-Hint '  arrow keys navigate  |  Space toggle  |  Enter confirm  |  Esc cancel'
-    Write-Host
+    # Build display objects. Pre-select currently-enabled items by piping them
+    # into Out-ConsoleGridView's input — selection state is preserved via the
+    # `Enabled` column which the user sees and can toggle.
+    $rows = $Items | Select-Object `
+        @{ N = 'Key';     E = { $_.Key } }, `
+        @{ N = 'Name';    E = { ($_.Key -replace '^install_','' -replace '_',' ') } }, `
+        @{ N = 'Default'; E = { if ($_.Enabled) { 'ON' } else { 'off' } } }
 
-    $startRow = [Console]::CursorTop
+    $selected = $rows |
+        Out-ConsoleGridView `
+            -Title 'Software — type to filter, Space to mark, Enter to confirm, Esc to cancel' `
+            -OutputMode Multiple
 
-    while ($true) {
-        if ($current -lt $scrollOffset) { $scrollOffset = $current }
-        if ($current -ge $scrollOffset + $pageSize) { $scrollOffset = $current - $pageSize + 1 }
+    if ($null -eq $selected) { return $null }
+    return @($selected.Key)
+}
 
-        $enabledCount = ($states | Where-Object { $_ }).Count
+function Show-ProfilePicker {
+    Import-Module Microsoft.PowerShell.ConsoleGuiTools -ErrorAction Stop
 
-        [Console]::SetCursorPosition(0, $startRow)
-
-        # Scroll up indicator
-        $upArrow = if ($scrollOffset -gt 0) { "  ^ $scrollOffset more above ^" } else { '' }
-        Write-Host $upArrow.PadRight($w) -ForegroundColor DarkGreen -BackgroundColor Black
-
-        # Visible items
-        $visibleEnd = [Math]::Min($scrollOffset + $pageSize, $total)
-        for ($i = $scrollOffset; $i -lt $visibleEnd; $i++) {
-            $isSelected = ($i -eq $current)
-            $isChecked  = $states[$i]
-
-            $checkbox   = if ($isChecked) { '[X]' } else { '[ ]' }
-            $line       = "  $checkbox  $($Items[$i].Key)"
-            $pad        = ' ' * [Math]::Max(0, $w - $line.Length - 1)
-
-            if ($isSelected -and $isChecked) {
-                Write-Host "$line$pad" -ForegroundColor Black -BackgroundColor Green
-            } elseif ($isSelected) {
-                Write-Host "$line$pad" -ForegroundColor Black -BackgroundColor DarkGreen
-            } elseif ($isChecked) {
-                Write-Host "$line$pad" -ForegroundColor Green -BackgroundColor Black
-            } else {
-                Write-Host "$line$pad" -ForegroundColor DarkGreen -BackgroundColor Black
-            }
-        }
-
-        # Blank padding to keep layout stable
-        for ($i = $visibleEnd - $scrollOffset; $i -lt $pageSize; $i++) {
-            Write-Host (' ' * ($w - 1)) -BackgroundColor Black
-        }
-
-        # Scroll down indicator
-        $remaining = $total - $scrollOffset - $pageSize
-        $downArrow = if ($remaining -gt 0) { "  v $remaining more below v" } else { '' }
-        Write-Host $downArrow.PadRight($w) -ForegroundColor DarkGreen -BackgroundColor Black
-
-        # Status bar
-        $statusLine = "  Selected: $enabledCount / $total   Item: $($current + 1)"
-        Write-Host $statusLine.PadRight($w) -ForegroundColor Green -BackgroundColor Black
-
-        $key = [Console]::ReadKey($true)
-        switch ($key.Key) {
-            'UpArrow'   { if ($current -gt 0) { $current-- } }
-            'DownArrow' { if ($current -lt $total - 1) { $current++ } }
-            'PageUp'    { $current = [Math]::Max(0, $current - $pageSize) }
-            'PageDown'  { $current = [Math]::Min($total - 1, $current + $pageSize) }
-            'Home'      { $current = 0 }
-            'End'       { $current = $total - 1 }
-            'Spacebar'  { $states[$current] = -not $states[$current] }
-            'Enter' {
-                Write-Host
-                return 0..($total - 1) | Where-Object { $states[$_] } | ForEach-Object { $Items[$_].Key }
-            }
-            'Escape' { Write-Host; return $null }
-        }
+    $profiles = @()
+    $profiles += [PSCustomObject]@{
+        File = ''
+        Name = 'Default'
+        Description = 'All software from group_vars defaults'
     }
+    $profiles += @(Get-ProfilePaths)
+
+    $picked = $profiles |
+        Select-Object Name, Description, File |
+        Out-ConsoleGridView -Title 'Pick a profile' -OutputMode Single
+
+    if ($null -eq $picked) { return $null }
+    return $picked.File
 }
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-function Main {
+function Invoke-Main {
     Assert-NotAdmin
     Assert-Wsl
     Assert-AnsibleDir
@@ -334,30 +355,36 @@ function Main {
     Write-Banner
     Write-Section 'Bootstrapping'
 
+    Invoke-WindowsSystemUpgrade
     $wslAnsibleDir = ConvertTo-WslPath $AnsibleDir
-    Ensure-AnsibleInWsl
+    Install-AnsibleInWsl
+    # Pre-create Ansible tmp + fact-cache dirs inside WSL (ansible.cfg points there).
+    wsl bash -c 'mkdir -p "$HOME/.ansible/tmp" "$HOME/.ansible/facts-cache"' | Out-Null
     Install-Collections -WslAnsibleDir $wslAnsibleDir
+
+    # Non-interactive path — skip the wizard.
+    if ($NonInteractive -or $Profile) {
+        $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars @() -ProfileName $Profile
+        exit $rc
+    }
+
+    Install-ConsoleGuiTools
     Write-Status 'Ready.'
 
     $extraVars = [System.Collections.Generic.List[string]]::new()
 
-    # --- Desktop environment ---
-    $deChoice = Show-Radiolist `
-        -Title        'Desktop Environment' `
-        -Prompt       'Select desktop environment to install (runs inside WSL):' `
-        -Options      @('none', 'kde', 'gnome') `
-        -Labels       @('No desktop environment', 'KDE Plasma (Wayland)', 'GNOME') `
-        -DefaultIndex 0
-
-    if ($null -eq $deChoice) {
-        Set-Theme; Write-Banner; Write-Hint '  Cancelled.'; exit 0
-    }
+    # Step 1: Desktop environment
+    $deChoice = Show-Choice `
+        -Title  'Step 1/3 — Desktop Environment' `
+        -Prompt 'Pick a desktop environment to install (runs inside WSL):' `
+        -Options @('none', 'kde', 'gnome') `
+        -HelpMessages @('No desktop environment', 'KDE Plasma (Wayland)', 'GNOME')
 
     $configureDe = $false
     if ($deChoice -ne 'none') {
         $configureDe = Show-YesNo `
-            -Title      'Configure Desktop' `
-            -Prompt     "Also configure $($deChoice.ToUpper()) after installation?" `
+            -Title 'Step 1/3 — Configure DE' `
+            -Prompt "Also apply $($deChoice.ToUpper()) configuration after install?" `
             -DefaultYes $true
     }
 
@@ -382,56 +409,63 @@ function Main {
         }
     }
 
-    # --- Optional task review ---
-    $reviewTasks = Show-YesNo `
-        -Title      'Task Review' `
-        -Prompt     'Review and customise software toggles before running?' `
-        -DefaultYes $false
+    # Step 2: Software selection mode
+    $reviewMode = Show-Choice `
+        -Title  'Step 2/3 — Software Selection' `
+        -Prompt 'How would you like to choose software?' `
+        -Options @('defaults', 'customise', 'profile') `
+        -HelpMessages @('Use group_vars settings as-is',
+                        'Open the multi-select grid to toggle individual apps',
+                        'Load a preset profile')
 
-    if ($reviewTasks) {
-        $seenKeys   = [System.Collections.Generic.HashSet[string]]::new()
-        $allToggles = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $profileFile = $null
+    switch ($reviewMode) {
+        'defaults' { }
+        'customise' {
+            $seenKeys   = [System.Collections.Generic.HashSet[string]]::new()
+            $allToggles = [System.Collections.Generic.List[PSCustomObject]]::new()
+            foreach ($item in (Read-Toggles $AllVars))   { if ($seenKeys.Add($item.Key)) { $allToggles.Add($item) } }
+            foreach ($item in (Read-Toggles $LinuxVars)) { if ($seenKeys.Add($item.Key)) { $allToggles.Add($item) } }
 
-        foreach ($item in (Read-Toggles $AllVars))   { if ($seenKeys.Add($item.Key)) { $allToggles.Add($item) } }
-        foreach ($item in (Read-Toggles $LinuxVars)) { if ($seenKeys.Add($item.Key)) { $allToggles.Add($item) } }
+            $deOverrideKeys = $extraVars | ForEach-Object { ($_ -split '=')[0] }
+            $checklistItems = @($allToggles | Where-Object { $_.Key -notin $deOverrideKeys })
 
-        $deOverrideKeys = $extraVars | ForEach-Object { ($_ -split '=')[0] }
-        $checklistItems = @($allToggles | Where-Object { $_.Key -notin $deOverrideKeys })
+            $selectedKeys = Show-SoftwarePicker -Items $checklistItems
+            if ($null -eq $selectedKeys) {
+                Write-Hint '  Cancelled.'; exit 0
+            }
 
-        $selectedKeys = Show-Checklist `
-            -Title  'Software Selection' `
-            -Prompt 'Toggle what to install, then press Enter to confirm.' `
-            -Items  $checklistItems
-
-        if ($null -eq $selectedKeys) {
-            Set-Theme; Write-Banner; Write-Hint '  Cancelled.'; exit 0
+            foreach ($item in $checklistItems) {
+                $extraVars.Add("$($item.Key)=$(($item.Key -in $selectedKeys).ToString().ToLower())")
+            }
         }
-
-        foreach ($item in $checklistItems) {
-            $extraVars.Add("$($item.Key)=$(($item.Key -in $selectedKeys).ToString().ToLower())")
+        'profile' {
+            $profileFile = Show-ProfilePicker
+            if ($null -eq $profileFile) {
+                Write-Hint '  Cancelled.'; exit 0
+            }
+            if (-not [string]::IsNullOrWhiteSpace($profileFile)) {
+                $Profile = $profileFile
+            }
         }
     }
 
-    # --- Confirm and run ---
-    $extraVarsStr = $extraVars -join ' '
-    $ansibleCmd   = "ansible-playbook $wslAnsibleDir/site.yaml -i localhost, -c local -K"
-    if ($extraVarsStr) { $ansibleCmd += " --extra-vars `"$extraVarsStr`"" }
-
+    # Step 3: Confirm
+    Write-Section 'Step 3/3 — Confirm and Run'
     $confirmed = Show-YesNo `
-        -Title      'Confirm' `
-        -Prompt     "Ready to run Ansible playbook via WSL. Proceed?" `
+        -Title  'Confirm' `
+        -Prompt 'Ready to run the Ansible playbook via WSL. Proceed?' `
         -DefaultYes $true
 
     if (-not $confirmed) {
-        Set-Theme; Write-Banner; Write-Hint '  Cancelled.'; exit 0
+        Write-Hint '  Cancelled.'; exit 0
     }
 
     Set-Theme
     Write-Banner
-    Write-Section 'Running Playbook'
-    Write-Status "Command: $ansibleCmd"
-    Write-Host
-    wsl bash -c $ansibleCmd
+    Write-Section 'Running playbook'
+    $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars $extraVars.ToArray() -ProfileName $Profile
+    exit $rc
 }
 
-Main
+Invoke-Main
