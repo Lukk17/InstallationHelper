@@ -16,10 +16,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-set -e
+set -euo pipefail
+IFS=$'\n\t'
 
 JSON_OUT=""
-BASE_DIR="."
+BASE_DIR="${HOME}"
 INSTALL_DIR=""
 INSTALL_FILE="org.keepassxc.keepassxc_browser.json"
 
@@ -98,39 +99,39 @@ setupEdge() {
 # Start of script
 # --------------------------------
 
+set +e
 BROWSER=$(whiptail \
             --title "Browser Selection" \
             --menu "Choose a browser to integrate with KeePassXC:" \
             15 60 5 \
-            "1" "Firefox" \
-            "2" "Chrome" \
-            "3" "Chromium" \
-            "4" "Vivaldi" \
-            "5" "Brave" \
-            "6" "Tor Browser" \
-            "7" "Microsoft Edge" \
+            "firefox"  "Firefox" \
+            "chrome"   "Chrome" \
+            "chromium" "Chromium" \
+            "vivaldi"  "Vivaldi" \
+            "brave"    "Brave" \
+            "tor"      "Tor Browser" \
+            "edge"     "Microsoft Edge" \
             3>&1 1>&2 2>&3)
-
 exitstatus=$?
+set -e
 
 clear
 
-if [[ $exitstatus == 0 ]]; then
-    # Configure settings for the chosen browser
-    case $BROWSER in
-        1) setupFirefox ;;
-        2) setupChrome ;;
-        3) setupChromium ;;
-        4) setupVivaldi ;;
-        5) setupBrave ;;
-        6) setupTorBrowser ;;
-        7) setupEdge ;;
+if [[ "${exitstatus}" -eq 0 ]]; then
+    case "${BROWSER}" in
+        firefox)  setupFirefox ;;
+        chrome)   setupChrome ;;
+        chromium) setupChromium ;;
+        vivaldi)  setupVivaldi ;;
+        brave)    setupBrave ;;
+        tor)      setupTorBrowser ;;
+        edge)     setupEdge ;;
+        *)        echo "ERROR: unknown browser selection: ${BROWSER}" >&2; exit 1 ;;
     esac
 
-    # Install the JSON file
-    cd ~
-    mkdir -p "$INSTALL_DIR"
-    echo "$JSON_OUT" > "${INSTALL_DIR}/${INSTALL_FILE}"
+    # Install the JSON file using install(1) — no cd, safe with spaces.
+    install -d -- "${INSTALL_DIR}"
+    printf '%s\n' "${JSON_OUT}" > "${INSTALL_DIR}/${INSTALL_FILE}"
 
     whiptail \
         --title "Installation Complete" \

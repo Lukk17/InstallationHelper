@@ -14,21 +14,21 @@
 
 ## Why this exists
 
-Setting up a fresh dev machine should not take a weekend of copy-pasting install commands. This project treats workstation provisioning as **infrastructure**: declarative, idempotent, and version-controlled. One command produces the same environment on Ubuntu, Fedora, Arch, macOS, and Windows — every time, with no manual clicks.
+Setting up a fresh dev machine should not take a weekend of copy-pasting install commands. The playbook treats workstation provisioning as infrastructure: declarative, idempotent, version-controlled. One command produces the same environment on Ubuntu, Fedora, Arch, macOS, and Windows.
 
-It scales the same way real infra does: a data-driven OS dispatch layer separates *intent* (`install_chrome: true`) from *implementation* (which package manager handles it on which OS).
+The trick is a small dispatch layer: `group_vars/all.yaml` declares intent (`install_chrome: true`) and per-OS dictionaries under `vars/` map that intent to the correct package manager.
 
 ## Highlights
 
-- **Idempotent** — run it ten times, get the same machine. No drift, no duplicates.
-- **Declarative** — one toggle file (`group_vars/all.yaml`) drives the entire installation across five operating systems.
-- **Data-driven OS dispatch** — translation dictionaries (`vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml`) map a generic app name to the right package manager (`apt`, `dnf`, `pacman`, `brew`, `choco`, `winget`, `flatpak`, `snap`, AUR).
-- **Profile overrides** — swap configurations for live USB, minimal, or full installs without touching the base playbook.
-- **WSL bridge for Windows** — native PowerShell entrypoint that hands off to Ansible inside WSL.
-- **Local dev stack included** — Docker Compose for MySQL, PostgreSQL, MongoDB, and Keycloak (HTTPS).
-- **Spec-driven workflow** — OpenSpec integration for agent-assisted, traceable changes.
+- Idempotent. Run it ten times, get the same machine.
+- One toggle file (`group_vars/all.yaml`) drives the installation across five operating systems.
+- Per-OS translation dictionaries under `vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml` map a generic app name to `apt`, `dnf`, `pacman`, `brew`, `choco`, `winget`, `flatpak`, `snap`, or AUR.
+- Profile overrides for live USB, minimal, or full installs without touching the base playbook.
+- PowerShell entrypoint on Windows that hands off to Ansible inside WSL.
+- Docker Compose stack for local-dev databases and Keycloak.
+- OpenSpec workflow for spec-driven changes.
 
-## Tech Stack
+## Tech stack
 
 `Ansible` · `Bash` · `PowerShell` · `Docker Compose` · `WSL` · `Keycloak` · `KDE Plasma / GNOME` · `systemd` · `OpenSpec`
 
@@ -43,16 +43,20 @@ flowchart TD
     D --> E
     E --> F[Load group_vars + vars/&#123;OS&#125;.yaml<br/>os_dict translation]
     F --> G[OS core roles<br/>system_core / windows_core / macos_core / arch_core / fedora_core]
-    G --> H[Cross-platform roles<br/>shell_zsh, env_variables, sdk_manager, ai_tools]
-    H --> I[software_installer<br/>dynamic dispatch]
+    G --> R[Repo provisioning<br/>debian_repos.yaml / fedora_repos.yaml]
+    R --> H[Cross-platform roles<br/>shell_zsh, env_variables, sdk_manager, ai_tools]
+    H --> I[software_installer<br/>dynamic_install.yaml]
     I --> J1[apt / dnf / pacman / AUR]
     I --> J2[brew / brew_cask / mas]
     I --> J3[choco / winget]
     I --> J4[flatpak / snap]
+    I --> CI[custom_installs.yaml<br/>macos_install.yaml<br/>windows_install.yaml]
     H --> K[Linux advanced<br/>systemd_boot, virtualization_config, linux_security]
 ```
 
-## What It Installs
+The phase order matches `setup/ansible/site.yaml`: OS core bootstrap, then APT/DNF repo provisioning (keyrings, `.list`/`.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Docker), then SDK/runtime managers, then snapd/flatpak setup, then a single batched install per package manager, then custom installs for AppImages, DMGs, and `.exe` artefacts.
+
+## What it installs
 
 | Category | Examples |
 |---|---|
@@ -64,33 +68,60 @@ flowchart TD
 | **Fonts** | Nerd Fonts (FiraCode, JetBrainsMono, Hack, Meslo) |
 | **Desktop** | KDE Plasma / GNOME setup, dotfiles, shell config |
 
-See [SOFTWARE.md](setup/ansible/SOFTWARE.md) for the full per-OS list.
+See [SOFTWARE.md](setup/SOFTWARE.md) for the full per-OS list and [vars/](setup/ansible/vars/) for the authoritative per-OS package mappings.
 
-## Quick Start
+## Quick start
 
-One command per OS — the interactive wizard handles Ansible install, collections, and software selection.
+The interactive wizard installs Ansible if missing, pulls the required collections, and presents a filter-as-you-type checklist for what to install. The TUI is driven by `gum` on Linux/macOS and `Microsoft.PowerShell.ConsoleGuiTools` on Windows — both auto-installed on first run.
 
-**Linux / macOS** (run as your regular user, not root):
+Linux / macOS (run as your regular user, not root):
+
 ```bash
 bash setup/setup.sh
 ```
 
-**Windows** (PowerShell 7+, not as Administrator — runs Ansible via WSL):
+Windows (PowerShell 7+, not as Administrator — runs Ansible via WSL):
+
 ```powershell
 pwsh setup/setup.ps1
 ```
 
-The script prompts for your sudo/admin password only when performing privileged operations.
+The script prompts for sudo / admin only when needed.
 
-For full details, manual instructions, and configuration options:
+### Non-interactive / scripted runs
 
-👉 **[Setup Documentation](setup/README_SETUP.md)**
+Both entrypoints accept CLI flags to skip the wizard — useful for CI, Packer images, or live USB bootstrap.
 
-### Supported Operating Systems
+Linux / macOS:
+
+```bash
+bash setup/setup.sh --help
+```
+
+```bash
+bash setup/setup.sh --profile linux_live --non-interactive
+```
+
+Windows:
+
+```powershell
+pwsh setup/setup.ps1 -Profile linux_live -NonInteractive
+```
+
+Available flags:
+
+- `--profile <name>` / `-Profile <name>` — apply `setup/ansible/profiles/<name>.yaml` and skip selection.
+- `--non-interactive` / `-NonInteractive` — use `group_vars` defaults, never prompt.
+- `--no-color` / `-NoColor` — disable themed output (also honoured via `NO_COLOR`).
+- `--help` / `Get-Help .\setup.ps1` — show usage.
+
+See [setup/README_SETUP.md](setup/README_SETUP.md) for manual instructions, logging notes, and per-OS caveats.
+
+### Supported operating systems
 
 Ubuntu / Debian · Fedora · Arch Linux / Manjaro · macOS · Windows (via WSL)
 
-## Repo Structure
+## Repo structure
 
 ```text
 InstallationHelper/
@@ -110,23 +141,19 @@ InstallationHelper/
 └── utils/                      # Helper scripts
 ```
 
-## Local Development Stack
+## Local development stack
 
-Docker Compose stack for local development services — instantly spins up databases and auth without polluting the host.
+Compose file under `local-dev/` runs MySQL, PostgreSQL, MongoDB, and Keycloak (HTTPS) without polluting the host.
 
 ```bash
 docker-compose -f ./local-dev/local-dev-docker-compose.yaml up -d
 ```
 
-Includes MySQL, PostgreSQL, MongoDB, and Keycloak (with HTTPS/SSL).
+See [local-dev/README_LOCAL_DEV.md](local-dev/README_LOCAL_DEV.md) for ports, credentials, and TLS notes.
 
-👉 **[Local Dev Documentation](local-dev/README_LOCAL_DEV.md)**
+## Agent tooling and OpenSpec
 
-## Agent Tooling & OpenSpec
-
-This repo integrates with Claude Code, Kilo Code, OpenCode, and Codex via a centralized agent-standards import, plus OpenSpec for spec-driven changes.
-
-👉 **[Agent Tooling Documentation](docs/agent-tooling.md)**
+The repo ships agent-standard imports for Claude Code, Kilo Code, OpenCode, and Codex, plus OpenSpec for spec-driven changes. See [docs/agent-tooling.md](docs/agent-tooling.md).
 
 ## Contributing
 
