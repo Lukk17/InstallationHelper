@@ -1,0 +1,9 @@
+---
+# Allow AUR install failures to be non-fatal. Set false to fail the playbook
+# if any AUR package failed to build or timed out.
+aur_allow_failures: true
+
+# When true, dynamic_install.yaml will purge /var/lib/flatpak/repo if the
+# health probe reports an ostree-corruption error. Off by default because
+# this is destructive — it removes every installed flatpak runtime.
+flatpak_force_repo_reset: false

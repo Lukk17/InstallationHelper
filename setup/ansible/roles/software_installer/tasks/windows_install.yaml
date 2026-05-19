@@ -7,3 +7,22 @@
   ansible.builtin.include_tasks: windows_winget.yaml
   when: ansible_facts['os_family'] == 'Windows'
 
+# --- Gridcoin: direct .exe installer from GitHub releases (no winget manifest) ---
+- name: Download Gridcoin Windows installer
+  ansible.windows.win_get_url:
+    url: "{{ gridcoin_win_installer_url }}"
+    dest: "C:\\Windows\\Temp\\Gridcoin-Setup.exe"
+    force: false
+  when:
+    - ansible_facts['os_family'] == 'Windows'
+    - install_gridcoin | default(false) | bool
+
+- name: Install Gridcoin (silent)
+  ansible.windows.win_package:
+    path: "C:\\Windows\\Temp\\Gridcoin-Setup.exe"
+    arguments: "/S"
+    state: present
+    creates_path: "C:\\Program Files\\Gridcoin\\gridcoinresearch.exe"
+  when:
+    - ansible_facts['os_family'] == 'Windows'
+    - install_gridcoin | default(false) | bool

@@ -1,10 +1,8 @@
 ---
-- name: Install Winget packages
+- name: Install Winget packages (per-item; winget has no native batch)
   community.windows.win_winget:
     name: "{{ item.value.package }}"
     state: present
-  loop: "{{ software_mapping | dict2items }}"
-  when:
-    - item.value.manager == 'winget'
-    - vars[item.key] | default(false) | bool
-
+  loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'winget') | list }}"
+  loop_control:
+    label: "{{ item.value.package }}"

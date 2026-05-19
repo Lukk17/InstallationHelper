@@ -1,10 +1,12 @@
 ---
-- name: Install Chocolatey packages
+- name: Install Chocolatey packages (batched)
   community.windows.win_chocolatey:
-    name: "{{ item.value.package }}"
+    name: "{{ choco_packages }}"
     state: present
-  loop: "{{ software_mapping | dict2items }}"
-  when:
-    - item.value.manager == 'choco'
-    - vars[item.key] | default(false) | bool
-
+  vars:
+    choco_packages: >-
+      {{ software_installer_packages
+         | selectattr('value.manager', 'equalto', 'choco')
+         | map(attribute='value.package')
+         | list }}
+  when: choco_packages | length > 0
