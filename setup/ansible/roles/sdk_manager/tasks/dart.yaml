@@ -32,10 +32,43 @@
   become: true
   when: ansible_facts['os_family'] == 'Debian' and install_dart | bool
 
-- name: Install Dart SDK (Fedora)
-  ansible.builtin.dnf:
-    name: dart
-    state: present
+# Fedora has no `dart` package in the mainline repos and Google's APT repo
+# isn't available for RHEL. Install via the official Dart Linux SDK zip from
+# storage.googleapis.com — same channel Google publishes for Linux users.
+- name: Ensure /opt/dart-sdk parent exists (Fedora)
+  ansible.builtin.file:
+    path: /opt
+    state: directory
+    mode: '0755'
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat' and install_dart | bool
+
+- name: Download Dart SDK zip (Fedora)
+  ansible.builtin.get_url:
+    url: "https://storage.googleapis.com/dart-archive/channels/stable/release/{{ dart_version }}/sdk/dartsdk-linux-x64-release.zip"
+    dest: /tmp/dartsdk-linux-x64-release.zip
+    mode: '0644'
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat' and install_dart | bool
+
+- name: Extract Dart SDK to /opt (Fedora)
+  ansible.builtin.unarchive:
+    src: /tmp/dartsdk-linux-x64-release.zip
+    dest: /opt
+    remote_src: true
+    creates: /opt/dart-sdk/bin/dart
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat' and install_dart | bool
+
+- name: Symlink dart and pub into /usr/local/bin (Fedora)
+  ansible.builtin.file:
+    src: "/opt/dart-sdk/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - dart
+    - dartaotruntime
   become: true
   when: ansible_facts['os_family'] == 'RedHat' and install_dart | bool
 

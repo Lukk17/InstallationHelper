@@ -27,7 +27,6 @@ install_chkrootkit: true
 install_clamav: true
 
 # Linux Only Crypto Hardware Apps
-# install_exodus: removed — no reliable automated install method (403 on direct download, no snap/flatpak)
 install_ledger_live: true
 install_trezor_suite: true
 
@@ -35,6 +34,7 @@ install_trezor_suite: true
 install_appimagelauncher: true
 install_waydroid: false
 install_snapd: true
+install_putty: true
 
 # Hardware/System Alternative Apps (Alternatives to Windows-only apps)
 install_hardinfo: true    # Alt for HWMonitor
@@ -42,7 +42,7 @@ install_lm_sensors: true  # Alt for HWInfo
 install_greenenvy: true   # Alt for MSI Afterburner
 install_baobab: true      # Alt for WizTree
 install_polychromatic: true # Alt for Razer Cortex
-# install_balena_etcher: true # Disabled - causes nodejs dependency conflicts
+install_balena_etcher: true
 install_gputest: true     # Alt for FurMark
 
 # Virtualization toggles
@@ -61,4 +61,21 @@ install_snapper: true
 # The actual human user running the playbook (not root).
 # User Identity for privilege-safe operations (Linux)
 non_root_home: "/home/{{ non_root_user }}"
+
+# Shared apt env-var prefix + flags for `raw:` invocations that bypass the
+# ansible-core 2.19 ansiballz deserialization race. -y (not -yqq) so apt
+# prints "Setting up X (1.2.3) ..." lines that the dual_logger heartbeat
+# can surface as live progress.
+apt_raw_env: >-
+  DEBIAN_FRONTEND=noninteractive
+  APT_LISTCHANGES_FRONTEND=none
+  NEEDRESTART_MODE=a
+  NEEDRESTART_SUSPEND=1
+  LANG=C.UTF-8
+  LC_ALL=C.UTF-8
+apt_raw_flags: >-
+  -y
+  -o DPkg::Lock::Timeout=300
+  -o Dpkg::Options::=--force-confdef
+  -o Dpkg::Options::=--force-confold
 

@@ -1,11 +1,11 @@
 ---
+# Play-level `environment:` removed: raw modules don't honor it (Ansible
+# warns every run) and the LANG/LC_ALL pair is now inlined in apt_raw_env
+# for the few raw callsites that need it. Native modules inherit the
+# user's locale, which is fine for our supported distros.
 - hosts: localhost
   connection: local
   gather_facts: yes
-  environment:
-    # Suppress locale warnings from sudo that corrupt module JSON output
-    LANG: "C.UTF-8"
-    LC_ALL: "C.UTF-8"
   vars_files:
     - group_vars/all.yaml
     - group_vars/versions.yaml
@@ -28,11 +28,9 @@
       when: ansible_facts['os_family'] == 'Debian'
 
   tasks:
-    # 1. OS-Specific Core Bootstrapping + Boot (CRITICAL — no rescue)
-    - ansible.builtin.import_role:
-        name: systemd_boot
-      when: "ansible_facts['system'] == 'Linux' and setup_systemd_boot | default(false) | bool"
-
+    # 1. OS-Specific Core Bootstrapping (CRITICAL — no rescue)
+    #    Order: per-OS core roles install bootloader prerequisites (efibootmgr, sbctl, etc.)
+    #    that systemd_boot depends on. systemd_boot must run AFTER core roles.
     - ansible.builtin.import_role:
         name: windows_core
       when: "ansible_facts['os_family'] == 'Windows'"
@@ -57,6 +55,10 @@
         name: system_core
       when: "ansible_facts['system'] == 'Linux' and install_system_core | default(false) | bool"
 
+    - ansible.builtin.import_role:
+        name: systemd_boot
+      when: "ansible_facts['system'] == 'Linux' and setup_systemd_boot | default(false) | bool"
+
     # 2. Linux Desktop Environments (non-critical)
     - name: Run kde_plasma_setup
       block:
@@ -76,9 +78,14 @@
             msg: "Role gnome_setup failed — check ~/installation_issues.log for details."
       when: "ansible_facts['system'] == 'Linux' and (install_gnome | default(false) | bool or configure_gnome | default(false) | bool)"
 
-    # 3. Cross-Platform Settings (CRITICAL — needed for SDK path resolution)
-    - ansible.builtin.import_role:
-        name: env_variables
+    # 3. Cross-Platform Settings (needed for SDK path resolution)
+    - name: Run env_variables
+      block:
+        - ansible.builtin.import_role:
+            name: env_variables
+      rescue:
+        - ansible.builtin.fail:
+            msg: "Role env_variables failed — this is critical for SDK path resolution. Aborting playbook."
 
     - name: Run shell_zsh
       block:
@@ -175,11 +182,20 @@
       ansible.builtin.set_fact:
         playbook_succeeded: true
 
-    - name: Check if flatpak is installed
-      ansible.builtin.command: which flatpak
-      register: flatpak_check
+    - name: Detect installed package-manager helpers
+      ansible.builtin.command: "which {{ item }}"
+      register: pkgmgr_check
       changed_when: false
       failed_when: false
+      loop: [flatpak, snap, brew]
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Map helper presence
+      ansible.builtin.set_fact:
+        flatpak_check: "{{ pkgmgr_check.results[0] }}"
+        snap_check: "{{ pkgmgr_check.results[1] }}"
+        brew_check: "{{ pkgmgr_check.results[2] }}"
 
     - name: Clean Flatpak unused runtimes
       ansible.builtin.command: flatpak uninstall --unused -y
@@ -213,6 +229,7 @@
       when:
         - playbook_succeeded | bool
         - ansible_facts['system'] == 'Linux'
+        - snap_check.rc == 0
 
     - name: Remove Snap download cache directory
       ansible.builtin.file:
@@ -222,6 +239,16 @@
       when:
         - playbook_succeeded | bool
         - ansible_facts['system'] == 'Linux'
+        - snap_check.rc == 0
+
+    - name: Cleanup Homebrew cache (macOS)
+      ansible.builtin.command: brew cleanup --prune=all
+      changed_when: false
+      failed_when: false
+      when:
+        - playbook_succeeded | bool
+        - ansible_facts['os_family'] == 'Darwin'
+        - brew_check.rc == 0
 
     - name: Clean APT cache (Debian)
       ansible.builtin.apt:

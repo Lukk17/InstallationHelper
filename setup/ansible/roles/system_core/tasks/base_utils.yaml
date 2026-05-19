@@ -29,19 +29,30 @@
   when: ansible_facts['system'] == 'Linux'
   ignore_errors: true
 
-- name: Full system upgrade and autoremove (Debian)
-  ansible.builtin.apt:
-    upgrade: full
-    autoremove: yes
+# apt full-upgrade can run 5–10 min and trips the 2.19 ansiballz race.
+# raw bypasses the Python module entirely; > truncates the log each run.
+- name: Full system upgrade and autoremove (Debian, via raw)
+  ansible.builtin.raw: >-
+    {{ apt_raw_env }}
+    apt-get {{ apt_raw_flags }} full-upgrade
+    && {{ apt_raw_env }} apt-get {{ apt_raw_flags }} autoremove
+    > /var/log/installation-apt-upgrade.log 2>&1;
+    grep -qE '^(Inst |Setting up |Removing )' /var/log/installation-apt-upgrade.log
+    && echo CHANGED
+    || echo UNCHANGED
   become: yes
+  register: apt_full_upgrade
+  changed_when: "'CHANGED' in (apt_full_upgrade.stdout | default(''))"
+  failed_when: apt_full_upgrade.rc | default(0) != 0
   when: ansible_facts['os_family'] == 'Debian'
-
 
 - name: Full system upgrade (Arch)
   community.general.pacman:
     update_cache: yes
     upgrade: yes
   become: yes
+  async: 1800
+  poll: 30
   when: ansible_facts['os_family'] == 'Archlinux'
 
 - name: Full system upgrade (Fedora)
@@ -49,6 +60,8 @@
     name: "*"
     state: latest
   become: yes
+  async: 1800
+  poll: 30
   when: ansible_facts['os_family'] == 'RedHat'
 
 - name: Install unzip and zip (Arch)

@@ -1,5 +1,18 @@
 ---
-- name: Initialize dynamic package list
+# Software Installer — dynamic dispatcher
+#
+# Builds per-manager package lists from os_dict.software_mapping, then runs
+# a single batched install call per manager. Batched calls let each manager
+# resolve dependencies once instead of N times.
+
+- name: Fail fast if os_dict.software_mapping is missing
+  ansible.builtin.fail:
+    msg: >-
+      os_dict.software_mapping not loaded for os_family={{ ansible_facts['os_family'] }}.
+      Check that vars/{{ ansible_facts['os_family'] }}.yaml exists and was loaded in site.yaml pre_tasks.
+  when: os_dict is not defined or os_dict.software_mapping is not defined
+
+- name: Initialise dynamic package list
   ansible.builtin.set_fact:
     software_installer_packages: []
 
@@ -12,152 +25,339 @@
 - name: Dynamically Install Packages
   block:
     # ------------------ LINUX MANAGERS ------------------
-    - name: Install APT packages (Native)
+    - name: Configure official Debian/Ubuntu apt repositories
+      ansible.builtin.include_tasks: debian_repos.yaml
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: Configure official Fedora dnf repositories
+      ansible.builtin.include_tasks: fedora_repos.yaml
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    # APT batched install runs ~7 min on Ubuntu and trips the 2.19 ansiballz
+    # race; raw bypasses the Python module entirely. Env vars are inline
+    # because raw doesn't honor the task-level `environment:` key. See
+    # AGENTS.md for full bug context.
+    - name: Install APT packages (batched, via raw to bypass 2.19 deserialization)
+      ansible.builtin.raw: >-
+        {{ apt_raw_env }}
+        apt-get install {{ apt_raw_flags }} {{ apt_packages | join(' ') }}
+        > /var/log/installation-apt-batch.log 2>&1
+      become: true
+      vars:
+        apt_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'apt')
+             | rejectattr('value.is_deb_url', 'defined')
+             | map(attribute='value.package')
+             | list }}
+      register: apt_batch_result
+      changed_when: apt_batch_result.rc | default(0) == 0
+      failed_when: apt_batch_result.rc | default(0) != 0
+      when:
+        - ansible_facts['os_family'] == 'Debian'
+        - apt_packages | length > 0
+
+    - name: Show last 30 lines of apt batch install log (debug)
+      ansible.builtin.command: tail -30 /var/log/installation-apt-batch.log
+      become: true
+      changed_when: false
+      failed_when: false
+      when:
+        - ansible_facts['os_family'] == 'Debian'
+        - apt_packages | length > 0
+      vars:
+        apt_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'apt')
+             | rejectattr('value.is_deb_url', 'defined')
+             | map(attribute='value.package')
+             | list }}
+
+    # Two-step pattern for apt_url installs: download with retries first (so a
+    # transient network blip on one vendor doesn't kill the whole loop), then
+    # install from the local file. apt module's `deb: <url>` parameter has no
+    # retry support; doing the fetch ourselves lets us add `retries:` + `delay:`.
+    - name: Download .deb files for apt_url installs (with retries)
+      ansible.builtin.get_url:
+        url: "{{ item_url }}"
+        dest: "/tmp/apt_url-{{ item.key }}.deb"
+        mode: '0644'
+        timeout: 60
+      become: true
+      register: apt_url_download
+      retries: 3
+      delay: 5
+      until: apt_url_download is succeeded
+      loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'apt_url') | list }}"
+      vars:
+        item_url: "{{ item.value.url | default(lookup('vars', item.key ~ '_url', default='')) }}"
+      when:
+        - ansible_facts['os_family'] == 'Debian'
+        - item_url | length > 0
+      failed_when: false   # per-item retries handle real failures; don't cascade
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Install APT from URL (deb, from local file)
       ansible.builtin.apt:
-        name: "{{ item.value.package }}"
+        deb: "/tmp/apt_url-{{ item.key }}.deb"
         state: present
       become: true
-      loop: "{{ software_installer_packages }}"
-      when: ansible_facts['os_family'] == 'Debian' and item.value.manager == 'apt' and not item.value.is_deb_url | default(false)
+      loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'apt_url') | list }}"
+      when:
+        - ansible_facts['os_family'] == 'Debian'
+        - (item.value.url | default(lookup('vars', item.key ~ '_url', default=''))) | length > 0
+      loop_control:
+        label: "{{ item.key }}"
 
-    - name: Install APT from URL (deb)
-      ansible.builtin.apt:
-        deb: "{{ lookup('vars', item.key ~ '_url') }}"
-        state: present
-      become: true
-      loop: "{{ software_installer_packages }}"
-      when: ansible_facts['os_family'] == 'Debian' and (item.value.manager == 'apt_url' or item.value.is_deb_url | default(false))
-
-    - name: Install DNF packages (Native)
+    # Kept on the native dnf module — last Fedora run was clean.
+    - name: Install DNF packages (batched)
       ansible.builtin.dnf:
-        name: "{{ item.value.package }}"
+        name: "{{ dnf_packages }}"
         state: present
       become: true
-      loop: "{{ software_installer_packages }}"
-      when: ansible_facts['os_family'] == 'RedHat' and item.value.manager in ['dnf', 'dnf_repo']
+      vars:
+        dnf_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'in', ['dnf', 'dnf_repo'])
+             | map(attribute='value.package')
+             | list }}
+      when:
+        - ansible_facts['os_family'] == 'RedHat'
+        - dnf_packages | length > 0
 
     - name: Install DNF from URL (rpm)
       ansible.builtin.dnf:
-        name: "{{ lookup('vars', item.key ~ '_url') }}"
+        name: "{{ item_url }}"
         state: present
+        # Vendor-published .rpms (TeamViewer, VeraCrypt, Etcher, etc.) are
+        # signed by the vendor's own key, not by Fedora's. dnf5 enforces GPG
+        # validation strictly by default and rejects them. Disabling here is
+        # safe because the URL itself comes from a curated vendor list in
+        # group_vars/versions.yaml under our own control.
+        disable_gpg_check: true
       become: true
-      loop: "{{ software_installer_packages }}"
-      when: ansible_facts['os_family'] == 'RedHat' and item.value.manager == 'dnf_url'
+      loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'dnf_url') | list }}"
+      vars:
+        # Prefer per-item `url:` field; else look up <key>_rpm_url then <key>_url.
+        item_url: >-
+          {{ item.value.url
+             | default(lookup('vars', item.key ~ '_rpm_url', default=''))
+             | default(lookup('vars', item.key ~ '_url', default=''), true) }}
+      when:
+        - ansible_facts['os_family'] == 'RedHat'
+        - item_url | length > 0
+      loop_control:
+        label: "{{ item.key }}"
 
-    - name: Install Pacman packages (Native)
+    # Kept on the native pacman module — last Arch run was clean.
+    - name: Install Pacman packages (batched)
       community.general.pacman:
-        name: "{{ item.value.package }}"
+        name: "{{ pacman_packages }}"
         state: present
       become: true
-      loop: "{{ software_installer_packages }}"
-      register: pacman_result
-      failed_when: false
-      when: ansible_facts['os_family'] == 'Archlinux' and item.value.manager == 'pacman'
-
-    - name: Check Pacman install results
-      ansible.builtin.debug:
-        msg: "[WARNING] Package not found. Enable multilib."
-      loop: "{{ software_installer_packages }}"
+      vars:
+        pacman_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'pacman')
+             | map(attribute='value.package')
+             | list }}
       when:
         - ansible_facts['os_family'] == 'Archlinux'
-        - item.value.manager == 'pacman'
-        - pacman_result.results is defined
-        - pacman_result.results[item_loop_index] is defined
-        - "'could not find' in (pacman_result.results[item_loop_index].msg | default(''))"
-      vars:
-        item_loop_index: "{{ software_installer_packages.index(item) }}"
+        - pacman_packages | length > 0
+      register: pacman_result
+      failed_when:
+        - pacman_result.failed | default(false)
+        - "'could not find' not in (pacman_result.msg | default(''))"
 
-    - name: Install AUR packages (Native)
-      become: yes
+    - name: Hint about multilib if pacman could not find a package
+      ansible.builtin.debug:
+        msg: "[HINT] Pacman could not find one of the requested packages. Enable multilib in /etc/pacman.conf if it's a 32-bit/Steam dep."
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - pacman_result is defined
+        - "'could not find' in (pacman_result.msg | default(''))"
+
+    - name: Install AUR packages (per-item, async)
+      become: true
       become_user: "{{ non_root_user }}"
       kewlfft.aur.aur:
         name: "{{ item.value.package }}"
         state: present
         use: paru
         extra_args: "--noconfirm --skipreview --needed"
-      loop: "{{ software_installer_packages }}"
-      when: ansible_facts['os_family'] == 'Archlinux' and item.value.manager == 'aur'
+      loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'aur') | list }}"
+      when: ansible_facts['os_family'] == 'Archlinux'
       async: 1200
       poll: 30
       register: aur_results
-      ignore_errors: yes
+      failed_when: false
+      loop_control:
+        label: "{{ item.value.package }}"
 
-    - name: Report timed-out or failed AUR packages
+    - name: Collect failed AUR packages
+      ansible.builtin.set_fact:
+        failed_aur_packages: >-
+          {{ (aur_results.results | default([]))
+             | selectattr('failed', 'defined')
+             | selectattr('failed', 'equalto', true)
+             | map(attribute='item.value.package')
+             | list }}
+      when: ansible_facts['os_family'] == 'Archlinux'
+
+    - name: Surface AUR failures
       ansible.builtin.debug:
-        msg: "WARNING: AUR package '{{ item.item.value.package }}' failed or timed out (20min limit)."
-      loop: "{{ aur_results.results | default([]) }}"
+        msg: "[WARN] AUR packages failed or timed out: {{ failed_aur_packages | join(', ') }}"
       when:
         - ansible_facts['os_family'] == 'Archlinux'
-        - item.failed | default(false)
+        - failed_aur_packages | default([]) | length > 0
 
-    - name: Install Snap packages (Classic/Native)
+    - name: Fail if AUR packages failed and aur_allow_failures is false
+      ansible.builtin.fail:
+        msg: "AUR package install failed: {{ failed_aur_packages | join(', ') }}. Set aur_allow_failures: true to continue past these."
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - failed_aur_packages | default([]) | length > 0
+        - not (aur_allow_failures | default(true) | bool)
+
+    - name: Install Snap packages
       community.general.snap:
         name: "{{ item.value.package }}"
         classic: "{{ item.value.classic | default(false) }}"
         state: present
       become: true
-      loop: "{{ software_installer_packages }}"
-      when: ansible_facts['system'] == 'Linux' and item.value.manager == 'snap'
+      loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'snap') | list }}"
+      when: ansible_facts['system'] == 'Linux'
+      loop_control:
+        label: "{{ item.value.package }}"
 
-    - name: Ensure flatpak daemon is natively installed for the user's OS
+    - name: Ensure flatpak daemon is installed
       ansible.builtin.package:
         name: flatpak
         state: present
       become: true
-      when: >
-        ansible_facts['system'] == 'Linux' and
-        (software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0)
+      when:
+        - ansible_facts['system'] == 'Linux'
+        - software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0
 
-    - name: Proactive Health Probe -> Check flatpak repository state
+    - name: Check flatpak repository health
       ansible.builtin.command: flatpak remotes
       register: flatpak_health
       changed_when: false
       failed_when: false
       become: true
-      when: >
-        ansible_facts['system'] == 'Linux' and
-        (software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0)
+      when:
+        - ansible_facts['system'] == 'Linux'
+        - software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0
 
-    - name: Self-Healing Rescue -> Purging corrupted ostree repository silently
+    - name: Purge corrupted flatpak ostree repository (opt-in only)
       ansible.builtin.file:
         path: /var/lib/flatpak/repo
         state: absent
       become: true
-      when: >
-        ansible_facts['system'] == 'Linux' and
-        (software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0) and
-        flatpak_health.rc != 0
+      when:
+        - ansible_facts['system'] == 'Linux'
+        - software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0
+        - flatpak_health is defined
+        - flatpak_health.rc != 0
+        - flatpak_force_repo_reset | default(false) | bool
+        - flatpak_health.stderr is defined
+        - "'ostree' in (flatpak_health.stderr | lower) or 'corrupt' in (flatpak_health.stderr | lower)"
 
-    - name: Add Flathub remote to global repository
-      ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    - name: Add Flathub remote
+      community.general.flatpak_remote:
+        name: flathub
+        state: present
+        flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
+        method: system
       become: true
-      when: >
-        ansible_facts['system'] == 'Linux' and
-        (software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0)
+      when:
+        - ansible_facts['system'] == 'Linux'
+        - software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0
 
-    - name: Install Flatpak packages (Native)
+    # Debian flatpak batch is large enough (15–20 min) to trip the 2.19 race
+    # even with file redirect; raw bypasses the module. Arch/Fedora batches
+    # are short and stay on community.general.flatpak.
+    - name: Install Flatpak packages (Debian, batched via raw to bypass 2.19 bug)
+      ansible.builtin.raw: >-
+        flatpak install --system --noninteractive --assumeyes flathub
+        {{ flatpak_packages | join(' ') }}
+        > /var/log/installation-flatpak-batch.log 2>&1
+      become: true
+      vars:
+        flatpak_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'flatpak')
+             | map(attribute='value.package')
+             | list }}
+      register: flatpak_batch_result
+      changed_when: flatpak_batch_result.rc | default(0) == 0
+      failed_when: flatpak_batch_result.rc | default(0) != 0
+      when:
+        - ansible_facts['os_family'] == 'Debian'
+        - flatpak_packages | length > 0
+
+    - name: Show last 30 lines of flatpak batch install log (Debian, debug)
+      ansible.builtin.command: tail -30 /var/log/installation-flatpak-batch.log
+      become: true
+      changed_when: false
+      failed_when: false
+      when:
+        - ansible_facts['os_family'] == 'Debian'
+        - flatpak_packages | length > 0
+      vars:
+        flatpak_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'flatpak')
+             | map(attribute='value.package')
+             | list }}
+
+    - name: Install Flatpak packages (Arch/Fedora, batched via community.general.flatpak)
       community.general.flatpak:
-        name: "{{ item.value.package }}"
+        name: "{{ flatpak_packages }}"
         remote: flathub
         state: present
       become: true
-      loop: "{{ software_installer_packages }}"
-      when: ansible_facts['system'] == 'Linux' and item.value.manager == 'flatpak'
+      vars:
+        flatpak_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'flatpak')
+             | map(attribute='value.package')
+             | list }}
+      when:
+        - ansible_facts['system'] == 'Linux'
+        - ansible_facts['os_family'] != 'Debian'
+        - flatpak_packages | length > 0
 
     # ------------------ MACOS MANAGERS ------------------
-    - name: Install Homebrew packages (Native)
+    # Kept on the native homebrew modules — never failed; untested in our runs.
+    - name: Install Homebrew packages (batched)
       community.general.homebrew:
-        name: "{{ item.value.package }}"
+        name: "{{ brew_packages }}"
         state: present
-      loop: "{{ software_installer_packages }}"
-      when: ansible_facts['os_family'] == 'Darwin' and item.value.manager == 'brew'
+      vars:
+        brew_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'brew')
+             | map(attribute='value.package')
+             | list }}
+      when:
+        - ansible_facts['os_family'] == 'Darwin'
+        - brew_packages | length > 0
 
-    - name: Install Homebrew Cask packages (Native)
+    - name: Install Homebrew Cask packages (batched)
       community.general.homebrew_cask:
-        name: "{{ item.value.package }}"
+        name: "{{ brew_cask_packages }}"
         state: present
-      loop: "{{ software_installer_packages }}"
-      when: ansible_facts['os_family'] == 'Darwin' and item.value.manager == 'brew_cask'
+      vars:
+        brew_cask_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'brew_cask')
+             | map(attribute='value.package')
+             | list }}
+      when:
+        - ansible_facts['os_family'] == 'Darwin'
+        - brew_cask_packages | length > 0
 
     # ------------------ WINDOWS MANAGERS ------------------
     - name: Include Windows installation tasks
@@ -165,9 +365,13 @@
       when: ansible_facts['os_family'] == 'Windows'
 
     # ------------------ CUSTOM INSTALLS (flatpak bundles, AppImages, binaries) --
-    - name: Include custom install tasks
+    - name: Include Linux custom install tasks
       ansible.builtin.include_tasks: custom_installs.yaml
       when: ansible_facts['system'] == 'Linux'
+
+    - name: Include macOS custom install tasks
+      ansible.builtin.include_tasks: macos_install.yaml
+      when: ansible_facts['os_family'] == 'Darwin'
   rescue:
     - name: Show installation errors
       ansible.builtin.debug:

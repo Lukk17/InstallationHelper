@@ -74,6 +74,42 @@ The `software_installer` role (`roles/software_installer/tasks/dynamic_install.y
 2. Add mapping in each relevant `vars/{OS}.yaml` file under `software_mapping`.
 3. If the app requires custom install logic (e.g., SDK management, binary downloads), create a dedicated task file under the appropriate role.
 
+### Workaround: ansible-core 2.19/2.20 deserialization bug
+
+Two parts of this playbook bypass the standard Ansible module mechanism. They look like a code-smell but are intentional defenses against an upstream bug — do NOT "clean them up" without reading this section.
+
+**The bug**
+
+`Module result deserialization failed: No start of json char found` — raised by the controller when it tries to deserialize a module's result. Introduced in ansible-core 2.19 by the new `_internal/_json` lazy-import system. Root cause: the ansiballz zip payload (Python module wrapper) gets cleaned up or becomes unreadable before `_return_formatted()` lazy-imports the JSON profile from it. Race triggers most often on long-running modules (>5-7 min) under heavy `/tmp` activity (dpkg postinst writes, systemd-tmpfiles).
+
+**Affected versions:** ansible-core 2.19.0 through 2.19.9, and 2.20.0 through 2.20.5 (latest stable on both branches as of 2026-05). Fix is in [PR #86739](https://github.com/ansible/ansible/pull/86739) against `devel` — **still open and unmerged**. Pre-bug version: 2.18.x.
+
+**Upstream tracking:** issues [#86738](https://github.com/ansible/ansible/issues/86738) and [#86562](https://github.com/ansible/ansible/issues/86562).
+
+**Mitigations in this repo**
+
+1. **`ansible.builtin.raw` for APT and Flatpak batched installs on Debian/Ubuntu** (`roles/software_installer/tasks/dynamic_install.yaml`). `raw` bypasses the entire Python module subsystem — no ansiballz, no JSON round-trip — so the bug class can't trigger. Gated to Debian-only because Arch/Fedora batches are small enough that they never crossed the duration threshold in past runs and the native modules stayed clean for them.
+
+2. **Ansible tmp dirs moved out of `/tmp`** (`ansible.cfg`): `local_tmp`, `remote_tmp`, and `fact_caching_connection` all point to `~/.ansible/...` instead of `/tmp/ansible-*`. The ansiballz zip lives in `local_tmp`; moving it away from `/tmp` removes the path contention with dpkg and systemd-tmpfiles. Works on live USB too since Ubuntu Live's `$HOME` is writable.
+
+**When this can be reverted**
+
+Once ansible-core ships a release that contains the fix from PR #86739 — both 2.19.x and 2.20.x branches will need a patched point release. After that:
+- The `raw` flatpak/apt tasks can go back to `ansible.builtin.apt` / `community.general.flatpak` with `name: <list>`.
+- The `~/.ansible/tmp` paths in `ansible.cfg` can stay (better default anyway) or revert to the older `/tmp` paths.
+
+**Mandatory recurring check (every time this playbook is touched):**
+
+Before recommending changes to the `raw` callsites or claiming the workaround is "still needed", verify the upstream status:
+
+1. Check the current ansible-core release that this repo's `requirements.yaml` / target hosts will use. The version is in `ansible --version` on the dev machine.
+2. Confirm PR #86739 status: https://github.com/ansible/ansible/pull/86739 — merged or still open?
+3. If merged, find the first release tag containing it: https://github.com/ansible/ansible/releases — both `stable-2.19` and `stable-2.20` need a patched point release.
+4. If the target ansible-core version is on a release that includes the fix, schedule the revert: replace the 3 `raw` tasks (apt-batch, flatpak-batch, apt-full-upgrade) with the native modules in one change, drop `apt_raw_env` / `apt_raw_flags` from `group_vars/linux.yaml`, and update this section.
+5. If still unmerged, leave the workaround in place and note the upstream status in the commit message of any related change.
+
+The check is cheap (one `gh pr view 86739` or a `WebFetch` of the PR URL) and prevents the workaround from outliving its reason.
+
 ## Local Dev Stack
 
 Start all services from the project root:
