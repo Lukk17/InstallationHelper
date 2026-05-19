@@ -15,10 +15,9 @@ install_prime_video: true
 install_itunes: true
 
 # Windows Only Hardware & OEM
-install_geforce_experience: true
+install_geforce_experience: true     # via Chocolatey (no winget manifest)
 install_razer_cortex: true
 install_galaxy_buds: true
-install_canon_app: true
 
 # Windows Only Utilities & Networks
 install_hwmonitor: true
@@ -36,14 +35,11 @@ install_powertoys: true
 install_putty: true
 
 # Gaming Enhancements & Storefronts
-install_wow_logs_companion: true
-install_tsm: true
 install_curseforge: true
 install_gog: true
 install_epic: true
 
 # Virtualization toggles
 install_virtualbox: true
-install_vmware: true
+install_vmware: true                  # via Chocolatey (no winget manifest post-Broadcom)
 install_docker: true
-

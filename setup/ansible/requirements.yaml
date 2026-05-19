@@ -1,6 +1,21 @@
 ---
+# Collection version ranges. Bounded ranges (not exact pins) so that
+# ansible-galaxy resolves to a version that actually exists on Galaxy
+# given the user's installed ansible-core. Bump the upper bound only
+# after verifying compatibility against the supported ansible-core
+# branches (2.19.x, 2.20.x).
 collections:
   - name: community.general
+    version: ">=9.0.0,<12.0.0"
   - name: community.windows
+    version: ">=2.0.0,<4.0.0"
   - name: ansible.windows
+    version: ">=2.4.0,<4.0.0"
+  - name: ansible.posix
+    version: ">=1.5.0,<3.0.0"
+  - name: community.docker
+    version: ">=3.10.0,<5.0.0"
   - name: kewlfft.aur
+    version: ">=0.11.1,<2.0.0"
+  - name: chocolatey.chocolatey
+    version: ">=1.5.0,<2.0.0"

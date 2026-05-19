@@ -1,7 +1,7 @@
 ---
 software_mapping:
   # Browsers
-  chrome: { manager: "brew_cask", package: "googlechrome" }
+  chrome: { manager: "brew_cask", package: "google-chrome" }
   brave: { manager: "brew_cask", package: "brave-browser" }
   tor: { manager: "brew_cask", package: "tor-browser" }
 
@@ -10,19 +10,24 @@ software_mapping:
   maven: { manager: "brew", package: "maven" }
   gradle: { manager: "brew", package: "gradle" }
   postman: { manager: "brew_cask", package: "postman" }
-  openssl: { manager: "brew", package: "openssl" }
+  openssl: { manager: "brew", package: "openssl@3" }
   dbeaver: { manager: "brew_cask", package: "dbeaver-community" }
-  kubectl: { manager: "brew", package: "kubectl" }
+  kubectl: { manager: "brew", package: "kubernetes-cli" }
   minikube: { manager: "brew", package: "minikube" }
   lens: { manager: "brew_cask", package: "lens" }
-  filezilla: { manager: "brew_cask", package: "filezilla" }
+  # Note: there is no maintained Homebrew cask for FileZilla on macOS, so the
+  # `filezilla` toggle maps to Cyberduck instead — Cyberduck is the standard
+  # free macOS FTP/SFTP/S3 client (homebrew-cask `cyberduck`, 29k+ installs/yr).
+  # Users who specifically need FileZilla can download it directly from
+  # https://filezilla-project.org/ — keep `install_filezilla: false` in that case.
+  filezilla: { manager: "brew_cask", package: "cyberduck" }
 
   # IDEs / Editors
   intellij: { manager: "brew_cask", package: "intellij-idea" }
   vscode: { manager: "brew_cask", package: "visual-studio-code" }
   sublime: { manager: "brew_cask", package: "sublime-text" }
-  arduino: { manager: "brew_cask", package: "arduino" }
-  antigravity: { manager: "brew_cask", package: "google-antigravity" }
+  arduino: { manager: "brew_cask", package: "arduino-ide" }
+  # antigravity: installed via custom_installs_macos.yaml (direct DMG from antigravity.google)
   bruno: { manager: "brew_cask", package: "bruno" }
 
   # Communication
@@ -37,7 +42,6 @@ software_mapping:
   obsidian: { manager: "brew_cask", package: "obsidian" }
   bitwarden: { manager: "brew_cask", package: "bitwarden" }
   keepassxc: { manager: "brew_cask", package: "keepassxc" }
-  trello: { manager: "brew_cask", package: "trello" }
   onlyoffice: { manager: "brew_cask", package: "onlyoffice" }
 
   # Media / Design
@@ -45,7 +49,7 @@ software_mapping:
   spotify: { manager: "brew_cask", package: "spotify" }
   gimp: { manager: "brew_cask", package: "gimp" }
   krita: { manager: "brew_cask", package: "krita" }
-  handbrake: { manager: "brew_cask", package: "handbrake" }
+  handbrake: { manager: "brew_cask", package: "handbrake-app" }
   audacity: { manager: "brew_cask", package: "audacity" }
   rawtherapee: { manager: "brew_cask", package: "rawtherapee" }
 
@@ -54,7 +58,7 @@ software_mapping:
   
   # CAD / 3D
   freecad: { manager: "brew_cask", package: "freecad" }
-  prusaslicer: { manager: "brew_cask", package: "prusa-slicer" }
+  prusaslicer: { manager: "brew_cask", package: "prusaslicer" }
 
   # Utilities
   teamviewer: { manager: "brew_cask", package: "teamviewer" }
@@ -64,7 +68,7 @@ software_mapping:
 
   # Crypto
   boinc: { manager: "brew_cask", package: "boinc" }
-  gridcoin: { manager: "brew_cask", package: "gridcoinresearch" }
+  # gridcoin: installed via custom_installs_macos.yaml (DMG from github.com/gridcoin-community)
 
   # Alternatives
   stats: { manager: "brew_cask", package: "stats", is_alternative_for: "HWMonitor" }
@@ -74,5 +78,9 @@ software_mapping:
 
   # Virtualization
   utm: { manager: "brew_cask", package: "utm" }
-  docker: { manager: "brew_cask", package: "docker" }
+  docker: { manager: "brew_cask", package: "docker-desktop" }
+  # macOS does not have VMware Workstation Player (Windows/Linux only).
+  # The closest equivalent is VMware Fusion. The `install_vmware` toggle in
+  # group_vars/macos.yaml maps here.
+  vmware: { manager: "brew_cask", package: "vmware-fusion" }
 
