@@ -75,7 +75,7 @@ install_gridcoin: true
 install_dart: true
 install_flutter: true
 install_android_sdk: true
-install_stable_diffusion: true
+install_stable_diffusion: false  # heavy: clones AUTOMATIC1111 repo + GB of model deps. Opt in explicitly.
 install_lm_studio: true
 install_claude_code: true
 install_claude_desktop: true

@@ -42,6 +42,19 @@
     creates: "{{ android_home }}/cmdline-tools/latest"
   when: not cmdline_tools_stat.stat.exists
 
+# sdkmanager needs Java to run. We use SDKMAN's `current` Java symlink.
+# Under `--tags android` alone, the SDKMAN task (tagged `[sdkman]`) doesn't
+# fire — probe the symlink first and surface a clear error if missing.
+- name: Probe SDKMAN Java installation
+  ansible.builtin.stat:
+    path: "{{ non_root_home }}/.sdkman/candidates/java/current/bin/java"
+  register: sdkman_java_stat
+
+- name: Warn if SDKMAN Java is missing — skip Android SDK install
+  ansible.builtin.debug:
+    msg: "[WARN] Skipping Android SDK install — SDKMAN Java not found at {{ non_root_home }}/.sdkman/candidates/java/current. Run with --tags sdkman,android to install Java first."
+  when: not sdkman_java_stat.stat.exists
+
 - name: Accept Android SDK licenses
   ansible.builtin.shell: |
     set -o pipefail
@@ -57,6 +70,7 @@
   failed_when: >
     'All SDK package licenses accepted' not in (sdk_licenses.stdout | default('')) and
     sdk_licenses.rc | default(0) != 0
+  when: sdkman_java_stat.stat.exists
 
 # sdkmanager downloads several hundred MB of platforms + build-tools.
 # async+poll dodges the 2.19 ansiballz race on the long-running call.
@@ -80,4 +94,5 @@
   failed_when:
     - sdk_install.rc is defined
     - sdk_install.rc != 0
+  when: sdkman_java_stat.stat.exists
 

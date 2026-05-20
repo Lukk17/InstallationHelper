@@ -26,7 +26,7 @@ antigravity_win_exe_url: "{{ antigravity_cdn_base }}/windows-x64/Antigravity.exe
 teamviewer_file: "teamviewer_amd64.deb"
 veracrypt_version: "1.26.24"
 veracrypt_file: "veracrypt-{{ veracrypt_version }}-Ubuntu-24.04-amd64.deb"
-lutris_version: "0.5.18"
+lutris_version: "0.5.22"
 lutris_file: "lutris_{{ lutris_version }}_all.deb"
 # Aurora Store moved off files.auroraoss.com (DNS no longer resolves) to
 # auroraoss.com/downloads/AuroraStore/Latest/latest.apk — a rolling redirect
@@ -65,11 +65,10 @@ minikube_version: "v1.38.1"
 minikube_deb_version: "1.38.1-0"
 minikube_file: "minikube_{{ minikube_deb_version }}_amd64.deb"
 minikube_rpm_file: "minikube-{{ minikube_deb_version }}.x86_64.rpm"
-kind_version: "v0.27.0"
+kind_version: "v0.31.0"
 # Kubernetes community apt/dnf repo minor stream. pkgs.k8s.io maintains a
-# directory per minor (v1.33, v1.34, ...). v1.34 is the current stable as of
-# May 2026 (release branches: 1.34, 1.35, 1.36).
-kubernetes_repo_minor: "v1.34"
+# directory per minor. v1.36 is the current stable as of 2026-04 (1.34 EOL 2026-10-27).
+kubernetes_repo_minor: "v1.36"
 tor_browser_version: "15.0.14"
 tor_browser_file: "tor-browser-linux-x86_64-{{ tor_browser_version }}.tar.xz"
 
@@ -82,27 +81,31 @@ java25_id: "25.0.3-tem"
 default_java: "{{ java21_id }}"
 
 # Python Pyenv versions
-python310_id: "3.10.16"
-python311_id: "3.11.11"
-python312_id: "3.12.8"
-python313_id: "3.13.2"
+python310_id: "3.10.20"
+python311_id: "3.11.15"
+python312_id: "3.12.13"
+python313_id: "3.13.13"
 default_python: "{{ python311_id }}"
 
 # Node NVM version
-nvm_version: "0.39.7"
+nvm_version: "0.40.4"
 
-# Dart SDK
-dart_version: "3.7.2"
+# Dart SDK — verify at https://storage.googleapis.com/dart-archive/channels/stable/release/latest/VERSION
+dart_version: "3.12.0"
 
 # Flutter via FVM
 flutter_channel: "stable"
 
 # Android SDK (update build number from https://developer.android.com/studio#command-line-tools-only)
-android_cmdline_tools_version: "13.0"
-android_cmdline_tools_build: "11076708"
+android_cmdline_tools_version: "16.0"
+android_cmdline_tools_build: "14742923"
 android_build_tools_version: "35.0.0"
 android_api_level: "35"
 android_home: "{{ non_root_home }}/Android/Sdk"
+
+# Stable Diffusion WebUI (AUTOMATIC1111) — pinned to avoid HEAD drift each run.
+# Bump after testing; supply-chain risk if left unpinned.
+stable_diffusion_webui_version: "v1.10.1"
 
 # Fonts
 meslo_regular_url: "https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"

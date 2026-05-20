@@ -49,6 +49,7 @@
     name:
       - snapd
     state: present
+  when: install_snapd | default(false) | bool
 
 - name: Enable Snapd socket
   become: yes
@@ -56,6 +57,7 @@
     name: snapd.socket
     state: started
     enabled: yes
+  when: install_snapd | default(false) | bool
 
 - name: Create Classic Snap Symlink
   become: yes
@@ -63,6 +65,7 @@
     src: /var/lib/snapd/snap
     dest: /snap
     state: link
+  when: install_snapd | default(false) | bool
 
 # --- Antigravity YUM repository ---
 
@@ -72,7 +75,8 @@
     name: antigravity-rpm
     description: Antigravity RPM Repository
     baseurl: https://us-central1-yum.pkg.dev/projects/antigravity-auto-updater-dev/antigravity-rpm
+    gpgkey: https://us-central1-yum.pkg.dev/doc/repo-signing-key.gpg
+    gpgcheck: yes
     enabled: yes
-    gpgcheck: no
   when: install_antigravity | default(false) | bool
 

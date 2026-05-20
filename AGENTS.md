@@ -31,6 +31,10 @@ A few of the most-used:
 
 Full catalogue: see the agent-standards README's "Subagents catalog" section, or list `.claude/agents/*.md` (or `.opencode/agents/*.md`) in this project.
 
+## MCP servers
+
+This project may expose MCP tools (Context7 docs, MongoDB introspection, Grafana, Playwright, Chrome DevTools, Redis, SonarQube, n8n). Check your tool list at startup and use them when they're a better fit than re-deriving the answer from local files. Human-side setup lives in [`docs/MCP_SETUP.md`](docs/MCP_SETUP.md).
+
 ## Working With Agents
 
 All supported agents read this `AGENTS.md` from the project root and auto-discover skills from `.agents/skills/`. Start your agent from the project root:

@@ -14,11 +14,13 @@
     - name: Load OS-specific group vars
       ansible.builtin.include_vars:
         file: "group_vars/{{ 'windows' if ansible_facts['os_family'] == 'Windows' else 'macos' if ansible_facts['os_family'] == 'Darwin' else 'linux' }}.yaml"
+      tags: always
 
     - name: Load OS translation dictionary
       ansible.builtin.include_vars:
         file: "vars/{{ ansible_facts['os_family'] }}.yaml"
         name: os_dict
+      tags: always
 
     - name: Update apt cache (Debian)
       ansible.builtin.apt:
@@ -26,6 +28,7 @@
       become: yes
       changed_when: false
       when: ansible_facts['os_family'] == 'Debian'
+      tags: always
 
   tasks:
     # 1. OS-Specific Core Bootstrapping (CRITICAL — no rescue)
@@ -34,52 +37,66 @@
     - ansible.builtin.import_role:
         name: windows_core
       when: "ansible_facts['os_family'] == 'Windows'"
+      tags: [bootstrap_windows]
 
     - ansible.builtin.import_role:
         name: macos_core
       when: "ansible_facts['os_family'] == 'Darwin'"
+      tags: [bootstrap_macos]
 
     - ansible.builtin.import_role:
         name: arch_core
       when: "ansible_facts['os_family'] == 'Archlinux'"
+      tags: [bootstrap_arch]
 
     - ansible.builtin.import_role:
         name: fedora_core
       when: "ansible_facts['os_family'] == 'RedHat'"
+      tags: [bootstrap_fedora]
 
     - ansible.builtin.import_role:
         name: debian_core
       when: "ansible_facts['os_family'] == 'Debian'"
+      tags: [bootstrap_debian]
 
     - ansible.builtin.import_role:
         name: system_core
       when: "ansible_facts['system'] == 'Linux' and install_system_core | default(false) | bool"
+      tags: [linux_core]
 
     - ansible.builtin.import_role:
         name: systemd_boot
       when: "ansible_facts['system'] == 'Linux' and setup_systemd_boot | default(false) | bool"
+      tags: [boot]
 
     # 2. Linux Desktop Environments (non-critical)
     - name: Run kde_plasma_setup
+      tags: [kde]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: kde_plasma_setup
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role kde_plasma_setup failed — check ~/installation_issues.log for details."
       when: "ansible_facts['system'] == 'Linux' and (install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool)"
 
     - name: Run gnome_setup
+      tags: [gnome]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: gnome_setup
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role gnome_setup failed — check ~/installation_issues.log for details."
       when: "ansible_facts['system'] == 'Linux' and (install_gnome | default(false) | bool or configure_gnome | default(false) | bool)"
 
     # 3. Cross-Platform Settings (needed for SDK path resolution)
     - name: Run env_variables
+      tags: [env]
       block:
         - ansible.builtin.import_role:
             name: env_variables
@@ -88,99 +105,132 @@
             msg: "Role env_variables failed — this is critical for SDK path resolution. Aborting playbook."
 
     - name: Run shell_zsh
+      tags: [shell]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: shell_zsh
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role shell_zsh failed — check ~/installation_issues.log for details."
       when: "setup_zsh | default(false) | bool and ansible_facts['os_family'] != 'Windows'"
 
     # 4. Universal Complex Roles (non-critical)
     - name: Run sdk_manager
+      tags: [sdk]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: sdk_manager
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role sdk_manager failed — check ~/installation_issues.log for details."
 
     - name: Run ai_tools
+      tags: [ai]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: ai_tools
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role ai_tools failed — check ~/installation_issues.log for details."
 
     - name: Run jetbrains_toolbox
+      tags: [jetbrains]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: jetbrains_toolbox
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role jetbrains_toolbox failed — check ~/installation_issues.log for details."
       when: "install_jetbrains_toolbox | default(false) | bool"
 
     # 5. Core Software Router (non-critical)
     - name: Run software_installer
+      tags: [software]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: software_installer
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role software_installer failed — check ~/installation_issues.log for details."
 
     # 6. Linux Advanced Apps (non-critical)
     - name: Run waydroid
+      tags: [waydroid]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: waydroid
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role waydroid failed — check ~/installation_issues.log for details."
       when: "ansible_facts['system'] == 'Linux' and install_waydroid | default(false) | bool"
 
     - name: Run linux_crypto_hardware
+      tags: [crypto]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: linux_crypto_hardware
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role linux_crypto_hardware failed — check ~/installation_issues.log for details."
       when: "ansible_facts['system'] == 'Linux' and (install_ledger_live | default(false) | bool or install_trezor_suite | default(false) | bool)"
 
     - name: Run linux_security
+      tags: [security]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: linux_security
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role linux_security failed — check ~/installation_issues.log for details."
       when: "ansible_facts['system'] == 'Linux' and setup_hibernate | default(false) | bool"
 
     - name: Run snapper
+      tags: [snapper]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: snapper
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role snapper failed — check ~/installation_issues.log for details."
       when: "ansible_facts['system'] == 'Linux' and install_snapper | default(false) | bool"
 
     - name: Run virtualization_config
+      tags: [virt]
       block:
-        - ansible.builtin.include_role:
+        - ansible.builtin.import_role:
             name: virtualization_config
       rescue:
+        - ansible.builtin.set_fact:
+            any_role_failed: true
         - ansible.builtin.debug:
             msg: "Role virtualization_config failed — check ~/installation_issues.log for details."
       when: "ansible_facts['system'] == 'Linux' and (install_virt_manager | default(false) | bool or install_docker | default(false) | bool or install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)"
 
   post_tasks:
-    - name: Mark playbook as fully attempted
+    # `any_role_failed` is set by each rescue: block above. If none fired,
+    # playbook_succeeded is true and the cleanup tasks run. Cleanup tasks
+    # that purge install state must NOT run on a partial-failure run.
+    - name: Mark playbook as fully successful (no rescue caught a failure)
       ansible.builtin.set_fact:
-        playbook_succeeded: true
+        playbook_succeeded: "{{ not (any_role_failed | default(false)) }}"
 
     - name: Detect installed package-manager helpers
       ansible.builtin.command: "which {{ item }}"
@@ -283,5 +333,16 @@
         state: absent
       become: yes
       when: playbook_succeeded | bool
+
+    # SECURITY: passwordless sudoers entry must NOT persist past the run.
+    # Unconditional removal — even if the playbook had partial failures,
+    # leaving NOPASSWD: ALL is a permanent privilege escalation. The user's
+    # next `sudo` call will re-prompt for password (normal behavior).
+    - name: Remove temporary passwordless sudoers entry (Linux)
+      ansible.builtin.file:
+        path: /etc/sudoers.d/99-ansible-user
+        state: absent
+      become: yes
+      when: ansible_facts['system'] == 'Linux'
 
 

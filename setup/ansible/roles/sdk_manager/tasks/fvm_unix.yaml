@@ -15,6 +15,18 @@
   changed_when: false
   failed_when: false
 
+# `dart pub global activate fvm` requires dart on PATH. The dart install
+# task is tagged `[dart]`, so under `--tags fvm` alone dart may be absent.
+# Pacman is idempotent — if dart is already installed this is a no-op.
+- name: Ensure Dart is installed before activating FVM (Arch)
+  become: true
+  community.general.pacman:
+    name: dart
+    state: present
+  when:
+    - fvm_check.rc != 0
+    - ansible_facts['os_family'] == 'Archlinux'
+
 - name: Install FVM via dart pub global (Arch Linux)
   ansible.builtin.shell: |
     set -o pipefail
@@ -68,6 +80,20 @@
     path: "{{ non_root_home }}/fvm/versions/{{ flutter_channel }}/bin/flutter"
   register: flutter_channel_installed
 
+# Ensure parent dir exists for .dart-tool/dart-flutter-telemetry.config —
+# copy: fails if the parent doesn't exist. Without this the next
+# `failed_when: false` masked the failure and Flutter's interactive
+# analytics prompt then hung the install behind `timeout 1500`.
+- name: Ensure .dart-tool directory exists
+  ansible.builtin.file:
+    path: "{{ non_root_home }}/.dart-tool"
+    state: directory
+    mode: '0755'
+    owner: "{{ non_root_user }}"
+    group: "{{ non_root_user }}"
+  become: yes
+  when: fvm_bin_dir.rc == 0
+
 - name: Disable Flutter analytics consent prompts (pre-precache)
   ansible.builtin.copy:
     dest: "{{ non_root_home }}/{{ item }}"
@@ -79,7 +105,6 @@
   loop:
     - .flutter
     - .dart-tool/dart-flutter-telemetry.config
-  failed_when: false
   when: fvm_bin_dir.rc == 0
 
 - name: Fire Flutter install via FVM ({{ flutter_channel }})

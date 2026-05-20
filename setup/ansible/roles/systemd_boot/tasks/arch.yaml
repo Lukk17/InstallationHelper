@@ -2,6 +2,28 @@
 # On Arch, /boot is typically the ESP (vfat), so kernels live directly on it.
 # Paths in entry files are relative to the ESP root.
 
+# Detect which kernel flavor is actually installed (linux, linux-lts,
+# linux-zen, linux-hardened). Falls back to "linux" if none found, which
+# is wrong but explicit (boot entry will fail to load and operator notices).
+- name: Detect installed Arch kernel flavor
+  ansible.builtin.shell: |
+    set -o pipefail
+    for k in linux-zen linux-hardened linux-lts linux; do
+      if [ -f "{{ esp_path }}/vmlinuz-${k}" ]; then
+        echo "$k"
+        exit 0
+      fi
+    done
+    echo "linux"
+  args:
+    executable: /bin/bash
+  register: arch_kernel_flavor
+  changed_when: false
+
+- name: Set Arch kernel flavor fact
+  ansible.builtin.set_fact:
+    arch_kernel: "{{ arch_kernel_flavor.stdout | trim }}"
+
 - name: Check for Intel microcode on ESP (Arch)
   ansible.builtin.stat:
     path: "{{ esp_path }}/intel-ucode.img"
@@ -25,14 +47,14 @@
   ansible.builtin.copy:
     dest: "{{ esp_path }}/loader/entries/arch.conf"
     content: |
-      title   Arch Linux
-      linux   /vmlinuz-linux
+      title   Arch Linux ({{ arch_kernel }})
+      linux   /vmlinuz-{{ arch_kernel }}
       {% if intel_ucode.stat.exists | default(false) %}
       initrd  /intel-ucode.img
       {% elif amd_ucode.stat.exists | default(false) %}
       initrd  /amd-ucode.img
       {% endif %}
-      initrd  /initramfs-linux.img
+      initrd  /initramfs-{{ arch_kernel }}.img
       options {{ boot_options }}
     mode: '0644'
 
@@ -41,14 +63,14 @@
   ansible.builtin.copy:
     dest: "{{ esp_path }}/loader/entries/arch-fallback.conf"
     content: |
-      title   Arch Linux (fallback initramfs)
-      linux   /vmlinuz-linux
+      title   Arch Linux ({{ arch_kernel }} fallback initramfs)
+      linux   /vmlinuz-{{ arch_kernel }}
       {% if intel_ucode.stat.exists | default(false) %}
       initrd  /intel-ucode.img
       {% elif amd_ucode.stat.exists | default(false) %}
       initrd  /amd-ucode.img
       {% endif %}
-      initrd  /initramfs-linux-fallback.img
+      initrd  /initramfs-{{ arch_kernel }}-fallback.img
       options {{ boot_options_fallback }}
     mode: '0644'
 

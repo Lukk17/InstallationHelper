@@ -5,6 +5,7 @@
   ansible.builtin.git:
     repo: https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
     dest: "{{ non_root_home }}/stable-diffusion-webui"
+    version: "{{ stable_diffusion_webui_version }}"
   when: ansible_facts['os_family'] != 'Windows' and install_stable_diffusion | bool
 
 - name: Check if LM Studio is already installed (Linux)
@@ -13,11 +14,14 @@
   register: lms_installed
   when: ansible_facts['system'] == 'Linux' and install_lm_studio | bool
 
+# `timeout 600` wraps the whole pipeline so the piped `bash` (which itself
+# downloads binaries) can't hang past 10 min. `--max-time 120` only bounds
+# curl's transfer, not the bash sub-process.
 - name: Install LM Studio via official script (Linux)
   ansible.builtin.shell: |
     set -o pipefail
     export PATH="$PATH:/sbin:/usr/sbin"
-    curl -fsSL --max-time 120 https://lmstudio.ai/install.sh | bash
+    timeout 600 bash -c 'curl -fsSL --max-time 120 https://lmstudio.ai/install.sh | bash' </dev/null
   args:
     executable: /bin/bash
   become: yes

@@ -32,11 +32,20 @@ from ansible.plugins.callback import CallbackBase
 
 
 # Long-running tasks write to known log paths; the heartbeat tails the last
-# line so the user sees what apt/flatpak/etc. is actually doing.
+# line so the user sees what apt/flatpak/etc. is actually doing. Longest-prefix
+# match wins (see _heartbeat_lookup_log) so order doesn't matter, but more
+# specific prefixes still need to be unique enough to not collide.
 HEARTBEAT_LOG_FILES = {
     "Install APT packages (batched":          "/var/log/installation-apt-batch.log",
     "Install Flatpak packages (Debian":       "/var/log/installation-flatpak-batch.log",
     "Full system upgrade and autoremove (Debian, via raw)": "/var/log/installation-apt-upgrade.log",
+    # virtualization_config Debian apt installs (QEMU/KVM, virt-manager, spice-vdagent)
+    "Install QEMU/KVM and virt-manager packages (Debian)": "/var/log/installation-virt-apt.log",
+    "Install spice-vdagent (Debian guest)":   "/var/log/installation-virt-apt.log",
+    # Docker CE on Debian
+    "Install Docker CE (Debian)":             "/var/log/installation-docker-apt.log",
+    # Claude Desktop .deb (Debian)
+    "Install Claude Desktop .deb (Linux Debian)": "/var/log/installation-claude-desktop-apt.log",
 }
 
 

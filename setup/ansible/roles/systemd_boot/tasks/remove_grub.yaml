@@ -34,7 +34,6 @@
     state: absent
     purge: yes
   when: ansible_facts['os_family'] == 'Debian'
-  ignore_errors: yes
 
 - name: Remove GRUB packages (Arch)
   become: yes
@@ -44,7 +43,6 @@
       - os-prober
     state: absent
   when: ansible_facts['os_family'] == 'Archlinux'
-  ignore_errors: yes
 
 - name: Remove GRUB packages (Fedora)
   become: yes
@@ -58,7 +56,6 @@
       - os-prober
     state: absent
   when: ansible_facts['os_family'] == 'RedHat'
-  ignore_errors: yes
 
 # --- Remove this distro's GRUB EFI directory from ESP ---
 

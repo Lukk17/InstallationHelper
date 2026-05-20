@@ -200,16 +200,38 @@
 
 - name: Set Spectacle Shortcut
   ansible.builtin.command: kwriteconfig5 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot "Meta+Shift+S,Meta+Shift+Print,Capture Rectangular Region"
-
-- name: Restart Plasma global accel service
-  ansible.builtin.shell: systemctl --user restart plasma-kglobalaccel.service
-  args:
-    executable: /bin/bash
-
-- name: Restart Plasma shell to load the new widget
-  ansible.builtin.shell: systemctl --user restart plasma-plasmashell.service
-  args:
-    executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  changed_when: false
+
+# Probe whether the non-root user has an ACTIVE login session (graphical or
+# otherwise). Without this gate, `systemctl --user restart` on a headless box
+# or fresh first-run fails with "Failed to connect to bus" — there is no
+# D-Bus user session to talk to.
+- name: Probe for active Plasma user session
+  ansible.builtin.command: loginctl show-user {{ non_root_user }} -p State --value
+  register: kde_user_state
+  changed_when: false
+  failed_when: false
+  become: yes
+
+- name: Restart Plasma global accel service (only when user session is active)
+  ansible.builtin.systemd:
+    name: plasma-kglobalaccel.service
+    scope: user
+    state: restarted
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: (kde_user_state.stdout | default('') | trim) == 'active'
+
+- name: Restart Plasma shell to load the new widget
+  ansible.builtin.systemd:
+    name: plasma-plasmashell.service
+    scope: user
+    state: restarted
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - (kde_user_state.stdout | default('') | trim) == 'active'
+    - applet_window_buttons_install is defined and applet_window_buttons_install is changed
 

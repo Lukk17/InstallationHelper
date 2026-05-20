@@ -74,9 +74,11 @@
          | map('lower')
          | list }}
 
-# Each IDE install is a ~1 GB download. async+poll plus a hard POSIX
-# timeout dodge the 2.19 ansiballz race and prevent indefinite hangs.
-- name: Install JetBrains IDEs via Toolbox
+# Each IDE install is a ~1 GB download. Fire-and-forget pattern (poll: 0)
+# lets multiple downloads run in parallel. `throttle: 2` caps concurrency
+# to mitigate Toolbox CLI state-file write contention while still saving
+# 5-8 min on the typical 5-IDE install.
+- name: Install JetBrains IDEs via Toolbox (parallel, fire-and-forget)
   ansible.builtin.shell: |
     set -o pipefail
     timeout 1800 "{{ non_root_home }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox" install {{ item.cli }} </dev/null
@@ -92,12 +94,28 @@
     - { cli: 'rider',    match: 'rider' }
   loop_control:
     label: "{{ item.cli }}"
-  register: toolbox_ide_install
+  register: toolbox_ide_jobs
   async: 2100
-  poll: 30
-  changed_when: toolbox_ide_install.rc | default(0) == 0
-  failed_when: false
+  poll: 0
+  throttle: 2
+  changed_when: false
   when:
     - install_jetbrains_toolbox | default(true) | bool
     - toolbox_binary.stat.exists or (toolbox_download is defined and toolbox_download is changed)
     - toolbox_installed_slugs is not search(item.match)
+
+- name: Wait for JetBrains IDE installs to finish
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  register: toolbox_ide_results
+  loop: "{{ toolbox_ide_jobs.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.cli | default('skipped') }}"
+  until: toolbox_ide_results.finished
+  retries: 140
+  delay: 15
+  failed_when: false
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - item is not skipped
+    - item.ansible_job_id is defined

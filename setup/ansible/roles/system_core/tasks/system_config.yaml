@@ -4,15 +4,17 @@
 - name: Mount /tmp in RAM
   ansible.builtin.lineinfile:
     path: /etc/fstab
+    regexp: '^tmpfs\s+/tmp\s+tmpfs'
     line: "tmpfs /tmp tmpfs mode=0777 0 0"
     state: present
   become: yes
   when: setup_tmpfs | bool
 
-- name: Setup UTC time RTC (recommended for Linux-only)
+- name: Setup UTC time RTC (Linux only)
   community.general.timezone:
     hwclock: UTC
   become: yes
+  when: ansible_facts['system'] == 'Linux'
 
 # --- Locale: Debian ---
 

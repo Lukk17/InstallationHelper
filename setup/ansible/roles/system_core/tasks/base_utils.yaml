@@ -26,8 +26,12 @@
 - name: Add Flathub repository (Linux)
   ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
   become: yes
+  register: flathub_remote_add
+  changed_when: false
+  failed_when:
+    - flathub_remote_add.rc | default(0) != 0
+    - "'already exists' not in (flathub_remote_add.stderr | default(''))"
   when: ansible_facts['system'] == 'Linux'
-  ignore_errors: true
 
 # apt full-upgrade can run 5–10 min and trips the 2.19 ansiballz race.
 # raw bypasses the Python module entirely; > truncates the log each run.
@@ -36,7 +40,7 @@
     {{ apt_raw_env }}
     apt-get {{ apt_raw_flags }} full-upgrade
     && {{ apt_raw_env }} apt-get {{ apt_raw_flags }} autoremove
-    > /var/log/installation-apt-upgrade.log 2>&1;
+    2>&1 | tee -a /var/log/installation-apt-upgrade.log;
     grep -qE '^(Inst |Setting up |Removing )' /var/log/installation-apt-upgrade.log
     && echo CHANGED
     || echo UNCHANGED
@@ -53,6 +57,8 @@
   become: yes
   async: 1800
   poll: 30
+  register: pacman_full_upgrade
+  failed_when: pacman_full_upgrade.failed | default(false)
   when: ansible_facts['os_family'] == 'Archlinux'
 
 - name: Full system upgrade (Fedora)
@@ -62,6 +68,8 @@
   become: yes
   async: 1800
   poll: 30
+  register: dnf_full_upgrade
+  failed_when: dnf_full_upgrade.failed | default(false)
   when: ansible_facts['os_family'] == 'RedHat'
 
 - name: Install unzip and zip (Arch)

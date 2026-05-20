@@ -69,7 +69,7 @@
 
 - name: Install AppImageLauncher via rpm with --nodigest (Fedora)
   ansible.builtin.command:
-    cmd: rpm --install --upgrade --replacepkgs --nodigest --nosignature /tmp/appimagelauncher.rpm
+    cmd: rpm --install --upgrade --replacepkgs --nodigest /tmp/appimagelauncher.rpm
     creates: /usr/bin/appimagelauncher
   become: true
   when:

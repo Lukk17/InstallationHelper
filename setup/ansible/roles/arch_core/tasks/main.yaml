@@ -1,10 +1,11 @@
 ---
+# Use `copy` for consistency with debian_core (and so mode is enforced
+# on re-run, not just on create). lineinfile only sets mode on creation.
 - name: Configure passwordless sudo for non-root user
   become: yes
-  ansible.builtin.lineinfile:
-    path: /etc/sudoers.d/99-ansible-user
-    line: "{{ non_root_user }} ALL=(ALL) NOPASSWD: ALL"
-    create: yes
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/99-ansible-user
+    content: "{{ non_root_user }} ALL=(ALL) NOPASSWD: ALL\n"
     mode: '0440'
     validate: 'visudo -cf %s'
 
