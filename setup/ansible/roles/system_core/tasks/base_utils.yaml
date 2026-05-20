@@ -72,30 +72,35 @@
   failed_when: dnf_full_upgrade.failed | default(false)
   when: ansible_facts['os_family'] == 'RedHat'
 
-- name: Install unzip and zip (Arch)
+# git is required by pyenv's bootstrap script (curl pyenv.run | bash) and
+# by several other SDK installers. Minimal Ubuntu/Debian VMs don't ship it.
+- name: Install unzip, zip and git (Arch)
   community.general.pacman:
     name:
       - unzip
       - zip
+      - git
     state: present
   become: yes
   when: ansible_facts['os_family'] == 'Archlinux'
 
-- name: Install unzip and zip (Debian)
+- name: Install unzip, zip and git (Debian)
   ansible.builtin.apt:
     name:
       - unzip
       - zip
+      - git
     state: present
   become: yes
   when: ansible_facts['os_family'] == 'Debian'
 
-- name: Install unzip, zip and patch (Fedora)
+- name: Install unzip, zip, patch and git (Fedora)
   ansible.builtin.dnf:
     name:
       - unzip
       - zip
       - patch
+      - git
     state: present
   become: yes
   when: ansible_facts['os_family'] == 'RedHat'

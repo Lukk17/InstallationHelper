@@ -233,6 +233,20 @@
     - libvirt_firewall_backend is changed
   tags: [docker, libvirt]
 
+# On Arch, after libvirtd flips its firewall backend to nftables, kernel
+# iptables-nft state needs a moment to settle before dockerd can register
+# its NAT chains. Without this pause, Docker.service failed 4s after the
+# libvirtd restart with "Job for docker.service failed because the control
+# process exited with error code." See AGENTS.md for full context.
+- name: Pause briefly to let iptables-nft state settle (Arch)
+  ansible.builtin.pause:
+    seconds: 5
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - libvirt_firewall_backend is defined
+    - libvirt_firewall_backend is changed
+  tags: [docker, libvirt]
+
 # nf_tables / nft_compat / br_netfilter are built INTO modern Arch
 # kernels (not loadable modules) so no explicit modprobe is needed.
 # An earlier attempt at `community.general.modprobe` here fired AFTER
@@ -258,6 +272,10 @@
     name: docker
     state: started
     enabled: true
+  register: docker_start
+  retries: 3
+  delay: 5
+  until: docker_start is succeeded
   when:
     - ansible_facts['system'] == 'Linux'
     - install_docker | default(false) | bool

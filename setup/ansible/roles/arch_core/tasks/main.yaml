@@ -197,20 +197,19 @@
     creates: /usr/bin/snap
   when: install_snapd | default(false) | bool
 
-- name: Install snapd core channel
+# Order matters: snap install core needs snapd.socket bound first. The
+# previous order ran `snap install core` immediately after the paru install,
+# before snapd.socket was enabled — failed with "no such file or directory"
+# on /run/snapd.socket.
+- name: Enable and start snapd socket
   become: yes
-  ansible.builtin.command: snap install core
-  changed_when: false
-  failed_when: false
-  register: snap_core_install
+  ansible.builtin.systemd:
+    name: snapd.socket
+    state: started
+    enabled: yes
   when: install_snapd | default(false) | bool
 
-- name: Snap core already installed warning
-  ansible.builtin.debug:
-    msg: "Snap 'core' is already installed, see 'snap help refresh'"
-  when: install_snapd | default(false) | bool and snap_core_install.rc != 0
-
-- name: Wait for snapd to be ready
+- name: Wait for snapd socket to be ready
   ansible.builtin.pause:
     seconds: 5
   when: install_snapd | default(false) | bool
@@ -223,13 +222,18 @@
     state: link
   when: install_snapd | default(false) | bool
 
-- name: Enable snapd socket
+- name: Install snapd core channel
   become: yes
-  ansible.builtin.systemd:
-    name: snapd.socket
-    state: started
-    enabled: yes
+  ansible.builtin.command: snap install core
+  changed_when: false
+  failed_when: false
+  register: snap_core_install
   when: install_snapd | default(false) | bool
+
+- name: Snap core already installed warning
+  ansible.builtin.debug:
+    msg: "Snap 'core' is already installed, see 'snap help refresh'"
+  when: install_snapd | default(false) | bool and snap_core_install.rc != 0
 
 
 

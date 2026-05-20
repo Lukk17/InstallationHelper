@@ -38,6 +38,11 @@
   register: sdk_java_install
   async: 1200
   poll: 30
+  # Adoptium CDN occasionally flakes mid-download ("Download has failed,
+  # aborting!"). 2 retries with 30s delay absorbs the transient case.
+  retries: 2
+  delay: 30
+  until: sdk_java_install is succeeded
   changed_when: "'is already installed' not in (sdk_java_install.stdout | default(''))"
   failed_when: >
     sdk_java_install.rc | default(0) != 0 and
