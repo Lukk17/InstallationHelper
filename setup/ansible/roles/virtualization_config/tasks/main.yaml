@@ -166,6 +166,51 @@
     state: present
   when: ansible_facts['os_family'] == 'Archlinux' and install_docker | default(false) | bool
 
+# On Arch, libvirtd loaded the legacy iptables kernel modules when it
+# started a few tasks earlier. Docker (with iptables-nft) then fails to
+# init the bridge driver with "iptables v1.8.13 (nf_tables): Could not
+# fetch rule set generation id: Invalid argument" because the kernel
+# namespace is in mixed legacy+nft state. Fix: switch libvirt's firewall
+# backend to nftables and restart libvirtd so both ecosystems agree.
+- name: Configure libvirt firewall backend to nftables (Arch)
+  ansible.builtin.lineinfile:
+    path: /etc/libvirt/network.conf
+    regexp: '^#?\s*firewall_backend\s*='
+    line: 'firewall_backend = "nftables"'
+    create: true
+    mode: '0644'
+    owner: root
+    group: root
+  become: true
+  register: libvirt_firewall_backend
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - install_docker | default(false) | bool
+    - install_virt_manager | default(false) | bool
+
+- name: Restart libvirtd after firewall-backend change (Arch)
+  ansible.builtin.systemd:
+    name: libvirtd
+    state: restarted
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - libvirt_firewall_backend is defined
+    - libvirt_firewall_backend is changed
+
+- name: Ensure nftables kernel modules are loaded before Docker start (Arch)
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - nf_tables
+    - nft_compat
+    - br_netfilter
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - install_docker | default(false) | bool
+
 - name: Probe for docker.service unit (Linux)
   ansible.builtin.stat:
     path: "{{ item }}"
