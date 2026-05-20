@@ -198,18 +198,13 @@
     - libvirt_firewall_backend is defined
     - libvirt_firewall_backend is changed
 
-- name: Ensure nftables kernel modules are loaded before Docker start (Arch)
-  community.general.modprobe:
-    name: "{{ item }}"
-    state: present
-  loop:
-    - nf_tables
-    - nft_compat
-    - br_netfilter
-  become: true
-  when:
-    - ansible_facts['os_family'] == 'Archlinux'
-    - install_docker | default(false) | bool
+# nf_tables / nft_compat / br_netfilter are built INTO modern Arch
+# kernels (not loadable modules) so no explicit modprobe is needed.
+# An earlier attempt at `community.general.modprobe` here fired AFTER
+# the mid-playbook pacman -Syu had bumped the kernel and removed the
+# running kernel's /lib/modules/<ver>/ dir — every modprobe then failed
+# with "No such file or directory: modules.builtin" and the rescue
+# skipped the actual Docker start. Trust the running kernel.
 
 - name: Probe for docker.service unit (Linux)
   ansible.builtin.stat:
