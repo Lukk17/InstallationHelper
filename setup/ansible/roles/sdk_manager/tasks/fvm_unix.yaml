@@ -122,32 +122,21 @@
     - fvm_install_job is defined
     - fvm_install_job.ansible_job_id is defined
 
-# fvm global (no args) enters an interactive picker when no global is set
-# — without </dev/null it blocks on stdin forever. Last Ubuntu run hung
-# 8+ hours here. Hard 30s timeout + closed stdin prevents recurrence.
-- name: Read current FVM global channel
-  ansible.builtin.shell: |
-    set -o pipefail
-    export PATH="{{ fvm_bin_dir.stdout | trim }}:{{ non_root_home }}/.pub-cache/bin:$PATH"
-    timeout 30 fvm global </dev/null 2>/dev/null || true
-  args:
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  register: fvm_current_global
-  changed_when: false
-  failed_when: false
-  when: fvm_bin_dir.rc == 0
-
+# `fvm global <channel>` writes a config file — no network, no download.
+# Re-setting to the current value is a no-op on disk, so the previous
+# "Read current FVM global channel" probe is dropped (it hit FVM's
+# interactive picker via `fvm global` with no args and hung 8h on Ubuntu).
+# Run set unconditionally with stdin closed; 10s is the hard safety net,
+# the actual work completes in <1s.
 - name: Set FVM global version ({{ flutter_channel }})
   ansible.builtin.shell: |
     set -o pipefail
     export PATH="{{ fvm_bin_dir.stdout | trim }}:{{ non_root_home }}/.pub-cache/bin:$PATH"
-    timeout 120 fvm global {{ flutter_channel }} </dev/null
+    timeout 10 fvm global {{ flutter_channel }} </dev/null
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  when:
-    - fvm_bin_dir.rc == 0
-    - flutter_channel not in (fvm_current_global.stdout | default(''))
+  register: fvm_set_global
+  changed_when: "'Setting Flutter SDK' in (fvm_set_global.stdout | default(''))"
+  when: fvm_bin_dir.rc == 0
