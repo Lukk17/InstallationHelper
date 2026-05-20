@@ -18,10 +18,20 @@
   ansible.builtin.set_fact:
     machine_id: "{{ machine_id_raw.content | b64decode | trim }}"
 
-- name: Get current kernel version (Fedora)
-  ansible.builtin.command: uname -r
+# Use the NEWEST installed kernel image (Fedora keeps vmlinuz inside the
+# kernel's modules dir, not /boot). setup.sh's pre-Ansible `dnf upgrade`
+# may install a new kernel that's not the running one. installonly_limit
+# keeps multiple kernels by default, but the user may have set it to 1.
+# Either way, point systemd-boot at the latest on disk, not uname -r.
+- name: Find newest installed kernel image (Fedora)
+  ansible.builtin.shell: |
+    set -o pipefail
+    ls -1d /lib/modules/*/vmlinuz 2>/dev/null | awk -F/ '{print $4}' | sort -V | tail -1
+  args:
+    executable: /bin/bash
   register: kernel_version
   changed_when: false
+  failed_when: kernel_version.stdout | length == 0
 
 - name: Run kernel-install to generate BLS boot entry (Fedora)
   become: yes

@@ -26,10 +26,19 @@
     owner: root
     group: root
 
-- name: Get current kernel version (Debian)
-  ansible.builtin.command: uname -r
+# Use the NEWEST installed kernel image in /boot, not `uname -r`. setup.sh's
+# pre-Ansible `apt full-upgrade && apt autoremove` may install a new kernel
+# and remove the old one's /boot/vmlinuz-<old> before reboot. The running
+# kernel (uname -r) would then point at a file that no longer exists.
+- name: Find newest installed kernel image (Debian)
+  ansible.builtin.shell: |
+    set -o pipefail
+    ls -1 /boot/vmlinuz-* 2>/dev/null | sed 's|^/boot/vmlinuz-||' | sort -V | tail -1
+  args:
+    executable: /bin/bash
   register: kernel_version
   changed_when: false
+  failed_when: kernel_version.stdout | length == 0
 
 - name: Run kernel-install to generate BLS boot entry (Debian)
   become: yes
