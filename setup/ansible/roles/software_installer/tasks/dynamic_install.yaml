@@ -285,6 +285,9 @@
         - not (aur_allow_failures | default(false) | bool)
       tags: [pacman_batch]
 
+    # Snap fetches from api.snapcraft.io can flake with HTTP 56 (peer reset)
+    # mid-stream. snap's own internal retry sometimes recovers; this outer
+    # retry absorbs the cases where it doesn't.
     - name: Install Snap packages
       community.general.snap:
         name: "{{ item.value.package }}"
@@ -295,6 +298,10 @@
       when: ansible_facts['system'] == 'Linux'
       loop_control:
         label: "{{ item.value.package }}"
+      register: snap_install
+      retries: 2
+      delay: 15
+      until: snap_install is succeeded
       tags: [snap]
 
     - name: Ensure flatpak daemon is installed
