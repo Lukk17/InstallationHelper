@@ -300,11 +300,21 @@
         - ansible_facts['os_family'] == 'Darwin'
         - brew_check.rc == 0
 
+    # Cleanup post-task. unattended-upgrades on Ubuntu can hold the apt lock
+    # at this exact moment, causing `apt-get clean` to fail. The retries
+    # absorb that transient lock contention. failed_when: false so any
+    # remaining cleanup failure doesn't mark the playbook FAILED for a
+    # cosmetic miss (cache stays around; harmless).
     - name: Clean APT cache (Debian)
       ansible.builtin.apt:
         autoremove: yes
         clean: yes
       become: yes
+      register: clean_apt_cache
+      retries: 3
+      delay: 5
+      until: clean_apt_cache is succeeded
+      failed_when: false
       when:
         - playbook_succeeded | bool
         - ansible_facts['os_family'] == 'Debian'
