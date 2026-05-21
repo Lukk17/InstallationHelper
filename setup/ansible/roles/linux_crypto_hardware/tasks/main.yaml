@@ -4,40 +4,63 @@
     url: "https://raw.githubusercontent.com/LedgerHQ/udev-rules/master/20-hw1.rules"
     dest: /etc/udev/rules.d/20-hw1.rules
     mode: '0644'
+    owner: root
+    group: root
   become: yes
+  register: ledger_rules
   when: install_ledger_live | bool
 
 - name: Add Trezor udev rules (Debian)
   ansible.builtin.apt:
     deb: "https://data.trezor.io/udev/trezor-udev_2_all.deb"
   become: yes
-  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'Debian'
+  register: trezor_deb
+  when:
+    - install_trezor_suite | bool
+    - ansible_facts['os_family'] == 'Debian'
 
 - name: Add Trezor udev rules (RedHat)
   ansible.builtin.get_url:
     url: "https://data.trezor.io/udev/51-trezor.rules"
     dest: /etc/udev/rules.d/51-trezor.rules
     mode: '0644'
+    owner: root
+    group: root
   become: yes
-  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'RedHat'
-
-- name: Reload udev rules (RedHat)
-  ansible.builtin.command: udevadm control --reload-rules
-  become: yes
-  changed_when: false
-  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'RedHat'
+  register: trezor_rules_redhat
+  when:
+    - install_trezor_suite | bool
+    - ansible_facts['os_family'] == 'RedHat'
 
 - name: Add Trezor udev rules (Archlinux)
-  become: yes
   ansible.builtin.get_url:
     url: "https://data.trezor.io/udev/51-trezor.rules"
     dest: /etc/udev/rules.d/51-trezor.rules
     mode: '0644'
-  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'Archlinux'
-
-- name: Reload udev rules (Archlinux)
+    owner: root
+    group: root
   become: yes
-  ansible.builtin.command: udevadm control --reload-rules
-  changed_when: false
-  when: install_trezor_suite | bool and ansible_facts['os_family'] == 'Archlinux'
+  register: trezor_rules_arch
+  when:
+    - install_trezor_suite | bool
+    - ansible_facts['os_family'] == 'Archlinux'
 
+- name: Reload udev rules
+  ansible.builtin.command: udevadm control --reload-rules
+  become: yes
+  changed_when: false
+  when: >-
+    (ledger_rules is defined and ledger_rules is changed) or
+    (trezor_deb is defined and trezor_deb is changed) or
+    (trezor_rules_redhat is defined and trezor_rules_redhat is changed) or
+    (trezor_rules_arch is defined and trezor_rules_arch is changed)
+
+- name: Trigger udev for currently-connected devices
+  ansible.builtin.command: udevadm trigger
+  become: yes
+  changed_when: false
+  when: >-
+    (ledger_rules is defined and ledger_rules is changed) or
+    (trezor_deb is defined and trezor_deb is changed) or
+    (trezor_rules_redhat is defined and trezor_rules_redhat is changed) or
+    (trezor_rules_arch is defined and trezor_rules_arch is changed)

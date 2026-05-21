@@ -9,24 +9,62 @@
     name: systemd-boot
     state: present
 
-- name: Get current kernel version (Fedora)
-  ansible.builtin.shell: uname -r
+- name: Read machine-id (Fedora)
+  ansible.builtin.slurp:
+    src: /etc/machine-id
+  register: machine_id_raw
+
+- name: Set machine-id fact (Fedora)
+  ansible.builtin.set_fact:
+    machine_id: "{{ machine_id_raw.content | b64decode | trim }}"
+
+# Use the NEWEST installed kernel image (Fedora keeps vmlinuz inside the
+# kernel's modules dir, not /boot). setup.sh's pre-Ansible `dnf upgrade`
+# may install a new kernel that's not the running one. installonly_limit
+# keeps multiple kernels by default, but the user may have set it to 1.
+# Either way, point systemd-boot at the latest on disk, not uname -r.
+- name: Find newest installed kernel image (Fedora)
+  ansible.builtin.shell: |
+    set -o pipefail
+    ls -1d /lib/modules/*/vmlinuz 2>/dev/null | awk -F/ '{print $4}' | sort -V | tail -1
+  args:
+    executable: /bin/bash
   register: kernel_version
   changed_when: false
+  failed_when: kernel_version.stdout | length == 0
 
 - name: Run kernel-install to generate BLS boot entry (Fedora)
   become: yes
-  ansible.builtin.shell: >
+  ansible.builtin.command: >-
     kernel-install add {{ kernel_version.stdout }}
     /lib/modules/{{ kernel_version.stdout }}/vmlinuz
   args:
-    creates: "{{ esp_path }}/loader/entries/{{ ansible_hostname }}-{{ kernel_version.stdout }}.conf"
-  ignore_errors: yes
+    creates: "{{ esp_path }}/loader/entries/{{ machine_id }}-{{ kernel_version.stdout }}.conf"
+  register: fedora_kernel_install
+  failed_when:
+    - fedora_kernel_install.rc != 0
+    - "'already' not in (fedora_kernel_install.stderr | default(''))"
 
+# sdubby keeps systemd-boot synced across kernel updates; failure to
+# install it is surfaced (not swallowed) so the operator can recover.
 - name: Install kernel-install plugin to keep systemd-boot updated on Fedora
   become: yes
   ansible.builtin.dnf:
     name: sdubby
     state: present
-  ignore_errors: yes
+  register: sdubby_install
+  failed_when:
+    - sdubby_install.rc is defined
+    - sdubby_install.rc != 0
+    - "'Nothing to do' not in (sdubby_install.msg | default(''))"
+    - "'already installed' not in (sdubby_install.msg | default(''))"
 
+- name: Warn when sdubby could not be installed
+  ansible.builtin.debug:
+    msg: >-
+      sdubby (kernel-install plugin) could not be installed. systemd-boot
+      will work for the CURRENT kernel but future Fedora kernel updates will
+      not automatically refresh the BLS entry. Install sdubby manually
+      (`dnf install sdubby`) or this role's reruns will need to re-generate
+      entries after kernel updates.
+  when: sdubby_install is failed

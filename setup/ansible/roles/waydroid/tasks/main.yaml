@@ -1,9 +1,11 @@
 ---
 - name: Add Waydroid repository (Debian)
   ansible.builtin.shell: |
-    curl https://repo.waydro.id | bash
+    set -o pipefail
+    curl -fsSL https://repo.waydro.id | bash
   args:
     creates: /etc/apt/sources.list.d/waydroid.list
+    executable: /bin/bash
   become: yes
   when: ansible_facts['os_family'] == 'Debian'
 
@@ -31,35 +33,66 @@
   become: yes
   when: ansible_facts['os_family'] == 'RedHat'
 
-- name: Set Waydroid Multi-Windows Prop
+- name: Probe for Waydroid data image
+  ansible.builtin.stat:
+    path: /var/lib/waydroid/images/system.img
+  register: waydroid_image
+  become: yes
+
+# `timeout 1700` inside the shell guards against a stuck network mid-stream
+# (waydroid init downloads ~1 GB and otherwise can hang past async window).
+- name: Initialise Waydroid system image
+  ansible.builtin.shell: |
+    set -o pipefail
+    timeout 1700 waydroid init -s GAPPS </dev/null
+  args:
+    executable: /bin/bash
+  become: yes
+  when: not waydroid_image.stat.exists
+  async: 1800
+  poll: 30
+  register: waydroid_init
+  changed_when: waydroid_init.rc == 0
+  failed_when: waydroid_init.rc != 0
+
+- name: Probe current Waydroid multi-window prop
+  ansible.builtin.command: waydroid prop get persist.waydroid.multi_windows
+  become: yes
+  register: waydroid_mw_current
+  changed_when: false
+  failed_when: false
+
+- name: Set Waydroid Multi-Windows prop
   ansible.builtin.command: waydroid prop set persist.waydroid.multi_windows true
   become: yes
-  changed_when: false
+  when: waydroid_mw_current.stdout | trim != 'true'
 
-- name: Restart Waydroid Container
+- name: Enable and start Waydroid container service
   ansible.builtin.systemd:
     name: waydroid-container
-    state: restarted
+    enabled: yes
+    state: started
   become: yes
-  changed_when: true
 
 - name: Download Aurora Store
   ansible.builtin.get_url:
     url: "{{ aurora_store_url }}"
     dest: "{{ non_root_home }}/.lukkInstall/{{ aurora_store_file }}"
+    mode: '0644'
     headers:
       User-Agent: Mozilla
+    timeout: 60
   become: yes
   become_user: "{{ non_root_user }}"
+  register: aurora_store_download
+  retries: 3
+  delay: 10
+  until: aurora_store_download is succeeded
 
-- name: Download Aurora Droid
-  ansible.builtin.get_url:
-    url: "{{ aurora_droid_url }}"
-    dest: "{{ non_root_home }}/.lukkInstall/{{ aurora_droid_file }}"
-    headers:
-      User-Agent: Mozilla
-  become: yes
-  become_user: "{{ non_root_user }}"
+- name: Probe for GDM custom config
+  ansible.builtin.stat:
+    path: /etc/gdm3/custom.conf
+  register: gdm_conf
 
 - name: Configure GDM Wayland Enable
   ansible.builtin.replace:
@@ -68,12 +101,15 @@
     replace: 'WaylandEnable=true'
   become: yes
   notify: Restart GDM3
+  when: gdm_conf.stat.exists
 
 - name: Configure NVIDIA Wayland memory allocation
   ansible.builtin.lineinfile:
     path: /etc/modprobe.d/nvidia-power-management.conf
     line: "options nvidia NVreg_PreserveVideoMemoryAllocations=1"
     create: yes
+    mode: '0644'
+    owner: root
+    group: root
   become: yes
   notify: Restart GDM3
-

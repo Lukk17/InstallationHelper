@@ -26,11 +26,18 @@
   register: omz_dir
 
 - name: Install Oh-My-Zsh
-  become: yes
-  become_user: "{{ non_root_user }}"
-  ansible.builtin.shell: 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
+  ansible.builtin.shell: |
+    set -o pipefail
+    sh -c "$(curl -fsSL --max-time 120 https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended </dev/null
   args:
     executable: /bin/bash
+    creates: "{{ non_root_home }}/.oh-my-zsh/oh-my-zsh.sh"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: omz_install
+  retries: 3
+  delay: 10
+  until: omz_install is succeeded
   when: not omz_dir.stat.exists
 
 - name: Copy ZSH configuration files

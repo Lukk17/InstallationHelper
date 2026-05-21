@@ -24,16 +24,15 @@ install_dbeaver: true
 install_filezilla: true
 
 # IDEs / Editors
-# install_intellij: true  # Removed - use JetBrains Toolbox instead
 install_vscode: true
 install_sublime: true
 install_arduino: true
 install_antigravity: true
+install_bruno: true
 
 # Communication
 install_discord: true
 install_slack: true
-# install_teams: true  # Removed - not available on Linux
 install_telegram: true
 install_whatsapp: true
 install_signal: true
@@ -42,7 +41,6 @@ install_signal: true
 install_obsidian: true
 install_bitwarden: true
 install_keepassxc: true
-install_trello: true
 install_onlyoffice: true
 
 # Media / Design
@@ -77,7 +75,7 @@ install_gridcoin: true
 install_dart: true
 install_flutter: true
 install_android_sdk: true
-install_stable_diffusion: true
+install_stable_diffusion: false  # heavy: clones AUTOMATIC1111 repo + GB of model deps. Opt in explicitly.
 install_lm_studio: true
 install_claude_code: true
 install_claude_desktop: true

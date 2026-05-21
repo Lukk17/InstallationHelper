@@ -1,17 +1,34 @@
 ---
-- name: Install QEMU/KVM and virt-manager packages (Debian)
-  become: yes
-  ansible.builtin.apt:
-    name:
-      - qemu-kvm
-      - libvirt-daemon-system
-      - libvirt-clients
-      - virt-manager
-      - virtinst
-      - bridge-utils
-      - virtiofsd
-    state: present
+# Debian/Ubuntu apt tasks use shell+file-redirect (Ubuntu hit the 2.19
+# deserialization bug on long apt installs). Arch and Fedora kept on the
+# native modules — they ran cleanly in the last full run.
+
+- name: Install QEMU/KVM and virt-manager packages (Debian) via apt-get → log file
+  ansible.builtin.shell: |
+    apt-get install -yqq \
+      -o DPkg::Lock::Timeout=300 \
+      -o Dpkg::Options::=--force-confdef \
+      -o Dpkg::Options::=--force-confold \
+      qemu-kvm libvirt-daemon-system libvirt-clients virt-manager virtinst \
+      bridge-utils virtiofsd \
+      2>&1 | tee -a /var/log/installation-virt-apt.log
+  args:
+    executable: /bin/bash
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    APT_LISTCHANGES_FRONTEND: none
+    NEEDRESTART_MODE: a
+    NEEDRESTART_SUSPEND: "1"
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+  become: true
+  register: virt_apt_result
+  # Detect idempotent no-op: apt's "0 upgraded, 0 newly installed, 0 to remove"
+  # line means nothing changed. Any other output means real work happened.
+  changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (virt_apt_result.stdout | default(''))"
+  failed_when: virt_apt_result.rc | default(0) != 0
   when: ansible_facts['os_family'] == 'Debian' and install_virt_manager | default(false) | bool
+  tags: [libvirt]
 
 - name: Install QEMU/KVM and virt-manager packages (Arch)
   become: yes
@@ -25,6 +42,7 @@
       - virtiofsd
     state: present
   when: ansible_facts['os_family'] == 'Archlinux' and install_virt_manager | default(false) | bool
+  tags: [libvirt]
 
 - name: Install QEMU/KVM and virt-manager packages (Fedora)
   become: yes
@@ -38,28 +56,39 @@
       - virtiofsd
     state: present
   when: ansible_facts['os_family'] == 'RedHat' and install_virt_manager | default(false) | bool
+  tags: [libvirt]
 
-# Install spice-vdagent when this machine is itself running inside a VM (guest)
-- name: Install spice-vdagent for clipboard/display integration (Debian guest)
-  become: yes
-  ansible.builtin.apt:
-    name: spice-vdagent
-    state: present
+# spice-vdagent — only when this machine is itself a guest VM.
+- name: Install spice-vdagent (Debian guest) via apt-get → log file
+  ansible.builtin.shell: |
+    apt-get install -yqq spice-vdagent 2>&1 | tee -a /var/log/installation-virt-apt.log
+  args:
+    executable: /bin/bash
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    NEEDRESTART_MODE: a
+  become: true
+  register: spice_apt_result
+  changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (spice_apt_result.stdout | default(''))"
+  failed_when: spice_apt_result.rc | default(0) != 0
   when: ansible_facts['os_family'] == 'Debian' and ansible_virtualization_role == 'guest'
+  tags: [libvirt]
 
-- name: Install spice-vdagent for clipboard/display integration (Arch guest)
+- name: Install spice-vdagent (Arch guest)
   become: yes
   community.general.pacman:
     name: spice-vdagent
     state: present
   when: ansible_facts['os_family'] == 'Archlinux' and ansible_virtualization_role == 'guest'
+  tags: [libvirt]
 
-- name: Install spice-vdagent for clipboard/display integration (Fedora guest)
+- name: Install spice-vdagent (Fedora guest)
   become: yes
   ansible.builtin.dnf:
     name: spice-vdagent
     state: present
   when: ansible_facts['os_family'] == 'RedHat' and ansible_virtualization_role == 'guest'
+  tags: [libvirt]
 
 - name: Enable and start libvirtd service (Linux)
   become: true
@@ -68,6 +97,7 @@
     state: started
     enabled: true
   when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+  tags: [libvirt]
 
 - name: Add current user to libvirt group (Linux)
   become: true
@@ -76,6 +106,7 @@
     groups: libvirt
     append: true
   when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+  tags: [libvirt]
 
 - name: Add current user to kvm group (Linux)
   become: true
@@ -84,13 +115,156 @@
     groups: kvm
     append: true
   when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+  tags: [libvirt]
+
+# Docker — installed here for ALL Linux distros so the service-start task can
+# rely on the package being present. The matching APT/DNF repos are provisioned
+# by `software_installer/tasks/{debian_repos,fedora_repos}.yaml` when the toggle
+# is on.
+
+# Same shell+apt-get pattern as the batched software install — Ubuntu's apt
+# module reliably trips "Module result deserialization failed" when a docker
+# install's containerd.io / docker-ce postinst writes to stdout (systemctl
+# daemon-reload, needrestart messages). Bypass via shell.
+- name: Install Docker CE (Debian) via apt-get → log file
+  ansible.builtin.shell: |
+    apt-get install -yqq \
+      -o DPkg::Lock::Timeout=300 \
+      -o Dpkg::Options::=--force-confdef \
+      -o Dpkg::Options::=--force-confold \
+      docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin \
+      2>&1 | tee -a /var/log/installation-docker-apt.log
+  args:
+    executable: /bin/bash
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    APT_LISTCHANGES_FRONTEND: none
+    NEEDRESTART_MODE: a
+    NEEDRESTART_SUSPEND: "1"
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+  become: true
+  register: docker_apt_result
+  changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (docker_apt_result.stdout | default(''))"
+  failed_when: docker_apt_result.rc | default(0) != 0
+  when: ansible_facts['os_family'] == 'Debian' and install_docker | default(false) | bool
+  tags: [docker]
+
+- name: Install Docker CE (Fedora)
+  become: true
+  ansible.builtin.dnf:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  when: ansible_facts['os_family'] == 'RedHat' and install_docker | default(false) | bool
+  tags: [docker]
 
 - name: Install Docker (Arch)
   become: true
   community.general.pacman:
-    name: docker
+    name:
+      - docker
+      - docker-buildx
+      - docker-compose
+      # iptables-nft replaces iptables and is the variant docker.service
+      # expects on Arch. Without it docker daemon fails to start.
+      # bridge-utils is NOT needed (iproute2 ships those tools and
+      # bridge-utils is no longer in the Arch repos).
+      - iptables-nft
     state: present
   when: ansible_facts['os_family'] == 'Archlinux' and install_docker | default(false) | bool
+  tags: [docker]
+
+# On Arch, libvirtd loaded the legacy iptables kernel modules when it
+# started a few tasks earlier. Docker (with iptables-nft) then fails to
+# init the bridge driver with "iptables v1.8.13 (nf_tables): Could not
+# fetch rule set generation id: Invalid argument" because the kernel
+# namespace is in mixed legacy+nft state. Fix: switch libvirt's firewall
+# backend to nftables and restart libvirtd so both ecosystems agree.
+# Probe whether libvirt is actually installed before writing its config.
+# Under `--tags docker` alone, the libvirt install task (tagged `[libvirt]`)
+# doesn't fire, so libvirtd.service may be absent. Writing to network.conf
+# and restarting a non-existent unit would fail the play.
+- name: Probe for libvirtd.service unit (Arch)
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: libvirtd_service_units
+  loop:
+    - /usr/lib/systemd/system/libvirtd.service
+    - /lib/systemd/system/libvirtd.service
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - install_docker | default(false) | bool
+    - install_virt_manager | default(false) | bool
+  tags: [docker, libvirt]
+
+- name: Configure libvirt firewall backend to nftables (Arch)
+  ansible.builtin.lineinfile:
+    path: /etc/libvirt/network.conf
+    regexp: '^#?\s*firewall_backend\s*='
+    line: 'firewall_backend = "nftables"'
+    create: true
+    mode: '0644'
+    owner: root
+    group: root
+  become: true
+  register: libvirt_firewall_backend
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - install_docker | default(false) | bool
+    - install_virt_manager | default(false) | bool
+    - libvirtd_service_units is defined
+    - libvirtd_service_units.results | selectattr('stat.exists', 'equalto', true) | list | length > 0
+  tags: [docker, libvirt]
+
+- name: Restart libvirtd after firewall-backend change (Arch)
+  ansible.builtin.systemd:
+    name: libvirtd
+    state: restarted
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - libvirt_firewall_backend is defined
+    - libvirt_firewall_backend is changed
+  tags: [docker, libvirt]
+
+# On Arch, after libvirtd flips its firewall backend to nftables, kernel
+# iptables-nft state needs a moment to settle before dockerd can register
+# its NAT chains. Without this pause, Docker.service failed 4s after the
+# libvirtd restart with "Job for docker.service failed because the control
+# process exited with error code." See AGENTS.md for full context.
+- name: Pause briefly to let iptables-nft state settle (Arch)
+  ansible.builtin.pause:
+    seconds: 5
+  when:
+    - ansible_facts['os_family'] == 'Archlinux'
+    - libvirt_firewall_backend is defined
+    - libvirt_firewall_backend is changed
+  tags: [docker, libvirt]
+
+# nf_tables / nft_compat / br_netfilter are built INTO modern Arch
+# kernels (not loadable modules) so no explicit modprobe is needed.
+# An earlier attempt at `community.general.modprobe` here fired AFTER
+# the mid-playbook pacman -Syu had bumped the kernel and removed the
+# running kernel's /lib/modules/<ver>/ dir — every modprobe then failed
+# with "No such file or directory: modules.builtin" and the rescue
+# skipped the actual Docker start. Trust the running kernel.
+
+- name: Probe for docker.service unit (Linux)
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: docker_service_units
+  loop:
+    - /lib/systemd/system/docker.service
+    - /usr/lib/systemd/system/docker.service
+    - /etc/systemd/system/docker.service
+  when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool
+  tags: [docker]
 
 - name: Enable and start Docker service (Linux)
   become: true
@@ -98,7 +272,16 @@
     name: docker
     state: started
     enabled: true
-  when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool
+  register: docker_start
+  retries: 3
+  delay: 5
+  until: docker_start is succeeded
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_docker | default(false) | bool
+    - docker_service_units is defined
+    - docker_service_units.results | selectattr('stat.exists', 'equalto', true) | list | length > 0
+  tags: [docker]
 
 - name: Add current user to docker group (Linux)
   become: true
@@ -107,4 +290,5 @@
     groups: docker
     append: true
   when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool
+  tags: [docker]
 

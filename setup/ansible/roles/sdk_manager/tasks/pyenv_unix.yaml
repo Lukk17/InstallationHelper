@@ -55,20 +55,26 @@
 - name: Install Pyenv (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    curl https://pyenv.run | bash
+    curl -fsSL --max-time 120 https://pyenv.run | bash
   args:
     creates: "{{ non_root_home }}/.pyenv/bin/pyenv"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  register: pyenv_bootstrap
+  retries: 3
+  delay: 10
+  until: pyenv_bootstrap is succeeded
 
-- name: Install all Python versions via Pyenv (Linux/Mac)
+# Fire all 4 Python builds in parallel (poll: 0). Each compiles from source
+# in ~5–10 min — serial is 20–40 min, parallel is bound by CPU contention
+# on a 4-core box (≈15–20 min). async_status collects results afterwards.
+- name: Fire all Python builds via Pyenv (parallel)
   ansible.builtin.shell: |
     set -o pipefail
     export PYENV_ROOT="{{ non_root_home }}/.pyenv"
     export PATH="$PYENV_ROOT/bin:$PATH"
-    eval "$(pyenv init -)"
-    pyenv install --skip-existing {{ item }}
+    timeout 1500 pyenv install --skip-existing {{ item }} </dev/null
   args:
     executable: /bin/bash
   become: yes
@@ -78,9 +84,48 @@
     - "{{ python311_id }}"
     - "{{ python312_id }}"
     - "{{ python313_id }}"
+  loop_control:
+    label: "{{ item }}"
+  async: 1800
+  poll: 0
+  register: pyenv_jobs
+  changed_when: false
+
+- name: Wait for parallel Pyenv Python builds to finish
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  loop: "{{ pyenv_jobs.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
   register: pyenv_install
-  changed_when: "'already installed' not in pyenv_install.stderr and 'already exists' not in pyenv_install.stderr"
-  failed_when: pyenv_install.rc != 0 and 'already exists' not in pyenv_install.stderr
+  until: pyenv_install.finished
+  retries: 80
+  delay: 30
+  changed_when: >-
+    pyenv_install.finished and
+    'already installed' not in (pyenv_install.stderr | default('')) and
+    'already exists' not in (pyenv_install.stderr | default(''))
+  failed_when:
+    - pyenv_install.finished
+    - pyenv_install.rc | default(0) != 0
+    - "'already exists' not in (pyenv_install.stderr | default(''))"
+
+- name: Read current pyenv global version
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PYENV_ROOT="{{ non_root_home }}/.pyenv"
+    export PATH="$PYENV_ROOT/bin:$PATH"
+    eval "$(pyenv init -)"
+    pyenv global
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: pyenv_current_global
+  changed_when: false
+  failed_when: false
 
 - name: Set default Python via Pyenv (Linux/Mac)
   ansible.builtin.shell: |
@@ -93,5 +138,5 @@
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  changed_when: true
+  when: (pyenv_current_global.stdout | default('') | trim) != default_python
 

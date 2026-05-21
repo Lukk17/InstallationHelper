@@ -1,4 +1,21 @@
 ---
+# When /boot is NOT the ESP, kernel images live on the rootfs but BLS entry
+# paths resolve relative to ESP root — copy them into {{ esp_path }}/{{ machine_id }}/
+# and emit absolute-from-ESP paths so the loader can find the kernel.
+
+- name: Read machine-id (Debian)
+  ansible.builtin.slurp:
+    src: /etc/machine-id
+  register: machine_id_raw
+
+- name: Set machine-id fact (Debian)
+  ansible.builtin.set_fact:
+    machine_id: "{{ machine_id_raw.content | b64decode | trim }}"
+
+- name: Determine if /boot IS the ESP (Debian)
+  ansible.builtin.set_fact:
+    boot_is_esp: "{{ esp_path == '/boot' }}"
+
 - name: Configure kernel-install for BLS layout (Debian)
   become: yes
   ansible.builtin.copy:
@@ -6,21 +23,34 @@
     content: |
       layout=bls
     mode: '0644'
+    owner: root
+    group: root
 
-- name: Get current kernel version (Debian)
-  ansible.builtin.shell: uname -r
+# Use the NEWEST installed kernel image in /boot, not `uname -r`. setup.sh's
+# pre-Ansible `apt full-upgrade && apt autoremove` may install a new kernel
+# and remove the old one's /boot/vmlinuz-<old> before reboot. The running
+# kernel (uname -r) would then point at a file that no longer exists.
+- name: Find newest installed kernel image (Debian)
+  ansible.builtin.shell: |
+    set -o pipefail
+    ls -1 /boot/vmlinuz-* 2>/dev/null | sed 's|^/boot/vmlinuz-||' | sort -V | tail -1
+  args:
+    executable: /bin/bash
   register: kernel_version
   changed_when: false
+  failed_when: kernel_version.stdout | length == 0
 
 - name: Run kernel-install to generate BLS boot entry (Debian)
   become: yes
-  ansible.builtin.shell: >
+  ansible.builtin.command: >-
     kernel-install add {{ kernel_version.stdout }}
     /boot/vmlinuz-{{ kernel_version.stdout }}
   args:
-    creates: "{{ esp_path }}/loader/entries/{{ ansible_hostname }}-{{ kernel_version.stdout }}.conf"
-  ignore_errors: yes
+    creates: "{{ esp_path }}/loader/entries/{{ machine_id }}-{{ kernel_version.stdout }}.conf"
   register: kernel_install_result
+  failed_when:
+    - kernel_install_result.rc != 0
+    - "'No such file' not in (kernel_install_result.stderr | default(''))"
 
 - name: Check if kernel-install created a valid boot entry (Debian)
   ansible.builtin.find:
@@ -28,11 +58,25 @@
     patterns: "*.conf"
   register: debian_boot_entries
 
+- name: Stage kernel and initrd onto ESP when /boot is not the ESP
+  become: yes
+  ansible.builtin.copy:
+    src: "/boot/{{ item }}-{{ kernel_version.stdout }}"
+    dest: "{{ esp_path }}/{{ machine_id }}/{{ item }}-{{ kernel_version.stdout }}"
+    remote_src: true
+    mode: '0644'
+  loop:
+    - vmlinuz
+    - initrd.img
+  when:
+    - not boot_is_esp
+    - debian_boot_entries.matched == 0
+
 - name: Build boot options line (Debian)
   ansible.builtin.set_fact:
     boot_options: "root=UUID={{ root_uuid.stdout | trim }} rw quiet splash{{ ' resume=UUID=' ~ swap_uuid.stdout | trim if swap_uuid.stdout | default('') | trim != '' else '' }}"
 
-- name: "Fallback — create boot entry manually (Debian)"
+- name: "Fallback — create boot entry manually (Debian, /boot IS ESP)"
   become: yes
   ansible.builtin.copy:
     dest: "{{ esp_path }}/loader/entries/{{ ansible_distribution | lower }}.conf"
@@ -42,7 +86,27 @@
       initrd  /initrd.img-{{ kernel_version.stdout }}
       options {{ boot_options }}
     mode: '0644'
-  when: debian_boot_entries.matched == 0
+    owner: root
+    group: root
+  when:
+    - debian_boot_entries.matched == 0
+    - boot_is_esp
+
+- name: "Fallback — create boot entry manually (Debian, separate ESP)"
+  become: yes
+  ansible.builtin.copy:
+    dest: "{{ esp_path }}/loader/entries/{{ ansible_distribution | lower }}.conf"
+    content: |
+      title   {{ ansible_distribution }} {{ ansible_distribution_version }}
+      linux   /{{ machine_id }}/vmlinuz-{{ kernel_version.stdout }}
+      initrd  /{{ machine_id }}/initrd.img-{{ kernel_version.stdout }}
+      options {{ boot_options }}
+    mode: '0644'
+    owner: root
+    group: root
+  when:
+    - debian_boot_entries.matched == 0
+    - not boot_is_esp
 
 - name: Configure dpkg kernel post-install hook to update systemd-boot (Debian)
   become: yes
@@ -52,3 +116,5 @@
       #!/bin/sh
       bootctl update --no-variables 2>/dev/null || true
     mode: '0755'
+    owner: root
+    group: root

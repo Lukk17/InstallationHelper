@@ -1,44 +1,43 @@
 ---
 software_mapping:
   # Browsers
-  chrome: { manager: "apt_url", package: "google-chrome-stable_current_amd64.deb", is_deb_url: true }
-  brave: { manager: "flatpak", package: "com.brave.Browser" }
+  chrome: { manager: "apt", package: "google-chrome-stable" }   # Official Google apt repo, see debian_repos.yaml
+  brave: { manager: "apt", package: "brave-browser" }           # Official Brave apt repo
   tor: { manager: "flatpak", package: "org.torproject.torbrowser-launcher" }
 
   # Dev Tools
   git: { manager: "apt", package: "git" }
   maven: { manager: "apt", package: "maven" }
-  # gradle: removed - use SDKMAN (sdk_manager role) instead
+  # gradle: use SDKMAN (sdk_manager role)
   postman: { manager: "flatpak", package: "com.getpostman.Postman" }
   openssl: { manager: "apt", package: "openssl" }
-  dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }  # Changed: more reliable
-  kubectl: { manager: "snap", package: "kubectl", classic: true }
-  minikube: { manager: "apt_url", package: "minikube_{{ minikube_version }}_amd64.deb", is_deb_url: true }
-  # lens: installed via custom AppImage download task in custom_installs.yaml
+  dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
+  kubectl: { manager: "apt", package: "kubectl" }               # Official k8s.io repo
+  minikube: { manager: "apt_url", package: "minikube_latest_amd64.deb", is_deb_url: true }
+  lens: { manager: "apt", package: "lens" }                     # Official Lens apt repo (debian_repos.yaml)
   filezilla: { manager: "apt", package: "filezilla" }
   putty: { manager: "apt", package: "putty" }
 
   # IDEs / Editors
-  # intellij: removed - use JetBrains Toolbox instead
-  vscode: { manager: "snap", package: "code", classic: true }
-  sublime: { manager: "snap", package: "sublime-text", classic: true }
+  vscode: { manager: "apt", package: "code" }                   # Microsoft apt repo
+  sublime: { manager: "apt", package: "sublime-text" }          # Sublime apt repo
   arduino: { manager: "flatpak", package: "cc.arduino.IDE2" }
-  antigravity: { manager: "apt", package: "antigravity" }
+  # antigravity: installed via custom_installs.yaml — Google's APT pool URLs aren't
+  # publicly addressable (404), so we use the official Linux tarball from
+  # edgedl.me.gvt1.com and extract to /opt/antigravity.
   bruno: { manager: "flatpak", package: "com.usebruno.Bruno" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
   slack: { manager: "flatpak", package: "com.slack.Slack" }
-  # teams: removed - not on Flathub
   telegram: { manager: "flatpak", package: "org.telegram.desktop" }
   signal: { manager: "flatpak", package: "org.signal.Signal" }
-  # whatsapp: removed - not on Flathub
+  # whatsapp: not on Flathub (installed via brew/winget on macOS/Windows)
 
   # Productivity
   obsidian: { manager: "flatpak", package: "md.obsidian.Obsidian" }
   bitwarden: { manager: "flatpak", package: "com.bitwarden.desktop" }
   keepassxc: { manager: "apt", package: "keepassxc" }
-  # trello: removed - not on Flathub
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
   # Media / Design
@@ -50,13 +49,13 @@ software_mapping:
   audacity: { manager: "flatpak", package: "org.audacityteam.Audacity" }
   rawtherapee: { manager: "apt", package: "rawtherapee" }
 
-  # Gaming
+  # Gaming — Heroic Launcher is a community frontend, NOT an official GOG/Epic
+  # client. The Linux GOG/Epic toggles intentionally have no mapping here; use
+  # Lutris or run the Windows clients via Wine if needed.
   steam: { manager: "flatpak", package: "com.valvesoftware.Steam" }
-  gog: { manager: "flatpak", package: "com.heroicgameslauncher.hgl" }
-  epic: { manager: "flatpak", package: "com.heroicgameslauncher.hgl" }
-  
+
   # CAD / 3D
-  freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
+  freecad: { manager: "flatpak", package: "org.freecad.FreeCAD" }
   prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
@@ -66,9 +65,8 @@ software_mapping:
   appimagelauncher: { manager: "apt_url", package: "{{ appimage_launcher_url }}", is_deb_url: true }
 
   # Crypto / Crypto Hardware
-  # exodus: direct deb download blocked (403) — install manually from exodus.com
   boinc: { manager: "apt", package: "boinc-client" }
-  # gridcoin: use PPA - need manual add-apt-repository ppa:gridcoin/gridcoin-stable && apt install gridcoinresearch
+  # gridcoin: installed via custom_installs.yaml PPA flow
   lynis: { manager: "apt", package: "lynis" }
   chkrootkit: { manager: "apt", package: "chkrootkit" }
   clamav: { manager: "apt", package: "clamav" }
@@ -80,13 +78,13 @@ software_mapping:
   baobab: { manager: "apt", package: "baobab", is_alternative_for: "WizTree" }
   polychromatic: { manager: "flatpak", package: "app.polychromatic.controller", is_alternative_for: "Razer Cortex" }
   balena_etcher: { manager: "apt_url", package: "balena-etcher", is_alternative_for: "Rufus", is_deb_url: true }
-  # gputest: installed via custom binary download task in custom_installs.yaml
+  # gputest: custom binary download in custom_installs.yaml
 
   # Utilities
   gparted: { manager: "apt", package: "gparted" }
   partitionmanager: { manager: "apt", package: "partitionmanager" }
 
-  # Virtualization
+  # Virtualization — docker is installed by virtualization_config role
+  # (not via software_installer), so the same role can stat and start
+  # docker.service after the package is in place.
   virt_manager: { manager: "apt", package: "virt-manager" }
-  docker: { manager: "apt", package: "docker.io" }
-

@@ -1,6 +1,7 @@
-.claude/
+.claude/*
 !.claude/CLAUDE.md
-!.claude/commands
+!.claude/commands/
+!.claude/agents/
 
 .openspec/state.json
 .env.ai
@@ -89,6 +90,21 @@ InstallationHelper.iml
 
 # Ansible retry files
 *.retry
+
+# Editor / IDE configs (per-user, not repo-shared)
+.vscode/
+.idea/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Playbook run artefacts
+results/
+installation_full.log
+installation_issues.log
+installation_skipped.log
 
 # Terraform
 .terraform/

@@ -1,6 +1,17 @@
 ---
+- name: Probe NVM installation (Unix)
+  ansible.builtin.stat:
+    path: "{{ non_root_home }}/.nvm/nvm.sh"
+  register: nvm_script_stat
+
+- name: Warn if NVM is missing — skip OpenCode install
+  ansible.builtin.debug:
+    msg: "[WARN] Skipping OpenCode install — NVM not found at {{ non_root_home }}/.nvm/nvm.sh. Run with --tags nvm,ai to install NVM first."
+  when: not nvm_script_stat.stat.exists
+
 - name: Check if OpenCode CLI is already installed (Unix)
   ansible.builtin.shell: |
+    set -o pipefail
     . {{ non_root_home }}/.nvm/nvm.sh
     npm list -g opencode-ai --depth=0 2>/dev/null | grep -q opencode-ai
   args:
@@ -10,14 +21,22 @@
   register: opencode_check
   changed_when: false
   failed_when: false
+  when: nvm_script_stat.stat.exists
 
 - name: Install OpenCode CLI via NVM (Unix)
   ansible.builtin.shell: |
     set -o pipefail
-    . {{ non_root_home }}/.nvm/nvm.sh
-    npm install -g opencode-ai
+    timeout 600 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g opencode-ai </dev/null'
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  when: opencode_check.rc != 0
+  register: opencode_install
+  async: 900
+  poll: 15
+  retries: 2
+  delay: 15
+  until: opencode_install is succeeded
+  when:
+    - nvm_script_stat.stat.exists
+    - opencode_check.rc | default(1) != 0

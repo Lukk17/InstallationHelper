@@ -4,6 +4,7 @@
 # -----------------------------------------------------
 
 # MacOS System Configurations
+setup_zsh: true
 setup_karabiner: true
 setup_finder_defaults: true
 

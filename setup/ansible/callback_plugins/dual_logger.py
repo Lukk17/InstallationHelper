@@ -1,26 +1,80 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Installation Helper — dual-logger callback plugin
+
+Writes four log files in the invoking user's home directory:
+    installation_full.log      everything (verbose post-mortem)
+    installation_errors.log    only FAILED / fatal / unreachable
+    installation_warnings.log  only WARNING-level entries
+    installation_skipped.log   only skipped items (per-item disposition)
+
+Console output is condensed: one fixed-width status line per task with a
+duration suffix. Long stdout/stderr blocks (license dumps, multi-page
+installer chatter) are truncated to STDOUT_TRUNCATE_LINES before being
+written anywhere.
+
+The end-of-run summary is appended to installation_full.log so that
+operators can `tail` one file and see grouped Installed / Already-present /
+Skipped / Failed sections.
+"""
 
 import datetime
 import os
+import pwd
 import re
 import sys
-from ansible import constants as C
+import threading
+import time
+from typing import Optional, List, Dict, Any
+import yaml
 from ansible.plugins.callback import CallbackBase
+
+
+# Long-running tasks write to known log paths; the heartbeat tails the last
+# line so the user sees what apt/flatpak/etc. is actually doing. Longest-prefix
+# match wins (see _heartbeat_lookup_log) so order doesn't matter, but more
+# specific prefixes still need to be unique enough to not collide.
+HEARTBEAT_LOG_FILES = {
+    "Install APT packages (batched":          "/var/log/installation-apt-batch.log",
+    "Install Flatpak packages (Debian":       "/var/log/installation-flatpak-batch.log",
+    "Full system upgrade and autoremove (Debian, via raw)": "/var/log/installation-apt-upgrade.log",
+    # virtualization_config Debian apt installs (QEMU/KVM, virt-manager, spice-vdagent)
+    "Install QEMU/KVM and virt-manager packages (Debian)": "/var/log/installation-virt-apt.log",
+    "Install spice-vdagent (Debian guest)":   "/var/log/installation-virt-apt.log",
+    # Docker CE on Debian
+    "Install Docker CE (Debian)":             "/var/log/installation-docker-apt.log",
+    # Claude Desktop .deb (Debian)
+    "Install Claude Desktop .deb (Linux Debian)": "/var/log/installation-claude-desktop-apt.log",
+}
+
+
+def _invoking_user_home() -> str:
+    """Resolve the home directory of the user who invoked ansible-playbook,
+    even when running under sudo. SUDO_USER survives across `sudo -E`."""
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user and sudo_user != "root":
+        try:
+            return pwd.getpwnam(sudo_user).pw_dir
+        except (KeyError, AttributeError):
+            pass
+    return os.path.expanduser("~")
+
 
 DOCUMENTATION = """
     callback: dual_logger
     type: stdout
-    short_description: Dual logging to full and issues log files with console output
+    short_description: Condensed console output + verbose log files
     description:
-        - Logs all output to ~/installation_full.log
-        - Logs only fatal and errors to ~/installation_issues.log (no warnings)
-        - Both files are overwritten on each run
-        - Also displays output to console using _display.display()
-        - Fails playbook if cannot write to logs (unless allow_callback_failure is set)
+        - Writes installation_full.log, installation_errors.log,
+          installation_warnings.log, installation_skipped.log to the invoking
+          user's home directory (SUDO_USER aware).
+        - Truncates very long stdout/stderr blocks per task.
+        - Adds per-task duration ([+X.Xs]) and role-boundary phase separators.
+        - Appends a grouped end-of-run summary to installation_full.log.
     options:
         allow_callback_failure:
-            description: Allow playbook to continue if log file creation fails
+            description: Continue running if log files cannot be opened
             ini:
                 - section: defaults
                   key: allow_callback_failure
@@ -30,31 +84,192 @@ DOCUMENTATION = """
 """
 
 
+# --- Configuration ---------------------------------------------------------
+
+STDOUT_TRUNCATE_LINES = 30  # max lines of captured stdout/stderr per task
+
+# Patterns that filter noise from BOTH console and log files.
+IGNORE_PATTERNS = [
+    "already installed",
+    "subvolume already covered",
+    # pyenv installer prints this hint every run; the shell-config role wires
+    # pyenv up properly, so the hint is noise.
+    "seems you still have not added 'pyenv' to the load path",
+    # node ExperimentalWarning follow-up — the warning itself is informative
+    # but the "Use --trace-warnings" hint that follows is just noise.
+    "Use `llmster --trace-warnings",
+    "Use `node --trace-warnings",
+    "(Use `node --trace-warnings",
+    # Ansible 2.20+ deprecation that fires on EVERY task using top-level fact
+    # vars (ansible_os_family etc.). Informational, not user-actionable here,
+    # and our playbook already uses the new ansible_facts['...'] form where it
+    # matters. The deprecation will be flipped to default-off in a future
+    # Ansible release; until then, drop the spam.
+    "INJECT_FACTS_AS_VARS default to `True` is deprecated",
+    # makepkg notice when reusing a previous build tree — fine, not actionable.
+    "==> WARNING: Using existing $srcdir",
+    # glibc warning emitted by Go's cgo build when statically linking yay/paru
+    # and other Go-based AUR packages. Not a real defect — these tools work.
+    "in statically linked applications requires at runtime the shared libraries",
+    # autoconf warning during AUR builds (e.g. clamav, hardinfo2) — upstream
+    # autotools deprecation, not actionable from our side.
+    "configure.ac:",
+    "AC_PROG_CC_C99' is obsolete",
+    # pub during dart/flutter install: it warns because PATH inside the
+    # playbook subshell doesn't include ~/.pub-cache/bin yet. env_variables
+    # role adds it to ~/.bashrc / ~/.zshrc so interactive shells are fine.
+    "Pub installs executables into $HOME/.pub-cache/bin, which is not on your path",
+    # pacman -Sc cleans cached download tempfiles that may already be gone.
+    # The error is harmless — the actual cache cleanup succeeded.
+    "could not open file /var/cache/pacman/pkg/download-",
+    # The two interactive prompts pacman -Sc shows despite --noconfirm in
+    # recent versions. Pacman proceeds with the default (Y) anyway.
+    "Do you want to remove all other packages from cache?",
+    "Do you want to remove unused repositories?",
+]
+# Progress bars come in many shapes: pure-hash rows, curl/wget headers, and
+# the "######### NN.N%" pattern that NVM/curl emit.
+PROGRESS_REGEX = re.compile(
+    r'^\s*('
+    r'[#\sO=>%\-]+'                                # bar-only rows
+    r'|%\s*Total.*Received.*Xferd.*Speed'          # curl header line 1
+    r'|\s*Dload\s+Upload\s+Total\s+Spent.*Speed'   # curl header line 2
+    r'|\d+(\s+\d+){3,}.*--:--:--'                  # curl progress data row
+    r'|[#]+\s+\d+\.\d+%.*'                         # "#### NN.N%" lines
+    r')\s*$'
+)
+
+# Lines whose level should escalate to WARNING (otherwise stderr stays at INFO).
+WARNING_KEYWORDS = re.compile(
+    r'\b(warn|warning|deprecat|notice|caution)\b',
+    re.IGNORECASE,
+)
+
+# Common license-text markers we never want in the log.
+LICENSE_PATTERNS = re.compile(
+    r"WITHOUT\s+LIMITING\s+THE\s+FOREGOING|"
+    r"LIMITATION\s+OF\s+LIABILITY|"
+    r"YOUR\s+USE\s+OF\s+THE\s+PREVIEW|"
+    r"Terms\s+(?:and|of)\s+(?:Use|Conditions|Service)",
+    re.IGNORECASE,
+)
+
+# Task names whose per-item skips we want to relabel rather than show raw.
+BUILD_LIST_TASK_MARKER = "Build list of packages to dynamically install"
+
+# Tasks whose per-item iteration is *enumeration*, not real install work.
+# Per-item events from these tasks are shown in the live log but NOT counted
+# in the end-of-run "INSTALLED / ALREADY PRESENT" buckets.
+ENUMERATION_TASK_MARKERS = [
+    "Build list of packages to dynamically install",
+    "Detect installed package-manager helpers",
+    "Probe for docker.service unit",
+]
+
+# Task name keywords that mean "this is an OS-specific manager task".
+# A skipped item here usually means "we're not on that OS" — we now SHOW
+# those entries with a clear label (was: suppress).
+OS_MANAGER_KEYWORDS = [
+    "APT ", "DNF ", "Pacman", "Snap ", "Flatpak", "Homebrew",
+    "brew_cask", "AUR", "Chocolatey", "Winget", "Windows_",
+]
+
+# Map role name → list of toggle names we associate with it. Used to attribute
+# skipped roles to specific user-facing toggles in the summary.
+ROLE_TOGGLE_MAPPING: Dict[str, List[str]] = {
+    'gnome_setup':         ['install_gnome', 'configure_gnome'],
+    'kde_plasma_setup':    ['install_kde_plasma', 'configure_kde_plasma'],
+    'shell_zsh':           ['setup_zsh'],
+    'env_variables':       ['set_custom_env', 'configure_env'],
+    'system_core':         ['install_system_core'],
+    'systemd_boot':        ['setup_systemd_boot', 'setup_grub',
+                            'remove_distro_grub', 'remove_distro_systemd_boot'],
+    'snapper':             ['install_snapper'],
+    'sdk_manager':         ['install_dart', 'install_flutter', 'install_android_sdk',
+                            'install_nodejs', 'install_python', 'install_java',
+                            'install_maven', 'install_gradle'],
+    'ai_tools':            ['install_claude_code', 'install_claude_desktop',
+                            'install_claude_cowork', 'install_lm_studio',
+                            'install_stable_diffusion', 'install_opencode',
+                            'install_openspec'],
+    'software_installer':  [],   # mapped per-software via the toggle key itself
+    'virtualization_config': ['install_virt_manager', 'install_docker'],
+    'linux_security':      ['install_lynis', 'install_chkrootkit', 'install_clamav'],
+    'waydroid':            ['install_waydroid'],
+    'jetbrains_toolbox':   ['install_jetbrains_toolbox'],
+}
+
+_TOGGLE_REGEX = re.compile(r'((?:install|configure|setup|enabl|set|use|allow)_[\w_]+)')
+
+
+# --- Plugin ----------------------------------------------------------------
+
 class CallbackModule(CallbackBase):
     CALLBACK_VERSION = 2.0
     CALLBACK_TYPE = "stdout"
     CALLBACK_NAME = "dual_logger"
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     def __init__(self):
-        super(CallbackModule, self).__init__()
-        self.full_log_path = os.path.expanduser("~/installation_full.log")
-        self.issues_log_path = os.path.expanduser("~/installation_issues.log")
-        self.skipped_log_path = os.path.expanduser("~/installation_skipped.log")
+        super().__init__()
+        home_dir = _invoking_user_home()
+        self.full_log_path     = os.path.join(home_dir, "installation_full.log")
+        self.errors_log_path   = os.path.join(home_dir, "installation_errors.log")
+        self.warnings_log_path = os.path.join(home_dir, "installation_warnings.log")
+        self.skipped_log_path  = os.path.join(home_dir, "installation_skipped.log")
         self.full_log = None
-        self.issues_log = None
+        self.errors_log = None
+        self.warnings_log = None
         self.skipped_log = None
         self.allow_failure = False
         self._log_initialized = False
-        # End-of-run summary lists
-        self.installed_items = []
-        self.failed_items = []
-        self.skipped_items = []
+
+        # Per-task timing and role tracking
+        self._task_start_ts: Optional[datetime.datetime] = None
+        self._current_role: Optional[str] = None
+        self._playbook_start_ts = datetime.datetime.now()
+        # Buffered headers — only emitted when a real (non-OS-skip) result
+        # arrives. Tasks/roles that consist entirely of OS-mismatch skips
+        # never have their TASK header or PHASE banner flushed.
+        self._pending_phase: Optional[str] = None
+        self._pending_task: Optional[str] = None
+        # De-dup state for Ansible warnings/deprecations.
+        self._seen_warnings: set = set()
+
+        # End-of-run summary buckets
+        self.installed: List[Dict[str, str]] = []   # {name, manager}
+        self.unchanged: List[Dict[str, str]] = []   # already-present
+        self.skipped_by_reason: Dict[str, List[str]] = {}   # reason → [names]
+        self.failed: List[Dict[str, str]] = []      # {name, error, task}
+
+        # Progress reporter: emits the task START line, one line per new
+        # progress entry tailed from the task's log file, and an occasional
+        # idle ping when the log hasn't moved. Without this, raw/long tasks
+        # (flatpak install, apt upgrade, makepkg) appear hung for 15-60 min.
+        self._heartbeat_stop: Optional[threading.Event] = None
+        self._heartbeat_thread: Optional[threading.Thread] = None
+        self._heartbeat_task_name: str = ""
+        self._heartbeat_task_started: float = 0.0
+        self._heartbeat_log_path: Optional[str] = None
+        self._heartbeat_last_line: str = ""
+        self._heartbeat_header_emitted: bool = False
+        self._heartbeat_idle_emitted_at: float = 0.0
+        # Serialises writes to self.full_log + self._display from the main
+        # thread (callback hooks) and the heartbeat daemon thread.
+        self._emit_lock = threading.Lock()
+        try:
+            self._heartbeat_tick = int(os.environ.get("DUAL_LOGGER_HEARTBEAT_SEC", "5"))
+        except ValueError:
+            self._heartbeat_tick = 5
+        try:
+            self._heartbeat_idle_ping = int(os.environ.get("DUAL_LOGGER_IDLE_PING_SEC", "300"))
+        except ValueError:
+            self._heartbeat_idle_ping = 300
 
     def set_options(self, task_keys=None, var_options=None, direct=None) -> None:
-        super(CallbackModule, self).set_options(
-            task_keys=task_keys, var_options=var_options, direct=direct
-        )
-
+        super().set_options(task_keys=task_keys, var_options=var_options, direct=direct)
         env_val = os.environ.get("ALLOW_CALLBACK_FAILURE", "").lower()
         if env_val in ("true", "1", "yes"):
             self.allow_failure = True
@@ -66,573 +281,540 @@ class CallbackModule(CallbackBase):
     def _open_logs(self):
         if self._log_initialized:
             return
-
         try:
-            home_dir = os.path.expanduser("~")
-            self.full_log_path = os.path.join(home_dir, "installation_full.log")
-            self.issues_log_path = os.path.join(home_dir, "installation_issues.log")
-
-            self.full_log = open(self.full_log_path, "w", encoding="utf-8")
-            self.issues_log = open(self.issues_log_path, "w", encoding="utf-8")
-            self.skipped_log = open(self.skipped_log_path, "w", encoding="utf-8")
+            self.full_log     = open(self.full_log_path,     "w", encoding="utf-8")
+            self.errors_log   = open(self.errors_log_path,   "w", encoding="utf-8")
+            self.warnings_log = open(self.warnings_log_path, "w", encoding="utf-8")
+            self.skipped_log  = open(self.skipped_log_path,  "w", encoding="utf-8")
             self._log_initialized = True
-
-            self.full_log.write("# Ansible Playbook Log - Started\n")
-            self.full_log.write(f"# Full Log: {self.full_log_path}\n")
-            self.full_log.write(f"# Issues Log: {self.issues_log_path}\n")
-            self.full_log.write(f"# Skipped Log: {self.skipped_log_path}\n")
+            self.full_log.write(
+                f"# Installation Helper — full log\n"
+                f"# Started: {self._playbook_start_ts:%Y-%m-%d %H:%M:%S}\n"
+                f"# Errors:    {self.errors_log_path}\n"
+                f"# Warnings:  {self.warnings_log_path}\n"
+                f"# Skipped:   {self.skipped_log_path}\n\n"
+            )
             self.full_log.flush()
-            self.skipped_log.write("# Skipped Software Log\n")
+            self.errors_log.write(f"# Installation Helper — errors only ({self._playbook_start_ts:%Y-%m-%d %H:%M:%S})\n\n")
+            self.errors_log.flush()
+            self.warnings_log.write(f"# Installation Helper — warnings only ({self._playbook_start_ts:%Y-%m-%d %H:%M:%S})\n\n")
+            self.warnings_log.flush()
+            self.skipped_log.write(f"# Installation Helper — skipped items ({self._playbook_start_ts:%Y-%m-%d %H:%M:%S})\n\n")
             self.skipped_log.flush()
-
         except (IOError, OSError, PermissionError) as e:
-            error_msg = f"""
-FATAL: Cannot write to log files {self.full_log_path} or {self.issues_log_path}
-Reason: {str(e)}
-
-To run without file logging, set allow_callback_failure: true in group_vars/all.yaml
-or use --extra-vars "allow_callback_failure=true"
-"""
+            msg = f"FATAL: Cannot open log files in {os.path.dirname(self.full_log_path)}: {e}"
             if self.allow_failure:
-                sys.stderr.write(f"WARNING: {error_msg}\n")
-                sys.stderr.write(
-                    "Continuing without file logging (allow_callback_failure=true)\n"
-                )
-                self.full_log = None
-                self.issues_log = None
-                self.skipped_log = None
+                sys.stderr.write(f"WARNING: {msg}\nContinuing without file logging.\n")
                 self._log_initialized = True
             else:
-                sys.stderr.write(error_msg)
+                sys.stderr.write(msg + "\n")
                 sys.exit(1)
 
-    def _get_timestamp(self) -> str:
+    # ------------------------------------------------------------------
+    # Small helpers
+    # ------------------------------------------------------------------
+    def _ts(self) -> str:
         return datetime.datetime.now().strftime("%H:%M:%S")
 
-    # Patterns to filter out from BOTH logs (full_log and issues_log)
-    IGNORE_PATTERNS = [
-        "already installed",
-        "subvolume already covered",
-    ]
-    PROGRESS_REGEX = re.compile(r'^[#\s%]+$')
+    def _task_duration(self) -> str:
+        """Return '[+X.Xs]' or '[+Hh MMm SSs]' since the most recent task start,
+        or '' if unknown. The caller is responsible for spacing — we always
+        render right after the timestamp, before the rest of the line."""
+        if self._task_start_ts is None:
+            return ""
+        delta = (datetime.datetime.now() - self._task_start_ts).total_seconds()
+        if delta < 0.1:
+            return ""
+        if delta < 60:
+            return f"[+{delta:.1f}s]"
+        total = int(delta)
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        return f"[+{h}h {m:02d}m {s:02d}s]" if h else f"[+{m}m {s:02d}s]"
 
     def _should_skip_line(self, line: str) -> bool:
-        """Check if a line should be skipped from logging (both logs)"""
+        """Return True if a captured stdout line is noise that should be dropped."""
         if not line:
             return False
-        # Check exact substring matches
-        for pattern in self.IGNORE_PATTERNS:
+        if PROGRESS_REGEX.match(line):
+            return True
+        for pattern in IGNORE_PATTERNS:
             if pattern in line:
                 return True
-        # Check progress-only lines (only #, space, %)
-        if self.PROGRESS_REGEX.match(line):
+        if LICENSE_PATTERNS.search(line):
             return True
         return False
 
-    def _write_log(self, msg: str, level: str = "INFO") -> None:
-        if not self._log_initialized:
-            self._open_logs()
+    @staticmethod
+    def _truncate_lines(lines: List[str], limit: int) -> List[str]:
+        if len(lines) <= limit:
+            return lines
+        return lines[: limit - 1] + [f"... [truncated, {len(lines) - limit + 1} more lines]"]
 
-        # Check if we should skip this line (filter noise from both logs)
-        if self._should_skip_line(msg):
-            return
-
-        timestamp = self._get_timestamp()
-        log_msg = f"[{timestamp}] {msg}"
-
-        if self.full_log:
-            try:
-                self.full_log.write(log_msg + "\n")
-                self.full_log.flush()
-            except (IOError, OSError):
-                pass
-
-        if self.issues_log and level in ("ERROR", "CRITICAL", "FATAL"):
-            try:
-                self.issues_log.write(log_msg + "\n")
-                self.issues_log.flush()
-            except (IOError, OSError):
-                pass
-
-    def _display_and_log(self, msg: str, level: str = "INFO", include_output: bool = False, result=None) -> None:
-        timestamp = self._get_timestamp()
-        console_msg = f"[{timestamp}] {msg}"
-        self._display.display(console_msg)
-        self._write_log(msg, level)
-
-        # Show full output for tasks that produced stdout/stderr
-        if include_output and result is not None:
-            result_dict = result._result if hasattr(result, "_result") else {}
-            if "stdout" in result_dict and result_dict["stdout"]:
-                stdout = result_dict["stdout"]
-                if isinstance(stdout, str) and stdout.strip():
-                    for line in stdout.strip().split("\n"):
-                        if line.strip():
-                            # Apply filter to stdout lines as well
-                            if self._should_skip_line(line):
-                                continue
-                            self._display.display(f"  {line}")
-                            self._write_log(f"  {line}", level)
-            # Show stderr if present (usually contains warnings)
-            if "stderr" in result_dict and result_dict["stderr"]:
-                stderr = result_dict["stderr"]
-                if isinstance(stderr, str) and stderr.strip():
-                    for line in stderr.strip().split("\n"):
-                        if line.strip():
-                            # Apply filter to stderr lines as well
-                            if self._should_skip_line(line):
-                                continue
-                            self._display.display(f"  {line}")
-                            self._write_log(f"  {line}", "WARNING")
+    def _extract_task_role(self, task_name: str) -> Optional[str]:
+        if not task_name or not isinstance(task_name, str):
+            return None
+        if ' : ' not in task_name:
+            return None
+        role = task_name.split(' : ', 1)[0].strip()
+        # Filter out Ansible internals so include_role's pseudo-task doesn't
+        # produce a spurious phase separator.
+        if role.startswith('ansible.builtin.') or role.startswith('ansible.legacy.'):
+            return None
+        return role
 
     def _extract_item_display(self, item) -> str:
         if item is None:
             return "unknown"
-        
-        # Handle simple string or number
-        if isinstance(item, str):
-            return item.strip()
-        if isinstance(item, (int, float)):
-            return str(item)
-        
-        # Handle dict
+        if isinstance(item, (str, int, float)):
+            return str(item).strip() if isinstance(item, str) else str(item)
         if isinstance(item, dict):
-            if "name" in item and item["name"]:
-                return str(item["name"])
-            if "key" in item and item["key"]:
-                return str(item["key"])
-            if "path" in item and item["path"]:
-                path = item["path"]
-                return os.path.basename(path)
+            for key in ("name", "key", "path"):
+                if key in item and item[key]:
+                    v = item[key]
+                    return os.path.basename(v) if key == "path" else str(v)
             if "app" in item and "mime" in item:
                 return f"{item['app']} -> {item['mime']}"
-            if "url" in item and "name" in item:
-                return str(item["name"])
             if "option" in item and "value" in item:
                 return f"{item['option']}: {item['value']}"
-            
             return repr(item)
         return repr(item)
 
-    # Mapping of role names to related toggle names
-    ROLE_TOGGLE_MAPPING = {
-        # Desktop Environments
-        'gnome_setup': ['install_gnome', 'configure_gnome'],
-        'kde_plasma_setup': ['install_kde_plasma', 'configure_kde_plasma'],
-        
-        # Shell & Environment
-        'shell_zsh': ['setup_zsh'],
-        'env_variables': ['set_custom_env', 'configure_env'],
-        
-        # System Core
-        'system_core': ['install_system_core'],
-        'systemd_boot': ['setup_systemd_boot', 'setup_grub', 'remove_distro_grub', 'remove_distro_systemd_boot'],
-        'snapper': ['install_snapper'],
-        
-        # SDK Managers
-        'sdk_manager': [
-            'install_dart', 'install_flutter', 'install_android_sdk',
-            'install_nodejs', 'install_python', 'install_java', 'install_maven', 'install_gradle'
-        ],
-        
-        # AI Tools
-        'ai_tools': [
-            'install_claude_code', 'install_claude_desktop', 'install_claude_cowork',
-            'install_lm_studio', 'install_stable_diffusion',
-            'install_opencode', 'install_openspec'
-        ],
-        
-        # Software Installer
-        'software_installer': [],  # Mapped dynamically based on software toggles
-        
-        # Virtualization
-        'virtualization_config': ['install_virt_manager', 'install_docker'],
-        
-        # Security
-        'linux_security': ['install_lynis', 'install_chkrootkit', 'install_clamav'],
-        
-        # Waydroid
-        'waydroid': ['install_waydroid'],
-        
-        # JetBrains
-        'jetbrains_toolbox': ['install_jetbrains_toolbox'],
-    }
+    def _extract_skipped_toggles(self, result) -> List[str]:
+        """Best-effort extraction of which `install_*` / `setup_*` toggle caused a skip.
 
-    def _extract_task_role(self, task_name: str) -> str | None:
-        if not task_name or not isinstance(task_name, str):
-            return None
-        
-        # Pattern: "role_name : task description" or just task description
-        if ' : ' in task_name:
-            # Extract the part before the colon
-            role_part = task_name.split(' : ')[0].strip()
-            return role_part
-        
-        return None
-
-    def _extract_skipped_toggles(self, result) -> list[str]:
-        toggles = []
-        
+        Only returns toggles when we can prove the skip was due to that toggle.
+        Reads the actual `false_condition` Ansible records, plus the
+        `skipped_reason` text. Never falls back to ROLE_TOGGLE_MAPPING — that
+        was a heuristic that mis-attributed every OS-conditional skip in a role
+        to the role's "owning" toggle (e.g. labelling a `Download Nerd Fonts
+        (macOS)` skip on Debian as `setup_zsh=false`, which is wrong).
+        """
         try:
-            result_dict = result._result if hasattr(result, "_result") else {}
+            rd = result._result if hasattr(result, "_result") else {}
         except (AttributeError, TypeError):
-            result_dict = {}
-        
-        skipped_reason = result_dict.get("skipped_reason", "")
-        
-        if skipped_reason:
-            toggle_pattern = re.compile(r'((?:install|configure|setup|enabl|set|use|allow)_[\w_]+)')
-            found = toggle_pattern.findall(skipped_reason)
-            if found:
-                toggles = found
-        
-        if not toggles:
+            rd = {}
+        reason = rd.get("skipped_reason", "") or rd.get("skip_reason", "")
+        cond = rd.get("false_condition", "") or ""
+
+        # If the false condition obviously checks os_family / system / distro /
+        # architecture, this is an OS-mismatch skip, NOT a toggle skip.
+        if cond and re.search(r"os_family|ansible_system|distribution|architecture|virtualization_role", cond):
+            return []
+
+        # Prefer toggle names actually mentioned in the false_condition.
+        toggles = _TOGGLE_REGEX.findall(cond) if cond else []
+        if toggles:
+            return toggles
+        toggles = _TOGGLE_REGEX.findall(reason) if reason else []
+        if toggles:
+            return toggles
+        return []
+
+    # ------------------------------------------------------------------
+    # Output routing
+    # ------------------------------------------------------------------
+    def _write_log(self, msg: str, level: str = "INFO") -> None:
+        """Write `msg` to the appropriate log files based on `level`."""
+        if not self._log_initialized:
+            self._open_logs()
+        if self._should_skip_line(msg):
+            return
+        line = f"[{self._ts()}] {msg}\n"
+        # Full log gets everything.
+        if self.full_log:
+            try: self.full_log.write(line); self.full_log.flush()
+            except (IOError, OSError): pass
+        # Errors log: ERROR/CRITICAL/FATAL only.
+        if self.errors_log and level in ("ERROR", "CRITICAL", "FATAL"):
+            try: self.errors_log.write(line); self.errors_log.flush()
+            except (IOError, OSError): pass
+        # Warnings log: WARNING only.
+        if self.warnings_log and level == "WARNING":
+            try: self.warnings_log.write(line); self.warnings_log.flush()
+            except (IOError, OSError): pass
+
+    def _display_and_log(self, msg: str, level: str = "INFO",
+                         include_output: bool = False, result=None) -> None:
+        console_msg = f"[{self._ts()}] {msg}"
+        self._display.display(console_msg)
+        self._write_log(msg, level)
+        if include_output and result is not None:
+            rd = result._result if hasattr(result, "_result") else {}
+            # stdout stays at the task's level. stderr defaults to INFO and is
+            # only promoted to WARNING for lines that actually look like warnings
+            # (keeps curl/wget progress and git output out of the warnings log).
+            for key, default_lvl in (("stdout", level), ("stderr", "INFO")):
+                blob = rd.get(key)
+                if not isinstance(blob, str) or not blob.strip():
+                    continue
+                lines = [ln for ln in blob.strip().split("\n")
+                         if ln.strip() and not self._should_skip_line(ln)]
+                lines = self._truncate_lines(lines, STDOUT_TRUNCATE_LINES)
+                for ln in lines:
+                    line_lvl = default_lvl
+                    if key == "stderr" and WARNING_KEYWORDS.search(ln):
+                        line_lvl = "WARNING"
+                    self._display.display(f"  {ln}")
+                    self._write_log(f"  {ln}", line_lvl)
+            # Ansible's own warnings array (from module `warn:` outputs).
+            # De-duplicate against entries we've already logged this run so
+            # the same Ansible-level deprecation doesn't appear 60+ times.
+            for w in rd.get("warnings") or []:
+                w_text = str(w)
+                if self._should_skip_line(f"  [warning] {w_text}"):
+                    continue
+                if w_text in self._seen_warnings:
+                    continue
+                self._seen_warnings.add(w_text)
+                self._display.display(f"  [warning] {w_text}")
+                self._write_log(f"  [warning] {w_text}", "WARNING")
+            for d in rd.get("deprecations") or []:
+                d_text = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
+                if self._should_skip_line(f"  [deprecation] {d_text}"):
+                    continue
+                if d_text in self._seen_warnings:
+                    continue
+                self._seen_warnings.add(d_text)
+                self._display.display(f"  [deprecation] {d_text}")
+                self._write_log(f"  [deprecation] {d_text}", "WARNING")
+
+    def _emit_phase_separator(self, role: str) -> None:
+        bar = "=" * 70
+        msg = f"\n{bar}\n  PHASE: {role}\n{bar}"
+        self._display.display(msg)
+        if self.full_log:
+            try: self.full_log.write(f"\n{bar}\n[{self._ts()}]   PHASE: {role}\n{bar}\n\n"); self.full_log.flush()
+            except (IOError, OSError): pass
+
+    def _flush_pending(self) -> None:
+        """Emit any queued PHASE banner and TASK header. Called from result
+        handlers right before they log their own line — so phases / tasks
+        that are entirely skipped (e.g. every Fedora task while on Debian)
+        never produce visible output."""
+        if self._pending_phase is not None:
+            self._emit_phase_separator(self._pending_phase)
+            self._pending_phase = None
+        if self._pending_task is not None:
+            self._display_and_log(f"TASK [{self._pending_task}]", "INFO")
+            self._pending_task = None
+
+    # ------------------------------------------------------------------
+    # Skip categorisation
+    # ------------------------------------------------------------------
+    def _categorise_skip(self, result, item_key: str) -> str:
+        """Return a short human-readable reason for a per-item skip."""
+        try:
+            task_name = result._task.get_name() if hasattr(result, "_task") else ""
+        except (AttributeError, TypeError):
+            task_name = ""
+        rd = result._result if hasattr(result, "_result") else {}
+        skip_reason = rd.get("skipped_reason", "") or rd.get("skip_reason", "")
+        false_cond = rd.get("false_condition", "") or ""
+
+        # The build-list task per-item skip means the install_<key> toggle is false.
+        if BUILD_LIST_TASK_MARKER in task_name:
+            return f"toggle disabled (install_{item_key}=false)"
+
+        # Inspect the recorded false_condition first — it's authoritative.
+        if false_cond:
+            if re.search(r"os_family|ansible_system|distribution|architecture|virtualization_role", false_cond):
+                return "not for this OS"
+            toggle_match = _TOGGLE_REGEX.search(false_cond)
+            if toggle_match:
+                return f"toggle disabled ({toggle_match.group(1)}=false)"
+
+        toggles = self._extract_skipped_toggles(result)
+        if toggles:
+            return "toggle disabled: " + ", ".join(f"{t}=false" for t in toggles)
+
+        # Last-resort: task-name heuristic for OS-manager tasks.
+        if any(k in task_name for k in OS_MANAGER_KEYWORDS):
+            return "not for this OS"
+
+        if "Conditional result was False" in str(skip_reason):
+            return "condition not met"
+
+        return skip_reason or "condition not met"
+
+    # ------------------------------------------------------------------
+    # Progress reporter for long-blocking tasks
+    # ------------------------------------------------------------------
+    def _heartbeat_lookup_log(self, task_name: str) -> Optional[str]:
+        best_prefix = ""
+        best_path: Optional[str] = None
+        for prefix, path in HEARTBEAT_LOG_FILES.items():
+            if prefix in task_name and len(prefix) > len(best_prefix):
+                best_prefix = prefix
+                best_path = path
+        return best_path
+
+    def _read_last_log_line(self) -> str:
+        path = self._heartbeat_log_path
+        if not path or not os.path.exists(path):
+            return ""
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                fh.seek(max(0, size - 4096))
+                tail = fh.read().decode("utf-8", errors="replace")
+        except (IOError, OSError):
+            return ""
+        for ln in reversed(tail.splitlines()):
+            ln = ln.strip()
+            if ln:
+                return ln[:160] + "…" if len(ln) > 160 else ln
+        return ""
+
+    def _emit_progress(self, line: str) -> None:
+        with self._emit_lock:
             try:
-                task = result._task
-                task_name = task.get_name() if hasattr(task, 'get_name') else str(task)
-            except (AttributeError, TypeError):
-                task_name = ""
-            
-            if task_name:
-                role_name = self._extract_task_role(task_name)
-                
-                if role_name and role_name in self.ROLE_TOGGLE_MAPPING:
-                    toggles = self.ROLE_TOGGLE_MAPPING[role_name].copy()
-                
-                if not toggles:
-                    toggle_match = re.compile(r'((?:install|configure|setup|enabl|set|use|allow)_[\w_]+)')
-                    match = toggle_match.search(task_name)
-                    if match:
-                        toggles = [match.group(1)]
-        
-        return toggles
+                if self.full_log:
+                    self.full_log.write(f"[{self._ts()}] {line}\n")
+                    self.full_log.flush()
+                self._display.display(line)
+            except (IOError, OSError):
+                pass
 
-    def v2_runner_on_task_start(self, host: str, task, is_conditional: bool) -> None:
-        task_name = task.get_name()
-        self._display_and_log(f"Starting: [{host}] {task_name}", "INFO")
+    def _emit_running_header_once(self) -> None:
+        if self._heartbeat_header_emitted:
+            return
+        self._emit_progress(f"  ⏳ running: {self._heartbeat_task_name}")
+        self._heartbeat_header_emitted = True
+        self._heartbeat_idle_emitted_at = time.monotonic()
 
-    def v2_runner_on_ok(self, result) -> None:
-        host = result._host.get_name()
-        self._display_and_log(f"ok: [{host}]", "INFO", include_output=True, result=result)
+    def _heartbeat_loop(self) -> None:
+        assert self._heartbeat_stop is not None
+        while not self._heartbeat_stop.wait(self._heartbeat_tick):
+            now = time.monotonic()
+            elapsed = int(now - self._heartbeat_task_started)
+            m, s = divmod(elapsed, 60)
 
-    def _extract_error_details(self, result) -> list[str]:
-        error_details = []
-        result_dict = result._result if hasattr(result, "_result") else {}
+            last_line = self._read_last_log_line()
+            if last_line and last_line != self._heartbeat_last_line:
+                self._emit_running_header_once()
+                self._emit_progress(f"  ↳ [{m:02d}m{s:02d}s] {last_line}")
+                self._heartbeat_last_line = last_line
+                self._heartbeat_idle_emitted_at = now
+                continue
 
-        # Get exception traceback if present (most useful for debugging)
-        if "exception" in result_dict and result_dict["exception"]:
-            exc = result_dict["exception"]
-            # Get last 15 lines of traceback for clarity
-            exc_lines = exc.strip().split("\n")
-            if len(exc_lines) > 15:
-                error_details.append(f"  Exception (last 15 lines):")
-                for line in exc_lines[-15:]:
-                    if line.strip():
-                        error_details.append(f"    {line}")
-            else:
-                error_details.append(f"  Exception:")
-                for line in exc_lines:
-                    if line.strip():
-                        error_details.append(f"    {line}")
+            if not self._heartbeat_header_emitted and elapsed >= 2:
+                self._emit_running_header_once()
+                continue
 
-        # Get the main error message
-        if "msg" in result_dict:
-            error_details.append(f"  Error: {result_dict['msg']}")
-        elif "stderr" in result_dict and result_dict["stderr"]:
-            error_details.append(f"  stderr: {result_dict['stderr']}")
+            if self._heartbeat_header_emitted and (now - self._heartbeat_idle_emitted_at) >= self._heartbeat_idle_ping:
+                self._emit_progress(f"  ↳ [{m:02d}m{s:02d}s] still working… (log unchanged)")
+                self._heartbeat_idle_emitted_at = now
 
-        # Get stdout if present - show full output if it's short, last lines if long
-        if "stdout" in result_dict and result_dict["stdout"]:
-            stdout = result_dict["stdout"]
-            if isinstance(stdout, str):
-                lines = stdout.strip().split("\n")
-                if lines:
-                    if len(lines) > 10:
-                        error_details.append(f"  stdout (last 10 lines):")
-                        for line in lines[-10:]:
-                            if line.strip():
-                                error_details.append(f"    {line}")
-                    else:
-                        error_details.append(f"  stdout:")
-                        for line in lines:
-                            if line.strip():
-                                error_details.append(f"    {line}")
+    def _start_heartbeat(self, task_name: str) -> None:
+        self._stop_heartbeat()
+        self._heartbeat_task_name = task_name
+        self._heartbeat_task_started = time.monotonic()
+        self._heartbeat_log_path = self._heartbeat_lookup_log(task_name)
+        self._heartbeat_last_line = ""
+        self._heartbeat_header_emitted = False
+        self._heartbeat_idle_emitted_at = 0.0
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self._heartbeat_thread.start()
 
-        # Get stderr_lines for more detail
-        if "stderr_lines" in result_dict and result_dict["stderr_lines"]:
-            stderr_lines = result_dict["stderr_lines"]
-            if stderr_lines:
-                if len(stderr_lines) > 10:
-                    error_details.append(f"  stderr (last 10 lines):")
-                    for line in stderr_lines[-10:]:
-                        if line.strip():
-                            error_details.append(f"    {line}")
-                else:
-                    error_details.append(f"  stderr:")
-                    for line in stderr_lines:
-                        if line.strip():
-                            error_details.append(f"    {line}")
+    def _stop_heartbeat(self) -> None:
+        if self._heartbeat_stop is not None:
+            self._heartbeat_stop.set()
+        if self._heartbeat_thread is not None and self._heartbeat_thread.is_alive():
+            self._heartbeat_thread.join(timeout=0.5)
+        self._heartbeat_thread = None
+        self._heartbeat_stop = None
+        self._heartbeat_log_path = None
 
-        # Get stdout_lines for more detail
-        if "stdout_lines" in result_dict and result_dict["stdout_lines"]:
-            stdout_lines = result_dict["stdout_lines"]
-            if stdout_lines:
-                if len(stdout_lines) > 10:
-                    error_details.append(f"  stdout_lines (last 10 lines):")
-                    for line in stdout_lines[-10:]:
-                        if line.strip():
-                            error_details.append(f"    {line}")
-                else:
-                    error_details.append(f"  stdout_lines:")
-                    for line in stdout_lines:
-                        if line.strip():
-                            error_details.append(f"    {line}")
-
-        # Get invocation details
-        if "invocation" in result_dict:
-            inv = result_dict["invocation"]
-            if "module_args" in inv:
-                args = inv["module_args"]
-                if isinstance(args, dict) and args:
-                    cmd_parts = []
-                    for k, v in args.items():
-                        if k != "_ansible_check_mode" and v is not None:
-                            cmd_parts.append(f"{k}={v}")
-                    if cmd_parts:
-                        error_details.append(f"  Args: {' '.join(cmd_parts[:6])}")
-
-        # Fallback: dump full result dict as YAML for debugging (don't show empty dicts)
-        if not error_details or len(error_details) <= 2:
-            import yaml
-            result_str = yaml.dump(result_dict, default_flow_style=False, sort_keys=False)
-            if result_str.strip() and len(result_str) < 2000:
-                error_details.append(f"  Full result: {result_str[:500]}")
-            elif result_str.strip():
-                error_details.append(f"  Full result (truncated): {result_str[:500]}")
-
-        return error_details
-
-    def v2_runner_on_failed(self, result, ignore_errors: bool = False) -> None:
-        host = result._host.get_name()
-        task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
-        msg = f"fatal: [{host}]: FAILED! => TASK: {task_name}"
-        self._display_and_log(msg, "ERROR")
-
-        # Extract and display detailed error information
-        error_details = self._extract_error_details(result)
-        for detail in error_details:
-            self._display_and_log(detail, "ERROR")
-
-
-
-    def v2_runner_on_skipped(self, result) -> None:
-        host = result._host.get_name()
-        task_name = result._task.get_name() if hasattr(result, "_task") else ""
-
-        # OS-specific task names and package managers to suppress when not matching OS
-        os_keywords = [
-            "Arch", "Debian", "Fedora", "macOS", "Darwin", "Windows",
-            "(Debian)", "(Arch)", "(Fedora)", "(Mac)",
-            # Package managers - suppress when not matching OS
-            "APT ", "DNF ", "Pacman", "Snap ", "Flatpak", "Homebrew", "brew_cask",
-            "Windows_"  # Windows-specific task prefixes
-        ]
-
-        # Check if this is an OS-specific task being skipped due to different OS
-        is_os_skip = any(keyword in task_name for keyword in os_keywords)
-
-        if is_os_skip:
-            # Suppress OS-difference skips - don't print
-            pass
-        else:
-            # Show toggle-based skips with clearer format
-            result_dict = result._result if hasattr(result, "_result") else {}
-            skip_reason = ""
-
-            # If there's a 'skipped_reason' in result, use it
-            if "skipped_reason" in result_dict:
-                skip_reason = f" - {result_dict['skipped_reason']}"
-
-            # Extract toggles that caused the skip
-            toggles = self._extract_skipped_toggles(result)
-
-            # Only show [due: X] if toggles is non-empty, otherwise just skip
-            if toggles:
-                toggle_msg = f" [due: {','.join(toggles)}]"
-                self._display_and_log(f"skipping: [{host}] {task_name}{toggle_msg}{skip_reason}", "INFO")
-            else:
-                self._display_and_log(f"skipping: [{host}] {task_name}{skip_reason}", "INFO")
-
-    def v2_runner_on_unreachable(self, result) -> None:
-        host = result._host.get_name()
-        task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
-        self._display_and_log(f"unreachable: [{host}] TASK: {task_name}", "ERROR")
-
+    # ------------------------------------------------------------------
+    # Ansible callback hooks
+    # ------------------------------------------------------------------
     def v2_playbook_on_start(self, playbook) -> None:
         self._open_logs()
-        if playbook._entries:
-            self._display_and_log(f"PLAY [{playbook._entries[0].get_name()}]", "INFO")
-        else:
-            self._display_and_log("PLAY [unknown]", "INFO")
-
-    def v2_playbook_on_task_start(self, task, is_conditional: bool = False) -> None:
-        self._display_and_log(f"TASK [{task.get_name()}]", "INFO")
-
-    def v2_playbook_on_handler_task_start(self, task) -> None:
-        self._display_and_log(f"RUNNING HANDLER [{task.get_name()}]", "INFO")
+        name = playbook._entries[0].get_name() if playbook._entries else "unknown"
+        self._display_and_log(f"PLAY [{name}]", "INFO")
 
     def v2_playbook_on_play_start(self, play) -> None:
+        # Stop any heartbeat from the prior play before the next task starts.
+        self._stop_heartbeat()
         self._display_and_log(f"PLAY [{play.get_name()}]", "INFO")
 
-    def v2_playbook_on_stats(self, stats) -> None:
-        if self.full_log:
-            try:
-                self.full_log.write("\n")
-                self.full_log.flush()
-            except (IOError, OSError):
-                pass
+    def v2_playbook_on_task_start(self, task, is_conditional: bool = False) -> None:
+        name = task.get_name()
+        self._task_start_ts = datetime.datetime.now()
+        self._start_heartbeat(name)
 
-        self._display_and_log("PLAY RECAP", "INFO")
-        hosts = sorted(stats.processed.keys())
-        for host in hosts:
-            host_stats = stats.summarize(host)
-            msg = (
-                f"{host}: ok={host_stats['ok']} changed={host_stats['changed']} "
-                f"unreachable={host_stats['unreachable']} failed={host_stats['failures']} "
-                f"skipped={host_stats['skipped']} rescued={host_stats['rescued']} ignored={host_stats['ignored']}"
-            )
-            self._display_and_log(msg, "INFO")
+        # Buffer phase + task headers; emit lazily on first non-OS-skip result.
+        role = self._extract_task_role(name)
+        if role and role != self._current_role:
+            self._pending_phase = role
+            self._current_role = role
+        self._pending_task = name
 
-            if (host_stats['failures'] > 0 or host_stats['unreachable'] > 0) and self.issues_log:
-                timestamp = self._get_timestamp()
-                try:
-                    self.issues_log.write(f"[{timestamp}] RECAP: {msg}\n")
-                    self.issues_log.flush()
-                except (IOError, OSError):
-                    pass
+    def v2_playbook_on_handler_task_start(self, task) -> None:
+        self._task_start_ts = datetime.datetime.now()
+        self._start_heartbeat(task.get_name())
+        self._pending_task = f"HANDLER: {task.get_name()}"
 
-        # --- End-of-run summaries ---
+    # --- task-level results ---
+    def v2_runner_on_ok(self, result) -> None:
+        self._stop_heartbeat()
+        self._flush_pending()
+        host = result._host.get_name()
+        changed = bool(result._result.get("changed", False)) if hasattr(result, "_result") else False
+        status = "CHANGED" if changed else "ok"
+        dur = self._task_duration()
+        prefix = f"{dur} " if dur else ""
+        self._display_and_log(f"{prefix}{status}: [{host}]", "INFO",
+                              include_output=True, result=result)
+        # Batch installers (apt/dnf/pacman/flatpak with name: list) don't fire
+        # per-item events. Record the task-level disposition so the summary can
+        # show which managers actually changed something.
+        task_name = result._task.get_name() if hasattr(result, "_task") else ""
+        if any(p in task_name for p in (
+            "Install APT packages",
+            "Install DNF packages",
+            "Install Pacman packages",
+            "Install Flatpak packages",
+            "Install Homebrew packages",
+            "Install Homebrew Cask packages",
+            "Install Chocolatey packages",
+            "Install Docker CE",
+            "Install Docker (Arch)",
+            "Install QEMU/KVM",
+        )):
+            role = self._extract_task_role(task_name) or "batch"
+            entry = {"name": task_name.split(' : ', 1)[-1], "manager": role}
+            (self.installed if changed else self.unchanged).append(entry)
 
-        # Failed software → console + full log + issues log
-        if self.failed_items:
-            self._display_and_log("", "INFO")
-            self._display_and_log("═══ FAILED SOFTWARE ═══", "ERROR")
-            for item in self.failed_items:
-                line = f"  - {item['name']} (Error: {item['error']})"
-                self._display_and_log(line, "ERROR")
-            self._display_and_log("", "INFO")
+    def v2_runner_on_failed(self, result, ignore_errors: bool = False) -> None:
+        self._stop_heartbeat()
+        self._flush_pending()
+        host = result._host.get_name()
+        task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
+        dur = self._task_duration()
+        prefix = f"{dur} " if dur else ""
+        self._display_and_log(f"{prefix}FAILED: [{host}] => TASK: {task_name}", "ERROR")
+        for detail in self._extract_error_details(result):
+            self._display_and_log(detail, "ERROR")
+        # End-of-run bucket
+        rd = result._result if hasattr(result, "_result") else {}
+        short = rd.get("msg", rd.get("stderr", "unknown error"))
+        if isinstance(short, str) and len(short) > 200:
+            short = short[:200] + "..."
+        self.failed.append({"task": task_name, "name": task_name, "error": short})
 
-        # Skipped software → skipped log final summary
-        if self.skipped_items and self.skipped_log:
-            try:
-                self.skipped_log.write("\n═══ SKIPPED SOFTWARE SUMMARY ═══\n")
-                for item in self.skipped_items:
-                    self.skipped_log.write(f"  - {item['name']} [{item['reason']}]\n")
-                self.skipped_log.flush()
-            except (IOError, OSError):
-                pass
+    def v2_runner_on_skipped(self, result) -> None:
+        self._stop_heartbeat()
+        host = result._host.get_name()
+        task_name = result._task.get_name() if hasattr(result, "_task") else ""
+        reason = self._categorise_skip(result, item_key=task_name)
+        # Don't log "not for this OS" task-level skips — drop the buffered
+        # TASK header AND the pending PHASE banner if this was the role's
+        # first task. Tasks/roles entirely composed of OS-mismatch skips
+        # never produce any output.
+        if reason == "not for this OS":
+            self._pending_task = None
+            self._pending_phase = None
+            return
+        self._flush_pending()
+        self._display_and_log(f"skipping: [{host}] {task_name} [{reason}]", "INFO")
 
-        finish_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self._display_and_log(f"Playbook Finished at {finish_time}", "INFO")
+    def v2_runner_on_unreachable(self, result) -> None:
+        self._stop_heartbeat()
+        self._flush_pending()
+        host = result._host.get_name()
+        task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
+        dur = self._task_duration()
+        prefix = f"{dur} " if dur else ""
+        self._display_and_log(f"{prefix}unreachable: [{host}] TASK: {task_name}", "ERROR")
 
-        if self.full_log:
-            self.full_log.close()
-        if self.issues_log:
-            self.issues_log.close()
-        if self.skipped_log:
-            self.skipped_log.close()
-
-
-    def v2_on_file_diff(self, result) -> None:
-        if result._result.get("diff"):
-            self._display_and_log(f"diff: {result._result['diff']}", "INFO")
-
+    # --- per-item (looped) results ---
     def v2_runner_item_on_ok(self, result) -> None:
+        self._flush_pending()
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
-        item_display = self._extract_item_display(item)
-        self._display_and_log(f"ok: [{host}] => {item_display}", "INFO")
-        # Track installed software items
+        display = self._extract_item_display(item)
+        changed = bool(result._result.get("changed", False))
+        status = "INSTALLED" if changed else "present"
+        self._display_and_log(f"{status:>10}: [{host}] {display}", "INFO")
+        # End-of-run bucket — exclude enumeration tasks so they don't pollute
+        # the "ALREADY PRESENT" count with items that were merely listed.
         task_name = result._task.get_name() if hasattr(result, "_task") else ""
-        if "software_installer" in task_name or "Install" in task_name:
-            if isinstance(item, dict) and "key" in item:
-                self.installed_items.append(item["key"])
+        if any(m in task_name for m in ENUMERATION_TASK_MARKERS):
+            return
+        if not ("Install" in task_name or "Download" in task_name or "Add " in task_name):
+            return
+        role = self._extract_task_role(task_name) or ""
+        manager = ""
+        if isinstance(item, dict):
+            manager = (item.get("value", {}) or {}).get("manager", "")
+        if not manager and role:
+            manager = role
+        entry = {"name": item["key"] if isinstance(item, dict) and "key" in item else display,
+                 "manager": manager or "other"}
+        (self.installed if changed else self.unchanged).append(entry)
 
     def v2_runner_item_on_failed(self, result) -> None:
+        self._flush_pending()
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
-        item_display = self._extract_item_display(item)
+        display = self._extract_item_display(item)
         task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
-        result_dict = result._result if hasattr(result, "_result") else {}
-
-        # Extract short error for inline display
-        short_error = result_dict.get("msg", result_dict.get("stderr", "unknown error"))
-        if isinstance(short_error, str) and len(short_error) > 80:
-            short_error = short_error[:80] + "..."
-
-        msg = f"failed: [{host}] => {item_display} [Error: {short_error}]"
-        self._display_and_log(msg, "ERROR")
-
-        # Track failed items for end-of-run summary
-        item_key = item.get("key", item_display) if isinstance(item, dict) else item_display
-        self.failed_items.append({"name": item_key, "error": short_error})
-
-        # Extract and display detailed error information
-        error_details = self._extract_error_details(result)
-        for detail in error_details:
+        rd = result._result if hasattr(result, "_result") else {}
+        short = rd.get("msg", rd.get("stderr", "unknown error"))
+        if isinstance(short, str) and len(short) > 200:
+            short = short[:200] + "..."
+        self._display_and_log(f"{'FAILED':>10}: [{host}] {display} -- {short}", "ERROR")
+        for detail in self._extract_error_details(result):
             self._display_and_log(detail, "ERROR")
+        item_key = item.get("key", display) if isinstance(item, dict) else display
+        self.failed.append({"task": task_name, "name": item_key, "error": short})
 
     def v2_runner_item_on_skipped(self, result) -> None:
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
-        item_display = self._extract_item_display(item)
-        task_name = result._task.get_name() if hasattr(result, "_task") else ""
+        display = self._extract_item_display(item)
+        item_key = item.get("key", display) if isinstance(item, dict) else display
 
-        # Get the actual skip reason if available
-        result_dict = result._result if hasattr(result, '_result') else {}
-        skip_reason = result_dict.get('skipped_reason', '')
-        if not skip_reason and "skip_reason" in result_dict:
-            skip_reason = result_dict["skip_reason"]
+        reason = self._categorise_skip(result, item_key)
 
-        # Check parent task name for package manager keywords
-        os_keywords = [
-            "APT ", "DNF ", "Pacman", "Snap ", "Flatpak", "Homebrew", "brew_cask",
-            "AUR"
-        ]
-
-        # Check if this is from a non-matching package manager task
-        is_os_task = any(keyword in task_name for keyword in os_keywords)
-
-        # Only suppress if OS-specific task AND condition failed due to OS mismatch loop
-        is_os_skip = is_os_task and ('was not certain' in str(skip_reason) or 'Conditional result was False' in str(skip_reason))
-
-        if is_os_skip:
-            # Suppress output entirely for non-OS package manager items — wrong OS
+        # Drop OS-mismatch noise entirely. When running on Debian we don't
+        # need to see every macOS / Arch / Fedora task's per-item skips.
+        if reason == "not for this OS":
             return
 
-        # Determine skip reason category
-        toggles = self._extract_skipped_toggles(result)
-        item_key = item.get("key", item_display) if isinstance(item, dict) else item_display
+        task_name = result._task.get_name() if hasattr(result, "_task") else ""
+        role = self._extract_task_role(task_name) or ""
 
-        if toggles:
-            reason = f"toggle disabled: {','.join(t + '=false' for t in toggles)}"
-        elif "Conditional result was False" in str(skip_reason):
-            reason = "unavailable on this OS"
-        else:
-            reason = skip_reason if skip_reason else "condition not met"
+        # Only summarise per-item skips that look like real installer iterations
+        # (Install/Download/Add tasks looping over package lists). Config-style
+        # loops (ini_file, lineinfile, copy of dotfiles) emit per-item events
+        # like `option: Command, value: /usr/bin/zsh` that are useless as
+        # user-facing skip entries — let the task-level v2_runner_on_skipped
+        # console line cover them instead.
+        is_installer_task = any(m in task_name for m in ("Install", "Download", "Add "))
+        qualified = f"{role} → {item_key}" if role else item_key
 
-        msg = f"skipping: [{host}] => {item_key} [{reason}]"
-        self._display_and_log(msg, "INFO")
-
-        # Track and write to skipped log
-        self.skipped_items.append({"name": item_key, "reason": reason})
+        # Real skip — flush the pending TASK header / PHASE banner.
+        self._flush_pending()
+        self._display_and_log(f"{'skipped':>10}: [{host}] {qualified} [{reason}]", "INFO")
+        if not is_installer_task:
+            return
+        self.skipped_by_reason.setdefault(reason, []).append(qualified)
         if self.skipped_log:
             try:
-                timestamp = self._get_timestamp()
-                self.skipped_log.write(f"[{timestamp}] {item_key} [{reason}]\n")
+                self.skipped_log.write(f"[{self._ts()}] {qualified} [{reason}]\n")
                 self.skipped_log.flush()
             except (IOError, OSError):
                 pass
+
+    # --- play notifications ---
+    def v2_on_file_diff(self, result) -> None:
+        if result._result.get("diff"):
+            self._display_and_log(f"diff: {result._result['diff']}", "INFO")
 
     def v2_playbook_on_include(self, included_file) -> None:
         self._display_and_log(f"included: {included_file._filename}", "INFO")
@@ -643,9 +825,7 @@ or use --extra-vars "allow_callback_failure=true"
 
     def v2_playbook_on_not_import_for_host(self, result, missing_file: str) -> None:
         host = result._host.get_name()
-        self._display_and_log(
-            f"NOT imported: {missing_file} for host {host}", "WARNING"
-        )
+        self._display_and_log(f"NOT imported: {missing_file} for host {host}", "WARNING")
 
     def v2_playbook_on_no_hosts_matched(self) -> None:
         self._display_and_log("no hosts matched", "WARNING")
@@ -655,3 +835,153 @@ or use --extra-vars "allow_callback_failure=true"
 
     def v2_playbook_on_notify(self, handler, host) -> None:
         self._display_and_log(f"NOTIFIED HANDLER {handler} for host {host}", "INFO")
+
+    # ------------------------------------------------------------------
+    # End-of-run recap + grouped summary
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        total = max(0, int(seconds))
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        if h:
+            return f"{h}h {m:02d}m {s:02d}s ({total}s)"
+        if m:
+            return f"{m}m {s:02d}s ({total}s)"
+        return f"{s}s"
+
+    def v2_playbook_on_stats(self, stats) -> None:
+        self._stop_heartbeat()
+        bar = "═" * 70
+        elapsed = datetime.datetime.now() - self._playbook_start_ts
+        self._display_and_log("", "INFO")
+        self._display_and_log(bar, "INFO")
+        self._display_and_log(f"  PLAY RECAP — wall time {self._format_duration(elapsed.total_seconds())}", "INFO")
+        self._display_and_log(bar, "INFO")
+
+        total_rescued = 0
+        for host in sorted(stats.processed.keys()):
+            hs = stats.summarize(host)
+            total_rescued += hs['rescued']
+            recap = (f"{host}: ok={hs['ok']} changed={hs['changed']} "
+                     f"unreachable={hs['unreachable']} failed={hs['failures']} "
+                     f"skipped={hs['skipped']} rescued={hs['rescued']} ignored={hs['ignored']}")
+            self._display_and_log(recap, "INFO")
+            if hs['failures'] > 0 or hs['unreachable'] > 0:
+                if self.errors_log:
+                    try:
+                        self.errors_log.write(f"[{self._ts()}] RECAP: {recap}\n")
+                        self.errors_log.flush()
+                    except (IOError, OSError):
+                        pass
+
+        self._emit_summary_section("INSTALLED (newly added)", self.installed, "  ✓ ")
+        self._emit_summary_section("ALREADY PRESENT (unchanged)", self.unchanged, "  · ")
+        self._emit_skipped_summary()
+        self._emit_failed_summary(rescued_count=total_rescued)
+
+        finish = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._display_and_log(f"Playbook finished at {finish}", "INFO")
+
+        for fh in (self.full_log, self.errors_log, self.warnings_log, self.skipped_log):
+            if fh:
+                try: fh.close()
+                except (IOError, OSError): pass
+
+    def _emit_summary_section(self, title: str, items: List[Dict[str, str]], bullet: str) -> None:
+        if not items:
+            return
+        self._display_and_log("", "INFO")
+        self._display_and_log(f"═══ {title} ({len(items)}) ═══", "INFO")
+        # Group by manager when present
+        by_manager: Dict[str, List[str]] = {}
+        for it in items:
+            mgr = it.get("manager") or "other"
+            by_manager.setdefault(mgr, []).append(it["name"])
+        for mgr in sorted(by_manager.keys()):
+            names = sorted(set(by_manager[mgr]))
+            self._display_and_log(f"  {mgr}: {', '.join(names)}", "INFO")
+
+    def _emit_skipped_summary(self) -> None:
+        if not self.skipped_by_reason:
+            return
+        self._display_and_log("", "INFO")
+        total = sum(len(v) for v in self.skipped_by_reason.values())
+        self._display_and_log(f"═══ SKIPPED ({total}) ═══", "INFO")
+        for reason, names in sorted(self.skipped_by_reason.items()):
+            unique = sorted(set(names))
+            self._display_and_log(f"  [{reason}] ({len(unique)})", "INFO")
+            self._display_and_log(f"    {', '.join(unique)}", "INFO")
+
+    def _emit_failed_summary(self, rescued_count: int = 0) -> None:
+        if not self.failed:
+            return
+        self._display_and_log("", "INFO")
+        n = len(self.failed)
+        # If Ansible's stats show every failure was caught by `rescue:`, label
+        # it so the FAILED (3) header doesn't look like it contradicts
+        # the recap line where `failed=0`.
+        if rescued_count >= n:
+            header = f"FAILED ({n}, caught by rescue — playbook continued)"
+        elif rescued_count > 0:
+            header = f"FAILED ({n}; {rescued_count} caught by rescue)"
+        else:
+            header = f"FAILED ({n})"
+        self._display_and_log(f"═══ {header} ═══", "ERROR")
+        for entry in self.failed:
+            self._display_and_log(f"  • {entry['name']}", "ERROR")
+            if entry.get("error"):
+                self._display_and_log(f"      reason: {entry['error']}", "ERROR")
+
+    # ------------------------------------------------------------------
+    # Error detail extraction (preserved from the previous version)
+    # ------------------------------------------------------------------
+    def _extract_error_details(self, result) -> List[str]:
+        details: List[str] = []
+        rd = result._result if hasattr(result, "_result") else {}
+
+        if rd.get("exception"):
+            exc_lines = str(rd["exception"]).strip().split("\n")
+            keep = exc_lines[-15:] if len(exc_lines) > 15 else exc_lines
+            details.append(f"  Exception ({'last 15 lines' if len(exc_lines) > 15 else 'full'}):")
+            details.extend(f"    {ln}" for ln in keep if ln.strip())
+
+        if "msg" in rd:
+            details.append(f"  Error: {rd['msg']}")
+        elif rd.get("stderr"):
+            details.append(f"  stderr: {rd['stderr']}")
+
+        for field in ("stdout", "stderr", "stdout_lines", "stderr_lines"):
+            data = rd.get(field)
+            if not data:
+                continue
+            if isinstance(data, str):
+                lines = [ln for ln in data.strip().split("\n") if ln.strip()]
+            elif isinstance(data, list):
+                lines = [str(ln) for ln in data if str(ln).strip()]
+            else:
+                continue
+            if not lines:
+                continue
+            keep = self._truncate_lines(lines, 10)
+            details.append(f"  {field}:")
+            details.extend(f"    {ln}" for ln in keep)
+
+        if "invocation" in rd:
+            args = rd["invocation"].get("module_args", {})
+            if isinstance(args, dict) and args:
+                bits = [f"{k}={v}" for k, v in args.items()
+                        if k != "_ansible_check_mode" and v is not None][:6]
+                if bits:
+                    details.append(f"  Args: {' '.join(bits)}")
+
+        if len(details) <= 2:
+            try:
+                dump = yaml.dump(rd, default_flow_style=False, sort_keys=False)
+                if dump.strip():
+                    snippet = dump[:500] + ("..." if len(dump) > 500 else "")
+                    details.append(f"  Full result: {snippet}")
+            except Exception:
+                pass
+
+        return details

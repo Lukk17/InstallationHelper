@@ -1,0 +1,109 @@
+---
+# Set up official DNF repositories before batched dnf installs.
+
+# --- Google Chrome ---
+- name: Add Google Chrome dnf repository
+  ansible.builtin.yum_repository:
+    name: google-chrome
+    description: google-chrome
+    baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://dl.google.com/linux/linux_signing_key.pub
+  become: true
+  when: install_chrome | default(false) | bool
+
+# --- Brave Browser ---
+- name: Add Brave dnf repository
+  ansible.builtin.yum_repository:
+    name: brave-browser
+    description: Brave Browser
+    baseurl: https://brave-browser-rpm-release.s3.brave.com/x86_64/
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
+  become: true
+  when: install_brave | default(false) | bool
+
+# --- Microsoft VS Code ---
+- name: Import Microsoft GPG key
+  ansible.builtin.rpm_key:
+    key: https://packages.microsoft.com/keys/microsoft.asc
+    state: present
+  become: true
+  when: install_vscode | default(false) | bool
+
+- name: Add VS Code dnf repository
+  ansible.builtin.yum_repository:
+    name: vscode
+    description: Visual Studio Code
+    baseurl: https://packages.microsoft.com/yumrepos/vscode
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://packages.microsoft.com/keys/microsoft.asc
+  become: true
+  when: install_vscode | default(false) | bool
+
+# --- Sublime Text ---
+- name: Import Sublime Text GPG key
+  ansible.builtin.rpm_key:
+    key: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
+    state: present
+  become: true
+  when: install_sublime | default(false) | bool
+
+- name: Add Sublime Text dnf repository
+  ansible.builtin.yum_repository:
+    name: sublime-text
+    description: Sublime Text
+    baseurl: https://download.sublimetext.com/rpm/stable/x86_64
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
+  become: true
+  when: install_sublime | default(false) | bool
+
+# --- Kubernetes (kubectl) ---
+- name: Add Kubernetes dnf repository
+  ansible.builtin.yum_repository:
+    name: kubernetes
+    description: Kubernetes
+    baseurl: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/rpm/"
+    enabled: true
+    gpgcheck: true
+    gpgkey: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/rpm/repodata/repomd.xml.key"
+  become: true
+  when: install_kubectl | default(false) | bool
+
+# --- Lens Desktop ---
+- name: Import Lens GPG key
+  ansible.builtin.rpm_key:
+    key: https://downloads.k8slens.dev/keys/gpg
+    state: present
+  become: true
+  when: install_lens | default(false) | bool
+
+- name: Add Lens dnf repository
+  ansible.builtin.yum_repository:
+    name: lens
+    description: Lens Desktop
+    baseurl: https://downloads.k8slens.dev/rpm/packages
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://downloads.k8slens.dev/keys/gpg
+  become: true
+  when: install_lens | default(false) | bool
+
+# Antigravity is intentionally NOT pre-registered here. The .rpm's postinst
+# adds its own /etc/yum.repos.d/antigravity.repo. Pre-adding ours produced
+# duplicate-source conflicts. We install via dnf_url and let the postinst
+# own the repo for future updates.
+
+# --- Docker CE ---
+- name: Add Docker CE dnf repository
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/fedora/docker-ce.repo
+    dest: /etc/yum.repos.d/docker-ce.repo
+    mode: '0644'
+  become: true
+  when: install_docker | default(false) | bool

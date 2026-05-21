@@ -1,4 +1,18 @@
 ---
+# --- Passwordless sudo for the invoking user ---
+# Without this, sudo on long Ubuntu installs can re-prompt for a password and
+# inject "[sudo] password for X:" into the module's captured stdout, breaking
+# JSON deserialization ("Module result deserialization failed: No start of
+# json char found"). The initial sudo for THIS task is authorised via the -K
+# password the wizard captured at start. Mirrors arch_core's pattern.
+- name: Configure passwordless sudo for non-root user (Debian/Ubuntu)
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/99-ansible-user
+    content: "{{ non_root_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    mode: '0440'
+    validate: 'visudo -cf %s'
+
 # --- Enable contrib and non-free repos (Debian) ---
 
 - name: Enable contrib and non-free Debian repositories
@@ -6,7 +20,7 @@
   ansible.builtin.copy:
     dest: /etc/apt/sources.list.d/contrib-non-free.list
     content: |
-      deb http://deb.debian.org/debian bookworm contrib non-free non-free-firmware
+      deb https://deb.debian.org/debian {{ ansible_facts['distribution_release'] }} contrib non-free non-free-firmware
     mode: '0644'
   when: ansible_facts['distribution'] == 'Debian'
 
@@ -65,6 +79,7 @@
 - name: Download Antigravity APT signing key
   become: yes
   ansible.builtin.shell: |
+    set -o pipefail
     curl -fsSL https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg | gpg --dearmor --yes -o /etc/apt/keyrings/antigravity-repo-key.gpg
   args:
     creates: /etc/apt/keyrings/antigravity-repo-key.gpg

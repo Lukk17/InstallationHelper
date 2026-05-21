@@ -1,6 +1,21 @@
 ---
+# NVM provides `npm` for the Claude Code install. Under `--tags ai` alone,
+# the nvm task (tagged `[nvm]`) doesn't fire — probe nvm.sh first so we
+# emit a clear "install nvm first" message instead of a cryptic
+# "source: nvm.sh: No such file" failure.
+- name: Probe NVM installation (Unix)
+  ansible.builtin.stat:
+    path: "{{ non_root_home }}/.nvm/nvm.sh"
+  register: nvm_script_stat
+
+- name: Warn if NVM is missing — skip Claude Code install
+  ansible.builtin.debug:
+    msg: "[WARN] Skipping Claude Code install — NVM not found at {{ non_root_home }}/.nvm/nvm.sh. Run with --tags nvm,ai to install NVM first."
+  when: not nvm_script_stat.stat.exists
+
 - name: Check if Claude Code CLI is already installed (Unix)
   ansible.builtin.shell: |
+    set -o pipefail
     source {{ non_root_home }}/.nvm/nvm.sh
     npm list -g @anthropic-ai/claude-code --depth=0 2>/dev/null | grep -q claude-code
   args:
@@ -10,16 +25,29 @@
   register: claude_code_check
   changed_when: false
   failed_when: false
+  when: nvm_script_stat.stat.exists
 
+ # Wrap in bash -c so the timeout sub-shell sees the nvm function + the
+# Node version's bin/npm on PATH. Sourcing nvm.sh alone doesn't activate
+# any Node version unless `default` alias was set — nvm use --lts
+# guarantees one is active for this invocation.
 - name: Install Claude Code CLI via NPM (Unix)
   ansible.builtin.shell: |
     set -o pipefail
-    source {{ non_root_home }}/.nvm/nvm.sh && npm install -g @anthropic-ai/claude-code
+    timeout 600 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g @anthropic-ai/claude-code </dev/null'
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  when: claude_code_check.rc != 0
+  register: claude_code_install
+  async: 900
+  poll: 15
+  retries: 2
+  delay: 15
+  until: claude_code_install is succeeded
+  when:
+    - nvm_script_stat.stat.exists
+    - claude_code_check.rc | default(1) != 0
 
 
 
@@ -36,18 +64,42 @@
     url: "{{ claude_desktop_deb_url }}"
     dest: "{{ non_root_home }}/.lukkInstall/claude-desktop.deb"
     mode: '0644'
+    timeout: 60
   become: yes
   become_user: "{{ non_root_user }}"
+  register: claude_desktop_download
+  retries: 3
+  delay: 10
+  until: claude_desktop_download is succeeded
   when:
     - install_claude_desktop | default(false) | bool
     - ansible_facts['os_family'] == 'Debian'
     - not (claude_desktop_stat.stat.exists | default(false))
 
-- name: Install Claude Desktop .deb (Linux Debian)
-  ansible.builtin.apt:
-    deb: "{{ non_root_home }}/.lukkInstall/claude-desktop.deb"
-    state: present
+# Use raw apt-get instead of ansible.builtin.apt:deb to avoid the 2.19
+# ansiballz deserialization race triggered by needrestart/postinst stdout
+# on long Debian package installs. See AGENTS.md workaround section.
+- name: Install Claude Desktop .deb (Linux Debian) via apt-get → log file
+  ansible.builtin.shell: |
+    apt-get install -yqq \
+      -o DPkg::Lock::Timeout=300 \
+      -o Dpkg::Options::=--force-confdef \
+      -o Dpkg::Options::=--force-confold \
+      "{{ non_root_home }}/.lukkInstall/claude-desktop.deb" \
+      2>&1 | tee -a /var/log/installation-claude-desktop-apt.log
+  args:
+    executable: /bin/bash
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    APT_LISTCHANGES_FRONTEND: none
+    NEEDRESTART_MODE: a
+    NEEDRESTART_SUSPEND: "1"
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
   become: yes
+  register: claude_desktop_apt_result
+  changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (claude_desktop_apt_result.stdout | default(''))"
+  failed_when: claude_desktop_apt_result.rc | default(0) != 0
   when:
     - install_claude_desktop | default(false) | bool
     - ansible_facts['os_family'] == 'Debian'

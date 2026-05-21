@@ -1,135 +1,193 @@
 ---
-# Custom install tasks for packages that can't use standard package managers.
-# Called from dynamic_install.yaml after standard package manager tasks.
+- name: Create Antigravity install directory (Linux, non-Arch)
+  ansible.builtin.file:
+    path: /opt/antigravity
+    state: directory
+    mode: '0755'
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_antigravity | default(false) | bool
+
+- name: Download Antigravity Linux tarball
+  ansible.builtin.get_url:
+    url: "{{ antigravity_linux_tarball_url }}"
+    dest: "{{ non_root_home }}/.lukkInstall/antigravity.tar.gz"
+    mode: '0644'
+    checksum: "{{ download_checksums.antigravity_linux | default(omit) }}"
+    timeout: 60
+  register: antigravity_download
+  retries: 3
+  delay: 10
+  until: antigravity_download is succeeded
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_antigravity | default(false) | bool
+
+- name: Extract Antigravity tarball
+  ansible.builtin.unarchive:
+    src: "{{ non_root_home }}/.lukkInstall/antigravity.tar.gz"
+    dest: /opt/antigravity
+    remote_src: true
+    extra_opts: ['--strip-components=1']
+    creates: /opt/antigravity/antigravity
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_antigravity | default(false) | bool
+
+- name: Symlink Antigravity to /usr/local/bin
+  ansible.builtin.file:
+    src: /opt/antigravity/antigravity
+    dest: /usr/local/bin/antigravity
+    state: link
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_antigravity | default(false) | bool
+
+# --- AppImageLauncher (Fedora only): rpm -i --nodigest bypass ---
+# The 2020-vintage upstream RPM (last release) was built without file digests
+# and dnf5 in Fedora 43+ enforces digest verification regardless of GPG
+# settings, so the standard dnf_url path fails. rpm itself can install it
+# directly with --nodigest. On Debian the same package installs cleanly via
+# apt_url; on Arch the AUR `appimagelauncher` package handles it.
+
+- name: Download AppImageLauncher RPM (Fedora)
+  ansible.builtin.get_url:
+    url: "{{ appimage_launcher_rpm_url }}"
+    dest: /tmp/appimagelauncher.rpm
+    mode: '0644'
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - install_appimagelauncher | default(false) | bool
+
+- name: Install AppImageLauncher via rpm with --nodigest (Fedora)
+  ansible.builtin.command:
+    cmd: rpm --install --upgrade --replacepkgs --nodigest /tmp/appimagelauncher.rpm
+    creates: /usr/bin/appimagelauncher
+  become: true
+  when:
+    - ansible_facts['os_family'] == 'RedHat'
+    - install_appimagelauncher | default(false) | bool
 
 # --- Docker CE: Official Docker repository (Fedora) ---
-# Must add repo BEFORE installing docker-ce package
 
 - name: Add Docker CE repository (Fedora)
-  ansible.builtin.shell: |
-    dnf config-manager addrepo --from-repofile https://download.docker.com/linux/fedora/docker-ce.repo
-  args:
-    creates: /etc/yum.repos.d/docker-ce.repo
-  become: yes
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/fedora/docker-ce.repo
+    dest: /etc/yum.repos.d/docker-ce.repo
+    mode: '0644'
+  become: true
   when:
     - ansible_facts['os_family'] == 'RedHat'
     - install_docker | default(false) | bool
-  ignore_errors: true
 
-# --- Gridcoin: OpenSUSE repo (Fedora) / PPA (Debian/Ubuntu) / AUR (Arch) ---
-# Note: Currently uses flatpak bundle fallback - can be improved with proper repos
+# --- Gridcoin: official flatpak bundle on ALL Linux distros ---
+# We previously tried the Gridcoin PPA on Debian, but PPAs are Ubuntu-only
+# and add-apt-repository fails on plain Debian. The OpenSUSE Fedora_Rawhide
+# repo is also fragile across Fedora releases. Using the upstream-published
+# flatpak bundle gives us a single install path that works everywhere.
 
-- name: Add OpenSUSE repo for Gridcoin (Fedora)
-  ansible.builtin.yum_repository:
-    name: gridcoin-opensuse
-    description: Gridcoin from OpenSUSE build service
-    baseurl: https://download.opensuse.org/repositories/home:theMarix/Fedora_Rawhide/
-    enabled: yes
-    gpgcheck: no
-  become: yes
-  when:
-    - ansible_facts['os_family'] == 'RedHat'
-    - install_gridcoin | default(false) | bool
-  ignore_errors: true
-
-- name: Add Gridcoin PPA (Debian/Ubuntu)
-  become: yes
-  ansible.builtin.shell: add-apt-repository -y ppa:gridcoin/gridcoin-stable
-  args:
-    creates: /etc/apt/sources.list.d/gridcoin-ubuntu-gridcoin-stable-*
-  when:
-    - ansible_facts['os_family'] == 'Debian'
-    - install_gridcoin | default(false) | bool
-  register: gridcoin_ppa_add
-  failed_when: false
-  ignore_errors: true
-
-- name: Install Gridcoin (Debian/Ubuntu via PPA)
-  become: yes
-  ansible.builtin.apt:
-    name: gridcoinresearch
-    state: present
-  when:
-    - ansible_facts['os_family'] == 'Debian'
-    - install_gridcoin | default(false) | bool
-    - gridcoin_ppa_add.rc == 0
-  register: gridcoin_apt_install
-  ignore_errors: true
-
-- name: Download Gridcoin flatpak bundle (fallback)
+- name: Download Gridcoin flatpak bundle (Linux)
   ansible.builtin.get_url:
     url: "{{ gridcoin_flatpak_url }}"
     dest: /tmp/gridcoin.flatpak
     mode: '0644'
+    checksum: "{{ download_checksums.gridcoin_flatpak | default(omit) }}"
+    timeout: 60
+  become: true
+  register: gridcoin_download
+  retries: 3
+  delay: 10
+  until: gridcoin_download is succeeded
   when:
     - ansible_facts['system'] == 'Linux'
     - install_gridcoin | default(false) | bool
 
-- name: Install Gridcoin flatpak bundle
-  ansible.builtin.command: flatpak install --bundle --noninteractive /tmp/gridcoin.flatpak
-  become: yes
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - install_gridcoin | default(false) | bool
-  register: gridcoin_install
-  changed_when: "'Installing' in gridcoin_install.stdout or gridcoin_install.rc == 0"
+- name: Check if Gridcoin flatpak is already installed (Linux)
+  ansible.builtin.command: flatpak info org.gridcoin.Gridcoin
+  become: true
+  register: gridcoin_flatpak_check
+  changed_when: false
   failed_when: false
-
-# --- Lens: AppImage download (Debian/Fedora only, Arch uses AUR) ---
-
-- name: Download Lens AppImage
-  ansible.builtin.get_url:
-    url: "{{ lens_appimage_url }}"
-    dest: "{{ non_root_home }}/.local/bin/Lens.AppImage"
-    mode: '0755'
-  become: yes
-  become_user: "{{ non_root_user }}"
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
-    - install_lens | default(false) | bool
+    - install_gridcoin | default(false) | bool
 
-- name: Ensure Lens .local/bin directory exists
-  ansible.builtin.file:
-    path: "{{ non_root_home }}/.local/bin"
-    state: directory
-    mode: '0755'
-  become: yes
-  become_user: "{{ non_root_user }}"
+- name: Install Gridcoin flatpak bundle (Linux)
+  ansible.builtin.command: flatpak install --system --bundle --assumeyes /tmp/gridcoin.flatpak
+  become: true
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
-    - install_lens | default(false) | bool
+    - install_gridcoin | default(false) | bool
+    - gridcoin_flatpak_check is defined
+    - gridcoin_flatpak_check.rc != 0
+  changed_when: true
+
+# Lens is installed via the official apt/dnf repo on Debian/Fedora (configured
+# in debian_repos.yaml / fedora_repos.yaml) and via AUR `lens-bin` on Arch.
+# The AppImage fallback used to live here but `downloads.k8slens.dev/ide/Lens.AppImage`
+# is not a stable URL — the official path is the apt/dnf repo. Keep this block
+# empty as a marker.
 
 # --- GpuTest: binary zip download (Debian/Fedora only, Arch uses AUR) ---
-
-- name: Download GpuTest binary archive
-  ansible.builtin.get_url:
-    url: "{{ gputest_url }}"
-    dest: /tmp/gputest.zip
-    mode: '0644'
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
-    - install_gputest | default(false) | bool
 
 - name: Create GpuTest directory
   ansible.builtin.file:
     path: /opt/gputest
     state: directory
     mode: '0755'
-  become: yes
+  become: true
   when:
     - ansible_facts['system'] == 'Linux'
     - ansible_facts['os_family'] != 'Archlinux'
     - install_gputest | default(false) | bool
 
-- name: Extract GpuTest binary
+- name: Download GpuTest binary archive
+  ansible.builtin.get_url:
+    url: "{{ gputest_url }}"
+    dest: /tmp/gputest.zip
+    mode: '0644'
+    checksum: "{{ download_checksums.gputest | default(omit) }}"
+    timeout: 60
+  become: true
+  register: gputest_download
+  retries: 3
+  delay: 10
+  until: gputest_download is succeeded
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_gputest | default(false) | bool
+
+- name: Extract GpuTest archive
   ansible.builtin.unarchive:
     src: /tmp/gputest.zip
     dest: /opt/gputest
-    remote_src: yes
-  become: yes
+    remote_src: true
+    creates: /usr/local/bin/GpuTest
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ansible_facts['os_family'] != 'Archlinux'
+    - install_gputest | default(false) | bool
+
+# The ozone3d zip extracts to a versioned subdirectory
+# (e.g. GpuTest_Linux_x64_0.7.0/GpuTest), not directly to /opt/gputest/GpuTest.
+# Locate the actual binary before symlinking.
+- name: Locate GpuTest binary inside /opt/gputest
+  ansible.builtin.find:
+    paths: /opt/gputest
+    patterns: GpuTest
+    file_type: file
+    recurse: true
+  register: gputest_binary
   when:
     - ansible_facts['system'] == 'Linux'
     - ansible_facts['os_family'] != 'Archlinux'
@@ -137,12 +195,14 @@
 
 - name: Create GpuTest symlink
   ansible.builtin.file:
-    src: /opt/gputest/GpuTest
+    src: "{{ gputest_binary.files[0].path }}"
     dest: /usr/local/bin/GpuTest
     state: link
-  become: yes
+    force: true
+  become: true
   when:
     - ansible_facts['system'] == 'Linux'
     - ansible_facts['os_family'] != 'Archlinux'
     - install_gputest | default(false) | bool
-  failed_when: false
+    - gputest_binary is defined
+    - gputest_binary.files | default([]) | length > 0

@@ -7,4 +7,12 @@
     </deployment>
     <method v="2" />
   </configuration>
+  <configuration default="false" name="local-dev" type="docker-deploy" factoryName="docker-compose.yml" server-name="Docker">
+    <deployment type="docker-compose.yml">
+      <settings>
+        <option name="sourceFilePath" value="local-dev/local-dev-docker-compose.yaml" />
+      </settings>
+    </deployment>
+    <method v="2" />
+  </configuration>
 </component>

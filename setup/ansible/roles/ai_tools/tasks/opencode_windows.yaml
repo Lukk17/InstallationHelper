@@ -1,4 +1,24 @@
 ---
-- name: Install OpenCode CLI via Windows NPM (Windows)
-  ansible.windows.win_shell: npm install -g opencode-ai
+- name: Check npm availability (Windows)
+  ansible.windows.win_command: where.exe npm
+  register: npm_where
+  changed_when: false
+  failed_when: false
 
+- name: Check if OpenCode CLI is already installed (Windows)
+  ansible.windows.win_shell: npm list -g opencode-ai --depth=0 2>$null
+  register: opencode_check
+  changed_when: false
+  failed_when: false
+  when: npm_where.rc == 0
+
+- name: Install OpenCode CLI (Windows)
+  ansible.windows.win_shell: npm install -g opencode-ai
+  when:
+    - npm_where.rc == 0
+    - opencode_check.rc | default(1) != 0 or 'opencode-ai' not in (opencode_check.stdout | default(''))
+
+- name: Skip OpenCode (Windows, npm missing)
+  ansible.builtin.debug:
+    msg: "npm not found on PATH — install Node.js first (sdk_manager role enables nvm via choco). Skipping OpenCode."
+  when: npm_where.rc != 0

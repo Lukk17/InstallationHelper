@@ -3,72 +3,109 @@
 appimage_launcher_version: "2.2.0"
 appimage_launcher_file: "appimagelauncher_{{ appimage_launcher_version }}-travis995.0f91801.bionic_amd64.deb"
 appimage_launcher_rpm_file: "appimagelauncher-{{ appimage_launcher_version }}-travis995.0f91801.x86_64.rpm"
-antigravity_file: "antigravity.deb"
+# Google Antigravity downloads come from Google's official CDN, edgedl.me.gvt1.com.
+# `gvt1.com` is Google Video Transcoding — Google-owned, same CDN that delivers
+# Chrome itself. Not third-party.
+# Update `antigravity_version` / `antigravity_build` to the latest from
+# https://antigravity.google/download.
+antigravity_version: "1.13.3"
+antigravity_build: "4533425205018624"
+antigravity_cdn_base: "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/{{ antigravity_version }}-{{ antigravity_build }}"
+# Official Google apt/yum repos for auto-updates (preferred over direct .deb/.rpm files):
+antigravity_apt_repo: "https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev"
+antigravity_yum_repo: "https://us-central1-yum.pkg.dev/projects/antigravity-auto-updater-dev/antigravity-rpm"
+antigravity_linux_tarball_url: "{{ antigravity_cdn_base }}/linux-x64/Antigravity.tar.gz"
+# NOTE: Google's APT/YUM pool paths are not publicly addressable (return 404
+# even though the apt repo metadata lists them). Linux installs use the
+# tarball above instead — see custom_installs.yaml.
+# macOS: both Apple Silicon (arm64) and Intel (x64) builds — macos_install.yaml
+# picks the right one via ansible_facts['architecture'].
+antigravity_dmg_arm64_url: "{{ antigravity_cdn_base }}/darwin-arm/Antigravity.dmg"
+antigravity_dmg_x64_url: "{{ antigravity_cdn_base }}/darwin-x64/Antigravity.dmg"
+antigravity_win_exe_url: "{{ antigravity_cdn_base }}/windows-x64/Antigravity.exe"
 teamviewer_file: "teamviewer_amd64.deb"
 veracrypt_version: "1.26.24"
 veracrypt_file: "veracrypt-{{ veracrypt_version }}-Ubuntu-24.04-amd64.deb"
-lutris_version: "0.5.16"
+lutris_version: "0.5.22"
 lutris_file: "lutris_{{ lutris_version }}_all.deb"
-aurora_store_version: "4.1.1"
-aurora_store_file: "AuroraStore_{{ aurora_store_version }}.apk"
-aurora_droid_version: "1.0.8"
-aurora_droid_file: "AuroraDroid_{{ aurora_droid_version }}.apk"
+# Aurora Store moved off files.auroraoss.com (DNS no longer resolves) to
+# auroraoss.com/downloads/AuroraStore/Latest/latest.apk — a rolling redirect
+# that always returns the newest stable APK. Aurora Droid project is
+# discontinued upstream; install via Aurora Store's repo browser instead.
+aurora_store_file: "latest.apk"
 gridcoin_version: "5.5.0.0"
 gridcoin_flatpak_url: "https://github.com/gridcoin-community/Gridcoin-Research/releases/download/{{ gridcoin_version }}/gridcoin-{{ gridcoin_version }}-x86_64.flatpak"
-lens_version: "2026.4.151333"
-lens_appimage_url: "https://api.k8slens.dev/binaries/Lens-{{ lens_version }}-latest.x86_64.AppImage"
+# Lens Desktop ships via downloads.k8slens.dev (apt/yum repos). Free for
+# personal use; install via the official apt/dnf repos on Linux (set up in
+# debian_repos.yaml / fedora_repos.yaml) — package name `lens`. No AppImage
+# fallback: the previous URL was not stable; if you really need a portable
+# binary, download from https://lenshq.io/download manually.
 gputest_version: "0.7.0"
 gputest_url: "https://ozone3d.net/gputest/dl/GpuTest_Linux_x64_{{ gputest_version }}.zip"
-exodus_version: "25.13.6"
-exodus_file: "exodus-linux-x64-{{ exodus_version }}.deb"
-exodus_rpm_file: "exodus-linux-x64-{{ exodus_version }}.rpm"
-trezor_suite_version: "25.4.2"
+trezor_suite_version: "26.4.2"
 trezor_suite_file: "Trezor-Suite-{{ trezor_suite_version }}-linux-x86_64.AppImage"
 ledger_live_file: "ledger-app.AppImage"
-balena_etcher_version: "1.19.25"
+balena_etcher_version: "2.1.6"
 balena_etcher_url: "https://github.com/balena-io/etcher/releases/download/v{{ balena_etcher_version }}/balena-etcher_{{ balena_etcher_version }}_amd64.deb"
-balena_etcher_rpm_url: "https://github.com/balena-io/etcher/releases/download/v{{ balena_etcher_version }}/balena-etcher-{{ balena_etcher_version }}.x86_64.rpm"
-chrome_rpm_url: "https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm"
+balena_etcher_rpm_url: "https://github.com/balena-io/etcher/releases/download/v{{ balena_etcher_version }}/balena-etcher-{{ balena_etcher_version }}-1.x86_64.rpm"
 teamviewer_rpm_url: "https://download.teamviewer.com/download/linux/teamviewer.x86_64.rpm"
-veracrypt_rpm_url: "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }}/+download/veracrypt-{{ veracrypt_version }}-cs9.x86_64.rpm"
-vmware_version: "17.5.0"
-vmware_build: "22583795"
+# No CentOS Stream 9 RPM is published. The CentOS-8 build works on Fedora 38+
+# and RHEL/CentOS 8/9 (verified against veracrypt.io download manifest).
+veracrypt_rpm_url: "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }}/+download/veracrypt-{{ veracrypt_version }}-CentOS-8-x86_64.rpm"
+# VMware Workstation Player direct downloads now require a Broadcom Support Portal login.
+# The vmware_url below is kept for legacy reference but will not work without auth.
+# Recommend: install VirtualBox instead, or use the broadcom CLI/portal manually.
+vmware_version: "17.6.4"
+vmware_build: "24832109"
 vmware_file: "VMware-Player-Full-{{ vmware_version }}-{{ vmware_build }}.x86_64.bundle"
-minikube_version: "latest"
-minikube_file: "minikube_{{ minikube_version }}_amd64.deb"
-kind_version: "v0.27.0"
-tor_browser_version: "14.5"
+# Minikube versions are real semver tags (e.g. v1.38.1); 'latest' is a redirect
+# alias and not a real release filename. Pin a real release. Verify latest via
+# https://github.com/kubernetes/minikube/releases/latest.
+minikube_version: "v1.38.1"
+minikube_deb_version: "1.38.1-0"
+minikube_file: "minikube_{{ minikube_deb_version }}_amd64.deb"
+minikube_rpm_file: "minikube-{{ minikube_deb_version }}.x86_64.rpm"
+kind_version: "v0.31.0"
+# Kubernetes community apt/dnf repo minor stream. pkgs.k8s.io maintains a
+# directory per minor. v1.36 is the current stable as of 2026-04 (1.34 EOL 2026-10-27).
+kubernetes_repo_minor: "v1.36"
+tor_browser_version: "15.0.14"
 tor_browser_file: "tor-browser-linux-x86_64-{{ tor_browser_version }}.tar.xz"
 
-# Java SDKMAN versions
-java11_id: "11.0.30-tem"
-java17_id: "17.0.18-tem"
-java21_id: "21.0.10-tem"
-java25_id: "25.0.2-tem"
+# Java SDKMAN versions (Temurin builds — verify against
+# `https://api.sdkman.io/2/candidates/java/linuxx64/versions/list` before bumping)
+java11_id: "11.0.31-tem"
+java17_id: "17.0.19-tem"
+java21_id: "21.0.11-tem"
+java25_id: "25.0.3-tem"
 default_java: "{{ java21_id }}"
 
 # Python Pyenv versions
-python310_id: "3.10.16"
-python311_id: "3.11.11"
-python312_id: "3.12.8"
-python313_id: "3.13.2"
+python310_id: "3.10.20"
+python311_id: "3.11.15"
+python312_id: "3.12.13"
+python313_id: "3.13.13"
 default_python: "{{ python311_id }}"
 
 # Node NVM version
-nvm_version: "0.39.7"
+nvm_version: "0.40.4"
 
-# Dart SDK
-dart_version: "3.7.2"
+# Dart SDK — verify at https://storage.googleapis.com/dart-archive/channels/stable/release/latest/VERSION
+dart_version: "3.12.0"
 
 # Flutter via FVM
 flutter_channel: "stable"
 
 # Android SDK (update build number from https://developer.android.com/studio#command-line-tools-only)
-android_cmdline_tools_version: "13.0"
-android_cmdline_tools_build: "11076708"
+android_cmdline_tools_version: "16.0"
+android_cmdline_tools_build: "14742923"
 android_build_tools_version: "35.0.0"
 android_api_level: "35"
 android_home: "{{ non_root_home }}/Android/Sdk"
+
+# Stable Diffusion WebUI (AUTOMATIC1111) — pinned to avoid HEAD drift each run.
+# Bump after testing; supply-chain risk if left unpinned.
+stable_diffusion_webui_version: "v1.10.1"
 
 # Fonts
 meslo_regular_url: "https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"
@@ -80,21 +117,41 @@ meslo_bold_italic_url: "https://github.com/romkatv/powerlevel10k-media/raw/maste
 appimage_launcher_url: "https://github.com/TheAssassin/AppImageLauncher/releases/download/v{{ appimage_launcher_version }}/{{ appimage_launcher_file }}"
 appimagelauncher_url: "{{ appimage_launcher_url }}"
 appimage_launcher_rpm_url: "https://github.com/TheAssassin/AppImageLauncher/releases/download/v{{ appimage_launcher_version }}/{{ appimage_launcher_rpm_file }}"
-antigravity_url: "https://antigravity.google/download/linux/{{ antigravity_file }}"
+# Antigravity Linux: install via apt/yum repo (preferred — gets auto-updates).
+# Repo setup is in debian_repos.yaml / fedora_repos.yaml; install by package name.
+# For live USB or repo-less installs, the Linux tarball at edgedl.me.gvt1.com is
+# available — see antigravity_linux_tarball_url above.
+gridcoin_win_installer_url: "https://github.com/gridcoin-community/Gridcoin-Research/releases/download/{{ gridcoin_version }}/gridcoin-{{ gridcoin_version }}-win64-setup.exe"
+gridcoin_macos_dmg_url: "https://github.com/gridcoin-community/Gridcoin-Research/releases/download/{{ gridcoin_version }}/gridcoin-{{ gridcoin_version }}-macos-x86_64.dmg"
 teamviewer_url: "https://download.teamviewer.com/download/linux/{{ teamviewer_file }}"
 veracrypt_url: "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }}/+download/{{ veracrypt_file }}"
 lutris_url: "https://github.com/lutris/lutris/releases/download/v{{ lutris_version }}/{{ lutris_file }}"
-aurora_store_url: "https://files.auroraoss.com/AuroraStore/Stable/{{ aurora_store_file }}"
-aurora_droid_url: "https://files.auroraoss.com/AuroraDroid/Stable/{{ aurora_droid_file }}"
-exodus_url: "https://downloads.exodus.com/releases/{{ exodus_file }}"
-exodus_rpm_url: "https://downloads.exodus.com/releases/{{ exodus_rpm_file }}"
+aurora_store_url: "https://auroraoss.com/downloads/AuroraStore/Latest/{{ aurora_store_file }}"
+# Chrome is installed via the official apt/dnf repos (see debian_repos.yaml /
+# fedora_repos.yaml) on Debian and Fedora. The direct .deb URL is kept here for
+# live-USB / repo-less scenarios that may need it.
 chrome_url: "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
-chrome_rpm_url_dynamic: "https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm"
+# Anthropic no longer publishes a Claude Desktop Linux .deb (claude.com/download
+# lists macOS + Windows only as of 2026-05). On Linux this URL is left in place
+# for the Arch AUR path (which builds from source) and as a hook in case
+# Anthropic re-publishes it. Debian/Ubuntu users should install_claude_desktop:
+# false until upstream restores the build.
 claude_desktop_deb_url: "https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/signed/Claude-linux-x86_64.deb"
-trezor_suite_url: "https://data.trezor.io/suite/releases/desktop/latest/{{ trezor_suite_file }}"
+# data.trezor.io/suite/releases/desktop/latest no longer serves versioned files;
+# pin to GitHub releases for direct download.
+trezor_suite_url: "https://github.com/trezor/trezor-suite/releases/download/v{{ trezor_suite_version }}/{{ trezor_suite_file }}"
 ledger_live_url: "https://download.live.ledger.com/latest/linux"
-vmware_url: "https://download3.vmware.com/software/WKST-PLAYER-1750/{{ vmware_file }}"
-minikube_url: "https://storage.googleapis.com/minikube/releases/{{ minikube_version }}/{{ minikube_file }}"
+# Legacy VMware URL — Broadcom moved downloads behind login wall.
+# Tasks that consume this URL must fail gracefully. Document manual install in README.
+vmware_url: "https://support.broadcom.com/group/ecx/productdownloads?subfamily=VMware%20Workstation%20Player"
+minikube_url: "https://github.com/kubernetes/minikube/releases/download/{{ minikube_version }}/{{ minikube_file }}"
+minikube_rpm_url: "https://github.com/kubernetes/minikube/releases/download/{{ minikube_version }}/{{ minikube_rpm_file }}"
 kind_url: "https://kind.sigs.k8s.io/dl/{{ kind_version }}/kind-linux-amd64"
 tor_browser_url: "https://dist.torproject.org/torbrowser/{{ tor_browser_version }}/{{ tor_browser_file }}"
+
+# Download integrity checksums. Populate with `sha256:<hex>` strings to enforce
+# verification on get_url tasks (custom_installs.yaml). Empty/missing = no enforcement.
+download_checksums: {}
+  # lens_appimage: "sha256:0123abcd..."
+  # gputest: "sha256:..."
 

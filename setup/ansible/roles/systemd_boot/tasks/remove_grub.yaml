@@ -34,7 +34,6 @@
     state: absent
     purge: yes
   when: ansible_facts['os_family'] == 'Debian'
-  ignore_errors: yes
 
 - name: Remove GRUB packages (Arch)
   become: yes
@@ -44,7 +43,6 @@
       - os-prober
     state: absent
   when: ansible_facts['os_family'] == 'Archlinux'
-  ignore_errors: yes
 
 - name: Remove GRUB packages (Fedora)
   become: yes
@@ -58,7 +56,6 @@
       - os-prober
     state: absent
   when: ansible_facts['os_family'] == 'RedHat'
-  ignore_errors: yes
 
 # --- Remove this distro's GRUB EFI directory from ESP ---
 
@@ -97,18 +94,34 @@
     state: present
   when: ansible_facts['os_family'] == 'RedHat'
 
-- name: Find NVRAM boot entries pointing to this distro's GRUB
+# Match NVRAM entries by Loader path (\EFI\<distro>\), not by free-text
+# label — labels collide with Windows / other distros and a wrong delete
+# bricks UEFI boot.
+- name: Dump NVRAM boot entries verbosely
   become: yes
-  ansible.builtin.shell: |
-    efibootmgr | grep -i "{{ distro_grub_efi_dir }}" | grep -oP 'Boot\K[0-9A-Fa-f]+' || true
-  register: grub_nvram_entries
+  ansible.builtin.command: efibootmgr -v
+  register: efibootmgr_verbose
   changed_when: false
-  ignore_errors: yes
+
+- name: Identify NVRAM Boot IDs whose loader path is this distro's GRUB
+  ansible.builtin.set_fact:
+    grub_nvram_ids: >-
+      {{ efibootmgr_verbose.stdout_lines
+         | select('search', '^Boot[0-9A-Fa-f]{4}\\*?')
+         | select('search', '\\\\EFI\\\\' ~ distro_grub_efi_dir ~ '\\\\')
+         | map('regex_search', '^Boot([0-9A-Fa-f]{4})', '\\1')
+         | map('first')
+         | list }}
+
+- name: Show NVRAM entries that will be deleted
+  ansible.builtin.debug:
+    msg: "Deleting NVRAM Boot{{ item }} (matched this distro's GRUB loader path)."
+  loop: "{{ grub_nvram_ids }}"
+  when: grub_nvram_ids | length > 0
 
 - name: Remove stale GRUB NVRAM entries for this distro
   become: yes
   ansible.builtin.command: efibootmgr -b {{ item }} -B
-  loop: "{{ grub_nvram_entries.stdout_lines }}"
-  when: grub_nvram_entries.stdout_lines | length > 0
-  ignore_errors: yes
+  loop: "{{ grub_nvram_ids }}"
+  when: grub_nvram_ids | length > 0
 

@@ -2,43 +2,38 @@
 software_mapping:
   # Browsers
   chrome: { manager: "dnf", package: "google-chrome-stable" }
-  brave: { manager: "dnf_repo", package: "brave-browser" }
+  brave: { manager: "dnf", package: "brave-browser" }
   tor: { manager: "flatpak", package: "org.torproject.torbrowser-launcher" }
 
   # Dev Tools
   git: { manager: "dnf", package: "git" }
   maven: { manager: "dnf", package: "maven" }
-  # gradle: not in Fedora repos — already installed via SDKMAN (sdk_manager role)
+  # gradle: not in Fedora repos — use SDKMAN
   postman: { manager: "flatpak", package: "com.getpostman.Postman" }
   openssl: { manager: "dnf", package: "openssl" }
-  dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }  # Changed: more reliable
-  kubectl: { manager: "snap", package: "kubectl", classic: true }
+  dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
+  kubectl: { manager: "dnf", package: "kubectl" }               # Official k8s.io repo
   minikube: { manager: "dnf_url", package: "minikube-latest.x86_64.rpm" }
-  # lens: installed via custom AppImage download task in custom_installs.yaml
+  lens: { manager: "dnf", package: "lens" }                     # Official Lens dnf repo (fedora_repos.yaml)
   filezilla: { manager: "dnf", package: "filezilla" }
 
-
   # IDEs / Editors
-  # intellij: removed - use JetBrains Toolbox instead
-  vscode: { manager: "dnf_repo", package: "code", classic: true }
-  sublime: { manager: "dnf_repo", package: "sublime-text" }
+  vscode: { manager: "dnf", package: "code" }
+  sublime: { manager: "dnf", package: "sublime-text" }
   arduino: { manager: "flatpak", package: "cc.arduino.IDE2" }
-  antigravity: { manager: "dnf", package: "antigravity" }
+  # antigravity: installed via custom_installs.yaml (same tarball used on all Linux distros).
   bruno: { manager: "flatpak", package: "com.usebruno.Bruno" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
   slack: { manager: "flatpak", package: "com.slack.Slack" }
-  # teams: removed - not on Flathub
   telegram: { manager: "flatpak", package: "org.telegram.desktop" }
   signal: { manager: "flatpak", package: "org.signal.Signal" }
-  # whatsapp: removed - not on Flathub
 
   # Productivity
   obsidian: { manager: "flatpak", package: "md.obsidian.Obsidian" }
   bitwarden: { manager: "flatpak", package: "com.bitwarden.desktop" }
   keepassxc: { manager: "dnf", package: "keepassxc" }
-  # trello: removed - not on Flathub
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
   # Media / Design
@@ -50,42 +45,42 @@ software_mapping:
   audacity: { manager: "flatpak", package: "org.audacityteam.Audacity" }
   rawtherapee: { manager: "dnf", package: "rawtherapee" }
 
-  # Gaming
+  # Gaming — Heroic Launcher is community-only (not official GOG); no Linux mapping for gog/epic
   steam: { manager: "flatpak", package: "com.valvesoftware.Steam" }
-  
+
   # CAD / 3D
-  freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
+  freecad: { manager: "flatpak", package: "org.freecad.FreeCAD" }
   prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
   teamviewer: { manager: "dnf_url", package: "teamviewer.rpm" }
   veracrypt: { manager: "dnf_url", package: "veracrypt.rpm" }
   speedtest: { manager: "dnf", package: "speedtest-cli" }
-  appimagelauncher: { manager: "dnf_url", package: "{{ appimage_launcher_rpm_url }}" }
+  # appimagelauncher: installed via custom_installs.yaml using `rpm -i --nodigest`.
+  # The upstream 2.2.0 RPM (last release, from 2020) lacks file digests and
+  # dnf5 in Fedora 43+ refuses to install packages without them. rpm itself
+  # can bypass the check with --nodigest; dnf can't.
 
   # Crypto / Crypto Hardware
-  exodus: { manager: "dnf_url", package: "exodus.rpm" }
   boinc: { manager: "dnf", package: "boinc-client" }
-  # gridcoin: installed via custom install task (OpenSUSE repo not yet added)
+  # gridcoin: installed via custom_installs.yaml
   lynis: { manager: "dnf", package: "lynis" }
   chkrootkit: { manager: "dnf", package: "chkrootkit" }
   clamav: { manager: "dnf", package: "clamav" }
 
   # Alternatives
   boot_repair: { manager: "dnf", package: "grubby" }
-  hardinfo: { manager: "dnf", package: "hardinfo2", is_alternative_for: "HWMonitor" }
+  hardinfo: { manager: "dnf", package: "hardinfo2", is_alternative_for: "HWMonitor" }   # Fedora 42+ ships hardinfo2 (active fork). Legacy `hardinfo` is no longer packaged.
   lm_sensors: { manager: "dnf", package: "lm_sensors", is_alternative_for: "HWInfo" }
   greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
   baobab: { manager: "dnf", package: "baobab", is_alternative_for: "WizTree" }
   polychromatic: { manager: "flatpak", package: "app.polychromatic.controller", is_alternative_for: "Razer Cortex" }
   balena_etcher: { manager: "dnf_url", package: "balena-etcher.rpm", is_alternative_for: "Rufus" }
-  # gputest: installed via custom binary download task in custom_installs.yaml
+  # gputest: custom binary download in custom_installs.yaml
 
   # Utilities
   gparted: { manager: "dnf", package: "gparted" }
   partitionmanager: { manager: "dnf", package: "kde-partitionmanager" }
 
-  # Virtualization
+  # Virtualization — docker is installed by virtualization_config role
   virt_manager: { manager: "dnf", package: "virt-manager" }
-  docker: { manager: "dnf_repo", package: "docker-ce" }
-

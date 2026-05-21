@@ -1,0 +1,249 @@
+---
+# Set up official APT repositories before batched apt installs.
+# Uses /etc/apt/keyrings/ + signed-by= with DEARMORED binary keyrings (.gpg).
+#
+# Why dearmored: Debian's apt accepts both ASCII-armored (.asc) and binary
+# (.gpg) keyrings in `signed-by=`, but Ubuntu 24.04+ apt is stricter and only
+# reliably trusts binary keyrings — that's why VS Code and Sublime hit
+# NO_PUBKEY errors on Ubuntu in the previous run. Dearmoring works on both.
+
+- name: Ensure /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  become: true
+
+# Generic helper would be nice but Ansible has no clean shell-substitute,
+# so each repo is two tasks: download to /tmp, dearmor into /etc/apt/keyrings.
+
+# --- Google Chrome ---
+- name: Download Google Chrome signing key
+  ansible.builtin.get_url:
+    url: https://dl.google.com/linux/linux_signing_key.pub
+    dest: /tmp/google-chrome.asc
+    mode: '0644'
+    force: true
+  when: install_chrome | default(false) | bool
+
+- name: Convert Google Chrome key to binary keyring
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg --dearmor < /tmp/google-chrome.asc > /etc/apt/keyrings/google-chrome.gpg
+    chmod 0644 /etc/apt/keyrings/google-chrome.gpg
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/keyrings/google-chrome.gpg
+  become: true
+  when: install_chrome | default(false) | bool
+
+- name: Add Google Chrome apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main"
+    filename: google-chrome
+    state: present
+    update_cache: false
+  become: true
+  when: install_chrome | default(false) | bool
+
+# --- Brave Browser ---
+# Brave publishes an already-binary keyring, so no dearmor needed.
+- name: Download Brave signing key (already binary)
+  ansible.builtin.get_url:
+    url: https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+    dest: /etc/apt/keyrings/brave-browser-archive-keyring.gpg
+    mode: '0644'
+  become: true
+  when: install_brave | default(false) | bool
+
+- name: Add Brave apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main"
+    filename: brave-browser
+    state: present
+    update_cache: false
+  become: true
+  when: install_brave | default(false) | bool
+
+# --- Microsoft VS Code ---
+- name: Download Microsoft signing key for VS Code
+  ansible.builtin.get_url:
+    url: https://packages.microsoft.com/keys/microsoft.asc
+    dest: /tmp/packages.microsoft.asc
+    mode: '0644'
+    force: true
+  when: install_vscode | default(false) | bool
+
+- name: Convert Microsoft key to binary keyring
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg --dearmor < /tmp/packages.microsoft.asc > /etc/apt/keyrings/packages.microsoft.gpg
+    chmod 0644 /etc/apt/keyrings/packages.microsoft.gpg
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/keyrings/packages.microsoft.gpg
+  become: true
+  when: install_vscode | default(false) | bool
+
+- name: Add VS Code apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main"
+    filename: vscode
+    state: present
+    update_cache: false
+  become: true
+  when: install_vscode | default(false) | bool
+
+# --- Sublime Text ---
+- name: Download Sublime Text signing key (ASCII despite .gpg URL suffix)
+  ansible.builtin.get_url:
+    url: https://download.sublimetext.com/sublimehq-pub.gpg
+    dest: /tmp/sublimehq-pub.asc
+    mode: '0644'
+    force: true
+  when: install_sublime | default(false) | bool
+
+- name: Convert Sublime key to binary keyring
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg --dearmor < /tmp/sublimehq-pub.asc > /etc/apt/keyrings/sublimehq-pub.gpg
+    chmod 0644 /etc/apt/keyrings/sublimehq-pub.gpg
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/keyrings/sublimehq-pub.gpg
+  become: true
+  when: install_sublime | default(false) | bool
+
+- name: Add Sublime Text apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/sublimehq-pub.gpg] https://download.sublimetext.com/ apt/stable/"
+    filename: sublime-text
+    state: present
+    update_cache: false
+  become: true
+  when: install_sublime | default(false) | bool
+
+# --- Kubernetes (kubectl) ---
+- name: Download Kubernetes signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/deb/Release.key"
+    dest: /tmp/kubernetes-apt-keyring.asc
+    mode: '0644'
+    force: true
+  when: install_kubectl | default(false) | bool
+
+- name: Convert Kubernetes key to binary keyring
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg --dearmor < /tmp/kubernetes-apt-keyring.asc > /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    chmod 0644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  become: true
+  when: install_kubectl | default(false) | bool
+
+- name: Add Kubernetes apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/deb/ /"
+    filename: kubernetes
+    state: present
+    update_cache: false
+  become: true
+  when: install_kubectl | default(false) | bool
+
+# --- Lens Desktop ---
+- name: Download Lens signing key
+  ansible.builtin.get_url:
+    url: https://downloads.k8slens.dev/keys/gpg
+    dest: /tmp/lens.asc
+    mode: '0644'
+    force: true
+  when: install_lens | default(false) | bool
+
+- name: Convert Lens key to binary keyring
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg --dearmor < /tmp/lens.asc > /etc/apt/keyrings/lens.gpg
+    chmod 0644 /etc/apt/keyrings/lens.gpg
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/keyrings/lens.gpg
+  become: true
+  when: install_lens | default(false) | bool
+
+- name: Add Lens apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/lens.gpg] https://downloads.k8slens.dev/apt/debian stable main"
+    filename: lens
+    state: present
+    update_cache: false
+  become: true
+  when: install_lens | default(false) | bool
+
+# Antigravity is intentionally NOT pre-registered here. The `antigravity`
+# .deb's postinst script installs its own keyring at
+# /etc/apt/keyrings/antigravity-repo-key.gpg and writes its own .list file.
+# Pre-adding ours produces a "Conflicting values set for option Signed-By"
+# error that breaks every subsequent `apt update`. We let the package's
+# postinst own the repo; we just install the .deb via apt_url.
+
+# --- Docker CE ---
+- name: Download Docker signing key
+  ansible.builtin.get_url:
+    url: "https://download.docker.com/linux/{{ 'ubuntu' if ansible_facts['distribution'] == 'Ubuntu' else 'debian' }}/gpg"
+    dest: /tmp/docker.asc
+    mode: '0644'
+    force: true
+  when: install_docker | default(false) | bool
+
+- name: Convert Docker key to binary keyring
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg --dearmor < /tmp/docker.asc > /etc/apt/keyrings/docker.gpg
+    chmod 0644 /etc/apt/keyrings/docker.gpg
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/keyrings/docker.gpg
+  become: true
+  when: install_docker | default(false) | bool
+
+- name: Add Docker apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.gpg]
+      https://download.docker.com/linux/{{ 'ubuntu' if ansible_facts['distribution'] == 'Ubuntu' else 'debian' }}
+      {{ ansible_facts['distribution_release'] }} stable
+    filename: docker
+    state: present
+    update_cache: false
+  become: true
+  vars:
+    docker_apt_arch_map:
+      x86_64: amd64
+      aarch64: arm64
+      armv7l: armhf
+      armv6l: armel
+    docker_apt_arch: "{{ docker_apt_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+  when: install_docker | default(false) | bool
+
+- name: Refresh apt cache after repo changes
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+  changed_when: false
+
+# Cleanup any leftover legacy ASCII keyring files from older runs so apt
+# doesn't trip on duplicate Signed-By= references to the same source URL.
+- name: Remove legacy ASCII keyring files (post-dearmor migration)
+  ansible.builtin.file:
+    path: "/etc/apt/keyrings/{{ item }}"
+    state: absent
+  become: true
+  loop:
+    - google-chrome.asc
+    - packages.microsoft.gpg.legacy
+    - sublimehq-pub.asc
+    - kubernetes-apt-keyring.asc
+    - lens.asc
+    - docker.asc

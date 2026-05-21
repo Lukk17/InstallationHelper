@@ -11,7 +11,11 @@
       export ANDROID_SDK_HOME="$HOME/apps_config/.android"
       export KUBECONFIG="$HOME/apps_config/.kube/config"
       export ANDROID_SDK_ROOT="/opt/android"
-      export PATH="$PATH:/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator"
+      # Pub (Dart/Flutter) installs user-level executables here; pin it to PATH
+      # so the "Pub installs executables into $HOME/.pub-cache/bin, which is
+      # not on your path" warning never reappears.
+      export PUB_CACHE="$HOME/.pub-cache"
+      export PATH="/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator:$HOME/.pub-cache/bin:$PATH"
   become: yes
   become_user: "{{ non_root_user }}"
   when: ansible_facts['system'] == 'Linux'
@@ -28,7 +32,11 @@
       export ANDROID_SDK_HOME="$HOME/apps_config/.android"
       export KUBECONFIG="$HOME/apps_config/.kube/config"
       export ANDROID_SDK_ROOT="/opt/android"
-      export PATH="$PATH:/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator"
+      # Pub (Dart/Flutter) installs user-level executables here; pin it to PATH
+      # so the "Pub installs executables into $HOME/.pub-cache/bin, which is
+      # not on your path" warning never reappears.
+      export PUB_CACHE="$HOME/.pub-cache"
+      export PATH="/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator:$HOME/.pub-cache/bin:$PATH"
   become: yes
   become_user: "{{ non_root_user }}"
   when: ansible_facts['os_family'] == 'Darwin'

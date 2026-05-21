@@ -1,6 +1,22 @@
 ---
-- import_tasks: claude.yaml
-- import_tasks: opencode.yaml
-- import_tasks: openspec.yaml
-- import_tasks: local_llm.yaml
+- name: Install Claude Code
+  ansible.builtin.import_tasks: claude.yaml
+  when: install_claude_code | default(false) | bool
+  tags: [claude]
 
+- name: Install OpenCode
+  ansible.builtin.import_tasks: opencode.yaml
+  when: install_opencode | default(false) | bool
+  tags: [opencode]
+
+- name: Install OpenSpec
+  ansible.builtin.import_tasks: openspec.yaml
+  when: install_openspec | default(false) | bool
+  tags: [openspec]
+
+- name: Install local LLM tools
+  ansible.builtin.import_tasks: local_llm.yaml
+  when:
+    - install_lm_studio | default(false) | bool
+      or install_stable_diffusion | default(false) | bool
+  tags: [local_llm]

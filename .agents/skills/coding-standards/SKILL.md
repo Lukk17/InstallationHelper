@@ -5,7 +5,7 @@ origin: ECC
 ---
 
 # Coding Standards & Best Practices
-
+. 
 Baseline coding conventions applicable across projects.
 
 This skill is the shared floor, not the detailed framework playbook.
@@ -61,6 +61,105 @@ Do not use this skill as the primary source for:
 - Avoid speculative generality
 - Add complexity only when required
 - Start simple, refactor when needed
+
+### 5. Functional Pipelines Over Imperative Cascades
+
+When transforming a collection — filter, then map, then aggregate —
+prefer a *pipeline* (one operation per step, top-down) over an
+imperative `for` loop with `if`-`else` cascading and an explicit
+accumulator. The pipeline reads as "what we're doing to the data";
+the cascade reads as "how the bookkeeping goes."
+
+This is a code-shape rule, not a syntax-level formatting one. The
+sibling `code-formatter` skill says "one chain step per line"; this
+skill says "*reach* for the chain in the first place."
+
+#### Dart
+
+```dart
+// BAD — imperative cascade
+final activeNames = <String>[];
+for (final e in exercises) {
+  if (e.isActive) {
+    activeNames.add(e.name);
+  }
+}
+
+// GOOD — pipeline
+final activeNames = exercises
+    .where((e) => e.isActive)
+    .map((e) => e.name)
+    .toList();
+```
+
+#### Java
+
+Java's `Stream` API and `Optional` are explicitly designed for this.
+A `for` + `if` + `list.add` block where a stream would do is a code
+smell in modern Java.
+
+```java
+// BAD
+List<String> activeNames = new ArrayList<>();
+for (Exercise e : exercises) {
+    if (e.isActive()) {
+        activeNames.add(e.name());
+    }
+}
+
+// GOOD
+List<String> activeNames = exercises.stream()
+    .filter(Exercise::isActive)
+    .map(Exercise::name)
+    .toList();
+
+// Same principle for nullable values: reach for Optional, not if-null
+// BAD
+Exercise e = repository.findById(id);
+if (e != null) {
+    return e.name();
+} else {
+    return "unknown";
+}
+
+// GOOD
+return repository.findById(id)
+    .map(Exercise::name)
+    .orElse("unknown");
+```
+
+#### Python
+
+Python's idiomatic equivalent is a comprehension (or, for lazy
+streams, a generator expression). Reach for them before you reach
+for an explicit `for` + `if` + `list.append`.
+
+```python
+# BAD
+active_names = []
+for e in exercises:
+    if e.is_active:
+        active_names.append(e.name)
+
+# GOOD
+active_names = [e.name for e in exercises if e.is_active]
+
+# When the transformation is heavier than a single expression, a
+# generator + sum/max/min/any/all keeps the pipeline shape:
+total_reps = sum(s.reps for s in series if s.reps > 0)
+```
+
+#### When NOT to convert
+
+- Side effects inside the loop body (writing to disk, calling an API
+  with an index-dependent argument, mutating an outside variable)
+  belong in an explicit `for` — pipelines should be pure.
+- Early termination on a complex condition that doesn't map to
+  `takeWhile`/`first` cleanly.
+- Cases where the cascade is genuinely clearer to a reader unfamiliar
+  with the codebase's style — *clarity outranks compactness*.
+
+The point is *prefer*, not *always*.
 
 ## TypeScript/JavaScript Standards
 
@@ -366,6 +465,10 @@ types/market.types.ts         # camelCase with .types suffix
 
 ### When to Comment
 
+Default to **no comments**. Identifiers and structure already say what the code does. Add a comment only when the *why* is non-obvious — a hidden invariant, a workaround for a specific defect with a stable external reference (CVE, RFC section), or behavior that would surprise a future reader.
+
+**Do not** write comments that reference ticket numbers, PR numbers, or review section numbers (`// PHA-270 fix`, `// per review §4.4`, `// Regression guard for §1.1`). Nobody remembers what `§1.1` means six months later; the PR description and commit message already carry that context. The one exception is a TODO tied to an open ticket: `// TODO(PHA-265): <what's missing>`.
+
 ```typescript
 // PASS: GOOD: Explain WHY, not WHAT
 // Use exponential backoff to avoid overwhelming the API during outages
@@ -380,6 +483,11 @@ count++
 
 // Set name to user's name
 name = user.name
+
+// FAIL: BAD: Ticket / review-section references
+// PHA-270 §4.4 — switch to ArrayList
+// PR #15 review comment fix
+// added for the cleanup pass
 ```
 
 ### JSDoc for Public APIs
@@ -547,6 +655,22 @@ setTimeout(callback, DEBOUNCE_DELAY_MS)
 ```
 
 **Remember**: Code quality is not negotiable. Clear, maintainable code enables rapid development and confident refactoring.
+
+---
+
+## Startup readiness log
+
+Every long-running service emits one canonical multi-line INFO log entry the moment it starts **accepting traffic** — not the moment the process boots. Use the latest-possible startup hook for the framework. This single line is the most-read log entry in any service: first thing on-call sees when paging, first thing CI inspects when smoke-testing, first thing a new contributor sees when running locally. Investing in its clarity pays back every shift.
+
+The log block contains, in order:
+
+1. **ASCII banner** with the application name in **ANSI Shadow** FIGlet font (Unicode box-drawing: `█▀▄╔╗╚╝═║`). Width ~120 chars, 6 lines. Modern terminals, container stdout, Loki, JsonEncoder-escaped JSON logs all render it. The bold weight makes "we're up" unmistakable when scrolling startup output. Do not use Standard / Big / Slant ASCII FIGlet — they pack too tightly to scan from a `kubectl logs` flood. Plain-ASCII fallback is acceptable only when the deployment target is a known UTF-8-hostile environment (legacy `cmd.exe`, embedded serial console).
+2. **Access URLs** — `Local: http://localhost:port/...` and `Hostname: http://<resolved-hostname>:port/...`. Both are diagnostic: in Kubernetes the real external URL comes from ingress / service definitions, not the app's self-report.
+3. **Active profile / environment** — whatever the framework exposes (`local`, `docker`, `prod`, `staging`).
+4. **External dependencies** — each one probed with a **2-second connect + read timeout** so an unreachable dependency cannot stall the banner. Result format: `<url> [Connected | Warning (status=N) | FAILED]` — URL first, status marker last. Never include the exception detail in the banner; log it at `DEBUG` for diagnostics.
+5. **Observability endpoints** — one URL per line: health / readiness / liveness / metrics / prometheus, plus OpenAPI / Swagger UI / tracing endpoint + sampling, plus the logging encoder mode by profile.
+
+Pick the framework's "we're really up" hook from its own skill: [springboot-patterns](../springboot-patterns/SKILL.md), [backend-patterns](../backend-patterns/SKILL.md), [python-patterns](../python-patterns/SKILL.md), [golang-patterns](../golang-patterns/SKILL.md), [bash](../bash/SKILL.md), [powershell](../powershell/SKILL.md). The hook differs per stack; the convention above is identical.
 
 ---
 

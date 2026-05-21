@@ -32,15 +32,22 @@
     state: present
   when: ansible_facts['os_family'] == 'Darwin'
 
+# `command -v zsh` is a POSIX shell builtin, not an executable — must run
+# inside a shell (ansible.builtin.command invokes execve() directly with
+# no shell, so it fails with "Error executing command"). Using `shell:`
+# routes through bash where the builtin resolves correctly.
 - name: Find ZSH path
-  ansible.builtin.command: which zsh
+  ansible.builtin.shell: command -v zsh
+  args:
+    executable: /bin/bash
   register: zsh_path
   changed_when: false
-  failed_when: zsh_path.rc > 1
+  failed_when: zsh_path.rc != 0 or (zsh_path.stdout | default('') | trim) == ''
 
 - name: Change user shell to ZSH
   ansible.builtin.user:
     name: "{{ non_root_user }}"
-    shell: "{{ zsh_path.stdout }}"
+    shell: "{{ zsh_path.stdout | trim }}"
   become: yes
+  when: (zsh_path.stdout | default('') | trim) != ''
 

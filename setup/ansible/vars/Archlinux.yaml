@@ -25,14 +25,13 @@ software_mapping:
 
   vscode: { manager: "aur", package: "visual-studio-code-bin" }
   sublime: { manager: "aur", package: "sublime-text-4" }
-  arduino: { manager: "pacman", package: "arduino" }
-  antigravity: { manager: "aur", package: "antigravity" }
+  arduino: { manager: "flatpak", package: "cc.arduino.IDE2" }   # `arduino` no longer in Arch official repos; use Flathub
+  antigravity: { manager: "aur", package: "antigravity" }   # AUR slug: `antigravity` (antigravity-bin does not exist as of 2026-05)
   bruno: { manager: "flatpak", package: "com.usebruno.Bruno" }
 
   # Communication
   discord: { manager: "flatpak", package: "com.discordapp.Discord" }
   slack: { manager: "flatpak", package: "com.slack.Slack" }
-  # teams: removed - not on Flathub
   telegram: { manager: "pacman", package: "telegram-desktop" }
   signal: { manager: "pacman", package: "signal-desktop" }
   # whatsapp: removed - not on Flathub
@@ -41,7 +40,6 @@ software_mapping:
   obsidian: { manager: "flatpak", package: "md.obsidian.Obsidian" }
   bitwarden: { manager: "flatpak", package: "com.bitwarden.desktop" }
   keepassxc: { manager: "pacman", package: "keepassxc" }
-  # trello: removed - not on Flathub
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
   # Media / Design
@@ -49,25 +47,24 @@ software_mapping:
   spotify: { manager: "flatpak", package: "com.spotify.Client" }
   gimp: { manager: "flatpak", package: "org.gimp.GIMP" }
   krita: { manager: "flatpak", package: "org.kde.krita" }
-  handbrake: { manager: "aur", package: "handbrake" }
+  handbrake: { manager: "pacman", package: "handbrake" }
   audacity: { manager: "flatpak", package: "org.audacityteam.Audacity" }
   rawtherapee: { manager: "pacman", package: "rawtherapee" }
 
-  # Gaming
+  # Gaming — Heroic Launcher is community-only (not official GOG); no Linux mapping for gog/epic
   steam: { manager: "pacman", package: "steam" }
-  
+
   # CAD / 3D
-  freecad: { manager: "flatpak", package: "org.freecadweb.FreeCAD" }
+  freecad: { manager: "flatpak", package: "org.freecad.FreeCAD" }
   prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
   teamviewer: { manager: "aur", package: "teamviewer" }
   veracrypt: { manager: "pacman", package: "veracrypt" }
-  speedtest: { manager: "aur", package: "speedtest-cli" }
+  speedtest: { manager: "pacman", package: "speedtest-cli" }
   appimagelauncher: { manager: "aur", package: "appimagelauncher" }
 
   # Crypto / Crypto Hardware
-  exodus: { manager: "aur", package: "exodus" }
   boinc: { manager: "pacman", package: "boinc" }
   # gridcoin: installed via custom flatpak bundle task (not on Flathub)
   lynis: { manager: "pacman", package: "lynis" }
@@ -88,7 +85,6 @@ software_mapping:
   gparted: { manager: "pacman", package: "gparted" }
   partitionmanager: { manager: "pacman", package: "partitionmanager" }
 
-  # Virtualization
+  # Virtualization — docker is installed by virtualization_config role
   virt_manager: { manager: "pacman", package: "virt-manager" }
-  docker: { manager: "pacman", package: "docker" }
 

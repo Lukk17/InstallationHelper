@@ -7,19 +7,18 @@ software_mapping:
 
   # Dev Tools
   git: { manager: "winget", package: "Git.Git" }
-  maven: { manager: "winget", package: "Apache.Maven" }
-  gradle: { manager: "winget", package: "Gradle.Gradle" }
+  maven: { manager: "choco", package: "maven" }       # No winget manifest under Apache/; Chocolatey carries Maven (verified Apache Maven 3.9.x).
+  gradle: { manager: "choco", package: "gradle" }     # No Gradle publisher in winget-pkgs; Chocolatey carries Gradle (verified 9.x).
   postman: { manager: "winget", package: "Postman.Postman" }
-  openssl: { manager: "winget", package: "ShiningLight.OpenSSL.Dev" }
+  openssl: { manager: "winget", package: "ShiningLight.OpenSSL.Light" }
   dbeaver: { manager: "winget", package: "DBeaver.DBeaver.Community" }
   kubectl: { manager: "winget", package: "Kubernetes.kubectl" }
   minikube: { manager: "winget", package: "Kubernetes.minikube" }
   lens: { manager: "winget", package: "Mirantis.Lens" }
-  filezilla: { manager: "winget", package: "TimKosse.FileZillaClient" }
+  filezilla: { manager: "choco", package: "filezilla" }   # Winget manifest removed (FileZilla blocks third-party installers — winget-pkgs issues #65824/#89756/#131827/#154585). Chocolatey carries FileZilla Client (verified).
   putty: { manager: "winget", package: "PuTTY.PuTTY" }
 
   # IDEs / Editors
-  intellij: { manager: "winget", package: "JetBrains.IntelliJIDEA.Ultimate" }
   vscode: { manager: "winget", package: "Microsoft.VisualStudioCode" }
   sublime: { manager: "winget", package: "SublimeHQ.SublimeText.4" }
   arduino: { manager: "winget", package: "ArduinoSA.IDE.stable" }
@@ -32,13 +31,12 @@ software_mapping:
   teams: { manager: "winget", package: "Microsoft.Teams" }
   telegram: { manager: "winget", package: "Telegram.TelegramDesktop" }
   signal: { manager: "winget", package: "OpenWhisperSystems.Signal" }
-  whatsapp: { manager: "winget", package: "WhatsApp.WhatsApp" }
+  whatsapp: { manager: "winget", package: "9NKSQGP7F2NH" }   # MS Store ID — winget accepts these
 
   # Productivity
   obsidian: { manager: "winget", package: "Obsidian.Obsidian" }
   bitwarden: { manager: "winget", package: "Bitwarden.Bitwarden" }
   keepassxc: { manager: "winget", package: "KeePassXCTeam.KeePassXC" }
-  trello: { manager: "winget", package: "Trello.Trello" }
   onlyoffice: { manager: "winget", package: "ONLYOFFICE.DesktopEditors" }
 
   # Media / Design
@@ -50,11 +48,19 @@ software_mapping:
   audacity: { manager: "winget", package: "Audacity.Audacity" }
   rawtherapee: { manager: "winget", package: "RawTherapee.RawTherapee" }
 
+  # Entertainment / Streaming (MS Store)
+  netflix: { manager: "winget", package: "9WZDNCRFJ3TJ" }      # MS Store — Netflix
+  disney_plus: { manager: "winget", package: "9NXQXXLFST89" }  # MS Store — Disney+
+  prime_video: { manager: "winget", package: "9P6RC76MSMMJ" }  # MS Store — Prime Video for Windows
+  itunes: { manager: "winget", package: "9PB2MZ1ZMB1S" }       # MS Store — iTunes (Apple.iTunes also exists but Store version auto-updates)
+
   # Gaming
   steam: { manager: "winget", package: "Valve.Steam" }
   gog: { manager: "winget", package: "GOG.Galaxy" }
   epic: { manager: "winget", package: "EpicGames.EpicGamesLauncher" }
-  
+  curseforge: { manager: "winget", package: "Overwolf.CurseForge" }
+  razer_cortex: { manager: "winget", package: "9PK9W5QV2PKX" } # MS Store — Razer Cortex (no winget manifest; only RazerInc.RazerInstaller.Synapse{3,4} exist)
+
   # CAD / 3D
   freecad: { manager: "winget", package: "FreeCAD.FreeCAD" }
   prusaslicer: { manager: "winget", package: "Prusa3D.PrusaSlicer" }
@@ -65,24 +71,32 @@ software_mapping:
   speedtest: { manager: "winget", package: "Ookla.Speedtest" }
 
   # Crypto
-  boinc: { manager: "winget", package: "SpaceSciencesLaboratory.BOINC" }
-  gridcoin: { manager: "winget", package: "Gridcoin.Client" }
+  boinc: { manager: "winget", package: "UCBerkeley.BOINC" }
+  # gridcoin: installed via windows_install.yaml (direct .exe from github.com/gridcoin-community)
 
   # Windows Only Native Apps
   hwmonitor: { manager: "winget", package: "CPUID.HWMonitor" }
+  hwinfo: { manager: "winget", package: "REALiX.HWiNFO" }
   crystaldiskinfo: { manager: "winget", package: "CrystalDewWorld.CrystalDiskInfo" }
+  crystaldiskmark: { manager: "winget", package: "CrystalDewWorld.CrystalDiskMark" }
   msiafterburner: { manager: "winget", package: "Guru3D.Afterburner" }
   wiztree: { manager: "winget", package: "AntibodySoftware.WizTree" }
   angry_ip_scanner: { manager: "winget", package: "angryziber.AngryIPScanner" }
+  advanced_ip_scanner: { manager: "winget", package: "Famatech.AdvancedIPScanner" }
   glasswire: { manager: "winget", package: "GlassWire.GlassWire" }
   tcpview: { manager: "winget", package: "Microsoft.Sysinternals.TCPView" }
   autoruns: { manager: "winget", package: "Microsoft.Sysinternals.Autoruns" }
   rufus: { manager: "winget", package: "Rufus.Rufus" }
   powertoys: { manager: "winget", package: "Microsoft.PowerToys" }
 
-  # Utilities
+  # Hardware / OEM companion apps
+  galaxy_buds: { manager: "winget", package: "Samsung.GalaxyBudsManager" }
+  geforce_experience: { manager: "choco", package: "geforce-experience" }   # No winget manifest (NVIDIA App also rejected — winget-pkgs #140696/#179043/#253660). Chocolatey package `geforce-experience` is approved/trusted (verified).
+
+  # Partition / Disk Utilities
   partition_wizard: { manager: "winget", package: "MiniTool.PartitionWizard.Free" }
 
   # Virtualization
   docker: { manager: "winget", package: "Docker.DockerDesktop" }
-
+  virtualbox: { manager: "winget", package: "Oracle.VirtualBox" }
+  vmware: { manager: "choco", package: "vmware-workstation-player" }   # No winget manifest post-Broadcom acquisition (only VMware.SpringToolSuite exists). Chocolatey carries `vmware-workstation-player` (marked deprecated upstream but installer still functional).

@@ -1,59 +1,69 @@
-# Local Development Databases & Services
+# Local Development Databases and Services
 
-This directory contains the `docker-compose` setup to spin up essential databases and services for local software development.
+> Docker Compose stack with MySQL, PostgreSQL, MongoDB, and Keycloak (HTTPS). Spin up, point your app at it, tear down.
 
-## 🚀 Running the Local Dev Stack
+---
 
-Run the following command in your terminal from the **project root directory**:
+### Start the stack
+
+---
+
+Run from the project root.
 
 ```bash
 docker-compose -f ./local-dev/local-dev-docker-compose.yaml up -d
 ```
 
----
+Stop with the same command and `down`:
 
-## 🔐 Credentials & Configurations
+```bash
+docker-compose -f ./local-dev/local-dev-docker-compose.yaml down
+```
 
-Below are the configurations and credentials for each of the services started by the `docker-compose` stack.
+PowerShell on Windows is the same; just use forward slashes or escape backslashes.
 
-### 🐬 MySQL
-- **Port:** `3306`
-- **Database Name:** `test-spring`
-- **Username:** `root`
-- **Password:** `local`
-- **Docker Image:** `mysql:9.6.0`
-
-### 🐘 PostgreSQL
-- **Port:** `5432`
-- **Databases:** `keycloak` (Default `postgres` DB also available)
-- **Username:** `postgres`
-- **Password:** `local`
-- **Docker Image:** Custom built from `postgres:17.9` (See `postgresql/Dockerfile`). 
-  > *Note: By default, this also initializes the Keycloak database with a user `keycloak` (password `local`) and imports a data dump.*
-
-### 🍃 MongoDB
-- **Port:** `27017`
-- **Database Name:** `articles`
-- **Username:** *(No user required)*
-- **Password:** *(No password required)*
-- **Docker Image:** `mongo:8.2.6`
-
-### 🔐 Keycloak
-- **HTTPS Port:** `9443`
-- **Management Port:** `9000`
-- **URL (HTTPS):** `https://localhost:9443` (or `https://keycloak.test:9443`)
-- **Admin Username:** `admin`
-- **Admin Password:** `admin`
-- **Test User Account:** `lukk` (Password: `test1234`) - Available in the `local` realm
-- **Docker Image:** Custom built from `keycloak:26.5` (See `auth/Keycloak/Dockerfile`).
-
-> **💡 Note:** For detailed Keycloak configuration, realm management, and export instructions, please refer to the dedicated [Keycloak Configuration Guide](auth/Keycloak/CONFIG.md).
+### Services
 
 ---
 
-### Docker Hub Links for Reference:
+| Service     | Port              | Database / Realm       | Username    | Password    | Image                                                                          |
+| ----------- | ----------------- | ---------------------- | ----------- | ----------- | ------------------------------------------------------------------------------ |
+| MySQL       | `3306`            | `test-spring`          | `root`      | `local`     | `mysql:9.6.0`                                                                  |
+| PostgreSQL  | `5432`            | `keycloak`, `postgres` | `postgres`  | `local`     | custom, built from `postgres:17.9`. See [postgresql/](./postgresql/README.md). |
+| MongoDB     | `27017`           | `articles`             | (none)      | (none)      | `mongo:8.2.6`                                                                  |
+| Keycloak    | `9443` (HTTPS)    | realm `local`          | `admin`     | `admin`     | custom, built from `keycloak:26.5`. See [auth/Keycloak/](./auth/Keycloak/README.md). |
 
-* [MySQL Tags](https://hub.docker.com/_/mysql/tags)
-* [MongoDB Tags](https://hub.docker.com/_/mongo/tags)
-* [Postgres Tags](https://hub.docker.com/_/postgres/tags)
-* [Keycloak Tags](https://hub.docker.com/r/keycloak/keycloak/tags)
+PostgreSQL also initialises a `keycloak` user (password `local`) and imports the seed dump from
+[auth/Keycloak/export/database/keycloak-dump.sql](./auth/Keycloak/export/database/keycloak-dump.sql) so Keycloak boots
+with the realm already in place.
+
+Keycloak's management port is `9000`. URLs:
+
+- HTTPS app: `https://localhost:9443` or `https://keycloak.test:9443` (hosts entry needed; see
+  [auth/README.md](./auth/README.md))
+- Management: `https://localhost:9000/health`, `/metrics`, etc.
+
+Test user in the `local` realm: `lukk` / `test1234`.
+
+### Configuration deep-dives
+
+---
+
+| Doc                                                          | What's in it                                                            |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| [auth/Keycloak/CONFIG.md](./auth/Keycloak/CONFIG.md)         | Realm export, client setup, export-import flow.                         |
+| [auth/Keycloak/README.md](./auth/Keycloak/README.md)         | Dockerfile, token curl, OS trust store import for the self-signed cert. |
+| [auth/README.md](./auth/README.md)                           | `hosts` setup, self-signed cert generation, Let's Encrypt for prod.     |
+| [postgresql/README.md](./postgresql/README.md)               | Standalone Postgres run, credentials.                                   |
+
+### Docker Hub image tags for reference
+
+---
+
+Bump the image tags in [local-dev-docker-compose.yaml](./local-dev-docker-compose.yaml) when you want a newer
+release; the links go to the upstream tag listings.
+
+- [MySQL](https://hub.docker.com/_/mysql/tags)
+- [PostgreSQL](https://hub.docker.com/_/postgres/tags)
+- [MongoDB](https://hub.docker.com/_/mongo/tags)
+- [Keycloak](https://hub.docker.com/r/keycloak/keycloak/tags)

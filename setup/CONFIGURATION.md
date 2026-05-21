@@ -1,21 +1,22 @@
-# Configuration Guide
+# Configuration guide
 
-This document lists all configuration tasks performed by the Ansible playbook, organized by Desktop Environment and Operating System.
+Configuration tasks the Ansible playbook performs, grouped by desktop environment and OS. For the software catalog, see [SOFTWARE.md](SOFTWARE.md). For the authoritative per-OS package mappings, see [`ansible/vars/`](ansible/vars/).
 
-> For software installation list, see [SOFTWARE.md](SOFTWARE.md)
+## Per-OS caveats
 
----
-
-## Notes
-
-### Removed Packages
-
-| Package | Reason |
-|---------|--------|
-| Microsoft Teams | Not available on Linux - use web version or Windows/macOS |
-| balena-etcher (AUR) | Node.js dependency conflict - use AppImage manually |
-
----
+| Package | OS | Note |
+|---------|------|--------|
+| Microsoft Teams | Linux | Not available natively — use the web app. Installed on Windows (winget `Microsoft.Teams`) and macOS (cask `microsoft-teams`). |
+| balena-etcher | Arch | Disabled in `vars/Archlinux.yaml` due to Node.js dep conflict with AUR. Installed normally on Debian/Fedora (`.deb`/`.rpm`) and macOS (cask `balenaetcher`). |
+| VMware Workstation Player | Windows | Auto-download broken — Broadcom moved installers behind a portal login. Install manually or use VirtualBox. |
+| Trello / WhatsApp | Windows | No maintained winget manifest. Mapped to MS Store IDs (`XP8K0HKJFRXGCK` / `9NKSQGP7F2NH`); winget routes them through Store install. |
+| Antigravity | Linux | Installed from Google's official apt/yum repos (`us-central1-apt.pkg.dev` / `us-central1-yum.pkg.dev`) configured by `debian_repos.yaml` / `fedora_repos.yaml`. AUR slug `antigravity` on Arch. Auto-updates work the same as Chrome. |
+| Antigravity | macOS | Direct DMG from Google's official CDN `edgedl.me.gvt1.com` (Google Video Transcoding — same CDN that delivers Chrome). `macos_install.yaml` reads `ansible_facts['architecture']` and picks the arm64 DMG on Apple Silicon, the x64 DMG on Intel. Version pinned in `versions.yaml` (`antigravity_version`, `antigravity_build`). |
+| Antigravity | Windows | winget `Google.Antigravity`. |
+| Gridcoin | macOS / Windows | DMG / `.exe` from `github.com/gridcoin-community/Gridcoin-Research` releases (tag `5.5.0.0`) — handled by `macos_install.yaml` / `windows_install.yaml`. Arch uses the official flatpak bundle (`custom_installs.yaml`). |
+| FileZilla / Maven / Gradle / VMware Workstation Player / GeForce Experience | Windows | No winget manifest. Each falls back to Chocolatey via `manager: choco` in `vars/Windows.yaml`. The `win_chocolatey` module bootstraps Chocolatey on first use. |
+| Lens | Linux | Lens Desktop is free for personal use. Installed from the official apt/dnf repo (`downloads.k8slens.dev`) configured by `debian_repos.yaml` / `fedora_repos.yaml`. macOS uses cask `lens`; Windows uses winget `Mirantis.Lens`; Arch uses AUR `lens-bin`. |
+| FileZilla | macOS | No Homebrew cask exists for FileZilla on macOS. The `install_filezilla` toggle maps to **Cyberduck** (cask `cyberduck`) — the standard free macOS FTP/SFTP/S3 client. Set the toggle to `false` and install FileZilla manually from `filezilla-project.org` if you need FileZilla specifically. |
 
 ## Linux
 
@@ -58,16 +59,12 @@ This document lists all configuration tasks performed by the Ansible playbook, o
 | Snapper Btrfs | snapper | Automatic btrfs snapshots (if btrfs root) |
 | Crypto Hardware | linux_crypto_hardware | Hardware wallet tools |
 
----
-
 ## macOS
 
 | Task | Role | Description |
 |------|------|-------------|
 | Base Setup | macos_core | macOS-specific configuration |
 | Zsh Setup | shell_zsh | Oh My Zsh installation |
-
----
 
 ## Windows (via WSL)
 
@@ -76,8 +73,6 @@ This document lists all configuration tasks performed by the Ansible playbook, o
 | Base Setup | windows_core | Windows-specific configuration |
 | WSL Setup | windows_core | WSL configuration |
 | Virtualization | windows_core | Windows virtualization features |
-
----
 
 ## Cross-Platform (All Operating Systems)
 
@@ -127,8 +122,6 @@ This document lists all configuration tasks performed by the Ansible playbook, o
 | Snap Packages | software_installer | Snap packages |
 | Flatpak Packages | software_installer | Flatpak packages |
 
----
-
 ## Configuration Toggles
 
 Configuration is controlled via Ansible group variables in `group_vars/`:
@@ -145,17 +138,20 @@ Configuration is controlled via Ansible group variables in `group_vars/`:
 
 ### All OS (`group_vars/all.yaml`)
 
-- `install_claude_code`
-- `install_claude_desktop`
-- `install_opencode`
-- `install_openspec`
-- `install_stable_diffusion`
-- `install_lm_studio`
+The cross-platform toggle file has 50+ entries grouped by category — see the file directly for the authoritative list. Highlights:
 
----
+- **AI tools:** `install_claude_code`, `install_claude_desktop`, `install_opencode`, `install_openspec`, `install_claude_cowork`, `install_stable_diffusion`, `install_lm_studio`
+- **Browsers/Dev:** `install_chrome`, `install_brave`, `install_tor`, `install_vscode`, `install_sublime`, `install_kubectl`, `install_minikube`, `install_lens`, `install_postman`, `install_docker`
+- **Comms:** `install_discord`, `install_slack`, `install_telegram`, `install_whatsapp`, `install_signal`
+- **Productivity:** `install_obsidian`, `install_bitwarden`, `install_keepassxc`, `install_onlyoffice`
+- **Media:** `install_vlc`, `install_spotify`, `install_gimp`, `install_krita`, `install_handbrake`, `install_audacity`, `install_rawtherapee`
+- **Crypto/Volunteer:** `install_boinc`, `install_gridcoin`
+- **SDKs:** `install_dart`, `install_flutter`, `install_android_sdk`
+
+OS-specific toggles live in `group_vars/{linux,macos,windows}.yaml`. Version pins for downloaded artefacts (Java, Python, Node, Minikube, balena_etcher, etc.) are in `group_vars/versions.yaml`, alongside an optional `download_checksums` mapping for sha256 enforcement on `get_url` tasks.
 
 ## Related Documentation
 
-- [SOFTWARE.md](SOFTWARE.md) - Complete software installation list by OS
-- [README_SETUP.md](README_SETUP.md) - Setup and run instructions
-- [setup/README_SETUP.md](README_SETUP.md) - Detailed setup guide
+- [SOFTWARE.md](SOFTWARE.md) — complete software installation list by OS
+- [README_SETUP.md](README_SETUP.md) — setup and run instructions
+- [../README.md](../README.md) — project overview
