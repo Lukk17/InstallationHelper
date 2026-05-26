@@ -189,9 +189,9 @@ ROLE_TOGGLE_MAPPING: Dict[str, List[str]] = {
                             'install_nodejs', 'install_python', 'install_java',
                             'install_maven', 'install_gradle'],
     'ai_tools':            ['install_claude_code', 'install_claude_desktop',
-                            'install_claude_cowork', 'install_lm_studio',
-                            'install_stable_diffusion', 'install_opencode',
-                            'install_openspec'],
+                            'install_lm_studio', 'install_stable_diffusion',
+                            'install_opencode', 'install_openspec',
+                            'install_bruno_cli'],
     'software_installer':  [],   # mapped per-software via the toggle key itself
     'virtualization_config': ['install_virt_manager', 'install_docker'],
     'linux_security':      ['install_lynis', 'install_chkrootkit', 'install_clamav'],

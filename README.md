@@ -239,6 +239,7 @@ Released under the [MIT License](LICENSE).
 | [local-dev/postgresql/README.md](local-dev/postgresql/README.md)        | Standalone Postgres build and run                                 |
 | [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md)                          | Agent-standards, OpenSpec, per-agent integration notes            |
 | [docs/MCP_SETUP.md](docs/MCP_SETUP.md)                                  | MCP server setup (Context7 only in this project)                  |
+| [docs/AI_TOOLS_ADDING.md](docs/AI_TOOLS_ADDING.md)                      | How to add a new npm-based AI / CLI tool to the playbook          |
 | [docs/linux/Virt-Manager_setup.md](docs/linux/Virt-Manager_setup.md)    | virt-manager setup notes for Linux hosts                          |
 | [docs/macos/UTM_setup.md](docs/macos/UTM_setup.md)                      | UTM (Apple Virtualization) notes for macOS                        |
 | [docs/windows/VirtualBox_setup.md](docs/windows/VirtualBox_setup.md)    | VirtualBox notes for Windows hosts                                |

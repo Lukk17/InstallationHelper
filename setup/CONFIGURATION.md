@@ -17,6 +17,7 @@ Configuration tasks the Ansible playbook performs, grouped by desktop environmen
 | FileZilla / Maven / Gradle / VMware Workstation Player / GeForce Experience | Windows | No winget manifest. Each falls back to Chocolatey via `manager: choco` in `vars/Windows.yaml`. The `win_chocolatey` module bootstraps Chocolatey on first use. |
 | Lens | Linux | Lens Desktop is free for personal use. Installed from the official apt/dnf repo (`downloads.k8slens.dev`) configured by `debian_repos.yaml` / `fedora_repos.yaml`. macOS uses cask `lens`; Windows uses winget `Mirantis.Lens`; Arch uses AUR `lens-bin`. |
 | FileZilla | macOS | No Homebrew cask exists for FileZilla on macOS. The `install_filezilla` toggle maps to **Cyberduck** (cask `cyberduck`) — the standard free macOS FTP/SFTP/S3 client. Set the toggle to `false` and install FileZilla manually from `filezilla-project.org` if you need FileZilla specifically. |
+| Game storefronts (EA app, GOG Galaxy, Epic, CurseForge) | Linux | No official Linux clients. `install_ea_app` / `install_gog` / `install_epic` / `install_curseforge` map to winget (Windows) and Homebrew casks (macOS) only; they no-op on Linux since `vars/{Debian,RedHat,Archlinux}.yaml` carry no mapping for these keys. Run the games on Linux via Lutris/Heroic + Proton if needed. |
 
 ## Linux
 
@@ -140,7 +141,7 @@ Configuration is controlled via Ansible group variables in `group_vars/`:
 
 The cross-platform toggle file has 50+ entries grouped by category — see the file directly for the authoritative list. Highlights:
 
-- **AI tools:** `install_claude_code`, `install_claude_desktop`, `install_opencode`, `install_openspec`, `install_claude_cowork`, `install_stable_diffusion`, `install_lm_studio`
+- **AI tools:** `install_claude_code`, `install_claude_desktop`, `install_opencode`, `install_openspec`, `install_bruno_cli`, `install_stable_diffusion`, `install_lm_studio`
 - **Browsers/Dev:** `install_chrome`, `install_brave`, `install_tor`, `install_vscode`, `install_sublime`, `install_kubectl`, `install_minikube`, `install_lens`, `install_postman`, `install_docker`
 - **Comms:** `install_discord`, `install_slack`, `install_telegram`, `install_whatsapp`, `install_signal`
 - **Productivity:** `install_obsidian`, `install_bitwarden`, `install_keepassxc`, `install_onlyoffice`

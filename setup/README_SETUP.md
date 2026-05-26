@@ -31,11 +31,18 @@ Linux / macOS:
 bash setup/setup.sh
 ```
 
-Windows (PowerShell 7+):
+Windows (PowerShell 7+ — **non-elevated session**, not "Run as Administrator"):
 
 ```powershell
 pwsh setup/setup.ps1
 ```
+
+The playbook installs npm-based CLIs (Claude Code, OpenCode, OpenSpec, Bruno CLI) globally via
+`npm install -g`. Running the playbook from an elevated PowerShell window writes those packages into
+`%ProgramFiles%\nodejs\node_modules` and executes lifecycle scripts with Administrator rights, which
+is a wider blast radius than necessary. From a normal user session, `npm install -g` lands in
+`%AppData%\Roaming\npm` and runs unprivileged. Chocolatey tasks that legitimately need elevation will
+trigger UAC prompts on their own — there is no benefit to pre-elevating the whole run.
 
 What the script does:
 

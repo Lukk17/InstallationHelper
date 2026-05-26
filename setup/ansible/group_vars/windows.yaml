@@ -34,11 +34,6 @@ install_rufus: true
 install_powertoys: true
 install_putty: true
 
-# Gaming Enhancements & Storefronts
-install_curseforge: true
-install_gog: true
-install_epic: true
-
 # Virtualization toggles
 install_virtualbox: true
 install_vmware: true                  # via Chocolatey (no winget manifest post-Broadcom)

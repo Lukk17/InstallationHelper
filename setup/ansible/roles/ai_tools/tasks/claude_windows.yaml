@@ -1,24 +1,6 @@
 ---
-- name: Check npm availability (Windows)
-  ansible.windows.win_command: where.exe npm
-  register: npm_where
-  changed_when: false
-  failed_when: false
-
-- name: Check if Claude Code CLI is already installed (Windows)
-  ansible.windows.win_shell: npm list -g @anthropic-ai/claude-code --depth=0 2>$null
-  register: claude_code_check
-  changed_when: false
-  failed_when: false
-  when: npm_where.rc == 0
-
-- name: Install Claude Code CLI (Windows)
-  ansible.windows.win_shell: npm install -g @anthropic-ai/claude-code
-  when:
-    - npm_where.rc == 0
-    - claude_code_check.rc | default(1) != 0 or '@anthropic-ai/claude-code' not in (claude_code_check.stdout | default(''))
-
-- name: Skip Claude Code (Windows, npm missing)
-  ansible.builtin.debug:
-    msg: "npm not found on PATH — install Node.js first (sdk_manager role enables nvm via choco). Skipping Claude Code."
-  when: npm_where.rc != 0
+- name: Install Claude Code CLI via npm helper (Windows)
+  ansible.builtin.include_tasks: npm_install_windows.yaml
+  vars:
+    npm_pkg: "@anthropic-ai/claude-code"
+    npm_display_name: "Claude Code"

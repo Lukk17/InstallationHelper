@@ -70,7 +70,6 @@ install_stable_diffusion: false
 install_lm_studio: false
 install_claude_code: false
 install_claude_desktop: false
-install_claude_cowork: false
 install_opencode: false
 
 # ---- Linux System ----

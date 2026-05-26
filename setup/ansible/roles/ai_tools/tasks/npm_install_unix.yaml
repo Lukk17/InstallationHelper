@@ -1,0 +1,80 @@
+---
+# Shared helper for installing a global npm package via NVM on Linux.
+# macOS is handled by software_installer (brew formulae in vars/Darwin.yaml).
+#
+# Required vars (caller must set via include_tasks vars:):
+#   npm_pkg            — full npm package spec (e.g. "@anthropic-ai/claude-code")
+#   npm_display_name   — human label used in task names and the warn message
+#
+# Optional vars:
+#   npm_install_extra_args — string appended to `npm install -g` (e.g. "--no-audit")
+#
+# Behaviour:
+#   1. Probe ~/.nvm/nvm.sh. If absent, emit a [WARN] and skip the install.
+#   2. Check `npm list -g <pkg>` to keep the task idempotent.
+#   3. Install under `nvm use --lts` with a 600s wall-clock timeout, run
+#      async with 2 retries to absorb npm-registry flakes.
+#
+# `chdir: {{ non_root_home }}` on the shell tasks prevents an attacker-controlled
+# .npmrc in cwd from redirecting the npm registry — npm walks upward from cwd
+# looking for .npmrc, so anchoring cwd at the user's home directory is the
+# narrowest safe scope.
+
+# Reset registers between successive include_tasks invocations of this helper.
+# Without this, a skipped check task in a later invocation would inherit
+# `npm_pkg_check` from the previous tool's run and produce surprising gate logic.
+- name: "Reset helper registers for {{ npm_display_name }} (Unix)"
+  ansible.builtin.set_fact:
+    nvm_script_stat: {}
+    npm_pkg_check: {}
+    npm_pkg_install: {}
+
+- name: "Probe NVM installation for {{ npm_display_name }} (Unix)"
+  ansible.builtin.stat:
+    path: "{{ non_root_home }}/.nvm/nvm.sh"
+  register: nvm_script_stat
+
+- name: "Warn if NVM is missing — skip {{ npm_display_name }} install"
+  ansible.builtin.debug:
+    msg: "[WARN] Skipping {{ npm_display_name }} install — NVM not found at {{ non_root_home }}/.nvm/nvm.sh. Run with --tags nvm,ai to install NVM first."
+  when: not nvm_script_stat.stat.exists
+
+# The check MUST activate the same Node version that the install task will use
+# (LTS). Without `nvm use --lts`, sourcing nvm.sh activates the user's default
+# alias (which may be a non-LTS current release), the check queries that Node's
+# global packages, and we get a false negative or false positive depending on
+# what's installed where. Pre-refactor versions of this task had the bug.
+- name: "Check if {{ npm_display_name }} is already installed (Unix)"
+  ansible.builtin.shell: |
+    set -o pipefail
+    source {{ non_root_home }}/.nvm/nvm.sh
+    nvm use --lts >/dev/null 2>&1
+    npm list -g {{ npm_pkg }} --depth=0 2>/dev/null | grep -q -F '{{ npm_pkg }}'
+  args:
+    executable: /bin/bash
+    chdir: "{{ non_root_home }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: npm_pkg_check
+  changed_when: false
+  failed_when: false
+  when: nvm_script_stat.stat.exists
+
+- name: "Install {{ npm_display_name }} via NVM (Unix)"
+  ansible.builtin.shell: |
+    set -o pipefail
+    timeout 600 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g {% if npm_install_extra_args is defined and npm_install_extra_args | length > 0 %}{{ npm_install_extra_args }} {% endif %}{{ npm_pkg }} </dev/null'
+  args:
+    executable: /bin/bash
+    chdir: "{{ non_root_home }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: npm_pkg_install
+  async: 900
+  poll: 15
+  retries: 2
+  delay: 15
+  until: npm_pkg_install is succeeded
+  when:
+    - nvm_script_stat.stat.exists
+    - npm_pkg_check.rc | default(1) != 0

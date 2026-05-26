@@ -29,6 +29,7 @@ software_mapping:
   arduino: { manager: "brew_cask", package: "arduino-ide" }
   # antigravity: installed via custom_installs_macos.yaml (direct DMG from antigravity.google)
   bruno: { manager: "brew_cask", package: "bruno" }
+  bruno_cli: { manager: "brew", package: "bruno-cli" }
 
   # Communication
   discord: { manager: "brew_cask", package: "discord" }
@@ -55,6 +56,10 @@ software_mapping:
 
   # Gaming
   steam: { manager: "brew_cask", package: "steam" }
+  ea_app: { manager: "brew_cask", package: "ea" }
+  gog: { manager: "brew_cask", package: "gog-galaxy" }
+  epic: { manager: "brew_cask", package: "epic-games" }
+  curseforge: { manager: "brew_cask", package: "curseforge" }
   
   # CAD / 3D
   freecad: { manager: "brew_cask", package: "freecad" }

@@ -58,6 +58,7 @@ software_mapping:
   steam: { manager: "winget", package: "Valve.Steam" }
   gog: { manager: "winget", package: "GOG.Galaxy" }
   epic: { manager: "winget", package: "EpicGames.EpicGamesLauncher" }
+  ea_app: { manager: "winget", package: "ElectronicArts.EADesktop" }
   curseforge: { manager: "winget", package: "Overwolf.CurseForge" }
   razer_cortex: { manager: "winget", package: "9PK9W5QV2PKX" } # MS Store — Razer Cortex (no winget manifest; only RazerInc.RazerInstaller.Synapse{3,4} exist)
 

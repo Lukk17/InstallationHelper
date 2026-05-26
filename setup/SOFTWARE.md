@@ -93,10 +93,10 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | App | Linux | macOS | Windows |
 |---|---|---|---|
 | Steam | Arch: `pacman steam` (multilib required). Debian / Fedora: flatpak `com.valvesoftware.Steam` | cask `steam` | winget `Valve.Steam` |
-| GOG / Epic (Linux) | Both toggles route through Heroic Launcher flatpak `com.heroicgameslauncher.hgl`, mapped via the `gog` toggle | — | — |
-| GOG Galaxy (Windows) | — | — | winget `GOG.Galaxy` |
-| Epic Games Launcher (Windows) | — | — | winget `EpicGames.EpicGamesLauncher` |
-| CurseForge | — | — | winget `Overwolf.CurseForge` |
+| GOG Galaxy | — (no official Linux client) | cask `gog-galaxy` | winget `GOG.Galaxy` |
+| Epic Games Launcher | — (no official Linux client) | cask `epic-games` | winget `EpicGames.EpicGamesLauncher` |
+| EA app | — (no official Linux client) | cask `ea` | winget `ElectronicArts.EADesktop` |
+| CurseForge | — (no official Linux client) | cask `curseforge` | winget `Overwolf.CurseForge` |
 | Razer Cortex | — | — | winget MS Store ID `9PK9W5QV2PKX` (no standalone winget manifest) |
 | WoW Logs Companion / TSM | — | — | manual (Overwolf / tradeskillmaster.com — no winget manifest) |
 

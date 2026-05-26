@@ -29,6 +29,7 @@ install_sublime: true
 install_arduino: true
 install_antigravity: true
 install_bruno: true
+install_bruno_cli: true
 
 # Communication
 install_discord: true
@@ -52,8 +53,14 @@ install_handbrake: true
 install_audacity: true
 install_rawtherapee: true
 
-# Gaming
+# Gaming — storefronts/launchers. GOG/Epic/EA/CurseForge ship on Windows
+# (winget) + macOS (cask) but have no official Linux client, so they no-op on
+# Linux (no mapping in vars/{Debian,RedHat,Archlinux}.yaml).
 install_steam: true
+install_ea_app: true
+install_gog: true
+install_epic: true
+install_curseforge: true
 
 # CAD / 3D
 install_freecad: true
@@ -80,7 +87,6 @@ install_lm_studio: true
 install_claude_code: true
 install_claude_desktop: true
 install_jetbrains_toolbox: true
-install_claude_cowork: true
 install_opencode: true
 install_openspec: true
 

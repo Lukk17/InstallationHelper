@@ -1,7 +1,9 @@
 ---
-- name: Install Claude Code
+- name: Install Claude Code / Desktop
   ansible.builtin.import_tasks: claude.yaml
-  when: install_claude_code | default(false) | bool
+  when:
+    - install_claude_code | default(false) | bool
+      or install_claude_desktop | default(false) | bool
   tags: [claude]
 
 - name: Install OpenCode
@@ -13,6 +15,11 @@
   ansible.builtin.import_tasks: openspec.yaml
   when: install_openspec | default(false) | bool
   tags: [openspec]
+
+- name: Install Bruno CLI
+  ansible.builtin.import_tasks: bruno_cli.yaml
+  when: install_bruno_cli | default(false) | bool
+  tags: [bruno_cli]
 
 - name: Install local LLM tools
   ansible.builtin.import_tasks: local_llm.yaml

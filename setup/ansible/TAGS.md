@@ -85,6 +85,7 @@ Pass any of these to run just that subsystem. Inherits the parent role tag autom
 | `claude` | Claude Code CLI (npm) + Claude Desktop (.deb / AUR / cask) | `nvm` (skips with warning if nvm.sh is missing) |
 | `opencode` | OpenCode CLI (npm) | `nvm` (skips with warning) |
 | `openspec` | OpenSpec CLI (npm) | `nvm` (skips with warning) |
+| `bruno_cli` | Bruno CLI — `bruno-cli` brew formula on macOS, `@usebruno/cli` via npm on Linux + Windows | `nvm` on Linux/Windows (skips with warning) |
 | `local_llm` | LM Studio + Stable Diffusion WebUI | — |
 
 #### Virtualization subsystems
@@ -164,11 +165,25 @@ Some Layer 2 subsystems genuinely depend on other Layer 2 subsystems. The playbo
 | Subsystem | Hard dep | Behavior when dep is missing |
 |---|---|---|
 | `fvm` on Arch | `dart` | Auto-installs dart via pacman (idempotent — no-op if already there) |
-| `claude`, `opencode`, `openspec` | `nvm` | Skips with `[WARN]` debug message; instructs you to run `--tags nvm,ai` |
+| `claude`, `opencode`, `openspec`, `bruno_cli` | `nvm` (Linux + Windows only) | Skips with `[WARN]` debug message; instructs you to run `--tags nvm,ai`. On macOS, these tools install via brew (`bruno_cli` uses the `bruno-cli` formula; `claude`/`opencode`/`openspec` continue to use npm under brew-installed Node) and have no nvm dep. |
 | `android` | `sdkman` (provides Java) | Skips with `[WARN]` debug message; instructs you to run `--tags sdkman,android` |
 | `docker` on Arch (with virt-manager installed) | `libvirt` | The libvirt firewall_backend fixup is skipped if libvirtd unit is absent (which is correct — without libvirt, Docker doesn't need that fixup) |
 
 If you see a `[WARN] Skipping ...` debug line, that's the playbook telling you which tag combo to use.
+
+### macOS asymmetry for tools that have a brew formula
+
+`bruno_cli` is the one tool whose macOS install lives in `software_installer` (brew formula
+`bruno-cli` in [vars/Darwin.yaml](vars/Darwin.yaml)) rather than in the `ai_tools` role. That means:
+
+- `--tags bruno_cli` on macOS is a **silent no-op** — the macOS install only triggers under
+  `--tags brew` or `--tags software`.
+- A full run (no `--tags` filter) installs Bruno CLI on every OS as expected; the asymmetry only
+  matters for surgical re-runs.
+- Linux and Windows still install via the npm helper, gated by `--tags bruno_cli`.
+
+The same applies to any future tool that adds a brew formula entry in `vars/Darwin.yaml` —
+see [docs/AI_TOOLS_ADDING.md](../../docs/AI_TOOLS_ADDING.md).
 
 ## Reserved tag names (avoid these)
 
