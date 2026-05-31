@@ -15,7 +15,7 @@ install_prime_video: true
 install_itunes: true
 
 # Windows Only Hardware & OEM
-install_geforce_experience: true     # via Chocolatey (no winget manifest)
+install_geforce_experience: false
 install_razer_cortex: true
 install_galaxy_buds: true
 
@@ -38,3 +38,7 @@ install_putty: true
 install_virtualbox: true
 install_vmware: true                  # via Chocolatey (no winget manifest post-Broadcom)
 install_docker: true
+
+# Cross-platform toggles overridden off for Windows
+install_dbeaver: false
+install_onlyoffice: false

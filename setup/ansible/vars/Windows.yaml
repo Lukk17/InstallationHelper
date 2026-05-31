@@ -22,7 +22,7 @@ software_mapping:
   vscode: { manager: "winget", package: "Microsoft.VisualStudioCode" }
   sublime: { manager: "winget", package: "SublimeHQ.SublimeText.4" }
   arduino: { manager: "winget", package: "ArduinoSA.IDE.stable" }
-  antigravity: { manager: "winget", package: "Google.Antigravity" }
+  antigravity: { manager: "winget", package: "Google.AntigravityIDE" }
   bruno: { manager: "winget", package: "Bruno.Bruno" }
 
   # Communication
@@ -69,7 +69,7 @@ software_mapping:
   # Utilities
   teamviewer: { manager: "winget", package: "TeamViewer.TeamViewer" }
   veracrypt: { manager: "winget", package: "IDRIX.VeraCrypt" }
-  speedtest: { manager: "winget", package: "Ookla.Speedtest" }
+  speedtest: { manager: "winget", package: "Ookla.Speedtest.CLI" }
 
   # Crypto
   boinc: { manager: "winget", package: "UCBerkeley.BOINC" }

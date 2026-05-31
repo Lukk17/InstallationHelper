@@ -12,7 +12,7 @@ Configuration tasks the Ansible playbook performs, grouped by desktop environmen
 | Trello / WhatsApp | Windows | No maintained winget manifest. Mapped to MS Store IDs (`XP8K0HKJFRXGCK` / `9NKSQGP7F2NH`); winget routes them through Store install. |
 | Antigravity | Linux | Installed from Google's official apt/yum repos (`us-central1-apt.pkg.dev` / `us-central1-yum.pkg.dev`) configured by `debian_repos.yaml` / `fedora_repos.yaml`. AUR slug `antigravity` on Arch. Auto-updates work the same as Chrome. |
 | Antigravity | macOS | Direct DMG from Google's official CDN `edgedl.me.gvt1.com` (Google Video Transcoding — same CDN that delivers Chrome). `macos_install.yaml` reads `ansible_facts['architecture']` and picks the arm64 DMG on Apple Silicon, the x64 DMG on Intel. Version pinned in `versions.yaml` (`antigravity_version`, `antigravity_build`). |
-| Antigravity | Windows | winget `Google.Antigravity`. |
+| Antigravity | Windows | winget `Google.AntigravityIDE`. |
 | Gridcoin | macOS / Windows | DMG / `.exe` from `github.com/gridcoin-community/Gridcoin-Research` releases (tag `5.5.0.0`) — handled by `macos_install.yaml` / `windows_install.yaml`. Arch uses the official flatpak bundle (`custom_installs.yaml`). |
 | FileZilla / Maven / Gradle / VMware Workstation Player / GeForce Experience | Windows | No winget manifest. Each falls back to Chocolatey via `manager: choco` in `vars/Windows.yaml`. The `win_chocolatey` module bootstraps Chocolatey on first use. |
 | Lens | Linux | Lens Desktop is free for personal use. Installed from the official apt/dnf repo (`downloads.k8slens.dev`) configured by `debian_repos.yaml` / `fedora_repos.yaml`. macOS uses cask `lens`; Windows uses winget `Mirantis.Lens`; Arch uses AUR `lens-bin`. |

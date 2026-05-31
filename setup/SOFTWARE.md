@@ -50,7 +50,7 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | VS Code | Microsoft APT repo + `code` | Microsoft DNF repo + `code` | AUR `visual-studio-code-bin` | cask `visual-studio-code` | winget `Microsoft.VisualStudioCode` |
 | Sublime Text | Sublime APT repo + `sublime-text` | Sublime DNF repo + `sublime-text` | AUR `sublime-text-4` | cask `sublime-text` | winget `SublimeHQ.SublimeText.4` |
 | Arduino IDE 2.x | flatpak `cc.arduino.IDE2` | flatpak | `pacman arduino` | cask `arduino-ide` | winget `ArduinoSA.IDE.stable` |
-| Antigravity | Official Google apt repo (`us-central1-apt.pkg.dev`) + `apt install antigravity` | Official Google yum repo (`us-central1-yum.pkg.dev`) + `dnf install antigravity` | AUR `antigravity` | Direct DMG from Google's official CDN `edgedl.me.gvt1.com`, arch-detected (Apple Silicon or Intel) | winget `Google.Antigravity` |
+| Antigravity | Official Google apt repo (`us-central1-apt.pkg.dev`) + `apt install antigravity` | Official Google yum repo (`us-central1-yum.pkg.dev`) + `dnf install antigravity` | AUR `antigravity` | Direct DMG from Google's official CDN `edgedl.me.gvt1.com`, arch-detected (Apple Silicon or Intel) | winget `Google.AntigravityIDE` |
 | Bruno | flatpak `com.usebruno.Bruno` | flatpak | flatpak | cask `bruno` | winget `Bruno.Bruno` |
 
 > The `intellij` toggle is intentionally disabled in `group_vars/all.yaml`. IntelliJ is installed and updated via JetBrains Toolbox, which the playbook manages directly. Carrying a parallel winget/cask install would create version drift.
@@ -113,7 +113,7 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 |---|---|---|---|---|---|
 | TeamViewer | direct `.deb` | direct `.rpm` | AUR `teamviewer` | cask `teamviewer` | winget `TeamViewer.TeamViewer` |
 | VeraCrypt | direct `.deb` pinned to `{{ veracrypt_version }}` (currently `1.26.24`, Ubuntu-24.04 build) | direct `.rpm` (CentOS-8 build works on Fedora 38+) | `pacman veracrypt` | cask `veracrypt` | winget `IDRIX.VeraCrypt` |
-| Speedtest CLI | `apt speedtest-cli` | `dnf speedtest-cli` | `pacman speedtest-cli` | brew `speedtest-cli` | winget `Ookla.Speedtest` |
+| Speedtest CLI | `apt speedtest-cli` | `dnf speedtest-cli` | `pacman speedtest-cli` | brew `speedtest-cli` | winget `Ookla.Speedtest.CLI` |
 | AppImageLauncher | direct `.deb` (GitHub releases) | direct `.rpm` (GitHub releases) | AUR `appimagelauncher` | — | — |
 
 ### Crypto / Volunteer
@@ -256,7 +256,7 @@ These ship as Microsoft Store packages or have no maintained winget manifest. Th
 | Disney+ | winget MS Store ID `9NXQXXLFST89` |
 | Prime Video | winget MS Store ID `9P6RC76MSMMJ` |
 | iTunes | winget MS Store ID `9PB2MZ1ZMB1S` |
-| GeForce Experience | Chocolatey `choco install geforce-experience` (no winget manifest — NVIDIA App also rejected from winget) |
+| GeForce Experience | **Discontinued** by NVIDIA — replaced by the NVIDIA App (no winget/choco manifest). Disabled by default (`install_geforce_experience: false`); install the NVIDIA App from nvidia.com |
 | VMware Workstation Player | Chocolatey `choco install vmware-workstation-player` (no winget manifest post-Broadcom acquisition; upstream marked the choco package deprecated but the installer remains functional) |
 
 ## Per-OS install caveats
@@ -268,7 +268,7 @@ These ship as Microsoft Store packages or have no maintained winget manifest. Th
 - **FileZilla on Windows**: FileZilla blocks third-party installers, so winget removed the manifest. Falls back to Chocolatey (`filezilla` — verified).
 - **FileZilla on macOS**: no Homebrew cask exists. The `install_filezilla` toggle maps to **Cyberduck** (cask `cyberduck`) — the standard free macOS FTP/SFTP/S3 client. To install FileZilla specifically, set `install_filezilla: false` and download from `filezilla-project.org`.
 - **Lens on Linux**: installed from the official `downloads.k8slens.dev` apt/dnf repo, package name `lens`. Lens Desktop is free for personal use.
-- **GeForce Experience on Windows**: no winget manifest (NVIDIA App also rejected — winget-pkgs issues #140696/#179043/#253660). Falls back to Chocolatey (`geforce-experience` — approved/trusted package).
+- **GeForce Experience on Windows**: discontinued by NVIDIA, replaced by the NVIDIA App (which has no winget or Chocolatey manifest). The `install_geforce_experience` toggle defaults to `false` in `group_vars/windows.yaml`; install the NVIDIA App manually from nvidia.com.
 - **Gridcoin macOS DMG**: pinned to `5.5.0.0`. Apple Silicon users may want the `-macos-arm64.dmg` variant; today the playbook installs the `x86_64` build via Rosetta. Switching is a one-line change in `versions.yaml`.
 
 ## Download integrity
