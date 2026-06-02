@@ -17,6 +17,7 @@ software_mapping:
   lens: { manager: "winget", package: "Mirantis.Lens" }
   filezilla: { manager: "choco", package: "filezilla" }   # Winget manifest removed (FileZilla blocks third-party installers — winget-pkgs issues #65824/#89756/#131827/#154585). Chocolatey carries FileZilla Client (verified).
   putty: { manager: "winget", package: "PuTTY.PuTTY" }
+  powershell: { manager: "winget", package: "9MZ1SNWT0N5D", source: "msstore" }   # PowerShell 7 — MS Store (MSIX) build; needs the msstore source.
 
   # IDEs / Editors
   vscode: { manager: "winget", package: "Microsoft.VisualStudioCode" }

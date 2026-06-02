@@ -1,6 +1,19 @@
 ---
-- name: Install Android SDK (Windows via Winget)
-  community.windows.win_winget:
-    name: Google.AndroidStudio
-    state: present
-
+# community.windows has no winget module; drive the winget CLI directly.
+# winget's alias is not on PATH under non-interactive WinRM, so resolve the
+# real winget.exe from the DesktopAppInstaller package first.
+- name: Install Android Studio (Windows via winget)
+  ansible.windows.win_shell: |
+    $winget = (Get-ChildItem "$env:ProgramFiles\WindowsApps\Microsoft.DesktopAppInstaller_*_x64__8wekyb3d8bbwe\winget.exe" -ErrorAction SilentlyContinue |
+               Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+    if (-not $winget) { $winget = 'winget.exe' }
+    & $winget list --exact --id Google.AndroidStudio --accept-source-agreements *> $null
+    if ($LASTEXITCODE -eq 0) { 'PRESENT'; exit 0 }
+    $out = & $winget install --exact --id Google.AndroidStudio --source winget --silent `
+      --accept-source-agreements --accept-package-agreements --disable-interactivity 2>&1 | Out-String
+    $out
+    if ($LASTEXITCODE -eq 0 -or $out -match 'already installed') { exit 0 }
+    exit $LASTEXITCODE
+  register: android_studio_winget
+  changed_when: "'PRESENT' not in (android_studio_winget.stdout | default(''))"
+  failed_when: android_studio_winget.rc != 0

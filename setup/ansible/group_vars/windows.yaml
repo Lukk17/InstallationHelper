@@ -8,6 +8,9 @@ setup_wsl: true
 enable_hyperv: true
 import_hibernate_task: true
 
+# Windows Only Dev Tools
+install_powershell: true
+
 # Windows Only Entertainment & Streaming
 install_netflix: true
 install_disney_plus: true

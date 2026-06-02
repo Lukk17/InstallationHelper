@@ -1,6 +1,32 @@
 ---
-- name: Install Flutter (Windows via Winget)
-  community.windows.win_winget:
-    name: Google.Flutter
+# winget has no FVM manifest and no Flutter SDK manifest, so the old
+# `win_winget: Google.Flutter` task pointed at a non-existent package.
+# Chocolatey carries fvm (4.x); mirror the Unix flow — install the FVM CLI,
+# then install and pin the Flutter channel inside FVM's own cache.
+- name: Install FVM (Windows via Chocolatey)
+  chocolatey.chocolatey.win_chocolatey:
+    name: fvm
     state: present
 
+- name: Probe whether Flutter channel is already installed via FVM (Windows)
+  ansible.windows.win_stat:
+    path: '{{ ansible_env.USERPROFILE }}\fvm\versions\{{ flutter_channel }}\bin\flutter.bat'
+  register: win_flutter_channel_installed
+
+# win_command has no TTY/stdin, so Flutter's first-run analytics prompt cannot
+# hang the way it did on Unix; CI/suppress-analytics env vars are belt-and-braces.
+- name: Install Flutter channel via FVM ({{ flutter_channel }}, Windows)
+  ansible.windows.win_command: fvm install {{ flutter_channel }}
+  environment:
+    CI: 'true'
+    FLUTTER_SUPPRESS_ANALYTICS: 'true'
+  register: win_fvm_install
+  changed_when: true
+  when: not win_flutter_channel_installed.stat.exists
+
+# `fvm global` creates a symlink at %USERPROFILE%\fvm\default — on Windows this
+# needs Developer Mode enabled or an elevated run, otherwise it fails.
+- name: Set FVM global version ({{ flutter_channel }}, Windows)
+  ansible.windows.win_command: fvm global {{ flutter_channel }}
+  register: win_fvm_set_global
+  changed_when: "'Setting Flutter SDK' in win_fvm_set_global.stdout"
