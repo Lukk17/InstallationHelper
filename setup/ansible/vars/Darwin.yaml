@@ -14,6 +14,7 @@ software_mapping:
   dbeaver: { manager: "brew_cask", package: "dbeaver-community" }
   kubectl: { manager: "brew", package: "kubernetes-cli" }
   minikube: { manager: "brew", package: "minikube" }
+  k3d: { manager: "brew", package: "k3d" }
   lens: { manager: "brew_cask", package: "lens" }
   # Note: there is no maintained Homebrew cask for FileZilla on macOS, so the
   # `filezilla` toggle maps to Cyberduck instead — Cyberduck is the standard

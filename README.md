@@ -81,7 +81,7 @@ custom installs for AppImages, DMGs, and `.exe` artefacts.
 |---|---|
 | **Language toolchains** | Python (Pyenv), Node.js (NVM), Java (SDKMAN), Dart and Flutter (FVM), Android SDK, Go, Rust |
 | **IDEs and editors** | IntelliJ IDEA, VS Code, Android Studio, Cursor, Zed |
-| **CLI tools** | git, zsh, oh-my-zsh, Docker, kubectl, Helm, Terraform, Ansible, gh, jq, fzf, ripgrep |
+| **CLI tools** | git, zsh, oh-my-zsh, Docker, kubectl, k3d, Helm, Terraform, Ansible, gh, jq, fzf, ripgrep |
 | **AI tools** | Claude Code, Claude Desktop, OpenCode, OpenSpec |
 | **Apps** | Chrome, Firefox, Slack, Discord, Spotify, OBS, VLC, Postman |
 | **Fonts** | Nerd Fonts (FiraCode, JetBrainsMono, Hack, Meslo) |

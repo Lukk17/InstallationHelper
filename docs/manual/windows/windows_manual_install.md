@@ -32,6 +32,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | DBeaver CE | `winget install -e --id DBeaver.DBeaver.Community` — off by default on Windows (not in install.ps1) |
 | kubectl | `winget install -e --id Kubernetes.kubectl` |
 | Minikube | `winget install -e --id Kubernetes.minikube` |
+| k3d | `winget install -e --id k3d.k3d` |
 | Lens | `winget install -e --id Mirantis.Lens` |
 | FileZilla | `choco install -y filezilla` |
 | PuTTY | `winget install -e --id PuTTY.PuTTY` |

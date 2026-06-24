@@ -32,6 +32,7 @@ Install Homebrew if you don't have it:
 | DBeaver CE | `brew install --cask dbeaver-community` |
 | kubectl | `brew install kubernetes-cli` |
 | Minikube | `brew install minikube` |
+| k3d | `brew install k3d` |
 | Lens | `brew install --cask lens` |
 | FileZilla → Cyberduck | `brew install --cask cyberduck` |
 | Bruno CLI | `brew install bruno-cli` |

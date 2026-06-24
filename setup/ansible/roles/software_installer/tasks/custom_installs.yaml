@@ -76,6 +76,37 @@
     - ansible_facts['os_family'] == 'RedHat'
     - install_appimagelauncher | default(false) | bool
 
+# --- k3d: lightweight Kubernetes-in-Docker (all Linux distros) ---
+# k3d has no stable package across apt/dnf (only AUR on Arch), so every Linux
+# distro uses the upstream install.sh, mirroring the LM Studio curl|bash path.
+# The stat guard keeps it idempotent; `timeout 300` bounds the piped bash so a
+# stalled download can't hang the run.
+
+- name: Check if k3d is already installed (Linux)
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3d
+  register: k3d_installed
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_k3d | default(false) | bool
+
+- name: Install k3d via official script (Linux)
+  ansible.builtin.shell: |
+    set -o pipefail
+    timeout 300 bash -c 'curl -s --max-time 120 https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash'
+  args:
+    executable: /bin/bash
+  become: true
+  register: k3d_install
+  retries: 2
+  delay: 10
+  until: k3d_install is succeeded
+  changed_when: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_k3d | default(false) | bool
+    - not (k3d_installed.stat.exists | default(false))
+
 # --- Docker CE: Official Docker repository (Fedora) ---
 
 - name: Add Docker CE repository (Fedora)

@@ -11,7 +11,7 @@ The playbook runs in this order. Each phase must succeed before the next can sta
 3. SDK / runtime managers — JVM, Pyenv, NVM, SDKMAN (Java, Gradle), FVM.
 4. Snapd and Flatpak with the Flathub remote (Linux).
 5. Batched package installs — one call per manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`) so dependency resolution happens once per OS.
-6. Custom installs — `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary), `macos_install.yaml` (Antigravity DMG when published, Gridcoin DMG), `windows_install.yaml` (Chocolatey + winget batches, Gridcoin `.exe` silent install).
+6. Custom installs — `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`), `macos_install.yaml` (Antigravity DMG when published, Gridcoin DMG), `windows_install.yaml` (Chocolatey + winget batches, Gridcoin `.exe` silent install).
 
 Gradle is managed via SDKMAN on every Linux distro, not the system package manager. The `versions.yaml` pin drives `sdk install gradle`.
 
@@ -37,6 +37,7 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | DBeaver CE | flatpak `io.dbeaver.DBeaverCommunity` | flatpak | flatpak | cask `dbeaver-community` | winget `DBeaver.DBeaver.Community` |
 | kubectl | Official k8s APT repo (`pkgs.k8s.io`, minor pinned in `versions.yaml`) | Official k8s DNF repo | `pacman kubectl` | brew `kubernetes-cli` | winget `Kubernetes.kubectl` |
 | Minikube | Direct `.deb` pinned to `{{ minikube_version }}` (currently `v1.38.1`) | Direct `.rpm` pinned | `pacman minikube` | brew `minikube` | winget `Kubernetes.minikube` |
+| k3d | Official `install.sh` (`curl … \| bash`, via `custom_installs.yaml`) | Same `install.sh` | Same `install.sh` | brew `k3d` | winget `k3d.k3d` |
 | Lens | Official Lens apt repo (`downloads.k8slens.dev/apt/debian`) + `apt install lens` | Official Lens dnf repo (`downloads.k8slens.dev/rpm/packages`) + `dnf install lens` | AUR `lens-bin` | cask `lens` | winget `Mirantis.Lens` |
 | FileZilla | `apt filezilla` | `dnf filezilla` | `pacman filezilla` | Cyberduck cask (no FileZilla cask on macOS) | Chocolatey `choco install filezilla` (FileZilla blocks third-party installers, so winget manifest was removed — see winget-pkgs issues #65824/#89756/#131827/#154585) |
 

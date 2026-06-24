@@ -40,6 +40,7 @@ sudo pacman -Sy
 | DBeaver CE | `flatpak install -y flathub io.dbeaver.DBeaverCommunity` |
 | kubectl | `sudo pacman -S --needed kubectl` |
 | Minikube | `sudo pacman -S --needed minikube` |
+| k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
 | Lens | AUR `yay -S lens-bin` |
 | FileZilla | `sudo pacman -S --needed filezilla` |
 
