@@ -14,6 +14,12 @@ software_mapping:
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
   kubectl: { manager: "dnf", package: "kubectl" }               # Official k8s.io repo
   minikube: { manager: "dnf_url", package: "minikube-latest.x86_64.rpm" }
+  helm: { manager: "dnf", package: "helm" }                     # Native (Fedora 35+)
+  terraform: { manager: "dnf", package: "terraform" }           # Official HashiCorp dnf repo (fedora_repos.yaml)
+  gh: { manager: "dnf", package: "gh" }
+  jq: { manager: "dnf", package: "jq" }
+  fzf: { manager: "dnf", package: "fzf" }
+  ripgrep: { manager: "dnf", package: "ripgrep" }
   lens: { manager: "dnf", package: "lens" }                     # Official Lens dnf repo (fedora_repos.yaml)
   filezilla: { manager: "dnf", package: "filezilla" }
 

@@ -33,6 +33,12 @@ Install Homebrew if you don't have it:
 | kubectl | `brew install kubernetes-cli` |
 | Minikube | `brew install minikube` |
 | k3d | `brew install k3d` |
+| Helm | `brew install helm` |
+| Terraform | `brew install hashicorp/tap/terraform` (HashiCorp tap — off Homebrew core since the BUSL relicense) |
+| GitHub CLI | `brew install gh` |
+| jq | `brew install jq` |
+| fzf | `brew install fzf` |
+| ripgrep | `brew install ripgrep` |
 | Lens | `brew install --cask lens` |
 | FileZilla → Cyberduck | `brew install --cask cyberduck` |
 | Bruno CLI | `brew install bruno-cli` |

@@ -108,6 +108,12 @@ gpgkey=https://downloads.k8slens.dev/keys/gpg
 EOF
 ```
 
+**Terraform** (official HashiCorp repo):
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+```
+
 ## Browsers
 
 | App | Install command |
@@ -130,6 +136,12 @@ EOF
 | FileZilla | `sudo dnf install -y filezilla` |
 | Minikube | `sudo dnf install -y https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube-1.38.1-0.x86_64.rpm` |
 | k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
+| Helm | `sudo dnf install -y helm` |
+| Terraform | `sudo dnf install -y terraform` *(repo above)* |
+| GitHub CLI | `sudo dnf install -y gh` |
+| jq | `sudo dnf install -y jq` |
+| fzf | `sudo dnf install -y fzf` |
+| ripgrep | `sudo dnf install -y ripgrep` |
 
 > Gradle is installed via SDKMAN — see [Developer toolchain](#developer-toolchain-sdk--runtimes).
 

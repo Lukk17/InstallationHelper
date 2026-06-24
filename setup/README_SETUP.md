@@ -462,6 +462,9 @@ distro package exists or the repo version is too old. Pinned versions and URL te
 | **VS Code** | Official Microsoft APT repo + `apt install code` | AUR: `visual-studio-code-bin` | Official MS DNF repo + `dnf install code` |
 | **Sublime Text** | Official Sublime APT repo + `apt install sublime-text` | AUR: `sublime-text-4` | Official Sublime DNF repo + `dnf install sublime-text` |
 | **kubectl** | Official Kubernetes APT repo (`pkgs.k8s.io/core` minor pinned in `versions.yaml`) + `apt install kubectl` | `pacman kubectl` | Official Kubernetes DNF repo + `dnf install kubectl` |
+| **Helm** | Official Helm APT repo (`packages.buildkite.com/helm-linux`) + `apt install helm` | `pacman helm` | Native `dnf install helm` (Fedora 35+) |
+| **Terraform** | Official HashiCorp APT repo (`apt.releases.hashicorp.com`) + `apt install terraform` | `pacman terraform` | Official HashiCorp DNF repo (`rpm.releases.hashicorp.com`) + `dnf install terraform` |
+| **GitHub CLI (gh)** | Official GitHub CLI APT repo (`cli.github.com/packages`) + `apt install gh` | `pacman github-cli` | Native `dnf install gh` |
 | **Docker** | Official Docker CE APT repo + `apt install docker-ce` | `pacman docker` | Official Docker CE DNF repo + `dnf install docker-ce` |
 
 Repo keyrings, GPG keys, and `*.repo` and `*.list` files are provisioned automatically by

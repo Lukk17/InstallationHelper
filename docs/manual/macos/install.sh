@@ -19,8 +19,8 @@ log() { printf '\n\033[1;34m==>\033[0m %s\n' "$1"; }
 
 # Homebrew formulae (CLI).
 BREW_FORMULAE=(
-  git maven gradle openssl@3 kubernetes-cli minikube speedtest-cli lynis
-  bruno-cli dart zsh
+  git maven gradle openssl@3 kubernetes-cli minikube helm hashicorp/tap/terraform
+  gh jq fzf ripgrep speedtest-cli lynis bruno-cli dart zsh
 )
 
 # Homebrew casks (GUI apps).

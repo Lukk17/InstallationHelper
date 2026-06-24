@@ -33,11 +33,11 @@ DNF_PACKAGES=(
   git maven openssl filezilla keepassxc vlc rawtherapee speedtest-cli
   boinc-client lynis chkrootkit clamav hardinfo2 lm_sensors baobab gparted
   kde-partitionmanager grubby qemu-kvm libvirt virt-manager virt-install
-  bridge-utils virtiofsd zsh dart
+  bridge-utils virtiofsd zsh dart helm gh jq fzf ripgrep
 )
 
 # dnf packages that require a third-party repo (added below).
-DNF_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens)
+DNF_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens terraform)
 
 # Flatpak application IDs (Flathub).
 FLATPAK_APPS=(
@@ -113,6 +113,9 @@ enabled=1
 gpgcheck=1
 gpgkey=https://downloads.k8slens.dev/keys/gpg
 EOF
+
+# HashiCorp official repo (Terraform).
+sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
 
 # Docker CE official repo.
 sudo dnf config-manager addrepo --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo

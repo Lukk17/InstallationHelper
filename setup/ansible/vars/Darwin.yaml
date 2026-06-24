@@ -15,6 +15,12 @@ software_mapping:
   kubectl: { manager: "brew", package: "kubernetes-cli" }
   minikube: { manager: "brew", package: "minikube" }
   k3d: { manager: "brew", package: "k3d" }
+  helm: { manager: "brew", package: "helm" }
+  terraform: { manager: "brew", package: "hashicorp/tap/terraform" }
+  gh: { manager: "brew", package: "gh" }
+  jq: { manager: "brew", package: "jq" }
+  fzf: { manager: "brew", package: "fzf" }
+  ripgrep: { manager: "brew", package: "ripgrep" }
   lens: { manager: "brew_cask", package: "lens" }
   # Note: there is no maintained Homebrew cask for FileZilla on macOS, so the
   # `filezilla` toggle maps to Cyberduck instead — Cyberduck is the standard

@@ -18,6 +18,8 @@ $WingetIds = @(
     'Google.Chrome', 'Brave.Brave', 'TorProject.TorBrowser',
     'Git.Git', 'Postman.Postman', 'ShiningLight.OpenSSL.Light',
     'Kubernetes.kubectl', 'Kubernetes.minikube',
+    'Helm.Helm', 'Hashicorp.Terraform', 'GitHub.cli',
+    'jqlang.jq', 'junegunn.fzf', 'BurntSushi.ripgrep.MSVC',
     'Mirantis.Lens', 'PuTTY.PuTTY',
     'Microsoft.VisualStudioCode', 'SublimeHQ.SublimeText.4', 'ArduinoSA.IDE.stable',
     'Google.AntigravityIDE', 'Bruno.Bruno',

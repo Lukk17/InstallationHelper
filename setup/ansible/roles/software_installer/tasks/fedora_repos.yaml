@@ -75,6 +75,15 @@
   become: true
   when: install_kubectl | default(false) | bool
 
+# --- Terraform (HashiCorp) ---
+- name: Add HashiCorp dnf repository (terraform)
+  ansible.builtin.get_url:
+    url: https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+    dest: /etc/yum.repos.d/hashicorp.repo
+    mode: '0644'
+  become: true
+  when: install_terraform | default(false) | bool
+
 # --- Lens Desktop ---
 - name: Import Lens GPG key
   ansible.builtin.rpm_key:

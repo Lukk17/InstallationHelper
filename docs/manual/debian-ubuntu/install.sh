@@ -35,11 +35,11 @@ APT_PACKAGES=(
   git maven openssl filezilla putty keepassxc vlc rawtherapee speedtest-cli
   boinc-client lynis chkrootkit clamav hardinfo lm-sensors baobab gparted
   partitionmanager qemu-kvm libvirt-daemon-system virt-manager virtinst
-  bridge-utils virtiofsd zsh dart
+  bridge-utils virtiofsd zsh dart jq fzf ripgrep
 )
 
 # apt packages that require a third-party repo (added below).
-APT_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens)
+APT_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens helm terraform gh)
 
 # Flatpak application IDs (Flathub).
 FLATPAK_APPS=(
@@ -86,6 +86,15 @@ echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.
 # Lens
 curl -fsSL https://downloads.k8slens.dev/keys/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/lens.gpg
 echo "deb [signed-by=/etc/apt/keyrings/lens.gpg] https://downloads.k8slens.dev/apt/debian stable main" | sudo tee /etc/apt/sources.list.d/lens.list >/dev/null
+# Helm
+curl -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | sudo gpg --dearmor -o /etc/apt/keyrings/helm.gpg
+echo "deb [signed-by=/etc/apt/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | sudo tee /etc/apt/sources.list.d/helm.list >/dev/null
+# Terraform (HashiCorp)
+curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg
+echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list >/dev/null
+# GitHub CLI (key is already a binary keyring — no dearmor)
+sudo curl -fsSLo /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
+echo "deb [signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
 
 log "Refreshing apt after repo changes"
 sudo apt-get update

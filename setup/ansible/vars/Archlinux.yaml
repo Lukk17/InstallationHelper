@@ -14,6 +14,12 @@ software_mapping:
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }  # Changed: snap failed on Arch
   kubectl: { manager: "pacman", package: "kubectl" }
   minikube: { manager: "pacman", package: "minikube" }
+  helm: { manager: "pacman", package: "helm" }
+  terraform: { manager: "pacman", package: "terraform" }
+  gh: { manager: "pacman", package: "github-cli" }
+  jq: { manager: "pacman", package: "jq" }
+  fzf: { manager: "pacman", package: "fzf" }
+  ripgrep: { manager: "pacman", package: "ripgrep" }
   lens: { manager: "aur", package: "lens-bin" }
   filezilla: { manager: "pacman", package: "filezilla" }
 

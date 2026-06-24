@@ -18,6 +18,12 @@ install_gradle: true
 install_kubectl: true
 install_minikube: true
 install_k3d: true
+install_helm: true
+install_terraform: true
+install_gh: true
+install_jq: true
+install_fzf: true
+install_ripgrep: true
 install_lens: true
 install_postman: true
 install_openssl: true

@@ -7,7 +7,7 @@ What the playbook installs on each OS, with the install method per platform. Thi
 The playbook runs in this order. Each phase must succeed before the next can start safely.
 
 1. OS core bootstrap — `system_core`, `arch_core`, `fedora_core`, `debian_core`, `windows_core`, `macos_core` (multilib, locale, keyrings dir, Homebrew bootstrap on macOS).
-2. APT / DNF repo provisioning — `roles/software_installer/tasks/debian_repos.yaml` and `fedora_repos.yaml` write keyrings under `/etc/apt/keyrings/` and `*.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Docker before any package install runs.
+2. APT / DNF repo provisioning — `roles/software_installer/tasks/debian_repos.yaml` and `fedora_repos.yaml` write keyrings under `/etc/apt/keyrings/` and `*.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Helm, Terraform, GitHub CLI, Docker before any package install runs.
 3. SDK / runtime managers — JVM, Pyenv, NVM, SDKMAN (Java, Gradle), FVM.
 4. Snapd and Flatpak with the Flathub remote (Linux).
 5. Batched package installs — one call per manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`) so dependency resolution happens once per OS.
@@ -38,6 +38,12 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | kubectl | Official k8s APT repo (`pkgs.k8s.io`, minor pinned in `versions.yaml`) | Official k8s DNF repo | `pacman kubectl` | brew `kubernetes-cli` | winget `Kubernetes.kubectl` |
 | Minikube | Direct `.deb` pinned to `{{ minikube_version }}` (currently `v1.38.1`) | Direct `.rpm` pinned | `pacman minikube` | brew `minikube` | winget `Kubernetes.minikube` |
 | k3d | Official `install.sh` (`curl … \| bash`, via `custom_installs.yaml`) | Same `install.sh` | Same `install.sh` | brew `k3d` | winget `k3d.k3d` |
+| Helm | Official Helm apt repo (`packages.buildkite.com/helm-linux`, via `debian_repos.yaml`) + `apt install helm` | Native `dnf install helm` (Fedora 35+) | `pacman helm` | brew `helm` | winget `Helm.Helm` |
+| Terraform | Official HashiCorp apt repo (`apt.releases.hashicorp.com`, via `debian_repos.yaml`) + `apt install terraform` | Official HashiCorp dnf repo (`rpm.releases.hashicorp.com`, via `fedora_repos.yaml`) + `dnf install terraform` | `pacman terraform` | brew tap `hashicorp/tap/terraform` (off Homebrew core since the BUSL relicense) | winget `Hashicorp.Terraform` |
+| GitHub CLI (gh) | Official GitHub CLI apt repo (`cli.github.com/packages`, via `debian_repos.yaml`) + `apt install gh` | Native `dnf install gh` | `pacman github-cli` | brew `gh` | winget `GitHub.cli` |
+| jq | `apt jq` | `dnf jq` | `pacman jq` | brew `jq` | winget `jqlang.jq` |
+| fzf | `apt fzf` | `dnf fzf` | `pacman fzf` | brew `fzf` | winget `junegunn.fzf` |
+| ripgrep | `apt ripgrep` | `dnf ripgrep` | `pacman ripgrep` | brew `ripgrep` | winget `BurntSushi.ripgrep.MSVC` |
 | Lens | Official Lens apt repo (`downloads.k8slens.dev/apt/debian`) + `apt install lens` | Official Lens dnf repo (`downloads.k8slens.dev/rpm/packages`) + `dnf install lens` | AUR `lens-bin` | cask `lens` | winget `Mirantis.Lens` |
 | FileZilla | `apt filezilla` | `dnf filezilla` | `pacman filezilla` | Cyberduck cask (no FileZilla cask on macOS) | Chocolatey `choco install filezilla` (FileZilla blocks third-party installers, so winget manifest was removed — see winget-pkgs issues #65824/#89756/#131827/#154585) |
 

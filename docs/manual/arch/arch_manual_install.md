@@ -41,6 +41,12 @@ sudo pacman -Sy
 | kubectl | `sudo pacman -S --needed kubectl` |
 | Minikube | `sudo pacman -S --needed minikube` |
 | k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
+| Helm | `sudo pacman -S --needed helm` |
+| Terraform | `sudo pacman -S --needed terraform` |
+| GitHub CLI (gh) | `sudo pacman -S --needed github-cli` |
+| jq | `sudo pacman -S --needed jq` |
+| fzf | `sudo pacman -S --needed fzf` |
+| ripgrep | `sudo pacman -S --needed ripgrep` |
 | Lens | AUR `yay -S lens-bin` |
 | FileZilla | `sudo pacman -S --needed filezilla` |
 

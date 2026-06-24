@@ -152,6 +152,84 @@
   become: true
   when: install_kubectl | default(false) | bool
 
+# --- Helm ---
+- name: Download Helm signing key
+  ansible.builtin.get_url:
+    url: https://packages.buildkite.com/helm-linux/helm-debian/gpgkey
+    dest: /tmp/helm-apt-keyring.asc
+    mode: '0644'
+    force: true
+  when: install_helm | default(false) | bool
+
+- name: Convert Helm key to binary keyring
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg --dearmor < /tmp/helm-apt-keyring.asc > /etc/apt/keyrings/helm-apt-keyring.gpg
+    chmod 0644 /etc/apt/keyrings/helm-apt-keyring.gpg
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/keyrings/helm-apt-keyring.gpg
+  become: true
+  when: install_helm | default(false) | bool
+
+- name: Add Helm apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/helm-apt-keyring.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main"
+    filename: helm
+    state: present
+    update_cache: false
+  become: true
+  when: install_helm | default(false) | bool
+
+# --- Terraform (HashiCorp) ---
+- name: Download HashiCorp signing key
+  ansible.builtin.get_url:
+    url: https://apt.releases.hashicorp.com/gpg
+    dest: /tmp/hashicorp-archive-keyring.asc
+    mode: '0644'
+    force: true
+  when: install_terraform | default(false) | bool
+
+- name: Convert HashiCorp key to binary keyring
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg --dearmor < /tmp/hashicorp-archive-keyring.asc > /etc/apt/keyrings/hashicorp-archive-keyring.gpg
+    chmod 0644 /etc/apt/keyrings/hashicorp-archive-keyring.gpg
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/keyrings/hashicorp-archive-keyring.gpg
+  become: true
+  when: install_terraform | default(false) | bool
+
+- name: Add HashiCorp apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+    filename: hashicorp
+    state: present
+    update_cache: false
+  become: true
+  when: install_terraform | default(false) | bool
+
+# --- GitHub CLI (gh) ---
+# GitHub publishes an already-dearmored (binary) keyring, so no gpg --dearmor step.
+- name: Download GitHub CLI binary keyring
+  ansible.builtin.get_url:
+    url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+    dest: /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    mode: '0644'
+    force: true
+  become: true
+  when: install_gh | default(false) | bool
+
+- name: Add GitHub CLI apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
+    filename: github-cli
+    state: present
+    update_cache: false
+  become: true
+  when: install_gh | default(false) | bool
+
 # --- Lens Desktop ---
 - name: Download Lens signing key
   ansible.builtin.get_url:

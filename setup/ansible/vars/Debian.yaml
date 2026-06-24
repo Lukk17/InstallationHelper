@@ -14,6 +14,12 @@ software_mapping:
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
   kubectl: { manager: "apt", package: "kubectl" }               # Official k8s.io repo
   minikube: { manager: "apt_url", package: "minikube_latest_amd64.deb", is_deb_url: true }
+  helm: { manager: "apt", package: "helm" }                     # Official Helm apt repo (debian_repos.yaml)
+  terraform: { manager: "apt", package: "terraform" }           # Official HashiCorp apt repo (debian_repos.yaml)
+  gh: { manager: "apt", package: "gh" }                         # Official GitHub CLI apt repo (debian_repos.yaml)
+  jq: { manager: "apt", package: "jq" }
+  fzf: { manager: "apt", package: "fzf" }
+  ripgrep: { manager: "apt", package: "ripgrep" }
   lens: { manager: "apt", package: "lens" }                     # Official Lens apt repo (debian_repos.yaml)
   filezilla: { manager: "apt", package: "filezilla" }
   putty: { manager: "apt", package: "putty" }

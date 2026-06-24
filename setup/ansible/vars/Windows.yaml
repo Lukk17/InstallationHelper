@@ -15,6 +15,12 @@ software_mapping:
   kubectl: { manager: "winget", package: "Kubernetes.kubectl" }
   minikube: { manager: "winget", package: "Kubernetes.minikube" }
   k3d: { manager: "winget", package: "k3d.k3d" }
+  helm: { manager: "winget", package: "Helm.Helm" }
+  terraform: { manager: "winget", package: "Hashicorp.Terraform" }
+  gh: { manager: "winget", package: "GitHub.cli" }
+  jq: { manager: "winget", package: "jqlang.jq" }
+  fzf: { manager: "winget", package: "junegunn.fzf" }
+  ripgrep: { manager: "winget", package: "BurntSushi.ripgrep.MSVC" }
   lens: { manager: "winget", package: "Mirantis.Lens" }
   filezilla: { manager: "choco", package: "filezilla" }   # Winget manifest removed (FileZilla blocks third-party installers — winget-pkgs issues #65824/#89756/#131827/#154585). Chocolatey carries FileZilla Client (verified).
   putty: { manager: "winget", package: "PuTTY.PuTTY" }

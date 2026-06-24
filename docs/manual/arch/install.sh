@@ -23,7 +23,8 @@ log() { printf '\n\033[1;34m==>\033[0m %s\n' "$1"; }
 
 # pacman packages from official repos. Steam needs the multilib repo enabled.
 PACMAN_PACKAGES=(
-  git maven gradle openssl kubectl minikube filezilla telegram-desktop
+  git maven gradle openssl kubectl minikube helm terraform github-cli jq fzf
+  ripgrep filezilla telegram-desktop
   signal-desktop keepassxc vlc handbrake rawtherapee steam veracrypt
   speedtest-cli boinc lynis clamav hardinfo2 lm_sensors baobab gparted
   partitionmanager virt-manager qemu-full libvirt dnsmasq nftables bridge-utils

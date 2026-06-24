@@ -33,6 +33,12 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | kubectl | `winget install -e --id Kubernetes.kubectl` |
 | Minikube | `winget install -e --id Kubernetes.minikube` |
 | k3d | `winget install -e --id k3d.k3d` |
+| Helm | `winget install -e --id Helm.Helm` |
+| Terraform | `winget install -e --id Hashicorp.Terraform` |
+| GitHub CLI | `winget install -e --id GitHub.cli` |
+| jq | `winget install -e --id jqlang.jq` |
+| fzf | `winget install -e --id junegunn.fzf` |
+| ripgrep | `winget install -e --id BurntSushi.ripgrep.MSVC` |
 | Lens | `winget install -e --id Mirantis.Lens` |
 | FileZilla | `choco install -y filezilla` |
 | PuTTY | `winget install -e --id PuTTY.PuTTY` |

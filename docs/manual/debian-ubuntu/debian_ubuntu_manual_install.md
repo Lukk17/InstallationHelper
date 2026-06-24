@@ -86,6 +86,36 @@ curl -fsSL https://downloads.k8slens.dev/keys/gpg | sudo gpg --dearmor -o /etc/a
 echo "deb [signed-by=/etc/apt/keyrings/lens.gpg] https://downloads.k8slens.dev/apt/debian stable main" | sudo tee /etc/apt/sources.list.d/lens.list
 ```
 
+**Helm:**
+
+```bash
+curl -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | sudo gpg --dearmor -o /etc/apt/keyrings/helm.gpg
+```
+
+```bash
+echo "deb [signed-by=/etc/apt/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | sudo tee /etc/apt/sources.list.d/helm.list
+```
+
+**Terraform:**
+
+```bash
+curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg
+```
+
+```bash
+echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+```
+
+**GitHub CLI** (key is already a binary keyring — no `gpg --dearmor` step):
+
+```bash
+sudo curl -fsSLo /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
+```
+
+```bash
+echo "deb [signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list
+```
+
 After adding any repo, refresh the cache once:
 
 ```bash
@@ -111,6 +141,12 @@ sudo apt-get update
 | DBeaver CE | `flatpak install -y flathub io.dbeaver.DBeaverCommunity` |
 | kubectl | `sudo apt-get install -y kubectl` *(repo above)* |
 | Lens | `sudo apt-get install -y lens` *(repo above)* |
+| Helm | `sudo apt-get install -y helm` *(repo above)* |
+| Terraform | `sudo apt-get install -y terraform` *(repo above)* |
+| GitHub CLI | `sudo apt-get install -y gh` *(repo above)* |
+| jq | `sudo apt-get install -y jq` |
+| fzf | `sudo apt-get install -y fzf` |
+| ripgrep | `sudo apt-get install -y ripgrep` |
 | FileZilla | `sudo apt-get install -y filezilla` |
 | PuTTY | `sudo apt-get install -y putty` |
 | Minikube | `curl -fsSLo /tmp/minikube.deb https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube_1.38.1-0_amd64.deb && sudo apt-get install -y /tmp/minikube.deb` |
