@@ -77,6 +77,7 @@ install_prusaslicer: true
 install_veracrypt: true
 install_teamviewer: true
 install_speedtest: true
+install_syncthing: true
 install_gparted: true
 install_partitionmanager: true
 install_partition_wizard: true

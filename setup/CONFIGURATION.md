@@ -146,6 +146,7 @@ The cross-platform toggle file has 50+ entries grouped by category — see the f
 - **Comms:** `install_discord`, `install_slack`, `install_telegram`, `install_whatsapp`, `install_signal`
 - **Productivity:** `install_obsidian`, `install_bitwarden`, `install_keepassxc`, `install_onlyoffice`
 - **Media:** `install_vlc`, `install_spotify`, `install_gimp`, `install_krita`, `install_handbrake`, `install_audacity`, `install_rawtherapee`
+- **Utilities:** `install_syncthing`, `install_veracrypt`, `install_teamviewer`, `install_speedtest`
 - **Crypto/Volunteer:** `install_boinc`, `install_gridcoin`
 - **SDKs:** `install_dart`, `install_flutter`, `install_android_sdk`
 

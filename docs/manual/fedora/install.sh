@@ -33,7 +33,7 @@ DNF_PACKAGES=(
   git maven openssl filezilla keepassxc vlc rawtherapee speedtest-cli
   boinc-client lynis chkrootkit clamav hardinfo2 lm_sensors baobab gparted
   kde-partitionmanager grubby qemu-kvm libvirt virt-manager virt-install
-  bridge-utils virtiofsd zsh dart helm gh jq fzf ripgrep
+  bridge-utils virtiofsd zsh dart helm gh jq fzf ripgrep syncthing
 )
 
 # dnf packages that require a third-party repo (added below).
@@ -138,6 +138,9 @@ sudo rpm --install --upgrade --replacepkgs --nodigest /tmp/appimagelauncher.rpm
 
 log "Installing Flatpak applications"
 flatpak install -y flathub "${FLATPAK_APPS[@]}"
+
+log "Enabling the Syncthing user service"
+systemctl --user enable --now syncthing.service || printf '   Skipped: no user D-Bus session. Run it yourself after logging in.\n'
 
 log "Done. The following were NOT installed (manual download required):"
 for item in "${SKIPPED[@]}"; do

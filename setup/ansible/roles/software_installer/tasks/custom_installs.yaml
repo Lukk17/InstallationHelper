@@ -237,3 +237,52 @@
     - install_gputest | default(false) | bool
     - gputest_binary is defined
     - gputest_binary.files | default([]) | length > 0
+
+# --- Syncthing autostart: enable the shipped systemd USER unit ---
+# Debian, Fedora and Arch all ship /usr/lib/systemd/user/syncthing.service but
+# leave it disabled. Enabling it in user scope starts Syncthing at login as the
+# owner of the files being synced, which mirrors the logon scheduled task that
+# the Windows installer registers. System scope is deliberately not used: it
+# would run as root or need a syncthing@<user> instance.
+- name: Look up UID of the non-root user (Syncthing autostart)
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ non_root_user }}"
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_syncthing | default(false) | bool
+
+# `systemctl --user` needs a live D-Bus session. On a headless box or a live
+# USB there is none and the call fails with "Failed to connect to bus".
+- name: Probe for an active login session (Syncthing autostart)
+  ansible.builtin.command: loginctl show-user {{ non_root_user | quote }} -p State --value
+  register: syncthing_user_state
+  changed_when: false
+  failed_when: false
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_syncthing | default(false) | bool
+
+- name: Enable Syncthing systemd user service (starts at login)
+  ansible.builtin.systemd:
+    name: syncthing.service
+    scope: user
+    enabled: true
+    state: started
+  become: true
+  become_user: "{{ non_root_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ getent_passwd[non_root_user][1] }}"
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_syncthing | default(false) | bool
+    - (syncthing_user_state.stdout | default('') | trim) == 'active'
+
+- name: Report skipped Syncthing autostart (no active login session)
+  ansible.builtin.debug:
+    msg: "[WARN] Syncthing installed but autostart not enabled, no active login session for {{ non_root_user }}. Run `systemctl --user enable --now syncthing.service` after logging in."
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_syncthing | default(false) | bool
+    - (syncthing_user_state.stdout | default('') | trim) != 'active'

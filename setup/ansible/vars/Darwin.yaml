@@ -76,6 +76,7 @@ software_mapping:
   teamviewer: { manager: "brew_cask", package: "teamviewer" }
   veracrypt: { manager: "brew_cask", package: "veracrypt" }
   speedtest: { manager: "brew", package: "speedtest-cli" }
+  syncthing: { manager: "brew_cask", package: "syncthing-app" }   # Official syncthing-macos bundle (cask renamed from `syncthing`)
   lynis: { manager: "brew", package: "lynis" }
 
   # Crypto

@@ -111,11 +111,18 @@ sudo pacman -Sy
 | App | Install command |
 |---|---|
 | Speedtest CLI | `sudo pacman -S --needed speedtest-cli` |
+| Syncthing | `sudo pacman -S --needed syncthing` |
 | GParted | `sudo pacman -S --needed gparted` |
 | KDE Partition Manager | `sudo pacman -S --needed partitionmanager` |
 | VeraCrypt | `sudo pacman -S --needed veracrypt` |
 | TeamViewer | AUR `yay -S teamviewer` |
 | AppImageLauncher | AUR `yay -S appimagelauncher` |
+
+The Syncthing package ships a systemd user unit but leaves it disabled. Enable it so Syncthing starts at login as the owner of the synced files:
+
+```bash
+systemctl --user enable --now syncthing.service
+```
 
 ## Hardware monitoring
 

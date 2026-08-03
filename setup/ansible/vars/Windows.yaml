@@ -78,6 +78,7 @@ software_mapping:
   teamviewer: { manager: "winget", package: "TeamViewer.TeamViewer" }
   veracrypt: { manager: "winget", package: "IDRIX.VeraCrypt" }
   speedtest: { manager: "winget", package: "Ookla.Speedtest.CLI" }
+  syncthing: { manager: "winget", package: "BillStewart.SyncthingWindowsSetup" }   # Inno installer: per-user install + logon scheduled task. `Syncthing.Syncthing` is the bare portable zip with no autostart.
 
   # Crypto
   boinc: { manager: "winget", package: "UCBerkeley.BOINC" }

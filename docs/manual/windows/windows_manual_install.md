@@ -121,6 +121,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | TeamViewer | `winget install -e --id TeamViewer.TeamViewer` |
 | VeraCrypt | `winget install -e --id IDRIX.VeraCrypt` |
 | Speedtest CLI | `winget install -e --id Ookla.Speedtest.CLI` |
+| Syncthing | `winget install -e --id BillStewart.SyncthingWindowsSetup` |
 | Rufus | `winget install -e --id Rufus.Rufus` |
 | PowerToys | `winget install -e --id Microsoft.PowerToys` |
 | MiniTool Partition Wizard | `winget install -e --id MiniTool.PartitionWizard.Free` |

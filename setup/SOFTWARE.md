@@ -121,7 +121,10 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | TeamViewer | direct `.deb` | direct `.rpm` | AUR `teamviewer` | cask `teamviewer` | winget `TeamViewer.TeamViewer` |
 | VeraCrypt | direct `.deb` pinned to `{{ veracrypt_version }}` (currently `1.26.24`, Ubuntu-24.04 build) | direct `.rpm` (CentOS-8 build works on Fedora 38+) | `pacman veracrypt` | cask `veracrypt` | winget `IDRIX.VeraCrypt` |
 | Speedtest CLI | `apt speedtest-cli` | `dnf speedtest-cli` | `pacman speedtest-cli` | brew `speedtest-cli` | winget `Ookla.Speedtest.CLI` |
+| Syncthing | Official Syncthing apt repo (`apt.syncthing.net`, `stable-v2` channel, via `debian_repos.yaml`) + `apt install syncthing` | `dnf syncthing` (Fedora 43 ships 1.30.x, 44+ ships 2.x) | `pacman syncthing` | cask `syncthing-app` (official syncthing-macos bundle) | winget `BillStewart.SyncthingWindowsSetup` (Inno installer: per-user install plus logon scheduled task. `Syncthing.Syncthing` is the bare portable zip with no autostart) |
 | AppImageLauncher | direct `.deb` (GitHub releases) | direct `.rpm` (GitHub releases) | AUR `appimagelauncher` | — | — |
+
+> On Linux the distro packages ship `/usr/lib/systemd/user/syncthing.service` but leave it disabled, so `custom_installs.yaml` enables it in user scope. Syncthing then starts at login as the owner of the synced files, matching the logon scheduled task the Windows installer registers. The task is skipped with a warning when there is no active login session (headless or live USB), because `systemctl --user` needs a D-Bus session.
 
 ### Crypto / Volunteer
 

@@ -305,6 +305,28 @@
     docker_apt_arch: "{{ docker_apt_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
   when: install_docker | default(false) | bool
 
+# --- Syncthing ---
+# Syncthing publishes an already-dearmored (binary) release key, so no gpg
+# --dearmor step. The repo has one suite (`syncthing`) for every Debian
+# derivative. `stable-v2` is the monthly stable channel of the 2.x line.
+- name: Download Syncthing binary keyring
+  ansible.builtin.get_url:
+    url: https://syncthing.net/release-key.gpg
+    dest: /etc/apt/keyrings/syncthing-archive-keyring.gpg
+    mode: '0644'
+    force: true
+  become: true
+  when: install_syncthing | default(false) | bool
+
+- name: Add Syncthing apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2"
+    filename: syncthing
+    state: present
+    update_cache: false
+  become: true
+  when: install_syncthing | default(false) | bool
+
 - name: Refresh apt cache after repo changes
   ansible.builtin.apt:
     update_cache: true

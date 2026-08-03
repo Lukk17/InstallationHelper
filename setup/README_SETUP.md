@@ -465,6 +465,7 @@ distro package exists or the repo version is too old. Pinned versions and URL te
 | **Helm** | Official Helm APT repo (`packages.buildkite.com/helm-linux`) + `apt install helm` | `pacman helm` | Native `dnf install helm` (Fedora 35+) |
 | **Terraform** | Official HashiCorp APT repo (`apt.releases.hashicorp.com`) + `apt install terraform` | `pacman terraform` | Official HashiCorp DNF repo (`rpm.releases.hashicorp.com`) + `dnf install terraform` |
 | **GitHub CLI (gh)** | Official GitHub CLI APT repo (`cli.github.com/packages`) + `apt install gh` | `pacman github-cli` | Native `dnf install gh` |
+| **Syncthing** | Official Syncthing APT repo (`apt.syncthing.net`, `stable-v2` channel) + `apt install syncthing` | `pacman syncthing` | Native `dnf install syncthing` |
 | **Docker** | Official Docker CE APT repo + `apt install docker-ce` | `pacman docker` | Official Docker CE DNF repo + `dnf install docker-ce` |
 
 Repo keyrings, GPG keys, and `*.repo` and `*.list` files are provisioned automatically by

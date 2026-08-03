@@ -113,6 +113,7 @@ Install Homebrew if you don't have it:
 | TeamViewer | `brew install --cask teamviewer` |
 | VeraCrypt | `brew install --cask veracrypt` |
 | Speedtest CLI | `brew install speedtest-cli` |
+| Syncthing | `brew install --cask syncthing-app` |
 | Lynis | `brew install lynis` |
 | Stats (HWMonitor) | `brew install --cask stats` |
 | GrandPerspective (WizTree) | `brew install --cask grandperspective` |

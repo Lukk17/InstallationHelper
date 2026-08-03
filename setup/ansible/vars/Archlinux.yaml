@@ -68,6 +68,7 @@ software_mapping:
   teamviewer: { manager: "aur", package: "teamviewer" }
   veracrypt: { manager: "pacman", package: "veracrypt" }
   speedtest: { manager: "pacman", package: "speedtest-cli" }
+  syncthing: { manager: "pacman", package: "syncthing" }
   appimagelauncher: { manager: "aur", package: "appimagelauncher" }
 
   # Crypto / Crypto Hardware

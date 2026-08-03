@@ -56,6 +56,7 @@ install_prusaslicer: false
 
 # ---- Utilities ----
 install_teamviewer: false
+install_syncthing: false
 # keep: veracrypt, speedtest, balena_etcher
 
 # ---- Volunteer / Crypto (keep) ----

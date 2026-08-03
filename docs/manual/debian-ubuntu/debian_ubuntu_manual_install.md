@@ -116,6 +116,16 @@ sudo curl -fsSLo /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.git
 echo "deb [signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list
 ```
 
+**Syncthing** (key is already a binary keyring, no `gpg --dearmor` step). One suite serves every Debian derivative, and `stable-v2` is the monthly stable channel of the 2.x line:
+
+```bash
+sudo curl -fsSLo /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
+```
+
+```bash
+echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list
+```
+
 After adding any repo, refresh the cache once:
 
 ```bash
@@ -215,12 +225,19 @@ sudo apt-get update
 | App | Install command |
 |---|---|
 | Speedtest CLI | `sudo apt-get install -y speedtest-cli` |
+| Syncthing | `sudo apt-get install -y syncthing` (needs the Syncthing repo added above) |
 | GParted | `sudo apt-get install -y gparted` |
 | KDE Partition Manager | `sudo apt-get install -y partitionmanager` |
 | TeamViewer | `curl -fsSLo /tmp/teamviewer.deb https://download.teamviewer.com/download/linux/teamviewer_amd64.deb && sudo apt-get install -y /tmp/teamviewer.deb` |
 | VeraCrypt | `curl -fsSLo /tmp/veracrypt.deb https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-Ubuntu-24.04-amd64.deb && sudo apt-get install -y /tmp/veracrypt.deb` |
 | AppImageLauncher | `curl -fsSLo /tmp/appimagelauncher.deb https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb && sudo apt-get install -y /tmp/appimagelauncher.deb` |
 | Balena Etcher | `curl -fsSLo /tmp/balena-etcher.deb https://github.com/balena-io/etcher/releases/download/v2.1.6/balena-etcher_2.1.6_amd64.deb && sudo apt-get install -y /tmp/balena-etcher.deb` |
+
+The Syncthing package ships a systemd user unit but leaves it disabled. Enable it so Syncthing starts at login as the owner of the synced files:
+
+```bash
+systemctl --user enable --now syncthing.service
+```
 
 ## Hardware monitoring
 

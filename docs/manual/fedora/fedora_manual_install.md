@@ -206,12 +206,19 @@ sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.c
 | App | Install command |
 |---|---|
 | Speedtest CLI | `sudo dnf install -y speedtest-cli` |
+| Syncthing | `sudo dnf install -y syncthing` |
 | GParted | `sudo dnf install -y gparted` |
 | KDE Partition Manager | `sudo dnf install -y kde-partitionmanager` |
 | Boot repair (grubby) | `sudo dnf install -y grubby` |
 | TeamViewer | `sudo dnf install -y https://download.teamviewer.com/download/linux/teamviewer.x86_64.rpm` |
 | VeraCrypt | `sudo dnf install -y https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-CentOS-8-x86_64.rpm` |
 | Balena Etcher | `sudo dnf install -y https://github.com/balena-io/etcher/releases/download/v2.1.6/balena-etcher-2.1.6-1.x86_64.rpm` |
+
+The Syncthing package ships a systemd user unit but leaves it disabled. Enable it so Syncthing starts at login as the owner of the synced files:
+
+```bash
+systemctl --user enable --now syncthing.service
+```
 
 **AppImageLauncher** — the 2020 upstream RPM lacks file digests and `dnf5` (Fedora 43+) refuses it, so install with `rpm --nodigest`:
 

@@ -39,7 +39,7 @@ APT_PACKAGES=(
 )
 
 # apt packages that require a third-party repo (added below).
-APT_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens helm terraform gh)
+APT_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens helm terraform gh syncthing)
 
 # Flatpak application IDs (Flathub).
 FLATPAK_APPS=(
@@ -95,6 +95,9 @@ echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashi
 # GitHub CLI (key is already a binary keyring — no dearmor)
 sudo curl -fsSLo /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
 echo "deb [signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+# Syncthing (key is already a binary keyring, no dearmor)
+sudo curl -fsSLo /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
+echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list >/dev/null
 
 log "Refreshing apt after repo changes"
 sudo apt-get update
@@ -114,6 +117,9 @@ install_deb_url "$BALENA_ETCHER_DEB" balena-etcher
 
 log "Installing Flatpak applications"
 flatpak install -y flathub "${FLATPAK_APPS[@]}"
+
+log "Enabling the Syncthing user service"
+systemctl --user enable --now syncthing.service || printf '   Skipped: no user D-Bus session. Run it yourself after logging in.\n'
 
 log "Done. The following were NOT installed (manual download required):"
 for item in "${SKIPPED[@]}"; do
