@@ -73,12 +73,6 @@ Move into the stack directory:
 cd /opt/docker-stack/InstallationHelper/homelab
 ```
 
-Copy the environment template and edit the values:
-
-```bash
-cp .env.example .env
-```
-
 Start everything:
 
 ```bash
@@ -92,15 +86,17 @@ Then configure the two services that need it: [ADGUARD_DNS.md](ADGUARD_DNS.md) f
 
 ### Configuration
 
-Only four values are host specific, and they live in `.env` next to the Compose file. The real `.env` is
-gitignored, so nothing about your network ends up in version control.
+Four values in the Compose file are host specific. None of them is a secret, so they sit in the file directly.
 
-| Variable | Example | Why |
+| Setting | Default here | Why you might change it |
 |---|---|---|
-| `HOMEPAGE_ALLOWED_HOSTS` | `dashboard.internal,<docker-vm-ip>:7778` | Homepage rejects any hostname missing from this list |
+| `HOMEPAGE_ALLOWED_HOSTS` | `dashboard.internal` | Homepage rejects any hostname missing from this list. Add `<docker-vm-ip>:7778` if you also open it by address |
 | `PUID` | `1000` | User ID that owns the Syncthing files on the host |
 | `PGID` | `1000` | Group ID for the same |
-| `TZ` | `Etc/UTC` | Timezone inside the Syncthing container |
+| `TZ` | `Europe/Warsaw` | Timezone inside the Syncthing container |
+
+The stack carries no passwords or tokens. Every service sets its own credentials on first run and stores them under
+`/opt/docker-stack/`, which never enters version control.
 
 Persistent data lives under `/opt/docker-stack/`, one directory per service, bind mounted into the containers. The
 Compose file alone will not restore your setup, because AdGuard filters, proxy hosts, dashboard layout and Syncthing
@@ -144,8 +140,8 @@ missing in AdGuard.
 
 One internal name returns 502. That container is stopped, or the port in its proxy host entry is wrong.
 
-Homepage answers "Host validation failed". The hostname is not in `HOMEPAGE_ALLOWED_HOSTS`. Add it to `.env` and
-recreate the container.
+Homepage answers "Host validation failed". The hostname is not in `HOMEPAGE_ALLOWED_HOSTS`. Add it in
+`compose.yaml` and recreate the container.
 
 Syncthing cannot write its files. The host directories under `/opt/docker-stack/syncthing/` are not owned by the
 `PUID` and `PGID` you set.

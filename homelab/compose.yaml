@@ -42,7 +42,7 @@ services:
     networks:
       - proxy-tier
     environment:
-      - HOMEPAGE_ALLOWED_HOSTS=${HOMEPAGE_ALLOWED_HOSTS}
+      - HOMEPAGE_ALLOWED_HOSTS=dashboard.internal
     ports:
       - "7778:3000/tcp"
     volumes:
@@ -66,9 +66,9 @@ services:
     networks:
       - proxy-tier
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Warsaw
     ports:
       - "7780:8384/tcp"
       - "22000:22000/tcp"

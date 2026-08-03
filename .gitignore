@@ -7,7 +7,6 @@
 .env.ai
 .env.mcp
 mcp_secrets.json
-homelab/.env
 
 .aider*
 .cline/.history/
