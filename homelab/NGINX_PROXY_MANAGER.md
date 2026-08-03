@@ -51,6 +51,7 @@ Go to Hosts, then Proxy Hosts, then Add Proxy Host, and fill in the Details tab.
 | `syncthing.internal` | http | `syncthing` | 8384 | on |
 | `adguard.internal` | http | `adguard-home` | 7777 | on |
 | `npm.internal` | http | `nginx-proxy-manager` | 81 | on |
+| `notes.internal` | http | `perlite-web` | 80 | on |
 
 The forward port is the container port from the right hand side of each Compose port mapping. Using the published
 host port instead is the usual reason a new entry returns 502.

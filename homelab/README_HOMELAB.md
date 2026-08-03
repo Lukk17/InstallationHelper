@@ -31,6 +31,7 @@ graph TB
         HP[Homepage]
         UK[Uptime Kuma]
         SY[Syncthing]
+        PL[Perlite notes]
     end
 
     AG -->|names ending in internal| NPM
@@ -38,6 +39,8 @@ graph TB
     NPM --> HP
     NPM --> UK
     NPM --> SY
+    NPM --> PL
+    SY -->|synced folder on disk| PL
 ```
 
 ---
@@ -51,9 +54,14 @@ graph TB
 | Homepage | `dashboard.internal` | 7778 | 3000 | Dashboard linking to everything else |
 | Uptime Kuma | `uptime.internal` | 7779 | 3001 | Polls the other services and alerts when one dies |
 | Syncthing | `syncthing.internal` | 7780 | 8384 | File sync between machines |
+| Perlite | `notes.internal` | 7781 | 80 | Renders the synced notes folder as a read only website |
 
 Nginx Proxy Manager also binds 80 and 443 for proxied traffic, AdGuard binds 53 for DNS, and Syncthing binds 22000
 and 21027 for its own peer protocol.
+
+Perlite is two containers rather than one. The engine renders the markdown and has no published port, and
+`perlite-web` is the nginx that serves it. Setting it up takes a few extra steps, so it has its own page:
+[PERLITE_NOTES.md](PERLITE_NOTES.md).
 
 ---
 
@@ -155,4 +163,5 @@ Syncthing cannot write its files. The host directories under `/opt/docker-stack/
 | [PROXMOX_DOCKER_VM.md](PROXMOX_DOCKER_VM.md) | Creating the Ubuntu VM on Proxmox, installing Docker, freeing port 53 |
 | [ADGUARD_DNS.md](ADGUARD_DNS.md) | AdGuard first run, the `.internal` wildcard rewrite, pointing the router at it |
 | [NGINX_PROXY_MANAGER.md](NGINX_PROXY_MANAGER.md) | Adding the proxy host entries and verifying them |
+| [PERLITE_NOTES.md](PERLITE_NOTES.md) | Publishing the synced notes folder as a website, and pairing Syncthing |
 | [BACKUP_RESTORE.md](BACKUP_RESTORE.md) | Backing up the VM and the service data, and restoring both |

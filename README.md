@@ -195,7 +195,7 @@ Ports, credentials, and TLS notes live in [local-dev/README_LOCAL_DEV.md](local-
 
 Separate from the local-dev stack, [homelab/](homelab/) holds a Compose file and setup notes for an always-on server:
 a Proxmox virtual machine running AdGuard Home for network wide DNS, Nginx Proxy Manager for private `.internal`
-names, plus Homepage, Uptime Kuma, and Syncthing.
+names, plus Homepage, Uptime Kuma, Syncthing, and Perlite for reading a synced notes vault in a browser.
 
 ```bash
 docker compose up -d
@@ -257,6 +257,7 @@ Released under the [MIT License](LICENSE).
 | [homelab/PROXMOX_DOCKER_VM.md](homelab/PROXMOX_DOCKER_VM.md)            | Building the Ubuntu VM on Proxmox and installing Docker Engine    |
 | [homelab/ADGUARD_DNS.md](homelab/ADGUARD_DNS.md)                        | AdGuard Home setup, internal name rewrites, router DNS cutover    |
 | [homelab/NGINX_PROXY_MANAGER.md](homelab/NGINX_PROXY_MANAGER.md)        | Reverse proxy entries for each internal name, and verification    |
+| [homelab/PERLITE_NOTES.md](homelab/PERLITE_NOTES.md)                    | Publishing a synced notes vault as a website, and pairing Syncthing |
 | [homelab/BACKUP_RESTORE.md](homelab/BACKUP_RESTORE.md)                  | vzdump, qmrestore, and backing up the service data directories    |
 | [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md)                          | Agent-standards, OpenSpec, per-agent integration notes            |
 | [docs/MCP_SETUP.md](docs/MCP_SETUP.md)                                  | MCP server setup (Context7 only in this project)                  |
