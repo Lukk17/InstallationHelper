@@ -36,6 +36,7 @@ package manager.
 - Profile overrides for live USB, minimal, or full installs without touching the base playbook.
 - PowerShell entrypoint on Windows that hands off to Ansible inside WSL.
 - Docker Compose stack for local-dev databases and Keycloak.
+- Home lab stack for an always-on Proxmox box: private DNS, reverse proxy, dashboard, uptime monitor, file sync.
 - OpenSpec workflow for spec-driven changes.
 
 ### Tech stack
@@ -188,6 +189,21 @@ docker-compose -f ./local-dev/local-dev-docker-compose.yaml up -d
 
 Ports, credentials, and TLS notes live in [local-dev/README_LOCAL_DEV.md](local-dev/README_LOCAL_DEV.md).
 
+### Home lab
+
+---
+
+Separate from the local-dev stack, [homelab/](homelab/) holds a Compose file and setup notes for an always-on server:
+a Proxmox virtual machine running AdGuard Home for network wide DNS, Nginx Proxy Manager for private `.internal`
+names, plus Homepage, Uptime Kuma, and Syncthing.
+
+```bash
+docker compose up -d
+```
+
+Start at [homelab/README_HOMELAB.md](homelab/README_HOMELAB.md). The documents are written as a template, so fill in
+your own addresses where you see a placeholder.
+
 ### Agent tooling and OpenSpec
 
 ---
@@ -237,6 +253,11 @@ Released under the [MIT License](LICENSE).
 | [local-dev/auth/Keycloak/README.md](local-dev/auth/Keycloak/README.md)  | Keycloak container build, token curl, OS trust store import       |
 | [local-dev/auth/Keycloak/CONFIG.md](local-dev/auth/Keycloak/CONFIG.md)  | Realm export, client setup, export-import flow                    |
 | [local-dev/postgresql/README.md](local-dev/postgresql/README.md)        | Standalone Postgres build and run                                 |
+| [homelab/README_HOMELAB.md](homelab/README_HOMELAB.md)                  | Home lab stack: services, ports, architecture, troubleshooting    |
+| [homelab/PROXMOX_DOCKER_VM.md](homelab/PROXMOX_DOCKER_VM.md)            | Building the Ubuntu VM on Proxmox and installing Docker Engine    |
+| [homelab/ADGUARD_DNS.md](homelab/ADGUARD_DNS.md)                        | AdGuard Home setup, internal name rewrites, router DNS cutover    |
+| [homelab/NGINX_PROXY_MANAGER.md](homelab/NGINX_PROXY_MANAGER.md)        | Reverse proxy entries for each internal name, and verification    |
+| [homelab/BACKUP_RESTORE.md](homelab/BACKUP_RESTORE.md)                  | vzdump, qmrestore, and backing up the service data directories    |
 | [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md)                          | Agent-standards, OpenSpec, per-agent integration notes            |
 | [docs/MCP_SETUP.md](docs/MCP_SETUP.md)                                  | MCP server setup (Context7 only in this project)                  |
 | [docs/AI_TOOLS_ADDING.md](docs/AI_TOOLS_ADDING.md)                      | How to add a new npm-based AI / CLI tool to the playbook          |

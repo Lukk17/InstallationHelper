@@ -123,10 +123,11 @@ Use multiline prompts when you need to include logs or detailed context with a c
 
 ## What This Repo Is
 
-A cross-platform Ansible-based system setup and local development toolkit. It has two main parts:
+A cross-platform Ansible-based system setup and local development toolkit. It has three main parts:
 
 1. **`setup/`** — Ansible playbook to automate OS configuration and software installation across Ubuntu/Debian, Fedora, Arch Linux, macOS, and Windows (via WSL).
 2. **`local-dev/`** — Docker Compose stack for local development services (MySQL, PostgreSQL, MongoDB, Keycloak).
+3. **`homelab/`** — Docker Compose stack and documentation for an always-on home server: a Proxmox VM running AdGuard Home, Nginx Proxy Manager, Homepage, Uptime Kuma, and Syncthing. Docs only plus one compose file, no Ansible. Keep it generic: no real addresses, credentials, or hardware details belong in these files.
 
 ## Ansible Architecture
 

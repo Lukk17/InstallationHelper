@@ -1,0 +1,79 @@
+networks:
+  proxy-tier:
+    driver: bridge
+
+services:
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:2.15.1
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+    ports:
+      - "80:80"
+      - "443:443"
+      - "81:81"
+    volumes:
+      - /opt/docker-stack/nginx/data:/data
+      - /opt/docker-stack/nginx/letsencrypt:/etc/letsencrypt
+
+  adguard-home:
+    image: adguard/adguardhome:v0.107.78
+    container_name: adguard-home
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "784:784/udp"
+      - "853:853/tcp"
+      - "853:853/udp"
+      - "7776:3000/tcp"
+      - "7777:7777/tcp"
+    volumes:
+      - /opt/docker-stack/adguard/work:/opt/adguardhome/work
+      - /opt/docker-stack/adguard/conf:/opt/adguardhome/conf
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:v1.13.2
+    container_name: homepage
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+    environment:
+      - HOMEPAGE_ALLOWED_HOSTS=${HOMEPAGE_ALLOWED_HOSTS}
+    ports:
+      - "7778:3000/tcp"
+    volumes:
+      - /opt/docker-stack/homepage/config:/app/config
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:2.5.0
+    container_name: uptime-kuma
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+    ports:
+      - "7779:3001/tcp"
+    volumes:
+      - /opt/docker-stack/uptime-kuma/data:/app/data
+
+  syncthing:
+    image: lscr.io/linuxserver/syncthing:2.1.2
+    container_name: syncthing
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - "7780:8384/tcp"
+      - "22000:22000/tcp"
+      - "22000:22000/udp"
+      - "21027:21027/udp"
+    volumes:
+      - /opt/docker-stack/syncthing/config:/config
+      - /opt/docker-stack/syncthing/data:/data1
