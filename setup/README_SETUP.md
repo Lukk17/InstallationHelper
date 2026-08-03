@@ -409,7 +409,7 @@ Source role: [roles/ai_tools/](ansible/roles/ai_tools/).
 | Software | Ubuntu / Debian | Arch | Fedora | macOS | Windows |
 |---|---|---|---|---|---|
 | **Claude Code CLI** | `npm install -g @anthropic-ai/claude-code` | same | same | same | same |
-| **Claude Desktop** | Unofficial APT repo script, then `apt install` | AUR: `claude-desktop-bin` | `alien` converts official `.deb` to RPM | `brew install --cask claude` | not available |
+| **Claude Desktop** | unofficial APT repo script, then `sudo apt-get install -y claude-desktop` | `yay -S claude-desktop-bin` | `alien` conversion of the official `.deb`, then `sudo dnf install -y ./claude-desktop*.rpm` | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, not wired into the playbook |
 | **Claude Cowork** | Build from source via `go` and `make install` | same | same | same | not available |
 | **OpenCode** | `npm install -g opencode-ai` | same | same | same | same |
 | **OpenSpec** | `npm install -g openspec` | same | same | same | same |
@@ -420,11 +420,11 @@ Source role: [roles/ai_tools/](ansible/roles/ai_tools/).
 
 | Software | Ubuntu / Debian | Arch | Fedora | macOS | Windows |
 |---|---|---|---|---|---|
-| **QEMU/KVM + virt-manager** | Native `apt` packages | Native `pacman` packages | Native `dnf` packages | not available | not available |
-| **UTM** | not available | not available | not available | `brew install --cask utm` (Apple Virtualization) | not available |
-| **VirtualBox** | not available | not available | not available | not available | Winget: `Oracle.VirtualBox` |
-| **VMware** | not available | not available | not available | `brew install --cask vmware-fusion` | manual (no winget manifest post-Broadcom) |
-| **Docker** | Official Docker CE APT repo + `docker-ce` | Native `pacman` `docker` | Official Docker CE DNF repo + `docker-ce` | `brew install --cask docker-desktop` | Winget: `Docker.DockerDesktop` |
+| **QEMU/KVM + virt-manager** | `sudo apt-get install -y qemu-kvm libvirt-daemon-system virt-manager virtinst bridge-utils virtiofsd` | `sudo pacman -S --needed virt-manager qemu-full libvirt dnsmasq nftables bridge-utils virtiofsd` | `sudo dnf install -y qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd` | not available | not available |
+| **UTM** | not available | not available | not available | `brew install --cask utm` | not available |
+| **VirtualBox** | not available | not available | not available | not available | `winget install -e --id Oracle.VirtualBox` |
+| **VMware** | not available | not available | not available | `brew install --cask vmware-fusion` | `choco install vmware-workstation-player -y` |
+| **Docker** | `sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo first) | `sudo pacman -S --needed docker` | `sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo first) | `brew install --cask docker-desktop` | `winget install -e --id Docker.DockerDesktop` |
 
 #### SDK managers
 
@@ -434,12 +434,12 @@ Source role: [roles/sdk_manager/](ansible/roles/sdk_manager/).
 
 | Software | Ubuntu / Debian | Arch | Fedora | macOS | Windows |
 |---|---|---|---|---|---|
-| **NVM** | `curl` installer script | same | same | same | Chocolatey: `nvm` |
-| **Pyenv** | `curl pyenv.run \| bash` | same | same | same | Winget: `Python.Python.3.11` |
-| **SDKMAN** | `curl` installer script | same | same | same | not available |
-| **Dart SDK** | Custom curl install | same | same | same | not available |
-| **FVM (Flutter)** | Dart pub global | same | same | same | not available |
-| **Android SDK** | Manual download of cmdline-tools zip + `sdkmanager` | same | same | same | Winget: `Google.AndroidStudio` |
+| **NVM** | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | same | same | same | `winget install -e --id CoreyButler.NVMforWindows` |
+| **Pyenv** | `curl https://pyenv.run \| bash` | same | same | same | `choco install pyenv-win -y` |
+| **SDKMAN** | `curl -s https://get.sdkman.io \| bash` | same | same | same | not available, use WSL |
+| **Dart SDK** | `sudo apt-get install -y dart` | `sudo pacman -S --needed dart` | `sudo dnf install -y dart` | `brew install dart` | manual from [dart.dev](https://dart.dev/get-dart) |
+| **FVM (Flutter)** | `curl -fsSL https://fvm.app/install.sh \| bash` | same | same | same | manual from [fvm.app](https://fvm.app/documentation/getting-started/installation) |
+| **Android SDK** | `sdkmanager "platform-tools" "build-tools;35.0.0"` after the cmdline-tools zip is unpacked | same | same | same | `winget install -e --id Google.AndroidStudio` |
 
 #### URL-based package installs
 
@@ -452,21 +452,21 @@ distro package exists or the repo version is too old. Pinned versions and URL te
 
 | Software | Ubuntu / Debian | Arch | Fedora |
 |---|---|---|---|
-| **Minikube** | Direct `.deb` URL | `pacman` (official) | Direct `.rpm` URL |
-| **Balena Etcher** | Direct `.deb` URL (GitHub releases) | AUR: `balena-etcher` | Direct `.rpm` URL (GitHub releases) |
-| **Veracrypt** | Direct `.deb` URL (Launchpad) | `pacman` (official) | Direct `.rpm` URL (Launchpad) |
-| **TeamViewer** | Direct `.deb` URL | AUR: `teamviewer` | Direct `.rpm` URL |
-| **AppImageLauncher** | Direct `.deb` URL (GitHub releases) | AUR: `appimagelauncher` | Direct `.rpm` URL (GitHub releases) |
-| **Chrome** | Official APT repo + `apt install google-chrome-stable` | AUR: `google-chrome` | Official DNF repo + `dnf install google-chrome-stable` |
-| **Brave** | Official APT repo (brave-browser-apt-release.s3.brave.com) + `apt install brave-browser` | AUR: `brave-bin` | Official DNF repo + `dnf install brave-browser` |
-| **VS Code** | Official Microsoft APT repo + `apt install code` | AUR: `visual-studio-code-bin` | Official MS DNF repo + `dnf install code` |
-| **Sublime Text** | Official Sublime APT repo + `apt install sublime-text` | AUR: `sublime-text-4` | Official Sublime DNF repo + `dnf install sublime-text` |
-| **kubectl** | Official Kubernetes APT repo (`pkgs.k8s.io/core` minor pinned in `versions.yaml`) + `apt install kubectl` | `pacman kubectl` | Official Kubernetes DNF repo + `dnf install kubectl` |
-| **Helm** | Official Helm APT repo (`packages.buildkite.com/helm-linux`) + `apt install helm` | `pacman helm` | Native `dnf install helm` (Fedora 35+) |
-| **Terraform** | Official HashiCorp APT repo (`apt.releases.hashicorp.com`) + `apt install terraform` | `pacman terraform` | Official HashiCorp DNF repo (`rpm.releases.hashicorp.com`) + `dnf install terraform` |
-| **GitHub CLI (gh)** | Official GitHub CLI APT repo (`cli.github.com/packages`) + `apt install gh` | `pacman github-cli` | Native `dnf install gh` |
-| **Syncthing** | Official Syncthing APT repo (`apt.syncthing.net`, `stable-v2` channel) + `apt install syncthing` | `pacman syncthing` | Native `dnf install syncthing` |
-| **Docker** | Official Docker CE APT repo + `apt install docker-ce` | `pacman docker` | Official Docker CE DNF repo + `dnf install docker-ce` |
+| **Minikube** | `curl -fsSLo /tmp/minikube.deb https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube_1.38.1-0_amd64.deb && sudo apt-get install -y /tmp/minikube.deb` | `sudo pacman -S --needed minikube` | `sudo dnf install -y https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube-1.38.1-0.x86_64.rpm` |
+| **Balena Etcher** | `curl -fsSLo /tmp/balena-etcher.deb https://github.com/balena-io/etcher/releases/download/v2.1.6/balena-etcher_2.1.6_amd64.deb && sudo apt-get install -y /tmp/balena-etcher.deb` | not installed, the AUR package conflicts with nodejs | `sudo dnf install -y https://github.com/balena-io/etcher/releases/download/v2.1.6/balena-etcher-2.1.6-1.x86_64.rpm` |
+| **Veracrypt** | `curl -fsSLo /tmp/veracrypt.deb https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-Ubuntu-24.04-amd64.deb && sudo apt-get install -y /tmp/veracrypt.deb` | `sudo pacman -S --needed veracrypt` | `sudo dnf install -y https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-CentOS-8-x86_64.rpm` |
+| **TeamViewer** | `curl -fsSLo /tmp/teamviewer.deb https://download.teamviewer.com/download/linux/teamviewer_amd64.deb && sudo apt-get install -y /tmp/teamviewer.deb` | `yay -S teamviewer` | `sudo dnf install -y https://download.teamviewer.com/download/linux/teamviewer.x86_64.rpm` |
+| **AppImageLauncher** | `curl -fsSLo /tmp/appimagelauncher.deb https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb && sudo apt-get install -y /tmp/appimagelauncher.deb` | `yay -S appimagelauncher` | `curl -fsSLo /tmp/appimagelauncher.rpm https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher-2.2.0-travis995.0f91801.x86_64.rpm && sudo rpm --install --nodigest /tmp/appimagelauncher.rpm` |
+| **Chrome** | `sudo apt-get install -y google-chrome-stable` (repo first) | `yay -S google-chrome` | `sudo dnf install -y google-chrome-stable` (repo first) |
+| **Brave** | `sudo apt-get install -y brave-browser` (repo first) | `yay -S brave-bin` | `sudo dnf install -y brave-browser` (repo first) |
+| **VS Code** | `sudo apt-get install -y code` (repo first) | `yay -S visual-studio-code-bin` | `sudo dnf install -y code` (repo first) |
+| **Sublime Text** | `sudo apt-get install -y sublime-text` (repo first) | `yay -S sublime-text-4` | `sudo dnf install -y sublime-text` (repo first) |
+| **kubectl** | `sudo apt-get install -y kubectl` (repo first, minor pinned in `versions.yaml`) | `sudo pacman -S --needed kubectl` | `sudo dnf install -y kubectl` (repo first) |
+| **Helm** | `sudo apt-get install -y helm` (repo first) | `sudo pacman -S --needed helm` | `sudo dnf install -y helm` |
+| **Terraform** | `sudo apt-get install -y terraform` (repo first) | `sudo pacman -S --needed terraform` | `sudo dnf install -y terraform` (repo first) |
+| **GitHub CLI (gh)** | `sudo apt-get install -y gh` (repo first) | `sudo pacman -S --needed github-cli` | `sudo dnf install -y gh` |
+| **Syncthing** | `sudo apt-get install -y syncthing` (repo first) | `sudo pacman -S --needed syncthing` | `sudo dnf install -y syncthing` |
+| **Docker** | `sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo first) | `sudo pacman -S --needed docker` | `sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo first) |
 
 Repo keyrings, GPG keys, and `*.repo` and `*.list` files are provisioned automatically by
 [debian_repos.yaml](ansible/roles/software_installer/tasks/debian_repos.yaml) and
