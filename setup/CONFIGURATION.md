@@ -141,7 +141,7 @@ Configuration is controlled via Ansible group variables in `group_vars/`:
 
 The cross-platform toggle file has 50+ entries grouped by category — see the file directly for the authoritative list. Highlights:
 
-- **AI tools:** `install_claude_code`, `install_claude_desktop`, `install_opencode`, `install_openspec`, `install_bruno_cli`, `install_stable_diffusion`, `install_lm_studio`
+- **AI tools:** `install_claude_code`, `install_claude_desktop`, `install_opencode`, `install_openspec`, `install_codex`, `install_grok`, `install_chatgpt` (desktop app, Windows and macOS only), `install_bruno_cli`, `install_stable_diffusion`, `install_lm_studio`
 - **Browsers/Dev:** `install_chrome`, `install_brave`, `install_tor`, `install_vscode`, `install_sublime`, `install_kubectl`, `install_minikube`, `install_k3d`, `install_helm`, `install_terraform`, `install_gh`, `install_jq`, `install_fzf`, `install_ripgrep`, `install_lens`, `install_postman`, `install_docker`
 - **Comms:** `install_discord`, `install_slack`, `install_telegram`, `install_whatsapp`, `install_signal`
 - **Productivity:** `install_obsidian`, `install_bitwarden`, `install_keepassxc`, `install_onlyoffice`

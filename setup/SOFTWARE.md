@@ -101,6 +101,18 @@ Terraform on macOS comes from the HashiCorp tap rather than Homebrew core, which
 | Trello | not on Flathub | not on Flathub | not on Flathub | no Homebrew cask | Microsoft Store, no toggle in the playbook |
 | OnlyOffice | `flatpak install -y flathub org.onlyoffice.desktopeditors` | `flatpak install -y flathub org.onlyoffice.desktopeditors` | `flatpak install -y flathub org.onlyoffice.desktopeditors` | `brew install --cask onlyoffice` | `winget install -e --id ONLYOFFICE.DesktopEditors` |
 
+### AI
+
+| App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
+|---|---|---|---|---|---|
+| ChatGPT desktop | no official build | no official build | no official build | `brew install --cask chatgpt` | `winget install -e --id 9PLM9XGG6VKS --source msstore` |
+
+OpenAI ships the desktop app for macOS and Windows only, so `install_chatgpt` has no mapping in the three Linux dictionaries and the dispatcher skips it there. Register for the Linux client at [openai.com/form/chatgpt-app](https://openai.com/form/chatgpt-app/). The Arch and Debian community packages that claim to provide it repackage OpenAI's macOS bundle, so they are deliberately not wired in.
+
+The Windows entry needs `source: "msstore"` in `vars/Windows.yaml`, because the identifier is a Store product id and the default winget source cannot resolve it. `9NT1R1C2HH7J` is the retired "ChatGPT Classic" listing and `9N8CJ4W95TBZ` is the beta channel, neither is the current app.
+
+The desktop app is the former Codex desktop app renamed, its bundle identifier is still `com.openai.codex` and it reads the same `~/.codex` configuration directory as the Codex command line tool, so one login covers both.
+
 ### Media and design
 
 | App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
@@ -190,8 +202,12 @@ Installed by the `ai_tools` role. Each toggle gates its own `import_tasks` so di
 | Claude Desktop | Arch: `yay -S claude-desktop-bin`. Debian: unofficial APT repo. Fedora: `alien` conversion of the upstream `.deb` | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, not wired into the playbook |
 | OpenCode | `npm install -g opencode-ai` | `npm install -g opencode-ai` | `npm install -g opencode-ai` |
 | OpenSpec | `npm install -g openspec` | `npm install -g openspec` | `npm install -g openspec` |
+| Codex CLI | `npm install -g @openai/codex` | `npm install -g @openai/codex` | `npm install -g @openai/codex` |
+| Grok CLI | `npm install -g @xai-official/grok` | `npm install -g @xai-official/grok` | `npm install -g @xai-official/grok` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` | `curl -fsSL https://lmstudio.ai/install.sh \| bash` | manual from [lmstudio.ai](https://lmstudio.ai/) |
 | Stable Diffusion WebUI | `git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui` | `git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui` | manual clone and run |
+
+Codex and Grok both publish a thin npm launcher plus per-platform binary packages as optional dependencies, covering Linux, macOS and Windows on x86-64 and arm64, so a single npm path serves every operating system. Native packages exist for some platforms (`extra/openai-codex` on Arch, the `codex` and `grok-build` Homebrew casks, `OpenAI.Codex` and `xAI.GrokBuild` on winget), but no apt or dnf repository exists for either tool, so mixing routes would mean four code paths for the same binary. Grok needs Node 20 or newer, which the `nvm use --lts` step in the helper already satisfies.
 
 ## Shell and terminal
 

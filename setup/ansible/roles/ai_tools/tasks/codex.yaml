@@ -1,0 +1,8 @@
+---
+- name: Include Codex Unix tasks
+  ansible.builtin.include_tasks: codex_unix.yaml
+  when: ansible_facts['os_family'] != 'Windows' and install_codex | default(false) | bool
+
+- name: Include Codex Windows tasks
+  ansible.builtin.include_tasks: codex_windows.yaml
+  when: ansible_facts['os_family'] == 'Windows' and install_codex | default(false) | bool

@@ -52,6 +52,9 @@ software_mapping:
   keepassxc: { manager: "brew_cask", package: "keepassxc" }
   onlyoffice: { manager: "brew_cask", package: "onlyoffice" }
 
+  # AI
+  chatgpt: { manager: "brew_cask", package: "chatgpt" }   # Official OpenAI build from persistent.oaistatic.com (arm64 + x86_64), needs macOS 12 or newer
+
   # Media / Design
   vlc: { manager: "brew_cask", package: "vlc" }
   spotify: { manager: "brew_cask", package: "spotify" }

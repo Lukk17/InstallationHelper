@@ -16,6 +16,16 @@
   when: install_openspec | default(false) | bool
   tags: [openspec]
 
+- name: Install Codex
+  ansible.builtin.import_tasks: codex.yaml
+  when: install_codex | default(false) | bool
+  tags: [codex]
+
+- name: Install Grok
+  ansible.builtin.import_tasks: grok.yaml
+  when: install_grok | default(false) | bool
+  tags: [grok]
+
 - name: Install Bruno CLI
   ansible.builtin.import_tasks: bruno_cli.yaml
   when: install_bruno_cli | default(false) | bool

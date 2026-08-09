@@ -47,6 +47,9 @@ software_mapping:
   keepassxc: { manager: "winget", package: "KeePassXCTeam.KeePassXC" }
   onlyoffice: { manager: "winget", package: "ONLYOFFICE.DesktopEditors" }
 
+  # AI
+  chatgpt: { manager: "winget", package: "9PLM9XGG6VKS", source: "msstore" }   # MS Store — official OpenAI build. `9NT1R1C2HH7J` is the retired "ChatGPT Classic" and `9N8CJ4W95TBZ` is the beta channel.
+
   # Media / Design
   vlc: { manager: "winget", package: "VideoLAN.VLC" }
   spotify: { manager: "winget", package: "Spotify.Spotify" }

@@ -209,6 +209,8 @@ Windows run instructions.
 | OpenCode | `install_opencode` | `opencode-ai` | none |
 | OpenSpec | `install_openspec` | `openspec` | none |
 | Bruno CLI | `install_bruno_cli` | `@usebruno/cli` | `bruno-cli` |
+| Codex | `install_codex` | `@openai/codex` | none (a `codex` cask exists, npm chosen for one code path) |
+| Grok | `install_grok` | `@xai-official/grok` | none (a `grok-build` cask exists, npm chosen for one code path) |
 
-All four go through the helpers — look at any of their `*_unix.yaml` /
+All six go through the helpers — look at any of their `*_unix.yaml` /
 `*_windows.yaml` files (each is 5 lines) for a working reference.

@@ -85,6 +85,8 @@ Pass any of these to run just that subsystem. Inherits the parent role tag autom
 | `claude` | Claude Code CLI (npm) + Claude Desktop (.deb / AUR / cask) | `nvm` (skips with warning if nvm.sh is missing) |
 | `opencode` | OpenCode CLI (npm) | `nvm` (skips with warning) |
 | `openspec` | OpenSpec CLI (npm) | `nvm` (skips with warning) |
+| `codex` | Codex CLI — `@openai/codex` via npm on every OS | `nvm` (skips with warning) |
+| `grok` | Grok CLI — `@xai-official/grok` via npm on every OS | `nvm` (skips with warning) |
 | `bruno_cli` | Bruno CLI — `bruno-cli` brew formula on macOS, `@usebruno/cli` via npm on Linux + Windows | `nvm` on Linux/Windows (skips with warning) |
 | `local_llm` | LM Studio + Stable Diffusion WebUI | — |
 

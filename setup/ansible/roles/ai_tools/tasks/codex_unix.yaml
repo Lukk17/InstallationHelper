@@ -1,0 +1,6 @@
+---
+- name: Install Codex CLI via npm helper
+  ansible.builtin.include_tasks: npm_install_unix.yaml
+  vars:
+    npm_pkg: "@openai/codex"
+    npm_display_name: "Codex"

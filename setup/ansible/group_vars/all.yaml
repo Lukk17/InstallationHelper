@@ -51,6 +51,9 @@ install_bitwarden: true
 install_keepassxc: true
 install_onlyoffice: true
 
+# AI
+install_chatgpt: true  # Desktop app — Windows and macOS only, OpenAI ships no Linux build.
+
 # Media / Design
 install_vlc: true
 install_spotify: true
@@ -97,6 +100,8 @@ install_claude_desktop: true
 install_jetbrains_toolbox: true
 install_opencode: true
 install_openspec: true
+install_codex: true
+install_grok: true
 
 # Logging configuration
 # Set to true to allow playbook to continue if log file creation fails

@@ -37,7 +37,7 @@ Windows (PowerShell 7+ — **non-elevated session**, not "Run as Administrator")
 pwsh setup/setup.ps1
 ```
 
-The playbook installs npm-based CLIs (Claude Code, OpenCode, OpenSpec, Bruno CLI) globally via
+The playbook installs npm-based CLIs (Claude Code, OpenCode, OpenSpec, Codex, Grok, Bruno CLI) globally via
 `npm install -g`. Running the playbook from an elevated PowerShell window writes those packages into
 `%ProgramFiles%\nodejs\node_modules` and executes lifecycle scripts with Administrator rights, which
 is a wider blast radius than necessary. From a normal user session, `npm install -g` lands in
@@ -413,6 +413,9 @@ Source role: [roles/ai_tools/](ansible/roles/ai_tools/).
 | **Claude Cowork** | Build from source via `go` and `make install` | same | same | same | not available |
 | **OpenCode** | `npm install -g opencode-ai` | same | same | same | same |
 | **OpenSpec** | `npm install -g openspec` | same | same | same | same |
+| **Codex CLI** | `npm install -g @openai/codex` | same | same | same | same |
+| **Grok CLI** | `npm install -g @xai-official/grok` | same | same | same | same |
+| **ChatGPT desktop** | no official Linux build | no official Linux build | no official Linux build | `brew install --cask chatgpt` | `winget install -e --id 9PLM9XGG6VKS --source msstore` |
 
 #### Virtualization tools
 
