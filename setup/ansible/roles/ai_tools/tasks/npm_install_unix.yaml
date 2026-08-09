@@ -1,6 +1,8 @@
 ---
-# Shared helper for installing a global npm package via NVM on Linux.
-# macOS is handled by software_installer (brew formulae in vars/Darwin.yaml).
+# Shared helper for installing a global npm package via NVM on any non-Windows OS.
+# Linux and macOS both come through here: every caller except bruno_cli routes
+# macOS down this path too. Only bruno_cli skips it, because it has a Homebrew
+# formula mapped in vars/Darwin.yaml and software_installer handles macOS there.
 #
 # Required vars (caller must set via include_tasks vars:):
 #   npm_pkg            — full npm package spec (e.g. "@anthropic-ai/claude-code")

@@ -213,6 +213,60 @@ Installed by the `ai_tools` role. Each toggle gates its own `import_tasks` so di
 
 Codex and Grok both publish a thin npm launcher plus per-platform binary packages as optional dependencies, covering Linux, macOS and Windows on x86-64 and arm64, so a single npm path serves every operating system. Native packages exist for some platforms (`extra/openai-codex` on Arch, the `codex` and `grok-build` Homebrew casks, `OpenAI.Codex` and `xAI.GrokBuild` on winget), but no apt or dnf repository exists for either tool, so mixing routes would mean four code paths for the same binary. Grok needs Node 20 or newer, which the `nvm use --lts` step in the helper already satisfies.
 
+### Codex CLI by hand
+
+The playbook installs it under the NVM long-term-support Node, so match that when doing it manually. Linux and macOS:
+
+```bash
+source "$HOME/.nvm/nvm.sh" && nvm use --lts && npm install -g @openai/codex
+```
+
+Windows:
+
+```powershell
+npm install -g @openai/codex
+```
+
+Then start it and pick "Sign in with ChatGPT", which covers Plus, Pro, Business, Edu and Enterprise plans:
+
+```bash
+codex
+```
+
+### Grok CLI by hand
+
+Linux and macOS:
+
+```bash
+source "$HOME/.nvm/nvm.sh" && nvm use --lts && npm install -g @xai-official/grok
+```
+
+Windows:
+
+```powershell
+npm install -g @xai-official/grok
+```
+
+First launch opens a browser to sign in. On a headless box export the key instead, Unix shell:
+
+```bash
+export XAI_API_KEY="xai-..."
+```
+
+Headless on Windows:
+
+```powershell
+$env:XAI_API_KEY = "xai-..."
+```
+
+Then start it inside the repository you want it to work on:
+
+```bash
+grok
+```
+
+xAI's own documentation at [docs.x.ai/build/overview](https://docs.x.ai/build/overview) pushes a shell installer instead, `curl -fsSL https://x.ai/cli/install.sh | bash`. The playbook uses the npm package because it is the same publisher, it pins cleanly, and it removes a `curl | bash` from the provisioning path.
+
 ## Shell and terminal
 
 Installed by `shell_zsh`.

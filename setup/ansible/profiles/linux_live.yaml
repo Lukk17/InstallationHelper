@@ -72,6 +72,7 @@ install_lm_studio: false
 install_claude_code: false
 install_claude_desktop: false
 install_opencode: false
+install_openspec: false
 install_codex: false
 install_grok: false
 
