@@ -34,3 +34,45 @@
   when:
     - ansible_facts['os_family'] == 'Windows'
     - install_gridcoin | default(false) | bool
+
+# --- Razer Cortex: direct .exe installer from dl.razerzone.com ---
+# The bootstrapper is a downloader stub that writes no fixed path we can key
+# `creates_path` on, so idempotency comes from the uninstall registry instead.
+# Both hives are searched because Cortex is a 32-bit install on 64-bit Windows.
+- name: Check whether Razer Cortex is already installed
+  ansible.windows.win_shell: |
+    $keys = @(
+      'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+      'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    )
+    $hit = Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue |
+           Where-Object { $_.DisplayName -like 'Razer Cortex*' }
+    if ($hit) { 'PRESENT' } else { 'ABSENT' }
+  register: razer_cortex_state
+  changed_when: false
+  when:
+    - ansible_facts['os_family'] == 'Windows'
+    - install_razer_cortex | default(false) | bool
+
+- name: Download Razer Cortex installer
+  ansible.windows.win_get_url:
+    url: "{{ razer_cortex_win_installer_url }}"
+    dest: "C:\\Windows\\Temp\\RazerCortexInstaller.exe"
+    force: false
+  when:
+    - ansible_facts['os_family'] == 'Windows'
+    - install_razer_cortex | default(false) | bool
+    - "'PRESENT' not in (razer_cortex_state.stdout | default(''))"
+
+# `/S` is the switch Razer's own installer family takes: the Chocolatey
+# razer-synapse-4 package drives all five Razer component installers with
+# silentArgs '/S' and validExitCodes 0, 3010, 1641.
+- name: Install Razer Cortex (silent)
+  ansible.windows.win_package:
+    path: "C:\\Windows\\Temp\\RazerCortexInstaller.exe"
+    arguments: "/S"
+    state: present
+  when:
+    - ansible_facts['os_family'] == 'Windows'
+    - install_razer_cortex | default(false) | bool
+    - "'PRESENT' not in (razer_cortex_state.stdout | default(''))"

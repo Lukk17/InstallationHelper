@@ -134,12 +134,34 @@ The desktop app is the former Codex desktop app renamed, its bundle identifier i
 | Epic Games Launcher | no official Linux client | `brew install --cask epic-games` | `winget install -e --id EpicGames.EpicGamesLauncher` |
 | EA app | no official Linux client | `brew install --cask ea` | `winget install -e --id ElectronicArts.EADesktop` |
 | CurseForge | no official Linux client | `brew install --cask curseforge` | `winget install -e --id Overwolf.CurseForge` |
-| Razer Cortex | not available | not available | not available, see the note below |
+| Razer Cortex | not available | not available | `curl.exe -fsSLo "$env:TEMP\RazerCortexInstaller.exe" https://rzr.to/cortex-download && & "$env:TEMP\RazerCortexInstaller.exe" /S` |
 | WoW Logs Companion / TSM | not available | not available | manual, from Overwolf or tradeskillmaster.com |
 
-Razer Cortex has no working package identifier any more. The Store product id `9PK9W5QV2PKX` returns "no package found" on both the winget and the msstore source, and no Store search result matches the name. Only `RazerInc.RazerInstaller.Synapse3` and `RazerInc.RazerInstaller.Synapse4` exist on winget and neither is Cortex, so `install_razer_cortex` is left unmapped and does nothing. Install it by hand from [razer.com/cortex](https://www.razer.com/cortex) if you want it.
+Razer Cortex has no package on any manager, so the playbook installs it from Razer's own installer in `windows_install.yaml`, the same shape as Gridcoin. The Store product id `9PK9W5QV2PKX` was the Razer Cortex Game Bar widget, which Razer discontinued on 1 July 2026, and it now resolves on neither the winget nor the msstore source. winget-pkgs carries no Cortex manifest under any Razer publisher folder, and Chocolatey has only the Synapse packages. The `/S` switch is the one Razer's own installer family takes, evidenced by the Chocolatey `razer-synapse-4` package driving all five Razer component installers with `silentArgs '/S'` and `validExitCodes 0, 3010, 1641`.
+
+Cortex is the only entry here whose idempotency comes from the uninstall registry rather than a file path. The bootstrapper is a downloader stub that leaves no predictable path to key `creates_path` on, so the task queries both the 64-bit and the WOW6432Node uninstall hives for a `Razer Cortex*` display name and skips when it finds one.
 
 Every Microsoft Store entry carries `source: "msstore"` in `vars/Windows.yaml`. A bare Store product id does not resolve on the default winget source, and because the winget loop sits inside the `software_installer` block, one unresolvable id drops the whole play into the rescue handler and silently skips every package after it.
+
+### Peripherals
+
+| App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
+|---|---|---|---|---|---|
+| Razer Synapse | see OpenRazer below | see OpenRazer below | see OpenRazer below | `curl -fsSLo /tmp/RazerSynapseInstaller.pkg https://rzr.to/synapse-4-mac-download && sudo installer -pkg /tmp/RazerSynapseInstaller.pkg -target /` | `choco install razer-synapse-4 -y` |
+| OpenRazer | `sudo apt-get install -y openrazer-meta` | `sudo dnf install -y openrazer-meta` (repo first) | `sudo pacman -S --needed openrazer-daemon` | not applicable | not applicable |
+| Polychromatic | `flatpak install -y flathub app.polychromatic.controller` | `flatpak install -y flathub app.polychromatic.controller` | `flatpak install -y flathub app.polychromatic.controller` | not available | not applicable |
+
+Windows uses Chocolatey rather than winget, and the reason is concrete. Both winget manifests, `RazerInc.RazerInstaller.Synapse3` at 1.22.0.737 and `RazerInc.RazerInstaller.Synapse4` at 2.5.0.882, declare `InstallerType: exe` with no `InstallerSwitches` block at all. winget therefore has no silent flag to pass and `--silent` leaves you staring at a graphical installer in the middle of an unattended run. The Chocolatey package pulls the five Razer components (App Engine, Synapse 4, Chroma, Central, Game Manager) with pinned sha256 checksums and installs each one silently. Synapse 3 is deliberately not offered, Razer ended its cloud services on 3 February 2026.
+
+macOS has no Homebrew cask, only a `.pkg`, so `macos_install.yaml` downloads and runs it. Razer supports Apple Silicon on macOS 15 Sequoia or newer only, so the task is gated on both and emits a warning instead of installing on anything older or on Intel. Idempotency uses `pkgutil --pkg-info com.razer.install.SynapseInstall`, which is the receipt the distribution package leaves behind, because a multi-component `.pkg` produces no single predictable application bundle.
+
+Linux gets nothing from Razer at all. [OpenRazer](https://openrazer.github.io/) supplies the kernel driver and the daemon, and Polychromatic is only a front end for it, so installing Polychromatic on its own gives you a window that finds no devices. OpenRazer is in Debian proper from bookworm onward and in Ubuntu universe on every current series, so no PPA is needed. Fedora has no package and pulls it from the openSUSE Build Service `hardware:razer` repository, which `fedora_repos.yaml` registers along with the kernel headers the DKMS build needs. On Arch, `extra/openrazer-daemon` depends on `extra/openrazer-driver-dkms`, so the one package brings the driver.
+
+Two things OpenRazer needs that the playbook cannot do for you. The driver is a DKMS module, so it will not load until you reboot, and a Secure Boot machine refuses the unsigned module unless you sign it or turn Secure Boot off. The playbook adds you to `plugdev` for device access and prints a warning naming both requirements when it sees no `razer` module in `lsmod`.
+
+```bash
+sudo gpasswd -a $USER plugdev
+```
 
 ### CAD and 3D
 
@@ -303,7 +325,7 @@ Installed by `shell_zsh`.
 | lm_sensors | HWiNFO | Stats | `sudo apt-get install -y lm-sensors` | `sudo dnf install -y lm_sensors` | `sudo pacman -S --needed lm_sensors` |
 | GreenWithEnvy | MSI Afterburner | not available | `flatpak install -y flathub com.leinardi.gwe` | `flatpak install -y flathub com.leinardi.gwe` | `flatpak install -y flathub com.leinardi.gwe` |
 | Baobab | WizTree | GrandPerspective | `sudo apt-get install -y baobab` | `sudo dnf install -y baobab` | `sudo pacman -S --needed baobab` |
-| Polychromatic | Razer Cortex | not available | `flatpak install -y flathub app.polychromatic.controller` | `flatpak install -y flathub app.polychromatic.controller` | `flatpak install -y flathub app.polychromatic.controller` |
+| Polychromatic | Razer Synapse | Razer Synapse for Mac | `flatpak install -y flathub app.polychromatic.controller` | `flatpak install -y flathub app.polychromatic.controller` | `flatpak install -y flathub app.polychromatic.controller` |
 | GpuTest | FurMark | not available | `curl -fsSLo /tmp/gputest.zip https://ozone3d.net/gputest/dl/GpuTest_Linux_x64_0.7.0.zip && sudo unzip -o /tmp/gputest.zip -d /opt/gputest` | same as Debian | `yay -S gputest` |
 
 Fedora 42 and newer ship `hardinfo2`, the active fork. The legacy `hardinfo` package is gone.

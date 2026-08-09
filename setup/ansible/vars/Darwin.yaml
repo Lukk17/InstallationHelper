@@ -55,6 +55,10 @@ software_mapping:
   # AI
   chatgpt: { manager: "brew_cask", package: "chatgpt" }   # Official OpenAI build from persistent.oaistatic.com (arm64 + x86_64), needs macOS 12 or newer
 
+  # Peripherals
+  # synapse: installed via macos_install.yaml (official .pkg from dl.razerzone.com). Razer publishes no
+  # Homebrew cask, and supports Apple Silicon on macOS 15 Sequoia or newer only.
+
   # Media / Design
   vlc: { manager: "brew_cask", package: "vlc" }
   spotify: { manager: "brew_cask", package: "spotify" }

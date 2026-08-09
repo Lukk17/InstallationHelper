@@ -81,7 +81,8 @@ software_mapping:
   lm_sensors: { manager: "dnf", package: "lm_sensors", is_alternative_for: "HWInfo" }
   greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
   baobab: { manager: "dnf", package: "baobab", is_alternative_for: "WizTree" }
-  polychromatic: { manager: "flatpak", package: "app.polychromatic.controller", is_alternative_for: "Razer Cortex" }
+  openrazer: { manager: "dnf", package: "openrazer-meta" }   # Not in Fedora proper, comes from the openSUSE Build Service hardware:razer repo (fedora_repos.yaml).
+  polychromatic: { manager: "flatpak", package: "app.polychromatic.controller", is_alternative_for: "Razer Synapse" }
   balena_etcher: { manager: "dnf_url", package: "balena-etcher.rpm", is_alternative_for: "Rufus" }
   # gputest: custom binary download in custom_installs.yaml
 

@@ -286,3 +286,37 @@
     - ansible_facts['system'] == 'Linux'
     - install_syncthing | default(false) | bool
     - (syncthing_user_state.stdout | default('') | trim) != 'active'
+
+# --- OpenRazer: device access group and reboot notice ---
+# The OpenRazer daemon talks to devices through udev rules that grant the
+# plugdev group access, so a user outside that group sees no hardware even with
+# the driver loaded. Membership only takes effect on the next login.
+- name: Add the non-root user to the plugdev group (OpenRazer device access)
+  ansible.builtin.user:
+    name: "{{ non_root_user }}"
+    groups: plugdev
+    append: true
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_openrazer | default(false) | bool
+
+# The driver is a DKMS module built against the running kernel. It cannot load
+# until the machine reboots, and on a Secure Boot system it will not load at all
+# unless the module is signed or Secure Boot is turned off.
+- name: Check whether the OpenRazer kernel module is loaded
+  ansible.builtin.command: lsmod
+  register: openrazer_lsmod
+  changed_when: false
+  failed_when: false
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_openrazer | default(false) | bool
+
+- name: Report the OpenRazer reboot requirement
+  ansible.builtin.debug:
+    msg: "[WARN] OpenRazer installed but the razerkbd/razermouse DKMS modules are not loaded yet. Reboot to load them. On a Secure Boot machine the unsigned module is refused, either sign it or disable Secure Boot. After rebooting, log out and back in so plugdev membership applies."
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_openrazer | default(false) | bool
+    - "'razer' not in (openrazer_lsmod.stdout | default(''))"

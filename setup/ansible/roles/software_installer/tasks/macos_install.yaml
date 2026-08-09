@@ -59,6 +59,50 @@
         - antigravity_mount is defined
         - antigravity_mount.stdout | default('') | length > 0
 
+# --- Razer Synapse for Mac ---
+# Razer publishes no Homebrew cask, only a .pkg. Razer requires an Apple Silicon
+# Mac on macOS 15 Sequoia or newer, so the whole block is gated on that: the
+# payload declares hostArchitectures x86_64,arm64 but Razer does not support Intel.
+# Idempotency uses `pkgutil --pkg-info`, since a distribution .pkg leaves receipts
+# rather than one predictable application bundle.
+- name: Install Razer Synapse for Mac
+  when:
+    - install_synapse | default(false) | bool
+    - ansible_facts['architecture'] == 'arm64'
+    - ansible_facts['distribution_version'] is version('15.0', '>=')
+  block:
+    - name: Check whether Razer Synapse is already installed
+      ansible.builtin.command: pkgutil --pkg-info com.razer.install.SynapseInstall
+      register: razer_synapse_receipt
+      changed_when: false
+      failed_when: false
+
+    - name: Download Razer Synapse pkg
+      ansible.builtin.get_url:
+        url: "{{ razer_synapse_macos_pkg_url }}"
+        dest: "/tmp/RazerSynapseInstaller.pkg"
+        mode: '0644'
+        checksum: "{{ download_checksums.razer_synapse_macos | default(omit) }}"
+        timeout: 120
+      register: razer_synapse_download
+      retries: 3
+      delay: 10
+      until: razer_synapse_download is succeeded
+      when: razer_synapse_receipt.rc != 0
+
+    - name: Install Razer Synapse pkg
+      ansible.builtin.command: installer -pkg /tmp/RazerSynapseInstaller.pkg -target /
+      become: true
+      changed_when: true
+      when: razer_synapse_receipt.rc != 0
+
+- name: Warn when Razer Synapse is skipped on this Mac
+  ansible.builtin.debug:
+    msg: "[WARN] Skipping Razer Synapse — Razer supports Apple Silicon on macOS 15 Sequoia or newer only. This Mac is {{ ansible_facts['architecture'] }} on macOS {{ ansible_facts['distribution_version'] }}."
+  when:
+    - install_synapse | default(false) | bool
+    - ansible_facts['architecture'] != 'arm64' or ansible_facts['distribution_version'] is version('15.0', '<')
+
 # --- Gridcoin ---
 - name: Install Gridcoin from DMG
   when: install_gridcoin | default(false) | bool

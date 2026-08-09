@@ -41,7 +41,8 @@ install_hardinfo: true    # Alt for HWMonitor
 install_lm_sensors: true  # Alt for HWInfo
 install_greenenvy: true   # Alt for MSI Afterburner
 install_baobab: true      # Alt for WizTree
-install_polychromatic: true # Alt for Razer Cortex
+install_openrazer: true     # Razer device driver + daemon, Polychromatic is only a front end for it
+install_polychromatic: true # Alt for Razer Synapse
 install_balena_etcher: true
 install_gputest: true     # Alt for FurMark
 

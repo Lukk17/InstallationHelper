@@ -83,7 +83,8 @@ software_mapping:
   lm_sensors: { manager: "pacman", package: "lm_sensors", is_alternative_for: "HWInfo" }
   greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
   baobab: { manager: "pacman", package: "baobab", is_alternative_for: "WizTree" }
-  polychromatic: { manager: "flatpak", package: "app.polychromatic.controller", is_alternative_for: "Razer Cortex" }
+  openrazer: { manager: "pacman", package: "openrazer-daemon" }   # extra/openrazer-daemon depends on openrazer-driver-dkms, so one package pulls the driver too.
+  polychromatic: { manager: "flatpak", package: "app.polychromatic.controller", is_alternative_for: "Razer Synapse" }
   # balena_etcher - disabled due to nodejs conflict with AUR. Use AppImage manually or via other method.
   # balena_etcher: { manager: "aur", package: "balena-etcher", is_alternative_for: "Rufus" }
   gputest: { manager: "aur", package: "gputest", is_alternative_for: "FurMark" }

@@ -116,3 +116,19 @@
     mode: '0644'
   become: true
   when: install_docker | default(false) | bool
+
+# --- OpenRazer ---
+- name: Add OpenRazer dnf repository
+  ansible.builtin.get_url:
+    url: "{{ openrazer_fedora_repo_url }}"
+    dest: /etc/yum.repos.d/hardware:razer.repo
+    mode: '0644'
+  become: true
+  when: install_openrazer | default(false) | bool
+
+- name: Install kernel headers for the OpenRazer DKMS module
+  ansible.builtin.dnf:
+    name: "{{ ['kernel-devel', 'kernel-headers'] }}"
+    state: present
+  become: true
+  when: install_openrazer | default(false) | bool

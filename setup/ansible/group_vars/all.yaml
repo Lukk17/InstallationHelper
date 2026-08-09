@@ -76,6 +76,9 @@ install_curseforge: true
 install_freecad: true
 install_prusaslicer: true
 
+# Peripherals
+install_synapse: true  # Razer Synapse 4 — Windows and macOS. Linux uses install_openrazer in linux.yaml.
+
 # Utilities
 install_veracrypt: true
 install_teamviewer: true

@@ -71,10 +71,17 @@ software_mapping:
   epic: { manager: "winget", package: "EpicGames.EpicGamesLauncher" }
   ea_app: { manager: "winget", package: "ElectronicArts.EADesktop" }
   curseforge: { manager: "winget", package: "Overwolf.CurseForge" }
-  # razer_cortex: product id 9PK9W5QV2PKX returns "no package found" on both the winget and the msstore
-  # source, and no msstore search result matches "Razer Cortex". Only RazerInc.RazerInstaller.Synapse{3,4}
-  # exist on winget, and neither is Cortex. Left unmapped so `install_razer_cortex` is a silent no-op
-  # instead of aborting the winget loop.
+  # razer_cortex: installed via windows_install.yaml (direct .exe from dl.razerzone.com). The MS Store
+  # id 9PK9W5QV2PKX was the Game Bar widget Razer discontinued on 2026-07-01 and resolves on no winget
+  # source, and winget-pkgs carries no Cortex manifest under any Razer publisher.
+
+  # Peripherals
+  # Synapse 4 via Chocolatey, not winget: both winget manifests (Synapse3 1.22.0.737, Synapse4 2.5.0.882)
+  # declare InstallerType exe with no InstallerSwitches, so `winget install --silent` has no silent flag
+  # to pass and the graphical installer blocks an unattended run. The Chocolatey package installs all
+  # five Razer components with `/S` and pinned checksums. Synapse 3 is excluded, Razer ended its cloud
+  # services on 2026-02-03.
+  synapse: { manager: "choco", package: "razer-synapse-4" }
 
   # CAD / 3D
   freecad: { manager: "winget", package: "FreeCAD.FreeCAD" }

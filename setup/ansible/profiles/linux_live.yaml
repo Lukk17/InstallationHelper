@@ -84,6 +84,7 @@ install_waydroid: false
 
 # ---- Hardware Alternatives (all off) ----
 install_greenenvy: false
+install_openrazer: false   # DKMS module needs a reboot, pointless on a live session
 install_polychromatic: false
 install_gputest: false
 install_hardinfo: false
