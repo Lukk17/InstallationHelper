@@ -134,8 +134,12 @@ The desktop app is the former Codex desktop app renamed, its bundle identifier i
 | Epic Games Launcher | no official Linux client | `brew install --cask epic-games` | `winget install -e --id EpicGames.EpicGamesLauncher` |
 | EA app | no official Linux client | `brew install --cask ea` | `winget install -e --id ElectronicArts.EADesktop` |
 | CurseForge | no official Linux client | `brew install --cask curseforge` | `winget install -e --id Overwolf.CurseForge` |
-| Razer Cortex | not available | not available | `winget install -e --id 9PK9W5QV2PKX` |
+| Razer Cortex | not available | not available | not available, see the note below |
 | WoW Logs Companion / TSM | not available | not available | manual, from Overwolf or tradeskillmaster.com |
+
+Razer Cortex has no working package identifier any more. The Store product id `9PK9W5QV2PKX` returns "no package found" on both the winget and the msstore source, and no Store search result matches the name. Only `RazerInc.RazerInstaller.Synapse3` and `RazerInc.RazerInstaller.Synapse4` exist on winget and neither is Cortex, so `install_razer_cortex` is left unmapped and does nothing. Install it by hand from [razer.com/cortex](https://www.razer.com/cortex) if you want it.
+
+Every Microsoft Store entry carries `source: "msstore"` in `vars/Windows.yaml`. A bare Store product id does not resolve on the default winget source, and because the winget loop sits inside the `software_installer` block, one unresolvable id drops the whole play into the rescue handler and silently skips every package after it.
 
 ### CAD and 3D
 
