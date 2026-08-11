@@ -76,7 +76,7 @@ services:
       - "21027:21027/udp"
     volumes:
       - /opt/docker-stack/syncthing/config:/config
-      - /opt/docker-stack/syncthing/data:/data1
+      - /opt/docker-stack/syncthing/data:/data
 
   perlite:
     image: sec77/perlite:1.6.1
