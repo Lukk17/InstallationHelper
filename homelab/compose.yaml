@@ -42,7 +42,7 @@ services:
     networks:
       - proxy-tier
     environment:
-      - HOMEPAGE_ALLOWED_HOSTS=dashboard.internal
+      - HOMEPAGE_ALLOWED_HOSTS=dashboard-proxmox.internal
     ports:
       - "7778:3000/tcp"
     volumes:
