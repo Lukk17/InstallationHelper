@@ -5,6 +5,12 @@
 
 ---
 
+### Before you start
+
+The Proxmox host has to exist first. If you have not built it yet, do [proxmox_host_install.md](proxmox_host_install.md) and come back.
+
+---
+
 ### Placeholders
 
 | Placeholder | Meaning |
@@ -12,6 +18,13 @@
 | `<proxmox-host>` | Address of the Proxmox node, the machine you open on port 8006 |
 | `<docker-vm-ip>` | Address the VM gets from your router once it boots |
 | `<user>` | Login you create during the Ubuntu install |
+
+Concrete example, the lab these documents were written from:
+
+```text
+<proxmox-host>   192.168.1.10
+<docker-vm-ip>   192.168.1.12
+```
 
 ---
 
@@ -160,6 +173,15 @@ sudo mkdir -p /opt/docker-stack
 The Compose file bind mounts one subdirectory per service beneath it. Docker creates them on first start, so nothing
 else is needed here.
 
+Take ownership of it, so you can edit configuration files over SFTP later without fighting permissions on every save:
+
+```bash
+sudo chown -R $USER:$USER /opt/docker-stack
+```
+
+Containers that run as a fixed user identifier, Syncthing here, will still want their own subdirectory owned by that
+identifier. [syncthing.md](syncthing.md) covers that case.
+
 ---
 
 ### Free port 53
@@ -220,3 +242,5 @@ than just moving it off the port.
 
 Go back to [README_HOMELAB.md](README_HOMELAB.md) for the quick start, then configure
 [adguard_dns.md](adguard_dns.md) and [nginx_proxy_manager.md](nginx_proxy_manager.md).
+
+The other virtual machine on this host, for the smart home side, is [home_assistant_vm.md](home_assistant_vm.md).

@@ -7,7 +7,7 @@
 
 ### What actually needs backing up
 
-Two separate things, and one does not replace the other.
+Three separate things, and none of them replaces the others.
 
 The virtual machine image is bare metal recovery. It brings back the operating system, Docker, and everything on the
 disk exactly as it was.
@@ -15,6 +15,9 @@ disk exactly as it was.
 The service data under `/opt/docker-stack/` is what makes the stack yours. AdGuard filters and rewrites, proxy host
 entries, dashboard layout, uptime monitors and Syncthing keys all live in those bind mounted directories. The Compose
 file recreates empty containers, not your configuration.
+
+Home Assistant backs itself up, and it has to, because a `vzdump` of that machine restores only onto Proxmox while a
+Home Assistant backup restores onto anything. It has its own page: [home_assistant_backup.md](home_assistant_backup.md).
 
 ---
 
@@ -123,11 +126,31 @@ up inconsistent.
 docker compose down
 ```
 
+A graphical SFTP client is the easier route if you would rather drag the directory across than build an archive.
+Connect to `<docker-vm-ip>` on port 22 with the Ubuntu login you created, and copy `/opt/docker-stack` down whole.
+Restoring the same way means deleting the directory on the machine first, then copying your copy back in its place,
+because a merge over the top leaves stale files behind that a service may still read.
+
 ---
 
 ### After a restore
 
-Start the VM and confirm it boots and gets the address you expect.
+Check the hardware before you start the machine, because two things a `vzdump` does not reliably carry back are the
+two that break silently.
+
+USB passthrough. Confirm the device is listed under the VM, then Hardware, and add it again if it is not:
+
+```bash
+qm set <vmid> --usb0 host=10c4:ea60
+```
+
+The network card's hardware address, if you had cloned it to hold a fixed lease:
+
+```bash
+qm config <vmid> | grep net0
+```
+
+Then start the VM and confirm it boots and gets the address you expect.
 
 Check that the containers came back up:
 
@@ -137,6 +160,9 @@ docker ps
 
 Open one internal name in a browser. If the name does not resolve, the router is not handing out AdGuard as DNS. If
 it resolves but returns 502, the container behind that proxy entry is not running.
+
+On a restored Home Assistant machine, confirm the Zigbee dongle appears inside the guest and that the add-on actually
+started, as covered in [home_assistant_vm.md](home_assistant_vm.md). Entities can look present and be stale.
 
 ---
 

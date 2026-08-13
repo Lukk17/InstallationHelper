@@ -36,7 +36,7 @@ package manager.
 - Profile overrides for live USB, minimal, or full installs without touching the base playbook.
 - PowerShell entrypoint on Windows that hands off to Ansible inside WSL.
 - Docker Compose stack for local-dev databases and Keycloak.
-- Home lab stack for an always-on Proxmox box: private DNS, reverse proxy, dashboard, uptime monitor, file sync.
+- Home lab stack for an always-on Proxmox box: Home Assistant, private DNS, reverse proxy, dashboard, uptime monitor, file sync.
 - OpenSpec workflow for spec-driven changes.
 
 ### Tech stack
@@ -163,13 +163,13 @@ InstallationHelper/
 ├── setup/
 │   ├── setup.sh                # Linux/macOS entrypoint
 │   ├── setup.ps1               # Windows entrypoint (WSL bridge)
+│   ├── software.md             # Per-OS software catalog
 │   └── ansible/
 │       ├── site.yaml           # Main playbook
 │       ├── group_vars/         # Cross-platform + OS-specific toggles
 │       ├── vars/               # OS translation dictionaries
 │       ├── profiles/           # Override profiles (linux_live, etc.)
-│       ├── roles/              # OS core, software_installer, sdk_manager, ai_tools, ...
-│       └── software.md         # Per-OS software catalog
+│       └── roles/              # OS core, software_installer, sdk_manager, ai_tools, ...
 ├── local-dev/                  # Docker Compose stack (MySQL, PG, Mongo, Keycloak)
 ├── openspec/                   # Spec-driven change proposals & specs
 ├── docs/                       # Per-OS guides + agent tooling docs
@@ -194,8 +194,9 @@ Ports, credentials, and TLS notes live in [local-dev/README_LOCAL_DEV.md](local-
 ---
 
 Separate from the local-dev stack, [homelab/](homelab/) holds a Compose file and setup notes for an always-on server:
-a Proxmox virtual machine running AdGuard Home for network wide DNS, Nginx Proxy Manager for private `.internal`
-names, plus Homepage, Uptime Kuma, Syncthing, and Perlite for reading a synced notes vault in a browser.
+a Proxmox host running two virtual machines. One is Home Assistant OS with a Zigbee dongle passed through to it. The
+other is Ubuntu with the Compose stack, running AdGuard Home for network wide DNS, Nginx Proxy Manager for private
+`.internal` names, plus Homepage, Uptime Kuma, Syncthing, and Perlite for reading a synced notes vault in a browser.
 
 ```bash
 docker compose up -d
@@ -254,10 +255,16 @@ Released under the [MIT License](LICENSE).
 | [local-dev/auth/Keycloak/config.md](local-dev/auth/Keycloak/config.md)  | Realm export, client setup, export-import flow                    |
 | [local-dev/postgresql/README.md](local-dev/postgresql/README.md)        | Standalone Postgres build and run                                 |
 | [homelab/README_HOMELAB.md](homelab/README_HOMELAB.md)                  | Home lab stack: services, ports, architecture, troubleshooting    |
+| [homelab/proxmox_host_install.md](homelab/proxmox_host_install.md)      | Installing Proxmox on the mini PC, updating it, node shell        |
 | [homelab/proxmox_docker_vm.md](homelab/proxmox_docker_vm.md)            | Building the Ubuntu VM on Proxmox and installing Docker Engine    |
-| [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, router DNS cutover    |
+| [homelab/home_assistant_vm.md](homelab/home_assistant_vm.md)            | Home Assistant OS VM via `qm`, and Zigbee USB passthrough         |
+| [homelab/home_assistant_backup.md](homelab/home_assistant_backup.md)    | Home Assistant's own backups, encryption key, restore paths       |
+| [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, blocklists, router DNS |
 | [homelab/nginx_proxy_manager.md](homelab/nginx_proxy_manager.md)        | Reverse proxy entries for each internal name, and verification    |
-| [homelab/perlite_notes.md](homelab/perlite_notes.md)                    | Publishing a synced notes vault as a website, and pairing Syncthing |
+| [homelab/syncthing.md](homelab/syncthing.md)                            | Pairing devices, folder paths, ownership, file versioning         |
+| [homelab/perlite_notes.md](homelab/perlite_notes.md)                    | Publishing a synced notes vault as a website                      |
+| [homelab/homepage_dashboard.md](homelab/homepage_dashboard.md)          | Dashboard tiles, allowed hosts, status checks that bypass DNS     |
+| [homelab/uptime_kuma.md](homelab/uptime_kuma.md)                        | Monitors, ping versus HTTP checks, DNS resolution monitoring      |
 | [homelab/backup_restore.md](homelab/backup_restore.md)                  | vzdump, qmrestore, and backing up the service data directories    |
 | [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md)                          | Agent-standards, OpenSpec, per-agent integration notes            |
 | [docs/MCP_SETUP.md](docs/MCP_SETUP.md)                                  | MCP server setup (Context7 only in this project)                  |

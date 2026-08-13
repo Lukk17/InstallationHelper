@@ -46,11 +46,11 @@ Go to Hosts, then Proxy Hosts, then Add Proxy Host, and fill in the Details tab.
 
 | Domain name | Scheme | Forward hostname | Port | Websockets |
 |---|---|---|---|---|
-| `dashboard.internal` | http | `homepage` | 3000 | on |
+| `dashboard-proxmox.internal` | http | `homepage` | 3000 | on |
 | `uptime.internal` | http | `uptime-kuma` | 3001 | on |
 | `syncthing.internal` | http | `syncthing` | 8384 | on |
 | `adguard.internal` | http | `adguard-home` | 7777 | on |
-| `npm.internal` | http | `nginx-proxy-manager` | 81 | on |
+| `nginx-proxmox.internal` | http | `nginx-proxy-manager` | 81 | on |
 | `notes.internal` | http | `perlite-web` | 80 | on |
 
 The forward port is the container port from the right hand side of each Compose port mapping. Using the published
@@ -61,9 +61,19 @@ host port instead is the usual reason a new entry returns 502.
 ### Proxying the Proxmox interface
 
 The hypervisor is not a container, so it needs an address instead of a name, and it serves HTTPS with a self signed
-certificate. Add it as scheme `https`, forward hostname `<proxmox-host>`, port 8006, websockets on. The proxy does
-not verify the upstream certificate, so the self signed one is not a problem. Websockets matter here because the
-browser console and the live statistics stop working without them.
+certificate.
+
+| Domain name | Scheme | Forward hostname | Port | Websockets |
+|---|---|---|---|---|
+| `proxmox.internal` | https | `<proxmox-host>` | 8006 | on |
+
+This is the only entry with scheme `https`. The proxy does not verify the upstream certificate, so the self signed
+one is not a problem. Websockets matter here because the browser console and the live statistics stop working
+without them.
+
+Home Assistant deliberately has no entry. It lives on its own virtual machine at `<ha-vm-ip>:8123`, and every phone
+in the house already has that bookmarked or uses the app, so putting it behind a name that only resolves on the home
+network buys nothing.
 
 ---
 
@@ -74,19 +84,19 @@ Before the router hands out AdGuard as DNS, you can still test the proxy by send
 Unix shell:
 
 ```bash
-curl -skI -H "Host: dashboard.internal" http://<docker-vm-ip> | head -1
+curl -skI -H "Host: dashboard-proxmox.internal" http://<docker-vm-ip> | head -1
 ```
 
 PowerShell:
 
 ```powershell
-curl.exe -skI -H "Host: dashboard.internal" http://<docker-vm-ip>
+curl.exe -skI -H "Host: dashboard-proxmox.internal" http://<docker-vm-ip>
 ```
 
 A 200 or a 3xx status means the proxy resolved the name to a container and got an answer. A 502 means the container
 is down or the forward port is wrong. A 404 from the proxy itself means no entry matches that name.
 
-After the DNS cutover in [adguard_dns.md](adguard_dns.md), open `http://dashboard.internal` in a browser instead.
+After the DNS cutover in [adguard_dns.md](adguard_dns.md), open `http://dashboard-proxmox.internal` in a browser instead.
 
 ---
 

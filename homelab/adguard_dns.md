@@ -47,16 +47,67 @@ over TLS so your queries are not readable on the way out, and set it under Setti
 
 ---
 
+### Blocklists
+
+Under Filters, then DNS blocklists, AdGuard ships a catalogue you can enable with a tick. Two or three well chosen
+lists beat a dozen stacked on top of each other, because overlapping lists multiply the false positives without
+blocking much extra.
+
+A broad, carefully curated general list is the one that does the work. It covers advertising and telemetry across the
+board and is maintained to keep breakage low.
+
+A list for your own country or language is the useful second one. Regional phishing, fake parcel notifications and
+fake banking domains never appear on the big international lists, because they are only ever aimed at people who
+speak the language.
+
+Under Settings, then General settings, set the filter update interval to twelve hours. Malicious domains are
+registered, used and abandoned within a couple of days, so a list refreshed weekly is missing exactly the ones that
+matter.
+
+Turn on the browsing security service in the same place. It checks names against a live reputation database rather
+than a downloaded list, which catches malware and phishing domains that were registered after your last list update.
+
+---
+
+### Reading the query log
+
+Query log is where you find out what actually happened, and it is the first place to look when someone says the
+internet is broken.
+
+Blocked queries are marked in red. Click one to see which list stopped it, which tells you whether to remove a list
+or just allow the single name.
+
+Allowing one name is a single click from that panel, and it is almost always the right fix. A shopping site whose
+checkout button does nothing usually needs one tracker domain allowed, not a whole list disabled.
+
+Each row shows which device asked, which is why the DHCP configuration below matters. Point the router at AdGuard
+correctly and you get per device names. Get it wrong and every query in the log appears to come from the router.
+
+---
+
 ### Point the network at it
 
 Until the router hands out AdGuard as the DNS server, nothing above has any effect on other devices.
 
-In the router administration pages, open the LAN or DHCP server section and find the DNS server fields that the DHCP
-server advertises. Set the first one to `<docker-vm-ip>` and leave the second one empty. Apply, then reconnect a
-device or renew its lease so it picks up the change.
+Do this in two stages. The first is reversible in seconds and does not take the house down if something is wrong,
+the second is the one you leave in place.
 
-Leave the WAN or upstream DNS setting on automatic. That one is what the router uses for itself, and keeping it
-independent means the router still resolves names when the VM is down.
+While you are still building and testing, set it on the WAN side. In the router administration pages, open the WAN or
+internet connection section, find the DNS server fields, and set the first to `<docker-vm-ip>` and the second to a
+public resolver. The router then asks AdGuard first and has somewhere to fall back to, so a container restart does
+not knock the whole house offline while you are still fiddling with it. The cost is that every query in the log
+appears to come from the router, since the router is the only thing asking.
+
+Once it has run for a few days without surprises, move it to the LAN side and drop the fallback. Open the LAN or DHCP
+server section, find the DNS server fields that the DHCP server advertises, set the first to `<docker-vm-ip>`, and
+leave the second one empty. Undo the WAN setting you made earlier and put it back to automatic. Apply, then reconnect
+a device or renew its lease so it picks up the change.
+
+Now every device asks AdGuard directly, which is what makes per device names appear in the query log and what makes
+`.internal` names resolve on phones rather than only on the router.
+
+Leave the WAN or upstream DNS setting on automatic afterwards. That one is what the router uses for itself, and
+keeping it independent means the router still resolves names when the VM is down.
 
 ---
 

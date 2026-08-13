@@ -12,7 +12,7 @@ nginx in front of it. They share a filesystem through `volumes_from`, which is w
 and JavaScript without a second copy of the files.
 
 The notes themselves arrive over Syncthing. The Syncthing container mounts the host directory
-`/opt/docker-stack/syncthing/data` as `/data1` inside itself, so a Syncthing folder configured at `/data1/notes`
+`/opt/docker-stack/syncthing/data` as `/data` inside itself, so a Syncthing folder configured at `/data/notes`
 writes to `/opt/docker-stack/syncthing/data/notes` on the host. That is exactly the directory Perlite mounts, read
 only, as its notes root.
 
@@ -95,5 +95,5 @@ because nginx is then serving from a filesystem that has no Perlite assets in it
 The address `syncthing:8384` only resolves between containers on the `proxy-tier` network. From a browser on your
 own machine, use `<docker-vm-ip>:7780` instead.
 
-The Syncthing folder path is the container path `/data1/notes`, not the host path. Typing the host path into the
+The Syncthing folder path is the container path `/data/notes`, not the host path. Typing the host path into the
 Syncthing interface creates a folder the container cannot see.
