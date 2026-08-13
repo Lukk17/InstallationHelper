@@ -61,7 +61,7 @@ container is published at `http://<docker-vm-ip>:7780`.
 2. On the server: Add Remote Device, paste the ID, save.
 3. On your own machine: accept the pairing prompt.
 4. On your own machine: Add Folder, point it at the vault directory, and tick the server under Sharing.
-5. On the server: accept the folder and set its path to `/data1/notes`.
+5. On the server: accept the folder and set its path to `/data/notes`.
 
 Put a `README.md` at the top of the folder. Perlite uses it as the landing page, which is what `HOME_FILE=README`
 in the Compose file means.

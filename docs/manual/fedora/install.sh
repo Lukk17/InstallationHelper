@@ -37,7 +37,7 @@ DNF_PACKAGES=(
 )
 
 # dnf packages that require a third-party repo (added below).
-DNF_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens terraform)
+DNF_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens terraform tailscale)
 
 # Flatpak application IDs (Flathub).
 FLATPAK_APPS=(
@@ -120,6 +120,9 @@ sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.c
 # Docker CE official repo.
 sudo dnf config-manager addrepo --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
 
+# Tailscale official repo.
+sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+
 log "Installing default-repo dnf packages"
 sudo dnf install -y "${DNF_PACKAGES[@]}"
 
@@ -141,6 +144,9 @@ flatpak install -y flathub "${FLATPAK_APPS[@]}"
 
 log "Enabling the Syncthing user service"
 systemctl --user enable --now syncthing.service || printf '   Skipped: no user D-Bus session. Run it yourself after logging in.\n'
+
+log "Enabling the tailscaled system service"
+sudo systemctl enable --now tailscaled
 
 log "Done. The following were NOT installed (manual download required):"
 for item in "${SKIPPED[@]}"; do

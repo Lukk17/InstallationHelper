@@ -469,6 +469,7 @@ distro package exists or the repo version is too old. Pinned versions and URL te
 | **Terraform** | `sudo apt-get install -y terraform` (repo first) | `sudo pacman -S --needed terraform` | `sudo dnf install -y terraform` (repo first) |
 | **GitHub CLI (gh)** | `sudo apt-get install -y gh` (repo first) | `sudo pacman -S --needed github-cli` | `sudo dnf install -y gh` |
 | **Syncthing** | `sudo apt-get install -y syncthing` (repo first) | `sudo pacman -S --needed syncthing` | `sudo dnf install -y syncthing` |
+| **Tailscale** | `sudo apt-get install -y tailscale` (repo first) | `sudo pacman -S --needed tailscale` | `sudo dnf install -y tailscale` (repo first) |
 | **Docker** | `sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo first) | `sudo pacman -S --needed docker` | `sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo first) |
 
 Repo keyrings, GPG keys, and `*.repo` and `*.list` files are provisioned automatically by

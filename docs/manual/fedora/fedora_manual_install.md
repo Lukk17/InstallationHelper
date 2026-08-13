@@ -114,6 +114,12 @@ EOF
 sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
 ```
 
+**Tailscale** (official Tailscale repo, one repo file for every Fedora release):
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+```
+
 ## Browsers
 
 | App | Install command |
@@ -207,6 +213,7 @@ sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.c
 |---|---|
 | Speedtest CLI | `sudo dnf install -y speedtest-cli` |
 | Syncthing | `sudo dnf install -y syncthing` |
+| Tailscale | `sudo dnf install -y tailscale` *(repo above)* |
 | GParted | `sudo dnf install -y gparted` |
 | KDE Partition Manager | `sudo dnf install -y kde-partitionmanager` |
 | Boot repair (grubby) | `sudo dnf install -y grubby` |
@@ -219,6 +226,14 @@ The Syncthing package ships a systemd user unit but leaves it disabled. Enable i
 ```bash
 systemctl --user enable --now syncthing.service
 ```
+
+The Tailscale package ships a systemd system unit but leaves it disabled. It runs in system scope, not user scope like Syncthing, because the daemon owns a network interface and routing table entries:
+
+```bash
+sudo systemctl enable --now tailscaled
+```
+
+Joining a tailnet stays manual: run `sudo tailscale up` once by hand and authenticate in the browser it opens.
 
 **AppImageLauncher** — the 2020 upstream RPM lacks file digests and `dnf5` (Fedora 43+) refuses it, so install with `rpm --nodigest`:
 

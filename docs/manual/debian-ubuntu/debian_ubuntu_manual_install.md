@@ -126,6 +126,20 @@ sudo curl -fsSLo /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthi
 echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list
 ```
 
+**Tailscale** (key is already a binary keyring, no `gpg --dearmor` step). The keyring and the repo both live under a per-distribution, per-codename path. Upstream publishes `ubuntu` and `debian` paths only, so set the distribution segment first and a derivative's own name cannot leak into the URL:
+
+```bash
+if [ "$(lsb_release -is)" = "Ubuntu" ]; then TAILSCALE_DISTRO=ubuntu; else TAILSCALE_DISTRO=debian; fi
+```
+
+```bash
+sudo curl -fsSLo /etc/apt/keyrings/tailscale-archive-keyring.gpg "https://pkgs.tailscale.com/stable/${TAILSCALE_DISTRO}/$(lsb_release -cs).noarmor.gpg"
+```
+
+```bash
+echo "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${TAILSCALE_DISTRO} $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/tailscale.list
+```
+
 After adding any repo, refresh the cache once:
 
 ```bash
@@ -226,6 +240,7 @@ sudo apt-get update
 |---|---|
 | Speedtest CLI | `sudo apt-get install -y speedtest-cli` |
 | Syncthing | `sudo apt-get install -y syncthing` (needs the Syncthing repo added above) |
+| Tailscale | `sudo apt-get install -y tailscale` (needs the Tailscale repo added above) |
 | GParted | `sudo apt-get install -y gparted` |
 | KDE Partition Manager | `sudo apt-get install -y partitionmanager` |
 | TeamViewer | `curl -fsSLo /tmp/teamviewer.deb https://download.teamviewer.com/download/linux/teamviewer_amd64.deb && sudo apt-get install -y /tmp/teamviewer.deb` |
@@ -238,6 +253,14 @@ The Syncthing package ships a systemd user unit but leaves it disabled. Enable i
 ```bash
 systemctl --user enable --now syncthing.service
 ```
+
+The Tailscale package ships a systemd system unit and the Debian and Ubuntu packages already enable it in their post-install. Running the command again is harmless and confirms the daemon is up. It runs in system scope, not user scope like Syncthing, because it owns a network interface and routing table entries:
+
+```bash
+sudo systemctl enable --now tailscaled
+```
+
+Joining a tailnet stays manual: run `sudo tailscale up` once by hand and authenticate in the browser it opens.
 
 ## Hardware monitoring
 

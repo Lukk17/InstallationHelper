@@ -199,7 +199,9 @@ Zigbee2MQTT keeps its network key and device list under `/config/zigbee2mqtt`. T
 
 ### The faster path
 
-The same community project behind the post install script has one for this machine, which walks steps one through three behind a menu:
+The same community project behind the post install script has one for this machine, which walks steps one through three behind a menu.
+
+As with the post install script, this is third party code running as root on your hypervisor. Read it before you run it, and take the current link from the project's own page rather than trusting a copied one: https://community-scripts.github.io/ProxmoxVE/scripts?id=haos-vm
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/vm/haos-vm.sh)"

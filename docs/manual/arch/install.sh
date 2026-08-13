@@ -28,7 +28,7 @@ PACMAN_PACKAGES=(
   signal-desktop keepassxc vlc handbrake rawtherapee steam veracrypt
   speedtest-cli boinc lynis clamav hardinfo2 lm_sensors baobab gparted
   partitionmanager virt-manager qemu-full libvirt dnsmasq nftables bridge-utils
-  virtiofsd docker zsh dart syncthing
+  virtiofsd docker zsh dart syncthing tailscale
 )
 
 # Flatpak application IDs (Flathub).
@@ -55,6 +55,9 @@ flatpak install -y flathub "${FLATPAK_APPS[@]}"
 
 log "Enabling the Syncthing user service"
 systemctl --user enable --now syncthing.service || printf '   Skipped: no user D-Bus session. Run it yourself after logging in.\n'
+
+log "Enabling the tailscaled system service"
+sudo systemctl enable --now tailscaled
 
 log "Done. The following were NOT installed:"
 for item in "${SKIPPED[@]}"; do

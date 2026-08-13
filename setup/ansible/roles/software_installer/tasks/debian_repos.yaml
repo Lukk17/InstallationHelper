@@ -330,10 +330,13 @@
 # --- Tailscale ---
 # Tailscale publishes an already-dearmored (binary) keyring, so no gpg
 # --dearmor step. Both the keyring and the repo live under a per-distribution,
-# per-codename path, so distro and release are interpolated from facts.
+# per-codename path. The distribution segment is normalised to ubuntu or debian
+# the same way the Docker task above does it, because upstream publishes those
+# two only and a derivative's own name (linuxmint, pop!_os) is a 404.
 - name: Download Tailscale binary keyring
   ansible.builtin.get_url:
-    url: "https://pkgs.tailscale.com/stable/{{ ansible_facts['distribution'] | lower }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg"
+    url: >-
+      https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ansible_facts['distribution'] == 'Ubuntu' else 'debian' }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg
     dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
     mode: '0644'
     force: true
@@ -342,7 +345,10 @@
 
 - name: Add Tailscale apt repository
   ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/{{ ansible_facts['distribution'] | lower }} {{ ansible_facts['distribution_release'] }} main"
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg]
+      https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ansible_facts['distribution'] == 'Ubuntu' else 'debian' }}
+      {{ ansible_facts['distribution_release'] }} main
     filename: tailscale
     state: present
     update_cache: false

@@ -39,7 +39,7 @@ APT_PACKAGES=(
 )
 
 # apt packages that require a third-party repo (added below).
-APT_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens helm terraform gh syncthing)
+APT_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens helm terraform gh syncthing tailscale)
 
 # Flatpak application IDs (Flathub).
 FLATPAK_APPS=(
@@ -98,6 +98,11 @@ echo "deb [signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cl
 # Syncthing (key is already a binary keyring, no dearmor)
 sudo curl -fsSLo /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
 echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list >/dev/null
+# Tailscale (key is already a binary keyring, no dearmor). Keyring and repo paths are per-distro and per-codename.
+# Upstream publishes ubuntu and debian paths only, so a derivative's own name is normalised away.
+if [ "$(lsb_release -is)" = "Ubuntu" ]; then TAILSCALE_DISTRO=ubuntu; else TAILSCALE_DISTRO=debian; fi
+sudo curl -fsSLo /etc/apt/keyrings/tailscale-archive-keyring.gpg "https://pkgs.tailscale.com/stable/${TAILSCALE_DISTRO}/$(lsb_release -cs).noarmor.gpg"
+echo "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${TAILSCALE_DISTRO} $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/tailscale.list >/dev/null
 
 log "Refreshing apt after repo changes"
 sudo apt-get update
@@ -120,6 +125,9 @@ flatpak install -y flathub "${FLATPAK_APPS[@]}"
 
 log "Enabling the Syncthing user service"
 systemctl --user enable --now syncthing.service || printf '   Skipped: no user D-Bus session. Run it yourself after logging in.\n'
+
+log "Enabling the tailscaled system service"
+sudo systemctl enable --now tailscaled
 
 log "Done. The following were NOT installed (manual download required):"
 for item in "${SKIPPED[@]}"; do

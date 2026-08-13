@@ -122,6 +122,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | VeraCrypt | `winget install -e --id IDRIX.VeraCrypt` |
 | Speedtest CLI | `winget install -e --id Ookla.Speedtest.CLI` |
 | Syncthing | `winget install -e --id BillStewart.SyncthingWindowsSetup` |
+| Tailscale | `winget install -e --id Tailscale.Tailscale` |
 | Rufus | `winget install -e --id Rufus.Rufus` |
 | PowerToys | `winget install -e --id Microsoft.PowerToys` |
 | MiniTool Partition Wizard | `winget install -e --id MiniTool.PartitionWizard.Free` |

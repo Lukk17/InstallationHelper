@@ -82,7 +82,7 @@ graph TB
 | Syncthing | `syncthing.internal` | 7780 | 8384 | File sync between machines |
 | Perlite | `notes.internal` | 7781 | 80 | Renders the synced notes folder as a read only website |
 
-Nginx Proxy Manager also binds 80 and 443 for proxied traffic, AdGuard binds 53 for DNS, and Syncthing binds 22000 and 21027 for its own peer protocol.
+Nginx Proxy Manager also binds 80 and 443 for proxied traffic, AdGuard binds 53 for plain DNS plus 853 and 784 for the encrypted variants, and Syncthing binds 22000 and 21027 for its own peer protocol.
 
 Perlite is two containers rather than one. The engine renders the markdown and has no published port, and `perlite-web` is the nginx that serves it. Setting it up takes a few extra steps, so it has its own page: [perlite_notes.md](perlite_notes.md).
 

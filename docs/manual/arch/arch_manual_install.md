@@ -112,6 +112,7 @@ sudo pacman -Sy
 |---|---|
 | Speedtest CLI | `sudo pacman -S --needed speedtest-cli` |
 | Syncthing | `sudo pacman -S --needed syncthing` |
+| Tailscale | `sudo pacman -S --needed tailscale` |
 | GParted | `sudo pacman -S --needed gparted` |
 | KDE Partition Manager | `sudo pacman -S --needed partitionmanager` |
 | VeraCrypt | `sudo pacman -S --needed veracrypt` |
@@ -123,6 +124,14 @@ The Syncthing package ships a systemd user unit but leaves it disabled. Enable i
 ```bash
 systemctl --user enable --now syncthing.service
 ```
+
+The Tailscale package ships a systemd system unit but leaves it disabled. It runs in system scope, not user scope like Syncthing, because the daemon owns a network interface and routing table entries:
+
+```bash
+sudo systemctl enable --now tailscaled
+```
+
+Joining a tailnet stays manual: run `sudo tailscale up` once by hand and authenticate in the browser it opens.
 
 ## Hardware monitoring
 

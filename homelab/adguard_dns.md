@@ -131,7 +131,7 @@ Most routers ship a public filtering DNS option in their security menu. It is no
 It filters against a generic blocklist you cannot edit, and it cannot whitelist a single domain when something
 breaks. It treats the whole house as one client, so you never see which device made a query. It answers from
 somewhere on the internet rather than from RAM on your own machine. Most importantly it cannot resolve
-`dashboard.internal` or any other private name, which is the thing the reverse proxy depends on.
+`dashboard-proxmox.internal` or any other private name, which is the thing the reverse proxy depends on.
 
 ---
 

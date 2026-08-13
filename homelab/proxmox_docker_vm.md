@@ -61,7 +61,7 @@ CPU. One socket, four cores, type `x86-64-v2-AES`. One socket matches one physic
 consumer hardware. The AES type passes hardware encryption acceleration into the VM, which speeds up TLS work in the
 reverse proxy.
 
-Memory. 4096 MiB is enough for these five services with room to spare.
+Memory. 4096 MiB is enough for the whole Compose stack with room to spare.
 
 Network. Bridge `vmbr0`, model VirtIO, firewall unticked.
 

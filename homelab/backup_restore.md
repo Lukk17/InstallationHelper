@@ -102,8 +102,12 @@ Then restore it as above.
 Archive the whole data root from the VM, not just the Compose file.
 
 ```bash
-sudo tar czf /tmp/docker-stack-backup.tar.gz -C /opt docker-stack
+sudo tar czf /tmp/docker-stack-backup.tar.gz --exclude=docker-stack/InstallationHelper -C /opt docker-stack
 ```
+
+The exclusion drops the repository checkout that the quick start clones into that directory. It is already in version
+control, it is the largest thing under there, and restoring it from a tar rather than from `git clone` gives you a
+copy that silently stops tracking upstream.
 
 Then pull it down the same way as the VM archive.
 
@@ -173,4 +177,4 @@ started, as covered in [home_assistant_vm.md](home_assistant_vm.md). Entities ca
 | Back up a VM | `vzdump <vmid> --storage local --mode snapshot --compress zstd` |
 | List archives | `ls -lh /var/lib/vz/dump/` |
 | Restore a VM | `qmrestore <archive> <vmid> --storage local-lvm` |
-| Archive service data | `sudo tar czf /tmp/docker-stack-backup.tar.gz -C /opt docker-stack` |
+| Archive service data | `sudo tar czf /tmp/docker-stack-backup.tar.gz --exclude=docker-stack/InstallationHelper -C /opt docker-stack` |

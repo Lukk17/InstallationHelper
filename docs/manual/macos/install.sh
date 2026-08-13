@@ -31,7 +31,7 @@ BREW_CASKS=(
   keepassxc onlyoffice vlc spotify gimp krita handbrake-app audacity rawtherapee
   steam ea gog-galaxy epic-games curseforge freecad prusaslicer teamviewer
   veracrypt boinc stats grandperspective lulu balenaetcher utm docker-desktop
-  vmware-fusion claude syncthing-app
+  vmware-fusion claude syncthing-app tailscale-app
 )
 
 if ! command -v brew >/dev/null 2>&1; then

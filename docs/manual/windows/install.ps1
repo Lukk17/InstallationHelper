@@ -33,7 +33,7 @@ $WingetIds = @(
     'ElectronicArts.EADesktop', 'Overwolf.CurseForge', '9PK9W5QV2PKX',
     'FreeCAD.FreeCAD', 'Prusa3D.PrusaSlicer',
     'TeamViewer.TeamViewer', 'IDRIX.VeraCrypt', 'Ookla.Speedtest.CLI',
-    'BillStewart.SyncthingWindowsSetup',
+    'BillStewart.SyncthingWindowsSetup', 'Tailscale.Tailscale',
     'Rufus.Rufus', 'Microsoft.PowerToys', 'MiniTool.PartitionWizard.Free',
     'Samsung.GalaxyBudsManager',
     'CPUID.HWMonitor', 'REALiX.HWiNFO', 'CrystalDewWorld.CrystalDiskInfo',
