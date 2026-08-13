@@ -69,6 +69,7 @@ software_mapping:
   veracrypt: { manager: "apt_url", package: "veracrypt.deb", is_deb_url: true }
   speedtest: { manager: "apt", package: "speedtest-cli" }
   syncthing: { manager: "apt", package: "syncthing" }             # Official Syncthing apt repo, stable-v2 (debian_repos.yaml)
+  tailscale: { manager: "apt", package: "tailscale" }             # Official Tailscale apt repo, stable channel (debian_repos.yaml)
   appimagelauncher: { manager: "apt_url", package: "{{ appimage_launcher_url }}", is_deb_url: true }
 
   # Crypto / Crypto Hardware

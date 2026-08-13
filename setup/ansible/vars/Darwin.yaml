@@ -84,6 +84,7 @@ software_mapping:
   veracrypt: { manager: "brew_cask", package: "veracrypt" }
   speedtest: { manager: "brew", package: "speedtest-cli" }
   syncthing: { manager: "brew_cask", package: "syncthing-app" }   # Official syncthing-macos bundle (cask renamed from `syncthing`)
+  tailscale: { manager: "brew_cask", package: "tailscale-app" }   # Official GUI app cask. The bare `tailscale` formula is the headless daemon plus CLI and conflicts with this cask.
   lynis: { manager: "brew", package: "lynis" }
 
   # Crypto

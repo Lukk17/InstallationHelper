@@ -147,7 +147,7 @@ The cross-platform toggle file has 50+ entries grouped by category — see the f
 - **Productivity:** `install_obsidian`, `install_bitwarden`, `install_keepassxc`, `install_onlyoffice`
 - **Media:** `install_vlc`, `install_spotify`, `install_gimp`, `install_krita`, `install_handbrake`, `install_audacity`, `install_rawtherapee`
 - **Peripherals:** `install_synapse` (Razer Synapse 4, Windows and macOS), plus `install_openrazer` and `install_polychromatic` in `group_vars/linux.yaml` for the Linux equivalent, and `install_razer_cortex` in `group_vars/windows.yaml`
-- **Utilities:** `install_syncthing`, `install_veracrypt`, `install_teamviewer`, `install_speedtest`
+- **Utilities:** `install_syncthing`, `install_tailscale`, `install_veracrypt`, `install_teamviewer`, `install_speedtest`
 - **Crypto/Volunteer:** `install_boinc`, `install_gridcoin`
 - **SDKs:** `install_dart`, `install_flutter`, `install_android_sdk`
 

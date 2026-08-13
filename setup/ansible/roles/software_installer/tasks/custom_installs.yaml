@@ -287,6 +287,24 @@
     - install_syncthing | default(false) | bool
     - (syncthing_user_state.stdout | default('') | trim) != 'active'
 
+# --- Tailscale daemon: enable the shipped systemd SYSTEM unit ---
+# tailscaled owns a kernel network interface and routing table entries, so it
+# has to run in system scope as root, unlike the Syncthing user unit above.
+# The Debian and Ubuntu packages enable the unit in their post-install, Fedora
+# and Arch do not, and ansible.builtin.systemd is idempotent, so this runs on
+# every distro instead of carrying a per-distribution special case.
+# Joining a tailnet stays manual: `sudo tailscale up` needs interactive browser
+# authentication and an auth key would be a credential committed to this repo.
+- name: Enable tailscaled systemd system service
+  ansible.builtin.systemd:
+    name: tailscaled.service
+    enabled: true
+    state: started
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_tailscale | default(false) | bool
+
 # --- OpenRazer: device access group and reboot notice ---
 # The OpenRazer daemon talks to devices through udev rules that grant the
 # plugdev group access, so a user outside that group sees no hardware even with

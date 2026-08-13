@@ -92,6 +92,7 @@ software_mapping:
   veracrypt: { manager: "winget", package: "IDRIX.VeraCrypt" }
   speedtest: { manager: "winget", package: "Ookla.Speedtest.CLI" }
   syncthing: { manager: "winget", package: "BillStewart.SyncthingWindowsSetup" }   # Inno installer: per-user install + logon scheduled task. `Syncthing.Syncthing` is the bare portable zip with no autostart.
+  tailscale: { manager: "winget", package: "Tailscale.Tailscale" }
 
   # Crypto
   boinc: { manager: "winget", package: "UCBerkeley.BOINC" }

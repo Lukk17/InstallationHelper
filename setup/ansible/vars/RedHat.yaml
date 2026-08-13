@@ -63,6 +63,7 @@ software_mapping:
   veracrypt: { manager: "dnf_url", package: "veracrypt.rpm" }
   speedtest: { manager: "dnf", package: "speedtest-cli" }
   syncthing: { manager: "dnf", package: "syncthing" }             # Native (Fedora 43 ships 1.30.x, Fedora 44+ ships 2.x)
+  tailscale: { manager: "dnf", package: "tailscale" }             # Official Tailscale dnf repo, stable channel (fedora_repos.yaml)
   # appimagelauncher: installed via custom_installs.yaml using `rpm -i --nodigest`.
   # The upstream 2.2.0 RPM (last release, from 2020) lacks file digests and
   # dnf5 in Fedora 43+ refuses to install packages without them. rpm itself

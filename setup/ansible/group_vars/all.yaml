@@ -84,6 +84,7 @@ install_veracrypt: true
 install_teamviewer: true
 install_speedtest: true
 install_syncthing: true
+install_tailscale: true  # Mesh VPN. Daemon is enabled by the playbook, joining a tailnet stays manual (`sudo tailscale up`).
 install_gparted: true
 install_partitionmanager: true
 install_partition_wizard: true

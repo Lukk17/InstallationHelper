@@ -327,6 +327,28 @@
   become: true
   when: install_syncthing | default(false) | bool
 
+# --- Tailscale ---
+# Tailscale publishes an already-dearmored (binary) keyring, so no gpg
+# --dearmor step. Both the keyring and the repo live under a per-distribution,
+# per-codename path, so distro and release are interpolated from facts.
+- name: Download Tailscale binary keyring
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/{{ ansible_facts['distribution'] | lower }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg"
+    dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
+    mode: '0644'
+    force: true
+  become: true
+  when: install_tailscale | default(false) | bool
+
+- name: Add Tailscale apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/{{ ansible_facts['distribution'] | lower }} {{ ansible_facts['distribution_release'] }} main"
+    filename: tailscale
+    state: present
+    update_cache: false
+  become: true
+  when: install_tailscale | default(false) | bool
+
 - name: Refresh apt cache after repo changes
   ansible.builtin.apt:
     update_cache: true

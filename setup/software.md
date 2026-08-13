@@ -21,7 +21,7 @@ flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flat
 The playbook runs in this order. Each phase must succeed before the next can start safely.
 
 1. OS core bootstrap: `system_core`, `arch_core`, `fedora_core`, `debian_core`, `windows_core`, `macos_core` (multilib, locale, keyrings dir, Homebrew bootstrap on macOS).
-2. APT / DNF repo provisioning: `roles/software_installer/tasks/debian_repos.yaml` and `fedora_repos.yaml` write keyrings under `/etc/apt/keyrings/` and `*.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Helm, Terraform, GitHub CLI, Syncthing, Docker before any package install runs.
+2. APT / DNF repo provisioning: `roles/software_installer/tasks/debian_repos.yaml` and `fedora_repos.yaml` write keyrings under `/etc/apt/keyrings/` and `*.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Helm, Terraform, GitHub CLI, Syncthing, Tailscale, Docker before any package install runs.
 3. SDK / runtime managers: JVM, Pyenv, NVM, SDKMAN (Java, Gradle), FVM.
 4. Snapd and Flatpak with the Flathub remote (Linux).
 5. Batched package installs: one call per manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`) so dependency resolution happens once per OS.
@@ -178,6 +178,7 @@ sudo gpasswd -a $USER plugdev
 | VeraCrypt | `curl -fsSLo /tmp/veracrypt.deb https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-Ubuntu-24.04-amd64.deb && sudo apt-get install -y /tmp/veracrypt.deb` | `sudo dnf install -y https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-CentOS-8-x86_64.rpm` | `sudo pacman -S --needed veracrypt` | `brew install --cask veracrypt` | `winget install -e --id IDRIX.VeraCrypt` |
 | Speedtest CLI | `sudo apt-get install -y speedtest-cli` | `sudo dnf install -y speedtest-cli` | `sudo pacman -S --needed speedtest-cli` | `brew install speedtest-cli` | `winget install -e --id Ookla.Speedtest.CLI` |
 | Syncthing | `sudo apt-get install -y syncthing` (repo) | `sudo dnf install -y syncthing` | `sudo pacman -S --needed syncthing` | `brew install --cask syncthing-app` | `winget install -e --id BillStewart.SyncthingWindowsSetup` |
+| Tailscale | `sudo apt-get install -y tailscale` (repo) | `sudo dnf install -y tailscale` (repo) | `sudo pacman -S --needed tailscale` | `brew install --cask tailscale-app` | `winget install -e --id Tailscale.Tailscale` |
 | AppImageLauncher | `curl -fsSLo /tmp/appimagelauncher.deb https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb && sudo apt-get install -y /tmp/appimagelauncher.deb` | `curl -fsSLo /tmp/appimagelauncher.rpm https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher-2.2.0-travis995.0f91801.x86_64.rpm && sudo rpm --install --nodigest /tmp/appimagelauncher.rpm` | `yay -S appimagelauncher` | not available | not available |
 
 Fedora needs the `rpm --nodigest` bypass for AppImageLauncher because the 2020 upstream RPM ships no file digests and dnf5 refuses it.
@@ -191,6 +192,8 @@ systemctl --user enable --now syncthing.service
 The playbook does this in `custom_installs.yaml` and skips it with a warning when there is no active login session, because `systemctl --user` needs a D-Bus session.
 
 The Windows winget package is the Inno installer, which does a per-user install plus a logon scheduled task. `Syncthing.Syncthing` is the bare portable zip with no autostart.
+
+On Linux the playbook enables and starts the `tailscaled` system service in `custom_installs.yaml`. It runs in system scope, not user scope like Syncthing, because the daemon owns a network interface and routing table entries and needs root. Joining a tailnet is deliberately not automated: `sudo tailscale up` opens a browser for interactive authentication, and the alternative, a pre-shared auth key, would be a credential committed to this repository. Run `sudo tailscale up` once by hand after the playbook finishes. On macOS the cask is `tailscale-app`, the graphical application. The bare `tailscale` Homebrew formula is the headless daemon plus the command line client, and the two conflict, so do not install both.
 
 ### Crypto / Volunteer
 

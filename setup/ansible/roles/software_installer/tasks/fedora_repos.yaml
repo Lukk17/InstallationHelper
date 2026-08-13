@@ -132,3 +132,19 @@
     state: present
   become: true
   when: install_openrazer | default(false) | bool
+
+# --- Tailscale ---
+# The repo definition is Fedora-release independent, `$basearch` is expanded by
+# dnf itself when it reads the .repo file, so it is written out literally here.
+# Upstream signs both the packages and the repo metadata, hence repo_gpgcheck.
+- name: Add Tailscale dnf repository
+  ansible.builtin.yum_repository:
+    name: tailscale-stable
+    description: Tailscale stable
+    baseurl: https://pkgs.tailscale.com/stable/fedora/$basearch
+    enabled: true
+    repo_gpgcheck: true
+    gpgcheck: true
+    gpgkey: https://pkgs.tailscale.com/stable/fedora/repo.gpg
+  become: true
+  when: install_tailscale | default(false) | bool

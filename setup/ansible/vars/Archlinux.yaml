@@ -69,6 +69,7 @@ software_mapping:
   veracrypt: { manager: "pacman", package: "veracrypt" }
   speedtest: { manager: "pacman", package: "speedtest-cli" }
   syncthing: { manager: "pacman", package: "syncthing" }
+  tailscale: { manager: "pacman", package: "tailscale" }
   appimagelauncher: { manager: "aur", package: "appimagelauncher" }
 
   # Crypto / Crypto Hardware
