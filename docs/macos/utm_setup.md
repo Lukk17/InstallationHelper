@@ -98,7 +98,7 @@ Fallback for KDE Plasma Wayland guests (if systemd service does not bridge clipb
 killall -9 spice-vdagent
 GDK_BACKEND=x11 spice-vdagent -x &
 ```
-See `Virt-Manager_setup.md` for the full KDE Plasma Wayland workaround steps.
+See `virt_manager_setup.md` for the full KDE Plasma Wayland workaround steps.
 
 **Apple Virtualization backend (macOS or Linux ARM guest):**
 

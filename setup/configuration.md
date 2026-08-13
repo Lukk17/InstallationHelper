@@ -1,6 +1,6 @@
 # Configuration guide
 
-Configuration tasks the Ansible playbook performs, grouped by desktop environment and OS. For the software catalog, see [SOFTWARE.md](SOFTWARE.md). For the authoritative per-OS package mappings, see [`ansible/vars/`](ansible/vars/).
+Configuration tasks the Ansible playbook performs, grouped by desktop environment and OS. For the software catalog, see [software.md](software.md). For the authoritative per-OS package mappings, see [`ansible/vars/`](ansible/vars/).
 
 ## Per-OS caveats
 
@@ -155,6 +155,6 @@ OS-specific toggles live in `group_vars/{linux,macos,windows}.yaml`. Version pin
 
 ## Related Documentation
 
-- [SOFTWARE.md](SOFTWARE.md) — complete software installation list by OS
+- [software.md](software.md) — complete software installation list by OS
 - [README_SETUP.md](README_SETUP.md) — setup and run instructions
 - [../README.md](../README.md) — project overview

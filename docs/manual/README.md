@@ -4,7 +4,7 @@ Copy-pasteable install commands for everything the Ansible playbook manages, one
 
 Each OS folder has two files:
 
-- **`<os>_manual_install.md`** — every app grouped exactly like [`setup/SOFTWARE.md`](../../setup/SOFTWARE.md), with the literal install command next to each one, plus repository-setup steps and a list of apps that need a manual install.
+- **`<os>_manual_install.md`** — every app grouped exactly like [`setup/software.md`](../../setup/software.md), with the literal install command next to each one, plus repository-setup steps and a list of apps that need a manual install.
 - **`install.sh`** / **`install.ps1`** — a script that installs the package-manager-installable apps in one go (adds the official third-party repos, pulls the pinned `.deb`/`.rpm` files, enables Flathub). Each script prints, at the end, the apps it deliberately skipped because they need a manual download.
 
 | OS / distro | Page | Script |

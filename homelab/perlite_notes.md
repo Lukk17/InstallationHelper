@@ -71,7 +71,7 @@ in the Compose file means.
 ### Add the proxy entry
 
 In Nginx Proxy Manager, add one more proxy host following
-[NGINX_PROXY_MANAGER.md](NGINX_PROXY_MANAGER.md).
+[nginx_proxy_manager.md](nginx_proxy_manager.md).
 
 | Domain name | Scheme | Forward hostname | Port | Websockets |
 |---|---|---|---|---|

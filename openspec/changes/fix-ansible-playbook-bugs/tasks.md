@@ -5,7 +5,7 @@
 - [x] 1.3 Ensure SDKMAN is installed in Phase 3
 - [x] 1.4 Ensure Snapd is installed in Phase 4
 - [x] 1.5 Ensure Flatpak+Flathub is installed in Phase 5
-- [x] 1.6 Add package_order documentation to SOFTWARE.md
+- [x] 1.6 Add package_order documentation to software.md
 
 ## 2. Snap Installation Fixes
 
@@ -53,7 +53,7 @@
 - [x] 8.2 Remove gputest from Fedora
 - [x] 8.3 Remove partitionmanager from Fedora
 
-## 9. SOFTWARE.md Updates
+## 9. software.md Updates
 
 - [x] 9.1 Add Installation Order section
 - [x] 9.2 Update all software entries with correct method per OS

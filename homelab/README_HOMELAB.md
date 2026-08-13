@@ -61,13 +61,13 @@ and 21027 for its own peer protocol.
 
 Perlite is two containers rather than one. The engine renders the markdown and has no published port, and
 `perlite-web` is the nginx that serves it. Setting it up takes a few extra steps, so it has its own page:
-[PERLITE_NOTES.md](PERLITE_NOTES.md).
+[perlite_notes.md](perlite_notes.md).
 
 ---
 
 ### Quick start
 
-The virtual machine has to exist first. Follow [PROXMOX_DOCKER_VM.md](PROXMOX_DOCKER_VM.md), then come back here.
+The virtual machine has to exist first. Follow [proxmox_docker_vm.md](proxmox_docker_vm.md), then come back here.
 
 Clone this repository onto the VM:
 
@@ -87,8 +87,8 @@ Start everything:
 docker compose up -d
 ```
 
-Then configure the two services that need it: [ADGUARD_DNS.md](ADGUARD_DNS.md) first, because AdGuard owns the
-`.internal` names, and [NGINX_PROXY_MANAGER.md](NGINX_PROXY_MANAGER.md) second.
+Then configure the two services that need it: [adguard_dns.md](adguard_dns.md) first, because AdGuard owns the
+`.internal` names, and [nginx_proxy_manager.md](nginx_proxy_manager.md) second.
 
 ---
 
@@ -141,7 +141,7 @@ An ad domain ends earlier. AdGuard answers `0.0.0.0` and the browser has nowhere
 ### Troubleshooting
 
 The whole network loses DNS. The AdGuard container is down, or something else grabbed port 53 on the VM. Check
-`docker ps` and see [ADGUARD_DNS.md](ADGUARD_DNS.md) for the port 53 conflict.
+`docker ps` and see [adguard_dns.md](adguard_dns.md) for the port 53 conflict.
 
 Internal names fail but the internet works. The router is handing out a public DNS server, or the wildcard rewrite is
 missing in AdGuard.
@@ -160,8 +160,8 @@ Syncthing cannot write its files. The host directories under `/opt/docker-stack/
 
 | Doc | What's in it |
 |---|---|
-| [PROXMOX_DOCKER_VM.md](PROXMOX_DOCKER_VM.md) | Creating the Ubuntu VM on Proxmox, installing Docker, freeing port 53 |
-| [ADGUARD_DNS.md](ADGUARD_DNS.md) | AdGuard first run, the `.internal` wildcard rewrite, pointing the router at it |
-| [NGINX_PROXY_MANAGER.md](NGINX_PROXY_MANAGER.md) | Adding the proxy host entries and verifying them |
-| [PERLITE_NOTES.md](PERLITE_NOTES.md) | Publishing the synced notes folder as a website, and pairing Syncthing |
-| [BACKUP_RESTORE.md](BACKUP_RESTORE.md) | Backing up the VM and the service data, and restoring both |
+| [proxmox_docker_vm.md](proxmox_docker_vm.md) | Creating the Ubuntu VM on Proxmox, installing Docker, freeing port 53 |
+| [adguard_dns.md](adguard_dns.md) | AdGuard first run, the `.internal` wildcard rewrite, pointing the router at it |
+| [nginx_proxy_manager.md](nginx_proxy_manager.md) | Adding the proxy host entries and verifying them |
+| [perlite_notes.md](perlite_notes.md) | Publishing the synced notes folder as a website, and pairing Syncthing |
+| [backup_restore.md](backup_restore.md) | Backing up the VM and the service data, and restoring both |

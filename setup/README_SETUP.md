@@ -8,9 +8,9 @@
 
 ---
 
-For configuration tasks and toggle reference, see [CONFIGURATION.md](CONFIGURATION.md). For the full software
-catalogue, see [SOFTWARE.md](SOFTWARE.md). For where to look up versions across every package manager and direct-URL
-source, see [VERSION_SOURCES.md](VERSION_SOURCES.md). Authoritative per-OS package mappings live in
+For configuration tasks and toggle reference, see [configuration.md](configuration.md). For the full software
+catalogue, see [software.md](software.md). For where to look up versions across every package manager and direct-URL
+source, see [version_sources.md](version_sources.md). Authoritative per-OS package mappings live in
 [ansible/vars/](ansible/vars/).
 
 ### Using the setup script
@@ -312,7 +312,7 @@ ansible-playbook site.yaml -i localhost, -c local -K --extra-vars "allow_callbac
 ---
 
 The playbook supports tag-based partial runs. After a failure, you can re-run only the failed subsystem instead of
-the full 30 to 50 minute playbook. Full taxonomy in [setup/ansible/TAGS.md](ansible/TAGS.md).
+the full 30 to 50 minute playbook. Full taxonomy in [setup/ansible/tags.md](ansible/tags.md).
 
 Examples:
 
@@ -513,9 +513,9 @@ Source role: [roles/linux_crypto_hardware/](ansible/roles/linux_crypto_hardware/
 | Doc | What's in it |
 | --- | --- |
 | [../README.md](../README.md) | Project overview, quick start, repo structure |
-| [CONFIGURATION.md](CONFIGURATION.md) | Toggle reference per OS |
-| [SOFTWARE.md](SOFTWARE.md) | Full per-OS software catalogue with install methods |
-| [VERSION_SOURCES.md](VERSION_SOURCES.md) | Where to look up the latest version for every pinned package |
-| [ansible/TAGS.md](ansible/TAGS.md) | Ansible `--tags` taxonomy for surgical partial runs |
+| [configuration.md](configuration.md) | Toggle reference per OS |
+| [software.md](software.md) | Full per-OS software catalogue with install methods |
+| [version_sources.md](version_sources.md) | Where to look up the latest version for every pinned package |
+| [ansible/tags.md](ansible/tags.md) | Ansible `--tags` taxonomy for surgical partial runs |
 | [../docs/AGENT_TOOLING.md](../docs/AGENT_TOOLING.md) | Agent-standards, OpenSpec, per-agent integration notes |
 | [../docs/MCP_SETUP.md](../docs/MCP_SETUP.md) | MCP server setup (Context7 only in this project) |

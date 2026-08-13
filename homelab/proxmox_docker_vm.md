@@ -219,4 +219,4 @@ than just moving it off the port.
 ### Next
 
 Go back to [README_HOMELAB.md](README_HOMELAB.md) for the quick start, then configure
-[ADGUARD_DNS.md](ADGUARD_DNS.md) and [NGINX_PROXY_MANAGER.md](NGINX_PROXY_MANAGER.md).
+[adguard_dns.md](adguard_dns.md) and [nginx_proxy_manager.md](nginx_proxy_manager.md).

@@ -88,7 +88,7 @@ custom installs for AppImages, DMGs, and `.exe` artefacts.
 | **Fonts** | Nerd Fonts (FiraCode, JetBrainsMono, Hack, Meslo) |
 | **Desktop** | KDE Plasma and GNOME setup, dotfiles, shell config |
 
-The full per-OS list is in [setup/SOFTWARE.md](setup/SOFTWARE.md). The authoritative per-OS package mappings live
+The full per-OS list is in [setup/software.md](setup/software.md). The authoritative per-OS package mappings live
 under [setup/ansible/vars/](setup/ansible/vars/).
 
 ### Quick start
@@ -169,7 +169,7 @@ InstallationHelper/
 │       ├── vars/               # OS translation dictionaries
 │       ├── profiles/           # Override profiles (linux_live, etc.)
 │       ├── roles/              # OS core, software_installer, sdk_manager, ai_tools, ...
-│       └── SOFTWARE.md         # Per-OS software catalog
+│       └── software.md         # Per-OS software catalog
 ├── local-dev/                  # Docker Compose stack (MySQL, PG, Mongo, Keycloak)
 ├── openspec/                   # Spec-driven change proposals & specs
 ├── docs/                       # Per-OS guides + agent tooling docs
@@ -244,25 +244,25 @@ Released under the [MIT License](LICENSE).
 | Doc                                                                     | What's in it                                                      |
 | ----------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | [setup/README_SETUP.md](setup/README_SETUP.md)                          | Manual setup walk-through, script flags, logging, troubleshooting |
-| [setup/CONFIGURATION.md](setup/CONFIGURATION.md)                        | Toggle reference per OS                                           |
-| [setup/SOFTWARE.md](setup/SOFTWARE.md)                                  | Full per-OS software catalogue with install methods               |
-| [setup/VERSION_SOURCES.md](setup/VERSION_SOURCES.md)                    | Where to look up the latest version for every pinned package      |
-| [setup/ansible/TAGS.md](setup/ansible/TAGS.md)                          | Ansible `--tags` taxonomy for surgical partial runs               |
+| [setup/configuration.md](setup/configuration.md)                        | Toggle reference per OS                                           |
+| [setup/software.md](setup/software.md)                                  | Full per-OS software catalogue with install methods               |
+| [setup/version_sources.md](setup/version_sources.md)                    | Where to look up the latest version for every pinned package      |
+| [setup/ansible/tags.md](setup/ansible/tags.md)                          | Ansible `--tags` taxonomy for surgical partial runs               |
 | [local-dev/README_LOCAL_DEV.md](local-dev/README_LOCAL_DEV.md)          | Docker Compose stack: ports, credentials, image tags              |
 | [local-dev/auth/README.md](local-dev/auth/README.md)                    | Local auth: hosts file entries, self-signed certs, Let's Encrypt  |
 | [local-dev/auth/Keycloak/README.md](local-dev/auth/Keycloak/README.md)  | Keycloak container build, token curl, OS trust store import       |
-| [local-dev/auth/Keycloak/CONFIG.md](local-dev/auth/Keycloak/CONFIG.md)  | Realm export, client setup, export-import flow                    |
+| [local-dev/auth/Keycloak/config.md](local-dev/auth/Keycloak/config.md)  | Realm export, client setup, export-import flow                    |
 | [local-dev/postgresql/README.md](local-dev/postgresql/README.md)        | Standalone Postgres build and run                                 |
 | [homelab/README_HOMELAB.md](homelab/README_HOMELAB.md)                  | Home lab stack: services, ports, architecture, troubleshooting    |
-| [homelab/PROXMOX_DOCKER_VM.md](homelab/PROXMOX_DOCKER_VM.md)            | Building the Ubuntu VM on Proxmox and installing Docker Engine    |
-| [homelab/ADGUARD_DNS.md](homelab/ADGUARD_DNS.md)                        | AdGuard Home setup, internal name rewrites, router DNS cutover    |
-| [homelab/NGINX_PROXY_MANAGER.md](homelab/NGINX_PROXY_MANAGER.md)        | Reverse proxy entries for each internal name, and verification    |
-| [homelab/PERLITE_NOTES.md](homelab/PERLITE_NOTES.md)                    | Publishing a synced notes vault as a website, and pairing Syncthing |
-| [homelab/BACKUP_RESTORE.md](homelab/BACKUP_RESTORE.md)                  | vzdump, qmrestore, and backing up the service data directories    |
+| [homelab/proxmox_docker_vm.md](homelab/proxmox_docker_vm.md)            | Building the Ubuntu VM on Proxmox and installing Docker Engine    |
+| [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, router DNS cutover    |
+| [homelab/nginx_proxy_manager.md](homelab/nginx_proxy_manager.md)        | Reverse proxy entries for each internal name, and verification    |
+| [homelab/perlite_notes.md](homelab/perlite_notes.md)                    | Publishing a synced notes vault as a website, and pairing Syncthing |
+| [homelab/backup_restore.md](homelab/backup_restore.md)                  | vzdump, qmrestore, and backing up the service data directories    |
 | [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md)                          | Agent-standards, OpenSpec, per-agent integration notes            |
 | [docs/MCP_SETUP.md](docs/MCP_SETUP.md)                                  | MCP server setup (Context7 only in this project)                  |
 | [docs/AI_TOOLS_ADDING.md](docs/AI_TOOLS_ADDING.md)                      | How to add a new npm-based AI / CLI tool to the playbook          |
-| [docs/linux/Virt-Manager_setup.md](docs/linux/Virt-Manager_setup.md)    | virt-manager setup notes for Linux hosts                          |
-| [docs/macos/UTM_setup.md](docs/macos/UTM_setup.md)                      | UTM (Apple Virtualization) notes for macOS                        |
-| [docs/windows/VirtualBox_setup.md](docs/windows/VirtualBox_setup.md)    | VirtualBox notes for Windows hosts                                |
+| [docs/linux/virt_manager_setup.md](docs/linux/virt_manager_setup.md)    | virt-manager setup notes for Linux hosts                          |
+| [docs/macos/utm_setup.md](docs/macos/utm_setup.md)                      | UTM (Apple Virtualization) notes for macOS                        |
+| [docs/windows/virtualbox_setup.md](docs/windows/virtualbox_setup.md)    | VirtualBox notes for Windows hosts                                |
 | [utils/mouseMove/README.md](utils/mouseMove/README.md)                  | Tiny Windows script that nudges the mouse to keep sessions awake  |

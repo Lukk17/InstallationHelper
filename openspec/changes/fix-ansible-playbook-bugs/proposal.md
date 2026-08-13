@@ -61,7 +61,7 @@ We need comprehensive fixes including proper installation order, SDKMAN for Grad
 - Phase 5: Flatpak + Flathub - for flatpak packages
 - Phase 6: Application packages
 
-### 8. Update SOFTWARE.md
+### 8. Update software.md
 - Update all software entries with correct installation method per OS/distro
 
 ### 9. Audacity → Flatpak (ALL DISTROS)
@@ -77,7 +77,7 @@ We need comprehensive fixes including proper installation order, SDKMAN for Grad
 - Add software-properties-common as prerequisite
 
 ### 12. Detailed Installation Order Section
-- Add comprehensive Installation Order section at bottom of SOFTWARE.md
+- Add comprehensive Installation Order section at bottom of software.md
 - Document SDK/Runtime Managers order (pyenv → nvm → SDKMAN)
 - Document system packages installation order
 - Document package managers installation phases
@@ -218,4 +218,4 @@ flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.f
 - **gridcoin-installation**: Use proper repo/ppa per distribution
 - **snap-installation**: Use official snapd installation
 - **docker-installation**: Use official Docker repository
-- **software-documentation**: Update SOFTWARE.md with current methods
+- **software-documentation**: Update software.md with current methods

@@ -127,7 +127,18 @@ A cross-platform Ansible-based system setup and local development toolkit. It ha
 
 1. **`setup/`** — Ansible playbook to automate OS configuration and software installation across Ubuntu/Debian, Fedora, Arch Linux, macOS, and Windows (via WSL).
 2. **`local-dev/`** — Docker Compose stack for local development services (MySQL, PostgreSQL, MongoDB, Keycloak).
-3. **`homelab/`** — Docker Compose stack and documentation for an always-on home server: a Proxmox VM running AdGuard Home, Nginx Proxy Manager, Homepage, Uptime Kuma, and Syncthing. Docs only plus one compose file, no Ansible. Keep it generic: no real addresses, credentials, or hardware details belong in these files.
+3. **`homelab/`** — Docker Compose stack and documentation for an always-on home server: a Proxmox host running a Home Assistant OS VM and an Ubuntu Docker VM (AdGuard Home, Nginx Proxy Manager, Homepage, Uptime Kuma, Syncthing, Perlite). Docs only plus one compose file, no Ansible. Write instructions against `<angle-bracket>` placeholders so the docs stay reusable, then give the LAN addresses of this specific lab as a concrete example block underneath. Never commit credentials, API tokens, device keys, or MAC addresses.
+
+## Documentation Conventions
+
+Markdown filenames are lowercase with underscores: `setup/software.md`, `homelab/adguard_dns.md`, `docs/linux/virt_manager_setup.md`. Two exceptions keep their capitals:
+
+1. Any filename starting with `README` — `README.md`, `setup/README_SETUP.md`, `homelab/README_HOMELAB.md`, `local-dev/README_LOCAL_DEV.md`.
+2. The agent tooling docs, which follow upstream agent-standards naming — `AGENTS.md`, `.claude/CLAUDE.md`, `.agents/skills/*/SKILL.md`, `.claude/agents/*.md`, `.opencode/agents/*.md`, `docs/AGENT_TOOLING.md`, `docs/MCP_SETUP.md`, `docs/AI_TOOLS_ADDING.md`.
+
+Do not rename anything in the first two categories to match the lowercase rule. Renaming a doc means updating every markdown link that points at it in the same change.
+
+Every doc directory has one hub page that links to all of its siblings: `README.md` at the repo root, `homelab/README_HOMELAB.md`, `setup/README_SETUP.md`, `local-dev/README_LOCAL_DEV.md`. Adding a page to one of those directories means adding it to that hub's docs map.
 
 ## Ansible Architecture
 
@@ -152,7 +163,7 @@ The playbook (`site.yaml`) follows this execution order:
 | `group_vars/versions.yaml` | Pinned version numbers for tools |
 | `vars/{OS}.yaml` | Translation dictionaries mapping generic app name → `{manager, package}` |
 | `profiles/linux_live.yaml` | Override profile for USB/live installs |
-| `SOFTWARE.md` | Complete per-OS software list with installation methods |
+| `software.md` | Complete per-OS software list with installation methods |
 
 ### How Software Installation Works
 

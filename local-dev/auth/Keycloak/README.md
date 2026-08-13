@@ -103,7 +103,7 @@ sudo update-ca-certificates
 ---
 
 Realm exports, client setup, and operational knobs are documented in
-[CONFIG.md](./CONFIG.md).
+[config.md](./config.md).
 
 ### Health and metrics
 

@@ -326,4 +326,4 @@ wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projek
 
 ## Catalogue of what we install
 
-The authoritative per-OS mapping lives in `setup/ansible/vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml`. The human-readable catalogue is `setup/SOFTWARE.md`.
+The authoritative per-OS mapping lives in `setup/ansible/vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml`. The human-readable catalogue is `setup/software.md`.

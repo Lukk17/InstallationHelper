@@ -3,7 +3,7 @@
 This is the recipe for adding any tool that's published as a global npm package
 (Claude Code, OpenCode, OpenSpec, Bruno CLI, etc.). For tools shipped only as
 a brew formula, OS package, or AppImage, use the existing `software_installer`
-dispatcher instead — see [setup/SOFTWARE.md](../setup/SOFTWARE.md).
+dispatcher instead — see [setup/software.md](../setup/software.md).
 
 ---
 
@@ -115,7 +115,7 @@ The `tags: [<tool>]` line gives you `--tags <tool>` for surgical re-runs.
 
 #### 6. Document the tag
 
-In [setup/ansible/TAGS.md](../setup/ansible/TAGS.md), add a row to the **AI
+In [setup/ansible/tags.md](../setup/ansible/tags.md), add a row to the **AI
 tools subsystems** table:
 
 ```markdown

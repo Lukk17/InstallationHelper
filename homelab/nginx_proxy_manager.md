@@ -86,7 +86,7 @@ curl.exe -skI -H "Host: dashboard.internal" http://<docker-vm-ip>
 A 200 or a 3xx status means the proxy resolved the name to a container and got an answer. A 502 means the container
 is down or the forward port is wrong. A 404 from the proxy itself means no entry matches that name.
 
-After the DNS cutover in [ADGUARD_DNS.md](ADGUARD_DNS.md), open `http://dashboard.internal` in a browser instead.
+After the DNS cutover in [adguard_dns.md](adguard_dns.md), open `http://dashboard.internal` in a browser instead.
 
 ---
 

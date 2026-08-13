@@ -11,7 +11,7 @@ The current playbook has failed because:
 - Fix all identified failures using official methods
 - Establish proper package installation order
 - Update var files for correct package sources per distro
-- Update SOFTWARE.md with current methods
+- Update software.md with current methods
 
 **Non-Goals:**
 - Don't hide errors with workarounds

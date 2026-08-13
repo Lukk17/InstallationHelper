@@ -86,4 +86,4 @@ somewhere on the internet rather than from RAM on your own machine. Most importa
 
 ### Next
 
-Add the proxy entries in [NGINX_PROXY_MANAGER.md](NGINX_PROXY_MANAGER.md).
+Add the proxy entries in [nginx_proxy_manager.md](nginx_proxy_manager.md).
