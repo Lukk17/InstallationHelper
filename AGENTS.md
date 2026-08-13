@@ -15,7 +15,7 @@ Slash commands may appear as `/name` or `/name.md` in your agent's autocomplete 
 
 ## Subagents
 
-This project ships 26 specialised subagents — narrow-scope agents the main session delegates to. Claude Code reads `.claude/agents/`; OpenCode and Kilo Code both read `.opencode/agents/`. Codex CLI has no per-agent file mechanism — it sees `AGENTS.md` plus skills only.
+This project ships 26 specialised subagents — narrow-scope agents the main session delegates to. Claude Code reads `.claude/agents/`; OpenCode and Kilo Code both read `.opencode/agents/`; Codex CLI reads `.codex/agents/`, where the same definitions are carried as `*.toml` with a `developer_instructions` block instead of markdown.
 
 These files are generated artifacts pulled from agent-standards. Do **not** hand-edit them — changes will be overwritten on the next pull. To modify a subagent permanently, edit its canonical source in the agent-standards repo (`subagents/<name>.md`), regenerate there, and re-import.
 
@@ -42,7 +42,7 @@ All supported agents read this `AGENTS.md` from the project root and auto-discov
 - **Claude Code** — run `claude`. Reads `.claude/CLAUDE.md`, which imports this file.
 - **Kilo Code** — reads `AGENTS.md` automatically. Optional `kilo.jsonc` for extra config.
 - **OpenCode** — reads `AGENTS.md` automatically. Optional `opencode.json` at project root.
-- **Codex CLI** — run `codex`. Reads `AGENTS.md` automatically. Global settings in `~/.codex/config.toml`.
+- **Codex CLI** — run `codex`. Reads `AGENTS.md` automatically, plus project-level `.codex/config.toml`, `.codex/hooks.json` and `.codex/agents/`. Global settings stay in `~/.codex/config.toml`.
 
 ## Working Principles
 
