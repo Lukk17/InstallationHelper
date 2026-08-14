@@ -112,6 +112,19 @@
       failed_when: false
       when: install_docker | default(false) | bool
 
+    # --- flatpak and the Flathub remote --------------------------------------
+    # system_core installs flatpak and adds the Flathub remote on every Linux, so both are
+    # asserted whenever that role ran. This is the check that would have caught flatpak never
+    # being installed on Arch: the remote-add shelled out to a missing binary and the play
+    # died, but nothing downstream ever asserted the remote existed.
+    - name: List the configured flatpak remotes
+      ansible.builtin.command: flatpak remotes --columns=name
+      register: flatpak_remotes
+      changed_when: false
+      failed_when: false
+      become: true
+      when: install_system_core | default(false) | bool
+
     # --- group membership ----------------------------------------------------
     # The OpenRazer group is the regression that started this harness: the name is a
     # per-distribution fact and was hardcoded to Debian's answer.
@@ -190,6 +203,21 @@
         fail_msg: "FAIL docker.service is not enabled, systemctl said: {{ docker_enabled.stdout | default('') }} {{ docker_enabled.stderr | default('') }}"
         quiet: true
       when: install_docker | default(false) | bool
+
+    - name: Assert flatpak is installed and the Flathub remote is configured
+      ansible.builtin.assert:
+        that:
+          - flatpak_remotes.rc == 0
+          - "'flathub' in flatpak_remotes.stdout"
+        success_msg: "PASS flatpak is installed and flathub is a configured remote"
+        fail_msg: >-
+          FAIL flatpak or the Flathub remote is missing. rc={{ flatpak_remotes.rc | default('unknown') }}
+          remotes={{ flatpak_remotes.stdout | default('(none)') | trim }}
+          stderr={{ flatpak_remotes.stderr | default('') | trim }}
+          A non-zero rc usually means flatpak itself was never installed for this
+          distribution, which is what happened on Arch.
+        quiet: true
+      when: install_system_core | default(false) | bool
 
     - name: Assert the temporary passwordless sudoers entry was removed
       ansible.builtin.assert:
