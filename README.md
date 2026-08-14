@@ -261,11 +261,14 @@ Released under the [MIT License](LICENSE).
 | [homelab/home_assistant_backup.md](homelab/home_assistant_backup.md)    | Home Assistant's own backups, encryption key, restore paths       |
 | [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, blocklists, router DNS |
 | [homelab/nginx_proxy_manager.md](homelab/nginx_proxy_manager.md)        | Reverse proxy entries for each internal name, and verification    |
+| [homelab/ascend_web_search.md](homelab/ascend_web_search.md)            | AscendWebSearch stack: containers, secrets, resource limits, ngrok exposure |
 | [homelab/syncthing.md](homelab/syncthing.md)                            | Pairing devices, folder paths, ownership, file versioning         |
 | [homelab/perlite_notes.md](homelab/perlite_notes.md)                    | Publishing a synced notes vault as a website                      |
 | [homelab/homepage_dashboard.md](homelab/homepage_dashboard.md)          | Dashboard tiles, allowed hosts, status checks that bypass DNS     |
 | [homelab/uptime_kuma.md](homelab/uptime_kuma.md)                        | Monitors, ping versus HTTP checks, DNS resolution monitoring      |
 | [homelab/backup_restore.md](homelab/backup_restore.md)                  | vzdump, qmrestore, and backing up the service data directories    |
+| [e2e/README_E2E.md](e2e/README_E2E.md)                                  | End-to-end harness: the pre-commit gate, and running the playbook in containers |
+| [docs/regression_ledger.md](docs/regression_ledger.md)                  | Every regression the playbook has suffered, grouped by failure mechanism, with a prevention checklist |
 | [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md)                          | Agent-standards, OpenSpec, per-agent integration notes            |
 | [docs/MCP_SETUP.md](docs/MCP_SETUP.md)                                  | MCP server setup (Context7 only in this project)                  |
 | [docs/AI_TOOLS_ADDING.md](docs/AI_TOOLS_ADDING.md)                      | How to add a new npm-based AI / CLI tool to the playbook          |

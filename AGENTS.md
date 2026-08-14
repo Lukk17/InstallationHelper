@@ -94,6 +94,45 @@ For multi-step work, state the plan first:
 
 Then loop until each check passes. Do not claim a task is done without running the verification.
 
+## MANDATORY: run the e2e gate before calling playbook work done
+
+This is not optional and it is not advisory. Every regression recorded in [`docs/regression_ledger.md`](docs/regression_ledger.md) reached a real machine because nothing ran the playbook before it shipped. Reading a diff cannot tell you that a group name does not exist on Arch, or that a toggle installs nothing, and both of those have happened here.
+
+**After any change under `setup/`, run the tier 1 gate. It takes seconds.**
+
+```bash
+./e2e/run.sh
+```
+
+On Windows, from a PowerShell prompt:
+
+```powershell
+wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh"
+```
+
+A non-zero exit means the work is not done. Do not report success, do not commit, and do not explain the failure away. Fix it.
+
+**Additionally, when your change touches any of the following, run the container tier as well.** It takes 20 to 30 minutes for the smoke scenario.
+
+| If you changed | Run |
+|---|---|
+| a package mapping in `vars/*.yaml` | `./e2e/run.sh --tier 2` |
+| anything in `roles/` that touches groups, systemd units, or per-distro behaviour | `./e2e/run.sh --tier 3 --scenario smoke` |
+| the desktop environment roles | `./e2e/run.sh --tier 3 --scenario kde-full` and `--scenario gnome-full` |
+| `profiles/linux_live.yaml` | `./e2e/run.sh --tier 3 --scenario live-profile` |
+| the wizard (`setup.sh` or `setup.ps1`) | tier 1 is sufficient, it compares both wizards against the YAML |
+
+Rules that come out of the ledger and that the gate cannot check for you:
+
+1. A per-distribution fact belongs in `vars/<OS>.yaml` and is read through `os_dict`. Never hardcode a group name, a package name, a path or a service name into a task. The OpenRazer group was hardcoded to Debian's answer and failed every Arch run.
+2. Verify a package or group actually exists on every OS family you claim to support, not just the one you tested. Debian's answer does not generalise.
+3. Never use `failed_when` or a `rescue` to turn a real failure into a pass. A two-condition `failed_when` is combined with AND, which is how one bad package name silently dropped every Arch package while the run stayed green.
+4. A toggle is not implemented until something consumes it. A comment saying another role handles it is not an implementation, and `install_gradle` sat unimplemented behind exactly that comment.
+5. An install that cannot function is a bug even when the playbook exits zero. OpenRazer installed cleanly on Arch with no kernel headers, so the driver never built.
+6. If you add a toggle that intentionally does nothing on some OS, add it to [`e2e/tier1/documented_no_ops.txt`](e2e/tier1/documented_no_ops.txt) with the reason, or the gate will fail. That is deliberate.
+
+Full harness documentation, including what a container cannot test, is in [`e2e/README_E2E.md`](e2e/README_E2E.md).
+
 ## OpenSpec Workflow
 
 This project uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven development. Specs and changes live under `openspec/`.
