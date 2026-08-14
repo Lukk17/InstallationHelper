@@ -101,13 +101,13 @@ Two steps, because at two hours this run should not be tied to the shell that st
 Step 1. Launch and return. The command prints the run directory, the container name, and the two commands to follow and to collect.
 
 ```bash
-./e2e/tier3/arch_container.sh e2e/tier3/scenarios/05-live-profile.yaml --detach
+./e2e/tier3/container.sh e2e/tier3/scenarios/05-live-profile.yaml --detach
 ```
 
 From a PowerShell prompt on Windows, the same launch inside WSL.
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/arch_container.sh e2e/tier3/scenarios/05-live-profile.yaml --detach"
+wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/05-live-profile.yaml --detach"
 ```
 
 Follow it from any shell, as often as you like, using the container name the launch printed.
@@ -119,7 +119,7 @@ docker exec <container-name> tail -f /work/playbook.log
 Step 2. Wait until step 1's playbook has finished, then verify, record and tear down, substituting the run directory the launch printed. Collecting early is safe: it reports the task currently executing and exits 3 without touching anything, so repeat it rather than guessing.
 
 ```bash
-./e2e/tier3/arch_container.sh --collect e2e/runs/<run-id>
+./e2e/tier3/container.sh --collect e2e/runs/<run-id>
 ```
 
 The single-command form below does the same work in the foreground and is fine when you can leave a shell open for two hours.
@@ -136,7 +136,7 @@ The single-command form below does the same work in the foreground and is fine w
 
 The verify log carries the same six assertions as every other container scenario: the native package set against `pacman -Qq`, the flatpak set against `flatpak list --app --columns=application`, `systemctl is-enabled tailscaled.service` when `install_tailscale` resolves true, `id -nG` containing `os_dict.openrazer_device_group` when `install_openrazer` resolves true, `id -nG` containing `docker` when `install_docker` resolves true, and `/etc/sudoers.d/99-ansible-user` absent.
 
-A harness limitation you must account for before writing a verdict. [../tier3/arch_container.sh](../tier3/arch_container.sh) passes the profile to the playbook but not to the verify play, which receives only `-e @/work/effective-vars.yaml`. Verification therefore resolves every toggle from `group_vars` plus the scenario file plus the container limits, with the profile invisible to it, and any toggle the profile turns off while `group_vars` turns it on is expected by verification and correctly absent from the machine. Concretely, `install_chrome`, `install_nodejs`, `install_java`, `install_vscode` and the rest of the profile's disabled list are true in [../../setup/ansible/group_vars/all.yaml](../../setup/ansible/group_vars/all.yaml), so the native assertion will report them missing, and `install_tailscale`, `install_openrazer` and `install_docker` are true there too, so those three conditional assertions run against a machine that was correctly told not to install them. A non-zero `verify_rc` on this scenario is therefore the expected structural outcome today, not a playbook regression.
+A harness limitation you must account for before writing a verdict. [../tier3/container.sh](../tier3/container.sh) passes the profile to the playbook but not to the verify play, which receives only `-e @/work/effective-vars.yaml`. Verification therefore resolves every toggle from `group_vars` plus the scenario file plus the container limits, with the profile invisible to it, and any toggle the profile turns off while `group_vars` turns it on is expected by verification and correctly absent from the machine. Concretely, `install_chrome`, `install_nodejs`, `install_java`, `install_vscode` and the rest of the profile's disabled list are true in [../../setup/ansible/group_vars/all.yaml](../../setup/ansible/group_vars/all.yaml), so the native assertion will report them missing, and `install_tailscale`, `install_openrazer` and `install_docker` are true there too, so those three conditional assertions run against a machine that was correctly told not to install them. A non-zero `verify_rc` on this scenario is therefore the expected structural outcome today, not a playbook regression.
 
 How to judge the run despite that. Take the missing lists out of the verify log, compare them item by item against the profile's disabled toggles, and confirm every reported miss is explained by one of them. Anything missing that the profile did not turn off is a real failure. Record that comparison in the Result summary, and treat `playbook_rc: 0` plus a fully explained missing list as a pass. Do not tick the native and flatpak assertion boxes as clean passes when the missing list is non-empty. Fixing this properly means passing the profile to the verify play as well, which is a harness change and out of this capability's scope.
 

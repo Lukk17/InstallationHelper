@@ -94,13 +94,13 @@ Two steps, because three hours should not be tied to the shell that started it. 
 Step 1. Launch and return. The command prints the run directory, the container name, and the two commands to follow and to collect.
 
 ```bash
-./e2e/tier3/arch_container.sh e2e/tier3/scenarios/01-defaults.yaml --detach
+./e2e/tier3/container.sh e2e/tier3/scenarios/01-defaults.yaml --detach
 ```
 
 From a PowerShell prompt on Windows, the same launch inside WSL.
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/arch_container.sh e2e/tier3/scenarios/01-defaults.yaml --detach"
+wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/01-defaults.yaml --detach"
 ```
 
 Follow it from any shell, as often as you like, using the container name the launch printed.
@@ -112,7 +112,7 @@ docker exec <container-name> tail -f /work/playbook.log
 Step 2. Wait until step 1's playbook has finished, then verify, record and tear down, substituting the run directory the launch printed. Collecting early is safe: it reports the task currently executing and exits 3 without touching anything.
 
 ```bash
-./e2e/tier3/arch_container.sh --collect e2e/runs/<run-id>
+./e2e/tier3/container.sh --collect e2e/runs/<run-id>
 ```
 
 The single-command form below does the same work in the foreground and is fine when you can leave a shell open for three hours.

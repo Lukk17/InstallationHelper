@@ -9,12 +9,17 @@
 #   run.sh --tier 3 --scenario smoke        one scenario in a container
 #   run.sh --tier 3 --scenario all          every scenario, sequentially (hours)
 #   run.sh --tier 3 --scenario all --jobs 3 every scenario, three at a time
+#   run.sh --tier 3 --scenario smoke --os debian    the same scenario on another distro
 #   run.sh --list                   show the scenarios and what each one covers
 #   run.sh --help
 #
 # --jobs only affects tier 3. Each scenario gets its own throwaway container, so they
 # are safe to overlap. The limit is host memory, roughly 3 GB per running scenario, and
 # on Windows the ceiling is WSL's rather than the host's.
+#
+# --os picks the distribution, defaulting to arch. One Dockerfile per distribution in
+# tier3/, and container.sh refuses a name that has none rather than quietly falling back
+# to arch, because testing the wrong distribution is worse than testing nothing.
 #
 # Tiers 2 and 3 need Docker and a Linux shell. On Windows run this from inside WSL,
 # which is also the only place the playbook itself runs.
@@ -24,6 +29,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 TIER="1"
 SCENARIO=""
 JOBS="1"
+OS="arch"
 
 usage() { sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -47,6 +53,8 @@ while [[ $# -gt 0 ]]; do
         --scenario=*) SCENARIO="${1#--scenario=}" ;;
         --jobs)     shift; JOBS="${1:?--jobs needs a value}" ;;
         --jobs=*)   JOBS="${1#--jobs=}" ;;
+        --os)       shift; OS="${1:?--os needs a value}" ;;
+        --os=*)     OS="${1#--os=}" ;;
         *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
     shift
@@ -109,7 +117,7 @@ run_tier3() {
     if [[ "${JOBS}" -le 1 ]]; then
         for f in "${files[@]}"; do
             echo
-            bash "${E2E_ROOT}/tier3/arch_container.sh" "${f}" || { rc=1; failed+=("$(basename "${f}")"); }
+            bash "${E2E_ROOT}/tier3/container.sh" "${f}" --os "${OS}" || { rc=1; failed+=("$(basename "${f}")"); }
         done
     else
         check_memory_headroom "${JOBS}"
@@ -125,7 +133,7 @@ run_tier3() {
                 local f="${queue[0]}"
                 queue=("${queue[@]:1}")
                 local out run_dir
-                out="$(bash "${E2E_ROOT}/tier3/arch_container.sh" "${f}" --detach 2>&1)" || {
+                out="$(bash "${E2E_ROOT}/tier3/container.sh" "${f}" --os "${OS}" --detach 2>&1)" || {
                     rc=1; failed+=("$(basename "${f}") (failed to start)")
                     printf '%s\n' "${out}" | tail -5
                     continue
@@ -146,7 +154,7 @@ run_tier3() {
                 local cout crc
                 # --collect exits 3 while the playbook is still going and touches
                 # nothing, so it doubles as the readiness probe.
-                cout="$(bash "${E2E_ROOT}/tier3/arch_container.sh" --collect "${run_dir}" 2>&1)"
+                cout="$(bash "${E2E_ROOT}/tier3/container.sh" --collect "${run_dir}" 2>&1)"
                 crc=$?
                 [[ ${crc} -eq 3 ]] && continue
                 echo

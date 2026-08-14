@@ -78,10 +78,10 @@ There is no HTTP client here, because the capability under test is an Ansible pl
 | 20 | `./e2e/run.sh --tier 2` |
 | 30 | `./e2e/run.sh --tier 3 --scenario smoke` |
 | 40 | `./e2e/run.sh --tier 3 --scenario kde-configure-only` |
-| 50 | `./e2e/tier3/arch_container.sh e2e/tier3/scenarios/05-live-profile.yaml --detach`, then `--collect` |
-| 60 | `./e2e/tier3/arch_container.sh e2e/tier3/scenarios/01-defaults.yaml --detach`, then `--collect` |
+| 50 | `./e2e/tier3/container.sh e2e/tier3/scenarios/05-live-profile.yaml --detach`, then `--collect` |
+| 60 | `./e2e/tier3/container.sh e2e/tier3/scenarios/01-defaults.yaml --detach`, then `--collect` |
 | 70 | the same detached pair for `03-kde-full.yaml` and for `04-gnome-full.yaml` |
-| 80 | `./e2e/tier3/arch_container.sh e2e/tier3/scenarios/02-all-software.yaml --detach`, then `--collect` |
+| 80 | `./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach`, then `--collect` |
 
 Anything above two hours uses the detached form on purpose. The playbook always runs detached inside the container, so a run is not tied to the shell that started it and an ordinary disconnect cannot throw hours of work away.
 
@@ -114,4 +114,4 @@ The four README files were adapted rather than copied byte for byte, since the o
 1. The eight specs are written to [../../../e2e/testing/](../../../e2e/testing/) as `{N}-{capability}-test.md`, and indexed by [test-spec.md](test-spec.md) in this directory.
 2. The eight run-record templates are written to [../../../e2e/testing/templates/](../../../e2e/testing/templates/) as `{N}-{capability}-tasks.template.md`, and indexed by [tasks-template.md](tasks-template.md) in this directory.
 3. No run record exists yet. The first execution produces `e2e/testing/runs/<UTC-timestamp>_{N}-{capability}-tasks.md` from the matching template, and only then is there anything to write into a `run.md`.
-4. Capability 50 needs a harness fix before its verification can be clean: [../../../e2e/tier3/arch_container.sh](../../../e2e/tier3/arch_container.sh) passes the profile to the playbook but not to the verify play, so verification resolves toggles as though the profile were absent. The spec documents how to judge the run in the meantime. The fix belongs in a separate change against the harness, not here.
+4. Capability 50 needs a harness fix before its verification can be clean: [../../../e2e/tier3/container.sh](../../../e2e/tier3/container.sh) passes the profile to the playbook but not to the verify play, so verification resolves toggles as though the profile were absent. The spec documents how to judge the run in the meantime. The fix belongs in a separate change against the harness, not here.

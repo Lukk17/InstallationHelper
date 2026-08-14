@@ -7,7 +7,7 @@
 # a preinstalled convenience would hide it if that ever broke.
 #
 # systemd runs as PID 1 so tasks that enable units are genuinely exercised. That
-# needs --privileged and the host cgroup mount at run time, see arch_container.sh.
+# needs --privileged and the host cgroup mount at run time, see container.sh.
 FROM archlinux:base
 
 # One transaction, then drop the package cache so the image stays small.

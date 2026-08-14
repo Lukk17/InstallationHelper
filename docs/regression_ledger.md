@@ -26,6 +26,38 @@ A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5
 
 ---
 
+### Open findings, not yet fixed
+
+Everything in the grouped sections below is closed. These four are not, and are recorded here so they cannot be lost. All four were found on 2026-08-14 while building the container harness.
+
+#### The entire Windows path is unreachable
+
+Both wizards invoke the playbook as `ansible-playbook site.yaml -i localhost, -c local` from inside WSL. [setup/setup.ps1](../setup/setup.ps1) does it at its `Invoke-AnsiblePlaybook` function and hands the command to `wsl bash -c`. So the target is the WSL distribution, and `ansible_os_family` reports Debian, which was verified by running the same command the wizard runs and printing the fact.
+
+Consequence: every task gated on `os_family == 'Windows'` never executes, the `windows_core` role never runs, [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) is never loaded as `os_dict` because the pre-task loads `vars/{{ os_family }}.yaml`, and all 77 winget plus 6 Chocolatey mappings are dead. What a Windows user actually gets is the Debian software set installed into their WSL instance.
+
+This is architectural rather than a small bug. Making it work needs the playbook to target Windows as a host, over WinRM or SSH, with an inventory that says so. There is no `ansible_connection`, `ansible_host` or WinRM configuration anywhere in the repository today. Nothing should be added to `vars/Windows.yaml` on the assumption that it runs, and a container for Windows would not help, because there is nothing to point it at.
+
+#### The desktop environment roles' Debian branch names packages that exist on only one of Debian and Ubuntu
+
+Ansible reports Ubuntu as the Debian family, so both take the same branch in [roles/kde_plasma_setup](../setup/ansible/roles/kde_plasma_setup/) and [roles/gnome_setup](../setup/ansible/roles/gnome_setup/). That branch lists `ubuntu-desktop` and `language-pack-kde-pl`, neither of which exists in Debian trixie, and `qt6-style-kvantum`, which does not exist in Ubuntu. Checked with `apt-cache policy` in both containers.
+
+`ansible.builtin.apt` fails the whole task when any name in its list is unknown, so KDE installation is broken on both distributions and GNOME installation is broken on Debian. The fix is a per-distribution split rather than a shared Debian branch, using `ansible_distribution` rather than `os_family`. Left open because it belongs with the Debian and Ubuntu container work rather than the Arch pass.
+
+#### Thirteen network operations sit in the no-rescue bootstrap path with no retries
+
+[site.yaml](../setup/ansible/site.yaml) runs the OS core roles without a rescue block, deliberately, because they are the bootstrap everything else depends on. The unaccounted consequence is that one transient failure there aborts the run before a single package installs.
+
+Observed rather than theorised: two of three parallel container runs died at `system_core : Add Flathub repository (Linux)` about fifteen minutes in, having installed nothing, while the third run, which was ahead of them, got through. The command itself is fine and idempotent, proven by running it three times in a clean container. It was network contention. The task had no retries, and twelve more like it across `system_core`, `arch_core`, `debian_core` and `fedora_core` have the same gap.
+
+The same run also showed the failure is undiagnosable: the log said only "Error executing command." with no stderr and no return code.
+
+#### import_hibernate_task referenced a file that does not exist
+
+`roles/windows_core/tasks/wsl_setup.yaml` runs `schtasks` against `{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml`, and there is no `setup/tasks/` directory anywhere in this repository. The toggle defaulted to true, so it would have failed on every Windows run had the Windows path been reachable at all. Now set false with the reason recorded beside it, which closes the immediate hazard, but the scheduled-task definition is still missing.
+
+---
+
 ### Cross-distro assumptions
 
 #### Arch OpenRazer device group does not exist

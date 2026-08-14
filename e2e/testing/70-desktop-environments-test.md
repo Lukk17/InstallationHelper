@@ -96,19 +96,19 @@ Four steps, two launches and two collections. At five hours each, neither run sh
 Step 1. Launch the KDE run and return.
 
 ```bash
-./e2e/tier3/arch_container.sh e2e/tier3/scenarios/03-kde-full.yaml --detach
+./e2e/tier3/container.sh e2e/tier3/scenarios/03-kde-full.yaml --detach
 ```
 
 From a PowerShell prompt on Windows, the same launch inside WSL.
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/arch_container.sh e2e/tier3/scenarios/03-kde-full.yaml --detach"
+wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/03-kde-full.yaml --detach"
 ```
 
 Step 2. Launch the GNOME run and return. Do this immediately after step 1 only if the machine has the disk and bandwidth for two 300 minute installs at once, otherwise wait until step 3 has finished. See the Concurrency section.
 
 ```bash
-./e2e/tier3/arch_container.sh e2e/tier3/scenarios/04-gnome-full.yaml --detach
+./e2e/tier3/container.sh e2e/tier3/scenarios/04-gnome-full.yaml --detach
 ```
 
 Follow either run from any shell, using the container name that launch printed.
@@ -120,13 +120,13 @@ docker exec <container-name> tail -f /work/playbook.log
 Step 3. Wait until the KDE playbook has finished, then verify, record and tear down, substituting the run directory step 1 printed. Collecting early is safe: it reports the task currently executing and exits 3 without touching anything.
 
 ```bash
-./e2e/tier3/arch_container.sh --collect e2e/runs/<kde-run-id>
+./e2e/tier3/container.sh --collect e2e/runs/<kde-run-id>
 ```
 
 Step 4. The same for the GNOME run, using the run directory step 2 printed.
 
 ```bash
-./e2e/tier3/arch_container.sh --collect e2e/runs/<gnome-run-id>
+./e2e/tier3/container.sh --collect e2e/runs/<gnome-run-id>
 ```
 
 ---

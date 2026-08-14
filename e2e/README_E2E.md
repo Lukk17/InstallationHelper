@@ -40,10 +40,16 @@ See what scenarios exist and what each covers.
 ./e2e/run.sh --list
 ```
 
-Run the fast container scenario, which takes roughly 20 to 30 minutes.
+Run the fast container scenario, which takes roughly 20 minutes.
 
 ```bash
 ./e2e/run.sh --tier 3 --scenario smoke
+```
+
+Run it on a different distribution.
+
+```bash
+./e2e/run.sh --tier 3 --scenario smoke --os debian
 ```
 
 Run every scenario, sequentially. Budget most of a day.
@@ -61,7 +67,7 @@ The playbook always runs detached inside the container, writing its own log and 
 Start a scenario and get your prompt back immediately.
 
 ```bash
-./e2e/tier3/arch_container.sh e2e/tier3/scenarios/02-all-software.yaml --detach
+./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach
 ```
 
 Watch it, from any shell, as many times as you like.
@@ -73,7 +79,7 @@ docker exec <container-name> tail -f /work/playbook.log
 Then verify, record and tear down, whenever it has finished.
 
 ```bash
-./e2e/tier3/arch_container.sh --collect e2e/runs/<run-id>
+./e2e/tier3/container.sh --collect e2e/runs/<run-id>
 ```
 
 Collecting a run that has not finished yet is safe. It reports the task currently executing and exits 3 without touching anything.
@@ -136,7 +142,32 @@ Everything merely slow or awkward stays enabled. Pre-suppressing something becau
 
 Two consequences worth knowing before reading a failure as a bug. Kernel modules never build, because `/usr/lib/modules` belongs to the host, so anything using DKMS reports missing headers. And there is no login session, so tasks that need a live user D-Bus take their documented fallback path instead.
 
-macOS and Windows cannot be tested this way at all. A container shares the host kernel, so a Darwin container cannot exist, and Windows Server Core containers have no MSIX subsystem and therefore no winget. Both need real machines, or hosted runners on real machines.
+---
+
+### Which distributions, and why Ubuntu is separate from Debian
+
+| `--os` | Base image | Notes |
+|---|---|---|
+| arch | archlinux:base | Rolling, so there is no version to pin. The only one exercised so far |
+| debian | debian:trixie | Debian 13, current stable |
+| ubuntu | ubuntu:26.04 | Latest LTS |
+| fedora | fedora:44 | Current stable. Tag 45 exists but is still branched |
+
+Ansible reports Ubuntu as the Debian family, so both load the same [vars/Debian.yaml](../setup/ansible/vars/Debian.yaml) and both take the same branch in every task gated on `os_family`. That is exactly why they need separate images: the shared branch is only correct if the package names hold on both, and they do not. `ubuntu-desktop` and `language-pack-kde-pl` do not exist in Debian, while `qt6-style-kvantum` does not exist in Ubuntu 24.04, and all three are named in the desktop environment roles' Debian branch. One image would have hidden half of that.
+
+Base image tags are pinned rather than tracking `latest`, because a moving base means the harness quietly starts testing a different system than the one you last got a result from.
+
+---
+
+### macOS and Windows
+
+Neither can be tested this way, for different reasons.
+
+A container shares the host kernel, so a Darwin container cannot exist on a Linux or Windows kernel. That is a design fact rather than a licensing quibble, and virtualising macOS is separately restricted by Apple to Apple hardware.
+
+Windows containers are real and the images are free, but two things block them here. Server Core and Nano Server have no MSIX or AppX subsystem, and winget is delivered as an MSIX package, so 77 of the Windows mappings cannot be exercised at all while the 6 Chocolatey ones could. Docker Desktop also runs one daemon mode at a time, so switching to Windows containers turns off every Linux container until you switch back.
+
+The larger obstacle is upstream of containers entirely. Both wizards invoke the playbook as `ansible-playbook site.yaml -i localhost, -c local` from inside WSL, so the target is the WSL distribution and `ansible_os_family` reports Debian. Verified by running the same command the wizard runs. Every task gated on `os_family == 'Windows'` therefore never executes, [vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) is never loaded as `os_dict`, and what a Windows user actually gets is the Debian software set installed into their WSL instance. Giving the harness a Windows container would not change that, because there is nothing to point it at yet. Recorded in [docs/regression_ledger.md](../docs/regression_ledger.md) as an open finding.
 
 ---
 

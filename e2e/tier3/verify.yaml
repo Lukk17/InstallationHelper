@@ -54,12 +54,22 @@
              | map(attribute='value.package') | list }}
 
     # --- what is actually there ---------------------------------------------
+    # One command per family, each printing one bare package name per line so the
+    # comparison below is family-independent. Ubuntu is not listed separately because
+    # Ansible reports it as the Debian family, which is also why it shares
+    # vars/Debian.yaml and why it needs its own container to catch the cases where that
+    # sharing is wrong.
     - name: List installed native packages
-      ansible.builtin.command: pacman -Qq
+      ansible.builtin.command: "{{ native_query[ansible_facts['os_family']] }}"
+      vars:
+        native_query:
+          Archlinux: "pacman -Qq"
+          Debian: "dpkg-query -W -f=${Package}\n"
+          RedHat: "rpm -qa --qf %{NAME}\n"
       register: installed_native_raw
       changed_when: false
       failed_when: false
-      when: ansible_facts['os_family'] == 'Archlinux'
+      when: ansible_facts['os_family'] in ['Archlinux', 'Debian', 'RedHat']
 
     - name: List installed flatpak applications
       ansible.builtin.command: flatpak list --app --columns=application
@@ -120,16 +130,16 @@
       register: temp_sudoers
 
     # --- desktop environment ------------------------------------------------
+    # Probes for the binary rather than a package name. The package names differ per
+    # family and are not even packages everywhere: KDE is kde-standard on Debian,
+    # plasma-meta on Arch and the "@KDE Plasma Workspaces" group on Fedora. The shell
+    # binary is the same path on all three, and its presence is what actually determines
+    # whether the user gets a desktop. gnome_setup already stats this exact path.
     - name: Check for the expected desktop environment
-      ansible.builtin.command: "pacman -Qq {{ de_probe_package }}"
+      ansible.builtin.stat:
+        path: "{{ '/usr/bin/plasmashell' if (e2e_expect_desktop | default('none')) == 'kde' else '/usr/bin/gnome-shell' }}"
       register: de_probe
-      changed_when: false
-      failed_when: false
-      vars:
-        de_probe_package: "{{ 'plasma-desktop' if e2e_expect_desktop | default('none') == 'kde' else 'gnome-shell' }}"
-      when:
-        - ansible_facts['os_family'] == 'Archlinux'
-        - (e2e_expect_desktop | default('none')) in ['kde', 'gnome']
+      when: (e2e_expect_desktop | default('none')) in ['kde', 'gnome']
 
     # --- assertions ----------------------------------------------------------
     - name: Assert every enabled native package is installed
@@ -190,10 +200,8 @@
 
     - name: Assert the expected desktop environment is installed
       ansible.builtin.assert:
-        that: de_probe.rc == 0
-        success_msg: "PASS {{ e2e_expect_desktop }} is installed"
-        fail_msg: "FAIL {{ e2e_expect_desktop }} was requested but its main package is not installed"
+        that: de_probe.stat.exists
+        success_msg: "PASS {{ e2e_expect_desktop }} shell binary is present"
+        fail_msg: "FAIL {{ e2e_expect_desktop }} was requested but its shell binary is not on disk"
         quiet: true
-      when:
-        - ansible_facts['os_family'] == 'Archlinux'
-        - (e2e_expect_desktop | default('none')) in ['kde', 'gnome']
+      when: (e2e_expect_desktop | default('none')) in ['kde', 'gnome']

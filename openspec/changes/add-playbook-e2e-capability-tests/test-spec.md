@@ -56,7 +56,7 @@ One thing every container spec flags as collected but not asserted: [../../../e2
 
 ## Known divergence between a spec and the harness
 
-Capability 50 cannot produce a clean verification today, and the spec says so rather than papering over it. [../../../e2e/tier3/arch_container.sh](../../../e2e/tier3/arch_container.sh) passes `-e @profiles/linux_live.yaml` to the playbook but not to the verify play, which receives only the effective variable file. Verification therefore resolves every toggle as though the profile were absent, so each toggle the profile disables while `group_vars` enables it is expected by verification and correctly absent from the machine. The spec's Expected section says what to compare, and how to reach a verdict in the meantime. Fixing it means passing the profile to the verify play too, which is a change against the harness and belongs in its own change, not here.
+Capability 50 cannot produce a clean verification today, and the spec says so rather than papering over it. [../../../e2e/tier3/container.sh](../../../e2e/tier3/container.sh) passes `-e @profiles/linux_live.yaml` to the playbook but not to the verify play, which receives only the effective variable file. Verification therefore resolves every toggle as though the profile were absent, so each toggle the profile disables while `group_vars` enables it is expected by verification and correctly absent from the machine. The spec's Expected section says what to compare, and how to reach a verdict in the meantime. Fixing it means passing the profile to the verify play too, which is a change against the harness and belongs in its own change, not here.
 
 ---
 

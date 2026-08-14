@@ -99,13 +99,13 @@ Two steps. At five hours this must not be tied to the shell that started it, and
 Step 1. Launch and return. The command prints the run directory, the container name, how many toggles it generated, and which ones it excluded.
 
 ```bash
-./e2e/tier3/arch_container.sh e2e/tier3/scenarios/02-all-software.yaml --detach
+./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach
 ```
 
 From a PowerShell prompt on Windows, the same launch inside WSL.
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/arch_container.sh e2e/tier3/scenarios/02-all-software.yaml --detach"
+wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach"
 ```
 
 Follow it from any shell, as often as you like, using the container name the launch printed.
@@ -117,7 +117,7 @@ docker exec <container-name> tail -f /work/playbook.log
 Step 2. Wait until step 1's playbook has finished, then verify, record and tear down, substituting the run directory the launch printed. Collecting early is safe: it reports the task currently executing and exits 3 without touching anything, so repeat it rather than guessing.
 
 ```bash
-./e2e/tier3/arch_container.sh --collect e2e/runs/<run-id>
+./e2e/tier3/container.sh --collect e2e/runs/<run-id>
 ```
 
 ---
