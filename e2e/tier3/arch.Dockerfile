@@ -10,11 +10,21 @@
 # needs --privileged and the host cgroup mount at run time, see container.sh.
 FROM archlinux:base
 
-# One transaction, then drop the package cache so the image stays small.
-RUN pacman -Syu --noconfirm --needed \
+# The locale data has to be restored before anything else. The published Arch container image
+# slims itself with NoExtract rules that strip usr/share/i18n, so /usr/share/i18n/SUPPORTED is
+# absent and system_core's locale generation fails with "No such file or directory" on a file
+# every real Arch install has. Dropping those rules and reinstalling glibc costs a few tens of
+# megabytes and buys a container that actually exercises the locale tasks. Suppressing the
+# task instead would have turned a genuine step into an untested gap, which is the failure
+# mode this whole directory exists to prevent.
+#
+# One transaction after that, then drop the package cache so the image stays small.
+RUN sed -i -E '/^NoExtract.*(locale|i18n)/d' /etc/pacman.conf \
+    && pacman -Syu --noconfirm --needed \
         sudo \
         ansible-core \
         which \
+    && pacman -S --noconfirm --overwrite '*' glibc \
     && pacman -Scc --noconfirm
 
 # The playbook runs as a normal user who escalates with sudo, matching how a person
