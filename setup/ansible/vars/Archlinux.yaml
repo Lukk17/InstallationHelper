@@ -1,4 +1,10 @@
 ---
+# Group that OpenRazer's udev rules grant device access to. Arch carries a
+# downstream patch (0001-Use-openrazer-group.patch) replacing upstream's plugdev
+# with a dedicated group created by the package's own sysusers.conf. plugdev does
+# not exist on Arch at all.
+openrazer_device_group: "openrazer"
+
 software_mapping:
   # Browsers
   chrome: { manager: "aur", package: "google-chrome" }
@@ -22,6 +28,7 @@ software_mapping:
   ripgrep: { manager: "pacman", package: "ripgrep" }
   lens: { manager: "aur", package: "lens-bin" }
   filezilla: { manager: "pacman", package: "filezilla" }
+  putty: { manager: "pacman", package: "putty" }
 
 
   # IDEs / Editors (JetBrains via AUR)

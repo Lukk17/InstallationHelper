@@ -1,4 +1,9 @@
 ---
+# Group that OpenRazer's udev rules grant device access to. Fedora has no plugdev
+# in the base system, the openSUSE Build Service hardware:razer package creates
+# it, and upstream's rule file is unpatched.
+openrazer_device_group: "plugdev"
+
 software_mapping:
   # Browsers
   chrome: { manager: "dnf", package: "google-chrome-stable" }
@@ -8,7 +13,9 @@ software_mapping:
   # Dev Tools
   git: { manager: "dnf", package: "git" }
   maven: { manager: "dnf", package: "maven" }
-  # gradle: not in Fedora repos — use SDKMAN
+  # gradle: not packaged by Fedora at all, so sdk_manager installs it through SDKMAN.
+  # That role keys off this mapping being absent, so adding a gradle entry here turns
+  # the SDKMAN path off. Do not add one without checking `dnf info gradle` first.
   postman: { manager: "flatpak", package: "com.getpostman.Postman" }
   openssl: { manager: "dnf", package: "openssl" }
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
@@ -22,6 +29,7 @@ software_mapping:
   ripgrep: { manager: "dnf", package: "ripgrep" }
   lens: { manager: "dnf", package: "lens" }                     # Official Lens dnf repo (fedora_repos.yaml)
   filezilla: { manager: "dnf", package: "filezilla" }
+  putty: { manager: "dnf", package: "putty" }
 
   # IDEs / Editors
   vscode: { manager: "dnf", package: "code" }

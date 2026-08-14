@@ -16,7 +16,7 @@ install_balena_etcher: true    # Alt for Rufus
 
 # Virtualization toggles
 install_virtualbox: true
-install_vmware: true
+install_vmware: false          # The vmware-fusion Homebrew cask no longer exists, Broadcom moved the download behind a portal login. Use install_utm, or install Fusion by hand.
 # User Identity for privilege-safe operations (macOS)
 non_root_home: "/Users/{{ non_root_user }}"
 

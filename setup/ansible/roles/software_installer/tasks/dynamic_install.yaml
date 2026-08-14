@@ -41,6 +41,14 @@
       tags: [dnf_batch]
       when: ansible_facts['os_family'] == 'RedHat'
 
+    - name: Install Arch prerequisites (DKMS kernel headers)
+      ansible.builtin.include_tasks:
+        file: arch_prereqs.yaml
+        apply:
+          tags: [pacman_batch]
+      tags: [pacman_batch]
+      when: ansible_facts['os_family'] == 'Archlinux'
+
     # APT batched install runs ~7 min on Ubuntu and trips the 2.19 ansiballz
     # race; raw bypasses the Python module entirely. Env vars are inline
     # because raw doesn't honor the task-level `environment:` key. See
@@ -203,20 +211,13 @@
       when:
         - ansible_facts['os_family'] == 'Archlinux'
         - pacman_packages | length > 0
-      register: pacman_result
-      failed_when:
-        - pacman_result.failed | default(false)
-        - "'could not find' not in (pacman_result.msg | default(''))"
       tags: [pacman_batch]
-
-    - name: Hint about multilib if pacman could not find a package
-      ansible.builtin.debug:
-        msg: "[HINT] Pacman could not find one of the requested packages. Enable multilib in /etc/pacman.conf if it's a 32-bit/Steam dep."
-      when:
-        - ansible_facts['os_family'] == 'Archlinux'
-        - pacman_result is defined
-        - "'could not find' in (pacman_result.msg | default(''))"
-      tags: [pacman_batch]
+      # No failed_when here on purpose. It used to hold two conditions, which
+      # Ansible combines with AND, so any "could not find" error marked a fully
+      # failed batch as OK. One wrong package name then silently dropped every
+      # pacman package from the run while the play stayed green. The multilib
+      # guidance that lived here now comes out of the rescue below, which sees the
+      # real message. See docs/regression_ledger.md.
 
     # Fire all AUR builds in parallel (poll: 0 = fire-and-forget).
     # `throttle: 2` caps concurrency so we don't swamp the pacman DB lock
@@ -456,8 +457,27 @@
     - name: Include macOS custom install tasks
       ansible.builtin.include_tasks: macos_install.yaml
       when: ansible_facts['os_family'] == 'Darwin'
+  # This rescue keeps the rest of the playbook running after an install error, but
+  # it used to emit one anonymous warning line, which hid both which task failed
+  # and the fact that every later task in this block was skipped. It also never
+  # propagated, so site.yaml's own rescue around this role never fired and the run
+  # exited zero. See docs/regression_ledger.md.
   rescue:
-    - name: Show installation errors
+    - name: Name the install step that failed and what it cost
       ansible.builtin.debug:
-        msg: "[WARNING] Some packages failed to install. Check individual errors above."
+        msg: >-
+          [ERROR] Install step '{{ ansible_failed_task.name | default('unknown') }}' failed:
+          {{ ansible_failed_result.msg | default(ansible_failed_result.stderr | default('no message given')) }}
+          Every remaining task in the software installer was skipped, so anything
+          listed after this step is NOT installed.
+          {% if 'could not find' in (ansible_failed_result.msg | default('')) %}
+          A package name did not resolve. Either the name in
+          vars/{{ ansible_facts['os_family'] }}.yaml is wrong, or it lives in a
+          repository that is not enabled, which on Arch means multilib in
+          /etc/pacman.conf for the 32-bit Steam dependencies.
+          {% endif %}
+
+    - name: Propagate the installer failure to the play summary
+      ansible.builtin.set_fact:
+        any_role_failed: true
   when: software_installer_packages is defined and software_installer_packages | length > 0

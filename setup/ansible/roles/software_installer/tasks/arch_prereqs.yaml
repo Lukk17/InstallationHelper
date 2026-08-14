@@ -1,0 +1,64 @@
+---
+# Arch prerequisites that must land before the batched pacman install, the same
+# role debian_repos.yaml and fedora_repos.yaml play for their families.
+
+# --- Kernel headers for DKMS modules ---
+# Arch's dkms package lists linux-headers only as an optional dependency, so
+# pulling openrazer-daemon installs openrazer-driver-dkms with nothing to build
+# against. The alpm hook reports "Missing <ver> kernel headers" and still exits
+# zero, so the module silently never builds and the daemon exits at startup.
+# Fedora already installs kernel-devel and kernel-headers for the same reason.
+#
+# Headers are per kernel flavour (linux, linux-lts, linux-zen, linux-hardened),
+# so the package name is derived from each installed kernel's own pkgbase file
+# rather than hardcoded. Every installed kernel is covered, not just the running
+# one, because a full system upgrade earlier in this playbook can replace the
+# running kernel's module tree before this task runs.
+- name: Find the pkgbase marker of every installed kernel (Arch)
+  ansible.builtin.find:
+    paths: /usr/lib/modules
+    patterns: pkgbase
+    file_type: file
+    recurse: true
+    depth: 2
+  register: arch_kernel_pkgbase_files
+  when: install_openrazer | default(false) | bool
+
+- name: Read the package base of every installed kernel (Arch)
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  register: arch_kernel_pkgbases
+  become: true
+  loop: "{{ arch_kernel_pkgbase_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: install_openrazer | default(false) | bool
+
+- name: Install matching kernel headers for DKMS modules (Arch)
+  community.general.pacman:
+    name: "{{ arch_dkms_header_packages }}"
+    state: present
+  become: true
+  vars:
+    arch_dkms_header_packages: >-
+      {{ arch_kernel_pkgbases.results | default([])
+         | selectattr('content', 'defined')
+         | map(attribute='content')
+         | map('b64decode')
+         | map('trim')
+         | map('regex_replace', '^(.+)$', '\1-headers')
+         | unique
+         | list }}
+  when:
+    - install_openrazer | default(false) | bool
+    - arch_dkms_header_packages | length > 0
+
+# A container has no /usr/lib/modules at all, because the kernel belongs to the
+# host, so this is the expected outcome under the e2e harness rather than a
+# fault. On real hardware it means the DKMS module will not build.
+- name: Report that no kernel headers could be resolved (Arch)
+  ansible.builtin.debug:
+    msg: "[WARN] No installed kernel found under /usr/lib/modules, so DKMS kernel headers were not installed. The OpenRazer driver will not build until headers matching your kernel are present."
+  when:
+    - install_openrazer | default(false) | bool
+    - arch_kernel_pkgbase_files.files | default([]) | length == 0

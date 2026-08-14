@@ -100,8 +100,12 @@ software_mapping:
   # Virtualization
   utm: { manager: "brew_cask", package: "utm" }
   docker: { manager: "brew_cask", package: "docker-desktop" }
-  # macOS does not have VMware Workstation Player (Windows/Linux only).
-  # The closest equivalent is VMware Fusion. The `install_vmware` toggle in
-  # group_vars/macos.yaml maps here.
-  vmware: { manager: "brew_cask", package: "vmware-fusion" }
+  # macOS does not have VMware Workstation Player (Windows/Linux only). The closest
+  # equivalent was VMware Fusion, but the `vmware-fusion` cask no longer exists in
+  # homebrew-cask: Broadcom moved the download behind a portal login, which is the same
+  # reason the Windows auto-download broke. Searching the full cask index for "vmware"
+  # now returns only vagrant-vmware-utility. Left mapped-out rather than deleted so the
+  # next person does not re-add a name that cannot resolve. Use UTM instead, which is
+  # already mapped above, or install Fusion by hand from Broadcom's portal.
+  # vmware: { manager: "brew_cask", package: "vmware-fusion" }
 

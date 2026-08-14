@@ -49,6 +49,34 @@
     'is already installed' not in (sdk_java_install.stdout | default('')) and
     'is already installed' not in (sdk_java_install.stderr | default(''))
 
+# Gradle only where the OS cannot supply a usable one. Arch and macOS both package
+# a current Gradle, so they get it from the software_installer instead and this task
+# skips. The condition reads the os_dict mapping rather than naming distributions, so
+# adding a native gradle entry to a vars file is all it takes to switch a family over.
+# Before this existed, Debian and Fedora had install_gradle: true, no mapping, and a
+# comment claiming SDKMAN handled it, so Gradle was simply never installed on either.
+# See docs/regression_ledger.md.
+- name: Install Gradle via SDKMAN where the OS has no native package (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    timeout 600 bash -c 'source {{ non_root_home }}/.sdkman/bin/sdkman-init.sh && sdk install gradle {{ gradle_id }} <<<"n"'
+  args:
+    executable: /bin/bash
+    creates: "{{ non_root_home }}/.sdkman/candidates/gradle/{{ gradle_id }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: sdk_gradle_install
+  retries: 2
+  delay: 30
+  until: sdk_gradle_install is succeeded
+  failed_when: >
+    sdk_gradle_install.rc | default(0) != 0 and
+    'is already installed' not in (sdk_gradle_install.stdout | default('')) and
+    'is already installed' not in (sdk_gradle_install.stderr | default(''))
+  when:
+    - install_gradle | default(false) | bool
+    - os_dict.software_mapping.gradle is not defined
+
 - name: Set default Java via SDKMAN (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail

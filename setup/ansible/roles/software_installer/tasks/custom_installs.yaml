@@ -306,18 +306,43 @@
     - install_tailscale | default(false) | bool
 
 # --- OpenRazer: device access group and reboot notice ---
-# The OpenRazer daemon talks to devices through udev rules that grant the
-# plugdev group access, so a user outside that group sees no hardware even with
-# the driver loaded. Membership only takes effect on the next login.
-- name: Add the non-root user to the plugdev group (OpenRazer device access)
+# The OpenRazer daemon talks to devices through udev rules that grant one group
+# access, so a user outside that group sees no hardware even with the driver
+# loaded. Which group that is, is a per-distribution fact and therefore lives in
+# os_dict: Arch patches upstream to use `openrazer` and has no plugdev at all,
+# Debian ships plugdev in the base system, Fedora's package creates it. Hardcoding
+# plugdev here failed every Arch run, see docs/regression_ledger.md.
+# Membership only takes effect on the next login.
+- name: Probe for the OpenRazer device group
+  ansible.builtin.getent:
+    database: group
+    key: "{{ os_dict.openrazer_device_group }}"
+    fail_key: false
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_openrazer | default(false) | bool
+    - os_dict.openrazer_device_group is defined
+
+- name: Fail when the OpenRazer device group is absent
+  ansible.builtin.fail:
+    msg: "OpenRazer device group '{{ os_dict.openrazer_device_group }}' does not exist on {{ ansible_facts['distribution'] }}. The OpenRazer package creates it, so its install did not complete. Check the package manager output above rather than rerunning."
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_openrazer | default(false) | bool
+    - os_dict.openrazer_device_group is defined
+    - getent_group[os_dict.openrazer_device_group] is none
+
+- name: Add the non-root user to the OpenRazer device group
   ansible.builtin.user:
     name: "{{ non_root_user }}"
-    groups: plugdev
+    groups: "{{ os_dict.openrazer_device_group }}"
     append: true
   become: true
   when:
     - ansible_facts['system'] == 'Linux'
     - install_openrazer | default(false) | bool
+    - os_dict.openrazer_device_group is defined
 
 # The driver is a DKMS module built against the running kernel. It cannot load
 # until the machine reboots, and on a Secure Boot system it will not load at all
@@ -333,7 +358,7 @@
 
 - name: Report the OpenRazer reboot requirement
   ansible.builtin.debug:
-    msg: "[WARN] OpenRazer installed but the razerkbd/razermouse DKMS modules are not loaded yet. Reboot to load them. On a Secure Boot machine the unsigned module is refused, either sign it or disable Secure Boot. After rebooting, log out and back in so plugdev membership applies."
+    msg: "[WARN] OpenRazer installed but the razerkbd/razermouse DKMS modules are not loaded yet. Reboot to load them. On a Secure Boot machine the unsigned module is refused, either sign it or disable Secure Boot. After rebooting, log out and back in so {{ os_dict.openrazer_device_group | default('device group') }} membership applies."
   when:
     - ansible_facts['system'] == 'Linux'
     - install_openrazer | default(false) | bool

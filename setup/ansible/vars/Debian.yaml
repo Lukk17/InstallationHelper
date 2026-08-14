@@ -1,4 +1,8 @@
 ---
+# Group that OpenRazer's udev rules grant device access to. Debian and Ubuntu
+# ship plugdev in the base system and keep upstream's rule file unpatched.
+openrazer_device_group: "plugdev"
+
 software_mapping:
   # Browsers
   chrome: { manager: "apt", package: "google-chrome-stable" }   # Official Google apt repo, see debian_repos.yaml
@@ -8,7 +12,9 @@ software_mapping:
   # Dev Tools
   git: { manager: "apt", package: "git" }
   maven: { manager: "apt", package: "maven" }
-  # gradle: use SDKMAN (sdk_manager role)
+  # gradle: Debian ships 4.4.1 (2017), far too old to build anything current, so
+  # sdk_manager installs it through SDKMAN instead. That role keys off this mapping
+  # being absent, so adding a gradle entry here turns the SDKMAN path off.
   postman: { manager: "flatpak", package: "com.getpostman.Postman" }
   openssl: { manager: "apt", package: "openssl" }
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
