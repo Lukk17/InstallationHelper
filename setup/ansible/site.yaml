@@ -355,4 +355,21 @@
       become: yes
       when: ansible_facts['system'] == 'Linux'
 
+    # Every role above catches its own failure so one broken role cannot abandon
+    # a 40 minute run. Without this terminal check the play then exited zero even
+    # when roles had failed, so nothing calling the playbook could tell a good run
+    # from a bad one. Kept last so all cleanup, including the sudoers removal,
+    # has already happened. See docs/regression_ledger.md.
+    - name: Fail the run because at least one role failed
+      ansible.builtin.fail:
+        msg: >-
+          One or more roles failed during this run. The failing step named itself
+          above, and ~/installation_issues.log lists every failure. Nothing was
+          rolled back, so rerunning is safe once the cause is fixed. Set
+          allow_role_failures: true if you deliberately want a non-zero role
+          failure to still exit successfully.
+      when:
+        - any_role_failed | default(false) | bool
+        - not (allow_role_failures | default(false) | bool)
+
 
