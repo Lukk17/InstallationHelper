@@ -341,9 +341,14 @@ is_de_key() {
     return 1
 }
 
+# Emits one "<key> ON|OFF" line per boolean toggle. Inline comments and trailing
+# blanks are stripped up front, and the value grep is anchored, so a commented
+# toggle can never reach the caller with its state unconverted. See
+# docs/regression_ledger.md, entry "wizard toggle parse desync".
 read_boolean_toggles() {
     local file="$1"
-    grep -E '^[a-z_]+: (true|false)' "${file}" 2>/dev/null \
+    sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${file}" 2>/dev/null \
+        | grep -E '^[a-z_]+: (true|false)$' \
         | grep -vE "^(${EXCLUDED_VARS}):" \
         | sed 's/: true$/ ON/;s/: false$/ OFF/'
 }
