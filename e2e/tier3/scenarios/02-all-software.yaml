@@ -1,0 +1,20 @@
+---
+# Wizard path: Step 2 "customise", then `a` to select every entry in the checklist.
+#
+# The toggle list is generated at run time from group_vars rather than written out
+# here, so it can never fall behind a newly added toggle. That matters: a hand
+# maintained copy of the list would quietly stop covering new software, which is the
+# same silent-gap failure this suite exists to catch. The runner appends one
+# `install_<key>: true` line per toggle it finds and writes the result into the run
+# directory, so the exact input is always recoverable from the run record.
+e2e_scenario_name: "all-software"
+e2e_scenario_description: "every install_ toggle forced true, as the checklist select-all produces"
+e2e_generate: all_software
+e2e_timeout_minutes: 300
+e2e_expect_desktop: none
+
+# Excluded from the generated list. Not a convenience: this one clones the
+# AUTOMATIC1111 repository and pulls gigabytes of model weights, and group_vars ships
+# it false for the same reason. Enable it by hand if you specifically want to test it.
+e2e_generate_except:
+  - stable_diffusion

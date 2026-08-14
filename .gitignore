@@ -119,3 +119,6 @@ installation_skipped.log
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# End-to-end harness run records (logs and per-run variable files)
+e2e/runs/

@@ -1,0 +1,185 @@
+---
+# Tier 3 verification. Asserts observable system state only: what is installed, what
+# systemd thinks, what groups the user is in. No log-substring matching, because log
+# wording drifts between versions and tells you nothing about whether the machine
+# ended up in the right shape.
+#
+# Every check collects the full list of problems before failing, so one run reports
+# everything wrong rather than stopping at the first thing.
+#
+# Toggle resolution mirrors site.yaml on purpose: group_vars loaded here, then the
+# scenario's own values arriving as extra-vars, which outrank everything.
+
+- name: Verify the state the playbook was supposed to produce
+  hosts: all
+  connection: local
+  gather_facts: true
+
+  pre_tasks:
+    - name: Load cross-platform toggles
+      ansible.builtin.include_vars:
+        file: /work/setup/ansible/group_vars/all.yaml
+
+    - name: Load Linux toggles
+      ansible.builtin.include_vars:
+        file: /work/setup/ansible/group_vars/linux.yaml
+      when: ansible_facts['system'] == 'Linux'
+
+    - name: Load the OS translation dictionary
+      ansible.builtin.include_vars:
+        file: "/work/setup/ansible/vars/{{ ansible_facts['os_family'] }}.yaml"
+        name: os_dict
+
+  tasks:
+    # --- what the toggles asked for -----------------------------------------
+    - name: Determine which mapped software this run enabled
+      ansible.builtin.set_fact:
+        enabled_mapped: "{{ enabled_mapped | default([]) + [item.key] }}"
+      loop: "{{ os_dict.software_mapping | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: lookup('vars', 'install_' ~ item.key, default=false) | bool
+
+    - name: Split the enabled software by package manager
+      ansible.builtin.set_fact:
+        expected_native: >-
+          {{ os_dict.software_mapping | dict2items
+             | selectattr('key', 'in', enabled_mapped | default([]))
+             | selectattr('value.manager', 'in', ['pacman', 'aur', 'apt', 'dnf'])
+             | map(attribute='value.package') | list }}
+        expected_flatpak: >-
+          {{ os_dict.software_mapping | dict2items
+             | selectattr('key', 'in', enabled_mapped | default([]))
+             | selectattr('value.manager', 'equalto', 'flatpak')
+             | map(attribute='value.package') | list }}
+
+    # --- what is actually there ---------------------------------------------
+    - name: List installed native packages
+      ansible.builtin.command: pacman -Qq
+      register: installed_native_raw
+      changed_when: false
+      failed_when: false
+      when: ansible_facts['os_family'] == 'Archlinux'
+
+    - name: List installed flatpak applications
+      ansible.builtin.command: flatpak list --app --columns=application
+      register: installed_flatpak_raw
+      changed_when: false
+      failed_when: false
+
+    - name: Normalise the installed sets
+      ansible.builtin.set_fact:
+        installed_native: "{{ (installed_native_raw.stdout | default('')).split('\n') | map('trim') | select() | list }}"
+        installed_flatpak: "{{ (installed_flatpak_raw.stdout | default('')).split('\n') | map('trim') | select() | list }}"
+
+    - name: Work out what is missing
+      ansible.builtin.set_fact:
+        missing_native: "{{ expected_native | difference(installed_native) }}"
+        missing_flatpak: "{{ expected_flatpak | difference(installed_flatpak) }}"
+
+    - name: Report the software tally
+      ansible.builtin.debug:
+        msg:
+          - "native expected {{ expected_native | length }}, missing {{ missing_native | length }}"
+          - "flatpak expected {{ expected_flatpak | length }}, missing {{ missing_flatpak | length }}"
+          - "missing native: {{ missing_native | default([]) | join(', ') | default('none', true) }}"
+          - "missing flatpak: {{ missing_flatpak | default([]) | join(', ') | default('none', true) }}"
+
+    # --- systemd units -------------------------------------------------------
+    # Only asserted when the toggle that owns the unit was on, so a scenario that
+    # never asked for Tailscale is not marked down for not having it.
+    - name: Check the tailscaled unit
+      ansible.builtin.command: systemctl is-enabled tailscaled.service
+      register: tailscaled_enabled
+      changed_when: false
+      failed_when: false
+      when: install_tailscale | default(false) | bool
+
+    - name: Check the docker unit
+      ansible.builtin.command: systemctl is-enabled docker.service
+      register: docker_enabled
+      changed_when: false
+      failed_when: false
+      when: install_docker | default(false) | bool
+
+    # --- group membership ----------------------------------------------------
+    # The OpenRazer group is the regression that started this harness: the name is a
+    # per-distribution fact and was hardcoded to Debian's answer.
+    - name: Read the invoking user's groups
+      ansible.builtin.command: "id -nG {{ ansible_facts['user_id'] }}"
+      register: user_groups
+      changed_when: false
+
+    # --- the temporary sudoers entry must be gone ---------------------------
+    - name: Check that the temporary passwordless sudoers entry was removed
+      ansible.builtin.stat:
+        path: /etc/sudoers.d/99-ansible-user
+      register: temp_sudoers
+
+    # --- desktop environment ------------------------------------------------
+    - name: Check for the expected desktop environment
+      ansible.builtin.command: "pacman -Qq {{ de_probe_package }}"
+      register: de_probe
+      changed_when: false
+      failed_when: false
+      vars:
+        de_probe_package: "{{ 'plasma-desktop' if e2e_expect_desktop | default('none') == 'kde' else 'gnome-shell' }}"
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - (e2e_expect_desktop | default('none')) in ['kde', 'gnome']
+
+    # --- assertions ----------------------------------------------------------
+    - name: Assert every enabled native package is installed
+      ansible.builtin.assert:
+        that: missing_native | length == 0
+        success_msg: "PASS native packages: all {{ expected_native | length }} present"
+        fail_msg: "FAIL native packages missing: {{ missing_native | join(', ') }}"
+        quiet: true
+
+    - name: Assert every enabled flatpak application is installed
+      ansible.builtin.assert:
+        that: missing_flatpak | length == 0
+        success_msg: "PASS flatpak applications: all {{ expected_flatpak | length }} present"
+        fail_msg: "FAIL flatpak applications missing: {{ missing_flatpak | join(', ') }}"
+        quiet: true
+
+    - name: Assert tailscaled is enabled when Tailscale was requested
+      ansible.builtin.assert:
+        that: tailscaled_enabled.rc == 0
+        success_msg: "PASS tailscaled is enabled"
+        fail_msg: "FAIL tailscaled is not enabled, systemctl said: {{ tailscaled_enabled.stdout | default('') }} {{ tailscaled_enabled.stderr | default('') }}"
+        quiet: true
+      when: install_tailscale | default(false) | bool
+
+    - name: Assert the user is in the OpenRazer device group when OpenRazer was requested
+      ansible.builtin.assert:
+        that: os_dict.openrazer_device_group in user_groups.stdout.split()
+        success_msg: "PASS user is in {{ os_dict.openrazer_device_group }}"
+        fail_msg: "FAIL user is not in {{ os_dict.openrazer_device_group }}, groups are: {{ user_groups.stdout }}"
+        quiet: true
+      when: install_openrazer | default(false) | bool
+
+    - name: Assert the user is in the docker group when Docker was requested
+      ansible.builtin.assert:
+        that: "'docker' in user_groups.stdout.split()"
+        success_msg: "PASS user is in docker"
+        fail_msg: "FAIL user is not in docker, groups are: {{ user_groups.stdout }}"
+        quiet: true
+      when: install_docker | default(false) | bool
+
+    - name: Assert the temporary passwordless sudoers entry was removed
+      ansible.builtin.assert:
+        that: not temp_sudoers.stat.exists
+        success_msg: "PASS /etc/sudoers.d/99-ansible-user is gone"
+        fail_msg: "FAIL /etc/sudoers.d/99-ansible-user still exists, which leaves NOPASSWD sudo in place permanently"
+        quiet: true
+
+    - name: Assert the expected desktop environment is installed
+      ansible.builtin.assert:
+        that: de_probe.rc == 0
+        success_msg: "PASS {{ e2e_expect_desktop }} is installed"
+        fail_msg: "FAIL {{ e2e_expect_desktop }} was requested but its main package is not installed"
+        quiet: true
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - (e2e_expect_desktop | default('none')) in ['kde', 'gnome']

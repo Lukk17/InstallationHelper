@@ -1,0 +1,34 @@
+---
+# Not a wizard path. This is the fast gate meant to run before every commit, so it
+# turns almost everything off and keeps only the toggles that sit on top of a defect
+# this project has actually shipped. It finishes in minutes instead of hours, which
+# is the difference between a check that gets run and one that does not.
+#
+# Each toggle below earns its place by naming the regression it covers. Adding a
+# toggle here without a reason makes the gate slower for nothing, so do not.
+e2e_scenario_name: "smoke"
+e2e_scenario_description: "fast pre-commit gate over the toggles that have historically broken"
+e2e_timeout_minutes: 45
+e2e_expect_desktop: none
+
+# Everything off, then a short allow-list back on.
+e2e_generate: no_software
+
+# OpenRazer: the plugdev group did not exist on Arch, which failed every run, and no
+# kernel headers were installed so the DKMS driver never built.
+install_openrazer: true
+# Tailscale: the playbook enables tailscaled in system scope, so this covers the
+# systemd unit path and needs real systemd to mean anything.
+install_tailscale: true
+# Syncthing: covers the systemd USER unit path and the no-login-session branch.
+install_syncthing: true
+# Steam lives in multilib, so it covers arch_core enabling multilib before the
+# batched pacman install, and the could-not-find failure path if it does not.
+install_steam: true
+# One AUR package, to cover arch_core building an AUR helper from source at all.
+install_chkrootkit: true
+# One flatpak, to cover arch_core setting up Flathub.
+install_polychromatic: true
+# Docker, because virtualization_config adds the user to the docker group and starts
+# the daemon, and group membership is exactly the class of bug that started this.
+install_docker: true

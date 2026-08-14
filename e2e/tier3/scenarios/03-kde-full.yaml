@@ -1,0 +1,12 @@
+---
+# Wizard path: DE screen "kde", action "full", which the wizard turns into
+# install_kde_plasma=true plus configure_kde_plasma=true. Software left at defaults.
+e2e_scenario_name: "kde-full"
+e2e_scenario_description: "KDE Plasma installed and configured, software at defaults"
+e2e_timeout_minutes: 300
+e2e_expect_desktop: kde
+
+install_kde_plasma: true
+configure_kde_plasma: true
+install_gnome: false
+configure_gnome: false

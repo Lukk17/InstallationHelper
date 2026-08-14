@@ -1,0 +1,31 @@
+---
+# Toggles a container provably cannot satisfy, applied on top of every scenario.
+#
+# This list is deliberately short. Anything merely slow, awkward or likely to fail
+# stays enabled, because pre-suppressing it would turn a real defect into a silent
+# gap and the whole point of this harness is to stop doing that. Only things that
+# need hardware or a kernel facility a container does not have are listed, with the
+# reason, and the runner prints the list on every run so nobody mistakes a scenario
+# for full coverage.
+#
+# Known container artefacts that are NOT suppressed here, and are instead recorded
+# per scenario as expected failures, live in each scenario's `e2e_expected_failures`.
+
+# Needs a real swap device and a resume= kernel parameter on the running kernel.
+setup_hibernate: false
+
+# Needs an EFI system partition and a block device to install a bootloader onto.
+setup_systemd_boot: false
+setup_grub: false
+remove_distro_grub: false
+remove_distro_systemd_boot: false
+
+# Needs the binder and ashmem kernel modules, which belong to the host kernel.
+install_waydroid: false
+
+# Both build kernel modules against the running kernel, which is the host's.
+install_virtualbox: false
+install_vmware: false
+
+# Needs a btrfs filesystem to snapshot. The container's overlayfs is not one.
+install_snapper: false

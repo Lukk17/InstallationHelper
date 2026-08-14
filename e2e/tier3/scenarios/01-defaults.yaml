@@ -1,0 +1,9 @@
+---
+# Wizard path: Step 2 "defaults - use group_vars settings as-is", DE "skip".
+# This is what a user gets by pressing Enter through the wizard, and what
+# `setup.sh --non-interactive` runs. No overrides at all, so group_vars is the
+# whole input.
+e2e_scenario_name: "defaults"
+e2e_scenario_description: "group_vars defaults, no wizard overrides, no desktop environment"
+e2e_timeout_minutes: 180
+e2e_expect_desktop: none

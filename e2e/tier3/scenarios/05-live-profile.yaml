@@ -1,0 +1,13 @@
+---
+# Wizard path: Step 2 "profile", then the Linux Live entry. This is the third and
+# least exercised of the wizard's three software paths, and it is the one a USB or
+# live-session install actually takes, so a break here is invisible until someone is
+# standing at a machine with no working system.
+#
+# The runner turns e2e_profile into `-e @profiles/<name>.yaml`, which is exactly what
+# setup.sh does for --profile, rather than restating the profile's contents here.
+e2e_scenario_name: "live-profile"
+e2e_scenario_description: "the linux_live override profile, as the wizard's profile path applies it"
+e2e_profile: linux_live
+e2e_timeout_minutes: 120
+e2e_expect_desktop: none

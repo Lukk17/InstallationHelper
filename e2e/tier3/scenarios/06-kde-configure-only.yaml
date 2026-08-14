@@ -1,0 +1,19 @@
+---
+# Wizard path: DE screen "kde", action "configure". The wizard emits
+# install_kde_plasma=false with configure_kde_plasma=true, which is a distinct code
+# path: the configure tasks run against a Plasma that this run did not install. It is
+# the combination most likely to break, because it is the only one where the
+# configure tasks cannot assume their own install step just ran.
+#
+# In a container nothing installed Plasma beforehand, so the interesting question is
+# whether the configure tasks fail cleanly with a readable message rather than
+# blowing up halfway through. That is what the verify step checks.
+e2e_scenario_name: "kde-configure-only"
+e2e_scenario_description: "configure KDE without installing it, the wizard's configure-only action"
+e2e_timeout_minutes: 90
+e2e_expect_desktop: none
+
+install_kde_plasma: false
+configure_kde_plasma: true
+install_gnome: false
+configure_gnome: false

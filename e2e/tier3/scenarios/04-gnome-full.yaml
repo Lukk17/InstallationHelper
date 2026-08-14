@@ -1,0 +1,12 @@
+---
+# Wizard path: DE screen "gnome", action "full", which the wizard turns into
+# install_gnome=true plus configure_gnome=true. Software left at defaults.
+e2e_scenario_name: "gnome-full"
+e2e_scenario_description: "GNOME installed and configured, software at defaults"
+e2e_timeout_minutes: 300
+e2e_expect_desktop: gnome
+
+install_gnome: true
+configure_gnome: true
+install_kde_plasma: false
+configure_kde_plasma: false

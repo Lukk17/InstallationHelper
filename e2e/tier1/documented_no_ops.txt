@@ -1,0 +1,54 @@
+# Toggles that are deliberately enabled while having no mapping and no install task
+# on a given OS family, with the reason. Format: <os_family> <toggle> <reason>
+#
+# Every line here is a promise that the no-op is intended. The coverage check treats
+# anything NOT listed as a defect, because an enabled toggle with nowhere to go means
+# the user asks for software, the run reports success, and the software is absent.
+# That has happened twice in this project already, with putty and with gradle.
+#
+# Before adding a line, confirm the software genuinely has no install path on that OS.
+# If it does have one, add the mapping instead of an excuse.
+
+# No Linux build published by the vendor.
+Debian     chatgpt          OpenAI publishes no Linux desktop build
+RedHat     chatgpt          OpenAI publishes no Linux desktop build
+Archlinux  chatgpt          OpenAI publishes no Linux desktop build
+
+# Razer Synapse 4 is Windows and macOS only. Linux uses openrazer plus polychromatic.
+Debian     synapse          Razer ships Synapse for Windows and macOS only
+RedHat     synapse          Razer ships Synapse for Windows and macOS only
+Archlinux  synapse          Razer ships Synapse for Windows and macOS only
+
+# No maintained Linux desktop client, and not on Flathub.
+Debian     whatsapp         no official Linux client and not on Flathub
+RedHat     whatsapp         no official Linux client and not on Flathub
+Archlinux  whatsapp         no official Linux client and not on Flathub
+
+# Game storefronts with no official Linux client. Run the games through Proton instead.
+Debian     gog              no official Linux client
+RedHat     gog              no official Linux client
+Archlinux  gog              no official Linux client
+Debian     epic             no official Linux client
+RedHat     epic             no official Linux client
+Archlinux  epic             no official Linux client
+Debian     curseforge       no official Linux client
+RedHat     curseforge       no official Linux client
+Archlinux  curseforge       no official Linux client
+Debian     ea_app           no official Linux client
+RedHat     ea_app           no official Linux client
+Archlinux  ea_app           no official Linux client
+
+# MiniTool Partition Wizard is Windows only. Linux uses gparted or partitionmanager.
+Debian     partition_wizard Windows only, gparted covers this on Linux
+RedHat     partition_wizard Windows only, gparted covers this on Linux
+Archlinux  partition_wizard Windows only, gparted covers this on Linux
+Darwin     partition_wizard Windows only, Disk Utility covers this on macOS
+
+# Arch AUR balena-etcher conflicts with the nodejs version other AUR packages need.
+Archlinux  balena_etcher    AUR package conflicts with nodejs, install the AppImage by hand
+
+# Partition editors that only exist on Linux.
+Darwin     gparted          Linux only, macOS uses Disk Utility
+Darwin     partitionmanager Linux only, macOS uses Disk Utility
+Windows    gparted          Linux only, Windows uses partition_wizard
+Windows    partitionmanager Linux only, Windows uses partition_wizard
