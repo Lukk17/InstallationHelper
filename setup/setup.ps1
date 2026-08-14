@@ -36,7 +36,13 @@ $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $AnsibleDir = Join-Path $ScriptDir 'ansible'
 $AllVars    = Join-Path $AnsibleDir 'group_vars\all.yaml'
 $LinuxVars  = Join-Path $AnsibleDir 'group_vars\linux.yaml'
+$WindowsVars = Join-Path $AnsibleDir 'group_vars\windows.yaml'
 $ProfilesDir = Join-Path $AnsibleDir 'profiles'
+
+# Native Windows installation. Kept in its own file so it can be tested without driving the
+# whole wizard, and because Ansible cannot do this job from here at all: it runs inside WSL
+# against localhost, so its facts describe the WSL distribution rather than Windows.
+. (Join-Path $ScriptDir 'windows\WindowsSoftware.ps1')
 
 # Hidden from the checklist. Only two reasons qualify: the value is not a boolean the
 # checklist could render, or getting it wrong costs a working machine. Everything else
@@ -109,6 +115,29 @@ function Write-Section { param([string]$Title)
 function Write-Hint   { param([string]$Text) Write-Host "  $Text" -ForegroundColor DarkGreen }
 function Write-Status { param([string]$Text) Write-Host "  [*] $Text" -ForegroundColor Green }
 function Write-Err    { param([string]$Text) Write-Host "  [!] $Text" -ForegroundColor Red; throw $Text }
+
+function Show-WindowsSoftwareResult {
+    <#
+    .SYNOPSIS
+        Renders the result of the native Windows install.
+    .DESCRIPTION
+        Names every failure and every toggle that had nowhere to go. A count on its own would
+        let a package quietly not install, which is the class of bug this replaces.
+    #>
+    param([Parameter(Mandatory)] $Result)
+
+    Write-Status "Windows packages: $($Result.Installed.Count) installed, $($Result.Present.Count) already present, $($Result.Failed.Count) failed"
+
+    foreach ($f in $Result.Failed) {
+        Write-Host "  [!] $($f.Key) ($($f.Package)) via $($f.Manager): $($f.Detail)" -ForegroundColor Red
+    }
+
+    if ($Result.Unmapped.Count -gt 0) {
+        Write-Hint "  $($Result.Unmapped.Count) enabled toggle(s) have no Windows package mapping and were not installed:"
+        Write-Hint "    $($Result.Unmapped -join ', ')"
+        Write-Hint '  Some of those are Linux-only by design. The rest are handled by Ansible roles that cannot run on Windows yet, see docs/regression_ledger.md.'
+    }
+}
 
 # ---------------------------------------------------------------------------
 # Guards
@@ -383,9 +412,16 @@ function Invoke-Main {
     wsl bash -c 'mkdir -p "$HOME/.ansible/tmp" "$HOME/.ansible/facts-cache"' | Out-Null
     Install-Collections -WslAnsibleDir $wslAnsibleDir
 
-    # Non-interactive path — skip the wizard.
+    # Non-interactive path — skip the wizard. Still installs the Windows software, because
+    # skipping the prompts is not the same as wanting half a run.
     if ($NonInteractive -or $Profile) {
+        Write-Section 'Installing Windows software'
+        $windowsResult = Invoke-WindowsSoftwareInstall -AnsibleDir $AnsibleDir
+        Show-WindowsSoftwareResult -Result $windowsResult
+
+        Write-Section 'Configuring the Linux environment inside WSL'
         $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars @() -ProfileName $Profile
+        if ($windowsResult.Failed.Count -gt 0 -and $rc -eq 0) { exit 1 }
         exit $rc
     }
 
@@ -393,6 +429,11 @@ function Invoke-Main {
     Write-Status 'Ready.'
 
     $extraVars = [System.Collections.Generic.List[string]]::new()
+
+    # Null means "everything the group_vars files enable". Only the customise path narrows it,
+    # and the profile path deliberately does not, because the profiles are Linux overrides and
+    # have nothing to say about which Windows packages you want.
+    $selectedSoftwareKeys = $null
 
     # Step 1: Desktop environment
     $deChoice = Show-Choice `
@@ -443,10 +484,18 @@ function Invoke-Main {
     switch ($reviewMode) {
         'defaults' { }
         'customise' {
+            # windows.yaml has to be in here. A run from this wizard now does two things,
+            # installing Windows software natively and configuring the Linux side inside WSL,
+            # so the checklist has to offer both sets. Without it the Windows-only toggles
+            # never appeared, which meant a user who chose customise silently lost every
+            # Windows-only application: not being on the list is indistinguishable from being
+            # unticked. Windows keys are harmless in the Ansible extra vars, since the WSL run
+            # has no mapping for them and skips them.
             $seenKeys   = [System.Collections.Generic.HashSet[string]]::new()
             $allToggles = [System.Collections.Generic.List[PSCustomObject]]::new()
-            foreach ($item in (Read-Toggles $AllVars))   { if ($seenKeys.Add($item.Key)) { $allToggles.Add($item) } }
-            foreach ($item in (Read-Toggles $LinuxVars)) { if ($seenKeys.Add($item.Key)) { $allToggles.Add($item) } }
+            foreach ($item in (Read-Toggles $AllVars))     { if ($seenKeys.Add($item.Key)) { $allToggles.Add($item) } }
+            foreach ($item in (Read-Toggles $WindowsVars)) { if ($seenKeys.Add($item.Key)) { $allToggles.Add($item) } }
+            foreach ($item in (Read-Toggles $LinuxVars))   { if ($seenKeys.Add($item.Key)) { $allToggles.Add($item) } }
 
             $deOverrideKeys = $extraVars | ForEach-Object { ($_ -split '=')[0] }
             $checklistItems = @($allToggles | Where-Object { $_.Key -notin $deOverrideKeys })
@@ -459,6 +508,12 @@ function Invoke-Main {
             foreach ($item in $checklistItems) {
                 $extraVars.Add("$($item.Key)=$(($item.Key -in $selectedKeys).ToString().ToLower())")
             }
+
+            # The native Windows installer keys off the bare name, without the install_ prefix
+            # the checklist carries.
+            $selectedSoftwareKeys = @($selectedKeys | ForEach-Object {
+                if ($_ -like 'install_*') { $_.Substring('install_'.Length) } else { $_ }
+            })
         }
         'profile' {
             $profileFile = Show-ProfilePicker
@@ -473,9 +528,11 @@ function Invoke-Main {
 
     # Step 3: Confirm
     Write-Section 'Step 3/3 — Confirm and Run'
+    Write-Hint '  Windows software is installed natively with winget and Chocolatey.'
+    Write-Hint '  The Ansible playbook then configures the Linux environment inside WSL.'
     $confirmed = Show-YesNo `
         -Title  'Confirm' `
-        -Prompt 'Ready to run the Ansible playbook via WSL. Proceed?' `
+        -Prompt 'Install Windows software, then run the playbook inside WSL. Proceed?' `
         -DefaultYes $true
 
     if (-not $confirmed) {
@@ -484,8 +541,24 @@ function Invoke-Main {
 
     Set-Theme
     Write-Banner
-    Write-Section 'Running playbook'
+
+    # Windows software first, natively. Ansible cannot manage the Windows side from here:
+    # it runs inside WSL against localhost, so its facts describe the WSL distribution and
+    # every task gated on Windows is skipped. That is why this step exists and why it does
+    # not go through the playbook. See docs/regression_ledger.md.
+    Write-Section 'Installing Windows software'
+    $windowsResult = Invoke-WindowsSoftwareInstall -AnsibleDir $AnsibleDir -OnlyKeys $selectedSoftwareKeys
+    Show-WindowsSoftwareResult -Result $windowsResult
+
+    # Then the WSL side, which is what the playbook has always actually configured.
+    Write-Section 'Configuring the Linux environment inside WSL'
     $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars $extraVars.ToArray() -ProfileName $Profile
+
+    # A Windows package failure must not be hidden behind a green playbook exit.
+    if ($windowsResult.Failed.Count -gt 0 -and $rc -eq 0) {
+        Write-Hint "  The playbook succeeded but $($windowsResult.Failed.Count) Windows package(s) failed. Exiting non-zero so this is not read as a clean run."
+        exit 1
+    }
     exit $rc
 }
 
