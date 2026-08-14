@@ -111,9 +111,12 @@
       changed_when: false
 
     # --- the temporary sudoers entry must be gone ---------------------------
+    # become is required: /etc/sudoers.d is mode 0750 and root-owned, so an unprivileged
+    # stat fails with Permission denied rather than reporting the file's absence.
     - name: Check that the temporary passwordless sudoers entry was removed
       ansible.builtin.stat:
         path: /etc/sudoers.d/99-ansible-user
+      become: true
       register: temp_sudoers
 
     # --- desktop environment ------------------------------------------------
@@ -164,6 +167,17 @@
         that: "'docker' in user_groups.stdout.split()"
         success_msg: "PASS user is in docker"
         fail_msg: "FAIL user is not in docker, groups are: {{ user_groups.stdout }}"
+        quiet: true
+      when: install_docker | default(false) | bool
+
+    # The unit state was registered but never asserted, so a Docker install that left
+    # its service disabled would have passed. Collected-but-unchecked is the same
+    # shape of defect as a toggle nothing consumes.
+    - name: Assert docker.service is enabled when Docker was requested
+      ansible.builtin.assert:
+        that: docker_enabled.rc == 0
+        success_msg: "PASS docker.service is enabled"
+        fail_msg: "FAIL docker.service is not enabled, systemctl said: {{ docker_enabled.stdout | default('') }} {{ docker_enabled.stderr | default('') }}"
         quiet: true
       when: install_docker | default(false) | bool
 

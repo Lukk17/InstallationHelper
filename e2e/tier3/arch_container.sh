@@ -186,14 +186,16 @@ start_run() {
         -e ANSIBLE_FORCE_COLOR=0 \
         "${CONTAINER}" bash -c "ansible-playbook site.yaml -i 'localhost,' -c local ${profile_arg} -e @/work/effective-vars.yaml > /work/playbook.log 2>&1; echo \$? > /work/playbook.rc"
 
-    # Everything --collect needs, so it does not have to re-derive any of it.
+    # Everything --collect needs, so it does not have to re-derive any of it. Values
+    # are quoted because the description contains spaces and hyphens, and an unquoted
+    # assignment makes `source` try to execute the second word as a command.
     cat > "${RUN_DIR}/meta.env" <<EOF
-CONTAINER=${CONTAINER}
-SCENARIO_NAME=${SCENARIO_NAME}
-SCENARIO_DESC=${SCENARIO_DESC}
-TIMEOUT_MIN=${TIMEOUT_MIN}
-RUN_ID=${RUN_ID}
-STARTED_AT=$(timestamp)
+CONTAINER="${CONTAINER}"
+SCENARIO_NAME="${SCENARIO_NAME}"
+SCENARIO_DESC="${SCENARIO_DESC}"
+TIMEOUT_MIN="${TIMEOUT_MIN}"
+RUN_ID="${RUN_ID}"
+STARTED_AT="$(timestamp)"
 EOF
 }
 
@@ -246,17 +248,43 @@ collect_and_verify() {
         echo "run_id:        ${RUN_ID}"
         echo "playbook_rc:   ${PLAYBOOK_RC}"
         echo "verify_rc:     ${VERIFY_RC}"
+        # ansible.cfg sets stdout_callback = dual_logger, so the output is NOT the
+        # default format. The recap reads "localhost: ok=65 changed=29 ..." with no
+        # column padding, failures are listed under a "FAILED (n)" banner rather than
+        # on fatal: lines, and every line carries a leading timestamp. Parsing the
+        # default format here produced "errors_and_failures: none found" beside a
+        # non-zero exit code, which reads as a pass and is exactly the kind of
+        # misleading output this harness exists to prevent.
         echo "playbook_recap:"
-        local recap errs
-        recap="$(grep -E '^localhost[[:space:]]+:' "${PLAYBOOK_LOG}" || true)"
-        [[ -n "${recap}" ]] && sed 's/^/  /' <<<"${recap}" || echo "  (no recap line, the run did not reach the end)"
-        echo "errors_and_failures:"
-        # Reported as "none found" rather than "none", because a parse error aborts
-        # before any task runs and a bare "none" next to a non-zero exit reads as a pass.
-        errs="$(grep -E '^(fatal:|failed:|\[ERROR\])' "${PLAYBOOK_LOG}" | head -40 || true)"
-        [[ -n "${errs}" ]] && sed 's/^/  /' <<<"${errs}" || echo "  none found in the log, check the log directly"
-        echo "verify_assertions:"
-        grep -E '^(PASS|FAIL)|assertion' "${VERIFY_LOG}" | head -20 | sed 's/^/  /' || echo "  (none parsed)"
+        local recap
+        recap="$(grep -oE 'localhost: ok=[0-9]+.*$' "${PLAYBOOK_LOG}" | tail -1 || true)"
+        [[ -n "${recap}" ]] && echo "  ${recap}" || echo "  (no recap line, the run did not reach the end)"
+
+        echo "wall_time:"
+        grep -oE 'PLAY RECAP — wall time.*$' "${PLAYBOOK_LOG}" | tail -1 | sed 's/^/  /' || echo "  (unknown)"
+
+        echo "installed:"
+        sed -n '/═══ INSTALLED/,/^.*═══ [A-Z]*[^I]/p' "${PLAYBOOK_LOG}" \
+            | sed -E 's/^\[[0-9:]+\] //' | grep -vE '═══|^\s*$' | head -20 | sed 's/^/  /' || echo "  (none)"
+
+        echo "failures:"
+        # Everything under the FAILED banner, timestamps stripped. Reported as an
+        # explicit "no FAILED section" rather than a bare "none", because a parse error
+        # aborts before any task runs and produces no banner at all.
+        local fails
+        fails="$(sed -n '/═══ FAILED/,$p' "${PLAYBOOK_LOG}" | sed -E 's/^\[[0-9:]+\] //' \
+            | grep -vE '^Playbook finished|^\s*$' | head -40 || true)"
+        [[ -n "${fails}" ]] && sed 's/^/  /' <<<"${fails}" \
+            || echo "  no FAILED section in the log. If the exit code is non-zero the run died before the recap, read the log directly."
+
+        echo "verify_failures:"
+        local vfails
+        vfails="$(sed -n '/═══ FAILED/,$p' "${VERIFY_LOG}" 2>/dev/null | sed -E 's/^\[[0-9:]+\] //' \
+            | grep -vE '^Playbook finished|^\s*$' | head -20 || true)"
+        [[ -n "${vfails}" ]] && sed 's/^/  /' <<<"${vfails}" || echo "  none"
+
+        echo "verify_recap:"
+        grep -oE 'localhost: ok=[0-9]+.*$' "${VERIFY_LOG}" 2>/dev/null | tail -1 | sed 's/^/  /' || echo "  (none)"
     } > "${RESULT_FILE}"
 
     cat "${RESULT_FILE}"
@@ -287,6 +315,9 @@ case "${MODE}" in
         echo "  ./e2e/tier3/arch_container.sh --collect ${RUN_DIR}"
         info "Watch progress with:"
         echo "  docker exec ${CONTAINER} tail -f /work/playbook.log"
+        # Machine-readable last line, so the parallel scheduler in run.sh can pick the
+        # run directory up without parsing prose that may change.
+        echo "E2E_RUN_DIR=${RUN_DIR}"
         exit 0
         ;;
     wait)
