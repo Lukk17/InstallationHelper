@@ -36,6 +36,7 @@ install_autoruns: true
 install_rufus: true
 install_powertoys: true
 install_putty: true
+install_appcontrol: true
 
 # Virtualization toggles
 install_virtualbox: true

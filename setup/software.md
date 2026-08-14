@@ -389,6 +389,7 @@ Fedora 42 and newer ship `hardinfo2`, the active fork. The legacy `hardinfo` pac
 | Autoruns | system | not available | not available | `winget install -e --id Microsoft.Sysinternals.Autoruns` |
 | Rufus | USB creator | Balena Etcher | Balena Etcher | `winget install -e --id Rufus.Rufus` |
 | PowerToys | productivity | not available | not available | `winget install -e --id Microsoft.PowerToys` |
+| AppControl | task manager with history | HardInfo / lm_sensors | Stats | `winget install -e --id AppControlLabs.AppControlSetup` |
 | MiniTool Partition Wizard | disk | GParted | not available | `winget install -e --id MiniTool.PartitionWizard.Free` |
 | Samsung Galaxy Buds Manager | audio | not available | not available | `winget install -e --id Samsung.GalaxyBudsManager` |
 

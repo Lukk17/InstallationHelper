@@ -112,6 +112,7 @@ software_mapping:
   autoruns: { manager: "winget", package: "Microsoft.Sysinternals.Autoruns" }
   rufus: { manager: "winget", package: "Rufus.Rufus" }
   powertoys: { manager: "winget", package: "Microsoft.PowerToys" }
+  appcontrol: { manager: "winget", package: "AppControlLabs.AppControlSetup" }   # Task Manager with long-term history, tracks CPU, memory, disk, temperature and GPU over time
 
   # Hardware / OEM companion apps
   galaxy_buds: { manager: "winget", package: "Samsung.GalaxyBudsManager" }
