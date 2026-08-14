@@ -159,15 +159,33 @@ Base image tags are pinned rather than tracking `latest`, because a moving base 
 
 ---
 
-### macOS and Windows
+### Windows
 
-Neither can be tested this way, for different reasons.
+Windows has its own entry point, driven from Windows rather than from WSL.
 
-A container shares the host kernel, so a Darwin container cannot exist on a Linux or Windows kernel. That is a design fact rather than a licensing quibble, and virtualising macOS is separately restricted by Apple to Apple hardware.
+```powershell
+pwsh e2e/tier3/Invoke-WindowsE2E.ps1
+```
 
-Windows containers are real and the images are free, but two things block them here. Server Core and Nano Server have no MSIX or AppX subsystem, and winget is delivered as an MSIX package, so 77 of the Windows mappings cannot be exercised at all while the 6 Chocolatey ones could. Docker Desktop also runs one daemon mode at a time, so switching to Windows containers turns off every Linux container until you switch back.
+Skip the Chocolatey bootstrap for a quick logic-only pass.
 
-The larger obstacle is upstream of containers entirely. Both wizards invoke the playbook as `ansible-playbook site.yaml -i localhost, -c local` from inside WSL, so the target is the WSL distribution and `ansible_os_family` reports Debian. Verified by running the same command the wizard runs. Every task gated on `os_family == 'Windows'` therefore never executes, [vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) is never loaded as `os_dict`, and what a Windows user actually gets is the Debian software set installed into their WSL instance. Giving the harness a Windows container would not change that, because there is nothing to point it at yet. Recorded in [docs/regression_ledger.md](../docs/regression_ledger.md) as an open finding.
+```powershell
+pwsh e2e/tier3/Invoke-WindowsE2E.ps1 -SkipSlow
+```
+
+It is separate because Docker Desktop serves one container platform at a time, and switching to Windows containers turns the Linux daemon off. Every Arch, Debian, Ubuntu and Fedora scenario stops working until you switch back, so finish or stop those first. `run.sh --os windows` says all of this rather than failing on a missing Dockerfile.
+
+What it tests: the logic in [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) on a clean Windows with nothing installed, which is the state a real user starts from and the one a developer machine can never reproduce. That is the YAML parsing, the resulting install plan, the winget resolution failure path, and the Chocolatey bootstrap. The suite is [tier3/windows/WindowsSoftware.Tests.ps1](tier3/windows/WindowsSoftware.Tests.ps1), driven by Pester 5, which the image installs at build time so a run needs no network of its own.
+
+What it cannot test, and does not claim to: any winget installation. winget ships as an MSIX package and needs the AppX deployment subsystem, which Server Core and Nano Server do not have. That is 77 of the 83 Windows mappings. Chocolatey works because it is only PowerShell and NuGet, which covers the remaining 6. There is no way around this in a container, so winget installation needs a real Windows machine or a hosted runner. It also cannot test the wizard's own interface, because `Out-ConsoleGridView` needs a real console.
+
+The base image is `mcr.microsoft.com/windows/servercore:ltsc2025`, which is build 26100 and the closest published Server Core to this project's Windows 11 host at 26200. The driver asks for Hyper-V isolation rather than process isolation, because process isolation wants the container and host builds to match closely and these do not.
+
+---
+
+### macOS
+
+Cannot be tested this way at all. A container shares the host kernel, so a Darwin container cannot exist on a Linux or Windows kernel. That is a design fact rather than a licensing quibble, and virtualising macOS is separately restricted by Apple to Apple hardware. macOS needs real hardware, or a hosted runner on real hardware.
 
 ---
 

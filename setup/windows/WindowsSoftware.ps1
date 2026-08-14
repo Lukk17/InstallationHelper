@@ -276,17 +276,32 @@ exit `$LASTEXITCODE
 "@
 
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))
+
+    # Already-administrator is the normal case in a container and in CI, and there
+    # -Verb RunAs fails outright because it needs an interactive desktop to prompt on. Asking
+    # to elevate when already elevated is also just wasted work, so check first.
+    $identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $isElevated = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+
     try {
-        $proc = Start-Process -FilePath 'pwsh.exe' `
-            -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded) `
-            -Verb RunAs -Wait -PassThru -ErrorAction Stop
+        if ($isElevated) {
+            Write-Verbose 'Already elevated, running choco in this process'
+            $proc = Start-Process -FilePath 'pwsh.exe' `
+                -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded) `
+                -Wait -PassThru -NoNewWindow -ErrorAction Stop
+        } else {
+            $proc = Start-Process -FilePath 'pwsh.exe' `
+                -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded) `
+                -Verb RunAs -Wait -PassThru -ErrorAction Stop
+        }
         if ($proc.ExitCode -eq 0) {
             return [PSCustomObject]@{ Status = 'installed'; Detail = "$($PackageId.Count) package(s)" }
         }
-        return [PSCustomObject]@{ Status = 'failed'; Detail = "elevated choco exited $($proc.ExitCode)" }
+        return [PSCustomObject]@{ Status = 'failed'; Detail = "choco exited $($proc.ExitCode)" }
     } catch {
         # A refused consent prompt lands here, and is a user decision rather than a fault.
-        return [PSCustomObject]@{ Status = 'failed'; Detail = "could not elevate: $($_.Exception.Message)" }
+        return [PSCustomObject]@{ Status = 'failed'; Detail = "could not run choco: $($_.Exception.Message)" }
     }
 }
 

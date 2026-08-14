@@ -1,0 +1,153 @@
+#Requires -Version 7.2
+<#
+.SYNOPSIS
+    Runs the Windows tier 3 tests inside a Windows container.
+
+.DESCRIPTION
+    The Linux scenarios are driven by e2e/run.sh from inside WSL. This one cannot be, because
+    Docker Desktop serves one container platform at a time and switching to Windows containers
+    turns the Linux daemon off. So this is a separate entry point, driven from Windows.
+
+    What it covers is the logic in setup/windows/WindowsSoftware.ps1 on a clean Windows with
+    nothing installed, which is the state a real user starts from and the one a developer
+    machine can never reproduce. It does not and cannot install a winget package: winget ships
+    as an MSIX and needs the AppX subsystem, which Server Core does not have. See
+    e2e/tier3/windows.Dockerfile for the full list of what is and is not reachable here.
+
+.PARAMETER SkipSlow
+    Skip the tests tagged Slow and Network, which is the Chocolatey bootstrap. Use it for a
+    quick logic-only pass.
+
+.PARAMETER KeepContainer
+    Leave the container running afterwards so you can inspect it.
+
+.EXAMPLE
+    pwsh e2e/tier3/Invoke-WindowsE2E.ps1
+
+.EXAMPLE
+    pwsh e2e/tier3/Invoke-WindowsE2E.ps1 -SkipSlow
+#>
+[CmdletBinding()]
+param(
+    [switch] $SkipSlow,
+    [switch] $KeepContainer
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$Tier3Dir  = Split-Path -Parent $PSCommandPath
+$RepoRoot  = Split-Path -Parent (Split-Path -Parent $Tier3Dir)
+$Image     = 'installationhelper-e2e-windows:latest'
+$Container = "e2e-windows-$PID"
+$RunsDir   = Join-Path $RepoRoot 'e2e\runs'
+$RunId     = "{0}_windows_pester" -f ([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH-mm-ssZ'))
+$RunDir    = Join-Path $RunsDir $RunId
+
+function Write-Step { param([string]$Text) Write-Host ">> $Text" -ForegroundColor Cyan }
+function Write-Bad  { param([string]$Text) Write-Host "!! $Text" -ForegroundColor Red }
+
+# --- environment -------------------------------------------------------------
+Write-Step 'Checking the Docker daemon platform'
+$serverOs = (& docker version --format '{{.Server.Os}}' 2>&1) -join ''
+if ($LASTEXITCODE -ne 0) {
+    Write-Bad 'Cannot reach the Docker daemon. Start Docker Desktop and try again.'
+    exit 2
+}
+if ($serverOs -notmatch 'windows') {
+    Write-Bad "The Docker daemon is serving '$serverOs' containers, not Windows."
+    Write-Host ''
+    Write-Host '  Windows containers need Docker Desktop switched to Windows containers.' -ForegroundColor Yellow
+    Write-Host '  That switch turns OFF the Linux daemon, so every Arch, Debian, Ubuntu and' -ForegroundColor Yellow
+    Write-Host '  Fedora scenario stops working until you switch back. Finish or stop those first.' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host '  Switch from the Docker Desktop tray icon, or:' -ForegroundColor Yellow
+    Write-Host '    & "$env:ProgramFiles\Docker\Docker\DockerCli.exe" -SwitchDaemon' -ForegroundColor Yellow
+    exit 2
+}
+Write-Host "   daemon platform: $serverOs"
+
+New-Item -ItemType Directory -Path $RunDir -Force | Out-Null
+$pesterLog = Join-Path $RunDir 'pester.log'
+$resultXml = Join-Path $RunDir 'pester-results.xml'
+$resultTxt = Join-Path $RunDir 'result.txt'
+
+# --- build -------------------------------------------------------------------
+Write-Step 'Building the Windows base image (cached after the first run)'
+& docker build -f (Join-Path $Tier3Dir 'windows.Dockerfile') -t $Image $Tier3Dir 2>&1 |
+    Tee-Object -FilePath (Join-Path $RunDir 'build.log') | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Bad "Image build failed, see $(Join-Path $RunDir 'build.log')"
+    exit 1
+}
+
+# --- run ---------------------------------------------------------------------
+# Hyper-V isolation rather than process isolation: ltsc2025 is build 26100 and this project's
+# host is 26200, and process isolation wants those to match closely.
+Write-Step 'Starting the container with Hyper-V isolation'
+& docker run -d --name $Container --isolation hyperv $Image | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Bad 'Could not start the container. Is nested virtualisation available?'
+    exit 1
+}
+
+try {
+    # Copied in, not bind-mounted, so a run can never modify the working tree it is testing.
+    Write-Step 'Copying the repository into the container'
+    & docker cp (Join-Path $RepoRoot 'setup') "${Container}:C:\work\setup" | Out-Null
+    & docker cp (Join-Path $Tier3Dir 'windows\WindowsSoftware.Tests.ps1') "${Container}:C:\work\WindowsSoftware.Tests.ps1" | Out-Null
+
+    $excludeTag = if ($SkipSlow) { "-ExcludeTagFilter @('Slow','Network') " } else { '' }
+    $pesterCmd = @"
+`$ErrorActionPreference = 'Stop'
+if (`$PSStyle) { `$PSStyle.OutputRendering = 'PlainText' }
+Import-Module Pester -MinimumVersion 5.0
+`$cfg = New-PesterConfiguration
+`$cfg.Run.Path = 'C:\work\WindowsSoftware.Tests.ps1'
+`$cfg.Output.Verbosity = 'Detailed'
+`$cfg.TestResult.Enabled = `$true
+`$cfg.TestResult.OutputPath = 'C:\work\pester-results.xml'
+$excludeTag
+`$r = Invoke-Pester -Configuration `$cfg
+exit `$r.FailedCount
+"@
+
+    Write-Step 'Running the Pester suite'
+    & docker exec -e E2E_REPO_ROOT='C:\work' $Container pwsh -NoProfile -Command $pesterCmd 2>&1 |
+        Tee-Object -FilePath $pesterLog
+    $pesterExit = $LASTEXITCODE
+
+    & docker cp "${Container}:C:\work\pester-results.xml" $resultXml 2>&1 | Out-Null
+
+    $summary = @(
+        "run_id:      $RunId"
+        "image:       $Image"
+        "isolation:   hyperv"
+        "skip_slow:   $($SkipSlow.IsPresent)"
+        "failed_count: $pesterExit"
+        ''
+        'Not covered here, and not claimed to be:'
+        '  winget installation. winget is an MSIX package and Server Core has no AppX'
+        '  subsystem, so 77 of the 83 Windows mappings cannot be exercised in any container.'
+        '  Those need a real Windows machine or a hosted runner.'
+        '  The wizard interface. setup.ps1 uses Out-ConsoleGridView, which needs a real console.'
+    )
+    $summary | Set-Content -LiteralPath $resultTxt
+    $summary | ForEach-Object { Write-Host $_ }
+
+    if ($pesterExit -eq 0) {
+        Write-Host ''
+        Write-Host "PASS windows pester: no failures. Records in $RunDir" -ForegroundColor Green
+        exit 0
+    }
+    Write-Host ''
+    Write-Bad "windows pester: $pesterExit failing test(s). See $pesterLog"
+    exit 1
+}
+finally {
+    if ($KeepContainer) {
+        Write-Host "   container $Container left running on purpose" -ForegroundColor DarkGray
+    } else {
+        & docker rm -f $Container 2>&1 | Out-Null
+    }
+}
