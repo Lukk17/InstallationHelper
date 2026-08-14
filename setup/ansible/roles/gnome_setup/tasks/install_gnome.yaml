@@ -4,15 +4,38 @@
     path: /usr/bin/gnome-shell
   register: gnome_shell_stat
 
-- name: Install GNOME Desktop (Debian)
+# ubuntu-desktop does not exist in Debian, and apt fails the whole task on an unknown
+# name, so this could never install GNOME on plain Debian. Ansible reports Ubuntu as the
+# Debian family, so one os_family branch cannot carry the difference: the desktop
+# metapackage is keyed on ansible_distribution and everything else stays shared. Debian's
+# equivalent is gnome-core, which is the desktop without the full gnome task's extras.
+# Both names checked with apt-cache policy in debian:trixie and ubuntu:26.04 containers.
+# See docs/regression_ledger.md.
+- name: Install the GNOME desktop metapackage (Debian family)
+  become: yes
+  ansible.builtin.apt:
+    name: "{{ 'ubuntu-desktop' if ansible_facts['distribution'] == 'Ubuntu' else 'gnome-core' }}"
+    state: present
+    update_cache: yes
+  register: gnome_apt_meta
+  retries: 3
+  delay: 10
+  until: gnome_apt_meta is succeeded
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - not gnome_shell_stat.stat.exists
+
+- name: Install GNOME tooling (Debian family)
   become: yes
   ansible.builtin.apt:
     name:
-      - ubuntu-desktop
       - gnome-tweaks
       - gnome-shell-extension-manager
     state: present
-    update_cache: yes
+  register: gnome_apt_tools
+  retries: 3
+  delay: 10
+  until: gnome_apt_tools is succeeded
   when:
     - ansible_facts['os_family'] == 'Debian'
     - not gnome_shell_stat.stat.exists

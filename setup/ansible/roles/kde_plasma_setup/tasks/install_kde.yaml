@@ -18,25 +18,55 @@
     vtype: select
   when: ansible_facts['os_family'] == 'Debian'
 
-- name: Install KDE Plasma Wayland (Debian)
+# Two package names in the old list stopped existing when Debian and Ubuntu moved to
+# Plasma 6, and a third only ever existed on Ubuntu. apt fails the whole task when any
+# name in its list is unknown, so this task could not succeed on either distribution.
+#
+#   plasma-workspace-wayland                     gone, Wayland is part of plasma-workspace now
+#   plasma-look-and-feel-org.kde.breeze.desktop  gone, replaced by the breeze metapackage
+#   language-pack-kde-pl                         Ubuntu only, absent from Debian
+#
+# Ansible reports Ubuntu as the Debian family, so a single os_family branch cannot express
+# that last difference. The shared list is keyed on the family and the difference on
+# ansible_distribution. Every name below was checked with apt-cache policy in both a
+# debian:trixie and an ubuntu:26.04 container. See docs/regression_ledger.md.
+- name: Install KDE Plasma Wayland (Debian family, shared packages)
   become: yes
   ansible.builtin.apt:
     name:
       - kde-standard
-      - plasma-workspace-wayland
+      - plasma-workspace
       - systemsettings
       - plasma-desktop
       - kde-config-sddm
       - kde-config-gtk-style
       - kde-config-gtk-style-preview
-      - plasma-look-and-feel-org.kde.breeze.desktop
+      - breeze
       - qt5-style-kvantum
       - qt6-style-kvantum
       - sddm-theme-breeze
-      - language-pack-kde-pl
+      - sddm
     state: present
     update_cache: yes
+  register: kde_apt_shared
+  retries: 3
+  delay: 10
+  until: kde_apt_shared is succeeded
   when: ansible_facts['os_family'] == 'Debian'
+
+# Ubuntu ships translated KDE strings as language packs, Debian does not package them at
+# all and gets its translations with the applications. Kept separate rather than dropped,
+# because losing it would silently change what an Ubuntu user gets.
+- name: Install the Polish KDE language pack (Ubuntu only)
+  become: yes
+  ansible.builtin.apt:
+    name: language-pack-kde-pl
+    state: present
+  register: kde_apt_ubuntu
+  retries: 3
+  delay: 10
+  until: kde_apt_ubuntu is succeeded
+  when: ansible_facts['distribution'] == 'Ubuntu'
 
 - name: Install KDE Plasma Wayland (Fedora)
   become: yes
