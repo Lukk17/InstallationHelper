@@ -122,3 +122,7 @@ Thumbs.db
 
 # End-to-end harness run records (logs and per-run variable files)
 e2e/runs/
+
+# End-to-end capability test run records. The README in that directory stays tracked.
+e2e/testing/runs/*.md
+!e2e/testing/runs/README.md
