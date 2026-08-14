@@ -61,6 +61,11 @@
     state: absent
   when: yay_check.rc != 0
 
+# site.yaml runs this role without a rescue, on purpose, because it is the bootstrap
+# everything later depends on. So a transient failure reaching aur.archlinux.org aborts the
+# whole run before a single package is installed. Retries cost nothing when the network is
+# healthy and save a forty minute run when it blinks. The same reasoning applies to every
+# network operation in this file.
 - name: Clone yay AUR helper repository
   become: yes
   become_user: "{{ non_root_user }}"
@@ -69,6 +74,10 @@
     dest: /tmp/yay
     force: no
     update: no
+  register: yay_clone
+  retries: 3
+  delay: 10
+  until: yay_clone is succeeded
   when: yay_check.rc != 0
 
 - name: Build yay package (non-root)
@@ -145,6 +154,10 @@
     dest: /tmp/paru
     force: no
     update: no
+  register: paru_clone
+  retries: 3
+  delay: 10
+  until: paru_clone is succeeded
   when: paru_installed.rc != 0
 
 - name: Build paru package (non-root)

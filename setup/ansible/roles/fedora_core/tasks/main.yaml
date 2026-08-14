@@ -43,12 +43,19 @@
     enabled: yes
   when: install_sublime | default(false) | bool
 
+# The yum_repository tasks above only write a .repo file, so they never touch the network
+# and get no retries. This one does reach a mirror, and site.yaml runs this role without a
+# rescue, so a transient failure here would abort the whole run before anything installs.
 - name: Ensure Snap plugin is installed
   become: yes
   ansible.builtin.dnf:
     name:
       - snapd
     state: present
+  register: fedora_snapd_install
+  retries: 3
+  delay: 10
+  until: fedora_snapd_install is succeeded
   when: install_snapd | default(false) | bool
 
 - name: Enable Snapd socket

@@ -23,15 +23,49 @@
   become: yes
   when: ansible_facts['os_family'] == 'Debian'
 
+# site.yaml runs this role without a rescue, on purpose, because it is the bootstrap
+# everything later depends on. The consequence nobody accounted for is that one transient
+# network failure here aborts the whole run before a single package is installed. Two of
+# three parallel container runs died exactly here, fifteen minutes in, with nothing
+# installed, while a third that was running ahead of them got through. The command itself
+# is fine and idempotent, proven by running it three times in a clean container, so it was
+# contention. A user on flaky wifi loses a forty minute run the same way.
+#
+# `until` reads the same expression as `failed_when`, so a remote that already exists
+# satisfies it on the first attempt and is not retried three times before being accepted.
 - name: Add Flathub repository (Linux)
   ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
   become: yes
   register: flathub_remote_add
   changed_when: false
+  retries: 3
+  delay: 10
+  until: >
+    flathub_remote_add.rc | default(1) == 0 or
+    'already exists' in (flathub_remote_add.stderr | default(''))
   failed_when:
     - flathub_remote_add.rc | default(0) != 0
     - "'already exists' not in (flathub_remote_add.stderr | default(''))"
   when: ansible_facts['system'] == 'Linux'
+
+# The failure above reported only "Error executing command." with no stderr and no return
+# code, so nobody could tell what had gone wrong. Ansible does not surface a command's
+# stderr through failed_when, so state it explicitly.
+- name: Explain a Flathub failure that survived all retries
+  ansible.builtin.fail:
+    msg: >-
+      Could not add the Flathub remote after 3 attempts.
+      rc={{ flathub_remote_add.rc | default('unknown') }}
+      stderr={{ flathub_remote_add.stderr | default('(empty)') }}
+      stdout={{ flathub_remote_add.stdout | default('(empty)') }}
+      This role runs without a rescue, so the run stops here. Flathub is reachable at
+      https://dl.flathub.org/repo/flathub.flatpakrepo, check name resolution and outbound
+      HTTPS before rerunning.
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - flathub_remote_add is defined
+    - flathub_remote_add.rc | default(0) != 0
+    - "'already exists' not in (flathub_remote_add.stderr | default(''))"
 
 # apt full-upgrade can run 5–10 min and trips the 2.19 ansiballz race.
 # raw bypasses the Python module entirely; > truncates the log each run.

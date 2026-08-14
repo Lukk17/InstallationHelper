@@ -24,11 +24,22 @@
     mode: '0644'
   when: ansible_facts['distribution'] == 'Debian'
 
+# site.yaml runs this role without a rescue, on purpose, because it is the bootstrap
+# everything later depends on. So one transient failure reaching a mirror aborts the whole
+# run before a single package is installed. That happened for real on the Flathub task in
+# system_core, killing two runs fifteen minutes in with nothing installed. Every task in
+# this file that reaches the network therefore retries. The tasks that only write a
+# sources.list file deliberately do not, because retrying a local file write three times
+# just delays a permanent error.
 - name: Update APT cache after enabling contrib/non-free
   become: yes
   ansible.builtin.apt:
     update_cache: yes
   changed_when: false
+  register: apt_cache_contrib
+  retries: 3
+  delay: 10
+  until: apt_cache_contrib is succeeded
   when: ansible_facts['distribution'] == 'Debian'
 
 - name: Install curl (Debian - required for Antigravity)
@@ -36,6 +47,10 @@
   ansible.builtin.apt:
     name: curl
     state: present
+  register: debian_curl_install
+  retries: 3
+  delay: 10
+  until: debian_curl_install is succeeded
   when: ansible_facts['distribution'] == 'Debian'
 
 - name: Install snapd (Debian non-Ubuntu)
@@ -43,6 +58,10 @@
   ansible.builtin.apt:
     name: snapd
     state: present
+  register: debian_snapd_install
+  retries: 3
+  delay: 10
+  until: debian_snapd_install is succeeded
   when: ansible_facts['distribution'] != 'Ubuntu'
 
 - name: Enable snapd socket (Debian non-Ubuntu)
@@ -84,6 +103,10 @@
   args:
     creates: /etc/apt/keyrings/antigravity-repo-key.gpg
     executable: /bin/bash
+  register: antigravity_key
+  retries: 3
+  delay: 10
+  until: antigravity_key is succeeded
   when: install_antigravity | default(false) | bool
 
 - name: Add Antigravity APT repository
@@ -99,5 +122,9 @@
   become: yes
   ansible.builtin.apt:
     update_cache: yes
+  register: apt_cache_antigravity
+  retries: 3
+  delay: 10
+  until: apt_cache_antigravity is succeeded
   when: install_antigravity | default(false) | bool
   changed_when: false
