@@ -6,7 +6,11 @@
 # Windows System Configurations
 setup_wsl: true
 enable_hyperv: true
-import_hibernate_task: true
+# Off because the scheduled-task definition it imports does not exist. wsl_setup.yaml
+# runs schtasks against "{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml", and there is no
+# setup/tasks/ directory anywhere in this repository, so the task would fail on every
+# Windows run. Turn it back on once that XML is committed. See docs/regression_ledger.md.
+import_hibernate_task: false
 
 # Windows Only Dev Tools
 install_powershell: true

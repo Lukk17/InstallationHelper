@@ -88,4 +88,42 @@ for f in "${GROUP_VARS_DIR}"/all.yaml "${GROUP_VARS_DIR}"/linux.yaml \
     fi
 done
 
+# A toggle whose key does not begin with install_ is a system setting rather than a
+# piece of software, and the default label is just the key with its prefix stripped and
+# underscores swapped for spaces. That renders setup_zsh as "Zsh", which sits next to
+# "Chrome" in the same list and tells the user nothing about which one reconfigures
+# their shell. Any such toggle that reaches the checklist must carry an explicit label.
+eval "$(sed -n '/^declare -A LABEL_OVERRIDES=(/,/^)$/p' "${SETUP_SH}")"
+missing_labels=()
+for f in "${GROUP_VARS_DIR}"/all.yaml "${GROUP_VARS_DIR}"/linux.yaml \
+         "${GROUP_VARS_DIR}"/macos.yaml "${GROUP_VARS_DIR}"/windows.yaml; do
+    while read -r key _; do
+        [[ -z "${key}" || "${key}" == install_* ]] && continue
+        # The four desktop environment keys never reach the checklist. preload_toggles
+        # filters them out because the wizard gives them a dedicated screen with its own
+        # install-versus-configure choice.
+        [[ "${key}" == configure_kde_plasma || "${key}" == configure_gnome ]] && continue
+        [[ -n "${LABEL_OVERRIDES[${key}]:-}" ]] && continue
+        missing_labels+=("${key}")
+    done < <(read_boolean_toggles "${f}")
+done
+if [[ ${#missing_labels[@]} -eq 0 ]]; then
+    pass "every visible system setting has a descriptive label"
+else
+    fail "system settings reach the checklist with no descriptive label" \
+         "$(printf '%s ' "${missing_labels[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+fi
+
+# The two wizards must hide exactly the same keys, or one lets the user change something
+# the other refuses to show. Compared as sets, order irrelevant.
+sh_excluded="$(tr '|' '\n' <<<"${EXCLUDED_VARS}" | sort -u)"
+ps_excluded="$(sed -n '/^\$ExcludedVars = @(/,/^)$/p' "${SETUP_PS1}" \
+    | grep -oE "'[a-z_]+'" | tr -d "'" | sort -u)"
+if [[ "${sh_excluded}" == "${ps_excluded}" ]]; then
+    pass "both wizards hide the same toggles ($(grep -c . <<<"${sh_excluded}") keys)"
+else
+    fail "the two wizards hide different toggles" \
+         "$(diff <(echo "${sh_excluded}") <(echo "${ps_excluded}") | tr '\n' ' ')"
+fi
+
 finish "wizard parse"

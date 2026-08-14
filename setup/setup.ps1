@@ -38,18 +38,39 @@ $AllVars    = Join-Path $AnsibleDir 'group_vars\all.yaml'
 $LinuxVars  = Join-Path $AnsibleDir 'group_vars\linux.yaml'
 $ProfilesDir = Join-Path $AnsibleDir 'profiles'
 
+# Hidden from the checklist. Only two reasons qualify: the value is not a boolean the
+# checklist could render, or getting it wrong costs a working machine. Everything else
+# belongs on the checklist, because a setting the user cannot reach is a setting they
+# cannot work around when it breaks. Must stay identical to EXCLUDED_VARS in setup.sh,
+# and e2e/tier1/wizard_parse.sh fails if the two ever disagree.
 $ExcludedVars = @(
-    # User/path identity — derived, not user-toggleable.
-    'non_root_user', 'non_root_home',
-    # Logging / theming — set in group_vars only.
-    'allow_callback_failure', 'default_wallpaper', 'set_custom_wallpaper',
-    # Baseline system settings — kept out of the per-app checklist so they
-    # can't be accidentally unticked. They stay at their group_vars default.
-    'install_system_core', 'setup_tmpfs', 'toggle_wayland_nvidia',
-    'setup_zsh', 'setup_karabiner', 'setup_finder_defaults',
-    'setup_hibernate', 'setup_systemd_boot', 'setup_grub',
+    # Not booleans, or derived from the environment.
+    'non_root_user', 'non_root_home', 'default_wallpaper',
+    # A logging switch rather than software.
+    'allow_callback_failure',
+    # The bootstrap every later role assumes has run.
+    'install_system_core',
+    # Needs a swap device sized for RAM plus a resume kernel parameter.
+    'setup_hibernate',
+    # These rewrite the bootloader. A mistake here means the machine does not boot.
+    'setup_systemd_boot', 'setup_grub',
     'remove_distro_grub', 'remove_distro_systemd_boot'
 )
+
+# System settings share the checklist with software, so their labels have to say what
+# they do. "Zsh" next to "Chrome" tells the user nothing about which one reconfigures
+# their shell. Keys not listed here fall through to the default prefix strip.
+$LabelOverrides = @{
+    'setup_zsh'             = 'System: zsh shell, with Powerlevel10k and Nerd Fonts'
+    'setup_tmpfs'           = 'System: mount /tmp in RAM as tmpfs'
+    'set_custom_wallpaper'  = 'System: set the desktop wallpaper'
+    'toggle_wayland_nvidia' = 'System: force Wayland on NVIDIA, can break the session'
+    'setup_karabiner'       = 'System: Karabiner-Elements key remapping (macOS)'
+    'setup_finder_defaults' = 'System: Finder default settings (macOS)'
+    'setup_wsl'             = 'System: install WSL and Ubuntu (Windows)'
+    'enable_hyperv'         = 'System: enable Hyper-V, WSL, .NET and Sandbox features, needs a reboot (Windows)'
+    'import_hibernate_task' = 'System: scheduled task to hibernate at 2 AM (Windows)'
+}
 
 if ($env:NO_COLOR -or $NoColor) {
     $script:UseColor = $false
@@ -311,7 +332,7 @@ function Show-SoftwarePicker {
     # `Enabled` column which the user sees and can toggle.
     $rows = $Items | Select-Object `
         @{ N = 'Key';     E = { $_.Key } }, `
-        @{ N = 'Name';    E = { ($_.Key -replace '^install_','' -replace '_',' ') } }, `
+        @{ N = 'Name';    E = { if ($LabelOverrides.ContainsKey($_.Key)) { $LabelOverrides[$_.Key] } else { ($_.Key -replace '^install_','' -replace '^setup_','' -replace '^configure_','' -replace '_',' ') } } }, `
         @{ N = 'Default'; E = { if ($_.Enabled) { 'ON' } else { 'off' } } }
 
     $selected = $rows |

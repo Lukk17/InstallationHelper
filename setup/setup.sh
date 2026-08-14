@@ -38,10 +38,34 @@ ALL_VARS="${ANSIBLE_DIR}/group_vars/all.yaml"
 LINUX_VARS="${ANSIBLE_DIR}/group_vars/linux.yaml"
 MACOS_VARS="${ANSIBLE_DIR}/group_vars/macos.yaml"
 
-# Variables hidden from the wizard's per-app checklist. These are baseline
-# system settings, not optional software. They live in group_vars (linux.yaml /
-# macos.yaml) and stay at whatever they default to there.
-EXCLUDED_VARS="non_root_user|non_root_home|allow_callback_failure|default_wallpaper|set_custom_wallpaper|install_system_core|setup_tmpfs|toggle_wayland_nvidia|setup_zsh|setup_karabiner|setup_finder_defaults|setup_hibernate|setup_systemd_boot|setup_grub|remove_distro_grub|remove_distro_systemd_boot"
+# Variables hidden from the wizard's checklist. Only two reasons qualify: the value
+# is not a boolean the checklist could render, or getting it wrong costs you a working
+# machine. Everything else belongs on the checklist, because a setting the user cannot
+# reach is a setting they cannot work around when it breaks. setup_zsh used to be
+# hidden here, defaults to true, and failed every install that had no font directory,
+# with no way to opt out short of editing YAML. See docs/regression_ledger.md.
+#
+#   not booleans, or derived        non_root_user, non_root_home, default_wallpaper
+#   logging switch, not software    allow_callback_failure
+#   the bootstrap everything needs  install_system_core
+#   needs swap plus a resume param  setup_hibernate
+#   rewrites the bootloader         setup_systemd_boot, setup_grub, remove_distro_*
+EXCLUDED_VARS="non_root_user|non_root_home|allow_callback_failure|default_wallpaper|install_system_core|setup_hibernate|setup_systemd_boot|setup_grub|remove_distro_grub|remove_distro_systemd_boot"
+
+# System settings share the checklist with software, so their labels have to say what
+# they do. "Zsh" next to "Chrome" tells the user nothing about which one reconfigures
+# their shell. Keys not listed here fall through to format_label.
+declare -A LABEL_OVERRIDES=(
+    [setup_zsh]="System: zsh shell, with Powerlevel10k and Nerd Fonts"
+    [setup_tmpfs]="System: mount /tmp in RAM as tmpfs"
+    [set_custom_wallpaper]="System: set the desktop wallpaper"
+    [toggle_wayland_nvidia]="System: force Wayland on NVIDIA, can break the session"
+    [setup_karabiner]="System: Karabiner-Elements key remapping (macOS)"
+    [setup_finder_defaults]="System: Finder default settings (macOS)"
+    [setup_wsl]="System: install WSL and Ubuntu (Windows)"
+    [enable_hyperv]="System: enable Hyper-V, WSL, .NET and Sandbox features, needs a reboot (Windows)"
+    [import_hibernate_task]="System: scheduled task to hibernate at 2 AM (Windows)"
+)
 DE_KEYS=("install_kde_plasma" "configure_kde_plasma" "install_gnome" "configure_gnome")
 
 # CLI options
@@ -330,6 +354,10 @@ check_requirements() {
 # ---------------------------------------------------------------------------
 
 format_label() {
+    if [[ -n "${LABEL_OVERRIDES[$1]:-}" ]]; then
+        echo "${LABEL_OVERRIDES[$1]}"
+        return
+    fi
     local key="${1#install_}"; key="${key#setup_}"; key="${key#configure_}"
     key="${key//_/ }"
     echo "${key^}"
