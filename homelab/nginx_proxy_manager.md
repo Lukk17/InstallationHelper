@@ -52,9 +52,14 @@ Go to Hosts, then Proxy Hosts, then Add Proxy Host, and fill in the Details tab.
 | `adguard.internal` | http | `adguard-home` | 7777 | on |
 | `nginx-proxmox.internal` | http | `nginx-proxy-manager` | 81 | on |
 | `notes.internal` | http | `perlite-web` | 80 | on |
+| `ascend-scrapper.internal` | http | `ascend-web-search` | 7021 | on |
 
 The forward port is the container port from the right hand side of each Compose port mapping. Using the published
 host port instead is the usual reason a new entry returns 502.
+
+`ascend-web-search` is the one entry above where the forward port and the published host port are the same number,
+7021. That is not a mistake to "fix" by looking for a different container port, the service happens to publish and
+listen on the same port. See [ascend_web_search.md](ascend_web_search.md) for how that stack joins this network.
 
 ---
 

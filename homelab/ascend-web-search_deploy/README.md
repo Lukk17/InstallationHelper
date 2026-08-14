@@ -42,6 +42,8 @@ Where Redis lives determines what `REDIS_URL` must be. The compose file ships wi
 | A container on this compose network | `redis://<service-name>:6379/0` | Add the service to this file and drop the `extra_hosts` entry. |
 | Another machine | `redis://<host>:6379/0` | Add a password to the URL if that Redis has one. |
 
+When this deployment sits inside a homelab that already runs Redis on a shared `proxy-tier` network, and `ascend-web-search` joins that same network, `redis://redis:6379/0` becomes reachable too, saving the hop out to the Docker host and back that the host-gateway form takes. This file ships the host-gateway form on purpose, not as an oversight, so it keeps working whether or not that shared network exists.
+
 ---
 
 ### Quick start

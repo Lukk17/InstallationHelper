@@ -81,10 +81,14 @@ graph TB
 | Uptime Kuma | `uptime.internal` | 7779 | 3001 | Polls the other services and alerts when one dies |
 | Syncthing | `syncthing.internal` | 7780 | 8384 | File sync between machines |
 | Perlite | `notes.internal` | 7781 | 80 | Renders the synced notes folder as a read only website |
+| Redis | none, TCP only | 6379 | 6379 | In-memory cache, unauthenticated and with no data volume, used by AscendWebSearch below |
+| AscendWebSearch | `ascend-scrapper.internal` | 7021 | 7021 | Web search and scraping API, a separate Compose project joined to this one only through the shared proxy network |
 
 Nginx Proxy Manager also binds 80 and 443 for proxied traffic, AdGuard binds 53 for plain DNS plus 853 and 784 for the encrypted variants, and Syncthing binds 22000 and 21027 for its own peer protocol.
 
 Perlite is two containers rather than one. The engine renders the markdown and has no published port, and `perlite-web` is the nginx that serves it. Setting it up takes a few extra steps, so it has its own page: [perlite_notes.md](perlite_notes.md).
+
+Redis has no proxy entry because it speaks its own wire protocol, not HTTP, so Nginx Proxy Manager has nothing to forward. AscendWebSearch lives in its own directory with its own Compose file rather than in `compose.yaml`, since it is a different project with a different lifecycle. Both are covered together in [ascend_web_search.md](ascend_web_search.md).
 
 Proxmox is not a container and is not in the Compose file, so its proxy entry points at an address rather than a container name. [nginx_proxy_manager.md](nginx_proxy_manager.md) covers that case. Home Assistant is reached directly on `<ha-vm-ip>:8123`, since it is the one service you open constantly from phones that already have it bookmarked.
 
@@ -128,6 +132,8 @@ Four values in the Compose file are host specific. None of them is a secret, so 
 | `TZ` | `Europe/Warsaw` | Timezone inside the Syncthing container |
 
 The stack carries no passwords or tokens. Every service sets its own credentials on first run and stores them under `/opt/docker-stack/`, which never enters version control.
+
+The `proxy-tier` network in `compose.yaml` carries an explicit `name: proxy-tier` rather than letting Docker derive one from the directory, so that the separate AscendWebSearch Compose project can join it reliably. Applying that on a stack that is already running takes `docker compose down` followed by `docker compose up -d`, which recreates every container here. No data is lost, since every service in this file keeps its state on the bind mounts under `/opt/docker-stack/` listed below, not inside the container. Details on what joins that network and why are in [ascend_web_search.md](ascend_web_search.md).
 
 Persistent data lives under `/opt/docker-stack/`, one directory per service, bind mounted into the containers. The Compose file alone will not restore your setup, because AdGuard filters, proxy hosts, dashboard layout, uptime monitors and Syncthing keys all live in those directories.
 
@@ -190,4 +196,5 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [perlite_notes.md](perlite_notes.md) | Publishing the synced notes folder as a website |
 | [homepage_dashboard.md](homepage_dashboard.md) | Dashboard tiles, allowed hosts, and why the status check bypasses DNS |
 | [uptime_kuma.md](uptime_kuma.md) | Monitors, why Proxmox is a ping, why AdGuard gets two checks |
+| [ascend_web_search.md](ascend_web_search.md) | AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
 | [backup_restore.md](backup_restore.md) | Backing up the VMs and the service data, and restoring both |

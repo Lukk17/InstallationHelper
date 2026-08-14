@@ -160,3 +160,12 @@ services:
       default:
         aliases:
           - ascend-web-search
+      # Lets the homelab reverse proxy reach this container by name. searxng
+      # and flaresolverr stay off this network on purpose, see README.md.
+      proxy-tier: {}
+
+networks:
+  # Shared with the homelab stack's compose.yaml, which declares the
+  # matching `name: proxy-tier`. Requires that stack to be up first.
+  proxy-tier:
+    external: true

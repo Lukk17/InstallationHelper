@@ -1,5 +1,6 @@
 networks:
   proxy-tier:
+    name: proxy-tier
     driver: bridge
 
 services:
@@ -112,3 +113,17 @@ services:
       - perlite
     depends_on:
       - perlite
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5

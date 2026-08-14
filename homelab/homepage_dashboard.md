@@ -88,6 +88,11 @@ Replace the placeholders with your own addresses. The concrete example block is 
         href: http://nginx-proxmox.internal
         siteMonitor: http://<docker-vm-ip>:81
         description: Reverse proxy
+    - AscendWebSearch:
+        icon: mdi-magnify
+        href: http://ascend-scrapper.internal
+        siteMonitor: http://<docker-vm-ip>:7021/health
+        description: Web search and scraping API
 
 - Network and Monitoring:
     - AdGuard Home:

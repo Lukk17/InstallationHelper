@@ -27,6 +27,7 @@ Choose SQLite, the embedded option. It keeps everything in a single file under `
 | Homepage | HTTP(s) | `http://<docker-vm-ip>:7778` |
 | Syncthing | HTTP(s) | `http://<docker-vm-ip>:7780` |
 | Perlite notes | HTTP(s) | `http://<docker-vm-ip>:7781` |
+| AscendWebSearch | HTTP(s) | `http://<docker-vm-ip>:7021/health` |
 
 Every target is an address and port, never an `.internal` name, for the same reason the dashboard checks work that way in [homepage_dashboard.md](homepage_dashboard.md). A monitor that resolves through AdGuard and travels through the proxy is really testing three things at once, and when it goes red it cannot tell you which one failed.
 
@@ -51,6 +52,12 @@ An HTTP check on port 7777 tells you the interface is answering. It does not tel
 A DNS type monitor makes Uptime Kuma perform a real lookup of a public name, using `<docker-vm-ip>` as the resolver server. That is the check that catches the failure everyone actually has, where the interface loads fine and nothing on the network can resolve anything.
 
 Point it at a reliable public name that will not disappear, and remember that a name being blocked by your own filters would look like a failure, so do not use anything on your blocklists.
+
+---
+
+### Why AscendWebSearch gets the shallow check
+
+That service also answers `/ready`, which probes its Redis connection, SearXNG and FlareSolverr individually and is the right endpoint for diagnosing a problem by hand, covered in [ascend_web_search.md](ascend_web_search.md). It is the wrong endpoint for a monitor that polls every minute, for the same reason the other monitors above avoid the proxy: a single dependency having a bad moment would paint the whole service red, when only one piece actually broke. `/health` only confirms the process itself is up and answering, which is the correct question for this table to ask.
 
 ---
 
