@@ -23,6 +23,22 @@
   become: yes
   when: ansible_facts['os_family'] == 'Debian'
 
+# Arch was missing entirely. flatpak was installed for RedHat and Debian only, while the
+# Flathub task below runs on every Linux, so on Arch it shelled out to a binary that was not
+# there and failed every run that reached it. Because this role has no rescue, that aborted
+# the whole playbook fifteen minutes in with nothing installed. Found by the e2e
+# kde-configure-only and live-profile scenarios. See docs/regression_ledger.md.
+- name: Install flatpak (Arch)
+  community.general.pacman:
+    name: flatpak
+    state: present
+  become: yes
+  register: arch_flatpak_install
+  retries: 3
+  delay: 10
+  until: arch_flatpak_install is succeeded
+  when: ansible_facts['os_family'] == 'Archlinux'
+
 # site.yaml runs this role without a rescue, on purpose, because it is the bootstrap
 # everything later depends on. The consequence nobody accounted for is that one transient
 # network failure here aborts the whole run before a single package is installed. Two of
@@ -33,37 +49,42 @@
 #
 # `until` reads the same expression as `failed_when`, so a remote that already exists
 # satisfies it on the first attempt and is not retried three times before being accepted.
+# failed_when is false on purpose. This role has no rescue, so a task that fails here stops
+# the play immediately and nothing after it runs, which is why the first version of the
+# explanatory task below never printed anything: it sat after a task that had already
+# aborted the play. Capturing the result and deciding in the next task is what makes the
+# real error reachable. `until` still retries a genuine network blip.
 - name: Add Flathub repository (Linux)
   ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
   become: yes
   register: flathub_remote_add
   changed_when: false
+  failed_when: false
   retries: 3
   delay: 10
   until: >
     flathub_remote_add.rc | default(1) == 0 or
     'already exists' in (flathub_remote_add.stderr | default(''))
-  failed_when:
-    - flathub_remote_add.rc | default(0) != 0
-    - "'already exists' not in (flathub_remote_add.stderr | default(''))"
   when: ansible_facts['system'] == 'Linux'
 
-# The failure above reported only "Error executing command." with no stderr and no return
-# code, so nobody could tell what had gone wrong. Ansible does not surface a command's
-# stderr through failed_when, so state it explicitly.
-- name: Explain a Flathub failure that survived all retries
+# The original failure reported only "Error executing command." with no stderr and no return
+# code, so nobody could tell that flatpak simply was not installed. Ansible does not surface
+# a command's stderr through failed_when, so state it explicitly.
+- name: Fail with the real reason Flathub could not be added
   ansible.builtin.fail:
     msg: >-
       Could not add the Flathub remote after 3 attempts.
       rc={{ flathub_remote_add.rc | default('unknown') }}
-      stderr={{ flathub_remote_add.stderr | default('(empty)') }}
-      stdout={{ flathub_remote_add.stdout | default('(empty)') }}
-      This role runs without a rescue, so the run stops here. Flathub is reachable at
-      https://dl.flathub.org/repo/flathub.flatpakrepo, check name resolution and outbound
-      HTTPS before rerunning.
+      stderr={{ flathub_remote_add.stderr | default('(empty)') | trim }}
+      stdout={{ flathub_remote_add.stdout | default('(empty)') | trim }}
+      If that says flatpak is not a recognised command then the flatpak install above did not
+      run for this distribution. Otherwise Flathub itself was unreachable at
+      https://dl.flathub.org/repo/flathub.flatpakrepo, so check name resolution and outbound
+      HTTPS. This role has no rescue, so the run stops here.
   when:
     - ansible_facts['system'] == 'Linux'
     - flathub_remote_add is defined
+    - not (flathub_remote_add is skipped)
     - flathub_remote_add.rc | default(0) != 0
     - "'already exists' not in (flathub_remote_add.stderr | default(''))"
 

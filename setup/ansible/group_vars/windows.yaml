@@ -33,6 +33,7 @@ install_crystaldiskinfo: true
 install_crystaldiskmark: true
 install_msiafterburner: true
 install_wiztree: true
+install_angry_ip_scanner: true
 install_advanced_ip_scanner: true
 install_glasswire: true
 install_tcpview: true

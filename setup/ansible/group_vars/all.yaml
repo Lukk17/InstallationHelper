@@ -44,6 +44,7 @@ install_slack: true
 install_telegram: true
 install_whatsapp: true
 install_signal: true
+install_teams: true  # Windows via winget and macOS via cask. No Linux mapping, upstream is web only there, so it no-ops on Linux.
 
 # Productivity
 install_obsidian: true

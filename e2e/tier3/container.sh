@@ -120,11 +120,22 @@ start_run() {
         # Collected from the two files the wizard itself reads, so a newly added toggle
         # is picked up with no edit here. A hand-maintained copy would quietly stop
         # covering new software, which is the silent gap this suite exists to catch.
+        # The wizard's EXCLUDED_VARS list is read out of setup.sh rather than restated,
+        # because those keys are system settings rather than software and must not be swept
+        # into a generated software set. install_system_core is the one that mattered: the
+        # smoke scenario generated it as false, which disabled the entire system_core role,
+        # so the scenario silently skipped the bootstrap and reported a pass over far less
+        # than it appeared to cover. Exactly the kind of hole this suite exists to close, in
+        # the suite itself.
+        excluded_line="$(grep -m1 '^EXCLUDED_VARS=' "${REPO_ROOT}/setup/setup.sh" || true)"
+        eval "${excluded_line}"
+
         mapfile -t all_toggles < <(
             cat "${ANSIBLE_DIR}/group_vars/all.yaml" "${ANSIBLE_DIR}/group_vars/linux.yaml" \
                 | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' \
                 | grep -E '^install_[a-z0-9_]+: (true|false)$' \
                 | sed -E 's/^(install_[a-z0-9_]+):.*/\1/' \
+                | grep -vE "^(${EXCLUDED_VARS})$" \
                 | sort -u
         )
         mapfile -t excepted < <(sed -n '/^e2e_generate_except:/,/^[a-z]/p' "${SCENARIO_FILE}" \

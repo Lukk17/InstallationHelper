@@ -19,6 +19,17 @@ Debian     synapse          Razer ships Synapse for Windows and macOS only
 RedHat     synapse          Razer ships Synapse for Windows and macOS only
 Archlinux  synapse          Razer ships Synapse for Windows and macOS only
 
+# Microsoft ships no Linux desktop client for Teams, only the web application.
+Debian     teams            Microsoft ships Teams for web only on Linux
+RedHat     teams            Microsoft ships Teams for web only on Linux
+Archlinux  teams            Microsoft ships Teams for web only on Linux
+
+# Angry IP Scanner is mapped on Windows only in this project.
+Debian     angry_ip_scanner mapped on Windows only
+RedHat     angry_ip_scanner mapped on Windows only
+Archlinux  angry_ip_scanner mapped on Windows only
+Darwin     angry_ip_scanner mapped on Windows only
+
 # No maintained Linux desktop client, and not on Flathub.
 Debian     whatsapp         no official Linux client and not on Flathub
 RedHat     whatsapp         no official Linux client and not on Flathub
