@@ -1,4 +1,19 @@
 ---
+# get_url does not create parent directories, and /usr/share/fonts does not exist on
+# a Linux install that has never had a font package or a desktop environment. On such
+# a machine all four downloads below failed with "Destination /usr/share/fonts does
+# not exist", and because setup_zsh defaults to true and is hidden from the wizard's
+# checklist, the user could not even turn it off without editing group_vars. Found by
+# the e2e smoke scenario, which installs no desktop environment. See
+# docs/regression_ledger.md.
+- name: Ensure the system font directory exists
+  ansible.builtin.file:
+    path: /usr/share/fonts
+    state: directory
+    mode: '0755'
+  become: yes
+  when: ansible_facts['system'] == 'Linux'
+
 - name: Download Nerd Fonts
   ansible.builtin.get_url:
     url: "{{ item.url }}"
