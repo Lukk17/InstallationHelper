@@ -60,10 +60,36 @@
     - ansible_facts['os_family'] == 'Archlinux'
     - not gnome_shell_stat.stat.exists
 
+# A machine has exactly one display manager. systemd models that with a single
+# /etc/systemd/system/display-manager.service symlink, so enabling a second one fails with "File
+# already exists and is a symlink to ...". That happens whenever KDE and GNOME are both enabled:
+# kde_plasma_setup enables sddm first and this task then cannot enable gdm.
+#
+# The wizard cannot produce that combination, its desktop screen offers one choice, but group_vars
+# can, and the e2e all-software scenario does exactly that by turning every toggle true. It failed
+# there. Detecting it and saying so is right, because silently leaving whichever display manager
+# won is confusing, and failing the run over a genuinely ambiguous request is worse.
+- name: Check whether another display manager is already enabled
+  ansible.builtin.stat:
+    path: /etc/systemd/system/display-manager.service
+  register: existing_display_manager
+  when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+
 - name: Enable GDM Service (Fedora/Arch)
   become: yes
   ansible.builtin.systemd:
     name: gdm
     enabled: yes
-  when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+  when:
+    - ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+    - not (existing_display_manager.stat.exists | default(false))
+      or 'gdm' in (existing_display_manager.stat.lnk_target | default(''))
+
+- name: Report that GDM was left disabled because another display manager owns the machine
+  ansible.builtin.debug:
+    msg: "[WARN] GDM was not enabled: {{ existing_display_manager.stat.lnk_target | default('another display manager') }} is already the machine's display manager, and systemd allows only one. Both KDE and GNOME appear to be enabled. Pick one in group_vars, or switch by hand with: sudo systemctl enable gdm --force"
+  when:
+    - ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+    - existing_display_manager.stat.exists | default(false)
+    - "'gdm' not in (existing_display_manager.stat.lnk_target | default(''))"
 
