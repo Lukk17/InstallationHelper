@@ -9,7 +9,11 @@
       - libbz2-dev
       - libreadline-dev
       - libsqlite3-dev
-      - libncursesw5-dev
+      # libncursesw5-dev is gone from Debian trixie and Ubuntu 26.04, both of which ship
+      # libncurses-dev instead, confirmed with apt-cache policy. apt fails the whole task on an
+      # unknown name, so every Pyenv build dependency install failed across the Debian family and
+      # took Python version management with it. See docs/regression_ledger.md.
+      - libncurses-dev
       - xz-utils
       - tk-dev
       - libxml2-dev
@@ -27,7 +31,9 @@
       - gcc
       - make
       - patch
-      - zlib-devel
+      # Fedora moved to zlib-ng and zlib-devel no longer exists on 44. The replacement is
+      # zlib-ng-compat-devel, which provides the same headers, confirmed with dnf info.
+      - zlib-ng-compat-devel
       - bzip2-devel
       - readline-devel
       - sqlite-devel

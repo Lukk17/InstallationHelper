@@ -10,7 +10,11 @@
       - qtdeclarative5-dev
       - libkf5declarative-dev
       - libkf5plasma-dev
-      - libkdecorations2-dev
+      # libkdecorations2-dev was the Plasma 5 name and exists in neither Debian trixie nor Ubuntu
+      # 26.04. Plasma 6 ships libkdecorations3-dev, confirmed present on both with apt-cache policy.
+      # apt fails the whole task on an unknown name, so this made the Konsave build dependencies
+      # unbuildable across the entire Debian family. See docs/regression_ledger.md.
+      - libkdecorations3-dev
       - gettext
       - cmake
     state: present
