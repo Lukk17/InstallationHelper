@@ -25,10 +25,9 @@ This file is an index, not a template. The schema gives a change one `tasks-temp
 
 Every one mirrors its spec's Prerequisites, Reset state, Run and Expected items as checkboxes, in the spec's order, then adds a Verdict checkbox and a Result summary block with Input tokens, Output tokens, Start (UTC), End (UTC) and Duration, then an "Additional tasks I did" section for anything done off-spec.
 
-Two shapes deviate from a plain mirror, both because the harness behaves that way.
+One shape deviates from a plain mirror, because the harness behaves that way. The template for capability 70 covers two container runs, KDE and GNOME, in one record. Every assertion box is ticked twice or not at all, and one green run beside one red run is a FAIL.
 
-1. The template for capability 70 covers two container runs, KDE and GNOME, in one record. Every assertion box is ticked twice or not at all, and one green run beside one red run is a FAIL.
-2. The template for capability 50 does not offer a clean tick for the native and flatpak assertions. Verification never sees the profile, so those assertions are expected to report misses, and the boxes instead ask the runner to compare the missing list against the profile's disabled toggles and confirm every miss is explained by one of them.
+A second deviation existed and has been removed. The template for capability 50 used to offer no clean tick for the native and flatpak assertions, because verification never saw the profile and those assertions were expected to report misses. The harness now passes the profile to the verify play, so those boxes are ordinary passes and the template asks for `verify_rc: 0` like every other capability. The old boxes asked the runner to reconcile a missing list by hand, which is exactly the kind of judgement call a gate should not need.
 
 ---
 

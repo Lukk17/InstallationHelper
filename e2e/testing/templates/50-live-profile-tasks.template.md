@@ -31,11 +31,11 @@ Heading levels and the single horizontal rule follow the `e2e-runbooks` tasks-te
 ### Expected
 
 - [ ] `result.txt` reports `playbook_rc: 0`
-- [ ] `verify_rc` recorded, with the value stated rather than assumed
-- [ ] The native missing list was compared item by item against the profile's disabled toggles, and every miss is explained by one of them
-- [ ] The flatpak missing list was compared the same way
-- [ ] The tailscaled, OpenRazer group and docker group assertions were classified: each either passed, or failed only because the profile disabled the toggle and verification never saw the profile
-- [ ] Nothing is missing that the profile did not turn off
+- [ ] `result.txt` reports `verify_rc: 0`, with the value stated rather than assumed
+- [ ] The verify output line reads `Running verification (with profile linux_live)`, confirming verification saw the profile
+- [ ] The native assertion passed with no missing list
+- [ ] The flatpak assertion passed with no missing list
+- [ ] The tailscaled, OpenRazer group and docker group assertions each either passed or were skipped because the profile disabled the toggle, and the skip count in the verify recap accounts for every one of them
 - [ ] `/etc/sudoers.d/99-ansible-user` does not exist
 - [ ] `effective-vars.yaml` was read, and the container limits are visibly last so they outrank the profile
 - [ ] No desktop environment assertion ran, as expected for `e2e_expect_desktop: none`
