@@ -161,6 +161,8 @@ Everything merely slow or awkward stays enabled. Pre-suppressing something becau
 
 Two consequences worth knowing before reading a failure as a bug. Kernel modules never build, because `/usr/lib/modules` belongs to the host, so anything using DKMS reports missing headers. And there is no login session, so tasks that need a live user D-Bus take their documented fallback path instead.
 
+The first of those does not cost the same everywhere, which is why there is also a `container_limits.<os>.yaml` appended after the shared file. OpenRazer's DKMS build fails identically on Arch and Fedora. On Arch the alpm hook prints the error and returns 0, so the package installs and the run carries on. On Fedora, RPM treats the failed `%posttrans` as a transaction failure, so dnf reports the whole batch as failed and syncthing, tailscale and chkrootkit come back missing too even though they installed. Suppressing OpenRazer everywhere to satisfy Fedora would have thrown away the Arch coverage that exists for a real ledger entry, so [tier3/container_limits.fedora.yaml](tier3/container_limits.fedora.yaml) turns it off for Fedora alone and says what that costs.
+
 ---
 
 ### Which distributions, and why Ubuntu is separate from Debian

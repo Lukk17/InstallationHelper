@@ -74,6 +74,16 @@ if [[ "${MODE}" != "collect" && ! -f "${DOCKERFILE}" ]]; then
     exit 2
 fi
 
+# The shared limits, then this distribution's own if it has any. A limitation is not always the
+# same on every distribution even when the missing kernel facility is: OpenRazer's DKMS build
+# fails identically on Arch and Fedora, and pacman's hook returns 0 while RPM treats the failed
+# %posttrans as a transaction failure and takes the other three packages in the batch down with
+# it. Suppressing openrazer everywhere to satisfy Fedora would have thrown away the Arch coverage
+# that exists for the "Arch OpenRazer device group does not exist" ledger entry, so the
+# suppression is per distribution and the shared file stays for things no container can do.
+LIMITS_FILES=("${TIER3_DIR}/container_limits.yaml")
+[[ -f "${TIER3_DIR}/container_limits.${OS}.yaml" ]] && LIMITS_FILES+=("${TIER3_DIR}/container_limits.${OS}.yaml")
+
 # ---------------------------------------------------------------------------
 # Start phase
 # ---------------------------------------------------------------------------
@@ -166,7 +176,7 @@ start_run() {
             grep -qE "^${t}:" "${SCENARIO_FILE}" && continue
             # So does a container limit, appended below. Emitting it here too would
             # produce a duplicate mapping key and a warning per toggle.
-            grep -qE "^${t}:" "${TIER3_DIR}/container_limits.yaml" && continue
+            grep -qhE "^${t}:" "${LIMITS_FILES[@]}" && continue
             echo "${t}: ${gen_value}" >> "${EFFECTIVE_VARS}"
         done
         dim "generated ${#all_toggles[@]} install_ toggles as ${gen_value}"
@@ -174,10 +184,12 @@ start_run() {
     fi
 
     echo "# --- container limits (always applied last) ---" >> "${EFFECTIVE_VARS}"
-    grep -vE '^(---|#)' "${TIER3_DIR}/container_limits.yaml" | { grep -vE '^\s*$' || true; } >> "${EFFECTIVE_VARS}"
+    for limits in "${LIMITS_FILES[@]}"; do
+        grep -vE '^(---|#)' "${limits}" | { grep -vE '^\s*$' || true; } >> "${EFFECTIVE_VARS}"
+    done
 
     warn "suppressed as impossible in a container, so NOT covered by this run:"
-    grep -E '^[a-z_]+: false$' "${TIER3_DIR}/container_limits.yaml" | sed 's/^/       /' || true
+    grep -hE '^[a-z_]+: false$' "${LIMITS_FILES[@]}" | sed 's/^/       /' || true
 
     # --- container ------------------------------------------------------------
     info "Building the ${OS} base image (cached after the first run)"

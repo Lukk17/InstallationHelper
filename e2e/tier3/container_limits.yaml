@@ -1,5 +1,6 @@
 ---
-# Toggles a container provably cannot satisfy, applied on top of every scenario.
+# Toggles a container provably cannot satisfy on any distribution, applied on top of
+# every scenario.
 #
 # This list is deliberately short. Anything merely slow, awkward or likely to fail
 # stays enabled, because pre-suppressing it would turn a real defect into a silent
@@ -8,8 +9,16 @@
 # reason, and the runner prints the list on every run so nobody mistakes a scenario
 # for full coverage.
 #
-# Known container artefacts that are NOT suppressed here, and are instead recorded
-# per scenario as expected failures, live in each scenario's `e2e_expected_failures`.
+# A limitation that holds on one distribution and not another belongs in
+# container_limits.<os>.yaml instead, which container.sh appends after this file.
+# See container_limits.fedora.yaml for the case that established the need: the same
+# DKMS failure is fatal to an RPM transaction and harmless to a pacman one.
+#
+# This block used to say that container artefacts not suppressed here were recorded
+# per scenario in an `e2e_expected_failures` key. No scenario ever declared one and
+# nothing ever read one, so it described a mechanism that did not exist, which is
+# the same "a comment claiming an implementation" trap as the install_gradle entry
+# in docs/regression_ledger.md. The per-distribution file above is the real answer.
 
 # Needs a real swap device and a resume= kernel parameter on the running kernel.
 setup_hibernate: false

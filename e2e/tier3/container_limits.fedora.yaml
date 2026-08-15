@@ -1,0 +1,27 @@
+---
+# Fedora-only container limits, applied on top of container_limits.yaml.
+#
+# Same rule as the shared file: only things that need hardware or a kernel facility a container
+# does not have, each with its reason, and the runner prints the whole list on every run.
+
+# OpenRazer pulls openrazer-kernel-modules-dkms, whose %posttrans scriptlet runs DKMS against the
+# running kernel. In a container that is the host's kernel, so there are no matching headers, the
+# scriptlet exits 21, and RPM reports the whole transaction as failed:
+#
+#   Error! Your kernel headers for kernel 6.18.33.2-microsoft-standard-WSL2 cannot be found
+#   [RPM] %posttrans(openrazer-kernel-modules-dkms-...) scriptlet failed, exit status 21
+#   Transaction failed: Rpm transaction failed.
+#
+# The damage is not limited to OpenRazer. dnf batches the install, so syncthing, tailscale and
+# chkrootkit were reported missing too even though they had installed, which is what the first
+# Fedora smoke run failed on. Reproduced by hand in a plain Fedora container: openrazer-meta
+# resolves, downloads and unpacks, and only the DKMS scriptlet fails.
+#
+# This is suppressed here rather than in the shared file because the same DKMS failure is
+# harmless on Arch: pacman's alpm hook prints the error and returns 0, so the package installs
+# and the run continues. Arch therefore keeps covering the OpenRazer device group, which is a
+# real ledger entry, and Fedora gives that up rather than losing three unrelated packages to it.
+#
+# What this costs: on Fedora nothing verifies the OpenRazer mapping, the device group, or the
+# daemon. A real Fedora machine with its own kernel headers is the only place to check those.
+install_openrazer: false
