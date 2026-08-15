@@ -249,7 +249,7 @@
       loop_control:
         label: "{{ item.item.value.package | default('skipped') }}"
       until: aur_results.finished
-      retries: 80
+      retries: "{{ aur_wait_retries | default(120) | int }}"
       delay: 15
       failed_when: false
       when:
@@ -308,15 +308,28 @@
 
     - name: Surface AUR builds that ran out of time
       ansible.builtin.debug:
-        msg: "[WARN] AUR packages were still building when the 20 minute wait expired, so they are NOT installed: {{ aur_timed_out | join(', ') }}. Rerun, or raise the retries on the wait task if these builds are genuinely this slow on this machine."
+        msg: "[WARN] AUR packages were still building when the {{ ((aur_wait_retries | default(120) | int) * 15 / 60) | round | int }} minute wait expired, so they are NOT installed: {{ aur_timed_out | join(', ') }}. Rerun, or raise aur_wait_retries if these builds are genuinely this slow on this machine."
       when:
         - ansible_facts['os_family'] == 'Archlinux'
         - aur_timed_out | default([]) | length > 0
       tags: [pacman_batch]
 
-    - name: Fail if AUR packages failed and aur_allow_failures is false
+    # Recorded whatever aur_allow_failures says, because a package the user asked for and did not
+    # get means the run did not succeed, and the exit code has to say so. aur_allow_failures only
+    # decides whether the run stops here or carries on and reports at the end. Previously it
+    # defaulted to true, so the fail task below never fired and nothing else recorded the miss
+    # either, which is how google-chrome went absent from a run that reported success.
+    - name: Record missing AUR packages in the play summary
+      ansible.builtin.set_fact:
+        any_role_failed: true
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - failed_aur_packages | default([]) | length > 0
+      tags: [pacman_batch]
+
+    - name: Fail immediately if AUR packages failed and aur_allow_failures is false
       ansible.builtin.fail:
-        msg: "AUR package install failed: {{ failed_aur_packages | join(', ') }}. Set aur_allow_failures: true to continue past these."
+        msg: "AUR package install failed: {{ failed_aur_packages | join(', ') }}. Leave aur_allow_failures true to finish the run and be told at the end instead of stopping here."
       when:
         - ansible_facts['os_family'] == 'Archlinux'
         - failed_aur_packages | default([]) | length > 0

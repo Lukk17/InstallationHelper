@@ -1,7 +1,23 @@
 ---
-# Allow AUR install failures to be non-fatal. Set false to fail the playbook
-# if any AUR package failed to build or timed out.
+# Whether an AUR problem aborts the run on the spot. True keeps going, which is usually what you
+# want, because one flaky AUR build should not abandon a forty minute run that has already
+# installed a hundred other things.
+#
+# It does NOT mean the run is reported as successful. Missing AUR packages always mark the play as
+# failed at the end, so the exit code tells the truth and the summary names them. Tolerating a
+# failure mid-run and pretending it did not happen are different things, and this used to do both:
+# it defaulted to true, so the fail task never fired, and nothing else recorded the miss either.
 aur_allow_failures: true
+
+# How long to wait for the parallel AUR builds before giving up on them, as retries at 15 second
+# intervals. 120 is 30 minutes.
+#
+# Raising this is close to free: the wait uses `until finished`, so it exits the moment the builds
+# are done and a bigger ceiling costs nothing when they are quick. It only matters on a slow or
+# contended machine, where the old 20 minute ceiling silently dropped packages. google-chrome went
+# missing from a run that reported success for exactly this reason, while three containers competed
+# for the same cores.
+aur_wait_retries: 120
 
 # When true, dynamic_install.yaml will purge /var/lib/flatpak/repo if the
 # health probe reports an ostree-corruption error. Off by default because
