@@ -43,6 +43,7 @@ $ProfilesDir = Join-Path $AnsibleDir 'profiles'
 # whole wizard, and because Ansible cannot do this job from here at all: it runs inside WSL
 # against localhost, so its facts describe the WSL distribution rather than Windows.
 . (Join-Path $ScriptDir 'windows\WindowsSoftware.ps1')
+. (Join-Path $ScriptDir 'windows\WindowsNpmTools.ps1')
 
 # Hidden from the checklist. Only two reasons qualify: the value is not a boolean the
 # checklist could render, or getting it wrong costs a working machine. Everything else
@@ -115,6 +116,43 @@ function Write-Section { param([string]$Title)
 function Write-Hint   { param([string]$Text) Write-Host "  $Text" -ForegroundColor DarkGreen }
 function Write-Status { param([string]$Text) Write-Host "  [*] $Text" -ForegroundColor Green }
 function Write-Err    { param([string]$Text) Write-Host "  [!] $Text" -ForegroundColor Red; throw $Text }
+
+function Invoke-AndShowNpmTools {
+    <#
+    .SYNOPSIS
+        Installs the npm-based CLI tools and renders the outcome.
+    .DESCRIPTION
+        Separate from the winget and Chocolatey pass because these come from npm, not from a package
+        mapping. The ai_tools Ansible role has a Windows task file for each and none of them can run,
+        see docs/regression_ledger.md.
+    #>
+    param([string[]] $OnlyKeys)
+
+    $toggles = Get-WindowsSoftwareToggle `
+        -AllVarsPath     (Join-Path $AnsibleDir 'group_vars\all.yaml') `
+        -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml')
+
+    $r = Invoke-WindowsNpmToolInstall -Toggles $toggles -OnlyKeys $OnlyKeys
+
+    if ($r.NpmMissing) {
+        Write-Hint '  npm is not on PATH, so the CLI tools below were NOT installed:'
+        Write-Hint "    $(($r.Wanted | ForEach-Object { $_.Display }) -join ', ')"
+        Write-Hint '  Install Node.js first, then rerun. Saying so rather than skipping quietly, because'
+        Write-Hint '  a silent skip would leave you believing these are present.'
+        return $r
+    }
+
+    if ($r.Results.Count -eq 0) {
+        Write-Status 'CLI tools: none enabled'
+        return $r
+    }
+
+    Write-Status "CLI tools: $($r.Installed.Count) installed, $($r.Present.Count) already present, $($r.Failed.Count) failed"
+    foreach ($f in $r.Failed) {
+        Write-Host "  [!] $($f.Display) ($($f.Package)): $($f.Detail)" -ForegroundColor Red
+    }
+    return $r
+}
 
 function Show-WindowsSoftwareResult {
     <#
@@ -418,10 +456,12 @@ function Invoke-Main {
         Write-Section 'Installing Windows software'
         $windowsResult = Invoke-WindowsSoftwareInstall -AnsibleDir $AnsibleDir
         Show-WindowsSoftwareResult -Result $windowsResult
+        $npmResult = Invoke-AndShowNpmTools
 
         Write-Section 'Configuring the Linux environment inside WSL'
         $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars @() -ProfileName $Profile
-        if ($windowsResult.Failed.Count -gt 0 -and $rc -eq 0) { exit 1 }
+        $winFailed = $windowsResult.Failed.Count + $npmResult.Failed.Count + [int]$npmResult.NpmMissing
+        if ($winFailed -gt 0 -and $rc -eq 0) { exit 1 }
         exit $rc
     }
 
@@ -549,14 +589,18 @@ function Invoke-Main {
     Write-Section 'Installing Windows software'
     $windowsResult = Invoke-WindowsSoftwareInstall -AnsibleDir $AnsibleDir -OnlyKeys $selectedSoftwareKeys
     Show-WindowsSoftwareResult -Result $windowsResult
+    $npmResult = Invoke-AndShowNpmTools -OnlyKeys $selectedSoftwareKeys
 
     # Then the WSL side, which is what the playbook has always actually configured.
     Write-Section 'Configuring the Linux environment inside WSL'
     $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars $extraVars.ToArray() -ProfileName $Profile
 
     # A Windows package failure must not be hidden behind a green playbook exit.
-    if ($windowsResult.Failed.Count -gt 0 -and $rc -eq 0) {
-        Write-Hint "  The playbook succeeded but $($windowsResult.Failed.Count) Windows package(s) failed. Exiting non-zero so this is not read as a clean run."
+    # npm tools count toward this too, and a missing npm counts as a failure rather than a skip,
+    # because the tools the user asked for are not installed either way.
+    $winFailed = $windowsResult.Failed.Count + $npmResult.Failed.Count + [int]$npmResult.NpmMissing
+    if ($winFailed -gt 0 -and $rc -eq 0) {
+        Write-Hint "  The playbook succeeded but $winFailed Windows item(s) failed. Exiting non-zero so this is not read as a clean run."
         exit 1
     }
     exit $rc

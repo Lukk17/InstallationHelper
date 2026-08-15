@@ -62,7 +62,7 @@ done
 
 run_tier1() {
     local rc=0
-    for check in wizard_parse toggle_coverage windows_mapping ansible_static; do
+    for check in wizard_parse toggle_coverage windows_mapping windows_npm_parity ansible_static; do
         bash "${E2E_ROOT}/tier1/${check}.sh" || rc=1
         echo
     done
@@ -77,9 +77,10 @@ run_tier2() {
     return ${rc}
 }
 
-# Peak resident set of one Arch scenario container, measured with docker stats during
-# the paru compile, which is the heaviest phase. Used only to warn, never to refuse.
-E2E_MEM_PER_JOB_GB=3
+# Peak resident set of one scenario container, measured with docker stats. First set from the paru
+# compile at 3 GB, then corrected upward after kde-configure-only was observed at 4.79 GB during the
+# software install phase, which is heavier than the compile. Used only to warn, never to refuse.
+E2E_MEM_PER_JOB_GB=5
 
 check_memory_headroom() {
     local jobs="$1" avail
