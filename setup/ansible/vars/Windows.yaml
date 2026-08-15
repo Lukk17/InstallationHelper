@@ -32,6 +32,7 @@ software_mapping:
   arduino: { manager: "winget", package: "ArduinoSA.IDE.stable" }
   antigravity: { manager: "winget", package: "Google.AntigravityIDE" }
   bruno: { manager: "winget", package: "Bruno.Bruno" }
+  jetbrains_toolbox: { manager: "winget", package: "JetBrains.Toolbox" }       # Publisher JetBrains, verified with winget show. The sdk_manager role installs this on Linux and macOS and its Windows branch cannot run.
 
   # Communication
   discord: { manager: "winget", package: "Discord.Discord" }
@@ -49,6 +50,8 @@ software_mapping:
 
   # AI
   chatgpt: { manager: "winget", package: "9PLM9XGG6VKS", source: "msstore" }   # MS Store — official OpenAI build. `9NT1R1C2HH7J` is the retired "ChatGPT Classic" and `9N8CJ4W95TBZ` is the beta channel.
+  claude_desktop: { manager: "winget", package: "Anthropic.Claude" }           # Publisher "Anthropic, PBC", verified with winget show. The ai_tools role's Windows task file for this can never run, so the mapping is the only path.
+  lm_studio: { manager: "winget", package: "ElementLabs.LMStudio" }            # Author "Element Labs, Inc.", verified with winget show.
 
   # Media / Design
   vlc: { manager: "winget", package: "VideoLAN.VLC" }
