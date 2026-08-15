@@ -70,7 +70,11 @@ run_tier1() {
 }
 
 run_tier2() {
-    bash "${E2E_ROOT}/tier2/resolve_packages.sh"
+    local rc=0
+    bash "${E2E_ROOT}/tier2/resolve_packages.sh" || rc=1
+    echo
+    bash "${E2E_ROOT}/tier2/resolve_role_packages.sh" || rc=1
+    return ${rc}
 }
 
 # Peak resident set of one Arch scenario container, measured with docker stats during

@@ -171,11 +171,17 @@
       - docker
       - docker-buildx
       - docker-compose
-      # iptables-nft replaces iptables and is the variant docker.service
-      # expects on Arch. Without it docker daemon fails to start.
-      # bridge-utils is NOT needed (iproute2 ships those tools and
-      # bridge-utils is no longer in the Arch repos).
-      - iptables-nft
+      # Docker on Arch needs the nftables variant of iptables or the daemon fails to
+      # initialise its bridge driver. That variant used to be a separate iptables-nft package
+      # and Arch has since consolidated: core/iptables IS the nftables build, and the old
+      # behaviour moved to iptables-legacy, which declares `provides: iptables`. So
+      # iptables-nft no longer exists and naming it failed the whole task, taking the Docker
+      # install with it. Found by e2e/tier2/resolve_role_packages.sh. See
+      # docs/regression_ledger.md.
+      #
+      # bridge-utils is deliberately absent: iproute2 ships those tools and bridge-utils is no
+      # longer in the Arch repositories.
+      - iptables
     state: present
   when: ansible_facts['os_family'] == 'Archlinux' and install_docker | default(false) | bool
   tags: [docker]
