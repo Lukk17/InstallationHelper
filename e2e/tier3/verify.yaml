@@ -70,13 +70,26 @@
     # Ansible reports it as the Debian family, which is also why it shares
     # vars/Debian.yaml and why it needs its own container to catch the cases where that
     # sharing is wrong.
+    # The `\\n` in the two format strings is deliberate and load-bearing. dpkg-query and rpm
+    # interpret `\n` in a format string themselves, so what has to reach them is the two
+    # characters backslash and n. Written as `\n` in a double-quoted YAML scalar it becomes a real
+    # newline instead, and `command` splits its argument string on whitespace, so the newline was
+    # simply dropped: dpkg-query then printed all 201 package names concatenated with no separator
+    # at all, `adduseransibleansible-coreapt...`, the split on newline yielded one enormous
+    # pseudo-package, and every expected package was reported missing.
+    #
+    # Arch never showed it because `pacman -Qq` needs no format string. So the native package
+    # assertion, the largest assertion this play makes, could not pass on Debian, Ubuntu or Fedora
+    # and did pass on Arch, which is the worst possible arrangement: it looked proven.
+    # Both corrected forms verified in a clean container, 201 lines on debian:trixie and 194 on
+    # fedora:44.
     - name: List installed native packages
       ansible.builtin.command: "{{ native_query[ansible_facts['os_family']] }}"
       vars:
         native_query:
           Archlinux: "pacman -Qq"
-          Debian: "dpkg-query -W -f=${Package}\n"
-          RedHat: "rpm -qa --qf %{NAME}\n"
+          Debian: "dpkg-query -W -f=${Package}\\n"
+          RedHat: "rpm -qa --qf %{NAME}\\n"
       register: installed_native_raw
       changed_when: false
       failed_when: false
@@ -92,6 +105,33 @@
       ansible.builtin.set_fact:
         installed_native: "{{ (installed_native_raw.stdout | default('')).split('\n') | map('trim') | select() | list }}"
         installed_flatpak: "{{ (installed_flatpak_raw.stdout | default('')).split('\n') | map('trim') | select() | list }}"
+
+    # A query that answers wrongly is worse than one that errors, because the comparison below
+    # still runs and reports every expected package as missing, which reads exactly like a
+    # playbook that installed nothing. That is what the eaten newline produced. Both queries carry
+    # failed_when: false, so nothing else would have caught it.
+    #
+    # Any Linux installation has hundreds of packages, and the lightest container here reported
+    # 194. Fifty is far below anything real and far above anything a broken format string produces,
+    # which is one. This asserts the input to the comparison before trusting the comparison.
+    - name: Assert the installed-package query returned a plausible list
+      ansible.builtin.assert:
+        that:
+          - installed_native | length > 50
+        fail_msg: >-
+          The installed-package query returned {{ installed_native | length }} entries, which
+          cannot be right for a working {{ ansible_facts['os_family'] }} system, so every
+          comparison below would be meaningless. The query was
+          "{{ native_query[ansible_facts['os_family']] | default('none') }}". Check that its
+          format string still reaches the tool intact: `command` splits on whitespace, so a real
+          newline in it is discarded and every package name comes back concatenated.
+        success_msg: "installed-package query returned {{ installed_native | length }} entries"
+      vars:
+        native_query:
+          Archlinux: "pacman -Qq"
+          Debian: "dpkg-query -W -f=${Package}\\n"
+          RedHat: "rpm -qa --qf %{NAME}\\n"
+      when: ansible_facts['os_family'] in ['Archlinux', 'Debian', 'RedHat']
 
     - name: Work out what is missing
       ansible.builtin.set_fact:

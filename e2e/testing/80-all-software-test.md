@@ -128,6 +128,8 @@ Step 2. Wait until step 1's playbook has finished, then verify, record and tear 
 
 The verify log carries these assertions, each on its own PASS or FAIL line. Every container scenario runs the same [../tier3/verify.yaml](../tier3/verify.yaml), so the list is the same for all of them and only the expected sets differ. Each item names its verify task verbatim, so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete rather than leaving it to be noticed.
 
+Before any of them, `Assert the installed-package query returned a plausible list` checks the input to the comparison rather than the comparison itself. It fails when the query behind the native package assertion returns fewer than fifty entries, which no working Linux installation does. It exists because a format string whose newline was being discarded made that query return one concatenated blob, so every expected package was reported missing and read exactly like a playbook that had installed nothing.
+
 1. `Assert every enabled native package is installed`, checked against `pacman -Qq`. The expected set is every entry in [../../setup/ansible/vars/Archlinux.yaml](../../setup/ansible/vars/Archlinux.yaml) mapped to `pacman` or `aur` whose toggle exists in the group_vars files, minus the container limits and minus the exclusion below. This is the largest expected set any scenario produces, and the tally line states how many were expected and how many are missing.
 2. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`, again the full mapped set.
 3. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.

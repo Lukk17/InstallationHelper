@@ -116,6 +116,8 @@ The command exits 0, and `result.txt` in the run directory reports `playbook_rc:
 
 The verify log carries these assertions, each on its own PASS or FAIL line. Every container scenario runs the same [../tier3/verify.yaml](../tier3/verify.yaml), so the list is the same for all of them and only the expected sets differ. Each item names its verify task verbatim, so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete rather than leaving it to be noticed.
 
+Before any of them, `Assert the installed-package query returned a plausible list` checks the input to the comparison rather than the comparison itself. It fails when the query behind the native package assertion returns fewer than fifty entries, which no working Linux installation does. It exists because a format string whose newline was being discarded made that query return one concatenated blob, so every expected package was reported missing and read exactly like a playbook that had installed nothing.
+
 1. `Assert every enabled native package is installed`, checked against `pacman -Qq`. For this scenario the expected set is what [../../setup/ansible/vars/Archlinux.yaml](../../setup/ansible/vars/Archlinux.yaml) maps for `steam`, `syncthing`, `tailscale`, `openrazer` and `chkrootkit`, which resolves to `steam`, `syncthing`, `tailscale`, `openrazer-daemon` and the AUR `chkrootkit`. A failure names the missing packages.
 2. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`. For this scenario that is `app.polychromatic.controller`.
 3. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.

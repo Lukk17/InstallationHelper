@@ -12,7 +12,7 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 - The profile's overrides reach the run. [../../setup/ansible/profiles/linux_live.yaml](../../setup/ansible/profiles/linux_live.yaml) turns off heavy tooling and turns off the four toggles that make no sense on an ephemeral session, `install_tailscale`, `install_syncthing`, `install_docker` and `install_openrazer`. This exists for the "Tailscale's apt repository URL assumed the distribution name was already the codename it needed" entry in [../../docs/regression_ledger.md](../../docs/regression_ledger.md), whose same commit caught that the live USB profile never disabled Tailscale at all, so an ephemeral run added a repository and enabled a daemon on a session that could never join a tailnet.
 - The container limits still outrank the profile. The harness passes the profile first and `effective-vars.yaml` second, so the suppressed toggles win over anything the profile says, which is the intended precedence and is visible in `effective-vars.yaml` in the run directory.
 - The temporary passwordless sudoers entry is gone, asserted by `stat` on `/etc/sudoers.d/99-ansible-user`. Same "`playbook_succeeded` reported true regardless of what the rescue actually caught" ledger entry as the other container scenarios.
-- The packages the run was actually asked for are present. Read the caveat under Expected before ticking this one: verification computes its expected set without the profile, so its native and flatpak assertions describe the default toggle set rather than the profile's.
+- The packages the run was actually asked for are present, and the ones the profile disabled are not expected. Verification receives the profile in the same order the playbook does, so its expected set is the profile's rather than the default one. That was not true when this spec was written, and the Expected section records what changed and when.
 
 ---
 
@@ -135,6 +135,8 @@ The single-command form below does the same work in the foreground and is fine w
 `result.txt` in the run directory reports `playbook_rc: 0`. That is the primary assertion for this capability, because the question the scenario asks is whether the profile path runs at all.
 
 The verify log carries the same assertions as every other container scenario, because they all run one [../tier3/verify.yaml](../tier3/verify.yaml) and only the expected sets differ. Each is named verbatim so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete.
+
+Before any of them, `Assert the installed-package query returned a plausible list` checks the input to the comparison rather than the comparison itself. It fails when the query behind the native package assertion returns fewer than fifty entries, which no working Linux installation does. It exists because a format string whose newline was being discarded made that query return one concatenated blob, so every expected package was reported missing and read exactly like a playbook that had installed nothing.
 
 1. `Assert every enabled native package is installed`, against `pacman -Qq`.
 2. `Assert every enabled flatpak application is installed`, against `flatpak list --app --columns=application`.
