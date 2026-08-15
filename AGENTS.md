@@ -104,7 +104,13 @@ This is not optional and it is not advisory. Every regression recorded in [`docs
 ./e2e/run.sh
 ```
 
-On Windows, from a PowerShell prompt:
+On Windows, prefer Git Bash, because that is the only shell here that can prove every check. Run it from the repository root:
+
+```bash
+bash e2e/run.sh
+```
+
+WSL also works and is what the container tiers need, but it cannot run the PowerShell half of the Windows mapping check, because the only PowerShell 7 on this machine is the Microsoft Store build and its real executable lives under `C:\Program Files\WindowsApps`, which WSL cannot see or execute. From WSL that one check reports SKIP and says so rather than pretending to pass. Git Bash has a working `pwsh` and delegates the Ansible checks to WSL by itself, so it reports 39 passes and no skips against 36 and one skip.
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh"

@@ -28,11 +28,19 @@ Run the gate. This is the one to run after any change to the playbook or the wiz
 ./e2e/run.sh
 ```
 
-On Windows, run it from inside WSL, which is also the only place Ansible runs at all.
+On Windows, tier 1 is best run from Git Bash. Neither Windows shell can prove everything on its own: WSL has Ansible but the only PowerShell 7 installed here is the Microsoft Store build, whose real executable sits under `C:\Program Files\WindowsApps` where WSL can neither see nor execute it, and Git Bash has a working `pwsh` but no Ansible. Git Bash is the one that closes the gap, because `tier1/ansible_static.sh` re-executes itself inside WSL when `ansible-playbook` is missing locally. From Git Bash the gate reports 39 passes and no skips. From WSL it reports 36 and one honest SKIP on the PowerShell mapping comparison.
+
+```bash
+bash e2e/run.sh
+```
+
+From WSL, which is also where the container tiers have to run:
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh"
 ```
+
+One caveat on the Git Bash path: WSL interop times out intermittently while tier 3 containers are running, answering `Wsl/Service/0x8007274c`. The delegation retries three times for that reason. If it still cannot reach WSL it warns and fails rather than skipping, because a gate that goes quiet under load is the thing this harness exists to prevent.
 
 See what scenarios exist and what each covers.
 

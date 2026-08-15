@@ -67,9 +67,24 @@ if [[ -z "${PWSH}" ]]; then
     finish "Windows mapping parse"
 fi
 
-# Windows-side paths, because pwsh.exe launched through WSL interop cannot read a /mnt path.
-win_ps_file="$(command -v wslpath &>/dev/null && wslpath -w "${PS_FILE}" || echo "${PS_FILE}")"
-win_mapping="$(command -v wslpath &>/dev/null && wslpath -w "${MAPPING_YAML}" || echo "${MAPPING_YAML}")"
+# Windows-side paths, because a Windows pwsh cannot read the POSIX path this script sees, whether
+# that path came from WSL (/mnt/d/...) or from Git Bash (/d/...). Two different converters, one per
+# environment, and this check only ever runs usefully in one of the two: WSL has wslpath but on this
+# machine the only pwsh is a Store alias stub WSL cannot execute, while Git Bash has cygpath and a
+# pwsh that runs. Handing PowerShell an unconverted path is what made it report nothing at all.
+to_windows_path() {
+    local p="$1"
+    if command -v wslpath &>/dev/null; then
+        wslpath -w "${p}"
+    elif command -v cygpath &>/dev/null; then
+        cygpath -w "${p}"
+    else
+        printf '%s' "${p}"
+    fi
+}
+
+win_ps_file="$(to_windows_path "${PS_FILE}")"
+win_mapping="$(to_windows_path "${MAPPING_YAML}")"
 
 # Paths are interpolated into the script text rather than passed as environment variables,
 # because a WSL environment variable does not reach a Windows process unless it is listed in
