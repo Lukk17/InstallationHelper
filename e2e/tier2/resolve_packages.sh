@@ -148,33 +148,62 @@ check_choco() {
 }
 
 # --- winget ------------------------------------------------------------------
-# Resolved by looking for the manifest directory in microsoft/winget-pkgs, whose path
-# is manifests/<first letter lowercased>/<id split on dots>. Uses the gh CLI when it is
-# available because unauthenticated GitHub allows only 60 requests an hour and there
-# are more winget packages than that.
+# Two ways to resolve these, and the better one only exists on Windows.
+#
+# Preferred: ask winget. `winget show --id <id> --exact` queries the real source the installer
+# will use, has no request budget, and answers the actual question, which is whether the id
+# resolves for the user. It is only reachable when the check runs from a Windows shell such as
+# Git Bash, because WSL cannot execute the Store build of winget. That is where this check ran
+# unproven for a long time: from WSL it skipped, and WSL was the documented way to run the gate,
+# so 82 mapped ids had never been resolved by anything.
+#
+# Fallback: look for the manifest directory in microsoft/winget-pkgs, whose path is
+# manifests/<first letter lowercased>/<id split on dots>. Needs an authenticated gh, because
+# unauthenticated GitHub allows 60 requests an hour and there are more ids than that. This
+# proves the manifest exists upstream, which is close to the same thing but not identical: a
+# manifest can exist while the id fails to resolve on a machine whose sources are stale.
 check_winget() {
     local pkgs=() missing=() skipped=0
     mapfile -t pkgs < <(packages_for "${VARS_DIR}/Windows.yaml" winget)
     [[ ${#pkgs[@]} -eq 0 ]] && { pass "winget: nothing mapped"; return; }
 
+    # Probed by running it, not by existing on PATH. On Windows the first hit is often the Store
+    # app-execution-alias stub, which WSL cannot execute at all.
+    local winget_cmd=""
+    for candidate in winget winget.exe; do
+        command -v "${candidate}" &>/dev/null || continue
+        if "${candidate}" --version &>/dev/null; then winget_cmd="${candidate}"; break; fi
+    done
+
     local use_gh=false
     command -v gh &>/dev/null && gh auth status &>/dev/null && use_gh=true
-    if [[ "${use_gh}" == false ]]; then
-        warn "gh is not authenticated, so winget resolution would exceed GitHub's 60 request hourly limit with ${#pkgs[@]} packages. Skipping. Run 'gh auth login' to enable it."
+
+    if [[ -z "${winget_cmd}" && "${use_gh}" == false ]]; then
+        warn "no runnable winget here and gh is not authenticated, so ${#pkgs[@]} winget ids are unresolved. Run this check from a Windows shell where winget works, or 'gh auth login'."
+        skip "winget manifest ids resolve"
         return
     fi
+
+    local method
+    if [[ -n "${winget_cmd}" ]]; then method="the winget CLI"; else method="the winget-pkgs manifest tree via gh"; fi
+    dim "resolving ${#pkgs[@]} winget ids against ${method}"
 
     for id in "${pkgs[@]}"; do
         # Store-sourced entries are bare product ids, not publisher.package manifests.
         if [[ "${id}" != *.* ]]; then skipped=$((skipped + 1)); continue; fi
-        local first path
-        first="$(printf '%s' "${id:0:1}" | tr '[:upper:]' '[:lower:]')"
-        path="manifests/${first}/${id//./\/}"
-        gh api "repos/microsoft/winget-pkgs/contents/${path}" &>/dev/null || missing+=("${id}")
+        if [[ -n "${winget_cmd}" ]]; then
+            "${winget_cmd}" show --id "${id}" --exact --disable-interactivity --accept-source-agreements &>/dev/null \
+                || missing+=("${id}")
+        else
+            local first path
+            first="$(printf '%s' "${id:0:1}" | tr '[:upper:]' '[:lower:]')"
+            path="manifests/${first}/${id//./\/}"
+            gh api "repos/microsoft/winget-pkgs/contents/${path}" &>/dev/null || missing+=("${id}")
+        fi
     done
     [[ ${skipped} -gt 0 ]] && dim "${skipped} entries skipped, they are Microsoft Store product ids rather than winget manifests"
     if [[ ${#missing[@]} -eq 0 ]]; then
-        pass "winget: all $(( ${#pkgs[@]} - skipped )) manifest ids resolve"
+        pass "winget: all $(( ${#pkgs[@]} - skipped )) manifest ids resolve against ${method}"
     else
         fail "winget: ${#missing[@]} manifest ids do not exist" "${missing[*]}"
     fi

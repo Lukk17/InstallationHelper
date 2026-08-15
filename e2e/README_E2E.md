@@ -123,11 +123,15 @@ Covered: Arch official repositories, the Arch User Repository, Flathub, Homebrew
 
 Not covered, on purpose: apt and dnf. Most of those names come from repositories the playbook adds while it runs, so resolving them without those repositories in place would report failures for packages that are fine. Tier 3 covers them by actually installing them. This gap is stated rather than hidden, because a check that quietly skips half its input is worse than no check.
 
-winget needs an authenticated gh, because there are more winget packages than GitHub's hourly limit for anonymous requests. Without it, that one check is skipped and says so.
+winget resolves two ways, and the better one only exists on Windows. From a Windows shell such as Git Bash it asks winget itself with `winget show --id <id> --exact`, which queries the source the installer will actually use, has no request budget, and answers the real question. That is the preferred path and needs no setup. From WSL there is no runnable winget, so it falls back to looking for each manifest directory in `microsoft/winget-pkgs`, which needs an authenticated `gh` because unauthenticated GitHub allows 60 requests an hour and there are more ids than that.
 
 ```bash
 gh auth login
 ```
+
+With neither available the check reports SKIP and names the count it did not resolve. That mattered: WSL was the documented way to run the gate and `gh` was not authenticated, so all 82 mapped ids went unresolved by anything for as long as the check existed. Run from Git Bash it now resolves 75 manifest ids against the CLI, the other 7 being Microsoft Store product ids which are not winget manifests at all.
+
+Note the two paths do not prove exactly the same thing. A manifest existing upstream is not quite the same as an id resolving on a machine, whose sources can be stale.
 
 ---
 
