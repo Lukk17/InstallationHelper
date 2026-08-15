@@ -29,9 +29,9 @@ A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5
 
 ### Found by the container harness on 2026-08-14 and 2026-08-15
 
-Nineteen defects, one per row of the table below, found by running the playbook in containers or by resolving its package names against real repositories, rather than by reading code. Listed together because they share an origin and because the list is the argument for the harness existing. All are fixed.
+Twenty defects, one per row of the table below, found by running the playbook in containers or by resolving its package names against real repositories, rather than by reading code. Listed together because they share an origin and because the list is the argument for the harness existing. All are fixed. The harness's own three defects are separate, under "Defects in the harness itself" below.
 
-Six of the nineteen share one shape: something did not happen and the run still reported success. Three more share another: a task assumed a live desktop session that does not exist before a first login, over SSH, on a headless machine or in a container. Four more share a third: a subsystem was still written against the previous major version of the platform underneath it. Two share a fourth: a task used something the playbook was supposed to install and had not, or never did. None of the four patterns is visible in a diff.
+Seven of the twenty share one shape: something did not happen and the run still reported success. Three more share another: a task assumed a live desktop session that does not exist before a first login, over SSH, on a headless machine or in a container. Four more share a third: a subsystem was still written against the previous major version of the platform underneath it. Two share a fourth: a task used something the playbook was supposed to install and had not, or never did. None of the four patterns is visible in a diff.
 
 Three of the six silent-success rows are AUR installs, all found on Arch, all with a different cause: a build that failed, a build that ran out of time, and a build that exited zero without installing. That is worth noticing on its own. An asynchronous install has three ways to not happen and each one needs its own detection, because the job result answers a different question from the machine's state.
 
@@ -54,6 +54,7 @@ Three of the six silent-success rows are AUR installs, all found on Arch, all wi
 | Qt 5 and Frameworks 5 build dependencies for a Frameworks 6 build | Fourteen development packages installed so the widget could compile, all of them the previous generation's names. This is worse than a name that no longer resolves: kf5-plasma-devel and qt5-base still exist, so the task went green and installed a set of packages that could not satisfy the build it existed for. | [configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) |
 | kwriteconfig5 was dropped with Frameworks 5 | Arch's kconfig package ships kwriteconfig6 and kreadconfig6 and nothing else, so the Spectacle shortcut task died with command not found. The task carried changed_when false, which says nothing about failure, so nothing about the way it was written softened the blow. | [configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) |
 | An AUR build reported success while the package was absent | A third shape of AUR failure, and the only one the job's own result cannot reveal: paru exits 0, async_status returns finished 1 with no failed key, and pacman does not have the package. Both existing collectors read the job result, so neither could see it, and the playbook's own summary listed antigravity as installed while verification found it missing. Detection now asks `pacman -Qq` for every requested AUR name after the wait and treats the set difference as a failure. Proven by running the two new expressions against real pacman in a finished container: `query_rc=1`, `present=['antigravity', 'gputest']`, `ABSENT=['definitely-not-a-real-package']`. The original miss was intermittent, the rerun installed antigravity 2.8.1-1 cleanly, which is exactly why it needed detection rather than a corrected name. | [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) |
+| Every apt and flatpak batch failure on the Debian family was invisible | All three `raw` callsites pipe into `tee`. A shell reports the last command's status in a pipeline, `tee` succeeds whatever preceded it, and all three tasks carry `failed_when: rc != 0`, so the guard could never fire. The full-upgrade task was worse still: it ended with `grep ... && echo CHANGED || echo UNCHANGED`, so its status was an echo's and `pipefail` alone would not have helped, its `2>&1 | tee` bound to the autoremove only because `&&` binds looser than a pipe, and it grepped a log opened with `tee -a` while its own comment claimed `>` truncated it, so from the second run onward it reported changed forever. Proven in both target images: `sh -c "exit 7" \| tee log` gives rc 0, and with `set -o pipefail` gives 7. | [base_utils.yaml](../setup/ansible/roles/system_core/tasks/base_utils.yaml), [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) |
 | locale generation ran before the package that makes it possible, and never on Ubuntu | `locale_gen` needs /etc/locale.gen and /var/lib/locales/supported.d, both from the `locales` package. On Debian that package was installed further down the same file, after the task that needs it. On Ubuntu it was never installed at all, because the line carrying it was gated to distribution != Ubuntu and the Ubuntu branch installs language packs instead. A desktop install has `locales` already, so this was invisible until a minimal one ran it, and it failed inside system_core, early enough that the recap read "installed: (none)" for the whole run. Same shape as the flatpak row above: a task using something the playbook was supposed to install and had not. | [system_config.yaml](../setup/ansible/roles/system_core/tasks/system_config.yaml) |
 | The widget install probe stat'd three Plasma 5 paths | One literal QML plugin path per family, all of them Plasma 5 locations that nothing writes any more, so the probe always answered "not installed" and every single run cloned and recompiled a widget that was already there. Green, idempotent-looking, and wrong. The plasmoid directory is identical on every distribution, so probing that instead removes all three hardcodings and the branch between them. | [configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) |
 
@@ -61,9 +62,41 @@ The silent-success rows are the reason item 3 of the checklist exists, and the P
 
 ---
 
+### Defects in the harness itself
+
+Three, all found on 2026-08-15 while running the non-Arch distributions, all fixed. They are recorded separately from the table above because they are not playbook defects, and together because they share one lesson that the table cannot carry: the thing that checks can be the thing that lies, and a check that answers wrongly is worse than one that errors, because the run around it carries on and reports the wrong answer with confidence.
+
+#### The installed-package query returned one concatenated string
+
+Status: fixed, [e2e/tier3/verify.yaml](../e2e/tier3/verify.yaml), plus an assertion on the query's own output.
+
+Cause: the Debian and RedHat queries were `dpkg-query -W -f=${Package}\n` and `rpm -qa --qf %{NAME}\n`. Both tools interpret `\n` in a format string themselves, so the two characters backslash and n have to reach them. Written as `\n` in a double-quoted YAML scalar it becomes a real newline, and `ansible.builtin.command` splits its argument string on whitespace, so the newline was discarded before either tool saw it.
+
+Effect: dpkg-query printed all 201 installed package names with no separator, `adduseransibleansible-coreapt...`. Splitting that on newline yields one enormous pseudo-package, so the difference against the expected set reported every expected package as missing. On a Debian run whose playbook had genuinely succeeded, verification claimed syncthing, chkrootkit, tailscale and openrazer-meta were all absent while the apt log showed each one being configured and all four appear inside the blob in the verify log.
+
+Cross-check: Arch is clean because `pacman -Qq` needs no format string. So the largest assertion in the suite could not pass on Debian, Ubuntu or Fedora and always passed on Arch, which is the worst available arrangement because it looked proven. Both corrected forms were checked in clean containers: 201 lines on debian:trixie, 194 on fedora:44. Both queries carry `failed_when: false`, so nothing else could have caught it, and there is now an assertion that the query returned more than fifty entries before the comparison is trusted at all.
+
+#### An unchecked docker cp launched a playbook against an empty filesystem
+
+Status: fixed, [e2e/tier3/container.sh](../e2e/tier3/container.sh).
+
+Cause: `docker cp` of `setup/` into the container was not checked. Under the load of three parallel scenarios the drvfs bind mount serving the repository stumbled and the daemon failed mid-archive with `archive/tar: missed writing 3635782 bytes` followed by `unexpected EOF`, at the same time `wsl.exe` began answering `Wsl/Service/0x8007274c` to unrelated calls.
+
+Effect: the script carried on and launched the playbook with its output redirected into a `/work` that did not exist. Confirmed after the fact: no `/work`, no `playbook.log`, no `playbook.rc`. The container sat idle and the queue would have waited out the scenario's entire 45 minute timeout for an exit code that was never coming, which is precisely the stall this harness exists to catch, produced by the harness. The copy now retries three times, asserts that `site.yaml`, `group_vars/all.yaml` and at least a hundred files arrived, and on failure removes the container and writes a `result.txt` saying the run proves nothing.
+
+#### The unattended queue exited 0 with three scenarios failed
+
+Status: fixed in [AGENTS.md](../AGENTS.md), which is where the command is documented.
+
+Cause: the documented `docker run` ended its `-c` string with the run redirected to a log, and anything appended after that without capturing the status first becomes the container's exit status.
+
+Effect: a sweep where kde-full, kde-configure-only and smoke all failed reported `Exited (0)`, three lines below run.sh printing "Scenarios that failed". A queue whose exit code cannot be trusted cannot be alarmed on or chained behind, which is the same class of problem as the shell-tied queue the container was built to replace. The image itself was never at fault: a probe exiting 7 reports 7, and the corrected form writes `QUEUE_EXIT=2` and exits 2.
+
+---
+
 ### Open findings, not yet fixed
 
-Two of the four originally recorded here are now closed: the desktop environment roles' Debian branch has been split by `ansible_distribution` with every package name checked in both a Debian and an Ubuntu container, and the thirteen retry-less network operations in the no-rescue bootstrap path now retry. What remains:
+Three of the four originally recorded here are now closed: the desktop environment roles' Debian branch has been split by `ansible_distribution` with every package name checked in both a Debian and an Ubuntu container, the thirteen retry-less network operations in the no-rescue bootstrap path now retry, and every Windows toggle that installed nothing now has a native path. Two entries below are kept rather than deleted because each still carries something true, stated at the end of each. What remains:
 
 #### The entire Windows path is unreachable
 
@@ -77,11 +110,15 @@ Partly addressed, and the part that is addressed does not go through Ansible at 
 
 What is still true: every task gated on `os_family == 'Windows'` in the playbook remains dead, and `vars/Windows.yaml` is still never loaded as `os_dict`. It is read by the PowerShell installer instead. Nothing new should be added to the Ansible Windows roles expecting it to run.
 
-#### Seventeen Windows toggles have no native install path yet
+#### Windows toggles with no native install path: closed, with one remainder
 
-A consequence of the entry above rather than a separate defect, but it needs naming so it is not mistaken for done. The 83 package mappings now install natively, and the remaining seventeen enabled toggles come from Ansible roles that still cannot run on Windows: `sdk_manager` for the SDKs, `ai_tools` for the CLI tools, `jetbrains_toolbox`, `windows_install` for Gridcoin and Razer Cortex, and `windows_core` for the optional features, the WSL install and the wallpaper. Twelve Windows-specific task files exist for these and none of them execute.
+Closed. This entry recorded seventeen, then eleven as the CLI tools were covered, and now none. What closed the last eleven, and what reading the dead Ansible first was worth:
 
-The wizard prints them by name at the end of a run, so a user is told rather than left guessing, but they are not installed.
+Six became mapping lines, because a single package is the whole install: `claude_desktop`, `lm_studio`, `jetbrains_toolbox`, `python`, `dart` and `android_sdk`. Two of those the dead Ansible had already chosen well and I would have chosen differently. `pyenv_windows.yaml` installs one interpreter rather than pyenv-win, which is right because installing pyenv-win leaves no Python behind, and `android_sdk_windows.yaml` installs Studio rather than the command line tools zip, which has no installer and no updater. A tier 1 check now ties the Python mapping to `default_python`.
+
+Five needed [setup/windows/WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1), because no single package expresses them: `java` is four JDKs plus a discovered `JAVA_HOME`, `nodejs` and `flutter` are a version manager followed by a version inside it, and `gridcoin` and `razer_cortex` are direct installer downloads. Here the dead Ansible was actively wrong and copying it would have shipped the bug: `sdkman_windows.yaml` named four Chocolatey packages, `temurin11`, `temurin17`, `temurin21` and `temurin`, none of which exist on the feed, then set `JAVA_HOME` machine-wide to a hardcoded `jdk-21.0.6+7-hotspot` when the real directory on this machine is `jdk-21.0.12.8-hotspot`.
+
+The remainder, and it is the reason this entry is not simply deleted: `windows_core` still owns the optional features, the WSL install and the wallpaper, and those are OS configuration rather than software, so they have no native path yet and nothing installs them. The toggle coverage check no longer counts an unreachable Windows Ansible task as coverage, so any new gap of this kind fails the gate instead of hiding, which is how the eleven were found in the first place.
 
 #### A correction to an earlier entry in this file
 
