@@ -26,9 +26,28 @@ A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5
 
 ---
 
+### Found by the container harness on 2026-08-14 and 2026-08-15
+
+Eight defects that a real Arch install would have hit, every one of them found by running the playbook in a container rather than by reading it. Listed together because they share an origin and because the list is the argument for the harness existing. All are fixed.
+
+| Defect | What it did | Where the fix is |
+|---|---|---|
+| flatpak was never installed on Arch | The Flathub remote-add runs on every Linux, but flatpak was installed only for Debian and RedHat, so on Arch it shelled out to a missing binary. With no rescue on that role the whole run died fifteen minutes in with nothing installed. | [base_utils.yaml](../setup/ansible/roles/system_core/tasks/base_utils.yaml) |
+| The OpenRazer device group was Debian's answer everywhere | Arch has no plugdev group and patches OpenRazer to use one called openrazer, so every Arch run failed with "Group plugdev does not exist". | [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml), group name now in os_dict |
+| No kernel headers on Arch for the DKMS build | Fedora installed kernel-devel and kernel-headers, Arch installed nothing, so the OpenRazer driver never built and the daemon exited while everything reported success. | [arch_prereqs.yaml](../setup/ansible/roles/software_installer/tasks/arch_prereqs.yaml) |
+| Nerd Fonts downloaded into a directory that did not exist | get_url does not create parents, and /usr/share/fonts is absent on a Linux install with no font package or desktop, which is a minimal Arch install. setup_zsh defaults true and was hidden from the wizard, so the user could not even opt out. | [fonts_theme.yaml](../setup/ansible/roles/shell_zsh/tasks/fonts_theme.yaml) |
+| plasma-framework5 does not exist any more | It was the Plasma 5 name. The Konsave build-dependency task failed on it and took the whole KDE configuration down. Plasma 6 ships the same library as libplasma. | [configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) |
+| An AUR build that ran out of time was reported as a success | async_status marks a real failure with finished 1 and failed true, but a job still building when the retries expire returns finished 0 with no failed key. The collector required `failed` to be defined, so timeouts fell through and the play exited zero with the package absent. Observed with google-chrome. | [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) |
+| Setting the KDE wallpaper assumed Plasma was already running | It talks to plasmashell over the session bus, which needs a live Plasma and a session. None of that exists before a first login, over SSH, on a headless box or in a container, and the task had no tolerance for it. | [configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) |
+| Chocolatey always tried to elevate | Start-Process -Verb RunAs fails outright with no interactive desktop to prompt on, and is pointless when already administrator, which is the normal case in a container and in CI. | [WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) |
+
+Four of those eight are the same failure shape: something did not happen and the run still reported success. That shape is the reason item 3 of the checklist exists.
+
+---
+
 ### Open findings, not yet fixed
 
-Everything in the grouped sections below is closed. These four are not, and are recorded here so they cannot be lost. All four were found on 2026-08-14 while building the container harness.
+Two of the four originally recorded here are now closed: the desktop environment roles' Debian branch has been split by `ansible_distribution` with every package name checked in both a Debian and an Ubuntu container, and the thirteen retry-less network operations in the no-rescue bootstrap path now retry. What remains:
 
 #### The entire Windows path is unreachable
 
@@ -36,21 +55,23 @@ Both wizards invoke the playbook as `ansible-playbook site.yaml -i localhost, -c
 
 Consequence: every task gated on `os_family == 'Windows'` never executes, the `windows_core` role never runs, [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) is never loaded as `os_dict` because the pre-task loads `vars/{{ os_family }}.yaml`, and all 77 winget plus 6 Chocolatey mappings are dead. What a Windows user actually gets is the Debian software set installed into their WSL instance.
 
-This is architectural rather than a small bug. Making it work needs the playbook to target Windows as a host, over WinRM or SSH, with an inventory that says so. There is no `ansible_connection`, `ansible_host` or WinRM configuration anywhere in the repository today. Nothing should be added to `vars/Windows.yaml` on the assumption that it runs, and a container for Windows would not help, because there is nothing to point it at.
+This is architectural rather than a small bug. Making Ansible do it would need the playbook to target Windows as a host over WinRM or SSH, with an inventory that says so, and there is no `ansible_connection`, `ansible_host` or WinRM configuration anywhere in the repository.
 
-#### The desktop environment roles' Debian branch names packages that exist on only one of Debian and Ubuntu
+Partly addressed, and the part that is addressed does not go through Ansible at all. The software catalogue now installs natively through [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1), which reads the same YAML the playbook reads so the toggles and mappings stay one source of truth and only the executor differs. [setup.ps1](../setup/setup.ps1) runs that first and then runs the playbook inside WSL, labelled as configuring the Linux environment rather than pretending to configure Windows. So the 83 mappings are live again, including any added on the assumption that they ran.
 
-Ansible reports Ubuntu as the Debian family, so both take the same branch in [roles/kde_plasma_setup](../setup/ansible/roles/kde_plasma_setup/) and [roles/gnome_setup](../setup/ansible/roles/gnome_setup/). That branch lists `ubuntu-desktop` and `language-pack-kde-pl`, neither of which exists in Debian trixie, and `qt6-style-kvantum`, which does not exist in Ubuntu. Checked with `apt-cache policy` in both containers.
+What is still true: every task gated on `os_family == 'Windows'` in the playbook remains dead, and `vars/Windows.yaml` is still never loaded as `os_dict`. It is read by the PowerShell installer instead. Nothing new should be added to the Ansible Windows roles expecting it to run.
 
-`ansible.builtin.apt` fails the whole task when any name in its list is unknown, so KDE installation is broken on both distributions and GNOME installation is broken on Debian. The fix is a per-distribution split rather than a shared Debian branch, using `ansible_distribution` rather than `os_family`. Left open because it belongs with the Debian and Ubuntu container work rather than the Arch pass.
+#### Seventeen Windows toggles have no native install path yet
 
-#### Thirteen network operations sit in the no-rescue bootstrap path with no retries
+A consequence of the entry above rather than a separate defect, but it needs naming so it is not mistaken for done. The 83 package mappings now install natively, and the remaining seventeen enabled toggles come from Ansible roles that still cannot run on Windows: `sdk_manager` for the SDKs, `ai_tools` for the CLI tools, `jetbrains_toolbox`, `windows_install` for Gridcoin and Razer Cortex, and `windows_core` for the optional features, the WSL install and the wallpaper. Twelve Windows-specific task files exist for these and none of them execute.
 
-[site.yaml](../setup/ansible/site.yaml) runs the OS core roles without a rescue block, deliberately, because they are the bootstrap everything else depends on. The unaccounted consequence is that one transient failure there aborts the run before a single package installs.
+The wizard prints them by name at the end of a run, so a user is told rather than left guessing, but they are not installed.
 
-Observed rather than theorised: two of three parallel container runs died at `system_core : Add Flathub repository (Linux)` about fifteen minutes in, having installed nothing, while the third run, which was ahead of them, got through. The command itself is fine and idempotent, proven by running it three times in a clean container. It was network contention. The task had no retries, and twelve more like it across `system_core`, `arch_core`, `debian_core` and `fedora_core` have the same gap.
+#### A correction to an earlier entry in this file
 
-The same run also showed the failure is undiagnosable: the log said only "Error executing command." with no stderr and no return code.
+An earlier version of this ledger recorded the Flathub failure as transient network contention, and it was wrong. That conclusion came from running the command three times in a clean container and seeing it succeed, but flatpak had been installed by hand first in that test, so it proved the wrong thing. The real cause was that flatpak was never installed on Arch at all, which is in the table above. Retries were added to thirteen network operations in the no-rescue bootstrap path anyway, and that change stands on its own merits, but retrying was never the fix for this.
+
+The lesson is worth more than the fix: a reproduction that does not start from the same state as the failure proves nothing. Recorded because a wrong cause left in a ledger is worse than no entry.
 
 #### import_hibernate_task referenced a file that does not exist
 
