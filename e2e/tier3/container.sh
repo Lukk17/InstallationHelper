@@ -208,12 +208,77 @@ start_run() {
 
     # Copied in, not bind-mounted. A run must never be able to modify the working tree
     # it is testing.
+    #
+    # Every step here is checked, and the result is asserted afterwards rather than inferred
+    # from an exit code. None of it was, and a real run paid for it: with the repository
+    # reached over a drvfs bind mount, the daemon failed mid-archive with
+    #
+    #   Can't add file /repo/setup/windows/WindowsSoftware.ps1 to tar: archive/tar: missed
+    #   writing 3635782 bytes
+    #   error during connect: ... unexpected EOF
+    #
+    # and because nothing looked at that, the script carried on, launched a playbook against a
+    # /work that did not exist, and left the container sitting idle. The queue would then have
+    # waited out the scenario's whole timeout for a playbook.rc that was never coming. A copy
+    # that half happened is the worst case, because the tree looks plausible and the run fails
+    # somewhere unrelated an hour later.
     info "Copying setup/ into the container"
-    docker cp "${REPO_ROOT}/setup" "${CONTAINER}:/work-setup" >/dev/null
-    docker exec "${CONTAINER}" bash -c "mkdir -p /work && mv /work-setup /work/setup && chown -R ${E2E_USER}:${E2E_USER} /work"
-    docker cp "${EFFECTIVE_VARS}" "${CONTAINER}:/work/effective-vars.yaml" >/dev/null
-    docker cp "${TIER3_DIR}/verify.yaml" "${CONTAINER}:/work/verify.yaml" >/dev/null
-    docker exec "${CONTAINER}" chown "${E2E_USER}:${E2E_USER}" /work/effective-vars.yaml /work/verify.yaml
+    local copy_failed=""
+    # Retried, because the observed failure was transient. The repository reaches the queue
+    # container over a drvfs bind mount, and under the load of three parallel scenarios that mount
+    # stumbles: the same interop layer answers Wsl/Service/0x8007274c to unrelated calls at the
+    # same moment. A stumble costs one archive, not the scenario, so long as something notices.
+    # /work-setup is removed between attempts, because a partial archive left behind would make
+    # the retry look like it succeeded.
+    local attempt
+    for attempt in 1 2 3; do
+        copy_failed=""
+        docker cp "${REPO_ROOT}/setup" "${CONTAINER}:/work-setup" >/dev/null 2>"${RUN_DIR}/copy.log" && break
+        copy_failed="docker cp of setup/"
+        warn "copying setup/ failed on attempt ${attempt} of 3, retrying"
+        docker exec "${CONTAINER}" rm -rf /work-setup &>/dev/null || true
+        sleep 10
+    done
+    if [[ -z "${copy_failed}" ]]; then
+        docker exec "${CONTAINER}" bash -c "mkdir -p /work && mv /work-setup /work/setup && chown -R ${E2E_USER}:${E2E_USER} /work" \
+            >>"${RUN_DIR}/copy.log" 2>&1 || copy_failed="moving setup/ into place"
+    fi
+    if [[ -z "${copy_failed}" ]]; then
+        docker cp "${EFFECTIVE_VARS}" "${CONTAINER}:/work/effective-vars.yaml" >/dev/null 2>>"${RUN_DIR}/copy.log" || copy_failed="docker cp of effective-vars.yaml"
+    fi
+    if [[ -z "${copy_failed}" ]]; then
+        docker cp "${TIER3_DIR}/verify.yaml" "${CONTAINER}:/work/verify.yaml" >/dev/null 2>>"${RUN_DIR}/copy.log" || copy_failed="docker cp of verify.yaml"
+    fi
+    if [[ -z "${copy_failed}" ]]; then
+        docker exec "${CONTAINER}" chown "${E2E_USER}:${E2E_USER}" /work/effective-vars.yaml /work/verify.yaml \
+            >>"${RUN_DIR}/copy.log" 2>&1 || copy_failed="chown of the copied files"
+    fi
+
+    # Assert what has to be there, because an exit code says the transfer returned, not that the
+    # files arrived. site.yaml is what the playbook is, all.yaml is where every toggle lives, and
+    # the file count catches a partial archive that happened to include both.
+    if [[ -z "${copy_failed}" ]]; then
+        local n_copied
+        n_copied="$(docker exec "${CONTAINER}" bash -c \
+            'test -f /work/setup/ansible/site.yaml && test -f /work/setup/ansible/group_vars/all.yaml && find /work/setup -type f | wc -l' 2>/dev/null || echo 0)"
+        if [[ "${n_copied:-0}" -lt 100 ]]; then
+            copy_failed="the copied tree is incomplete, ${n_copied:-0} files under /work/setup"
+        else
+            dim "${n_copied} files copied"
+        fi
+    fi
+
+    if [[ -n "${copy_failed}" ]]; then
+        docker rm -f "${CONTAINER}" &>/dev/null || true
+        {
+            echo "scenario:    ${SCENARIO_NAME}"
+            echo "failed at:   ${copy_failed}"
+            echo "why it matters: the playbook never started, so this run proves nothing. Rerun it."
+            echo "detail:"
+            sed 's/^/  /' "${RUN_DIR}/copy.log" 2>/dev/null | tail -20
+        } | tee "${RUN_DIR}/result.txt"
+        exit 1
+    fi
 
     info "Installing Ansible collections"
     docker exec -u "${E2E_USER}" -w /work/setup/ansible "${CONTAINER}" \
