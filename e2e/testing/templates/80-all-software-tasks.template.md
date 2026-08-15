@@ -40,7 +40,8 @@ Heading levels and the single horizontal rule follow the `e2e-runbooks` tasks-te
 - [ ] `/etc/sudoers.d/99-ansible-user` does not exist
 - [ ] `effective-vars.yaml` confirms both `install_kde_plasma` and `install_gnome` were generated true, and understood that neither desktop is asserted here
 - [ ] `stable_diffusion` appears in the excluded list the harness printed
-- [ ] `docker.service` unit state was read for information only, not ticked as an assertion
+- [ ] `Assert docker.service is enabled when Docker was requested` passed, or was skipped because the toggle is off
+- [ ] `Assert flatpak is installed and the Flathub remote is configured` passed
 - [ ] The suppressed container-limits list printed by the harness was read and recorded, and this run is not being reported as coverage of everything
 - [ ] The DKMS module failures and the missing login session were recognised as documented container consequences, not regressions
 - [ ] If the run met the ansible-core deserialization race, it was recorded as an environment failure with the upstream issue named, and re-run rather than explained away

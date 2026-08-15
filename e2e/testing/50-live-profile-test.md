@@ -134,7 +134,16 @@ The single-command form below does the same work in the foreground and is fine w
 
 `result.txt` in the run directory reports `playbook_rc: 0`. That is the primary assertion for this capability, because the question the scenario asks is whether the profile path runs at all.
 
-The verify log carries the same six assertions as every other container scenario: the native package set against `pacman -Qq`, the flatpak set against `flatpak list --app --columns=application`, `systemctl is-enabled tailscaled.service` when `install_tailscale` resolves true, `id -nG` containing `os_dict.openrazer_device_group` when `install_openrazer` resolves true, `id -nG` containing `docker` when `install_docker` resolves true, and `/etc/sudoers.d/99-ansible-user` absent.
+The verify log carries the same assertions as every other container scenario, because they all run one [../tier3/verify.yaml](../tier3/verify.yaml) and only the expected sets differ. Each is named verbatim so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete.
+
+1. `Assert every enabled native package is installed`, against `pacman -Qq`.
+2. `Assert every enabled flatpak application is installed`, against `flatpak list --app --columns=application`.
+3. `Assert tailscaled is enabled when Tailscale was requested`. The profile turns `install_tailscale` off, so this one is skipped here, and the skip is the point: the ledger entry behind this scenario is a live profile that never disabled Tailscale at all.
+4. `Assert the user is in the OpenRazer device group when OpenRazer was requested`. Also disabled by the profile, also skipped.
+5. `Assert the user is in the docker group when Docker was requested`. Also disabled by the profile, also skipped.
+6. `Assert docker.service is enabled when Docker was requested`. Also skipped, same reason.
+7. `Assert flatpak is installed and the Flathub remote is configured`.
+8. `Assert the temporary passwordless sudoers entry was removed`.
 
 Amended 2026-08-15, because this section previously described a harness limitation that no longer exists and told the runner to expect a failure that is now a real one. What it said: [../tier3/container.sh](../tier3/container.sh) passed the profile to the playbook but not to the verify play, so verification resolved every toggle with the profile invisible to it, expected the whole of the profile's disabled list, and reported it missing. A non-zero `verify_rc` was the expected structural outcome and the runner was told to reconcile the missing list by hand against the profile.
 
@@ -142,9 +151,7 @@ That is fixed. `collect_and_verify` builds `verify_args` with the profile first 
 
 So `verify_rc: 0` is the expectation for this scenario, like every other one, and a non-empty missing list is a defect rather than an artefact. Confirmed by the run of 2026-08-15T09-12-23Z: `playbook_rc: 0`, `verify_rc: 0`, `verify_failures: none`, and a verify recap of `ok=18 changed=0 failed=0 skipped=8`. The eight skips are the assertions the profile's disabled toggles correctly make inapplicable, which is the profile reaching verification rather than being ignored by it.
 
-One thing is collected but not asserted: verification runs `systemctl is-enabled docker.service` and registers the result, and nothing checks it.
-
-No desktop environment assertion runs. The scenario declares `e2e_expect_desktop: none`.
+`Assert the expected desktop environment is installed` does not run. The scenario declares `e2e_expect_desktop: none`.
 
 Known container limitations. [../tier3/container_limits.yaml](../tier3/container_limits.yaml) forces `setup_hibernate`, `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot`, `install_waydroid`, `install_virtualbox`, `install_vmware` and `install_snapper` to false on top of every scenario. Two of those matter more here than elsewhere: a live USB install is exactly where bootloader work and `boot_repair` belong, and the container cannot cover any of it. The harness prints the suppressed list on every run, and a pass here is not evidence about any entry in it.
 

@@ -113,20 +113,20 @@ docker exec <container-name> tail -f /work/playbook.log
 
 The command exits 0, and `result.txt` in the run directory reports `playbook_rc: 0` and `verify_rc: 0`.
 
-The verify log carries these assertions, each on its own PASS or FAIL line.
+The verify log carries these assertions, each on its own PASS or FAIL line. Every container scenario runs the same [../tier3/verify.yaml](../tier3/verify.yaml), so the list is the same for all of them and only the expected sets differ. Each item names its verify task verbatim, so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete rather than leaving it to be noticed.
 
-1. Every enabled native package is installed, checked against `pacman -Qq`. The expected set is every toggle true in `group_vars/all.yaml` and `group_vars/linux.yaml` that [../../setup/ansible/vars/Archlinux.yaml](../../setup/ansible/vars/Archlinux.yaml) maps to `pacman` or `aur`, minus whatever the container limits turned off. A failure names the missing packages, and the tally line states how many were expected.
-2. Every enabled flatpak application is installed, checked against `flatpak list --app --columns=application`.
-3. `systemctl is-enabled tailscaled.service` exits 0.
-4. `id -nG` for the invoking user contains `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
-5. `id -nG` contains `docker`.
-6. `/etc/sudoers.d/99-ansible-user` does not exist.
+1. `Assert every enabled native package is installed`, checked against `pacman -Qq`. The expected set is every toggle true in `group_vars/all.yaml` and `group_vars/linux.yaml` that [../../setup/ansible/vars/Archlinux.yaml](../../setup/ansible/vars/Archlinux.yaml) maps to `pacman` or `aur`, minus whatever the container limits turned off. A failure names the missing packages, and the tally line states how many were expected.
+2. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`.
+3. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
+4. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
+5. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
+6. `Assert docker.service is enabled when Docker was requested`.
+7. `Assert flatpak is installed and the Flathub remote is configured`.
+8. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
 
-No desktop environment assertion runs. The scenario declares `e2e_expect_desktop: none`, so verification neither requires nor forbids `plasma-desktop`. That is deliberate: the point of this scenario is the configure path, not an install.
+`Assert the expected desktop environment is installed` does not run here. The scenario declares `e2e_expect_desktop: none`, so verification neither requires nor forbids `plasma-desktop`. That is deliberate: the point of this scenario is the configure path, not an install.
 
-A gap to be honest about. The scenario file says the interesting question is whether the configure tasks fail cleanly with a readable message rather than blowing up halfway through, and states that the verify step checks it. [../tier3/verify.yaml](../tier3/verify.yaml) contains no assertion specific to the configure-only path. What actually distinguishes a clean failure from a messy one here is the playbook exit code plus the `errors_and_failures` block in `result.txt`, which the harness fills with the `fatal:`, `failed:` and `[ERROR]` lines from the log. Those lines are diagnostics for a human reading the run, not pass criteria, and a runner must not tick an assertion box for them. If the run exits 0 and the six assertions above pass, this capability passed as specified, and the readability of any configure-path message is a judgement to record in the Result summary rather than a checkbox.
-
-One thing is collected but not asserted: verification runs `systemctl is-enabled docker.service` and registers the result, and nothing checks it.
+A gap to be honest about. The scenario file says the interesting question is whether the configure tasks fail cleanly with a readable message rather than blowing up halfway through, and states that the verify step checks it. [../tier3/verify.yaml](../tier3/verify.yaml) contains no assertion specific to the configure-only path. What actually distinguishes a clean failure from a messy one here is the playbook exit code plus the `errors_and_failures` block in `result.txt`, which the harness fills with the `fatal:`, `failed:` and `[ERROR]` lines from the log. Those lines are diagnostics for a human reading the run, not pass criteria, and a runner must not tick an assertion box for them. If the run exits 0 and the eight assertions above pass, this capability passed as specified, and the readability of any configure-path message is a judgement to record in the Result summary rather than a checkbox.
 
 Known container limitations. [../tier3/container_limits.yaml](../tier3/container_limits.yaml) forces `setup_hibernate`, `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot`, `install_waydroid`, `install_virtualbox`, `install_vmware` and `install_snapper` to false on top of every scenario, because each needs hardware or a kernel facility that belongs to the host. The harness prints that list on every run, and a pass here is not evidence about any of them.
 

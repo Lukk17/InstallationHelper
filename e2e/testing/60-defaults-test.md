@@ -127,18 +127,20 @@ The single-command form below does the same work in the foreground and is fine w
 
 `result.txt` in the run directory reports `playbook_rc: 0` and `verify_rc: 0`. Both are recorded independently, and verification runs whatever the playbook's exit code was, because a failed run still has state worth asserting on.
 
-The verify log carries these assertions, each on its own PASS or FAIL line.
+The verify log carries these assertions, each on its own PASS or FAIL line. Every container scenario runs the same [../tier3/verify.yaml](../tier3/verify.yaml), so the list is the same for all of them and only the expected sets differ. Each item names its verify task verbatim, so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete rather than leaving it to be noticed.
 
-1. Every enabled native package is installed, checked against `pacman -Qq`. The expected set is every toggle true in `group_vars/all.yaml` and `group_vars/linux.yaml` that [../../setup/ansible/vars/Archlinux.yaml](../../setup/ansible/vars/Archlinux.yaml) maps to `pacman` or `aur`, minus whatever the container limits turned off. The tally line states how many were expected and how many are missing, and a failure names them.
-2. Every enabled flatpak application is installed, checked against `flatpak list --app --columns=application`.
-3. `systemctl is-enabled tailscaled.service` exits 0.
-4. `id -nG` for the invoking user contains `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
-5. `id -nG` contains `docker`.
-6. `/etc/sudoers.d/99-ansible-user` does not exist.
+1. `Assert every enabled native package is installed`, checked against `pacman -Qq`. The expected set is every toggle true in `group_vars/all.yaml` and `group_vars/linux.yaml` that [../../setup/ansible/vars/Archlinux.yaml](../../setup/ansible/vars/Archlinux.yaml) maps to `pacman` or `aur`, minus whatever the container limits turned off. The tally line states how many were expected and how many are missing, and a failure names them.
+2. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`.
+3. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
+4. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
+5. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
+6. `Assert docker.service is enabled when Docker was requested`.
+7. `Assert flatpak is installed and the Flathub remote is configured`. This is the assertion for the ledger's first entry, where flatpak was installed only for Debian and RedHat while the Flathub remote-add ran on every Linux, so on Arch it shelled out to a missing binary.
+8. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
 
-No desktop environment assertion runs. The scenario declares `e2e_expect_desktop: none`, which is the wizard's `skip` answer, and both `install_kde_plasma` and `install_gnome` are false by default.
+`Assert the expected desktop environment is installed` does not run here. The scenario declares `e2e_expect_desktop: none`, which is the wizard's `skip` answer, and both `install_kde_plasma` and `install_gnome` are false by default.
 
-One thing is collected but not asserted: verification runs `systemctl is-enabled docker.service` and registers the result, and nothing checks it. Docker on Arch is installed by the `virtualization_config` role rather than through the OS dictionary, so it is also absent from the expected native set, and the `docker` group membership in assertion 5 is the only pass criterion this suite has for it.
+A note on Docker, because assertions 5 and 6 are the whole of its coverage. Docker on Arch is installed by the `virtualization_config` role rather than through the OS dictionary, so it is absent from the expected native set and neither group membership nor unit state would catch a broken package.
 
 Known container limitations. [../tier3/container_limits.yaml](../tier3/container_limits.yaml) forces `setup_hibernate`, `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot`, `install_waydroid`, `install_virtualbox`, `install_vmware` and `install_snapper` to false on top of every scenario, because each needs hardware or a kernel facility that belongs to the host. The harness prints that list on every run. None of it is covered here, and this scenario is exactly where a reader is most likely to mistake a green run for full default coverage, so read the printed list.
 

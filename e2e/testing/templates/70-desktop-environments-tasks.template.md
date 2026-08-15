@@ -44,7 +44,8 @@ Heading levels and the single horizontal rule follow the `e2e-runbooks` tasks-te
 - [ ] KDE run: `pacman -Qq plasma-desktop` exited 0
 - [ ] GNOME run: `pacman -Qq gnome-shell` exited 0
 - [ ] Understood that the configure half of the `full` action is not asserted, and any configure oddity was recorded in the Result summary rather than ticked
-- [ ] `docker.service` unit state was read for information only in both runs, not ticked as an assertion
+- [ ] `Assert docker.service is enabled when Docker was requested` passed in both runs
+- [ ] `Assert flatpak is installed and the Flathub remote is configured` passed in both runs
 - [ ] The suppressed container-limits list printed by each run was read and recorded
 - [ ] The DKMS module failure and the missing login session were recognised as documented container consequences, not regressions, and no judgement was made about how either desktop looks
 

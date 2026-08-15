@@ -62,7 +62,7 @@ done
 
 run_tier1() {
     local rc=0
-    for check in wizard_parse toggle_coverage windows_mapping windows_npm_parity ansible_static; do
+    for check in wizard_parse toggle_coverage windows_mapping windows_npm_parity verify_spec_parity ansible_static; do
         bash "${E2E_ROOT}/tier1/${check}.sh" || rc=1
         echo
     done

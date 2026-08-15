@@ -101,7 +101,10 @@ One infrastructure failure is worth knowing about, because it looks like a hung 
 | Check | Guards against |
 |---|---|
 | [tier1/wizard_parse.sh](tier1/wizard_parse.sh) | The wizard showing a toggle in the wrong state, or dropping it, or the bash and PowerShell wizards disagreeing about which toggles exist |
-| [tier1/toggle_coverage.sh](tier1/toggle_coverage.sh) | A toggle enabled with no mapping and no task, so the user asks for software and gets a successful run with nothing installed |
+| [tier1/toggle_coverage.sh](tier1/toggle_coverage.sh) | A toggle enabled with no mapping and no task, so the user asks for software and gets a successful run with nothing installed. For Windows it accepts only the three native installers, because a Windows-gated Ansible task cannot run and counting one as coverage is what hid eleven empty toggles |
+| [tier1/windows_mapping.sh](tier1/windows_mapping.sh) | The PowerShell installer and `vars/Windows.yaml` disagreeing about a package, a manager or a source, a mapping with no toggle to select it, and the Windows Python mapping drifting away from `default_python` |
+| [tier1/windows_npm_parity.sh](tier1/windows_npm_parity.sh) | The native npm tool list and the `ai_tools` role it replaces drifting apart, which is the same two-lists problem the two wizards already had |
+| [tier1/verify_spec_parity.sh](tier1/verify_spec_parity.sh) | A capability spec understating what its run proves. All six container scenarios share one `verify.yaml`, so an assertion added there belongs in all six specs, and two had already gone unrecorded |
 | [tier1/ansible_static.sh](tier1/ansible_static.sh) | The playbook failing to parse, and warning noise growing to the point where a real warning cannot be seen |
 
 Each of these was written against a defect that had already shipped, and each was verified to fail on the code from before its fix. A check that has never been seen to fail is not a check, it is decoration.

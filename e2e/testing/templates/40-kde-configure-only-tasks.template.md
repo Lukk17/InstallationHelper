@@ -38,7 +38,8 @@ Heading levels and the single horizontal rule follow the `e2e-runbooks` tasks-te
 - [ ] `/etc/sudoers.d/99-ansible-user` does not exist
 - [ ] No desktop environment assertion ran, as expected for `e2e_expect_desktop: none`
 - [ ] The `errors_and_failures` block in `result.txt` was read, and any configure-path message was judged for readability in the Result summary rather than ticked as an assertion
-- [ ] `docker.service` unit state was read for information only, not ticked as an assertion
+- [ ] `Assert docker.service is enabled when Docker was requested` passed, or was skipped because the toggle is off
+- [ ] `Assert flatpak is installed and the Flathub remote is configured` passed
 - [ ] The suppressed container-limits list printed by the harness was read and recorded
 - [ ] The DKMS module failure and the missing login session were recognised as documented container consequences, not regressions
 
