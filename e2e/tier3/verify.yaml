@@ -70,26 +70,30 @@
     # Ansible reports it as the Debian family, which is also why it shares
     # vars/Debian.yaml and why it needs its own container to catch the cases where that
     # sharing is wrong.
-    # The `\\n` in the two format strings is deliberate and load-bearing. dpkg-query and rpm
-    # interpret `\n` in a format string themselves, so what has to reach them is the two
-    # characters backslash and n. Written as `\n` in a double-quoted YAML scalar it becomes a real
-    # newline instead, and `command` splits its argument string on whitespace, so the newline was
-    # simply dropped: dpkg-query then printed all 201 package names concatenated with no separator
-    # at all, `adduseransibleansible-coreapt...`, the split on newline yielded one enormous
-    # pseudo-package, and every expected package was reported missing.
+    # `shell` rather than `command`, and the single quotes around each format string are
+    # load-bearing. dpkg-query and rpm interpret `\n` in a format string themselves, so the two
+    # characters backslash and n have to reach them, and `command` cannot deliver them: it splits
+    # its argument with shlex in POSIX mode, which consumes a backslash as an escape. Measured in a
+    # clean debian:trixie container with real Ansible:
     #
-    # Arch never showed it because `pacman -Qq` needs no format string. So the native package
-    # assertion, the largest assertion this play makes, could not pass on Debian, Ubuntu or Fedora
-    # and did pass on Arch, which is the worst possible arrangement: it looked proven.
-    # Both corrected forms verified in a clean container, 201 lines on debian:trixie and 194 on
-    # fedora:44.
+    #   command, -f=${Package}\n       1 line,   adduseransibleansible-coreapt...
+    #   shell,   -f='${Package}\n'     201 lines, adduser / ansible / ansible-core / apt
+    #
+    # The single quotes also stop the shell expanding ${Package} and %{NAME} itself, which would
+    # substitute empty strings and print nothing at all.
+    #
+    # Splitting that one concatenated line on newline produced a single enormous pseudo-package, so
+    # the difference against the expected set reported every expected package as missing. Arch was
+    # unaffected because `pacman -Qq` needs no format string, which meant the largest assertion in
+    # this play could not pass on Debian, Ubuntu or Fedora and always passed on Arch: the worst
+    # available arrangement, because it looked proven.
     - name: List installed native packages
-      ansible.builtin.command: "{{ native_query[ansible_facts['os_family']] }}"
+      ansible.builtin.shell: "{{ native_query[ansible_facts['os_family']] }}"
       vars:
         native_query:
           Archlinux: "pacman -Qq"
-          Debian: "dpkg-query -W -f=${Package}\\n"
-          RedHat: "rpm -qa --qf %{NAME}\\n"
+          Debian: "dpkg-query -W -f='${Package}\\n'"
+          RedHat: "rpm -qa --qf '%{NAME}\\n'"
       register: installed_native_raw
       changed_when: false
       failed_when: false
@@ -123,14 +127,15 @@
           cannot be right for a working {{ ansible_facts['os_family'] }} system, so every
           comparison below would be meaningless. The query was
           "{{ native_query[ansible_facts['os_family']] | default('none') }}". Check that its
-          format string still reaches the tool intact: `command` splits on whitespace, so a real
-          newline in it is discarded and every package name comes back concatenated.
+          format string still reaches the tool intact. It must run through `shell` with the format
+          single-quoted, because `command` shlex-splits its argument and eats the backslash, which
+          makes every package name come back concatenated into one line.
         success_msg: "installed-package query returned {{ installed_native | length }} entries"
       vars:
         native_query:
           Archlinux: "pacman -Qq"
-          Debian: "dpkg-query -W -f=${Package}\\n"
-          RedHat: "rpm -qa --qf %{NAME}\\n"
+          Debian: "dpkg-query -W -f='${Package}\\n'"
+          RedHat: "rpm -qa --qf '%{NAME}\\n'"
       when: ansible_facts['os_family'] in ['Archlinux', 'Debian', 'RedHat']
 
     - name: Work out what is missing
