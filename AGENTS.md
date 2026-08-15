@@ -117,10 +117,20 @@ A non-zero exit means the work is not done. Do not report success, do not commit
 | If you changed | Run |
 |---|---|
 | a package mapping in `vars/*.yaml` | `./e2e/run.sh --tier 2` |
+| **any package name written directly into a role task** | `./e2e/run.sh --tier 2`, which resolves them per distribution. Five shipped defects came from here, including two that were themselves earlier fixes that had rotted |
 | anything in `roles/` that touches groups, systemd units, or per-distro behaviour | `./e2e/run.sh --tier 3 --scenario smoke` |
 | the desktop environment roles | `./e2e/run.sh --tier 3 --scenario kde-full` and `--scenario gnome-full` |
 | `profiles/linux_live.yaml` | `./e2e/run.sh --tier 3 --scenario live-profile` |
 | the wizard (`setup.sh` or `setup.ps1`) | tier 1 is sufficient, it compares both wizards against the YAML |
+| the Windows installer (`setup/windows/`) | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, and note it cannot exercise winget at all, see `e2e/README_E2E.md` |
+
+**For a run that must survive you closing the terminal**, drive it from the queue container rather than a shell. A queue tied to a shell is not a queue: one previously started two scenarios of three, exited, and nobody noticed for four hours.
+
+```bash
+docker run -d --name e2e-queue -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/repo" -w /repo installationhelper-e2e-queue:latest -c './e2e/run.sh --tier 3 --scenario all --jobs 3 > /repo/e2e/runs/queue.log 2>&1'
+```
+
+Roughly 5 GB of memory per concurrent scenario, measured. On a 16 GB WSL ceiling that means three at a time, not seven.
 
 Rules that come out of the ledger and that the gate cannot check for you:
 
