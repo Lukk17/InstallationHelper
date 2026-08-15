@@ -45,7 +45,7 @@ Expect many tens of gigabytes free. A run that fills the disk halfway through pr
 Confirm no container is left over from an aborted run.
 
 ```bash
-docker ps -a --filter name=e2e-arch- --format '{{.Names}}'
+docker ps -a --filter name=e2e- --format '{{.Names}}'
 ```
 
 Expect empty output. This matters more here than elsewhere, because a leftover container from a previous all-software attempt can be holding tens of gigabytes.
@@ -84,7 +84,7 @@ Reclaim host disk from earlier runs before starting, since this scenario is the 
 docker system df
 ```
 
-Force a rebuild of the base image, and only when [../tier3/arch.Dockerfile](../tier3/arch.Dockerfile) changed since the last run.
+Force a rebuild of the base image, and only when the Dockerfile for the distribution you are targeting changed since the last run, [../tier3/arch.Dockerfile](../tier3/arch.Dockerfile) by default and one of debian, ubuntu or fedora beside it.
 
 ```bash
 docker image rm installationhelper-e2e-arch:latest

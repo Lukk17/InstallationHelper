@@ -46,7 +46,7 @@ Expect at least tens of gigabytes free. This scenario installs the whole default
 Confirm no container is left over from an aborted run.
 
 ```bash
-docker ps -a --filter name=e2e-arch- --format '{{.Names}}'
+docker ps -a --filter name=e2e- --format '{{.Names}}'
 ```
 
 Expect empty output.
@@ -79,7 +79,7 @@ Remove any leftover container the prerequisite check listed, substituting the na
 docker rm -f <container-name>
 ```
 
-Force a rebuild of the base image, and only when [../tier3/arch.Dockerfile](../tier3/arch.Dockerfile) changed since the last run.
+Force a rebuild of the base image, and only when the Dockerfile for the distribution you are targeting changed since the last run, [../tier3/arch.Dockerfile](../tier3/arch.Dockerfile) by default and one of debian, ubuntu or fedora beside it.
 
 ```bash
 docker image rm installationhelper-e2e-arch:latest
