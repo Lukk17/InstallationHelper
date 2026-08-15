@@ -44,6 +44,7 @@ $ProfilesDir = Join-Path $AnsibleDir 'profiles'
 # against localhost, so its facts describe the WSL distribution rather than Windows.
 . (Join-Path $ScriptDir 'windows\WindowsSoftware.ps1')
 . (Join-Path $ScriptDir 'windows\WindowsNpmTools.ps1')
+. (Join-Path $ScriptDir 'windows\WindowsCustomInstalls.ps1')
 
 # Hidden from the checklist. Only two reasons qualify: the value is not a boolean the
 # checklist could render, or getting it wrong costs a working machine. Everything else
@@ -150,6 +151,36 @@ function Invoke-AndShowNpmTools {
     Write-Status "CLI tools: $($r.Installed.Count) installed, $($r.Present.Count) already present, $($r.Failed.Count) failed"
     foreach ($f in $r.Failed) {
         Write-Host "  [!] $($f.Display) ($($f.Package)): $($f.Detail)" -ForegroundColor Red
+    }
+    return $r
+}
+
+function Invoke-AndShowCustomInstalls {
+    <#
+    .SYNOPSIS
+        Runs the installs a package mapping cannot express and renders the outcome.
+    .DESCRIPTION
+        Java, Node, Flutter, Gridcoin and Razer Cortex. Separate from the mapping pass because each
+        needs more than one package, or no package exists at all. See
+        setup/windows/WindowsCustomInstalls.ps1 for what each one does and why.
+    #>
+    param([string[]] $OnlyKeys)
+
+    $toggles = Get-WindowsSoftwareToggle `
+        -AllVarsPath     (Join-Path $AnsibleDir 'group_vars\all.yaml') `
+        -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml')
+
+    $r = Invoke-WindowsCustomInstall -Toggles $toggles -OnlyKeys $OnlyKeys `
+        -VersionsPath (Join-Path $AnsibleDir 'group_vars\versions.yaml')
+
+    if ($r.Results.Count -eq 0) {
+        Write-Status 'SDKs and standalone installers: none enabled'
+        return $r
+    }
+
+    Write-Status "SDKs and standalone installers: $($r.Installed.Count) done, $($r.Present.Count) already present, $($r.Failed.Count) failed"
+    foreach ($f in $r.Failed) {
+        Write-Host "  [!] $($f.Key) ($($f.Package)): $($f.Detail)" -ForegroundColor Red
     }
     return $r
 }
@@ -457,10 +488,11 @@ function Invoke-Main {
         $windowsResult = Invoke-WindowsSoftwareInstall -AnsibleDir $AnsibleDir
         Show-WindowsSoftwareResult -Result $windowsResult
         $npmResult = Invoke-AndShowNpmTools
+        $customResult = Invoke-AndShowCustomInstalls
 
         Write-Section 'Configuring the Linux environment inside WSL'
         $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars @() -ProfileName $Profile
-        $winFailed = $windowsResult.Failed.Count + $npmResult.Failed.Count + [int]$npmResult.NpmMissing
+        $winFailed = $windowsResult.Failed.Count + $npmResult.Failed.Count + [int]$npmResult.NpmMissing + $customResult.Failed.Count
         if ($winFailed -gt 0 -and $rc -eq 0) { exit 1 }
         exit $rc
     }
@@ -590,6 +622,7 @@ function Invoke-Main {
     $windowsResult = Invoke-WindowsSoftwareInstall -AnsibleDir $AnsibleDir -OnlyKeys $selectedSoftwareKeys
     Show-WindowsSoftwareResult -Result $windowsResult
     $npmResult = Invoke-AndShowNpmTools -OnlyKeys $selectedSoftwareKeys
+    $customResult = Invoke-AndShowCustomInstalls -OnlyKeys $selectedSoftwareKeys
 
     # Then the WSL side, which is what the playbook has always actually configured.
     Write-Section 'Configuring the Linux environment inside WSL'
@@ -597,8 +630,9 @@ function Invoke-Main {
 
     # A Windows package failure must not be hidden behind a green playbook exit.
     # npm tools count toward this too, and a missing npm counts as a failure rather than a skip,
-    # because the tools the user asked for are not installed either way.
-    $winFailed = $windowsResult.Failed.Count + $npmResult.Failed.Count + [int]$npmResult.NpmMissing
+    # because the tools the user asked for are not installed either way. So do the SDKs and the
+    # standalone installers, for the same reason.
+    $winFailed = $windowsResult.Failed.Count + $npmResult.Failed.Count + [int]$npmResult.NpmMissing + $customResult.Failed.Count
     if ($winFailed -gt 0 -and $rc -eq 0) {
         Write-Hint "  The playbook succeeded but $winFailed Windows item(s) failed. Exiting non-zero so this is not read as a clean run."
         exit 1

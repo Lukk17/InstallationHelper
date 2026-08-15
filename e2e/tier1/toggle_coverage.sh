@@ -33,14 +33,41 @@ consumers="$(
 # Keys that the dynamic dispatcher resolves through os_dict need no direct reference,
 # so the mapping itself counts as a consumer. Read per OS below.
 
+# Windows is the one family where an Ansible task consuming the toggle proves nothing. Both wizards
+# invoke the playbook from inside WSL as `-i localhost, -c local`, so ansible_os_family reports
+# Debian and every Windows-gated task is skipped. Counting those files as consumers is what let
+# eleven toggles sit enabled, installing nothing, while this check reported full coverage. For
+# Windows the consumers are the three native installers instead: the mapping dictionary, the npm
+# table in WindowsNpmTools.ps1, and the key list in WindowsCustomInstalls.ps1.
+WINDOWS_DIR="${REPO_ROOT}/setup/windows"
+
+windows_native_consumers() {
+    sed -n '/NpmToolPackages = \[ordered\]@{/,/^}/p' "${WINDOWS_DIR}/WindowsNpmTools.ps1" 2>/dev/null \
+        | grep -oE '^\s{4}[a-z_]+' | tr -d ' '
+    # Read out of the declared array rather than the dispatch, so the two cannot drift.
+    sed -n "s/^\\\$script:CustomInstallKeys = @(\(.*\))$/\1/p" "${WINDOWS_DIR}/WindowsCustomInstalls.ps1" 2>/dev/null \
+        | tr -d "' " | tr ',' '\n'
+}
+
 check_family() {
     local family="$1" os_gv="$2"
     local vars_file="${VARS_DIR}/${family}.yaml"
 
     [[ -f "${vars_file}" ]] || { fail "${family}: vars file missing" "${vars_file}"; return 0; }
 
-    local mapped enabled unresolved=()
+    local mapped enabled unresolved=() family_consumers
     mapped="$(grep -E '^  [a-z0-9_]+: \{' "${vars_file}" | sed -E 's/^  ([a-z0-9_]+):.*/\1/' | sort -u)"
+
+    if [[ "${family}" == Windows ]]; then
+        family_consumers="$(windows_native_consumers | sed 's/^/install_/' | sort -u)"
+        if [[ -z "$(tr -d '[:space:]' <<<"${family_consumers}")" ]]; then
+            fail "Windows: neither native installer yielded any consumer keys, so this check cannot mean anything" \
+                 "looked in ${WINDOWS_DIR}/WindowsNpmTools.ps1 and WindowsCustomInstalls.ps1"
+            return 0
+        fi
+    else
+        family_consumers="${consumers}"
+    fi
 
     # Toggle values, OS-specific file layered over the cross-platform one, which is
     # the same precedence the playbook and both wizards use.
@@ -58,13 +85,17 @@ check_family() {
         [[ -z "${key}" ]] && continue
         n_enabled=$((n_enabled + 1))
         grep -qx "${key}" <<<"${mapped}" && continue
-        grep -qx "install_${key}" <<<"${consumers}" && continue
+        grep -qx "install_${key}" <<<"${family_consumers}" && continue
         grep -qE "^${family}[[:space:]]+${key}([[:space:]]|$)" "${NO_OPS_FILE}" && continue
         unresolved+=("${key}")
     done <<<"${enabled}"
 
     if [[ ${#unresolved[@]} -eq 0 ]]; then
-        pass "${family}: all ${n_enabled} enabled toggles resolve to a mapping or a task"
+        if [[ "${family}" == Windows ]]; then
+            pass "${family}: all ${n_enabled} enabled toggles resolve to a mapping or a native installer"
+        else
+            pass "${family}: all ${n_enabled} enabled toggles resolve to a mapping or a task"
+        fi
     else
         fail "${family}: ${#unresolved[@]} enabled toggles install nothing and are not documented as no-ops" \
              "${unresolved[*]}"
