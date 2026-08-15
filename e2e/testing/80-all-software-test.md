@@ -120,6 +120,8 @@ Step 2. Wait until step 1's playbook has finished, then verify, record and tear 
 ./e2e/tier3/container.sh --collect e2e/runs/<run-id>
 ```
 
+Every command above targets Arch, which is what `--os` defaults to. The same scenario runs on the other three families by naming one, `--os debian`, `--os ubuntu` or `--os fedora`, each with its own Dockerfile and image tag under [../tier3/](../tier3/). A run is a run of this capability whichever family it targeted, so the record has to say which, and a green Arch run is not evidence about the others. Three defects found on 2026-08-15 existed only outside Arch: locale generation running before the package that enables it, the verify play unable to render the Debian dictionary at all, and the installed-package query returning one concatenated line on both the apt and rpm families.
+
 ---
 
 ## Expected
