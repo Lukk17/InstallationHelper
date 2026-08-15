@@ -289,9 +289,51 @@
       when: ansible_facts['os_family'] == 'Archlinux'
       tags: [pacman_batch]
 
-    - name: Combine both kinds of AUR failure
+    # A third shape, and the only one of the three that the job's own result cannot reveal: paru
+    # exits 0, async_status reports finished 1 with failed absent, and the package is not on the
+    # machine. Found on a kde-configure-only run where verification reported antigravity missing
+    # while the playbook's summary listed it as installed and both collectors above reported
+    # nothing. Asking pacman is the only way to tell, so ask pacman.
+    #
+    # A name here that pacman does not know is a failure either way, and the message says so: either
+    # the build did not install, or the AUR base name differs from the built pkgname and the mapping
+    # names the wrong one. Both need the same look. All eleven AUR names in the Arch dictionary were
+    # checked against `pacman -Q` inside a finished container and every one resolved, so this does
+    # not fire spuriously today.
+    - name: Ask pacman which requested AUR packages are actually installed
+      ansible.builtin.command:
+        cmd: "pacman -Qq {{ aur_requested_packages | join(' ') }}"
+      vars:
+        aur_requested_packages: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'aur')
+             | map(attribute='value.package')
+             | list }}
+      register: aur_installed_query
+      changed_when: false
+      failed_when: false
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - software_installer_packages | selectattr('value.manager', 'equalto', 'aur') | list | length > 0
+      tags: [pacman_batch]
+
+    - name: Collect AUR packages that reported success and are not installed
       ansible.builtin.set_fact:
-        failed_aur_packages: "{{ (aur_reported_failures | default([]) + aur_timed_out | default([])) | unique }}"
+        aur_absent_after_install: >-
+          {{ software_installer_packages
+             | selectattr('value.manager', 'equalto', 'aur')
+             | map(attribute='value.package')
+             | difference(aur_installed_query.stdout_lines | default([]))
+             | list }}
+      when: ansible_facts['os_family'] == 'Archlinux'
+      tags: [pacman_batch]
+
+    - name: Combine every kind of AUR failure
+      ansible.builtin.set_fact:
+        failed_aur_packages: >-
+          {{ (aur_reported_failures | default([])
+              + aur_timed_out | default([])
+              + aur_absent_after_install | default([])) | unique }}
       when: ansible_facts['os_family'] == 'Archlinux'
       tags: [pacman_batch]
 
@@ -304,6 +346,14 @@
       when:
         - ansible_facts['os_family'] == 'Archlinux'
         - aur_reported_failures | default([]) | length > 0
+      tags: [pacman_batch]
+
+    - name: Surface AUR packages that claimed success and are absent
+      ansible.builtin.debug:
+        msg: "[WARN] AUR packages reported a successful build and pacman does not have them: {{ aur_absent_after_install | join(', ') }}. Either the build exited zero without installing, which a rerun usually shows again, or the package name in vars/Archlinux.yaml is the AUR base rather than the built package name, in which case fix the mapping."
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - aur_absent_after_install | default([]) | length > 0
       tags: [pacman_batch]
 
     - name: Surface AUR builds that ran out of time
