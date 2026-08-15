@@ -21,7 +21,9 @@ fi
 
 CHECKS_RUN=0
 CHECKS_FAILED=0
+CHECKS_SKIPPED=0
 FAILED_NAMES=()
+SKIPPED_NAMES=()
 
 log()   { printf '%s\n' "$*"; }
 info()  { printf '%s>>%s %s\n' "${C_BLUE}" "${C_OFF}" "$*"; }
@@ -45,6 +47,20 @@ fail() {
     return 0
 }
 
+# skip <name> <why>  record a check that could not run.
+#
+# Separate from pass on purpose. A check that did not run is not a check that passed, and a
+# summary reading "all passed" when half of it was skipped is exactly the misleading output this
+# suite exists to eliminate. Skipping does not fail the run, because a missing optional tool is
+# not a defect in the code under test, but it is always named.
+skip() {
+    CHECKS_SKIPPED=$((CHECKS_SKIPPED + 1))
+    SKIPPED_NAMES+=("$1")
+    printf '%sSKIP%s %s\n' "${C_YELLOW}" "${C_OFF}" "$1"
+    [[ $# -gt 1 ]] && printf '     %s\n' "$2"
+    return 0
+}
+
 # assert_eq <name> <expected> <actual>
 assert_eq() {
     if [[ "$2" == "$3" ]]; then
@@ -62,12 +78,24 @@ assert_eq() {
 # suite exists to catch. Every check script must end with this.
 finish() {
     echo
+    local skipnote=""
+    if [[ "${CHECKS_SKIPPED:-0}" -gt 0 ]]; then
+        skipnote=", ${CHECKS_SKIPPED} SKIPPED and therefore unproven"
+    fi
+
     if [[ "${CHECKS_FAILED:-0}" -eq 0 ]]; then
-        printf '%s%s: %d checks, all passed%s\n' "${C_GREEN}" "$1" "${CHECKS_RUN:-0}" "${C_OFF}"
+        if [[ "${CHECKS_SKIPPED:-0}" -gt 0 ]]; then
+            printf '%s%s: %d passed%s%s\n' "${C_YELLOW}" "$1" "${CHECKS_RUN:-0}" "${skipnote}" "${C_OFF}"
+            for n in "${SKIPPED_NAMES[@]}"; do printf '  ? %s\n' "${n}"; done
+        else
+            printf '%s%s: %d checks, all passed%s\n' "${C_GREEN}" "$1" "${CHECKS_RUN:-0}" "${C_OFF}"
+        fi
         exit 0
     fi
-    printf '%s%s: %d checks, %d FAILED%s\n' "${C_RED}" "$1" "${CHECKS_RUN:-0}" "${CHECKS_FAILED}" "${C_OFF}"
+
+    printf '%s%s: %d checks, %d FAILED%s%s\n' "${C_RED}" "$1" "${CHECKS_RUN:-0}" "${CHECKS_FAILED}" "${skipnote}" "${C_OFF}"
     for n in "${FAILED_NAMES[@]}"; do printf '  - %s\n' "${n}"; done
+    [[ "${CHECKS_SKIPPED:-0}" -gt 0 ]] && for n in "${SKIPPED_NAMES[@]}"; do printf '  ? %s\n' "${n}"; done
     exit 1
 }
 

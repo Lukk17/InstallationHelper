@@ -146,6 +146,13 @@ EOF
         # one. Each scenario gets its own throwaway container, so nothing they touch
         # overlaps and they are safe to overlap in time. What they do contend for is the
         # single Docker daemon, host CPU and network bandwidth.
+        # set -e is off for the whole scheduler on purpose. The readiness probe below is
+        # `--collect`, which exits 3 while a scenario is still running, and under set -e that
+        # non-zero status from a command substitution assignment terminates the script. It did:
+        # a queue of three started two scenarios, hit the first probe, and exited 0 having
+        # silently abandoned the third. A scheduler must tolerate non-zero from its probes,
+        # because that is how a probe reports "not yet".
+        set +e
         local -A running=()          # run dir -> scenario basename
         local queue=("${files[@]}")
         while [[ ${#queue[@]} -gt 0 || ${#running[@]} -gt 0 ]]; do
@@ -183,6 +190,8 @@ EOF
                 unset "running[${run_dir}]"
             done
         done
+        set -e
+        info "queue drained: every scenario started and collected"
     fi
 
     if [[ ${rc} -ne 0 ]]; then

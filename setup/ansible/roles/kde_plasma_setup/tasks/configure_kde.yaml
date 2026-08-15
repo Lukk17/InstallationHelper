@@ -86,6 +86,23 @@
   become: yes
   when: set_custom_wallpaper | bool
 
+# Talking to plasmashell over the session bus needs Plasma to be running and a live D-Bus
+# session to reach it on. Neither exists when the playbook runs before a first login, over SSH,
+# on a headless box, or in a container, and the task had no tolerance for that, so it hard
+# failed and took the whole KDE configuration down with it. The wallpaper is a preference that
+# can be applied at the next login, so it is not worth losing a run over. Probing first, and
+# saying what happened, mirrors how the Syncthing user unit already handles the same problem.
+- name: Probe for a running plasmashell on the session bus
+  ansible.builtin.command: >-
+    dbus-send --session --dest=org.freedesktop.DBus --type=method_call --print-reply
+    /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner string:org.kde.plasmashell
+  register: plasmashell_probe
+  changed_when: false
+  failed_when: false
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: set_custom_wallpaper | bool
+
 - name: Set KDE Wallpaper
   ansible.builtin.shell: |
     dbus-send --session --dest=org.kde.plasmashell --type=method_call /PlasmaShell org.kde.PlasmaShell.evaluateScript 'string:
@@ -96,10 +113,20 @@
             d.currentConfigGroup = Array("Wallpaper", "org.kde.image", "General");
             d.writeConfig("Image", "file:///usr/share/backgrounds/wallpapers/{{ default_wallpaper }}");
     }'
-  when: set_custom_wallpaper | bool
   changed_when: false
   become: yes
   become_user: "{{ non_root_user }}"
+  when:
+    - set_custom_wallpaper | bool
+    - plasmashell_probe.rc | default(1) == 0
+    - "'boolean true' in (plasmashell_probe.stdout | default(''))"
+
+- name: Report that the wallpaper was not applied because Plasma is not running
+  ansible.builtin.debug:
+    msg: "[WARN] KDE wallpaper not applied: plasmashell is not on the session bus, so there is no running Plasma to tell. Expected before a first login, on a headless machine, or in a container. Set it from System Settings, or rerun with --tags kde after logging into Plasma."
+  when:
+    - set_custom_wallpaper | bool
+    - plasmashell_probe.rc | default(1) != 0 or "'boolean true' not in (plasmashell_probe.stdout | default(''))"
 
 - name: Probe for installed applet-window-buttons widget
   ansible.builtin.stat:

@@ -41,16 +41,29 @@ n_yaml="$(grep -c . <<<"${yaml_mappings}")"
 n_looks_like="$(grep -cE '^  [a-z0-9_]+: \{' "${MAPPING_YAML}")"
 assert_eq "every mapping-shaped line parses in bash" "${n_looks_like}" "${n_yaml}"
 
-# Locate PowerShell 7. On Windows this is pwsh.exe reached from WSL through interop.
+# Locate a PowerShell 7 that actually runs. `command -v pwsh.exe` is not enough: on Windows the
+# first hit is often the Store app-execution-alias stub under WindowsApps, which is a zero-length
+# reparse point that WSL cannot execute, and trying produces
+# "pwsh.exe: line 1: MZ: command not found" as WSL reads the PE header as a script. So each
+# candidate is probed by running something trivial and checking the output, rather than trusted
+# because it exists.
 PWSH=""
-for candidate in pwsh pwsh.exe; do
-    command -v "${candidate}" &>/dev/null && { PWSH="${candidate}"; break; }
+for candidate in \
+    pwsh \
+    "/mnt/c/Program Files/PowerShell/7/pwsh.exe" \
+    "/mnt/c/Program Files/PowerShell/7-preview/pwsh.exe" \
+    pwsh.exe
+do
+    command -v "${candidate}" &>/dev/null || [[ -x "${candidate}" ]] || continue
+    if [[ "$("${candidate}" -NoProfile -NonInteractive -Command 'Write-Output E2EOK' 2>/dev/null | tr -d '\r')" == *E2EOK* ]]; then
+        PWSH="${candidate}"
+        break
+    fi
 done
 
 if [[ -z "${PWSH}" ]]; then
-    warn "PowerShell 7 not found, so the PowerShell side of this comparison is skipped."
-    warn "On Windows run this from WSL, where pwsh.exe is reachable through interop."
-    warn "Skipped, NOT passed: the parsers were not compared."
+    skip "PowerShell parser compared against the YAML" \
+         "No runnable PowerShell 7 found from here. On this machine pwsh is installed only as a Microsoft Store app, whose WindowsApps entry is an alias stub WSL cannot execute, so run this check from Windows with pwsh directly, or install PowerShell 7 inside WSL."
     finish "Windows mapping parse"
 fi
 

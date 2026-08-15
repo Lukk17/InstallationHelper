@@ -258,9 +258,17 @@
         - item.ansible_job_id is defined
       tags: [pacman_batch]
 
-    - name: Collect failed AUR packages
+    # A build that exceeded the wait budget above is not the same shape of result as one that
+    # failed, and only the second was ever collected. async_status marks a genuine failure with
+    # finished 1 and failed true, while a job still running when the retries ran out comes back
+    # finished 0 and no failed key at all. The old expression asked for `failed` to be defined,
+    # so a timed-out build fell straight through, nothing reported it, and the play exited zero
+    # with the package absent. Observed: google-chrome missing from a defaults run that reported
+    # success, while three containers competed for CPU and its build ran past twenty minutes.
+    # See docs/regression_ledger.md.
+    - name: Collect AUR packages that reported a failure
       ansible.builtin.set_fact:
-        failed_aur_packages: >-
+        aur_reported_failures: >-
           {{ (aur_results.results | default([]))
              | selectattr('failed', 'defined')
              | selectattr('failed', 'equalto', true)
@@ -269,12 +277,41 @@
       when: ansible_facts['os_family'] == 'Archlinux'
       tags: [pacman_batch]
 
-    - name: Surface AUR failures
+    - name: Collect AUR packages that never finished inside the wait budget
+      ansible.builtin.set_fact:
+        aur_timed_out: >-
+          {{ (aur_results.results | default([]))
+             | selectattr('item.ansible_job_id', 'defined')
+             | selectattr('finished', 'defined')
+             | rejectattr('finished', 'equalto', 1)
+             | map(attribute='item.item.value.package')
+             | list }}
+      when: ansible_facts['os_family'] == 'Archlinux'
+      tags: [pacman_batch]
+
+    - name: Combine both kinds of AUR failure
+      ansible.builtin.set_fact:
+        failed_aur_packages: "{{ (aur_reported_failures | default([]) + aur_timed_out | default([])) | unique }}"
+      when: ansible_facts['os_family'] == 'Archlinux'
+      tags: [pacman_batch]
+
+    # Reported separately because they need different responses. A failure means read the build
+    # log, a timeout means either the build is genuinely slower than the budget or the machine
+    # was oversubscribed, and raising the budget is the fix rather than retrying.
+    - name: Surface AUR builds that failed
       ansible.builtin.debug:
-        msg: "[WARN] AUR packages failed or timed out: {{ failed_aur_packages | join(', ') }}"
+        msg: "[WARN] AUR packages failed to build: {{ aur_reported_failures | join(', ') }}"
       when:
         - ansible_facts['os_family'] == 'Archlinux'
-        - failed_aur_packages | default([]) | length > 0
+        - aur_reported_failures | default([]) | length > 0
+      tags: [pacman_batch]
+
+    - name: Surface AUR builds that ran out of time
+      ansible.builtin.debug:
+        msg: "[WARN] AUR packages were still building when the 20 minute wait expired, so they are NOT installed: {{ aur_timed_out | join(', ') }}. Rerun, or raise the retries on the wait task if these builds are genuinely this slow on this machine."
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - aur_timed_out | default([]) | length > 0
       tags: [pacman_batch]
 
     - name: Fail if AUR packages failed and aur_allow_failures is false
