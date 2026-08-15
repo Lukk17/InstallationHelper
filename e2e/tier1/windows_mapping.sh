@@ -130,4 +130,25 @@ else
     fail "Windows mappings with no install_ toggle anywhere, so nothing can ever select them" "${orphans[*]}"
 fi
 
+# Windows has no Pyenv, so install_python resolves to one interpreter chosen to match the pinned
+# default. Two places now name a Python minor version and nothing kept them together: bumping
+# default_python to 3.12 would leave Windows silently installing 3.11 while every other platform
+# moved. This is the same two-sources-of-truth shape as the wizard toggle desync.
+VERSIONS_FILE="${ANSIBLE_DIR}/group_vars/versions.yaml"
+default_python_ref="$(grep -E '^default_python:' "${VERSIONS_FILE}" | sed -E 's/.*\{\{ *([a-z0-9_]+) *\}\}.*/\1/')"
+pinned_python="$(grep -E "^${default_python_ref}:" "${VERSIONS_FILE}" | sed -E 's/^[^:]+:[[:space:]]*"?([^"]*)"?.*/\1/')"
+pinned_minor="$(cut -d. -f1,2 <<<"${pinned_python}")"
+mapped_python="$(awk '$1 == "python" { print $3 }' <<<"${yaml_mappings}")"
+mapped_minor="${mapped_python#Python.Python.}"
+
+if [[ -z "${pinned_minor}" || "${pinned_minor}" == "." ]]; then
+    fail "could not read the pinned default Python out of versions.yaml" \
+         "default_python points at '${default_python_ref}', which resolved to '${pinned_python}'"
+elif [[ "${pinned_minor}" == "${mapped_minor}" ]]; then
+    pass "the Windows python mapping matches default_python (${pinned_minor})"
+else
+    fail "the Windows python mapping and default_python disagree" \
+         "versions.yaml default_python is ${pinned_python} (minor ${pinned_minor}) but vars/Windows.yaml maps python to ${mapped_python}"
+fi
+
 finish "Windows mapping parse"

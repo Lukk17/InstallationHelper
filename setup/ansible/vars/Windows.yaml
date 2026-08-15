@@ -9,6 +9,18 @@ software_mapping:
   git: { manager: "winget", package: "Git.Git" }
   maven: { manager: "choco", package: "maven" }       # No winget manifest under Apache/; Chocolatey carries Maven (verified Apache Maven 3.9.x).
   gradle: { manager: "choco", package: "gradle" }     # No Gradle publisher in winget-pkgs; Chocolatey carries Gradle (verified 9.x).
+  # Windows has no Pyenv equivalent worth carrying: pyenv-win exists on Chocolatey but installing it
+  # leaves no Python behind, so the toggle would still install nothing usable. A single interpreter
+  # matching default_python is the honest translation. e2e/tier1/windows_mapping.sh asserts the minor
+  # version here still matches default_python in group_vars/versions.yaml.
+  python: { manager: "winget", package: "Python.Python.3.11" }
+  # Dart on Windows arrives with Flutter through FVM as well, but the toggle is independent and
+  # Chocolatey carries the standalone SDK (verified dart-sdk 3.13.0 on the community feed).
+  dart: { manager: "choco", package: "dart-sdk" }
+  # The Android command line tools ship as a bare zip with no installer and no updater. Studio
+  # bundles the same SDK, the platform tools and the manager itself, which is what the dead
+  # android_sdk_windows.yaml task also chose (verified Google.AndroidStudio with winget show).
+  android_sdk: { manager: "winget", package: "Google.AndroidStudio" }
   postman: { manager: "winget", package: "Postman.Postman" }
   openssl: { manager: "winget", package: "ShiningLight.OpenSSL.Light" }
   dbeaver: { manager: "winget", package: "DBeaver.DBeaver.Community" }
