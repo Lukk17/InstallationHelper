@@ -1,0 +1,28 @@
+# Package names that legitimately do not exist in a distribution's own repositories, because the
+# playbook adds the repository that carries them while it runs. Format: <distro> <package> <reason>
+#
+# Distro is one of debian, ubuntu, fedora, matching the --os names of the tier 3 images.
+#
+# Every line here is a promise that the name is correct and simply unresolvable without a repository
+# that is not present yet. The role package check treats anything not listed as a defect, which is
+# the point: without this list the check flags real names and gets ignored, and an ignored check is
+# worse than none.
+#
+# Before adding a line, confirm the repository really is added by the playbook and name the task or
+# file that adds it. If you cannot point at that, the name is probably just wrong.
+
+# Docker CE, from download.docker.com. Added by fedora_repos.yaml and custom_installs.yaml.
+fedora  docker-ce                 Docker CE repo, added by fedora_repos.yaml
+fedora  docker-ce-cli             Docker CE repo, added by fedora_repos.yaml
+fedora  containerd.io             Docker CE repo, added by fedora_repos.yaml
+fedora  docker-buildx-plugin      Docker CE repo, added by fedora_repos.yaml
+fedora  docker-compose-plugin     Docker CE repo, added by fedora_repos.yaml
+
+# Dart, from dl.google.com/linux/dart. Added by sdk_manager's dart.yaml before installing.
+debian  dart                      Dart apt repo, added by sdk_manager/tasks/dart.yaml
+ubuntu  dart                      Dart apt repo, added by sdk_manager/tasks/dart.yaml
+
+# Waydroid is not in Debian or Ubuntu proper. The waydroid role adds its own source first, and the
+# toggle defaults false.
+debian  waydroid                  Waydroid repo, added by the waydroid role
+ubuntu  waydroid                  Waydroid repo, added by the waydroid role
