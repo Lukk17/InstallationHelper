@@ -79,7 +79,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role kde_plasma_setup failed — check ~/installation_issues.log for details."
+            msg: "Role kde_plasma_setup failed. The failing task and its message are above in this log."
       when: "ansible_facts['system'] == 'Linux' and (install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool)"
 
     - name: Run gnome_setup
@@ -91,7 +91,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role gnome_setup failed — check ~/installation_issues.log for details."
+            msg: "Role gnome_setup failed. The failing task and its message are above in this log."
       when: "ansible_facts['system'] == 'Linux' and (install_gnome | default(false) | bool or configure_gnome | default(false) | bool)"
 
     # 3. Cross-Platform Settings (needed for SDK path resolution)
@@ -113,7 +113,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role shell_zsh failed — check ~/installation_issues.log for details."
+            msg: "Role shell_zsh failed. The failing task and its message are above in this log."
       when: "setup_zsh | default(false) | bool and ansible_facts['os_family'] != 'Windows'"
 
     # 4. Universal Complex Roles (non-critical)
@@ -126,7 +126,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role sdk_manager failed — check ~/installation_issues.log for details."
+            msg: "Role sdk_manager failed. The failing task and its message are above in this log."
 
     - name: Run ai_tools
       tags: [ai]
@@ -137,7 +137,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role ai_tools failed — check ~/installation_issues.log for details."
+            msg: "Role ai_tools failed. The failing task and its message are above in this log."
 
     - name: Run jetbrains_toolbox
       tags: [jetbrains]
@@ -148,7 +148,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role jetbrains_toolbox failed — check ~/installation_issues.log for details."
+            msg: "Role jetbrains_toolbox failed. The failing task and its message are above in this log."
       when: "install_jetbrains_toolbox | default(false) | bool"
 
     # 5. Core Software Router (non-critical)
@@ -161,7 +161,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role software_installer failed — check ~/installation_issues.log for details."
+            msg: "Role software_installer failed. The failing task and its message are above in this log."
 
     # 6. Linux Advanced Apps (non-critical)
     - name: Run waydroid
@@ -173,7 +173,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role waydroid failed — check ~/installation_issues.log for details."
+            msg: "Role waydroid failed. The failing task and its message are above in this log."
       when: "ansible_facts['system'] == 'Linux' and install_waydroid | default(false) | bool"
 
     - name: Run linux_crypto_hardware
@@ -185,7 +185,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role linux_crypto_hardware failed — check ~/installation_issues.log for details."
+            msg: "Role linux_crypto_hardware failed. The failing task and its message are above in this log."
       when: "ansible_facts['system'] == 'Linux' and (install_ledger_live | default(false) | bool or install_trezor_suite | default(false) | bool)"
 
     - name: Run linux_security
@@ -197,7 +197,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role linux_security failed — check ~/installation_issues.log for details."
+            msg: "Role linux_security failed. The failing task and its message are above in this log."
       when: "ansible_facts['system'] == 'Linux' and setup_hibernate | default(false) | bool"
 
     - name: Run snapper
@@ -209,7 +209,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role snapper failed — check ~/installation_issues.log for details."
+            msg: "Role snapper failed. The failing task and its message are above in this log."
       when: "ansible_facts['system'] == 'Linux' and install_snapper | default(false) | bool"
 
     - name: Run virtualization_config
@@ -221,7 +221,7 @@
         - ansible.builtin.set_fact:
             any_role_failed: true
         - ansible.builtin.debug:
-            msg: "Role virtualization_config failed — check ~/installation_issues.log for details."
+            msg: "Role virtualization_config failed. The failing task and its message are above in this log."
       when: "ansible_facts['system'] == 'Linux' and (install_virt_manager | default(false) | bool or install_docker | default(false) | bool or install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)"
 
   post_tasks:
@@ -360,14 +360,29 @@
     # when roles had failed, so nothing calling the playbook could tell a good run
     # from a bad one. Kept last so all cleanup, including the sudoers removal,
     # has already happened. See docs/regression_ledger.md.
+    # The message used to send the reader to ~/installation_issues.log. Nothing has ever written
+    # that file: thirteen places in this file named it and not one created it, so every failure
+    # pointed at something that does not exist. Removed rather than implemented, because the
+    # playbook's own output already lists every failure and a second copy would be a second source
+    # of truth for the same information.
+    #
+    # The AUR list is named here instead of only in a debug task, because the dual_logger callback
+    # does not render a debug message on an ok task, so the warning that says which package is
+    # missing was invisible in the log and in the run record alike. A run that fails for a missing
+    # AUR package now says which one in the message that actually prints.
     - name: Fail the run because at least one role failed
       ansible.builtin.fail:
         msg: >-
-          One or more roles failed during this run. The failing step named itself
-          above, and ~/installation_issues.log lists every failure. Nothing was
-          rolled back, so rerunning is safe once the cause is fixed. Set
-          allow_role_failures: true if you deliberately want a non-zero role
-          failure to still exit successfully.
+          One or more roles failed during this run. The failing step named itself above in this
+          log. Nothing was rolled back, so rerunning is safe once the cause is fixed.
+          {% if failed_aur_packages | default([]) | length > 0 %}
+          AUR packages that did not end up installed:
+          {{ failed_aur_packages | join(', ') }}. Each is either a build that failed, a build that
+          ran out of the wait budget, or a build that exited zero without installing, and the three
+          warnings above distinguish them.
+          {% endif %}
+          Set allow_role_failures: true if you deliberately want a non-zero role failure to still
+          exit successfully.
       when:
         - any_role_failed | default(false) | bool
         - not (allow_role_failures | default(false) | bool)
