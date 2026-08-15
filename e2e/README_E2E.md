@@ -94,6 +94,8 @@ Collecting a run that has not finished yet is safe. It reports the task currentl
 
 One infrastructure failure is worth knowing about, because it looks like a hung scenario. `setup/` is copied into each container rather than bind-mounted, and with three scenarios running that copy occasionally fails mid-archive with `archive/tar: missed writing N bytes` followed by `unexpected EOF`. The repository reaches the queue container over a drvfs bind mount and that mount stumbles under load, at the same moments `wsl.exe` starts answering `Wsl/Service/0x8007274c`. It cost one smoke run: nothing checked the copy, the playbook launched against a `/work` that did not exist, and the container sat idle while the queue waited for an exit code that was never coming. The copy now retries three times, asserts that `site.yaml`, `all.yaml` and at least a hundred files actually arrived, and on failure removes the container and writes a `result.txt` saying the run proves nothing and must be rerun. A copy that half succeeded is the dangerous case, because the tree looks plausible and the run dies somewhere unrelated an hour later.
 
+One more thing about the queue container, in [AGENTS.md](../AGENTS.md) but worth repeating where the harness is documented. Whatever you put after `run.sh` in the `-c` string becomes the container's exit status. Append a plain `echo` and the container reports success no matter what the sweep did: a run where three of seven scenarios failed came back `Exited (0)` for exactly that reason, and a queue whose exit code cannot be trusted cannot be alarmed on or chained behind. Capture the status into a variable first and `exit` it explicitly.
+
 ---
 
 ### What tier 1 checks, and which bug each check exists for

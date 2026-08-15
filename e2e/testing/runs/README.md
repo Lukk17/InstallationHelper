@@ -10,7 +10,7 @@ Section headings in this file sit at level two because the `e2e-runbooks` scaffo
 
 | Directory | Written by | Contents |
 |---|---|---|
-| `e2e/runs/<timestamp>_<scenario>/` | the harness itself, from [../../tier3/arch_container.sh](../../tier3/arch_container.sh) | `effective-vars.yaml`, `playbook.log`, `verify.log`, `galaxy.log`, `result.txt`, `meta.env` |
+| `e2e/runs/<timestamp>_<os>_<scenario>/` | the harness itself, from [../../tier3/container.sh](../../tier3/container.sh) | `effective-vars.yaml`, `playbook.log`, `verify.log`, `galaxy.log`, `copy.log`, `result.txt`, `meta.env` |
 | `e2e/testing/runs/` (here) | the runner, human or agent | one markdown record per executed capability test, with the checkboxes ticked and the verdict written |
 
 The markdown record is the audit trail of a run. The harness directory is the evidence it cites. A record that reports a container failure should name the harness run directory it read, because the effective variable file there is the only record of what the run was actually asked for.
