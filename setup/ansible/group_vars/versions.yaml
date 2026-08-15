@@ -120,6 +120,16 @@ android_home: "{{ non_root_home }}/Android/Sdk"
 # Bump after testing; supply-chain risk if left unpinned.
 stable_diffusion_webui_version: "v1.10.1"
 
+# applet-window-buttons, the Plasma panel widget kde_plasma_setup builds from source.
+# psifidotos/applet-window-buttons and the chermnyx fork this used to clone are both
+# Plasma 5 / KDE Frameworks 5 projects, and the fork is archived upstream. Every current
+# release of all four supported Linux families ships Plasma 6 with Frameworks 6 only, so
+# neither can configure any more. moodyhunter/applet-window-buttons6 is the Plasma 6 port
+# and is what OpenMandriva packages. Verify the newest tag at
+# https://github.com/moodyhunter/applet-window-buttons6/tags before bumping.
+applet_window_buttons_repo: "https://github.com/moodyhunter/applet-window-buttons6.git"
+applet_window_buttons_version: "v0.14.0"
+
 # Fonts
 meslo_regular_url: "https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Regular.ttf"
 meslo_bold_url: "https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20Bold.ttf"

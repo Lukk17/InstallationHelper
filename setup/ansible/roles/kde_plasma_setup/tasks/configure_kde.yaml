@@ -1,15 +1,32 @@
 ---
-- name: Install pipx and build dependencies for Konsave (Debian)
+# The Qt and Frameworks development packages here exist for the applet-window-buttons build
+# further down this file, not for Konsave, which is pure Python and needs only pipx. They were
+# Qt 5 and Frameworks 5 names, matching a widget source that no longer builds anywhere. The
+# whole set is now the Frameworks 6 equivalent, and every name was resolved against the real
+# index of the distribution it applies to before being written here:
+#   Debian trixie and Ubuntu 26.04   apt-cache show inside the pinned e2e base images
+#   Fedora 44                        dnf info inside the pinned e2e base image
+#   Arch                             pacman -Si
+# libkf5plasma-dev and kf5-plasma-devel became libplasma-dev and libplasma-devel, which drop
+# the framework prefix entirely because Plasma 6 moved the library out of Frameworks.
+- name: Install pipx and the widget build dependencies (Debian)
   become: yes
   ansible.builtin.apt:
     name:
       - pipx
       - g++
       - extra-cmake-modules
-      - qtbase5-dev
-      - qtdeclarative5-dev
-      - libkf5declarative-dev
-      - libkf5plasma-dev
+      - qt6-base-dev
+      - qt6-declarative-dev
+      - libkf6coreaddons-dev
+      - libkf6declarative-dev
+      - libkf6package-dev
+      - libkf6svg-dev
+      - libkf6i18n-dev
+      - libkf6service-dev
+      - libkf6configwidgets-dev
+      - libkf6kcmutils-dev
+      - libplasma-dev
       # libkdecorations2-dev was the Plasma 5 name and exists in neither Debian trixie nor Ubuntu
       # 26.04. Plasma 6 ships libkdecorations3-dev, confirmed present on both with apt-cache policy.
       # apt fails the whole task on an unknown name, so this made the Konsave build dependencies
@@ -20,32 +37,47 @@
     state: present
   when: ansible_facts['os_family'] == 'Debian'
 
-- name: Install pipx and build dependencies for Konsave (Fedora)
+- name: Install pipx and the widget build dependencies (Fedora)
   become: yes
   ansible.builtin.dnf:
     name:
       - pipx
       - gcc-c++
       - extra-cmake-modules
-      - qt5-qtbase-devel
-      - qt5-qtdeclarative-devel
-      - kf5-kdeclarative-devel
-      - kf5-plasma-devel
+      - qt6-qtbase-devel
+      - qt6-qtdeclarative-devel
+      - kf6-kcoreaddons-devel
+      - kf6-kdeclarative-devel
+      - kf6-kpackage-devel
+      - kf6-ksvg-devel
+      - kf6-ki18n-devel
+      - kf6-kservice-devel
+      - kf6-kconfigwidgets-devel
+      - kf6-kcmutils-devel
+      - libplasma-devel
       - kdecoration-devel
       - gettext
       - cmake
     state: present
   when: ansible_facts['os_family'] == 'RedHat'
 
-- name: Install pipx and build dependencies for Konsave (Arch)
+- name: Install pipx and the widget build dependencies (Arch)
   become: yes
   community.general.pacman:
     name:
       - python-pipx
       - gcc
       - extra-cmake-modules
-      - qt5-base
-      - qt5-declarative
+      - qt6-base
+      - qt6-declarative
+      - kcoreaddons
+      - kdeclarative
+      - kpackage
+      - ksvg
+      - ki18n
+      - kservice
+      - kconfigwidgets
+      - kcmutils
       - kuserfeedback
       # plasma-framework5 was the Plasma 5 name and no longer exists in any Arch repository,
       # so this whole task failed and took the KDE configuration with it. Plasma 6 ships the
@@ -132,36 +164,47 @@
     - set_custom_wallpaper | bool
     - plasmashell_probe.rc | default(1) != 0 or "'boolean true' not in (plasmashell_probe.stdout | default(''))"
 
+# The plasmoid directory is the same on every distribution, unlike the QML plugin directory,
+# which is /usr/lib/qt6/qml on Arch, /usr/lib64/qt6/qml on Fedora and
+# /usr/lib/x86_64-linux-gnu/qt6/qml on Debian. Probing the plasmoid instead of the plugin
+# removes three hardcoded per-distribution paths and the branch that went with them. The
+# previous paths pointed at Plasma 5 locations that nothing writes any more, so the probe
+# always reported "not installed" and every run rebuilt the widget from scratch.
 - name: Probe for installed applet-window-buttons widget
   ansible.builtin.stat:
-    path: /usr/lib/x86_64-linux-gnu/qt5/qml/org/kde/plasma/applet_window_buttons
+    path: /usr/share/plasma/plasmoids/org.kde.windowbuttons/metadata.json
   register: applet_window_buttons_installed
-  when: ansible_facts['os_family'] == 'Debian'
-
-- name: Probe for installed applet-window-buttons widget (RedHat/Arch)
-  ansible.builtin.stat:
-    path: /usr/lib64/qt5/qml/org/kde/plasma/applet_window_buttons
-  register: applet_window_buttons_installed_other
-  when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']
 
 - name: Determine if applet-window-buttons needs build
   ansible.builtin.set_fact:
-    applet_window_buttons_needs_build: >-
-      {{ (ansible_facts['os_family'] == 'Debian'
-          and not (applet_window_buttons_installed.stat.exists | default(false)))
-         or
-         (ansible_facts['os_family'] in ['RedHat', 'Archlinux']
-          and not (applet_window_buttons_installed_other.stat.exists | default(false))) }}
+    applet_window_buttons_needs_build: "{{ not (applet_window_buttons_installed.stat.exists | default(false)) }}"
 
 - name: Clone applet-window-buttons repository
   become: yes
   become_user: "{{ non_root_user }}"
   ansible.builtin.git:
-    repo: https://github.com/chermnyx/applet-window-buttons.git
+    repo: "{{ applet_window_buttons_repo }}"
     dest: "{{ non_root_home }}/applet-window-buttons"
-    version: dumb_5.27_support
+    version: "{{ applet_window_buttons_version }}"
     force: no
     update: no
+  when: applet_window_buttons_needs_build | bool
+
+# The widget pins itself to C++14, extra-cmake-modules raises that to 17, and the
+# KDecoration3 6.7 headers use defaulted comparison operators and the three-way comparison
+# operator, both of which need 20. The compile therefore fails inside a system header before
+# it reaches any of the widget's own code. -DCMAKE_CXX_STANDARD=20 on the command line cannot
+# fix it, because a plain set() in the CMakeLists wins over the cache entry, and appending
+# -std=gnu++20 to CMAKE_CXX_FLAGS cannot either, because CMake emits its own -std flag after
+# the user flags and the last one on a GCC command line wins. Raising it at the source is the
+# only lever that works. Upstream is on C++14 as of v0.14.0.
+- name: Raise the widget C++ standard to 20 for the KDecoration3 headers
+  become: yes
+  become_user: "{{ non_root_user }}"
+  ansible.builtin.lineinfile:
+    path: "{{ non_root_home }}/applet-window-buttons/CMakeLists.txt"
+    regexp: '^set\(CMAKE_CXX_STANDARD [0-9]+\)$'
+    line: 'set(CMAKE_CXX_STANDARD 20)'
   when: applet_window_buttons_needs_build | bool
 
 - name: Create build directory
@@ -173,27 +216,17 @@
     mode: '0755'
   when: applet_window_buttons_needs_build | bool
 
-- name: Run CMake with explicit Ubuntu multiarch paths
-  become: yes
-  become_user: "{{ non_root_user }}"
-  ansible.builtin.command:
-    cmd: cmake -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON -DKDE_INSTALL_QMLDIR=/usr/lib/x86_64-linux-gnu/qt5/qml ..
-    chdir: "{{ non_root_home }}/applet-window-buttons/build"
-    creates: "{{ non_root_home }}/applet-window-buttons/build/Makefile"
-  when:
-    - ansible_facts['os_family'] == 'Debian'
-    - applet_window_buttons_needs_build | bool
-
-- name: Run CMake (Fedora/Arch)
+# One task for every family now. The Debian variant used to override KDE_INSTALL_QMLDIR with a
+# literal multiarch path, which is exactly what KDE_INSTALL_USE_QT_SYS_PATHS already derives
+# from Qt itself, so the override only had a chance to be wrong.
+- name: Run CMake
   become: yes
   become_user: "{{ non_root_user }}"
   ansible.builtin.command:
     cmd: cmake -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON ..
     chdir: "{{ non_root_home }}/applet-window-buttons/build"
     creates: "{{ non_root_home }}/applet-window-buttons/build/Makefile"
-  when:
-    - ansible_facts['os_family'] in ['RedHat', 'Archlinux']
-    - applet_window_buttons_needs_build | bool
+  when: applet_window_buttons_needs_build | bool
 
 - name: Compile the widget
   ansible.builtin.shell: |
@@ -201,7 +234,7 @@
     timeout 900 make -j{{ ansible_processor_vcpus }} </dev/null
   args:
     chdir: "{{ non_root_home }}/applet-window-buttons/build"
-    creates: "{{ non_root_home }}/applet-window-buttons/build/applet/plasma_applet_window_appmenu.so"
+    creates: "{{ non_root_home }}/applet-window-buttons/build/libappletdecoration/libappletdecorationplugin.so"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
@@ -226,16 +259,19 @@
 - name: Clear KDE QML and system configuration caches
   ansible.builtin.shell: |
     set -o pipefail
-    rm -rf "$HOME/.cache/qmlcache" "$HOME"/.cache/ksycoca5*
-    kbuildsycoca5 --noincremental
+    rm -rf "$HOME/.cache/qmlcache" "$HOME"/.cache/ksycoca6*
+    kbuildsycoca6 --noincremental
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
   when: applet_window_buttons_install is defined and applet_window_buttons_install is changed
 
+# kwriteconfig5 was dropped with Frameworks 5. Arch's kconfig package ships only
+# kwriteconfig6 and kreadconfig6, so this failed with command not found on every Arch run that
+# reached it, and changed_when: false does not stop Ansible failing a non-zero command.
 - name: Set Spectacle Shortcut
-  ansible.builtin.command: kwriteconfig5 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot "Meta+Shift+S,Meta+Shift+Print,Capture Rectangular Region"
+  ansible.builtin.command: kwriteconfig6 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot "Meta+Shift+S,Meta+Shift+Print,Capture Rectangular Region"
   become: yes
   become_user: "{{ non_root_user }}"
   changed_when: false
