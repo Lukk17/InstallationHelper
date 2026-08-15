@@ -118,19 +118,32 @@
     # Any Linux installation has hundreds of packages, and the lightest container here reported
     # 194. Fifty is far below anything real and far above anything a broken format string produces,
     # which is one. This asserts the input to the comparison before trusting the comparison.
+    #
+    # The expected side is asserted too, because an assertion over an empty set passes and looks
+    # exactly like an assertion that found everything. The tally task below prints both counts, but
+    # the dual_logger callback does not show a debug message on an ok task, so a set of zero was
+    # invisible in the log and in result.txt alike. Every scenario in the suite expects at least one
+    # native package, including live-profile whose whole point is turning most of them off, so zero
+    # means the expected-set computation broke rather than that a scenario has nothing to check.
     - name: Assert the installed-package query returned a plausible list
       ansible.builtin.assert:
         that:
           - installed_native | length > 50
+          - expected_native | length > 0
         fail_msg: >-
-          The installed-package query returned {{ installed_native | length }} entries, which
-          cannot be right for a working {{ ansible_facts['os_family'] }} system, so every
-          comparison below would be meaningless. The query was
-          "{{ native_query[ansible_facts['os_family']] | default('none') }}". Check that its
-          format string still reaches the tool intact. It must run through `shell` with the format
-          single-quoted, because `command` shlex-splits its argument and eats the backslash, which
-          makes every package name come back concatenated into one line.
-        success_msg: "installed-package query returned {{ installed_native | length }} entries"
+          Installed {{ installed_native | length }} entries, expected set {{ expected_native | length }}.
+          Fewer than fifty installed cannot be right for a working
+          {{ ansible_facts['os_family'] }} system, and an expected set of zero means nothing was
+          going to be checked, so either way every comparison below would be meaningless. The query
+          was "{{ native_query[ansible_facts['os_family']] | default('none') }}". If the installed
+          count is the problem, check that the format string still reaches the tool intact: it must
+          run through `shell` with the format single-quoted, because `command` shlex-splits its
+          argument and eats the backslash, which makes every package name come back concatenated
+          into one line. If the expected count is the problem, the fault is in the toggle resolution
+          or the OS dictionary rather than in the query.
+        success_msg: >-
+          installed-package query returned {{ installed_native | length }} entries, expected set is
+          {{ expected_native | length }}
       vars:
         native_query:
           Archlinux: "pacman -Qq"
