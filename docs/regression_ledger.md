@@ -29,9 +29,9 @@ A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5
 
 ### Found by the container harness on 2026-08-14 and 2026-08-15
 
-Eighteen defects, one per row of the table below, found by running the playbook in containers or by resolving its package names against real repositories, rather than by reading code. Listed together because they share an origin and because the list is the argument for the harness existing. All are fixed.
+Nineteen defects, one per row of the table below, found by running the playbook in containers or by resolving its package names against real repositories, rather than by reading code. Listed together because they share an origin and because the list is the argument for the harness existing. All are fixed.
 
-Six of the eighteen share one shape: something did not happen and the run still reported success. Three more share another: a task assumed a live desktop session that does not exist before a first login, over SSH, on a headless machine or in a container. Four more share a third: a subsystem was still written against the previous major version of the platform underneath it. None of the three patterns is visible in a diff.
+Six of the nineteen share one shape: something did not happen and the run still reported success. Three more share another: a task assumed a live desktop session that does not exist before a first login, over SSH, on a headless machine or in a container. Four more share a third: a subsystem was still written against the previous major version of the platform underneath it. Two share a fourth: a task used something the playbook was supposed to install and had not, or never did. None of the four patterns is visible in a diff.
 
 Three of the six silent-success rows are AUR installs, all found on Arch, all with a different cause: a build that failed, a build that ran out of time, and a build that exited zero without installing. That is worth noticing on its own. An asynchronous install has three ways to not happen and each one needs its own detection, because the job result answers a different question from the machine's state.
 
@@ -54,6 +54,7 @@ Three of the six silent-success rows are AUR installs, all found on Arch, all wi
 | Qt 5 and Frameworks 5 build dependencies for a Frameworks 6 build | Fourteen development packages installed so the widget could compile, all of them the previous generation's names. This is worse than a name that no longer resolves: kf5-plasma-devel and qt5-base still exist, so the task went green and installed a set of packages that could not satisfy the build it existed for. | [configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) |
 | kwriteconfig5 was dropped with Frameworks 5 | Arch's kconfig package ships kwriteconfig6 and kreadconfig6 and nothing else, so the Spectacle shortcut task died with command not found. The task carried changed_when false, which says nothing about failure, so nothing about the way it was written softened the blow. | [configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) |
 | An AUR build reported success while the package was absent | A third shape of AUR failure, and the only one the job's own result cannot reveal: paru exits 0, async_status returns finished 1 with no failed key, and pacman does not have the package. Both existing collectors read the job result, so neither could see it, and the playbook's own summary listed antigravity as installed while verification found it missing. Detection now asks `pacman -Qq` for every requested AUR name after the wait and treats the set difference as a failure. Proven by running the two new expressions against real pacman in a finished container: `query_rc=1`, `present=['antigravity', 'gputest']`, `ABSENT=['definitely-not-a-real-package']`. The original miss was intermittent, the rerun installed antigravity 2.8.1-1 cleanly, which is exactly why it needed detection rather than a corrected name. | [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) |
+| locale generation ran before the package that makes it possible, and never on Ubuntu | `locale_gen` needs /etc/locale.gen and /var/lib/locales/supported.d, both from the `locales` package. On Debian that package was installed further down the same file, after the task that needs it. On Ubuntu it was never installed at all, because the line carrying it was gated to distribution != Ubuntu and the Ubuntu branch installs language packs instead. A desktop install has `locales` already, so this was invisible until a minimal one ran it, and it failed inside system_core, early enough that the recap read "installed: (none)" for the whole run. Same shape as the flatpak row above: a task using something the playbook was supposed to install and had not. | [system_config.yaml](../setup/ansible/roles/system_core/tasks/system_config.yaml) |
 | The widget install probe stat'd three Plasma 5 paths | One literal QML plugin path per family, all of them Plasma 5 locations that nothing writes any more, so the probe always answered "not installed" and every single run cloned and recompiled a widget that was already there. Green, idempotent-looking, and wrong. The plasmoid directory is identical on every distribution, so probing that instead removes all three hardcodings and the branch between them. | [configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) |
 
 The silent-success rows are the reason item 3 of the checklist exists, and the Plasma rows are the reason item 10 does.
@@ -98,7 +99,7 @@ The lesson is worth more than the fix: a reproduction that does not start from t
 
 #### Arch OpenRazer device group does not exist
 
-Status: open, found by container audit 2026-08-14, not yet fixed.
+Status: fixed. The group name now comes from `os_dict.openrazer_device_group`, which is `openrazer` in [vars/Archlinux.yaml](../setup/ansible/vars/Archlinux.yaml) and `plugdev` in the Debian and RedHat dictionaries, and a getent probe fails with an actionable message when the group is absent. Covered by the smoke and defaults scenarios on Arch.
 
 Cause: [setup/ansible/roles/software_installer/tasks/custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) line 315 hardcodes `groups: plugdev` on the task that adds the non-root user to the OpenRazer device group. Arch Linux has no `plugdev` group at all, before or after installing OpenRazer. Arch carries a downstream patch, `0001-Use-openrazer-group.patch`, that switches upstream OpenRazer from `plugdev` to a group named `openrazer`, created by the package's own `sysusers.conf` at gid 969.
 
@@ -108,7 +109,7 @@ Cross-check: Debian trixie has `plugdev` at gid 46 and Fedora 43's openSUSE Buil
 
 #### Arch OpenRazer kernel module never builds
 
-Status: open, found by container audit 2026-08-14, not yet fixed.
+Status: fixed for the headers, and the underlying limitation is now documented per distribution. [arch_prereqs.yaml](../setup/ansible/roles/software_installer/tasks/arch_prereqs.yaml) installs the headers for every installed kernel, derived from each `/usr/lib/modules/*/pkgbase`. A container still cannot build the module, because the running kernel is the host's, and what that costs differs by distribution: see the Fedora entry below, where the same failure is fatal rather than cosmetic.
 
 Cause: [setup/ansible/roles/software_installer/tasks/fedora_repos.yaml](../setup/ansible/roles/software_installer/tasks/fedora_repos.yaml) lines 129 to 131 install `kernel-devel` and `kernel-headers` before the OpenRazer DKMS build. Arch installs nothing equivalent, and Arch's own `dkms` package lists `linux-headers` only as an optional dependency, never pulled automatically.
 
@@ -132,6 +133,26 @@ Cause: [setup/ansible/roles/systemd_boot/tasks/debian.yaml](../setup/ansible/rol
 
 Effect: on Debian the referenced `/boot/vmlinuz-<old>` file could already be gone, failing kernel-install outright, and on Fedora the equivalent path could be missing if `installonly_limit = 1` is set. Even when the file was still present, pointing the boot loader at the outgoing kernel was the wrong target regardless, since the next boot loads whatever the package manager made current. Fix: probe the newest kernel actually on disk with `ls ... | sort -V | tail -1` instead of trusting the running kernel, at line 36 of the Debian task, with a `failed_when` on empty output so a genuinely empty `/boot` hard-fails instead of writing a broken loader entry. Arch's own task in [setup/ansible/roles/systemd_boot/tasks/arch.yaml](../setup/ansible/roles/systemd_boot/tasks/arch.yaml) was never affected, it uses static symlinks the kernel package updates atomically. This toggle defaults to false, so the bug was dormant rather than triggered, caught by audit rather than by a failed run.
 
+#### The same DKMS failure is cosmetic on pacman and fatal on RPM
+
+Status: not a defect, a real limitation, now suppressed for Fedora alone in [e2e/tier3/container_limits.fedora.yaml](../e2e/tier3/container_limits.fedora.yaml).
+
+Cause: `openrazer-meta` pulls `openrazer-kernel-modules-dkms`, whose RPM `%posttrans` scriptlet runs DKMS against the running kernel. In a container that is the host's kernel, so no matching headers exist and the scriptlet exits 21. RPM treats a failed `%posttrans` as a failed transaction.
+
+Effect: dnf batches the install, so a single unbuildable kernel module reported `syncthing`, `tailscale` and `chkrootkit` as not installed too, even though all three had unpacked successfully. The module's own message is only "Failed to install some of the specified packages", and verification's missing list therefore reads exactly like four bad package names. It is not: `openrazer-meta` is in the OBS repo's noarch directory and the Fedora 44 build exists, both checked, and installing it by hand in a plain Fedora container reproduces the scriptlet failure and nothing else.
+
+Cross-check: identical DKMS failure on Arch, entirely harmless. Arch's `dkms` alpm hook ends in `return 0`, so pacman prints the error and succeeds, the package installs, and the run carries on. That difference is the point. A limitation that is invisible on one distribution can be fatal on another, and suppressing OpenRazer everywhere to satisfy Fedora would have discarded the Arch coverage that exists for the device group entry above. Container limits are therefore per distribution, with the shared file reserved for what no container can do at all.
+
+#### Verification could not render the Debian dictionary at all
+
+Status: fixed. [e2e/tier3/verify.yaml](../e2e/tier3/verify.yaml) now loads `group_vars/versions.yaml` alongside the toggle files, which is what `site.yaml` does with it as a `vars_file`.
+
+Cause: the verify play loaded `all.yaml`, `linux.yaml` and the OS dictionary, and not the pinned versions the dictionaries template against. Debian maps appimagelauncher to `{ manager: apt_url, package: "{{ appimage_launcher_url }}" }`, so merely rendering `software_mapping` through `dict2items` raised `'appimage_launcher_url' is undefined`.
+
+Effect: the first assertion in the play failed, so nothing about the Debian or Ubuntu runs was verified at all, on top of the playbook failure those runs already had.
+
+Cross-check: Arch maps the same application to the AUR by name, with no URL to dereference, and so does Fedora, where it is commented out entirely and installed from `custom_installs.yaml`. Seven green Arch scenarios and one Fedora run therefore proved nothing about this. The general lesson is narrower than "test every distribution": a value that is a template in one dictionary and a literal in another will only fail where it is a template, and the OS dictionaries are exactly where that asymmetry lives.
+
 #### Package and repository facts that only held for one distribution
 
 Status: fixed, commits `aac857986b52a77f1dc19491c804592afb31d9ae` (2026-05-21) and `6e8913a7580940a918530c61ed4f9f5b3d5bb782` (2026-05-19).
@@ -154,7 +175,7 @@ Effect: a Debian derivative such as Linux Mint or Pop!_OS produced a 404 instead
 
 #### Pacman batch failure marked as success
 
-Status: open, found by audit, not triggered in a real run yet.
+Status: fixed. The two-condition `failed_when` is gone from the pacman batch, so a could-not-find error fails the task as it should.
 
 Cause: [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) lines 207 to 210 give `failed_when` a two-item list, which Ansible combines with AND, not OR: `pacman_result.failed` and `'could not find' not in msg`. Any could-not-find error therefore marks the task `ok`.
 
@@ -162,7 +183,7 @@ Effect: one wrong package name anywhere in [setup/ansible/vars/Archlinux.yaml](.
 
 #### Install block rescue hides which task failed
 
-Status: open, this is the mechanism that let the Arch OpenRazer device group entry above hide.
+Status: fixed. The rescue now names the failing task and what it cost, and sets `any_role_failed` so the run cannot exit zero over it. Both are visible in the Fedora smoke log, where "Install DNF packages (batched)" failed and the next two tasks read "Name the install step that failed and what it cost" and "Propagate the installer failure to the play summary".
 
 Cause: [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) lines 459 to 462 wrap the entire install block, apt, dnf, pacman, snap, Windows and custom installs together, in a single `rescue` that emits one anonymous line.
 
@@ -210,7 +231,7 @@ Effect: 11 toggles on Linux and 4 more on macOS rendered as unchecked in the cus
 
 #### Toggles enabled with no mapping and no task
 
-Status: open, found by audit 2026-08-14.
+Status: fixed, and mechanised. `putty` and `gradle` are mapped on every family that claims them, and [e2e/tier1/toggle_coverage.sh](../e2e/tier1/toggle_coverage.sh) now fails the gate for any enabled toggle that resolves to neither a mapping nor a consumer, per OS family, with intended no-ops listed in [documented_no_ops.txt](../e2e/tier1/documented_no_ops.txt) and stale entries flagged too.
 
 `install_putty: true` in [setup/ansible/group_vars/linux.yaml](../setup/ansible/group_vars/linux.yaml) line 37 has no mapping in [setup/ansible/vars/Archlinux.yaml](../setup/ansible/vars/Archlinux.yaml) or [setup/ansible/vars/RedHat.yaml](../setup/ansible/vars/RedHat.yaml), even though `putty` is present in Arch's `extra` repository and in Fedora's repositories, both verified directly.
 
