@@ -98,6 +98,12 @@ start_run() {
     RUN_ID="$(timestamp)_${OS}_${SCENARIO_NAME}"
     RUN_DIR="${RUNS_DIR}/${RUN_ID}"
     mkdir -p "${RUN_DIR}"
+    # Group and other writable, because a run can be started by the queue container as root and
+    # collected later from a WSL shell as an ordinary user, or the reverse. Without this the
+    # collector could not even write its own log into a directory the queue had created, and the
+    # run was unreachable from anywhere except the container that started it. These are throwaway
+    # log directories on a mounted Windows filesystem, where the permission bits are cosmetic.
+    chmod 0777 "${RUN_DIR}" 2>/dev/null || true
     CONTAINER="e2e-${OS}-${SCENARIO_NAME}-$$"
     EFFECTIVE_VARS="${RUN_DIR}/effective-vars.yaml"
 

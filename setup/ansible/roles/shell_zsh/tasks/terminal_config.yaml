@@ -1,4 +1,10 @@
 ---
+# gsettings writes through dconf, which needs a D-Bus session bus. There is none before a first
+# login, over SSH, on a headless machine or in a container, and the command fails there. This task
+# had no tolerance for that while the Konsole equivalent below already had failed_when: false, so
+# the KDE path survived a missing session and the GNOME path failed the whole run. A terminal
+# profile preference is not worth losing a run over, and it can be set at the next login.
+# See docs/regression_ledger.md.
 - name: Configure GNOME Terminal to use ZSH
   ansible.builtin.shell: |
     PROFILE=$(gsettings get org.gnome.Terminal.ProfilesList default | tr -d "'")
@@ -8,8 +14,19 @@
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  register: gnome_terminal_zsh
   changed_when: false
+  failed_when: false
   when: install_gnome | default(false) | bool or configure_gnome | default(false) | bool
+
+- name: Report that GNOME Terminal was not reconfigured
+  ansible.builtin.debug:
+    msg: "[WARN] GNOME Terminal was not switched to zsh: gsettings could not reach a D-Bus session bus, which is expected before a first login, over SSH, on a headless machine or in a container. Log into GNOME and rerun with --tags zsh, or set it in Terminal preferences. Detail: {{ gnome_terminal_zsh.stderr | default('') | trim }}"
+  when:
+    - install_gnome | default(false) | bool or configure_gnome | default(false) | bool
+    - gnome_terminal_zsh is defined
+    - not (gnome_terminal_zsh is skipped)
+    - gnome_terminal_zsh.rc | default(0) != 0
 
 - name: Find ZSH path for Konsole
   ansible.builtin.command: which zsh
