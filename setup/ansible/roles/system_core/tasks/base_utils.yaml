@@ -88,20 +88,33 @@
     - flathub_remote_add.rc | default(0) != 0
     - "'already exists' not in (flathub_remote_add.stderr | default(''))"
 
-# apt full-upgrade can run 5–10 min and trips the 2.19 ansiballz race.
-# raw bypasses the Python module entirely; > truncates the log each run.
+# apt full-upgrade can run 5 to 10 minutes and trips the 2.19 ansiballz race, so raw bypasses the
+# Python module entirely. See the workaround section in AGENTS.md before touching this.
+#
+# Three defects were fixed here at once, all of them making the task lie about what happened.
+#
+# The command used to end with `grep ... && echo CHANGED || echo UNCHANGED`, so the shell's exit
+# status was an echo's, which is always 0. `failed_when: rc != 0` therefore could not fire and a
+# completely failed apt-get full-upgrade reported success. Proven with Ansible in both target
+# images: `sh -c "exit 7" | tee log` comes back rc 0, and with `set -o pipefail` it comes back 7.
+#
+# `2>&1 | tee` also bound to the autoremove alone, because `&&` has lower precedence than the
+# pipe, so the full-upgrade's own output never reached the log the next line then grepped.
+#
+# And the grep read a log opened with `tee -a`, which appends, while the comment above claimed `>`
+# truncated it. So from the second run onward the log still held the first run's "Setting up"
+# lines and the task reported changed forever, whatever apt actually did. Reading stdout instead
+# of a file removes that question entirely rather than fixing the truncation.
 - name: Full system upgrade and autoremove (Debian, via raw)
   ansible.builtin.raw: >-
-    {{ apt_raw_env }}
-    apt-get {{ apt_raw_flags }} full-upgrade
-    && {{ apt_raw_env }} apt-get {{ apt_raw_flags }} autoremove
-    2>&1 | tee -a /var/log/installation-apt-upgrade.log;
-    grep -qE '^(Inst |Setting up |Removing )' /var/log/installation-apt-upgrade.log
-    && echo CHANGED
-    || echo UNCHANGED
+    set -o pipefail;
+    {{ apt_raw_env }} apt-get {{ apt_raw_flags }} full-upgrade 2>&1
+    | tee -a /var/log/installation-apt-upgrade.log
+    && {{ apt_raw_env }} apt-get {{ apt_raw_flags }} autoremove 2>&1
+    | tee -a /var/log/installation-apt-upgrade.log
   become: yes
   register: apt_full_upgrade
-  changed_when: "'CHANGED' in (apt_full_upgrade.stdout | default(''))"
+  changed_when: apt_full_upgrade.stdout | default('') is search('^(Inst |Setting up |Removing )', multiline=True)
   failed_when: apt_full_upgrade.rc | default(0) != 0
   when: ansible_facts['os_family'] == 'Debian'
 

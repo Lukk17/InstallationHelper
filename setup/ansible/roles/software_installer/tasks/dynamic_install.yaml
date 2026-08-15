@@ -53,8 +53,15 @@
     # race; raw bypasses the Python module entirely. Env vars are inline
     # because raw doesn't honor the task-level `environment:` key. See
     # AGENTS.md for full bug context.
+    # set -o pipefail is load-bearing, not decoration. Without it the shell reports the exit status
+    # of the last command in the pipeline, which is tee, and tee succeeds whatever apt did. So
+    # `failed_when: rc != 0` below could never fire and every apt batch failure on the whole Debian
+    # family was invisible. Proven with Ansible in both target images: `sh -c "exit 7" | tee log`
+    # comes back rc 0, and with pipefail it comes back 7. /bin/sh is dash on both Debian trixie and
+    # Ubuntu 26.04 and both support pipefail, which was checked rather than assumed.
     - name: Install APT packages (batched, via raw to bypass 2.19 deserialization)
       ansible.builtin.raw: >-
+        set -o pipefail;
         {{ apt_raw_env }}
         apt-get install {{ apt_raw_flags }} {{ apt_packages | join(' ') }}
         2>&1 | tee -a /var/log/installation-apt-batch.log
@@ -456,8 +463,11 @@
     # Debian flatpak batch is large enough (15–20 min) to trip the 2.19 race
     # even with file redirect; raw bypasses the module. Arch/Fedora batches
     # are short and stay on community.general.flatpak.
+    # set -o pipefail for the same reason as the apt batch above: without it the pipeline's status
+    # is tee's, so failed_when could never fire on a flatpak failure either.
     - name: Install Flatpak packages (Debian, batched via raw to bypass 2.19 bug)
       ansible.builtin.raw: >-
+        set -o pipefail;
         flatpak install --system --noninteractive --assumeyes flathub
         {{ flatpak_packages | join(' ') }}
         2>&1 | tee -a /var/log/installation-flatpak-batch.log
