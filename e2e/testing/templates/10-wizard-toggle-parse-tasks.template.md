@@ -27,16 +27,22 @@ Heading levels and the single horizontal rule follow the `e2e-runbooks` tasks-te
 ### Expected
 
 - [ ] Exit code 0
-- [ ] `all.yaml`: bash parse matches the YAML, line shape valid, no stray colon, no toggle dropped, both wizards see the same keys
-- [ ] `linux.yaml`: same five checks passed
-- [ ] `macos.yaml`: same five checks passed
-- [ ] `windows.yaml`: same five checks passed
-- [ ] Toggle coverage passed for Debian, RedHat, Archlinux, Darwin and Windows
-- [ ] `documented_no_ops.txt` has no stale entries
-- [ ] `site.yaml` parses
-- [ ] Syntax check emitted at most two warnings, actual count recorded
-- [ ] No repository file was mistaken for an inventory source
-- [ ] `verify.yaml` parses
+- [ ] `wizard_parse`: `all.yaml` bash parse matches the YAML, line shape valid, no stray colon, no toggle dropped, both wizards see the same keys
+- [ ] `wizard_parse`: `linux.yaml`, same five checks passed
+- [ ] `wizard_parse`: `macos.yaml`, same five checks passed
+- [ ] `wizard_parse`: `windows.yaml`, same five checks passed
+- [ ] `wizard_parse`: every visible system setting has a descriptive label, and both wizards hide the same toggles
+- [ ] `toggle_coverage`: passed for Debian, RedHat, Archlinux, Darwin and Windows
+- [ ] `toggle_coverage`: `documented_no_ops.txt` has no stale entries
+- [ ] `windows_mapping`: PowerShell and the YAML agree on every mapping including manager and source, count recorded, and whether the PowerShell half ran or reported SKIP
+- [ ] `windows_mapping`: the Windows python mapping matches `default_python`
+- [ ] `windows_npm_parity`: both lists name the same npm packages and each has a toggle
+- [ ] `verify_spec_parity`: every verify assertion is named in all six container specs, and this spec names every tier 1 check script
+- [ ] `ansible_static`: `site.yaml` parses
+- [ ] `ansible_static`: syntax check emitted at most two warnings, actual count recorded
+- [ ] `ansible_static`: no repository file was mistaken for an inventory source
+- [ ] `ansible_static`: `verify.yaml` parses
+- [ ] `ansible_static`: whether it ran locally or re-executed itself inside WSL was recorded
 - [ ] yamllint result recorded, either clean or skipped with the reason
 - [ ] ansible-lint findings recorded as information only
 

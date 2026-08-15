@@ -21,14 +21,20 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 VERIFY_YAML="${E2E_ROOT}/tier3/verify.yaml"
 TESTING_DIR="${E2E_ROOT}/testing"
+RUN_SH="${E2E_ROOT}/run.sh"
 
 # Capabilities that drive a container scenario, and therefore run verify.yaml.
 CONTAINER_SPECS=(30-smoke 40-kde-configure-only 50-live-profile 60-defaults 70-desktop-environments 80-all-software)
 
-info "Tier 1: verify play against the capability specs"
+# Capability 10 is the whole of tier 1, so its spec has to name every check tier 1 runs. It named
+# three of six. windows_mapping, windows_npm_parity and this script itself were absent, so a reader
+# taking that spec as the definition of tier 1 would have understood it as half its actual size.
+TIER1_SPEC="${TESTING_DIR}/10-wizard-toggle-parse-test.md"
 
-[[ -f "${VERIFY_YAML}" ]] || { fail "verify.yaml is missing" "${VERIFY_YAML}"; finish "verify spec parity"; }
-[[ -d "${TESTING_DIR}" ]] || { fail "the capability spec directory is missing" "${TESTING_DIR}"; finish "verify spec parity"; }
+info "Tier 1: the harness against the capability specs"
+
+[[ -f "${VERIFY_YAML}" ]] || { fail "verify.yaml is missing" "${VERIFY_YAML}"; finish "harness spec parity"; }
+[[ -d "${TESTING_DIR}" ]] || { fail "the capability spec directory is missing" "${TESTING_DIR}"; finish "harness spec parity"; }
 
 # Assertion task names, in file order. An assert task is one whose name starts with Assert, which is
 # the convention verify.yaml already follows for all nine of them.
@@ -37,7 +43,7 @@ mapfile -t assertions < <(sed -nE 's/^[[:space:]]*-[[:space:]]*name:[[:space:]]*
 if [[ ${#assertions[@]} -eq 0 ]]; then
     fail "no assertion task names found in verify.yaml, so this check cannot mean anything" \
          "expected task names beginning 'Assert ' in ${VERIFY_YAML}"
-    finish "verify spec parity"
+    finish "harness spec parity"
 fi
 pass "verify.yaml declares ${#assertions[@]} assertions"
 
@@ -61,4 +67,28 @@ for spec_stem in "${CONTAINER_SPECS[@]}"; do
     fi
 done
 
-finish "verify spec parity"
+# --- capability 10 against the tier 1 script list -----------------------------
+# The list is read out of run_tier1's own for loop, so adding a check to the runner without
+# mentioning it in the spec fails here rather than going unnoticed.
+tier1_checks="$(sed -nE 's/^[[:space:]]*for check in ([a-z_ ]+); do$/\1/p' "${RUN_SH}")"
+
+if [[ -z "${tier1_checks}" ]]; then
+    fail "could not read the tier 1 check list out of run.sh, so this check cannot mean anything" \
+         "expected a line of the form 'for check in a b c; do' in ${RUN_SH}"
+elif [[ ! -f "${TIER1_SPEC}" ]]; then
+    fail "capability 10's spec is missing" "${TIER1_SPEC}"
+else
+    missing_checks=()
+    for check in ${tier1_checks}; do
+        grep -qF "${check}" "${TIER1_SPEC}" || missing_checks+=("${check}")
+    done
+    n_checks="$(wc -w <<<"${tier1_checks}")"
+    if [[ ${#missing_checks[@]} -eq 0 ]]; then
+        pass "10-wizard-toggle-parse: names all ${n_checks} tier 1 check scripts"
+    else
+        fail "10-wizard-toggle-parse: ${#missing_checks[@]} tier 1 check script(s) are not named in the spec, so the spec understates what the gate runs" \
+             "${missing_checks[*]}"
+    fi
+fi
+
+finish "harness spec parity"
