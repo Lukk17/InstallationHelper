@@ -43,7 +43,12 @@
       - qt5-base
       - qt5-declarative
       - kuserfeedback
-      - plasma-framework5
+      # plasma-framework5 was the Plasma 5 name and no longer exists in any Arch repository,
+      # so this whole task failed and took the KDE configuration with it. Plasma 6 ships the
+      # same library as libplasma. Every other name in this list was checked against the Arch
+      # package index at the same time and all of them still resolve. Found by the e2e
+      # kde-configure-only scenario. See docs/regression_ledger.md.
+      - libplasma
       - kdecoration
       - gettext
       - cmake

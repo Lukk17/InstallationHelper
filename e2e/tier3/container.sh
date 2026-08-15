@@ -230,6 +230,7 @@ start_run() {
     cat > "${RUN_DIR}/meta.env" <<EOF
 CONTAINER="${CONTAINER}"
 OS="${OS}"
+SCENARIO_PROFILE="${SCENARIO_PROFILE}"
 SCENARIO_NAME="${SCENARIO_NAME}"
 SCENARIO_DESC="${SCENARIO_DESC}"
 TIMEOUT_MIN="${TIMEOUT_MIN}"
@@ -271,12 +272,20 @@ collect_and_verify() {
 
     # Runs regardless of the playbook's exit code. A failed run still has state worth
     # asserting on, and knowing which parts survived is how a failure gets triaged.
-    info "Running verification"
+    # Verification must receive exactly what the playbook received, profile included, and in
+    # the same order so precedence matches. Without the profile it asserted the un-profiled
+    # software set and reported dozens of packages missing on the live-profile scenario, which
+    # were absent precisely because that profile turns them off. A harness that fails a run for
+    # doing what it was told is worse than no harness.
+    local verify_args=(/work/verify.yaml -i "localhost," -c local)
+    [[ -n "${SCENARIO_PROFILE:-}" ]] && verify_args+=(-e "@profiles/${SCENARIO_PROFILE}.yaml")
+    verify_args+=(-e "@/work/effective-vars.yaml")
+
+    info "Running verification${SCENARIO_PROFILE:+ (with profile ${SCENARIO_PROFILE})}"
     set +e
     docker exec -u "${E2E_USER}" -w /work/setup/ansible \
         -e ANSIBLE_FORCE_COLOR=0 \
-        "${CONTAINER}" ansible-playbook /work/verify.yaml -i "localhost," -c local \
-        -e "@/work/effective-vars.yaml" >"${VERIFY_LOG}" 2>&1
+        "${CONTAINER}" ansible-playbook "${verify_args[@]}" >"${VERIFY_LOG}" 2>&1
     VERIFY_RC=$?
     set -e
     info "Verify exit code: ${VERIFY_RC}"
