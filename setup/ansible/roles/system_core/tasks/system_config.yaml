@@ -18,6 +18,22 @@
 
 # --- Locale: Debian ---
 
+# locale_gen needs /etc/locale.gen and /var/lib/locales/supported.d, and both come from the
+# `locales` package. This used to be installed further down this file, after the generate task
+# that needs it, and only on Debian: the Ubuntu branch installs language packs and never
+# installed `locales` at all. A desktop install has the package already, which is why nothing
+# noticed, but a minimal install does not, and neither does a container. The result was
+# "Is the package locales installed?" two minutes into every Debian and Ubuntu run, in
+# system_core, which is early enough that nothing at all got installed afterwards. Found by the
+# first e2e smoke run on debian:trixie and ubuntu:26.04. See docs/regression_ledger.md.
+- name: Install locale support (Debian family)
+  ansible.builtin.apt:
+    name: locales
+    state: present
+    update_cache: true
+  become: yes
+  when: ansible_facts['os_family'] == 'Debian'
+
 - name: Generate PL locale (Debian)
   community.general.locale_gen:
     name: pl_PL.UTF-8
@@ -44,11 +60,11 @@
   become: yes
   when: ansible_facts['os_family'] == 'Debian' and ansible_facts['distribution'] == 'Ubuntu'
 
+# `locales` moved to the top of this block, before the task that needs it. What is left here is
+# the Debian-only Polish task package, which Ubuntu covers with language packs instead.
 - name: Install Polish locale support (Debian)
   ansible.builtin.apt:
-    name:
-      - locales
-      - task-polish
+    name: task-polish
     state: present
   become: yes
   when: ansible_facts['os_family'] == 'Debian' and ansible_facts['distribution'] != 'Ubuntu'

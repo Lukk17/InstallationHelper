@@ -25,6 +25,17 @@
         file: /work/setup/ansible/group_vars/linux.yaml
       when: ansible_facts['system'] == 'Linux'
 
+    # site.yaml loads this as a vars_file and so must this play, because the OS dictionaries
+    # template against it. Debian maps appimagelauncher to
+    # `{ manager: apt_url, package: "{{ appimage_launcher_url }}" }`, so simply rendering
+    # software_mapping through dict2items fails with "'appimage_launcher_url' is undefined" and
+    # takes the whole verification with it. Arch never showed this because it maps the same
+    # application to the AUR by name, with no URL to dereference, so five green Arch runs proved
+    # nothing about it. Found by the first Debian and Ubuntu smoke runs.
+    - name: Load the pinned versions the OS dictionaries template against
+      ansible.builtin.include_vars:
+        file: /work/setup/ansible/group_vars/versions.yaml
+
     - name: Load the OS translation dictionary
       ansible.builtin.include_vars:
         file: "/work/setup/ansible/vars/{{ ansible_facts['os_family'] }}.yaml"
