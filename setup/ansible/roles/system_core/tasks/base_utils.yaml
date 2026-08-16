@@ -118,6 +118,19 @@
   failed_when: apt_full_upgrade.rc | default(0) != 0
   when: ansible_facts['os_family'] == 'Debian'
 
+# No failed_when on either of these two, and that is the change. Both carried
+#
+#   failed_when: <registered>.failed | default(false)
+#
+# which reads like a guard and is not one. It restates the default behaviour when the key is
+# present, and when the key is absent the `default(false)` turns whatever happened into a pass. An
+# async task can produce exactly that: a result with no `failed` key. The ledger already has an
+# entry for the AUR version of this, where a job still running when its wait expired came back with
+# no `failed` key at all and fell straight through a collector that required one.
+#
+# Removing the override lets the module's own failure semantics stand, including the async timeout,
+# which is strictly safer than an expression whose only possible effect is to turn a failure into a
+# pass.
 - name: Full system upgrade (Arch)
   community.general.pacman:
     update_cache: yes
@@ -126,7 +139,6 @@
   async: 1800
   poll: 30
   register: pacman_full_upgrade
-  failed_when: pacman_full_upgrade.failed | default(false)
   when: ansible_facts['os_family'] == 'Archlinux'
 
 - name: Full system upgrade (Fedora)
@@ -137,7 +149,6 @@
   async: 1800
   poll: 30
   register: dnf_full_upgrade
-  failed_when: dnf_full_upgrade.failed | default(false)
   when: ansible_facts['os_family'] == 'RedHat'
 
 # git is required by pyenv's bootstrap script (curl pyenv.run | bash) and

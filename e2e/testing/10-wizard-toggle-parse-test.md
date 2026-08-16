@@ -4,7 +4,7 @@ Tier 1 of the harness, the pre-commit gate. Seconds, no container, nothing insta
 
 Section headings sit at level two because the `e2e-runbooks` test-spec template fixes the seven section names at that level, which overrides this repository's level-three heading rule.
 
-The capability is named after the wizard parse check because that is the defect the tier was built around, but the gate command runs all three tier 1 checks and cannot run one alone. All three are covered below.
+The capability is named after the wizard parse check because that is the defect the tier was built around, but the gate command runs every tier 1 check and cannot run one alone. All of them are covered below.
 
 ---
 
@@ -84,7 +84,7 @@ From a PowerShell prompt on Windows, the same run inside WSL.
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh"
 ```
 
-Wait for the process to exit. It runs the three checks in order and does not stop at the first failure, so the whole output is meaningful even when something fails early.
+Wait for the process to exit. It runs the checks in order and does not stop at the first failure, so the whole output is meaningful even when something fails early.
 
 ---
 
@@ -92,14 +92,15 @@ Wait for the process to exit. It runs the three checks in order and does not sto
 
 The process exits 0. A non-zero exit means at least one check failed, and the harness prints the failing check names under a per-script tally line. Each script reports its own tally with the shape `<label>: N checks, all passed`, so a script that fails still tells you how many assertions ran.
 
-Six check scripts run, in this order, and the list below is the whole of tier 1. Each is named by its script so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can read `run_tier1`'s own loop and prove this section is complete. Per-script assertion counts are deliberately not stated, because they grow as checks are added and a stale number here would be worse than none.
+Seven check scripts run, in this order, and the list below is the whole of tier 1. Each is named by its script so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can read `run_tier1`'s own loop and prove this section is complete. Per-script assertion counts are deliberately not stated, because they grow as checks are added and a stale number here would be worse than none.
 
 1. `wizard_parse` reports five passes for each of `all.yaml`, `linux.yaml`, `macos.yaml` and `windows.yaml`: the bash parse matches the YAML with a toggle count, every emitted line has the shape `<key> ON|OFF`, no key carries a stray colon, no toggle is dropped between the YAML and the wizard, and the two wizards see the same toggle keys. A mismatch prints a truncated diff of the two key sets rather than a log excerpt. Two further passes cover the whole set rather than one file: every visible system setting has a descriptive label, and both wizards hide the same toggles.
 2. `toggle_coverage` reports one pass per OS family, `Debian`, `RedHat`, `Archlinux`, `Darwin` and `Windows`, each stating how many enabled toggles resolved. A failure names the unresolved toggles. One further pass states that the documented no-op list has no stale entries, and a failure names each family and toggle pair that is forgiven while a real mapping now exists. Windows is judged differently from the other four: a Windows-gated Ansible task cannot run, so only the three native installers count as coverage there.
 3. `windows_mapping` reports that every mapping-shaped line in `vars/Windows.yaml` parses in bash, that the PowerShell installer parses the same number of mappings, that the two agree on every mapping including manager and source, that every mapping has a toggle to select it, and that the Windows Python mapping still matches `default_python`. The PowerShell half needs a runnable `pwsh`, which on this machine means running the gate from Git Bash rather than WSL, and it reports SKIP rather than passing quietly when it cannot.
 4. `windows_npm_parity` reports that the native npm tool list and the `ai_tools` role it replaces name the same packages, and that every one has an install toggle.
 5. `verify_spec_parity` reports that every assertion in `tier3/verify.yaml` is named in each of the six container capability specs, and that this spec names every tier 1 check script. It is the check that keeps this document honest, and it fails when a spec understates what its run proves.
-6. `ansible_static` reports that `site.yaml` parses, that the syntax check emitted at most two warnings with the actual count in the message, that no repository file is mistaken for an inventory source, and that `verify.yaml` parses. The two expected warnings are correct: no inventory was passed, so only the implicit localhost exists and it does not match `all`. When `ansible-playbook` is not on the local PATH, which is the case in Git Bash on Windows, this script re-executes itself inside WSL rather than aborting the gate.
+6. `failed_key_reads` reports that nothing in the playbook, its roles or the verify play decides anything from a result's `failed` key. It exists for one defect that cost a day: a collector selecting on `failed == true` could never match, because the task that registered the result carried `failed_when: false` and Ansible applies `failed_when` by rewriting that very key. Three AUR builds that exited rc 1 were counted as successes. `rc` and `finished` survive `failed_when` untouched and are what to read instead. Exceptions live in [../tier1/failed_key_reads_allowed.txt](../tier1/failed_key_reads_allowed.txt), currently empty.
+7. `ansible_static` reports that `site.yaml` parses, that the syntax check emitted at most two warnings with the actual count in the message, that no repository file is mistaken for an inventory source, and that `verify.yaml` parses. The two expected warnings are correct: no inventory was passed, so only the implicit localhost exists and it does not match `all`. When `ansible-playbook` is not on the local PATH, which is the case in Git Bash on Windows, this script re-executes itself inside WSL rather than aborting the gate.
 
 Optional linters behave asymmetrically on purpose. A yamllint finding fails the gate when yamllint is installed. An ansible-lint finding is printed and never fails. When either tool is missing, the run says so and skips it.
 

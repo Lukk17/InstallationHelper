@@ -1,0 +1,5 @@
+# Files allowed to read a result's `failed` key, one repository-relative path per line,
+# each with the reason it is safe. Empty for now: nothing in the tree needs it.
+#
+# Before adding a line, check that the registered task has no `failed_when`, because that is what
+# rewrites the key and makes the read meaningless. If it does have one, read `rc` instead.
