@@ -9,10 +9,16 @@
 # e2e/tier3/windows/WindowsSoftware.Tests.ps1.
 #
 # What it cannot test: any winget install. winget ships as an MSIX package and depends on the
-# AppX deployment subsystem, which Server Core and Nano Server do not have. That is 77 of the
-# 83 Windows mappings. Chocolatey works because it is only PowerShell and NuGet, which covers
-# the remaining 6. There is no way around this in a container, so winget installation needs a
-# real Windows machine or a hosted runner.
+# AppX deployment subsystem, which Server Core and Nano Server do not have. As of 2026-08-16
+# that is 82 of the 89 Windows mappings, 7 of those 82 being Microsoft Store product ids which
+# need the Store itself and are even further out of reach. Chocolatey works because it is only
+# PowerShell and NuGet, which covers the remaining 7 mappings. There is no way around this in a
+# container, so winget installation needs a real Windows machine or a hosted runner.
+#
+# Nor can it test setup/windows/WindowsCustomInstalls.ps1 beyond its planning. Java is four
+# winget JDKs, Node and Flutter are Chocolatey managers followed by commands that download
+# gigabytes, and Gridcoin and Razer Cortex run downloaded installers. Only the Chocolatey half
+# of that could run here at all.
 #
 # It also cannot test the wizard's own interface. setup.ps1 uses Out-ConsoleGridView from
 # ConsoleGuiTools, which needs a real console.

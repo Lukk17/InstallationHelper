@@ -110,7 +110,7 @@ Windows tier 3 has its own entry point, driven from Windows rather than from WSL
 Why it is separate: Docker Desktop serves one container platform at a time, and switching to
 Windows containers turns the Linux daemon off, so no Arch, Debian, Ubuntu or Fedora scenario
 can run while it is switched. It also covers less than the Linux scenarios do, because winget
-ships as an MSIX package and Server Core has no AppX subsystem, so 77 of the 83 Windows
+ships as an MSIX package and Server Core has no AppX subsystem, so 82 of the 89 Windows
 mappings cannot be installed in any container. It tests the parsing and planning logic on a
 clean machine, plus the Chocolatey path.
 EOF
