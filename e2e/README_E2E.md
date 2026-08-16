@@ -28,7 +28,7 @@ Run the gate. This is the one to run after any change to the playbook or the wiz
 ./e2e/run.sh
 ```
 
-On Windows, tier 1 is best run from Git Bash. Neither Windows shell can prove everything on its own: WSL has Ansible but the only PowerShell 7 installed here is the Microsoft Store build, whose real executable sits under `C:\Program Files\WindowsApps` where WSL can neither see nor execute it, and Git Bash has a working `pwsh` but no Ansible. Git Bash is the one that closes the gap, because `tier1/ansible_static.sh` re-executes itself inside WSL when `ansible-playbook` is missing locally. From Git Bash the gate reports 39 passes and no skips. From WSL it reports 36 and one honest SKIP on the PowerShell mapping comparison.
+On Windows, tier 1 is best run from Git Bash. Neither Windows shell can prove everything on its own: WSL has Ansible but the only PowerShell 7 installed here is the Microsoft Store build, whose real executable sits under `C:\Program Files\WindowsApps` where WSL can neither see nor execute it, and Git Bash has a working `pwsh` but no Ansible. Git Bash is the one that closes the gap, because `tier1/ansible_static.sh` re-executes itself inside WSL when `ansible-playbook` is missing locally. From Git Bash the gate reports 49 passes and no skips. From WSL it reports one fewer and an honest SKIP on the PowerShell mapping comparison.
 
 ```bash
 bash e2e/run.sh
@@ -107,6 +107,7 @@ One more thing about the queue container, in [AGENTS.md](../AGENTS.md) but worth
 | [tier1/windows_mapping.sh](tier1/windows_mapping.sh) | The PowerShell installer and `vars/Windows.yaml` disagreeing about a package, a manager or a source, a mapping with no toggle to select it, and the Windows Python mapping drifting away from `default_python` |
 | [tier1/windows_npm_parity.sh](tier1/windows_npm_parity.sh) | The native npm tool list and the `ai_tools` role it replaces drifting apart, which is the same two-lists problem the two wizards already had |
 | [tier1/verify_spec_parity.sh](tier1/verify_spec_parity.sh) | A capability spec understating what its run proves. All six container scenarios share one `verify.yaml`, so an assertion added there belongs in all six specs, and two had already gone unrecorded |
+| [tier1/failed_key_reads.sh](tier1/failed_key_reads.sh) | Any task deciding something from a result's `failed` key, which `failed_when` rewrites. A collector selecting on `failed == true` was dead code from the day it was written and counted three AUR builds that exited rc 1 as successes |
 | [tier1/ansible_static.sh](tier1/ansible_static.sh) | The playbook failing to parse, and warning noise growing to the point where a real warning cannot be seen |
 
 Each of these was written against a defect that had already shipped, and each was verified to fail on the code from before its fix. A check that has never been seen to fail is not a check, it is decoration.
