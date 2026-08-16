@@ -129,9 +129,17 @@ The lesson is worth more than the fix: a reproduction that does not start from t
 
 #### One AUR package in eleven silently does not install, at random
 
-Status: open, detected reliably, cause not yet established. This is the one finding on this page that is still costing runs.
+Status: cause established, three defects fixed, awaiting confirmation from the Arch sweep now running. Kept in full because the path from "one package in eleven, at random" to three named causes is the most useful thing on this page, and because two of my own hypotheses along the way were wrong.
 
-Cause: unknown, and deliberately not guessed at. What is known is that eleven AUR jobs are fired with `poll: 0` and `throttle: 2` and collected with `async_status`, and that on three separate Arch runs exactly one package of the eleven was absent afterwards while its job reported success. A different package each time:
+Cause: three separate defects, none of them the thing I first suspected.
+
+1. `paru -S --noconfirm` still asks which provider to use when a package name has several. `--noconfirm` does not answer that question, so paru asks, gets nothing and exits 1. Four AUR packages provide `appimagelauncher` and three provide `google-chrome` besides the exactly-named ones, and both exact names are real AUR packages, checked against the AUR API. `--noprovides` makes paru target the literal name and pick exactly what the default would have picked, without the prompt. This is why it looked random and was not: it is whichever packages currently carry provider ambiguity, and the AUR gains and loses providers over time.
+2. The pacman database lock. `jetbrains-toolbox` built cleanly and then died on `:: Pacman is currently in use, please wait...`. Eleven jobs fired with `poll: 0` all run at once, so `throttle: 2` was throttling the firing and nothing else. Checklist item 9 on this page already said anything writing to shared on-disk state from a loop needs serialisation rather than async for throughput, and the pacman database is shared on-disk state. The loop now runs in the foreground, one package at a time.
+3. The collector meant to report a failed build could never fire. It selected on `failed == true`, and the wait task's own `failed_when: false` rewrites `failed` to false on every item. So the task whose entire job was reporting failed AUR builds had never reported one, and only the `pacman -Qq` check added the day before surfaced any of this.
+
+Effect on the earlier evidence: the three jobs below were not silent successes at all. Each exited rc 1 and each result file on disk carried `"failed": true`. The playbook could not see it because of defect 3, and I could not see it because the three warnings are debug tasks that the `dual_logger` callback does not render on an ok task.
+
+The occurrences, and a different package every time:
 
 | Run | Absent |
 |---|---|
@@ -143,9 +151,9 @@ One of eleven at random rules out a broken package, and the packages were checke
 
 Effect: before the third AUR detection existed, these runs exited 0 with the package absent, which is why `defaults` and `gnome-full` were previously green and are now red. Nothing about the playbook got worse. The check that finds it got added.
 
-What is needed next: the failing job's own async result, which nothing was reading. A run now prints it for every absent package, through a `command` rather than a `debug`, because the `dual_logger` callback does not render a debug message on an `ok` task and that alone is why this took three runs to notice.
+What broke the deadlock: reading the failing job's own result file, which nothing had been reading. A run now prints paru's message for every absent package, through a `command` rather than a `debug`, because the `dual_logger` callback does not render a debug message on an `ok` task and that alone is why this took three runs to notice rather than one.
 
-Reading `kewlfft.aur.aur`'s own source narrows this a long way, and rules out the first thing I suspected. Its `install_packages` does, per package:
+The detour through `kewlfft.aur.aur`'s source is kept because the mistake in it is instructive. Its `install_packages` does, per package:
 
 ```python
 was_installed = package_installed(module, package)
@@ -156,11 +164,13 @@ rc, out, err = module.run_command(command, check_rc=True)
 changed_pkg = not (out == '' or 'up-to-date -- skipping' in out or 'nothing to do' in out.lower())
 ```
 
-Three consequences. `check_rc=True` means a non-zero paru fails the module outright, so the existing reported-failure collector would have caught that, which means paru exited zero. `package_installed` is `pacman -Q <package>` with `rc == 0`, a read that a held database lock cannot affect, so the pre-install check being fooled is out. What remains is the third line: if paru exits zero having printed nothing useful to stdout, `changed_pkg` is false, the package lands in neither `installed` nor `updated`, and the module reports `changed: false`, `msg: package(s) already installed`, `rc: 0` while the package is not on the machine. That is the exact shape of a silent success and it needs no lock contention to explain, only paru exiting zero without doing the work.
+That reading produced a confident prediction and the prediction was wrong, which is worth keeping. I reasoned: `check_rc=True` means a non-zero paru fails the module outright, so the existing reported-failure collector would have caught that, therefore paru must have exited zero, therefore the fault must be the `changed_pkg` line reporting `installed: []` while the package was absent.
 
-So the async result should read `installed: []` with `msg: package(s) already installed`. If it instead reads `installed: [package]`, then paru reported the install and the fault is below the module, in paru or in pacman.
+The first step is where it broke. `check_rc=True` does fail the module, and the module did fail, and the collector still did not catch it, because that collector was broken in a way I had not yet found. Reasoning from "the check would have caught it" to "so it did not happen" is only sound when the check works, and the whole subject of this page is checks that do not.
 
-Do not reduce the concurrency before that evidence is in hand. Serialising the installs is the obvious candidate fix and it would also stop the failure reproducing, which would leave the cause unknown and the fix unproven.
+The evidence, once the async result files were read directly, said the opposite of the prediction: `rc: 1`, `"failed": true`, and paru's own stdout carrying the provider question. Two wrong hypotheses on the way, the module's pre-install check being fooled by the lock and then the `changed_pkg` line, both discarded by looking at the artefact instead of the code.
+
+One process note worth keeping. While the cause was open, this entry carried an instruction not to reduce the concurrency yet, on the grounds that serialising the installs was the obvious candidate fix and would also stop the failure reproducing, leaving the cause unknown and the fix unproven. That held, and it was the right call: serialising early would have fixed the lock contention, hidden the provider prompts entirely, and left the dead collector undiscovered. Two of the three defects would still be in the tree.
 
 #### import_hibernate_task referenced a file that does not exist
 
