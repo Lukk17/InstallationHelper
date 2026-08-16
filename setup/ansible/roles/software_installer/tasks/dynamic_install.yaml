@@ -344,6 +344,41 @@
       when: ansible_facts['os_family'] == 'Archlinux'
       tags: [pacman_batch]
 
+    # Diagnosis for the shape that reports success and installs nothing. It has now happened three
+    # times, on a different package each time and exactly one package per run out of eleven:
+    # antigravity, then visual-studio-code-bin, then appimagelauncher. One in eleven at random is not
+    # a package problem, and the packages were checked: visual-studio-code-bin's AUR entry is
+    # healthy and its 239 MB source matched the declared sha256 exactly.
+    #
+    # What is missing is the failing job's own result. The three warnings are debug tasks and the
+    # dual_logger callback does not render a debug message on an ok task, so nothing about the
+    # failure reached the log or the run record. This prints the async result file for each absent
+    # package, which is the only artefact that can distinguish paru exiting zero without installing
+    # from the job never running from a lost pacman database lock. It runs only when something is
+    # actually absent, so a healthy run pays nothing for it.
+    # `command` rather than `debug` on purpose. The dual_logger callback renders a command's stdout
+    # and does not render a debug message on an ok task, which is why the three warnings above were
+    # invisible and why this took three runs to notice. cat is the one form that gets the evidence
+    # into the log without failing the task and abandoning the rest of the install, which is what
+    # `fail` or `assert` here would do.
+    - name: Show the async result of every AUR package that is absent
+      ansible.builtin.command:
+        cmd: >-
+          cat {{ (aur_jobs.results | default([]))
+                 | selectattr('item.value.package', 'in', aur_absent_after_install | default([]))
+                 | map(attribute='results_file')
+                 | join(' ') }}
+      register: aur_absent_job_results
+      changed_when: false
+      failed_when: false
+      when:
+        - ansible_facts['os_family'] == 'Archlinux'
+        - aur_absent_after_install | default([]) | length > 0
+        - (aur_jobs.results | default([]))
+          | selectattr('item.value.package', 'in', aur_absent_after_install | default([]))
+          | map(attribute='results_file') | list | length > 0
+      tags: [pacman_batch]
+
     # Reported separately because they need different responses. A failure means read the build
     # log, a timeout means either the build is genuinely slower than the budget or the machine
     # was oversubscribed, and raising the budget is the fix rather than retrying.
