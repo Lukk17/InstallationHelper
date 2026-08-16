@@ -226,84 +226,71 @@
       # guidance that lived here now comes out of the rescue below, which sees the
       # real message. See docs/regression_ledger.md.
 
-    # Fire all AUR builds in parallel (poll: 0 = fire-and-forget).
-    # `throttle: 2` caps concurrency so we don't swamp the pacman DB lock
-    # during the install phase. makepkg compiles run truly in parallel;
-    # `pacman -U` install serializes on the lock anyway.
-    - name: Install AUR packages (per-item, async fire-and-forget)
+    # --noprovides, and it is not optional. Four AUR packages provide `appimagelauncher` and three
+    # provide `google-chrome` besides the exactly-named ones, and paru asks which to use:
+    #
+    #   :: There are 5 providers available for appimagelauncher:
+    #       1) appimagelauncher  2) appimagelauncher-beta-bin  ...
+    #      Enter a number (default=1):
+    #
+    # --noconfirm does not answer that question. paru asks, gets nothing, and exits 1. Both names
+    # exist as real AUR packages, checked against the AUR API, so --noprovides makes paru target the
+    # literal name and picks exactly what the default would have picked, minus the prompt.
+    #
+    # The concurrency is gone too, and the ledger's own rule 9 is why: anything writing to shared
+    # on-disk state from a loop needs serialisation, not async for throughput, and the pacman
+    # database is shared on-disk state. jetbrains-toolbox built cleanly in a real run and then died
+    # on `:: Pacman is currently in use, please wait...` because eleven jobs fired with poll: 0 all
+    # run at once, so `throttle: 2` was throttling the firing and nothing else. Builds are slower in
+    # series and they finish, which beats faster and absent.
+    #
+    # failed_when: false keeps one bad build from abandoning a forty minute play, and the collectors
+    # below read rc rather than `failed`, because failed_when rewrites `failed` and used to erase the
+    # evidence they were looking for.
+    - name: Install AUR packages (one at a time, so the pacman database lock cannot be contended)
       become: true
       become_user: "{{ non_root_user }}"
       kewlfft.aur.aur:
         name: "{{ item.value.package }}"
         state: present
         use: paru
-        extra_args: "--noconfirm --skipreview --needed"
+        extra_args: "--noconfirm --skipreview --needed --noprovides"
       loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'aur') | list }}"
       when: ansible_facts['os_family'] == 'Archlinux'
-      async: 1200
-      poll: 0
-      register: aur_jobs
-      throttle: 2
+      register: aur_results
+      failed_when: false
       loop_control:
         label: "{{ item.value.package }}"
       tags: [pacman_batch]
 
-    - name: Wait for AUR installs to finish
-      ansible.builtin.async_status:
-        jid: "{{ item.ansible_job_id }}"
-      register: aur_results
-      loop: "{{ aur_jobs.results | default([]) }}"
-      loop_control:
-        label: "{{ item.item.value.package | default('skipped') }}"
-      until: aur_results.finished
-      retries: "{{ aur_wait_retries | default(120) | int }}"
-      delay: 15
-      failed_when: false
-      when:
-        - ansible_facts['os_family'] == 'Archlinux'
-        - item is not skipped
-        - item.ansible_job_id is defined
-      tags: [pacman_batch]
-
-    # A build that exceeded the wait budget above is not the same shape of result as one that
-    # failed, and only the second was ever collected. async_status marks a genuine failure with
-    # finished 1 and failed true, while a job still running when the retries ran out comes back
-    # finished 0 and no failed key at all. The old expression asked for `failed` to be defined,
-    # so a timed-out build fell straight through, nothing reported it, and the play exited zero
-    # with the package absent. Observed: google-chrome missing from a defaults run that reported
-    # success, while three containers competed for CPU and its build ran past twenty minutes.
-    # See docs/regression_ledger.md.
-    # Selected on rc, not on `failed`, and that distinction is the whole reason this collector was
-    # dead code from the day it was written. The wait task above carries `failed_when: false` so one
-    # bad build cannot abandon the play, and Ansible applies `failed_when` by rewriting the result's
-    # own `failed` key to false. So every item arrives here with `failed: false` no matter what the
-    # job did, and an expression selecting `failed == true` can never match anything.
+    # Selected on rc, not on `failed`, and that distinction is why this collector was dead code from
+    # the day it was written. The install task carries `failed_when: false` so one bad build cannot
+    # abandon a forty minute play, and Ansible applies `failed_when` by rewriting the result's own
+    # `failed` key. Every item therefore arrives here with `failed: false` whatever the build did, and
+    # an expression selecting `failed == true` can never match anything.
     #
-    # Proven from a real run rather than reasoned about. Three AUR jobs in one defaults run exited
-    # rc 1 and their async result files on disk each carried `"failed": true`, while this collector
-    # reported an empty list and the play carried on. The job's own rc survives into the result
-    # because `failed_when` does not touch it, which is why rc is the thing to read.
+    # Read off a real run rather than reasoned about. Three AUR builds in one defaults run exited
+    # rc 1, their result files each carried `"failed": true`, and this collector still produced an
+    # empty list while the play carried on. The build's own rc survives untouched by failed_when,
+    # which is why rc is the thing to read.
     - name: Collect AUR packages that reported a failure
       ansible.builtin.set_fact:
         aur_reported_failures: >-
           {{ (aur_results.results | default([]))
-             | selectattr('item.ansible_job_id', 'defined')
              | selectattr('rc', 'defined')
              | rejectattr('rc', 'equalto', 0)
-             | map(attribute='item.item.value.package')
+             | map(attribute='item.value.package')
              | list }}
       when: ansible_facts['os_family'] == 'Archlinux'
       tags: [pacman_batch]
 
-    - name: Collect AUR packages that never finished inside the wait budget
+    # The timed-out collector is gone with the async firing that made it necessary. A build now runs
+    # in the foreground of its own loop iteration, so it either finishes or fails, and there is no
+    # third state where a job is still running after the wait budget expired. `aur_wait_retries` is
+    # no longer read by anything.
+    - name: There is no separate timeout state any more
       ansible.builtin.set_fact:
-        aur_timed_out: >-
-          {{ (aur_results.results | default([]))
-             | selectattr('item.ansible_job_id', 'defined')
-             | selectattr('finished', 'defined')
-             | rejectattr('finished', 'equalto', 1)
-             | map(attribute='item.item.value.package')
-             | list }}
+        aur_timed_out: []
       when: ansible_facts['os_family'] == 'Archlinux'
       tags: [pacman_batch]
 
@@ -372,22 +359,24 @@
     # invisible and why this took three runs to notice. cat is the one form that gets the evidence
     # into the log without failing the task and abandoning the rest of the install, which is what
     # `fail` or `assert` here would do.
-    - name: Show the async result of every AUR package that is absent
+    - name: Show what paru actually said about every AUR package that is absent
       ansible.builtin.command:
         cmd: >-
-          cat {{ (aur_jobs.results | default([]))
-                 | selectattr('item.value.package', 'in', aur_absent_after_install | default([]))
-                 | map(attribute='results_file')
-                 | join(' ') }}
+          printf '%s\n'
+          {{ (aur_results.results | default([]))
+             | selectattr('item.value.package', 'in', aur_absent_after_install | default([]))
+             | map(attribute='msg')
+             | map('default', 'no message', true)
+             | map('regex_replace', '[^ -~]', ' ')
+             | map('truncate', 900, true, '')
+             | map('quote')
+             | join(' ') }}
       register: aur_absent_job_results
       changed_when: false
       failed_when: false
       when:
         - ansible_facts['os_family'] == 'Archlinux'
         - aur_absent_after_install | default([]) | length > 0
-        - (aur_jobs.results | default([]))
-          | selectattr('item.value.package', 'in', aur_absent_after_install | default([]))
-          | map(attribute='results_file') | list | length > 0
       tags: [pacman_batch]
 
     # Reported separately because they need different responses. A failure means read the build
@@ -411,7 +400,7 @@
 
     - name: Surface AUR builds that ran out of time
       ansible.builtin.debug:
-        msg: "[WARN] AUR packages were still building when the {{ ((aur_wait_retries | default(120) | int) * 15 / 60) | round | int }} minute wait expired, so they are NOT installed: {{ aur_timed_out | join(', ') }}. Rerun, or raise aur_wait_retries if these builds are genuinely this slow on this machine."
+        msg: "[WARN] AUR packages were still building when their wait expired, so they are NOT installed: {{ aur_timed_out | join(', ') }}."
       when:
         - ansible_facts['os_family'] == 'Archlinux'
         - aur_timed_out | default([]) | length > 0

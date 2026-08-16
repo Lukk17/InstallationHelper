@@ -17,7 +17,8 @@ aur_allow_failures: true
 # contended machine, where the old 20 minute ceiling silently dropped packages. google-chrome went
 # missing from a run that reported success for exactly this reason, while three containers competed
 # for the same cores.
-aur_wait_retries: 120
+# aur_wait_retries removed with the async AUR firing it paced. The installs now run one at a time
+# in the foreground of their own loop iteration, so there is no wait budget to size.
 
 # When true, dynamic_install.yaml will purge /var/lib/flatpak/repo if the
 # health probe reports an ostree-corruption error. Off by default because
