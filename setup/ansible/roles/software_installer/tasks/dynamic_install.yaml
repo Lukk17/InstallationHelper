@@ -273,12 +273,23 @@
     # with the package absent. Observed: google-chrome missing from a defaults run that reported
     # success, while three containers competed for CPU and its build ran past twenty minutes.
     # See docs/regression_ledger.md.
+    # Selected on rc, not on `failed`, and that distinction is the whole reason this collector was
+    # dead code from the day it was written. The wait task above carries `failed_when: false` so one
+    # bad build cannot abandon the play, and Ansible applies `failed_when` by rewriting the result's
+    # own `failed` key to false. So every item arrives here with `failed: false` no matter what the
+    # job did, and an expression selecting `failed == true` can never match anything.
+    #
+    # Proven from a real run rather than reasoned about. Three AUR jobs in one defaults run exited
+    # rc 1 and their async result files on disk each carried `"failed": true`, while this collector
+    # reported an empty list and the play carried on. The job's own rc survives into the result
+    # because `failed_when` does not touch it, which is why rc is the thing to read.
     - name: Collect AUR packages that reported a failure
       ansible.builtin.set_fact:
         aur_reported_failures: >-
           {{ (aur_results.results | default([]))
-             | selectattr('failed', 'defined')
-             | selectattr('failed', 'equalto', true)
+             | selectattr('item.ansible_job_id', 'defined')
+             | selectattr('rc', 'defined')
+             | rejectattr('rc', 'equalto', 0)
              | map(attribute='item.item.value.package')
              | list }}
       when: ansible_facts['os_family'] == 'Archlinux'
