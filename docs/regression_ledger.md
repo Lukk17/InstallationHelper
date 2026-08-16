@@ -97,7 +97,7 @@ Effect: a sweep where kde-full, kde-configure-only and smoke all failed reported
 
 ### Open findings, not yet fixed
 
-Four entries follow. Three of the four originally recorded here are now closed: the desktop environment roles' Debian branch has been split by `ansible_distribution` with every package name checked in both a Debian and an Ubuntu container, the thirteen retry-less network operations in the no-rescue bootstrap path now retry, and every Windows toggle that installed nothing now has a native path. Two entries below are kept rather than deleted because each still carries something true, stated at the end of each. What remains:
+Four entries follow, and one of them is closed rather than open. The AUR finding is kept in this section, with its status line saying plainly that it is fixed and confirmed, because the reasoning that got from "one package in eleven, at random" to three named causes is worth more than tidy filing and moving it would scatter it. Three of the four originally recorded here are also closed: the desktop environment roles' Debian branch has been split by `ansible_distribution` with every package name checked in both a Debian and an Ubuntu container, the thirteen retry-less network operations in the no-rescue bootstrap path now retry, and every Windows toggle that installed nothing now has a native path. Two entries below are kept rather than deleted because each still carries something true, stated at the end of each. What remains:
 
 #### The entire Windows path is unreachable
 
@@ -129,7 +129,21 @@ The lesson is worth more than the fix: a reproduction that does not start from t
 
 #### One AUR package in eleven silently does not install, at random
 
-Status: cause established, three defects fixed, awaiting confirmation from the Arch sweep now running. Kept in full because the path from "one package in eleven, at random" to three named causes is the most useful thing on this page, and because two of my own hypotheses along the way were wrong.
+Status: fixed and confirmed. All seven Arch scenarios passed both halves on the fixed code, 2026-08-16, with `QUEUE_EXIT=0` and the absent-package diagnostic never firing once across the whole sweep. Kept in full because the path from "one package in eleven, at random" to three named causes is the most useful thing on this page, and because two of my own hypotheses along the way were wrong.
+
+The confirmation matters more than usual here, because the previous seven-green sweep was green for the wrong reason. It predated the `pacman -Qq` check, so three of those runs had a missing package and no way to notice. Green before meant the check did not exist. Green now means eleven of eleven AUR packages are present in every scenario that installs them.
+
+| Scenario | Playbook | Verify | Wall |
+|---|---|---|---|
+| smoke | ok=84 failed=0 | ok=26 skipped=2 | 16m |
+| live-profile | ok=95 failed=0 | ok=20 skipped=8 | 26m |
+| kde-configure-only | ok=214 failed=0 | ok=26 skipped=2 | 53m |
+| gnome-full | ok=204 failed=0 | ok=28 skipped=0 | 57m |
+| defaults | ok=192 failed=0 | ok=26 skipped=2 | 58m |
+| kde-full | ok=218 failed=0 | ok=28 skipped=0 | 61m |
+| all-software | ok=208 failed=0 | ok=26 skipped=2 | 63m |
+
+Serialising cost what it should and no more. The heavy scenarios grew by roughly seventeen minutes, `live-profile` and `smoke` got faster because their AUR sets are tiny and they no longer wait on an `async_status` poll cycle with nothing to wait for.
 
 Cause: three separate defects, none of them the thing I first suspected.
 
