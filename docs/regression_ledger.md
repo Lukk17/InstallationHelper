@@ -143,7 +143,22 @@ One of eleven at random rules out a broken package, and the packages were checke
 
 Effect: before the third AUR detection existed, these runs exited 0 with the package absent, which is why `defaults` and `gnome-full` were previously green and are now red. Nothing about the playbook got worse. The check that finds it got added.
 
-What is needed next: the failing job's own async result, which nothing was reading. A run now prints it for every absent package, through a `command` rather than a `debug`, because the `dual_logger` callback does not render a debug message on an `ok` task and that alone is why this took three runs to notice. The result distinguishes the two candidate mechanisms: `installed: []` with rc 0 means the module believed the package was already present, which would point at its pre-install check being fooled while another instance holds the pacman database lock, and `installed: [package]` with rc 0 means paru reported an install that did not happen.
+What is needed next: the failing job's own async result, which nothing was reading. A run now prints it for every absent package, through a `command` rather than a `debug`, because the `dual_logger` callback does not render a debug message on an `ok` task and that alone is why this took three runs to notice.
+
+Reading `kewlfft.aur.aur`'s own source narrows this a long way, and rules out the first thing I suspected. Its `install_packages` does, per package:
+
+```python
+was_installed = package_installed(module, package)
+if state == 'present' and was_installed:
+    rc = 0
+    continue
+rc, out, err = module.run_command(command, check_rc=True)
+changed_pkg = not (out == '' or 'up-to-date -- skipping' in out or 'nothing to do' in out.lower())
+```
+
+Three consequences. `check_rc=True` means a non-zero paru fails the module outright, so the existing reported-failure collector would have caught that, which means paru exited zero. `package_installed` is `pacman -Q <package>` with `rc == 0`, a read that a held database lock cannot affect, so the pre-install check being fooled is out. What remains is the third line: if paru exits zero having printed nothing useful to stdout, `changed_pkg` is false, the package lands in neither `installed` nor `updated`, and the module reports `changed: false`, `msg: package(s) already installed`, `rc: 0` while the package is not on the machine. That is the exact shape of a silent success and it needs no lock contention to explain, only paru exiting zero without doing the work.
+
+So the async result should read `installed: []` with `msg: package(s) already installed`. If it instead reads `installed: [package]`, then paru reported the install and the fault is below the module, in paru or in pacman.
 
 Do not reduce the concurrency before that evidence is in hand. Serialising the installs is the obvious candidate fix and it would also stop the failure reproducing, which would leave the cause unknown and the fix unproven.
 
