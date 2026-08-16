@@ -97,7 +97,7 @@ Effect: a sweep where kde-full, kde-configure-only and smoke all failed reported
 
 ### Open findings, not yet fixed
 
-Three of the four originally recorded here are now closed: the desktop environment roles' Debian branch has been split by `ansible_distribution` with every package name checked in both a Debian and an Ubuntu container, the thirteen retry-less network operations in the no-rescue bootstrap path now retry, and every Windows toggle that installed nothing now has a native path. Two entries below are kept rather than deleted because each still carries something true, stated at the end of each. What remains:
+Four entries follow. Three of the four originally recorded here are now closed: the desktop environment roles' Debian branch has been split by `ansible_distribution` with every package name checked in both a Debian and an Ubuntu container, the thirteen retry-less network operations in the no-rescue bootstrap path now retry, and every Windows toggle that installed nothing now has a native path. Two entries below are kept rather than deleted because each still carries something true, stated at the end of each. What remains:
 
 #### The entire Windows path is unreachable
 
@@ -126,6 +126,26 @@ The remainder, and it is the reason this entry is not simply deleted: `windows_c
 An earlier version of this ledger recorded the Flathub failure as transient network contention, and it was wrong. That conclusion came from running the command three times in a clean container and seeing it succeed, but flatpak had been installed by hand first in that test, so it proved the wrong thing. The real cause was that flatpak was never installed on Arch at all, which is in the table above. Retries were added to thirteen network operations in the no-rescue bootstrap path anyway, and that change stands on its own merits, but retrying was never the fix for this.
 
 The lesson is worth more than the fix: a reproduction that does not start from the same state as the failure proves nothing. Recorded because a wrong cause left in a ledger is worse than no entry.
+
+#### One AUR package in eleven silently does not install, at random
+
+Status: open, detected reliably, cause not yet established. This is the one finding on this page that is still costing runs.
+
+Cause: unknown, and deliberately not guessed at. What is known is that eleven AUR jobs are fired with `poll: 0` and `throttle: 2` and collected with `async_status`, and that on three separate Arch runs exactly one package of the eleven was absent afterwards while its job reported success. A different package each time:
+
+| Run | Absent |
+|---|---|
+| kde-configure-only, 2026-08-15T09-13 | antigravity |
+| defaults, 2026-08-15T13-34 | visual-studio-code-bin |
+| gnome-full, 2026-08-15T14-17 | appimagelauncher |
+
+One of eleven at random rules out a broken package, and the packages were checked rather than assumed: `visual-studio-code-bin`'s AUR entry is healthy, maintained and not flagged out of date, and its 239 MB source from Microsoft matched the declared sha256 exactly when fetched by hand.
+
+Effect: before the third AUR detection existed, these runs exited 0 with the package absent, which is why `defaults` and `gnome-full` were previously green and are now red. Nothing about the playbook got worse. The check that finds it got added.
+
+What is needed next: the failing job's own async result, which nothing was reading. A run now prints it for every absent package, through a `command` rather than a `debug`, because the `dual_logger` callback does not render a debug message on an `ok` task and that alone is why this took three runs to notice. The result distinguishes the two candidate mechanisms: `installed: []` with rc 0 means the module believed the package was already present, which would point at its pre-install check being fooled while another instance holds the pacman database lock, and `installed: [package]` with rc 0 means paru reported an install that did not happen.
+
+Do not reduce the concurrency before that evidence is in hand. Serialising the installs is the obvious candidate fix and it would also stop the failure reproducing, which would leave the cause unknown and the fix unproven.
 
 #### import_hibernate_task referenced a file that does not exist
 
