@@ -160,10 +160,18 @@ BUILD_LIST_TASK_MARKER = "Build list of packages to dynamically install"
 # Tasks whose per-item iteration is *enumeration*, not real install work.
 # Per-item events from these tasks are shown in the live log but NOT counted
 # in the end-of-run "INSTALLED / ALREADY PRESENT" buckets.
+# Matched with a plain substring test against the full task name, role prefix
+# included, so an entry here only has to be unique, not complete.
 ENUMERATION_TASK_MARKERS = [
     "Build list of packages to dynamically install",
     "Detect installed package-manager helpers",
     "Probe for docker.service unit",
+    # A stat over the staged vendor .deb files. It answers whether a download
+    # arrived and installs nothing, so it must never land in the installed or
+    # already-present buckets. Its current name happens to be excluded by the
+    # Install/Download/Add filter below as well; it is named here so that stays
+    # true on purpose rather than by accident of wording.
+    "Check which vendor .deb files actually arrived",
 ]
 
 # Task name keywords that mean "this is an OS-specific manager task".
@@ -243,6 +251,9 @@ class CallbackModule(CallbackBase):
         self.unchanged: List[Dict[str, str]] = []   # already-present
         self.skipped_by_reason: Dict[str, List[str]] = {}   # reason → [names]
         self.failed: List[Dict[str, str]] = []      # {name, error, task}
+        # Failures the playbook deliberately tolerated (ignore_errors). Kept apart from
+        # self.failed so the summary cannot claim a run failed while the run exits zero.
+        self.tolerated: List[Dict[str, str]] = []   # {name, error, task}
 
         # Progress reporter: emits the task START line, one line per new
         # progress entry tailed from the task's log file, and an occasional
@@ -434,6 +445,37 @@ class CallbackModule(CallbackBase):
             try: self.warnings_log.write(line); self.warnings_log.flush()
             except (IOError, OSError): pass
 
+    def _render_message(self, blob, level: str) -> None:
+        """Display and log a debug task's `msg`, whatever shape it arrived in.
+
+        A debug msg is a string, a list of strings, or a mapping, and the playbook uses the first
+        two. The level is taken from the text rather than from the task, because a debug task is
+        always ok as far as Ansible is concerned while its message is often the only record that
+        something was lost. A message opening with [ERROR] therefore reaches installation_errors.log
+        and one opening with [WARN], or matching the same keywords stderr is judged by, reaches
+        installation_warnings.log.
+        """
+        if isinstance(blob, str):
+            lines = blob.strip().split("\n")
+        elif isinstance(blob, (list, tuple)):
+            lines = [str(entry) for entry in blob]
+        elif isinstance(blob, dict):
+            lines = [f"{key}: {value}" for key, value in blob.items()]
+        else:
+            return
+
+        lines = [ln for ln in lines if ln.strip() and not self._should_skip_line(ln)]
+        for ln in self._truncate_lines(lines, STDOUT_TRUNCATE_LINES):
+            stripped = ln.strip()
+            if stripped.startswith("[ERROR]") or stripped.startswith("[FATAL]"):
+                line_lvl = "ERROR"
+            elif stripped.startswith("[WARN]") or WARNING_KEYWORDS.search(ln):
+                line_lvl = "WARNING"
+            else:
+                line_lvl = level
+            self._display.display(f"  {ln}")
+            self._write_log(f"  {ln}", line_lvl)
+
     def _display_and_log(self, msg: str, level: str = "INFO",
                          include_output: bool = False, result=None) -> None:
         console_msg = f"[{self._ts()}] {msg}"
@@ -441,6 +483,23 @@ class CallbackModule(CallbackBase):
         self._write_log(msg, level)
         if include_output and result is not None:
             rd = result._result if hasattr(result, "_result") else {}
+            # A debug task's text lives in `msg`, and `msg` was not rendered here at all, so every
+            # ansible.builtin.debug task in this repository printed nothing: not on the console, not
+            # in installation_full.log, not in installation_warnings.log. That is over thirty
+            # callsites, including all twelve rescue explanations in site.yaml, the installer rescue
+            # that names the failing step and says everything after it was skipped, and every warning
+            # about software that could not be installed. Proven with a probe playbook run through
+            # this callback: a marker sent through `command` stdout appeared on the console and in the
+            # full log, and the same marker sent through `debug` appeared in neither. One earlier
+            # defect was worked around by rewriting a single debug task as a shell command, which
+            # fixed one message and left the rest invisible.
+            #
+            # Restricted to the debug action on purpose. Many modules return an incidental `msg` on
+            # success, get_url and apt among them, and rendering those for every ok task would bury
+            # the deliberate messages this exists to surface.
+            task_action = getattr(getattr(result, "_task", None), "action", "") or ""
+            if task_action.split(".")[-1] == "debug":
+                self._render_message(rd.get("msg"), level)
             # stdout stays at the task's level. stderr defaults to INFO and is
             # only promoted to WARNING for lines that actually look like warnings
             # (keeps curl/wget progress and git output out of the warnings log).
@@ -690,21 +749,32 @@ class CallbackModule(CallbackBase):
             (self.installed if changed else self.unchanged).append(entry)
 
     def v2_runner_on_failed(self, result, ignore_errors: bool = False) -> None:
+        """A task failed. `ignore_errors` says whether the playbook asked for that failure to be
+        tolerated, and this hook used to discard the argument entirely: an ignored failure was
+        rendered under the same FAILED heading, written to installation_errors.log, and counted in
+        the end-of-run FAILED section, while the run went on to exit zero. So the summary said
+        FAILED (3) three lines above a recap reading `failed=0 ignored=3`, which is the exact
+        inversion an operator cannot resolve from the output. A tolerated failure is now labelled
+        as tolerated, logged as a warning rather than an error, and summarised in its own section.
+        The run's verdict is decided by any_role_failed in site.yaml, never by this bucket."""
         self._stop_heartbeat()
         self._flush_pending()
         host = result._host.get_name()
         task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
         dur = self._task_duration()
         prefix = f"{dur} " if dur else ""
-        self._display_and_log(f"{prefix}FAILED: [{host}] => TASK: {task_name}", "ERROR")
+        level = "WARNING" if ignore_errors else "ERROR"
+        label = "TOLERATED FAILURE" if ignore_errors else "FAILED"
+        self._display_and_log(f"{prefix}{label}: [{host}] => TASK: {task_name}", level)
         for detail in self._extract_error_details(result):
-            self._display_and_log(detail, "ERROR")
+            self._display_and_log(detail, level)
         # End-of-run bucket
         rd = result._result if hasattr(result, "_result") else {}
         short = rd.get("msg", rd.get("stderr", "unknown error"))
         if isinstance(short, str) and len(short) > 200:
             short = short[:200] + "..."
-        self.failed.append({"task": task_name, "name": task_name, "error": short})
+        entry = {"task": task_name, "name": task_name, "error": short}
+        (self.tolerated if ignore_errors else self.failed).append(entry)
 
     def v2_runner_on_skipped(self, result) -> None:
         self._stop_heartbeat()
@@ -758,6 +828,10 @@ class CallbackModule(CallbackBase):
         (self.installed if changed else self.unchanged).append(entry)
 
     def v2_runner_item_on_failed(self, result) -> None:
+        """Ansible passes no ignore_errors argument to the per-item hook, so the flag is read off
+        the task itself. Without this a tolerated per-item failure was still rendered as FAILED and
+        pushed into the failed bucket, which is how one vendor .deb download whose failure the
+        playbook deliberately absorbs still produced a FAILED section on a run that exited zero."""
         self._flush_pending()
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
@@ -767,11 +841,22 @@ class CallbackModule(CallbackBase):
         short = rd.get("msg", rd.get("stderr", "unknown error"))
         if isinstance(short, str) and len(short) > 200:
             short = short[:200] + "..."
-        self._display_and_log(f"{'FAILED':>10}: [{host}] {display} -- {short}", "ERROR")
+        tolerated = self._task_tolerates_failure(result)
+        level = "WARNING" if tolerated else "ERROR"
+        label = "TOLERATED" if tolerated else "FAILED"
+        self._display_and_log(f"{label:>10}: [{host}] {display} -- {short}", level)
         for detail in self._extract_error_details(result):
-            self._display_and_log(detail, "ERROR")
+            self._display_and_log(detail, level)
         item_key = item.get("key", display) if isinstance(item, dict) else display
-        self.failed.append({"task": task_name, "name": item_key, "error": short})
+        entry = {"task": task_name, "name": item_key, "error": short}
+        (self.tolerated if tolerated else self.failed).append(entry)
+
+    @staticmethod
+    def _task_tolerates_failure(result) -> bool:
+        raw = getattr(getattr(result, "_task", None), "ignore_errors", False)
+        if isinstance(raw, str):
+            return raw.strip().lower() in ("true", "yes", "1")
+        return bool(raw)
 
     def v2_runner_item_on_skipped(self, result) -> None:
         host = result._host.get_name()
@@ -878,6 +963,7 @@ class CallbackModule(CallbackBase):
         self._emit_summary_section("INSTALLED (newly added)", self.installed, "  ✓ ")
         self._emit_summary_section("ALREADY PRESENT (unchanged)", self.unchanged, "  · ")
         self._emit_skipped_summary()
+        self._emit_tolerated_summary()
         self._emit_failed_summary(rescued_count=total_rescued)
 
         finish = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -912,6 +998,21 @@ class CallbackModule(CallbackBase):
             unique = sorted(set(names))
             self._display_and_log(f"  [{reason}] ({len(unique)})", "INFO")
             self._display_and_log(f"    {', '.join(unique)}", "INFO")
+
+    def _emit_tolerated_summary(self) -> None:
+        """Failures the playbook asked to absorb. Reported at WARNING, never at ERROR, because the
+        run's verdict does not depend on them: whatever mattered about them is recorded separately
+        by the task that sets any_role_failed."""
+        if not self.tolerated:
+            return
+        self._display_and_log("", "INFO")
+        self._display_and_log(
+            f"═══ TOLERATED FAILURES ({len(self.tolerated)}, the run continued past each) ═══",
+            "WARNING")
+        for entry in self.tolerated:
+            self._display_and_log(f"  ! {entry['name']}", "WARNING")
+            if entry.get("error"):
+                self._display_and_log(f"      reason: {entry['error']}", "WARNING")
 
     def _emit_failed_summary(self, rescued_count: int = 0) -> None:
         if not self.failed:

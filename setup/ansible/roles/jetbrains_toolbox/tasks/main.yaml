@@ -4,20 +4,45 @@
     path: "{{ non_root_home }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
   register: toolbox_binary
 
-- name: Check if JetBrains Toolbox is installed via AUR
-  ansible.builtin.command:
-    cmd: pacman -Q jetbrains-toolbox
-  register: toolbox_aur_check
-  changed_when: false
-  failed_when: false
-  when:
-    - ansible_facts['os_family'] == "Archlinux"
+# Where the tarball is staged and unpacked. One definition, read by the create, download and extract
+# tasks below, so the three cannot drift onto different paths.
+#
+# Not software_installer_stage_dir: that directory is root-owned and mode 0700 by design, and
+# everything here runs as the non-root user, who could not even enter it. The user's own
+# .lukkInstall is what the other non-root vendor artifacts in this repository already use, it is
+# owned by that user rather than world-writable, and site.yaml's post_tasks already remove it at the
+# end of a successful run, so nothing here needs its own cleanup task.
+#
+# The point of moving off /tmp is that both halves of this were predictable paths in a directory
+# every local account can write to: /tmp/jetbrains-toolbox.tar.gz, which get_url would have used
+# rather than replaced had it already existed, and /tmp/jetbrains-toolbox-*/ which the next task
+# locates with `find` and then executes. Planting either one got a local user's code run as this
+# user. Lower stakes than the root-installed artifacts elsewhere, and the same defect.
+- name: Set the JetBrains Toolbox staging directory
+  ansible.builtin.set_fact:
+    toolbox_stage_dir: "{{ non_root_home }}/.lukkInstall/jetbrains-toolbox"
 
+- name: Create the private JetBrains Toolbox staging directory
+  ansible.builtin.file:
+    path: "{{ toolbox_stage_dir }}"
+    state: directory
+    mode: '0700'
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] in ['Linux', 'Darwin']
+    - not toolbox_binary.stat.exists
+    - ih_family != "Archlinux"
+
+# force: true because the download URL names no version at all, so a file left behind by an earlier
+# run under a path that now survives a reboot would be installed forever.
 - name: Download JetBrains Toolbox tarball
   ansible.builtin.get_url:
     url: "https://data.services.jetbrains.com/products/download?platform=linux&code=TBA"
-    dest: /tmp/jetbrains-toolbox.tar.gz
-    mode: '0644'
+    dest: "{{ toolbox_stage_dir }}/jetbrains-toolbox.tar.gz"
+    force: true
+    mode: '0600'
     checksum: "{{ download_checksums.jetbrains_toolbox | default(omit) }}"
     timeout: 60
   become: yes
@@ -30,13 +55,13 @@
     - install_jetbrains_toolbox | default(true) | bool
     - ansible_facts['system'] in ['Linux', 'Darwin']
     - not toolbox_binary.stat.exists
-    - ansible_facts['os_family'] != "Archlinux"
+    - ih_family != "Archlinux"
 
 - name: Extract and install JetBrains Toolbox (Linux/macOS)
   ansible.builtin.shell: |
     set -o pipefail
-    tar -xzf /tmp/jetbrains-toolbox.tar.gz -C /tmp/
-    TOOLBOX_DIR=$(find /tmp -maxdepth 1 -name 'jetbrains-toolbox-*' -type d | head -1)
+    tar -xzf "{{ toolbox_stage_dir }}/jetbrains-toolbox.tar.gz" -C "{{ toolbox_stage_dir }}/"
+    TOOLBOX_DIR=$(find "{{ toolbox_stage_dir }}" -maxdepth 1 -name 'jetbrains-toolbox-*' -type d | head -1)
     if [ -n "$TOOLBOX_DIR" ] && [ -f "$TOOLBOX_DIR/jetbrains-toolbox" ]; then
       "$TOOLBOX_DIR/jetbrains-toolbox" --install
     fi
@@ -49,7 +74,7 @@
     - install_jetbrains_toolbox | default(true) | bool
     - ansible_facts['system'] in ['Linux', 'Darwin']
     - not toolbox_binary.stat.exists
-    - ansible_facts['os_family'] != "Archlinux"
+    - ih_family != "Archlinux"
 
 - name: Probe Toolbox apps directory existence
   ansible.builtin.stat:
@@ -119,3 +144,68 @@
     - install_jetbrains_toolbox | default(true) | bool
     - item is not skipped
     - item.ansible_job_id is defined
+
+# Nothing read toolbox_ide_results at all, so up to five IDE installs of roughly a gigabyte each
+# could every one of them fail and the run produced no console line, no summary entry and an exit
+# code of zero. The `failed_when: false` above is deliberate, a broken IntelliJ download must not
+# abandon the rest of the playbook, but tolerating a failure and pretending it did not happen are
+# different things.
+#
+# rc, never `failed`. The wait task's own failed_when rewrites `failed` to false on every item
+# whatever the job did, which is the defect that made the AUR failure collector in
+# roles/software_installer/tasks/dynamic_install.yaml dead code from the day it was written, and
+# e2e/tier1/failed_key_reads.sh now forbids the read outright. rc survives failed_when untouched.
+#
+# `item.item.cli` because this loops over the async_status results, whose own `item` is the job
+# result from the fire-and-forget task, whose `item` is the IDE dictionary.
+- name: Collect JetBrains IDE installs whose job reported a failure
+  ansible.builtin.set_fact:
+    toolbox_failed_ide_builds: >-
+      {{ (toolbox_ide_results.results | default([]))
+         | selectattr('rc', 'defined')
+         | rejectattr('rc', 'equalto', 0)
+         | map(attribute='item.item.cli')
+         | list }}
+
+# A job still running when the retries expire comes back finished 0 and carries no rc at all, so the
+# collector above cannot see it. 140 retries at 15 seconds is 35 minutes, and each install is capped
+# at 1800 seconds by its own `timeout`, so this fires when the machine is oversubscribed rather than
+# when the download is broken. It needs saying separately because the response differs: raise the
+# budget rather than retry.
+- name: Collect JetBrains IDE installs still running when the wait expired
+  ansible.builtin.set_fact:
+    toolbox_timed_out_ides: >-
+      {{ (toolbox_ide_results.results | default([]))
+         | selectattr('finished', 'defined')
+         | rejectattr('finished', 'equalto', 1)
+         | map(attribute='item.item.cli')
+         | list }}
+
+- name: Combine every kind of JetBrains IDE install failure
+  ansible.builtin.set_fact:
+    toolbox_failed_ides: >-
+      {{ (toolbox_failed_ide_builds | default([])
+          + toolbox_timed_out_ides | default([])) | unique }}
+
+- name: Surface JetBrains IDE installs that failed
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] These JetBrains IDEs did not install: {{ toolbox_failed_ide_builds | join(', ') }}.
+      Toolbox writes its own log under
+      {{ non_root_home }}/.local/share/JetBrains/Toolbox/logs, and the usual causes are a full disk,
+      each IDE being roughly a gigabyte, and a Toolbox that needs to be logged in to a JetBrains
+      account for a licensed product.
+  when: toolbox_failed_ide_builds | default([]) | length > 0
+
+- name: Surface JetBrains IDE installs that ran out of time
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] These JetBrains IDEs were still installing when the wait expired, so they are NOT
+      installed: {{ toolbox_timed_out_ides | join(', ') }}. Rerunning picks up where Toolbox left
+      off, and on a slow connection the retries in this role's wait task are what to raise.
+  when: toolbox_timed_out_ides | default([]) | length > 0
+
+- name: Record missing JetBrains IDEs in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
+  when: toolbox_failed_ides | default([]) | length > 0

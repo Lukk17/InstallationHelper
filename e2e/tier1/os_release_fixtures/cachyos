@@ -1,0 +1,28 @@
+# CachyOS. Assembled 2026-08-17 from CachyOS's own branding script, which is what produces the file on
+# an installed machine: https://github.com/CachyOS/cachyos-hooks (cachyos-branding, update_os_release),
+# packaged as cachyos-hooks 2026.02.05 at https://github.com/CachyOS/CachyOS-PKGBUILDS/tree/master/cachyos-hooks
+# The hook triggers on the filesystem package and seds Arch's file
+# (https://gitlab.archlinux.org/archlinux/packaging/packages/filesystem/-/raw/main/os-release) in
+# place, so there is no packaged file to copy. Every line below except PRIVACY_POLICY_URL is
+# corroborated verbatim by pastes of real machines on CachyOS's own forum,
+# https://discuss.cachyos.org/t/helldivers-2-hangs-in-language-selection/23489 for the identity fields
+# and https://discuss.cachyos.org/t/va-api-hardware-acceleration-is-not-working-cachyos-intel-celeron-n4500/16783
+# for the URLs; PRIVACY_POLICY_URL is Arch's, kept because the script never edits that line.
+#
+# Two things this fixture cannot show. ID_LIKE only became reliable on 2025-11-14, when an inverted
+# condition in the "add ID_LIKE when missing" branch was fixed, so an install whose filesystem package
+# has not been upgraded since then has ID=cachyos and no ID_LIKE at all. And the live ISO ships a
+# static file with ID=arch and no ID_LIKE. In both of those states Ansible's own answer is Archlinux
+# anyway, through /etc/arch-release, which the derivation takes before it ever looks at ID_LIKE.
+NAME="CachyOS Linux"
+PRETTY_NAME="CachyOS"
+ID=cachyos
+ID_LIKE=arch
+BUILD_ID=rolling
+ANSI_COLOR="38;2;23;147;209"
+HOME_URL="https://cachyos.org/"
+DOCUMENTATION_URL="https://wiki.cachyos.org/"
+SUPPORT_URL="https://discuss.cachyos.org/"
+BUG_REPORT_URL="https://github.com/cachyos"
+PRIVACY_POLICY_URL="https://terms.archlinux.org/docs/privacy-policy/"
+LOGO=cachyos

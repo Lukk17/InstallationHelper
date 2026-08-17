@@ -50,26 +50,44 @@
     - fedora_kernel_install.rc != 0
     - "'already' not in (fedora_kernel_install.stderr | default(''))"
 
-# sdubby keeps systemd-boot synced across kernel updates; failure to
-# install it is surfaced (not swallowed) so the operator can recover.
+# sdubby keeps systemd-boot synced across kernel updates. Its failure is tolerated, because the
+# current kernel's boot entry has already been written by the task above and the machine boots without
+# it, and then established from the package database rather than from the module result.
+#
+# The previous shape could not report anything. The four-condition failed_when is combined with AND,
+# so a real dnf failure that set rc satisfied all four and failed the task outright, which aborts the
+# play because site.yaml imports systemd_boot with no rescue: the warning below never ran because the
+# run was already over. A dnf failure that set no rc at all, which is the common shape, failed the
+# first condition, so the task went green and `sdubby_install is failed` was false and the warning
+# never ran either. The task whose whole job was explaining a missing sdubby could not fire in either
+# branch. It also read the result's `failed` key, which e2e/tier1/failed_key_reads.sh forbids for
+# exactly this reason: failed_when had already rewritten it.
 - name: Install kernel-install plugin to keep systemd-boot updated on Fedora
   become: yes
   ansible.builtin.dnf:
     name: sdubby
     state: present
   register: sdubby_install
-  failed_when:
-    - sdubby_install.rc is defined
-    - sdubby_install.rc != 0
-    - "'Nothing to do' not in (sdubby_install.msg | default(''))"
-    - "'already installed' not in (sdubby_install.msg | default(''))"
+  failed_when: false
 
-- name: Warn when sdubby could not be installed
+- name: Ask rpm whether sdubby is actually installed (Fedora)
+  ansible.builtin.command:
+    cmd: rpm -q sdubby
+  register: sdubby_query
+  changed_when: false
+  failed_when: false
+
+- name: Report that sdubby is absent so future kernels will not refresh the boot entry
   ansible.builtin.debug:
     msg: >-
-      sdubby (kernel-install plugin) could not be installed. systemd-boot
-      will work for the CURRENT kernel but future Fedora kernel updates will
-      not automatically refresh the BLS entry. Install sdubby manually
-      (`dnf install sdubby`) or this role's reruns will need to re-generate
-      entries after kernel updates.
-  when: sdubby_install is failed
+      [ERROR] sdubby, the kernel-install plugin, is not installed:
+      {{ sdubby_install.msg | default(sdubby_query.stdout | default('rpm reports it absent')) }}.
+      systemd-boot boots the CURRENT kernel, because its entry was written above, and no future Fedora
+      kernel update will refresh that entry, so the machine will keep booting an ever older kernel
+      until this role is rerun. Install it with: sudo dnf install sdubby
+  when: sdubby_query.rc != 0
+
+- name: Record the missing sdubby plugin in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
+  when: sdubby_query.rc != 0

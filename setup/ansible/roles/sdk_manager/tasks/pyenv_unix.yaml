@@ -22,7 +22,7 @@
       - liblzma-dev
       - curl
     state: present
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Install Pyenv build dependencies (Fedora)
   become: yes
@@ -43,7 +43,7 @@
       - xz-devel
       - curl
     state: present
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 - name: Install Pyenv build dependencies (Arch)
   become: yes
@@ -56,7 +56,7 @@
       - tk
       - curl
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Install Pyenv (Linux/Mac)
   ansible.builtin.shell: |

@@ -172,9 +172,26 @@ minikube_rpm_url: "https://github.com/kubernetes/minikube/releases/download/{{ m
 kind_url: "https://kind.sigs.k8s.io/dl/{{ kind_version }}/kind-linux-amd64"
 tor_browser_url: "https://dist.torproject.org/torbrowser/{{ tor_browser_version }}/{{ tor_browser_file }}"
 
-# Download integrity checksums. Populate with `sha256:<hex>` strings to enforce
-# verification on get_url tasks (custom_installs.yaml). Empty/missing = no enforcement.
+# Download integrity checksums. Populate with `sha256:<hex>` strings to enforce verification on the
+# get_url tasks that fetch a vendor artifact. Empty or missing means no enforcement, which is where
+# every entry stands today, so no vendor download in this repository is verified.
+#
+# Keys name the artifact, not the toggle, and every consumer follows that rule. For the five vendor
+# .deb files dispatched from dynamic_install.yaml the key is the toggle name with `_deb` appended,
+# because the toggle is what names the file. The examples below are the real key names, so populating
+# one is a matter of pasting a hash beside it.
 download_checksums: {}
-  # lens_appimage: "sha256:0123abcd..."
+  # jetbrains_toolbox: "sha256:..."
+  # antigravity_linux: "sha256:..."
+  # antigravity_macos: "sha256:..."
+  # gridcoin_flatpak: "sha256:..."
+  # gridcoin_macos: "sha256:..."
   # gputest: "sha256:..."
+  # razer_synapse_macos: "sha256:..."
+  # appimagelauncher_rpm: "sha256:..."
+  # minikube_deb: "sha256:..."
+  # teamviewer_deb: "sha256:..."
+  # veracrypt_deb: "sha256:..."
+  # appimagelauncher_deb: "sha256:..."
+  # balena_etcher_deb: "sha256:..."
 

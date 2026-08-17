@@ -37,7 +37,8 @@ info "Tier 1: the harness against the capability specs"
 [[ -d "${TESTING_DIR}" ]] || { fail "the capability spec directory is missing" "${TESTING_DIR}"; finish "harness spec parity"; }
 
 # Assertion task names, in file order. An assert task is one whose name starts with Assert, which is
-# the convention verify.yaml already follows for all nine of them.
+# the convention every assertion in verify.yaml follows. The count is read from the file below rather
+# than written here, because a number in a comment goes stale the first time an assertion is added.
 mapfile -t assertions < <(sed -nE 's/^[[:space:]]*-[[:space:]]*name:[[:space:]]*(Assert .*)$/\1/p' "${VERIFY_YAML}")
 
 if [[ ${#assertions[@]} -eq 0 ]]; then

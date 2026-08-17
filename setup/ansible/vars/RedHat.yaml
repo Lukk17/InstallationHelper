@@ -20,7 +20,11 @@ software_mapping:
   openssl: { manager: "dnf", package: "openssl" }
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
   kubectl: { manager: "dnf", package: "kubectl" }               # Official k8s.io repo
-  minikube: { manager: "dnf_url", package: "minikube-latest.x86_64.rpm" }
+  # For dnf_url the download location comes from minikube_rpm_url in group_vars/versions.yaml, and
+  # `package` is the name rpm records once the package is installed, so verification can look for it
+  # the same way it looks for an ordinary dnf package. Measured with `rpm -qp --qf '%{NAME}'` against
+  # the real vendor artifact, not guessed from the filename.
+  minikube: { manager: "dnf_url", package: "minikube" }
   helm: { manager: "dnf", package: "helm" }                     # Native (Fedora 35+)
   terraform: { manager: "dnf", package: "terraform" }           # Official HashiCorp dnf repo (fedora_repos.yaml)
   gh: { manager: "dnf", package: "gh" }
@@ -67,8 +71,8 @@ software_mapping:
   prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
-  teamviewer: { manager: "dnf_url", package: "teamviewer.rpm" }
-  veracrypt: { manager: "dnf_url", package: "veracrypt.rpm" }
+  teamviewer: { manager: "dnf_url", package: "teamviewer" }
+  veracrypt: { manager: "dnf_url", package: "veracrypt" }
   speedtest: { manager: "dnf", package: "speedtest-cli" }
   syncthing: { manager: "dnf", package: "syncthing" }             # Native (Fedora 43 ships 1.30.x, Fedora 44+ ships 2.x)
   tailscale: { manager: "dnf", package: "tailscale" }             # Official Tailscale dnf repo, stable channel (fedora_repos.yaml)
@@ -92,7 +96,7 @@ software_mapping:
   baobab: { manager: "dnf", package: "baobab", is_alternative_for: "WizTree" }
   openrazer: { manager: "dnf", package: "openrazer-meta" }   # Not in Fedora proper, comes from the openSUSE Build Service hardware:razer repo (fedora_repos.yaml).
   polychromatic: { manager: "flatpak", package: "app.polychromatic.controller", is_alternative_for: "Razer Synapse" }
-  balena_etcher: { manager: "dnf_url", package: "balena-etcher.rpm", is_alternative_for: "Rufus" }
+  balena_etcher: { manager: "dnf_url", package: "balena-etcher", is_alternative_for: "Rufus" }
   # gputest: custom binary download in custom_installs.yaml
 
   # Utilities

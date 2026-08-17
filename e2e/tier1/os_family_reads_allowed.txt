@@ -1,0 +1,31 @@
+# Lines allowed to read Ansible's own os_family or distribution instead of the derived ih_family and
+# ih_base. One entry per line, as
+#
+#     <repository-relative path> :: <exact text that must appear on the line>
+#
+# The text half is deliberate. A path-only allowlist would exempt a whole file, and two of the files
+# below are the longest, most-copied task files in the repository, so the next family branch added to
+# one of them would be forgiven in silence. This way an exception forgives one line, and rewriting
+# that line brings it back for review rather than letting it drift. os_family_derivation.sh reports a
+# stale entry too, for the same reason toggle_coverage.sh reports a stale documented no-op.
+#
+# setup/ansible/tasks/derive_os_facts.yaml is not listed: it is the derivation itself and the check
+# exempts it by name, having first proven that it still reads /etc/os-release and still sets both
+# facts, so the exemption cannot become vacuous.
+#
+# Three reasons appear below and no others are intended:
+#
+# 1. A repository that exists for one distribution only, not for its family. deb.debian.org with
+#    ansible_facts['distribution_release'] is Debian proper. ih_base == 'debian' would send LMDE and
+#    Devuan there too, and their codenames (faye, daedalus) are not Debian suites, so the sources.list
+#    would point at a suite that does not exist. Narrower than the family on purpose.
+# 2. The distribution's own name as an identifier on disk or on screen, where the family would be the
+#    wrong answer: a boot entry filename and title, a GRUB EFI vendor directory, and one message that
+#    tells the user which distribution a missing group was expected on.
+# 3. Nothing else.
+
+setup/ansible/roles/debian_core/tasks/main.yaml :: ansible_facts['distribution'] == 'Debian'
+setup/ansible/roles/software_installer/tasks/custom_installs.yaml :: does not exist on {{ ansible_facts['distribution'] }}
+setup/ansible/roles/systemd_boot/tasks/debian.yaml :: {{ ansible_distribution | lower }}.conf
+setup/ansible/roles/systemd_boot/tasks/debian.yaml :: title   {{ ansible_distribution }} {{ ansible_distribution_version }}
+setup/ansible/roles/systemd_boot/tasks/remove_grub.yaml :: }[ansible_facts['distribution']] | default(ansible_facts['distribution'] | lower)

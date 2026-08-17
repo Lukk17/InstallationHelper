@@ -32,14 +32,14 @@
     state: present
     update_cache: true
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Generate PL locale (Debian)
   community.general.locale_gen:
     name: pl_PL.UTF-8
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Set EN locale as default (Debian)
   ansible.builtin.lineinfile:
@@ -48,7 +48,7 @@
     line: "LANG=en_US.UTF-8"
     create: true
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Install Polish language packs (Ubuntu)
   ansible.builtin.apt:
@@ -58,7 +58,7 @@
       - language-pack-pl-base
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Debian' and ansible_facts['distribution'] == 'Ubuntu'
+  when: ih_family == 'Debian' and ih_base == 'ubuntu'
 
 # `locales` moved to the top of this block, before the task that needs it. What is left here is
 # the Debian-only Polish task package, which Ubuntu covers with language packs instead.
@@ -67,7 +67,7 @@
     name: task-polish
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Debian' and ansible_facts['distribution'] != 'Ubuntu'
+  when: ih_family == 'Debian' and ih_base != 'ubuntu'
 
 # --- Locale: Arch ---
 
@@ -77,14 +77,14 @@
     line: "pl_PL.UTF-8 UTF-8"
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Generate locales (Arch)
   community.general.locale_gen:
     name: pl_PL.UTF-8
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Set EN locale as default (Arch)
   ansible.builtin.lineinfile:
@@ -94,7 +94,7 @@
     create: yes
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 # --- Locale: Fedora ---
 
@@ -105,11 +105,11 @@
     line: "LANG=en_US.UTF-8"
     create: true
   become: yes
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 - name: Install Polish locale support (Fedora)
   ansible.builtin.dnf:
     name: glibc-langpack-pl
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'

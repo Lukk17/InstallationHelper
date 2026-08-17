@@ -1,0 +1,21 @@
+# openSUSE Leap 15.6. Captured 2026-08-17 from the official image on Docker Hub:
+# docker run --rm opensuse/leap:15.6 cat /etc/os-release, image digest
+# sha256:79be7751205ea84559990fb76b1bec71e38d6fad41c70a4f6c921b803b58f421.
+#
+# This is the fixture that must NOT resolve. ID_LIKE is "suse opensuse", which mentions none of arch,
+# fedora, rhel, debian or ubuntu, and Ansible's own answer is the Suse family, so the derivation has
+# to fall back to that and stop the run. This repository has no zypper dispatch and no
+# vars/Suse.yaml, so quietly rounding openSUSE up to RedHat would install Fedora's package names
+# with dnf on a machine that has neither.
+NAME="openSUSE Leap"
+VERSION="15.6"
+ID="opensuse-leap"
+ID_LIKE="suse opensuse"
+VERSION_ID="15.6"
+PRETTY_NAME="openSUSE Leap 15.6"
+ANSI_COLOR="0;32"
+CPE_NAME="cpe:/o:opensuse:leap:15.6"
+BUG_REPORT_URL="https://bugs.opensuse.org"
+HOME_URL="https://www.opensuse.org/"
+DOCUMENTATION_URL="https://en.opensuse.org/Portal:Leap"
+LOGO="distributor-logo-Leap"

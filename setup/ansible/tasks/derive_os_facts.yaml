@@ -1,0 +1,87 @@
+---
+# Derived OS facts: ih_family and ih_base. Every branch in this playbook reads these two rather
+# than Ansible's own os_family, and e2e/tier1/os_family_derivation.sh fails the gate for any task
+# that goes back to the raw fact.
+#
+# Why the raw fact cannot be trusted: ansible/module_utils/facts/system/distribution.py maps a
+# distribution name onto a family through one fixed table, OS_FAMILY_MAP, and the last line of
+# get_distribution_facts() is
+#     distribution_facts['os_family'] = self.OS_FAMILY.get(distro, None) or distro
+# so a distribution the table has never heard of reports its own name as its family. Nobara and
+# Bazzite are absent from it, the Debian family list stops at the derivatives that existed when it
+# was last extended, and the Arch family list is exactly Archlinux, Antergos and Manjaro. On such a
+# machine every os_family == '...' condition in this repository is false, vars/<family>.yaml does
+# not exist, and the run stops before it installs anything.
+#
+# ID_LIKE in /etc/os-release is the field every derivative does publish, so the family is derived
+# from that, and Ansible's own answer is taken only when it already is one of the five families
+# this playbook carries a dictionary for. setup/setup.sh derives the same thing the same way for
+# its own bootstrap, before Ansible exists on the machine.
+#
+# ih_base separates Ubuntu lineage from Debian lineage inside the Debian family, which a handful of
+# repository paths and metapackages need. Pop!_OS and Linux Mint are Ubuntu lineage while reporting
+# neither name, and Linux Mint Debian Edition is the trap in the other direction: a Mint name on
+# Debian lineage, so it has to come out as debian.
+#
+# ih_os_release_path, ih_reported_family and ih_reported_distribution default to the real machine
+# and exist as inputs so that e2e/tier1/os_family_derivation.sh can drive this same file against a
+# fixture per distribution. A check that re-implemented these expressions would be a second copy of
+# one parse, which is how the two wizards drifted apart once already. See docs/regression_ledger.md.
+
+- name: Read /etc/os-release once, because both derived facts come out of that one file
+  ansible.builtin.slurp:
+    src: "{{ ih_os_release_path | default('/etc/os-release') }}"
+  register: ih_os_release
+  # A machine with no readable /etc/os-release is not a failure here: the fallback is Ansible's own
+  # answer, and the fail-fast at the bottom of this file still stops the run when that answer is not
+  # one of the five families. Tolerating it here is what lets that message name both answers.
+  failed_when: false
+  when: ansible_facts['system'] | default('') == 'Linux'
+  tags: always
+
+- name: Take the fields the derivation needs out of that one read
+  ansible.builtin.set_fact:
+    ih_supported_families: [Debian, RedHat, Archlinux, Darwin, Windows]
+    ih_reported_family: "{{ ih_reported_family | default(ansible_facts['os_family'] | default(''), true) }}"
+    ih_reported_distribution: "{{ ih_reported_distribution | default(ansible_facts['distribution'] | default(''), true) }}"
+    ih_os_release_id_like: "{{ ih_os_release_text | regex_findall('^ID_LIKE=\"?([^\"]*)', multiline=True) | first | default('', true) | lower | trim }}"
+    ih_os_release_ubuntu_codename: "{{ ih_os_release_text | regex_findall('^UBUNTU_CODENAME=\"?([^\"]*)', multiline=True) | first | default('', true) | lower | trim }}"
+  vars:
+    ih_os_release_text: "{{ (ih_os_release.content | b64decode) if ih_os_release.content is defined else '' }}"
+  tags: always
+
+- name: Derive the OS family this playbook will branch on
+  ansible.builtin.set_fact:
+    ih_family: >-
+      {{ ih_reported_family if ih_reported_family in ih_supported_families
+         else 'Archlinux' if 'arch' in ih_os_release_id_like
+         else 'RedHat' if ('fedora' in ih_os_release_id_like or 'rhel' in ih_os_release_id_like)
+         else 'Debian' if ('debian' in ih_os_release_id_like or 'ubuntu' in ih_os_release_id_like)
+         else ih_reported_family }}
+  tags: always
+
+# UBUNTU_CODENAME is the reliable half of this: Ubuntu itself and every Ubuntu-lineage derivative
+# publishes it, and no Debian-lineage one does. ID_LIKE and the reported name are the belt and
+# braces for a derivative that drops it.
+- name: Derive which Debian lineage this machine is on
+  ansible.builtin.set_fact:
+    ih_base: >-
+      {{ (('ubuntu' if (ih_os_release_ubuntu_codename | length > 0
+                        or 'ubuntu' in ih_os_release_id_like
+                        or ih_reported_distribution == 'Ubuntu')
+           else 'debian')
+          if ih_family == 'Debian'
+          else ih_reported_distribution | lower) }}
+  tags: always
+
+- name: Stop before touching anything when the family is not one this playbook supports
+  ansible.builtin.fail:
+    msg: >-
+      This playbook has no software dictionary for this machine. Ansible reported
+      os_family={{ ih_reported_family }} for distribution {{ ih_reported_distribution }},
+      /etc/os-release gave ID_LIKE='{{ ih_os_release_id_like }}', and the derivation resolved
+      ih_family={{ ih_family }}, which is not one of {{ ih_supported_families | join(', ') }}.
+      Nothing has been changed. Add the family to setup/ansible/vars/ and to the ID_LIKE mapping in
+      setup/ansible/tasks/derive_os_facts.yaml before running this here.
+  when: ih_family not in ih_supported_families
+  tags: always

@@ -62,7 +62,7 @@
   retries: 3
   delay: 10
   until: debian_snapd_install is succeeded
-  when: ansible_facts['distribution'] != 'Ubuntu'
+  when: ih_base != 'ubuntu'
 
 - name: Enable snapd socket (Debian non-Ubuntu)
   become: yes
@@ -70,7 +70,7 @@
     name: snapd.socket
     state: started
     enabled: yes
-  when: ansible_facts['distribution'] != 'Ubuntu'
+  when: ih_base != 'ubuntu'
 
 # NOTE: Removed manual symlink creation - not needed with modern snapd
 

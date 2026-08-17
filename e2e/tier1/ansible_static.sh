@@ -10,50 +10,11 @@
 # warning cannot be seen in that. See docs/regression_ledger.md.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
-# Ansible does not run on Windows, so from Git Bash there is no ansible-playbook to call and this
-# check used to abort the whole gate with exit 2. That matters because on this machine neither shell
-# can run the gate alone: WSL has Ansible but its only reachable pwsh is a Store alias stub it cannot
-# execute, and Git Bash has a working pwsh but no Ansible. Re-executing this one check inside WSL
-# closes that split, so `./e2e/run.sh` is fully green from either shell instead of being
-# unsatisfiable from both. The default distribution is used rather than a hardcoded name.
-#
-# The drive mount path is derived here rather than asked of wslpath. wslpath answers with whichever
-# mount it finds first, and with Docker Desktop running that is a
-# /mnt/wsl/docker-desktop-bind-mounts/... path whose existence comes and goes with the daemon's
-# mounts, so the same command worked once and then exited 127. /mnt/<drive>/ is the stable answer,
-# it is the path every command in AGENTS.md already uses, and it is checked for before use rather
-# than assumed.
-if ! command -v ansible-playbook &>/dev/null; then
-    if command -v wsl &>/dev/null && command -v cygpath &>/dev/null; then
-        win_repo="$(cygpath -w "${REPO_ROOT}")"
-        drive="$(tr '[:upper:]' '[:lower:]' <<<"${win_repo:0:1}")"
-        wsl_repo="/mnt/${drive}${win_repo:2}"
-        wsl_repo="${wsl_repo//\\//}"
-        # Through `bash -c`, never as a bare `wsl test`. wsl.exe resolves a bare command against
-        # the distribution's default path handling and returned 1 for a directory that exists,
-        # which made this refuse to delegate while the same test through bash said yes.
-        #
-        # Retried because interop is not reliable while the machine is busy. With three tier 3
-        # scenario containers running, wsl.exe intermittently answers
-        # Wsl/Service/0x80072744c, a socket timeout, and one in three invocations of this check
-        # failed the gate for a reason that had nothing to do with the playbook.
-        wsl_visible=""
-        for _ in 1 2 3; do
-            if wsl bash -c "test -d '${wsl_repo}/e2e/tier1'" 2>/dev/null; then
-                wsl_visible="yes"
-                break
-            fi
-            sleep 5
-        done
-        if [[ -n "${wsl_visible}" ]]; then
-            info "no ansible-playbook here, re-running this check inside WSL at ${wsl_repo}"
-            exec wsl bash -c "cd '${wsl_repo}' && bash e2e/tier1/ansible_static.sh"
-        fi
-        warn "no ansible-playbook here and ${wsl_repo} is not visible from WSL, so the playbook cannot be parsed from this shell"
-    fi
-    require_cmd ansible-playbook
-fi
+# Git Bash has no ansible-playbook, so this check re-runs itself inside WSL from there. The reasoning
+# and the mechanism live in wsl_delegate.sh, shared with the other check that needs Ansible.
+delegate_to_wsl_when_no_ansible e2e/tier1/ansible_static.sh
 
 info "Tier 1: Ansible static checks"
 

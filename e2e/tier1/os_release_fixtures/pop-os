@@ -1,0 +1,20 @@
+# Pop!_OS 22.04 LTS. Extracted 2026-08-17 from System76's own APT archive: the file is shipped as
+# /etc/pop-os/os-release by pop-default-settings 5.1.0~1780959311~22.04~2eb8983, which dpkg-diverts
+# /etc/os-release onto it. Package taken from
+# http://apt.pop-os.org/release/pool/jammy/default-settings/2eb8983617219f02bfbed8273dee44c7e89cf703/pop-default-settings_5.1.0~1780959311~22.04~2eb8983_all.deb
+# with sha256 e24ff0dbab5e7391cf8d3bb1f68673752a1fa2d167f97ffa38a36d82fcd27e5a matching the jammy
+# Packages index, unpacked with dpkg-deb. Generator cross-checked against
+# https://github.com/pop-os/default-settings/blob/master_jammy/src/os-release.sh
+NAME="Pop!_OS"
+VERSION="22.04 LTS"
+ID=pop
+ID_LIKE="ubuntu debian"
+PRETTY_NAME="Pop!_OS 22.04 LTS"
+VERSION_ID="22.04"
+HOME_URL="https://pop.system76.com"
+SUPPORT_URL="https://support.system76.com"
+BUG_REPORT_URL="https://github.com/pop-os/pop/issues"
+PRIVACY_POLICY_URL="https://system76.com/privacy"
+VERSION_CODENAME=jammy
+UBUNTU_CODENAME=jammy
+LOGO=distributor-logo-pop-os

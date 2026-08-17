@@ -7,7 +7,7 @@
     content: |
       run_im none
     mode: '0644'
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Pre-answer display manager prompt for SDDM (Debian)
   become: yes
@@ -16,7 +16,7 @@
     question: shared/default-x-display-manager
     value: sddm
     vtype: select
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 # Two package names in the old list stopped existing when Debian and Ubuntu moved to
 # Plasma 6, and a third only ever existed on Ubuntu. apt fails the whole task when any
@@ -26,9 +26,11 @@
 #   plasma-look-and-feel-org.kde.breeze.desktop  gone, replaced by the breeze metapackage
 #   language-pack-kde-pl                         Ubuntu only, absent from Debian
 #
-# Ansible reports Ubuntu as the Debian family, so a single os_family branch cannot express
+# Ansible reports Ubuntu as the Debian family, so a single family branch cannot express
 # that last difference. The shared list is keyed on the family and the difference on
-# ansible_distribution. Every name below was checked with apt-cache policy in both a
+# ih_base, which is Ubuntu lineage rather than the distribution's own name, so Pop!_OS and
+# Linux Mint get the language pack and Linux Mint Debian Edition does not. See
+# setup/ansible/tasks/derive_os_facts.yaml. Every name below was checked with apt-cache policy in both a
 # debian:trixie and an ubuntu:26.04 container. See docs/regression_ledger.md.
 - name: Install KDE Plasma Wayland (Debian family, shared packages)
   become: yes
@@ -52,7 +54,7 @@
   retries: 3
   delay: 10
   until: kde_apt_shared is succeeded
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 # Ubuntu ships translated KDE strings as language packs, Debian does not package them at
 # all and gets its translations with the applications. Kept separate rather than dropped,
@@ -66,14 +68,14 @@
   retries: 3
   delay: 10
   until: kde_apt_ubuntu is succeeded
-  when: ansible_facts['distribution'] == 'Ubuntu'
+  when: ih_base == 'ubuntu'
 
 - name: Install KDE Plasma Wayland (Fedora)
   become: yes
   ansible.builtin.dnf:
     name: "@KDE Plasma Workspaces"
     state: present
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 - name: Install KDE Plasma Wayland (Archlinux)
   become: yes
@@ -83,7 +85,7 @@
       - kde-applications-meta
       - sddm
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Set SDDM input method config
   become: yes
@@ -98,7 +100,7 @@
 - name: Reconfigure SDDM (Debian)
   become: yes
   ansible.builtin.command: dpkg-reconfigure -f noninteractive sddm
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Fix SDDM directory ownership
   become: yes
@@ -113,5 +115,5 @@
   ansible.builtin.systemd:
     name: sddm
     enabled: yes
-  when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+  when: ih_family in ['RedHat', 'Archlinux']
 

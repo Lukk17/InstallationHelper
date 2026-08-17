@@ -141,13 +141,14 @@ The verify log carries the same assertions as every other container scenario, be
 Before any of them, `Assert the installed-package query returned a plausible list` checks the input to the comparison rather than the comparison itself. It fails when the query behind the native package assertion returns fewer than fifty entries, which no working Linux installation does. It exists because a format string whose newline was being discarded made that query return one concatenated blob, so every expected package was reported missing and read exactly like a playbook that had installed nothing.
 
 1. `Assert every enabled native package is installed`, against `pacman -Qq`.
-2. `Assert every enabled flatpak application is installed`, against `flatpak list --app --columns=application`.
-3. `Assert tailscaled is enabled when Tailscale was requested`. The profile turns `install_tailscale` off, so this one is skipped here, and the skip is the point: the ledger entry behind this scenario is a live profile that never disabled Tailscale at all.
-4. `Assert the user is in the OpenRazer device group when OpenRazer was requested`. Also disabled by the profile, also skipped.
-5. `Assert the user is in the docker group when Docker was requested`. Also disabled by the profile, also skipped.
-6. `Assert docker.service is enabled when Docker was requested`. Also skipped, same reason.
-7. `Assert flatpak is installed and the Flathub remote is configured`.
-8. `Assert the temporary passwordless sudoers entry was removed`.
+2. `Assert every enabled URL-installed package resolved a download location`. Some packages install from a vendor URL rather than a repository, and both dispatch tasks skip silently when that URL renders empty, so this fails the run instead of letting it look clean. The candidate set is empty on Arch, because `vars/Archlinux.yaml` maps nothing to `apt_url` or `dnf_url`. On the Debian and Ubuntu images it is the enabled subset of the five `apt_url` mappings, and on Fedora the enabled subset of the four `dnf_url` mappings, so an Arch run does not prove this one and the assertion says so by reporting how many candidates it examined.
+3. `Assert every enabled flatpak application is installed`, against `flatpak list --app --columns=application`.
+4. `Assert tailscaled is enabled when Tailscale was requested`. The profile turns `install_tailscale` off, so this one is skipped here, and the skip is the point: the ledger entry behind this scenario is a live profile that never disabled Tailscale at all.
+5. `Assert the user is in the OpenRazer device group when OpenRazer was requested`. Also disabled by the profile, also skipped.
+6. `Assert the user is in the docker group when Docker was requested`. Also disabled by the profile, also skipped.
+7. `Assert docker.service is enabled when Docker was requested`. Also skipped, same reason.
+8. `Assert flatpak is installed and the Flathub remote is configured`.
+9. `Assert the temporary passwordless sudoers entry was removed`.
 
 Amended 2026-08-15, because this section previously described a harness limitation that no longer exists and told the runner to expect a failure that is now a real one. What it said: [../tier3/container.sh](../tier3/container.sh) passed the profile to the playbook but not to the verify play, so verification resolved every toggle with the profile invisible to it, expected the whole of the profile's disabled list, and reported it missing. A non-zero `verify_rc` was the expected structural outcome and the runner was told to reconcile the missing list by hand against the profile.
 

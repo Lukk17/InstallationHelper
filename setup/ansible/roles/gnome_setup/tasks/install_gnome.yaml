@@ -6,15 +6,18 @@
 
 # ubuntu-desktop does not exist in Debian, and apt fails the whole task on an unknown
 # name, so this could never install GNOME on plain Debian. Ansible reports Ubuntu as the
-# Debian family, so one os_family branch cannot carry the difference: the desktop
-# metapackage is keyed on ansible_distribution and everything else stays shared. Debian's
+# Debian family, so one family branch cannot carry the difference: the desktop metapackage
+# is keyed on ih_base and everything else stays shared. ih_base rather than the raw
+# distribution name because Pop!_OS and Linux Mint are Ubuntu lineage under a different
+# name, so they need ubuntu-desktop, while Linux Mint Debian Edition needs gnome-core.
+# See setup/ansible/tasks/derive_os_facts.yaml. Debian's
 # equivalent is gnome-core, which is the desktop without the full gnome task's extras.
 # Both names checked with apt-cache policy in debian:trixie and ubuntu:26.04 containers.
 # See docs/regression_ledger.md.
 - name: Install the GNOME desktop metapackage (Debian family)
   become: yes
   ansible.builtin.apt:
-    name: "{{ 'ubuntu-desktop' if ansible_facts['distribution'] == 'Ubuntu' else 'gnome-core' }}"
+    name: "{{ 'ubuntu-desktop' if ih_base == 'ubuntu' else 'gnome-core' }}"
     state: present
     update_cache: yes
   register: gnome_apt_meta
@@ -22,7 +25,7 @@
   delay: 10
   until: gnome_apt_meta is succeeded
   when:
-    - ansible_facts['os_family'] == 'Debian'
+    - ih_family == 'Debian'
     - not gnome_shell_stat.stat.exists
 
 - name: Install GNOME tooling (Debian family)
@@ -37,7 +40,7 @@
   delay: 10
   until: gnome_apt_tools is succeeded
   when:
-    - ansible_facts['os_family'] == 'Debian'
+    - ih_family == 'Debian'
     - not gnome_shell_stat.stat.exists
 
 - name: Install GNOME Desktop (Fedora)
@@ -46,7 +49,7 @@
     name: "@GNOME Desktop Environment"
     state: present
   when:
-    - ansible_facts['os_family'] == 'RedHat'
+    - ih_family == 'RedHat'
     - not gnome_shell_stat.stat.exists
 
 - name: Install GNOME Desktop (Archlinux)
@@ -57,7 +60,7 @@
       - gnome-tweaks
     state: present
   when:
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
     - not gnome_shell_stat.stat.exists
 
 # A machine has exactly one display manager. systemd models that with a single
@@ -73,7 +76,7 @@
   ansible.builtin.stat:
     path: /etc/systemd/system/display-manager.service
   register: existing_display_manager
-  when: ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+  when: ih_family in ['RedHat', 'Archlinux']
 
 - name: Enable GDM Service (Fedora/Arch)
   become: yes
@@ -81,15 +84,55 @@
     name: gdm
     enabled: yes
   when:
-    - ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+    - ih_family in ['RedHat', 'Archlinux']
     - not (existing_display_manager.stat.exists | default(false))
       or 'gdm' in (existing_display_manager.stat.lnk_target | default(''))
 
-- name: Report that GDM was left disabled because another display manager owns the machine
+# The report is split in two because the same on-disk state means two different things, and only one
+# of them costs the user anything.
+#
+# Both desktops requested: KDE enabled SDDM first, and SDDM offers a GNOME session on its own login
+# screen, so GNOME still starts and nothing was lost. Failing the run there would fail it for asking
+# a question that has only one possible answer, and it would turn the e2e all-software scenario, which
+# turns every toggle true by design, permanently red for no defect.
+#
+# GNOME requested on its own and something else owns display-manager.service: the login manager GNOME
+# ships is not the one running, which is a thing the user asked for and did not get, so the run says
+# so and its exit code says so.
+- name: Report that GDM was left disabled because KDE's display manager got there first
   ansible.builtin.debug:
-    msg: "[WARN] GDM was not enabled: {{ existing_display_manager.stat.lnk_target | default('another display manager') }} is already the machine's display manager, and systemd allows only one. Both KDE and GNOME appear to be enabled. Pick one in group_vars, or switch by hand with: sudo systemctl enable gdm --force"
+    msg: >-
+      [WARN] GDM was not enabled:
+      {{ existing_display_manager.stat.lnk_target | default('another display manager') }} is already
+      the machine's display manager and systemd allows exactly one. Both KDE and GNOME are enabled,
+      so this is the only possible outcome, and SDDM offers a GNOME session at its login screen. To
+      make GDM the one instead: sudo systemctl enable gdm --force
   when:
-    - ansible_facts['os_family'] in ['RedHat', 'Archlinux']
+    - ih_family in ['RedHat', 'Archlinux']
     - existing_display_manager.stat.exists | default(false)
     - "'gdm' not in (existing_display_manager.stat.lnk_target | default(''))"
+    - install_kde_plasma | default(false) | bool
+
+- name: Report that GNOME was installed without its display manager
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] GDM was NOT enabled and GNOME was the only desktop requested:
+      {{ existing_display_manager.stat.lnk_target | default('another display manager') }} already owns
+      /etc/systemd/system/display-manager.service and systemd allows exactly one. GNOME is installed
+      but the machine's login manager is not the one it ships, so a graphical login may not offer a
+      GNOME session at all. Switch it with: sudo systemctl enable gdm --force
+  when:
+    - ih_family in ['RedHat', 'Archlinux']
+    - existing_display_manager.stat.exists | default(false)
+    - "'gdm' not in (existing_display_manager.stat.lnk_target | default(''))"
+    - not (install_kde_plasma | default(false) | bool)
+
+- name: Record the missing GNOME display manager in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
+  when:
+    - ih_family in ['RedHat', 'Archlinux']
+    - existing_display_manager.stat.exists | default(false)
+    - "'gdm' not in (existing_display_manager.stat.lnk_target | default(''))"
+    - not (install_kde_plasma | default(false) | bool)
 

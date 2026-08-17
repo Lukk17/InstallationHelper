@@ -1,8 +1,8 @@
 ---
 - name: Include OpenSpec Unix tasks
   ansible.builtin.include_tasks: openspec_unix.yaml
-  when: ansible_facts['os_family'] != 'Windows' and install_openspec | default(false) | bool
+  when: ih_family != 'Windows' and install_openspec | default(false) | bool
 
 - name: Include OpenSpec Windows tasks
   ansible.builtin.include_tasks: openspec_windows.yaml
-  when: ansible_facts['os_family'] == 'Windows' and install_openspec | default(false) | bool
+  when: ih_family == 'Windows' and install_openspec | default(false) | bool

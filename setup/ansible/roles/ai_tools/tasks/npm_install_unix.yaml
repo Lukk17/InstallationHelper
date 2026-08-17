@@ -36,9 +36,26 @@
     path: "{{ non_root_home }}/.nvm/nvm.sh"
   register: nvm_script_stat
 
-- name: "Warn if NVM is missing — skip {{ npm_display_name }} install"
+# Six command-line tools come through this helper, one include_tasks each, and without NVM every one
+# of them installs nothing. That used to be a debug message and nothing else: no exit code, no
+# summary entry, and until the dual_logger callback learned to render a debug msg, not even a console
+# line. So a run with a failed NVM install reported success and quietly delivered none of Claude
+# Code, OpenCode, OpenSpec or the rest.
+#
+# [ERROR] rather than [WARN] because the user asked for this tool and did not get it, and the marker
+# is what routes the line into ~/installation_errors.log.
+- name: "Report that {{ npm_display_name }} could not be installed without NVM"
   ansible.builtin.debug:
-    msg: "[WARN] Skipping {{ npm_display_name }} install — NVM not found at {{ non_root_home }}/.nvm/nvm.sh. Run with --tags nvm,ai to install NVM first."
+    msg: >-
+      [ERROR] {{ npm_display_name }} was NOT installed. NVM is absent from
+      {{ non_root_home }}/.nvm/nvm.sh and it is the only install path this tool has on this OS, so
+      nothing was attempted. Either install_nodejs is false, or the NVM install in sdk_manager failed
+      earlier in this run and named itself there. Rerun with --tags nvm,ai once that is fixed.
+  when: not nvm_script_stat.stat.exists
+
+- name: "Record the missing {{ npm_display_name }} in the play summary"
+  ansible.builtin.set_fact:
+    any_role_failed: true
   when: not nvm_script_stat.stat.exists
 
 # The check MUST activate the same Node version that the install task will use

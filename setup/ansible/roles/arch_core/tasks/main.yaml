@@ -243,10 +243,45 @@
   register: snap_core_install
   when: install_snapd | default(false) | bool
 
-- name: Snap core already installed warning
+# snap exits 1 for two entirely different things here. `snap install core` on a machine that already
+# has it prints `error: snap "core" is already installed, see 'snap help refresh'` and exits 1, and a
+# genuine failure, snapd not reachable on its socket being the one this role has actually hit, also
+# exits 1. The previous version announced every non-zero rc as "already installed", so the one outcome
+# that needs attention was reported as the one that needs none, and nothing anywhere recorded it. The
+# text decides now, not the return code.
+#
+# The message below deliberately avoids the phrase the match looks for, because
+# callback_plugins/dual_logger.py drops any line containing it as noise, so a message built out of it
+# would never be printed.
+- name: Note that the core snap was already present
   ansible.builtin.debug:
-    msg: "Snap 'core' is already installed, see 'snap help refresh'"
-  when: install_snapd | default(false) | bool and snap_core_install.rc != 0
+    msg: "The core snap is present on this machine already, so snap fetched nothing."
+  when:
+    - install_snapd | default(false) | bool
+    - snap_core_install.rc | default(0) != 0
+    - "'already installed' in (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))"
+
+- name: Report that the core snap could not be installed
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] The core snap did not install, so every snap package in this run will fail: snap exited
+      {{ snap_core_install.rc | default('with no return code') }} saying
+      {{ (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))
+         | trim | default('nothing at all', true) }}.
+      The usual cause on Arch is snapd.socket not being reachable yet, which the enable and the pause
+      above are meant to cover.
+  when:
+    - install_snapd | default(false) | bool
+    - snap_core_install.rc | default(0) != 0
+    - "'already installed' not in (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))"
+
+- name: Record the failed core snap install in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
+  when:
+    - install_snapd | default(false) | bool
+    - snap_core_install.rc | default(0) != 0
+    - "'already installed' not in (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))"
 
 
 

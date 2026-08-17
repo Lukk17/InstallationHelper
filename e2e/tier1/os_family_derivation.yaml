@@ -1,0 +1,111 @@
+---
+# Fixture-driven unit test of setup/ansible/tasks/derive_os_facts.yaml, run by
+# e2e/tier1/os_family_derivation.sh. Every distribution this repository supports, and every
+# derivative it means to support, goes through the shipped task file rather than a copy of its
+# expressions: two implementations of one parse is the wizard toggle parse desync in
+# docs/regression_ledger.md, and this derivation now decides whether any distribution works at all.
+#
+# Each case says what Ansible itself would report on that machine and what the derivation must answer.
+# The reported values matter, because the derivation takes Ansible's answer whenever it is already one
+# of the five families and only falls through to ID_LIKE when it is not:
+#
+#   * Ubuntu, Debian, Pop!_OS, Linux Mint, LMDE, Devuan, Arch, Manjaro, Fedora and Rocky are all in
+#     OS_FAMILY_MAP in ansible/module_utils/facts/system/distribution.py, so they exercise the first
+#     branch and the fixtures prove it stays intact. Pop!_OS and Linux Mint are the reason ih_base
+#     exists: both are Ubuntu lineage under a name that is neither Ubuntu nor Debian.
+#   * LMDE is the trap in the other direction. Its ID is linuxmint, exactly as on Ubuntu-lineage Mint,
+#     and only the absent UBUNTU_CODENAME and the debian-only ID_LIKE tell them apart.
+#   * EndeavourOS, CachyOS and Nobara are absent from that table, so Ansible answers with the
+#     distribution's own name and the ID_LIKE branch is the only thing that can resolve them. Their
+#     cases therefore pass a reported family that is not one of the five, which is the contract under
+#     test: an unknown family plus an ID_LIKE must still resolve. Worth knowing that a real
+#     EndeavourOS or CachyOS machine today also satisfies a second test of Ansible's, the mere
+#     existence of /etc/arch-release, which both of them have because they install Arch's own
+#     filesystem package, and that shortcut answers Archlinux before the table is consulted at all.
+#     So both paths lead to Archlinux on those two, and the fixtures deliberately exercise the harder
+#     one, which is also the one that will matter if EndeavourOS carries out its stated intent to
+#     override that package. Nobara has no such shortcut.
+#   * openSUSE must resolve to none of the five. Ansible answers Suse, no ID_LIKE field mentions
+#     arch, fedora, rhel, debian or ubuntu, and the run must stop rather than install RedHat's
+#     package set with dnf on a machine that uses zypper.
+#
+# The fixtures themselves are real /etc/os-release files, each one carrying the provenance of where it
+# was taken from in a comment at the top. os_family_derivation.sh refuses to trust this play unless
+# every fixture on disk is named by a case here and every case has a fixture.
+
+- name: Prove the derived OS family against one real os-release per distribution
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    ih_fixtures: "{{ playbook_dir }}/os_release_fixtures"
+    # ih_derivation is passed in with -e by os_family_derivation.sh, pointing at
+    # setup/ansible/tasks/derive_os_facts.yaml under REPO_ROOT, so the check can be aimed at a copy
+    # of the tree carrying an old defect. E2E_REPO_ROOT in e2e/lib/common.sh is that mechanism.
+    ih_cases:
+      - { fixture: ubuntu,      reported_family: Debian,      reported_distribution: Ubuntu,                      family: Debian,    base: ubuntu }
+      - { fixture: debian,      reported_family: Debian,      reported_distribution: Debian,                      family: Debian,    base: debian }
+      - { fixture: pop-os,      reported_family: Debian,      reported_distribution: "Pop!_OS",                   family: Debian,    base: ubuntu }
+      - { fixture: linux-mint,  reported_family: Debian,      reported_distribution: "Linux Mint",                family: Debian,    base: ubuntu }
+      - { fixture: lmde,        reported_family: Debian,      reported_distribution: "Linux Mint Debian Edition", family: Debian,    base: debian }
+      - { fixture: devuan,      reported_family: Debian,      reported_distribution: Devuan,                      family: Debian,    base: debian }
+      - { fixture: arch,        reported_family: Archlinux,   reported_distribution: Archlinux,                   family: Archlinux, base: archlinux }
+      - { fixture: endeavouros, reported_family: EndeavourOS, reported_distribution: EndeavourOS,                 family: Archlinux, base: endeavouros }
+      - { fixture: cachyos,     reported_family: CachyOS,     reported_distribution: CachyOS,                     family: Archlinux, base: cachyos }
+      - { fixture: manjaro,     reported_family: Archlinux,   reported_distribution: Manjaro,                     family: Archlinux, base: manjaro }
+      - { fixture: fedora,      reported_family: RedHat,      reported_distribution: Fedora,                      family: RedHat,    base: fedora }
+      - { fixture: nobara,      reported_family: Nobara,      reported_distribution: Nobara,                      family: RedHat,    base: nobara }
+      - { fixture: rocky,       reported_family: RedHat,      reported_distribution: Rocky,                       family: RedHat,    base: rocky }
+      # Must not resolve. family: unsupported means the case file expects the derivation's own
+      # fail-fast to stop the run, and asserts it stopped for the right reason rather than by accident.
+      - { fixture: opensuse,    reported_family: Suse,        reported_distribution: "openSUSE Leap",             family: unsupported, base: "opensuse leap" }
+
+  tasks:
+    # No fixture and no substitution: the same file, against this machine's own /etc/os-release. A
+    # gate that cannot resolve the family of the machine it runs on has found a real defect, and this
+    # is also the only case that proves the default path through the file works.
+    - name: Derive against the machine this gate is running on
+      ansible.builtin.include_tasks: "{{ ih_derivation }}"
+
+    - name: Keep the live answer, because the fixture loop below overwrites both facts
+      ansible.builtin.set_fact:
+        ih_live_family: "{{ ih_family }}"
+        ih_live_base: "{{ ih_base }}"
+
+    - name: Derive and assert one case per fixture
+      ansible.builtin.include_tasks: os_family_derivation_case.yaml
+      loop: "{{ ih_cases }}"
+      loop_control:
+        label: "{{ item.fixture }}"
+
+    # macOS and Windows have no /etc/os-release, and a task that reads an undefined variable fails, so
+    # both facts have to come out defined there too. This drives the same file with a path that does
+    # not exist, which is the same state the read leaves behind when it is skipped on a non-Linux
+    # machine: the slurp tolerated, no content, no ID_LIKE, and Ansible's own answer taken as-is. There
+    # is no fixture for it because the absence of the file is the input.
+    - name: Derive with no os-release at all, the way macOS and Windows reach this file
+      ansible.builtin.include_tasks: "{{ ih_derivation }}"
+      vars:
+        ih_os_release_path: "{{ ih_fixtures }}/there-is-no-such-file"
+        ih_reported_family: Darwin
+        ih_reported_distribution: MacOSX
+
+    - name: Both facts are still defined when there is no os-release to read
+      ansible.builtin.assert:
+        that:
+          - ih_family == 'Darwin'
+          - ih_base == 'macosx'
+          - ih_os_release_id_like == ''
+        fail_msg: >-
+          With no os-release readable the derivation must fall back to Ansible's own answer, but it
+          gave ih_family={{ ih_family }} and ih_base={{ ih_base }}.
+        success_msg: "no os-release: ih_family={{ ih_family }} ih_base={{ ih_base }}"
+        quiet: true
+
+    # One machine-readable line for the shell check to read. It carries the case count so the check
+    # can refuse a play that asserted over a list that lost entries, which is an assertion that
+    # passes while proving less.
+    - name: Report what was proven
+      ansible.builtin.debug:
+        msg: "IH_DERIVATION_ASSERTED cases={{ ih_cases | length }} live_family={{ ih_live_family }} live_base={{ ih_live_base }}"

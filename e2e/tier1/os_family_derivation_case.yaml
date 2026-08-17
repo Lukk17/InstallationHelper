@@ -1,0 +1,54 @@
+---
+# One fixture, driven by the loop in os_family_derivation.yaml. `item` is the case dictionary from
+# that file. Split out because a loop can only repeat a single task, and each case needs the
+# derivation run and then asserted.
+#
+# The block and rescue are how the unsupported case is proven. The derivation ends with a fail task
+# for any family that is not one of the five, so a fixture that must be rejected reaches the rescue
+# and a fixture that must resolve does not. A supported fixture whose assertion fails lands in the
+# same rescue, so the rescue re-raises with the original message rather than swallowing it.
+
+- name: "Case: {{ item.fixture }}"
+  block:
+    - name: "Derive from the {{ item.fixture }} os-release fixture"
+      ansible.builtin.include_tasks: "{{ ih_derivation }}"
+      vars:
+        ih_os_release_path: "{{ ih_fixtures }}/{{ item.fixture }}"
+        ih_reported_family: "{{ item.reported_family }}"
+        ih_reported_distribution: "{{ item.reported_distribution }}"
+
+    - name: "{{ item.fixture }} must have stopped the run rather than resolved a family"
+      ansible.builtin.fail:
+        msg: >-
+          {{ item.fixture }} resolved to ih_family={{ ih_family }} and the run carried on. This
+          distribution is not supported, and the derivation must hit its own fail-fast instead,
+          because quietly treating it as one of the five families installs the wrong packages with
+          the wrong package manager.
+      when: item.family == 'unsupported'
+
+    - name: "{{ item.fixture }} derives the expected family and base"
+      ansible.builtin.assert:
+        that:
+          - ih_family == item.family
+          - ih_base == item.base
+        fail_msg: >-
+          {{ item.fixture }}: expected ih_family={{ item.family }} and ih_base={{ item.base }}, got
+          ih_family={{ ih_family }} and ih_base={{ ih_base }} from ID_LIKE='{{ ih_os_release_id_like }}'
+          and UBUNTU_CODENAME='{{ ih_os_release_ubuntu_codename }}', with Ansible reporting
+          os_family={{ item.reported_family }} for distribution {{ item.reported_distribution }}.
+        success_msg: "{{ item.fixture }}: ih_family={{ ih_family }} ih_base={{ ih_base }}"
+        quiet: true
+      when: item.family != 'unsupported'
+
+  rescue:
+    - name: "{{ item.fixture }} was rejected, and for the right reason"
+      ansible.builtin.assert:
+        that:
+          - item.family == 'unsupported'
+          - ih_family == item.reported_family
+          - "'no software dictionary' in (ansible_failed_result.msg | default(''))"
+        fail_msg: >-
+          {{ item.fixture }} failed the case. Ansible's message was:
+          {{ ansible_failed_result.msg | default('none given') }}
+        success_msg: "{{ item.fixture }}: rejected with ih_family={{ ih_family }}, which is not one of the five"
+        quiet: true

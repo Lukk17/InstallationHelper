@@ -40,7 +40,7 @@
     - { url: '{{ meslo_bold_url }}', name: 'MesloLGS NF Bold.ttf' }
     - { url: '{{ meslo_italic_url }}', name: 'MesloLGS NF Italic.ttf' }
     - { url: '{{ meslo_bold_italic_url }}', name: 'MesloLGS NF Bold Italic.ttf' }
-  when: ansible_facts['os_family'] == 'Darwin'
+  when: ih_family == 'Darwin'
 
 - name: Clone Powerlevel10k Theme
   become: yes

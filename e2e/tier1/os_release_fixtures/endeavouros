@@ -1,0 +1,23 @@
+# EndeavourOS. Captured 2026-08-17 from a verbatim paste of a real machine's /etc/os-release on
+# EndeavourOS's own forum: https://forum.endeavouros.com/t/wayland-and-anything-graphically-broken-after-recent-update-amd-gpu/50999
+# EndeavourOS ships no os-release file in any package. The eos-hooks package brands Arch's own file
+# in place with sed from a pacman hook that triggers on the filesystem package, so the shipped source
+# is https://github.com/endeavouros-team/PKGBUILDS/tree/master/eos-hooks (25-eos-os-release.hook and
+# eos-hooks-runner) applied to https://gitlab.archlinux.org/archlinux/packaging/packages/filesystem/-/raw/main/os-release
+# and the paste above is that result on a real install. Two known drifts from the current hook, neither
+# touching the fields this fixture exists for: BUG_REPORT_URL was changed in 2024 to the installation
+# category, and BUILD_ID is per machine, it is the ISO version the box was installed from and is never
+# updated. ID and ID_LIKE are double-quoted here and bare on CachyOS and Manjaro, which is the reason
+# the derivation strips an optional quote rather than splitting on the equals sign.
+NAME="EndeavourOS"
+PRETTY_NAME="EndeavourOS"
+ID="endeavouros"
+ID_LIKE="arch"
+BUILD_ID="2021.04.17"
+ANSI_COLOR="38;2;23;147;209"
+HOME_URL="https://endeavouros.com"
+DOCUMENTATION_URL="https://discovery.endeavouros.com"
+SUPPORT_URL="https://forum.endeavouros.com"
+BUG_REPORT_URL="https://forum.endeavouros.com/c/arch-based-related-questions/bug-reports"
+PRIVACY_POLICY_URL="https://endeavouros.com/privacy-policy-2"
+LOGO="endeavouros"

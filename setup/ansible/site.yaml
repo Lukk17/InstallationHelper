@@ -11,14 +11,22 @@
     - group_vars/versions.yaml
 
   pre_tasks:
+    # First thing in the run, because the vars file loaded two tasks below is named after the
+    # family this derives, and because Ansible's own os_family answers with the distribution's own
+    # name on any derivative its table has never heard of. tasks/derive_os_facts.yaml explains the
+    # mechanism and e2e/tier1/os_family_derivation.sh keeps every later task reading ih_family.
+    - name: Derive ih_family and ih_base before anything branches on them
+      ansible.builtin.import_tasks: tasks/derive_os_facts.yaml
+      tags: always
+
     - name: Load OS-specific group vars
       ansible.builtin.include_vars:
-        file: "group_vars/{{ 'windows' if ansible_facts['os_family'] == 'Windows' else 'macos' if ansible_facts['os_family'] == 'Darwin' else 'linux' }}.yaml"
+        file: "group_vars/{{ 'windows' if ih_family == 'Windows' else 'macos' if ih_family == 'Darwin' else 'linux' }}.yaml"
       tags: always
 
     - name: Load OS translation dictionary
       ansible.builtin.include_vars:
-        file: "vars/{{ ansible_facts['os_family'] }}.yaml"
+        file: "vars/{{ ih_family }}.yaml"
         name: os_dict
       tags: always
 
@@ -27,202 +35,249 @@
         update_cache: yes
       become: yes
       changed_when: false
-      when: ansible_facts['os_family'] == 'Debian'
+      when: ih_family == 'Debian'
       tags: always
 
   tasks:
-    # 1. OS-Specific Core Bootstrapping (CRITICAL — no rescue)
-    #    Order: per-OS core roles install bootloader prerequisites (efibootmgr, sbctl, etc.)
-    #    that systemd_boot depends on. systemd_boot must run AFTER core roles.
-    - ansible.builtin.import_role:
-        name: windows_core
-      when: "ansible_facts['os_family'] == 'Windows'"
-      tags: [bootstrap_windows]
-
-    - ansible.builtin.import_role:
-        name: macos_core
-      when: "ansible_facts['os_family'] == 'Darwin'"
-      tags: [bootstrap_macos]
-
-    - ansible.builtin.import_role:
-        name: arch_core
-      when: "ansible_facts['os_family'] == 'Archlinux'"
-      tags: [bootstrap_arch]
-
-    - ansible.builtin.import_role:
-        name: fedora_core
-      when: "ansible_facts['os_family'] == 'RedHat'"
-      tags: [bootstrap_fedora]
-
-    - ansible.builtin.import_role:
-        name: debian_core
-      when: "ansible_facts['os_family'] == 'Debian'"
-      tags: [bootstrap_debian]
-
-    - ansible.builtin.import_role:
-        name: system_core
-      when: "ansible_facts['system'] == 'Linux' and install_system_core | default(false) | bool"
-      tags: [linux_core]
-
-    - ansible.builtin.import_role:
-        name: systemd_boot
-      when: "ansible_facts['system'] == 'Linux' and setup_systemd_boot | default(false) | bool"
-      tags: [boot]
-
-    # 2. Linux Desktop Environments (non-critical)
-    - name: Run kde_plasma_setup
-      tags: [kde]
+    # One block around every role, for one reason: the always: at the end of it.
+    #
+    # /etc/sudoers.d/99-ansible-user grants the invoking user NOPASSWD: ALL and is created by
+    # arch_core and debian_core, because a long run that re-prompts for sudo injects the prompt
+    # into a module's captured stdout and breaks its JSON. It was removed in post_tasks, and a
+    # fatal failure in any role that has no rescue skips post_tasks entirely, so the rule stayed
+    # on the machine permanently. Seven roles are imported here with no rescue, env_variables
+    # re-raises on purpose, and arch_core, which creates the file, is one of them. Proven with a
+    # probe of the same shape: the marker file survived the aborted play.
+    #
+    # always: runs whether the block succeeded, failed or aborted, which is the only mechanism
+    # that holds for all three. The rescue is what keeps the run reporting: without it a
+    # bootstrap failure ends the play before the terminal summary, so the user got a raw Ansible
+    # failure and none of the accounting the post_tasks produce.
+    - name: Configure this machine
       block:
+        # 1. OS-Specific Core Bootstrapping (CRITICAL — no rescue)
+        #    Order: per-OS core roles install bootloader prerequisites (efibootmgr, sbctl, etc.)
+        #    that systemd_boot depends on. systemd_boot must run AFTER core roles.
         - ansible.builtin.import_role:
-            name: kde_plasma_setup
+            name: windows_core
+          when: "ih_family == 'Windows'"
+          tags: [bootstrap_windows]
+
+        - ansible.builtin.import_role:
+            name: macos_core
+          when: "ih_family == 'Darwin'"
+          tags: [bootstrap_macos]
+
+        - ansible.builtin.import_role:
+            name: arch_core
+          when: "ih_family == 'Archlinux'"
+          tags: [bootstrap_arch]
+
+        - ansible.builtin.import_role:
+            name: fedora_core
+          when: "ih_family == 'RedHat'"
+          tags: [bootstrap_fedora]
+
+        - ansible.builtin.import_role:
+            name: debian_core
+          when: "ih_family == 'Debian'"
+          tags: [bootstrap_debian]
+
+        - ansible.builtin.import_role:
+            name: system_core
+          when: "ansible_facts['system'] == 'Linux' and install_system_core | default(false) | bool"
+          tags: [linux_core]
+
+        - ansible.builtin.import_role:
+            name: systemd_boot
+          when: "ansible_facts['system'] == 'Linux' and setup_systemd_boot | default(false) | bool"
+          tags: [boot]
+
+        # 2. Linux Desktop Environments (non-critical)
+        - name: Run kde_plasma_setup
+          tags: [kde]
+          block:
+            - ansible.builtin.import_role:
+                name: kde_plasma_setup
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role kde_plasma_setup failed. The failing task and its message are above in this log."
+          when: "ansible_facts['system'] == 'Linux' and (install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool)"
+
+        - name: Run gnome_setup
+          tags: [gnome]
+          block:
+            - ansible.builtin.import_role:
+                name: gnome_setup
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role gnome_setup failed. The failing task and its message are above in this log."
+          when: "ansible_facts['system'] == 'Linux' and (install_gnome | default(false) | bool or configure_gnome | default(false) | bool)"
+
+        # 3. Cross-Platform Settings (needed for SDK path resolution)
+        - name: Run env_variables
+          tags: [env]
+          block:
+            - ansible.builtin.import_role:
+                name: env_variables
+          rescue:
+            - ansible.builtin.fail:
+                msg: "Role env_variables failed — this is critical for SDK path resolution. Aborting playbook."
+
+        - name: Run shell_zsh
+          tags: [shell]
+          block:
+            - ansible.builtin.import_role:
+                name: shell_zsh
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role shell_zsh failed. The failing task and its message are above in this log."
+          when: "setup_zsh | default(false) | bool and ih_family != 'Windows'"
+
+        # 4. Universal Complex Roles (non-critical)
+        - name: Run sdk_manager
+          tags: [sdk]
+          block:
+            - ansible.builtin.import_role:
+                name: sdk_manager
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role sdk_manager failed. The failing task and its message are above in this log."
+
+        - name: Run ai_tools
+          tags: [ai]
+          block:
+            - ansible.builtin.import_role:
+                name: ai_tools
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role ai_tools failed. The failing task and its message are above in this log."
+
+        - name: Run jetbrains_toolbox
+          tags: [jetbrains]
+          block:
+            - ansible.builtin.import_role:
+                name: jetbrains_toolbox
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role jetbrains_toolbox failed. The failing task and its message are above in this log."
+          when: "install_jetbrains_toolbox | default(false) | bool"
+
+        # 5. Core Software Router (non-critical)
+        - name: Run software_installer
+          tags: [software]
+          block:
+            - ansible.builtin.import_role:
+                name: software_installer
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role software_installer failed. The failing task and its message are above in this log."
+
+        # 6. Linux Advanced Apps (non-critical)
+        - name: Run waydroid
+          tags: [waydroid]
+          block:
+            - ansible.builtin.import_role:
+                name: waydroid
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role waydroid failed. The failing task and its message are above in this log."
+          when: "ansible_facts['system'] == 'Linux' and install_waydroid | default(false) | bool"
+
+        - name: Run linux_crypto_hardware
+          tags: [crypto]
+          block:
+            - ansible.builtin.import_role:
+                name: linux_crypto_hardware
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role linux_crypto_hardware failed. The failing task and its message are above in this log."
+          when: "ansible_facts['system'] == 'Linux' and (install_ledger_live | default(false) | bool or install_trezor_suite | default(false) | bool)"
+
+        - name: Run linux_security
+          tags: [security]
+          block:
+            - ansible.builtin.import_role:
+                name: linux_security
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role linux_security failed. The failing task and its message are above in this log."
+          when: "ansible_facts['system'] == 'Linux' and setup_hibernate | default(false) | bool"
+
+        - name: Run snapper
+          tags: [snapper]
+          block:
+            - ansible.builtin.import_role:
+                name: snapper
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role snapper failed. The failing task and its message are above in this log."
+          when: "ansible_facts['system'] == 'Linux' and install_snapper | default(false) | bool"
+
+        - name: Run virtualization_config
+          tags: [virt]
+          block:
+            - ansible.builtin.import_role:
+                name: virtualization_config
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: "Role virtualization_config failed. The failing task and its message are above in this log."
+          when: "ansible_facts['system'] == 'Linux' and (install_virt_manager | default(false) | bool or install_docker | default(false) | bool or install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)"
       rescue:
-        - ansible.builtin.set_fact:
+        - name: Record that a role failed and stop running the rest of them
+          ansible.builtin.set_fact:
             any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role kde_plasma_setup failed. The failing task and its message are above in this log."
-      when: "ansible_facts['system'] == 'Linux' and (install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool)"
 
-    - name: Run gnome_setup
-      tags: [gnome]
-      block:
-        - ansible.builtin.import_role:
-            name: gnome_setup
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role gnome_setup failed. The failing task and its message are above in this log."
-      when: "ansible_facts['system'] == 'Linux' and (install_gnome | default(false) | bool or configure_gnome | default(false) | bool)"
+        - name: Name the role step that failed and what it cost
+          ansible.builtin.debug:
+            msg: >-
+              [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+              {{ ansible_failed_result.msg | default('no message given') }}
+              Every role after this one was skipped, so anything it would have installed is NOT
+              installed. The run is marked failed and the summary below lists what was reached.
 
-    # 3. Cross-Platform Settings (needed for SDK path resolution)
-    - name: Run env_variables
-      tags: [env]
-      block:
-        - ansible.builtin.import_role:
-            name: env_variables
-      rescue:
-        - ansible.builtin.fail:
-            msg: "Role env_variables failed — this is critical for SDK path resolution. Aborting playbook."
+      always:
+        # Unconditional, and it must stay unconditional. This is the one task in the play whose
+        # omission leaves a security change behind rather than a missing feature.
+        #
+        # `always` as a tag, not only as a block section, and the two words mean different things here.
+        # The section makes this survive a failure. The tag makes it survive a tag selection, and without
+        # it there was a documented command that created the grant and filtered out its removal:
+        # tags.md describes bootstrap_debian as the Debian bootstrap including the sudoers entry, and
+        # debian_core creates the file under that tag while this task held only the implicit untagged
+        # tag. So `--tags bootstrap_debian` wrote NOPASSWD: ALL and left it there permanently.
+        - name: Remove the temporary passwordless sudoers entry (Linux)
+          ansible.builtin.file:
+            path: /etc/sudoers.d/99-ansible-user
+            state: absent
+          become: true
+          when: ansible_facts['system'] == 'Linux'
+          tags: always
 
-    - name: Run shell_zsh
-      tags: [shell]
-      block:
-        - ansible.builtin.import_role:
-            name: shell_zsh
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role shell_zsh failed. The failing task and its message are above in this log."
-      when: "setup_zsh | default(false) | bool and ansible_facts['os_family'] != 'Windows'"
-
-    # 4. Universal Complex Roles (non-critical)
-    - name: Run sdk_manager
-      tags: [sdk]
-      block:
-        - ansible.builtin.import_role:
-            name: sdk_manager
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role sdk_manager failed. The failing task and its message are above in this log."
-
-    - name: Run ai_tools
-      tags: [ai]
-      block:
-        - ansible.builtin.import_role:
-            name: ai_tools
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role ai_tools failed. The failing task and its message are above in this log."
-
-    - name: Run jetbrains_toolbox
-      tags: [jetbrains]
-      block:
-        - ansible.builtin.import_role:
-            name: jetbrains_toolbox
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role jetbrains_toolbox failed. The failing task and its message are above in this log."
-      when: "install_jetbrains_toolbox | default(false) | bool"
-
-    # 5. Core Software Router (non-critical)
-    - name: Run software_installer
-      tags: [software]
-      block:
-        - ansible.builtin.import_role:
-            name: software_installer
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role software_installer failed. The failing task and its message are above in this log."
-
-    # 6. Linux Advanced Apps (non-critical)
-    - name: Run waydroid
-      tags: [waydroid]
-      block:
-        - ansible.builtin.import_role:
-            name: waydroid
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role waydroid failed. The failing task and its message are above in this log."
-      when: "ansible_facts['system'] == 'Linux' and install_waydroid | default(false) | bool"
-
-    - name: Run linux_crypto_hardware
-      tags: [crypto]
-      block:
-        - ansible.builtin.import_role:
-            name: linux_crypto_hardware
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role linux_crypto_hardware failed. The failing task and its message are above in this log."
-      when: "ansible_facts['system'] == 'Linux' and (install_ledger_live | default(false) | bool or install_trezor_suite | default(false) | bool)"
-
-    - name: Run linux_security
-      tags: [security]
-      block:
-        - ansible.builtin.import_role:
-            name: linux_security
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role linux_security failed. The failing task and its message are above in this log."
-      when: "ansible_facts['system'] == 'Linux' and setup_hibernate | default(false) | bool"
-
-    - name: Run snapper
-      tags: [snapper]
-      block:
-        - ansible.builtin.import_role:
-            name: snapper
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role snapper failed. The failing task and its message are above in this log."
-      when: "ansible_facts['system'] == 'Linux' and install_snapper | default(false) | bool"
-
-    - name: Run virtualization_config
-      tags: [virt]
-      block:
-        - ansible.builtin.import_role:
-            name: virtualization_config
-      rescue:
-        - ansible.builtin.set_fact:
-            any_role_failed: true
-        - ansible.builtin.debug:
-            msg: "Role virtualization_config failed. The failing task and its message are above in this log."
-      when: "ansible_facts['system'] == 'Linux' and (install_virt_manager | default(false) | bool or install_docker | default(false) | bool or install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)"
 
   post_tasks:
     # `any_role_failed` is set by each rescue: block above. If none fired,
@@ -247,113 +302,140 @@
         snap_check: "{{ pkgmgr_check.results[1] }}"
         brew_check: "{{ pkgmgr_check.results[2] }}"
 
-    - name: Clean Flatpak unused runtimes
-      ansible.builtin.command: flatpak uninstall --unused -y
-      become: yes
-      changed_when: false
-      ignore_errors: yes
-      when:
-        - playbook_succeeded | bool
-        - ansible_facts['system'] == 'Linux'
-        - flatpak_check.rc == 0
+    # Every cache cleanup below is best-effort and tolerated the same way, with ignore_errors, and
+    # they are wrapped in a block whose `always` removes the sudoers entry.
+    #
+    # Two separate defects lived here. The removal of /etc/sudoers.d/99-ansible-user described itself
+    # as unconditional and was not: it was simply the last task in a straight sequence, and three of
+    # the cleanups above it carried no tolerance at all, so a pacman cache clean, a dnf cache clean or
+    # a failed rmtree left a permanent `NOPASSWD: ALL` rule on the machine. Proven by making the
+    # pacman clean fail in a probe run: the file survived. An `always` block is the structural answer
+    # rather than tolerance on each task, because it also survives a fatal nobody predicted, an
+    # undefined variable in a later cleanup among them.
+    #
+    # The other defect: three of these used three different tolerance mechanisms, ignore_errors on
+    # two and failed_when: false on the apt clean, and the last of those silently disabled its own
+    # retries. `until: clean_apt_cache is succeeded` can never be false when failed_when has already
+    # rewritten the result to a success, so the three attempts the comment claimed absorbed the
+    # Ubuntu apt-lock contention were one attempt. One mechanism everywhere now, and it is the one
+    # that keeps the failure visible: an ignored failure is rendered as TOLERATED rather than FAILED
+    # by callback_plugins/dual_logger.py, so a cosmetic cache miss no longer prints a FAILED section
+    # on a run that exits zero.
+    - name: Clean up after the run
+      block:
+        - name: Clean Flatpak unused runtimes
+          ansible.builtin.command: flatpak uninstall --unused -y
+          become: yes
+          changed_when: false
+          ignore_errors: yes
+          when:
+            - playbook_succeeded | bool
+            - ansible_facts['system'] == 'Linux'
+            - flatpak_check.rc == 0
 
-    - name: Clean Flatpak per-user app caches
-      ansible.builtin.shell: |
-        find {{ non_root_home }}/.var/app -maxdepth 2 -name cache -type d -exec rm -rf {} + 2>/dev/null || true
-      become: yes
-      become_user: "{{ non_root_user }}"
-      changed_when: false
-      when:
-        - playbook_succeeded | bool
-        - ansible_facts['system'] == 'Linux'
+        - name: Clean Flatpak per-user app caches
+          ansible.builtin.shell: |
+            find {{ non_root_home }}/.var/app -maxdepth 2 -name cache -type d -exec rm -rf {} + 2>/dev/null || true
+          become: yes
+          become_user: "{{ non_root_user }}"
+          changed_when: false
+          ignore_errors: yes
+          when:
+            - playbook_succeeded | bool
+            - ansible_facts['system'] == 'Linux'
 
-    - name: Remove disabled Snap revisions
-      ansible.builtin.shell: |
-        snap list --all 2>/dev/null | awk '/disabled/{print $1, $3}' |
-        while read snap_name snap_revision; do
-          snap remove "$snap_name" --revision="$snap_revision"
-        done || true
-      become: yes
-      changed_when: false
-      ignore_errors: yes
-      when:
-        - playbook_succeeded | bool
-        - ansible_facts['system'] == 'Linux'
-        - snap_check.rc == 0
+        - name: Remove disabled Snap revisions
+          ansible.builtin.shell: |
+            snap list --all 2>/dev/null | awk '/disabled/{print $1, $3}' |
+            while read snap_name snap_revision; do
+              snap remove "$snap_name" --revision="$snap_revision"
+            done || true
+          become: yes
+          changed_when: false
+          ignore_errors: yes
+          when:
+            - playbook_succeeded | bool
+            - ansible_facts['system'] == 'Linux'
+            - snap_check.rc == 0
 
-    - name: Remove Snap download cache directory
-      ansible.builtin.file:
-        path: /var/lib/snapd/cache
-        state: absent
-      become: yes
-      when:
-        - playbook_succeeded | bool
-        - ansible_facts['system'] == 'Linux'
-        - snap_check.rc == 0
+        - name: Remove Snap download cache directory
+          ansible.builtin.file:
+            path: /var/lib/snapd/cache
+            state: absent
+          become: yes
+          ignore_errors: yes
+          when:
+            - playbook_succeeded | bool
+            - ansible_facts['system'] == 'Linux'
+            - snap_check.rc == 0
 
-    - name: Cleanup Homebrew cache (macOS)
-      ansible.builtin.command: brew cleanup --prune=all
-      changed_when: false
-      failed_when: false
-      when:
-        - playbook_succeeded | bool
-        - ansible_facts['os_family'] == 'Darwin'
-        - brew_check.rc == 0
+        - name: Cleanup Homebrew cache (macOS)
+          ansible.builtin.command: brew cleanup --prune=all
+          changed_when: false
+          ignore_errors: yes
+          when:
+            - playbook_succeeded | bool
+            - ih_family == 'Darwin'
+            - brew_check.rc == 0
 
-    # Cleanup post-task. unattended-upgrades on Ubuntu can hold the apt lock
-    # at this exact moment, causing `apt-get clean` to fail. The retries
-    # absorb that transient lock contention. failed_when: false so any
-    # remaining cleanup failure doesn't mark the playbook FAILED for a
-    # cosmetic miss (cache stays around; harmless).
-    - name: Clean APT cache (Debian)
-      ansible.builtin.apt:
-        autoremove: yes
-        clean: yes
-      become: yes
-      register: clean_apt_cache
-      retries: 3
-      delay: 5
-      until: clean_apt_cache is succeeded
-      failed_when: false
-      when:
-        - playbook_succeeded | bool
-        - ansible_facts['os_family'] == 'Debian'
+        # unattended-upgrades on Ubuntu can hold the apt lock at this exact moment, which is what
+        # the three attempts are for.
+        - name: Clean APT cache (Debian)
+          ansible.builtin.apt:
+            autoremove: yes
+            clean: yes
+          become: yes
+          register: clean_apt_cache
+          retries: 3
+          delay: 5
+          until: clean_apt_cache is succeeded
+          ignore_errors: yes
+          when:
+            - playbook_succeeded | bool
+            - ih_family == 'Debian'
 
-    - name: Clean Pacman package cache (Arch, keeps latest version)
-      ansible.builtin.command: pacman -Sc --noconfirm
-      become: yes
-      changed_when: false
-      when:
-        - playbook_succeeded | bool
-        - ansible_facts['os_family'] == 'Archlinux'
+        - name: Clean Pacman package cache (Arch, keeps latest version)
+          ansible.builtin.command: pacman -Sc --noconfirm
+          become: yes
+          changed_when: false
+          ignore_errors: yes
+          when:
+            - playbook_succeeded | bool
+            - ih_family == 'Archlinux'
 
-    - name: Clean DNF cache (Fedora)
-      ansible.builtin.shell: |
-        dnf autoremove -y
-        dnf clean all
-      become: yes
-      changed_when: false
-      when:
-        - playbook_succeeded | bool
-        - ansible_facts['os_family'] == 'RedHat'
+        - name: Clean DNF cache (Fedora)
+          ansible.builtin.shell: |
+            dnf autoremove -y
+            dnf clean all
+          become: yes
+          changed_when: false
+          ignore_errors: yes
+          when:
+            - playbook_succeeded | bool
+            - ih_family == 'RedHat'
 
-    - name: Remove temporary installation folder
-      ansible.builtin.file:
-        path: "{{ non_root_home }}/.lukkInstall"
-        state: absent
-      become: yes
-      when: playbook_succeeded | bool
+        - name: Remove temporary installation folder
+          ansible.builtin.file:
+            path: "{{ non_root_home }}/.lukkInstall"
+            state: absent
+          become: yes
+          ignore_errors: yes
+          when: playbook_succeeded | bool
 
-    # SECURITY: passwordless sudoers entry must NOT persist past the run.
-    # Unconditional removal — even if the playbook had partial failures,
-    # leaving NOPASSWD: ALL is a permanent privilege escalation. The user's
-    # next `sudo` call will re-prompt for password (normal behavior).
-    - name: Remove temporary passwordless sudoers entry (Linux)
-      ansible.builtin.file:
-        path: /etc/sudoers.d/99-ansible-user
-        state: absent
-      become: yes
-      when: ansible_facts['system'] == 'Linux'
+      # SECURITY: the passwordless sudoers entry must NOT persist past the run. In `always` so that
+      # no failure, tolerated or otherwise, above it can skip it — leaving `NOPASSWD: ALL` behind is
+      # a permanent privilege escalation. The user's next `sudo` call re-prompts for a password,
+      # which is the normal behaviour.
+      always:
+        # `tags: always` for the same reason as its twin in the tasks block above: a tag selection
+        # filters an untagged task out, and the tasks that create this grant carry per-OS bootstrap tags.
+        - name: Remove temporary passwordless sudoers entry (Linux)
+          ansible.builtin.file:
+            path: /etc/sudoers.d/99-ansible-user
+            state: absent
+          become: yes
+          when: ansible_facts['system'] == 'Linux'
+          tags: always
 
     # Every role above catches its own failure so one broken role cannot abandon
     # a 40 minute run. Without this terminal check the play then exited zero even
@@ -366,6 +448,12 @@
     # playbook's own output already lists every failure and a second copy would be a second source
     # of truth for the same information.
     #
+    # ~/installation_errors.log is named instead, because that one is real: callback_plugins/
+    # dual_logger.py writes it on every run and it contains only what went wrong, which is the
+    # difference between reading four lines and scrolling a forty minute console. Ignored failures
+    # deliberately do not appear in it, they go to ~/installation_warnings.log, so a message telling
+    # the reader to look at the errors file is telling them to look at something that has content.
+    #
     # The AUR list is named here instead of only in a debug task, because the dual_logger callback
     # does not render a debug message on an ok task, so the warning that says which package is
     # missing was invisible in the log and in the run record alike. A run that fails for a missing
@@ -374,7 +462,10 @@
       ansible.builtin.fail:
         msg: >-
           One or more roles failed during this run. The failing step named itself above in this
-          log. Nothing was rolled back, so rerunning is safe once the cause is fixed.
+          log, and ~/installation_errors.log holds only those lines with nothing else in it.
+          Warnings and tolerated failures are in ~/installation_warnings.log, and the whole run is
+          in ~/installation_full.log. Nothing was rolled back, so rerunning is safe once the cause
+          is fixed.
           {% if failed_aur_packages | default([]) | length > 0 %}
           AUR packages that did not end up installed:
           {{ failed_aur_packages | join(', ') }}. Each is either a build that failed, a build that

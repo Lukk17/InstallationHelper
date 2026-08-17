@@ -1,9 +1,9 @@
 ---
 - name: Include OpenCode Unix tasks
   ansible.builtin.include_tasks: opencode_unix.yaml
-  when: ansible_facts['os_family'] != 'Windows' and install_opencode | default(false) | bool
+  when: ih_family != 'Windows' and install_opencode | default(false) | bool
 
 - name: Include OpenCode Windows tasks
   ansible.builtin.include_tasks: opencode_windows.yaml
-  when: ansible_facts['os_family'] == 'Windows' and install_opencode | default(false) | bool
+  when: ih_family == 'Windows' and install_opencode | default(false) | bool
 

@@ -29,6 +29,13 @@
 #
 # Genuine exceptions go in failed_key_reads_allowed.txt with a reason, one path per line, so an
 # exception is a decision somebody wrote down rather than a grep that quietly matches less.
+#
+# One thing this deliberately does not forbid is `until: <result> is succeeded`, which forty tasks in
+# this repository use as their retry condition. That test reads the same key through its negation, so
+# a `failed_when: false` on a retried task would make it always true and the retries would never
+# happen. Forbidding it would mean forty allowlist entries, and an allowlist with forty lines in it
+# forgives by default rather than by decision. The failure-side tests are the ones matched, because
+# those are the ones a collector or a gate reads to conclude something failed.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -36,19 +43,47 @@ ALLOWLIST="$(dirname "${BASH_SOURCE[0]}")/failed_key_reads_allowed.txt"
 
 info "Tier 1: nothing decides from a result's failed key"
 
-# Where a decision can be made from a result: the playbook, its roles, and the verify play.
-SEARCH_PATHS=("${ANSIBLE_DIR}/roles" "${ANSIBLE_DIR}/site.yaml" "${E2E_ROOT}/tier3/verify.yaml")
+# Where a decision can be made from a result: the playbook, the task files it imports, the profile
+# overlays, its roles, and the verify play. tasks/ and profiles/ were both missing until an audit
+# noticed, and tasks/ now holds derive_os_facts.yaml, which decides the operating system family every
+# later task branches on, so a result read in there steers the whole run.
+SEARCH_PATHS=(
+    "${ANSIBLE_DIR}/roles"
+    "${ANSIBLE_DIR}/tasks"
+    "${ANSIBLE_DIR}/profiles"
+    "${ANSIBLE_DIR}/site.yaml"
+    "${E2E_ROOT}/tier3/verify.yaml"
+)
 
-# Four ways to reach the key: a selectattr or rejectattr on it, a map over it, dotted access, and
-# bracket access. Comment lines are stripped first, because this file and the roles both discuss the
-# pattern at length and a check that trips over its own documentation is useless.
+# Five ways to reach the key: a selectattr or rejectattr on it, a map over it, dotted access, bracket
+# access, and the Jinja tests that read it by name.
+#
+# Dotted access is matched on a word boundary rather than on a following pipe or closing brace. The
+# narrower version passed `when: r.failed` and `failed_when: r.failed == true`, which are the two
+# shortest ways to write the exact thing this check forbids, and it was the second of those that
+# shipped here as `failed_when: pacman_full_upgrade.failed | default(false)`. The boundary also keeps
+# `failed_when` itself from matching, because an underscore is a word character.
+#
+# The variable half of dotted access accepts digits. Without them `k3d.failed` reads the key and no
+# alternative sees it, because the run of letters the pattern needs ends at the digit.
+#
+# `is failed` and `is not failed` reach the same key without naming it, and `failure` is Ansible's
+# alias for that test, so all four spellings are matched.
+#
+# Two kinds of line are dropped afterwards. Comment lines, because this file and the roles both
+# discuss the pattern at length and a check that trips over its own documentation is useless. And task
+# name declarations, because a name is a label rather than a decision, and `- name: Assert the
+# download is not failed` is ordinary English that would otherwise force an allowlist entry. Entries
+# there forgive a whole file, so a false positive does real damage: it buys silence for every real
+# read in the same file.
 matches="$(
     for p in "${SEARCH_PATHS[@]}"; do
         [[ -e "${p}" ]] || continue
         grep -rn --include='*.yaml' --include='*.yml' -E \
-            "(select|reject)attr\([[:space:]]*['\"]failed['\"]|attribute=['\"]failed['\"]|[a-z_]+\.failed[[:space:]]*[|}]|\[['\"]failed['\"]\]" \
+            "(select|reject)attr\([[:space:]]*['\"]failed['\"]|attribute=['\"]failed['\"]|[a-z0-9_]+\.failed\b|\[['\"]failed['\"]\]|\bis[[:space:]]+(not[[:space:]]+)?(failed|failure)\b" \
             "${p}" 2>/dev/null
-    done | grep -vE ':[0-9]+:[[:space:]]*#' || true
+    done | grep -vE ':[0-9]+:[[:space:]]*#' \
+         | grep -vE ':[0-9]+:[[:space:]]*-?[[:space:]]*name:' || true
 )"
 
 if [[ -z "${matches}" ]]; then

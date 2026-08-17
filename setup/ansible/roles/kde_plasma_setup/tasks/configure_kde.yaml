@@ -35,7 +35,7 @@
       - gettext
       - cmake
     state: present
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Install pipx and the widget build dependencies (Fedora)
   become: yes
@@ -59,7 +59,7 @@
       - gettext
       - cmake
     state: present
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 - name: Install pipx and the widget build dependencies (Arch)
   become: yes
@@ -89,7 +89,7 @@
       - gettext
       - cmake
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Install Konsave via pipx
   ansible.builtin.shell: pipx ensurepath && pipx install konsave

@@ -9,14 +9,6 @@
 # it defaulted to true, so the fail task never fired, and nothing else recorded the miss either.
 aur_allow_failures: true
 
-# How long to wait for the parallel AUR builds before giving up on them, as retries at 15 second
-# intervals. 120 is 30 minutes.
-#
-# Raising this is close to free: the wait uses `until finished`, so it exits the moment the builds
-# are done and a bigger ceiling costs nothing when they are quick. It only matters on a slow or
-# contended machine, where the old 20 minute ceiling silently dropped packages. google-chrome went
-# missing from a run that reported success for exactly this reason, while three containers competed
-# for the same cores.
 # Hard ceiling on a single AUR build, in seconds. The installs run one at a time, so this is per
 # package rather than for the batch, and 90 minutes is well clear of the slowest observed build while
 # still bounding a paru that has stopped on a prompt none of --noconfirm, --skipreview or
@@ -26,6 +18,11 @@ aur_allow_failures: true
 # concurrency and, as a review pointed out, removed the time bound with it, leaving nothing at all to
 # stop a hung build on an unattended run.
 aur_build_timeout: 5400
+
+# Where vendor .deb files are staged between download and install. Root-owned and mode 0700, so the
+# file that apt installs as root cannot be swapped by another local account between the two steps,
+# which a predictable name under /tmp allowed.
+software_installer_stage_dir: "/var/cache/installation_helper"
 
 # When true, dynamic_install.yaml will purge /var/lib/flatpak/repo if the
 # health probe reports an ostree-corruption error. Off by default because

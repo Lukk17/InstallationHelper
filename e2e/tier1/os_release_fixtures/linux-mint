@@ -1,0 +1,18 @@
+# Linux Mint 22 "Wilma". Extracted 2026-08-17 from Mint's own package archive: base-files
+# 13ubuntu10mint22.0.0+wilma from
+# http://packages.linuxmint.com/pool/upstream/b/base-files/base-files_13ubuntu10mint22.0.0%2Bwilma_amd64.deb
+# with sha256 01ab346dfbdd0caf4e7246eb316b71f1d5c8d739a5487e794873cc362d8801e7 matching the wilma
+# Packages index, unpacked with dpkg-deb. In the package /etc/os-release is a symlink to
+# ../usr/lib/os-release and this is that file.
+NAME="Linux Mint"
+VERSION="22 (Wilma)"
+ID=linuxmint
+ID_LIKE="ubuntu debian"
+PRETTY_NAME="Linux Mint 22"
+VERSION_ID="22"
+HOME_URL="https://www.linuxmint.com/"
+SUPPORT_URL="https://forums.linuxmint.com/"
+BUG_REPORT_URL="http://linuxmint-troubleshooting-guide.readthedocs.io/en/latest/"
+PRIVACY_POLICY_URL="https://www.linuxmint.com/"
+VERSION_CODENAME=wilma
+UBUNTU_CODENAME=noble

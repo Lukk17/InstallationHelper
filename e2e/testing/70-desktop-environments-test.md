@@ -144,14 +144,15 @@ The verify log of each run carries these assertions, each on its own PASS or FAI
 Before any of them, `Assert the installed-package query returned a plausible list` checks the input to the comparison rather than the comparison itself. It fails when the query behind the native package assertion returns fewer than fifty entries, which no working Linux installation does. It exists because a format string whose newline was being discarded made that query return one concatenated blob, so every expected package was reported missing and read exactly like a playbook that had installed nothing.
 
 1. `Assert every enabled native package is installed`, checked against `pacman -Qq`. The expected set is the default toggle set mapped to `pacman` or `aur` in `vars/Archlinux.yaml`, minus whatever the container limits turned off. The desktop environment packages are not part of this set, since neither desktop toggle is in the dictionary.
-2. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`.
-3. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
-4. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
-5. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
-6. `Assert docker.service is enabled when Docker was requested`.
-7. `Assert flatpak is installed and the Flathub remote is configured`.
-8. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
-9. `Assert the expected desktop environment is installed`. In the KDE run the probe is `pacman -Qq plasma-desktop`, in the GNOME run it is `pacman -Qq gnome-shell`, and the assertion requires exit 0. This is the one assertion that separates this capability from capability 60, and the only scenario pair where it runs at all.
+2. `Assert every enabled URL-installed package resolved a download location`. Some packages install from a vendor URL rather than a repository, and both dispatch tasks skip silently when that URL renders empty, so this fails the run instead of letting it look clean. The candidate set is empty on Arch, because `vars/Archlinux.yaml` maps nothing to `apt_url` or `dnf_url`. On the Debian and Ubuntu images it is the enabled subset of the five `apt_url` mappings, and on Fedora the enabled subset of the four `dnf_url` mappings, so an Arch run does not prove this one and the assertion says so by reporting how many candidates it examined.
+3. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`.
+4. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
+5. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
+6. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
+7. `Assert docker.service is enabled when Docker was requested`.
+8. `Assert flatpak is installed and the Flathub remote is configured`.
+9. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
+10. `Assert the expected desktop environment is installed`. In the KDE run the probe is `pacman -Qq plasma-desktop`, in the GNOME run it is `pacman -Qq gnome-shell`, and the assertion requires exit 0. This is the one assertion that separates this capability from capability 60, and the only scenario pair where it runs at all.
 
 Note what assertion 9 does not cover. It proves the desktop environment's main package is present, and nothing more. Whether the configure half of the `full` action actually applied a setting is not asserted anywhere, and could not be in a container without a session: the two runs turn `configure_kde_plasma` and `configure_gnome` on, so those tasks execute and their failures would surface as a non-zero playbook exit code, but a configure task that succeeds while writing the wrong value passes here. Record any configure oddity you see in the log under the Result summary rather than as a ticked assertion.
 

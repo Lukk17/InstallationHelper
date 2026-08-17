@@ -4,7 +4,7 @@
   community.general.pacman:
     name: dart
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux' and install_dart | bool
+  when: ih_family == 'Archlinux' and install_dart | bool
 
 - name: Add Dart apt signing key (Debian)
   ansible.builtin.shell: |
@@ -14,7 +14,7 @@
   args:
     creates: /usr/share/keyrings/dart.gpg
     executable: /bin/bash
-  when: ansible_facts['os_family'] == 'Debian' and install_dart | bool
+  when: ih_family == 'Debian' and install_dart | bool
 
 - name: Add Dart apt repository (Debian)
   ansible.builtin.apt_repository:
@@ -22,7 +22,7 @@
     state: present
     filename: dart_stable
   become: true
-  when: ansible_facts['os_family'] == 'Debian' and install_dart | bool
+  when: ih_family == 'Debian' and install_dart | bool
 
 - name: Install Dart SDK (Debian)
   ansible.builtin.apt:
@@ -30,7 +30,7 @@
     state: present
     update_cache: true
   become: true
-  when: ansible_facts['os_family'] == 'Debian' and install_dart | bool
+  when: ih_family == 'Debian' and install_dart | bool
 
 # Fedora has no `dart` package in the mainline repos and Google's APT repo
 # isn't available for RHEL. Install via the official Dart Linux SDK zip from
@@ -41,29 +41,64 @@
     state: directory
     mode: '0755'
   become: true
-  when: ansible_facts['os_family'] == 'RedHat' and install_dart | bool
+  when: ih_family == 'RedHat' and install_dart | bool
 
+# Staged in the software_installer role's private directory, never in /tmp, and of every staged
+# artifact in this repository this is the one that matters most: the archive is unpacked into /opt as
+# root. /tmp is writable by every local account, the file name is fixed, and get_url does not
+# overwrite a destination that already exists, so any local user could pre-create that path and have
+# their own archive extracted into a system directory by root.
+#
+# The directory is created here as well as in software_installer's dynamic_install.yaml because
+# sdk_manager runs before software_installer in site.yaml and get_url does not create parents. The
+# path itself is read from the software_installer role default so there is one definition of it,
+# which resolves in this role because site.yaml imports both roles statically and a statically
+# imported role's defaults are play-wide. Checked by running it on ansible-core 2.19.9 rather than
+# assumed.
+- name: Create the private staging directory for the Dart SDK download (Fedora)
+  ansible.builtin.file:
+    path: "{{ software_installer_stage_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+  when: ih_family == 'RedHat' and install_dart | bool
+
+# force: true because the file name carries no version while the URL does, so a cached file under a
+# permanent staging path would pin the SDK to whatever a previous run fetched and a dart_version bump
+# would install nothing new while reporting success.
 - name: Download Dart SDK zip (Fedora)
   ansible.builtin.get_url:
     url: "https://storage.googleapis.com/dart-archive/channels/stable/release/{{ dart_version }}/sdk/dartsdk-linux-x64-release.zip"
-    dest: /tmp/dartsdk-linux-x64-release.zip
-    mode: '0644'
+    dest: "{{ software_installer_stage_dir }}/dartsdk-linux-x64-release.zip"
+    force: true
+    mode: '0600'
     timeout: 60
   become: true
   register: dart_sdk_download
   retries: 3
   delay: 10
   until: dart_sdk_download is succeeded
-  when: ansible_facts['os_family'] == 'RedHat' and install_dart | bool
+  when: ih_family == 'RedHat' and install_dart | bool
 
 - name: Extract Dart SDK to /opt (Fedora)
   ansible.builtin.unarchive:
-    src: /tmp/dartsdk-linux-x64-release.zip
+    src: "{{ software_installer_stage_dir }}/dartsdk-linux-x64-release.zip"
     dest: /opt
     remote_src: true
     creates: /opt/dart-sdk/bin/dart
   become: true
-  when: ansible_facts['os_family'] == 'RedHat' and install_dart | bool
+  when: ih_family == 'RedHat' and install_dart | bool
+
+# Nothing wants the zip after the extraction, and the staging path is permanent now that it is not
+# /tmp, so leaving it behind would grow /var/cache by roughly a quarter of a gigabyte per run.
+- name: Remove the staged Dart SDK zip (Fedora)
+  ansible.builtin.file:
+    path: "{{ software_installer_stage_dir }}/dartsdk-linux-x64-release.zip"
+    state: absent
+  become: true
+  when: ih_family == 'RedHat' and install_dart | bool
 
 - name: Symlink dart and pub into /usr/local/bin (Fedora)
   ansible.builtin.file:
@@ -75,7 +110,7 @@
     - dart
     - dartaotruntime
   become: true
-  when: ansible_facts['os_family'] == 'RedHat' and install_dart | bool
+  when: ih_family == 'RedHat' and install_dart | bool
 
 # Dart on macOS lives in the dart-lang/dart tap, not Homebrew core.
 # `brew install dart` without this tap fails with "No available formula".
@@ -83,11 +118,11 @@
   community.general.homebrew_tap:
     name: dart-lang/dart
     state: present
-  when: ansible_facts['os_family'] == 'Darwin' and install_dart | bool
+  when: ih_family == 'Darwin' and install_dart | bool
 
 - name: Install Dart SDK (macOS)
   community.general.homebrew:
     name: dart-lang/dart/dart
     state: present
-  when: ansible_facts['os_family'] == 'Darwin' and install_dart | bool
+  when: ih_family == 'Darwin' and install_dart | bool
 

@@ -1,8 +1,8 @@
 ---
 - name: Include Claude Unix tasks
   ansible.builtin.include_tasks: claude_unix.yaml
-  when: ansible_facts['os_family'] != 'Windows' and (install_claude_code | default(false) | bool or install_claude_desktop | default(false) | bool)
+  when: ih_family != 'Windows' and (install_claude_code | default(false) | bool or install_claude_desktop | default(false) | bool)
 
 - name: Include Claude Windows tasks
   ansible.builtin.include_tasks: claude_windows.yaml
-  when: ansible_facts['os_family'] == 'Windows' and install_claude_code | default(false) | bool
+  when: ih_family == 'Windows' and install_claude_code | default(false) | bool

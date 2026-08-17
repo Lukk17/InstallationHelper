@@ -1,0 +1,35 @@
+# Nobara Linux 43. Rendered 2026-08-17 from Nobara's own packaging, the nobara-release spec at
+# https://github.com/Nobara-Project/rpm-sources/blob/master/baseos/nobara-release/43/nobara-release.spec
+# read through the GitHub API. Nobara has no container image to capture from, so this is the spec's own
+# os-release heredoc with its macros expanded from the same file: dist_version 43, release_name
+# "Forty Three", bug_version 43, eol_date 2026-12-02, is_rawhide 0 so no Prerelease suffix, and
+# dist_home_url and dist_bug_report_url as defined a few lines above the heredoc. Field order and
+# quoting are the spec's, unaltered. The GNOME and KDE editions of the same package append VARIANT and
+# VARIANT_ID lines to this, which the derivation does not read.
+#
+# This is the fixture with the clearest evidence of the defect the derivation exists for. The same spec
+# writes "Nobara release 43 (Forty Three)" into /usr/lib/nobara-release and symlinks
+# /etc/redhat-release at it. Ansible reads the first whitespace-separated word of that file when the
+# content does not contain "Red Hat", so it answers distribution Nobara, and Nobara is in no entry of
+# OS_FAMILY_MAP, so os_family comes back as Nobara too and vars/Nobara.yaml does not exist.
+NAME="Nobara Linux"
+VERSION="43 (Forty Three)"
+ID=nobara
+ID_LIKE="rhel centos fedora"
+VERSION_ID=43
+VERSION_CODENAME=""
+PLATFORM_ID="platform:f43"
+PRETTY_NAME="Nobara Linux 43 (Forty Three)"
+ANSI_COLOR="0;38;2;60;110;180"
+LOGO=nobara-logo-icon
+CPE_NAME="cpe:/o:nobaraproject:nobara:43"
+DEFAULT_HOSTNAME="nobara"
+HOME_URL="https://nobaraproject.org/"
+DOCUMENTATION_URL="https://wiki.nobaraproject.org/"
+SUPPORT_URL="https://www.nobaraproject.org/"
+BUG_REPORT_URL="https://github.com/nobara-project/rpm-baseos"
+REDHAT_BUGZILLA_PRODUCT="Nobara"
+REDHAT_BUGZILLA_PRODUCT_VERSION=43
+REDHAT_SUPPORT_PRODUCT="Nobara"
+REDHAT_SUPPORT_PRODUCT_VERSION=43
+SUPPORT_END=2026-12-02

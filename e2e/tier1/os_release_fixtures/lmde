@@ -1,0 +1,19 @@
+# LMDE 6 "Faye", Linux Mint Debian Edition. Extracted 2026-08-17 from Mint's own package archive:
+# base-files 12.4+lmde1 from
+# http://packages.linuxmint.com/pool/upstream/b/base-files/base-files_12.4%2Blmde1_all.deb
+# with sha256 1f95dc1a93f23f864bb0c6e153274a4f0fe71d73e3d5ce58e59e3536ada34d55 matching the faye
+# Packages index, unpacked with dpkg-deb. This is the fixture the ih_base derivation exists for: the
+# ID is linuxmint, exactly as on Ubuntu-lineage Mint, and only the absent UBUNTU_CODENAME and the
+# debian-only ID_LIKE separate the two.
+PRETTY_NAME="LMDE 6 (faye)"
+NAME="LMDE"
+VERSION_ID="6"
+VERSION="6 (faye)"
+VERSION_CODENAME=faye
+ID=linuxmint
+HOME_URL="https://www.linuxmint.com/"
+SUPPORT_URL="https://forums.linuxmint.com/"
+BUG_REPORT_URL="http://linuxmint-troubleshooting-guide.readthedocs.io/en/latest/"
+PRIVACY_POLICY_URL="https://www.linuxmint.com/"
+ID_LIKE=debian
+DEBIAN_CODENAME=bookworm

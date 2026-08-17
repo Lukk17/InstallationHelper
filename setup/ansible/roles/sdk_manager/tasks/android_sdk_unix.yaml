@@ -16,7 +16,7 @@
     dest: "/tmp/cmdline-tools.zip"
     mode: '0644'
   when:
-    - ansible_facts['os_family'] not in ['Windows', 'Darwin']
+    - ih_family not in ['Windows', 'Darwin']
     - not cmdline_tools_stat.stat.exists
 
 - name: Download Android Command Line Tools (macOS)
@@ -25,7 +25,7 @@
     dest: "/tmp/cmdline-tools.zip"
     mode: '0644'
   when:
-    - ansible_facts['os_family'] == 'Darwin'
+    - ih_family == 'Darwin'
     - not cmdline_tools_stat.stat.exists
 
 - name: Extract Android Command Line Tools
@@ -50,9 +50,24 @@
     path: "{{ non_root_home }}/.sdkman/candidates/java/current/bin/java"
   register: sdkman_java_stat
 
-- name: Warn if SDKMAN Java is missing — skip Android SDK install
+# Without that symlink sdkmanager cannot run at all, so both tasks below skip and the Android SDK is
+# not installed: no platforms, no build-tools, no platform-tools. The cmdline-tools zip is unpacked by
+# the tasks above, which makes the outcome worse than a clean skip, because {{ android_home }} then
+# looks populated to anything checking casually. This used to be a debug message and nothing else,
+# which meant an exit code of zero and no summary entry for a whole SDK the user asked for.
+- name: Report that the Android SDK could not be installed without SDKMAN Java
   ansible.builtin.debug:
-    msg: "[WARN] Skipping Android SDK install — SDKMAN Java not found at {{ non_root_home }}/.sdkman/candidates/java/current. Run with --tags sdkman,android to install Java first."
+    msg: >-
+      [ERROR] The Android SDK was NOT installed. SDKMAN Java is absent from
+      {{ non_root_home }}/.sdkman/candidates/java/current and sdkmanager cannot run without a JDK, so
+      no platform, build-tools or platform-tools package was fetched. Either install_java is false, or
+      the SDKMAN install failed earlier in this run and named itself there. Rerun with
+      --tags sdkman,android once that is fixed.
+  when: not sdkman_java_stat.stat.exists
+
+- name: Record the missing Android SDK in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
   when: not sdkman_java_stat.stat.exists
 
 - name: Accept Android SDK licenses

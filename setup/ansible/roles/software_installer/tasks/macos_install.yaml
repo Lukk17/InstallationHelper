@@ -2,6 +2,29 @@
 # Each DMG chain uses block: + always: so the volume is detached even when
 # the copy step fails — otherwise stale /Volumes/ mounts collide on rerun.
 
+# Every vendor artifact below is staged in a directory only root can enter, never in /tmp. All three
+# are handed to root: the .pkg goes to `installer -pkg -target /`, and the two disk images have their
+# contents copied into /Applications. /tmp is writable by every local account, all three file names
+# are fixed, and get_url does not overwrite a destination that already exists, so any local user
+# could pre-create one of those paths and have their own payload installed by root.
+#
+# Created here rather than relied upon from dynamic_install.yaml, whose own create task asks for
+# `group: root`. On macOS gid 0 is named `wheel`, so `root` is the Linux answer to a per-OS question,
+# and a group name the directory services database cannot resolve fails the task outright rather than
+# creating the directory. `wheel` resolves on every macOS release. The mode is what carries the
+# security property in any case: at 0700 the group cannot read the directory either way.
+#
+# Not gated on any toggle, for the same reason the Linux one is not: three separate blocks stage into
+# it, and a condition listing all three is a fourth place to keep in sync.
+- name: Create the private staging directory for vendor downloads (macOS)
+  ansible.builtin.file:
+    path: "{{ software_installer_stage_dir }}"
+    state: directory
+    owner: root
+    group: wheel
+    mode: '0700'
+  become: true
+
 # --- Google Antigravity ---
 - name: Resolve Antigravity DMG URL for this Mac's architecture
   ansible.builtin.set_fact:
@@ -11,25 +34,34 @@
 - name: Install Antigravity from DMG
   when: install_antigravity | default(false) | bool
   block:
+    # force: true because the destination name is stable while the artifact behind the URL is not:
+    # the arm64 and x64 URLs are resolved per machine and neither carries a version, so a cached file
+    # under a permanent staging path would be installed forever and the run would report success.
     - name: Download Antigravity DMG
       ansible.builtin.get_url:
         url: "{{ antigravity_dmg_resolved_url }}"
-        dest: "/tmp/Antigravity.dmg"
-        mode: '0644'
+        dest: "{{ software_installer_stage_dir }}/Antigravity.dmg"
+        force: true
+        mode: '0600'
         checksum: "{{ download_checksums.antigravity_macos | default(omit) }}"
         timeout: 60
+      become: true
       register: antigravity_dmg_download
       retries: 3
       delay: 10
       until: antigravity_dmg_download is succeeded
 
+    # become: true on the whole mount chain, because the staging directory is mode 0700 and
+    # root-owned, so no other account can read the image to attach it, and a volume attached by root
+    # is detached by root.
     - name: Mount Antigravity DMG and capture mount-point
       ansible.builtin.shell: |
         set -e -o pipefail
-        hdiutil attach -nobrowse -noautoopen "/tmp/Antigravity.dmg" \
+        hdiutil attach -nobrowse -noautoopen "{{ software_installer_stage_dir }}/Antigravity.dmg" \
           | awk -F '\t' '/\/Volumes\// {print $NF; exit}'
       args:
         executable: /bin/bash
+      become: true
       register: antigravity_mount
       changed_when: true
 
@@ -39,6 +71,7 @@
         patterns: "*.app"
         file_type: directory
         recurse: false
+      become: true
       register: antigravity_app
       when: antigravity_mount.stdout | length > 0
 
@@ -53,11 +86,20 @@
   always:
     - name: Detach Antigravity DMG
       ansible.builtin.command: hdiutil detach -quiet "{{ antigravity_mount.stdout }}"
+      become: true
       changed_when: true
       failed_when: false
       when:
         - antigravity_mount is defined
         - antigravity_mount.stdout | default('') | length > 0
+
+    # In `always` so a failed mount or copy cannot leave a gigabyte-scale disk image sitting in a
+    # permanent staging directory, and so no later run can find a file there to trust.
+    - name: Remove the staged Antigravity DMG
+      ansible.builtin.file:
+        path: "{{ software_installer_stage_dir }}/Antigravity.dmg"
+        state: absent
+      become: true
 
 # --- Razer Synapse for Mac ---
 # Razer publishes no Homebrew cask, only a .pkg. Razer requires an Apple Silicon
@@ -77,13 +119,17 @@
       changed_when: false
       failed_when: false
 
+    # force: true because Razer's download URL carries no version at all, so a cached file under a
+    # permanent staging path would install a months-old build on every future run.
     - name: Download Razer Synapse pkg
       ansible.builtin.get_url:
         url: "{{ razer_synapse_macos_pkg_url }}"
-        dest: "/tmp/RazerSynapseInstaller.pkg"
-        mode: '0644'
+        dest: "{{ software_installer_stage_dir }}/RazerSynapseInstaller.pkg"
+        force: true
+        mode: '0600'
         checksum: "{{ download_checksums.razer_synapse_macos | default(omit) }}"
         timeout: 120
+      become: true
       register: razer_synapse_download
       retries: 3
       delay: 10
@@ -91,10 +137,16 @@
       when: razer_synapse_receipt.rc != 0
 
     - name: Install Razer Synapse pkg
-      ansible.builtin.command: installer -pkg /tmp/RazerSynapseInstaller.pkg -target /
+      ansible.builtin.command: installer -pkg {{ software_installer_stage_dir }}/RazerSynapseInstaller.pkg -target /
       become: true
       changed_when: true
       when: razer_synapse_receipt.rc != 0
+
+    - name: Remove the staged Razer Synapse pkg
+      ansible.builtin.file:
+        path: "{{ software_installer_stage_dir }}/RazerSynapseInstaller.pkg"
+        state: absent
+      become: true
 
 - name: Warn when Razer Synapse is skipped on this Mac
   ansible.builtin.debug:
@@ -107,13 +159,18 @@
 - name: Install Gridcoin from DMG
   when: install_gridcoin | default(false) | bool
   block:
+    # force: true for the same reason as the Antigravity image above: the staged name is stable, the
+    # artifact behind the pinned URL is not guaranteed to be, and a permanent staging path turns a
+    # non-overwriting download into a cache no version bump can invalidate.
     - name: Download Gridcoin DMG
       ansible.builtin.get_url:
         url: "{{ gridcoin_macos_dmg_url }}"
-        dest: "/tmp/gridcoin.dmg"
-        mode: '0644'
+        dest: "{{ software_installer_stage_dir }}/gridcoin.dmg"
+        force: true
+        mode: '0600'
         checksum: "{{ download_checksums.gridcoin_macos | default(omit) }}"
         timeout: 60
+      become: true
       register: gridcoin_dmg_download
       retries: 3
       delay: 10
@@ -122,10 +179,11 @@
     - name: Mount Gridcoin DMG and capture mount-point
       ansible.builtin.shell: |
         set -e -o pipefail
-        hdiutil attach -nobrowse -noautoopen "/tmp/gridcoin.dmg" \
+        hdiutil attach -nobrowse -noautoopen "{{ software_installer_stage_dir }}/gridcoin.dmg" \
           | awk -F '\t' '/\/Volumes\// {print $NF; exit}'
       args:
         executable: /bin/bash
+      become: true
       register: gridcoin_mount
       changed_when: true
 
@@ -135,6 +193,7 @@
         patterns: "*.app"
         file_type: directory
         recurse: false
+      become: true
       register: gridcoin_app
       when: gridcoin_mount.stdout | length > 0
 
@@ -149,8 +208,15 @@
   always:
     - name: Detach Gridcoin DMG
       ansible.builtin.command: hdiutil detach -quiet "{{ gridcoin_mount.stdout }}"
+      become: true
       changed_when: true
       failed_when: false
       when:
         - gridcoin_mount is defined
         - gridcoin_mount.stdout | default('') | length > 0
+
+    - name: Remove the staged Gridcoin DMG
+      ansible.builtin.file:
+        path: "{{ software_installer_stage_dir }}/gridcoin.dmg"
+        state: absent
+      become: true

@@ -25,7 +25,7 @@
     state: present
   when:
     - fvm_check.rc != 0
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
 
 - name: Install FVM via dart pub global (Arch Linux)
   ansible.builtin.shell: |
@@ -41,7 +41,7 @@
   until: fvm_arch_install is succeeded
   when:
     - fvm_check.rc != 0
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
 
 - name: Install FVM via install script (Linux/Mac non-Arch)
   ansible.builtin.shell: |
@@ -58,7 +58,7 @@
   until: fvm_script_install is succeeded
   when:
     - fvm_check.rc != 0
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
 
 - name: Locate FVM binary after install
   ansible.builtin.shell: |
@@ -137,15 +137,74 @@
   until: fvm_install_result.finished
   retries: 80
   delay: 30
-  changed_when: fvm_install_result.finished and fvm_install_result.rc == 0
+  changed_when: fvm_install_result.finished and fvm_install_result.rc | default(1) == 0
+  # `rc | default(0) != 0` counted a finished result carrying no rc at all as a pass, which is the one
+  # shape an async result most easily takes: a job the wrapper killed, or a result file that never got
+  # written, comes back with no rc, and the default then supplied the answer the check existed to find
+  # out. An rc-less result is now a failure, stated as its own condition rather than left to an
+  # undefined-variable error, so the message says what happened.
   failed_when:
     - fvm_install_result.finished
-    - fvm_install_result.rc | default(0) != 0
+    - fvm_install_result.rc is not defined or fvm_install_result.rc != 0
   when:
     - fvm_bin_dir.rc == 0
     - not flutter_channel_installed.stat.exists
     - fvm_install_job is defined
     - fvm_install_job.ansible_job_id is defined
+
+# Ask FVM what it actually has, the way dynamic_install.yaml asks pacman which AUR packages actually
+# landed. Everything above this point reads a job result, and a job result answers a different
+# question from the machine's state: an install can exit zero and leave nothing behind, an async
+# wrapper can lose a result, and if FVM itself never installed then `fvm_bin_dir.rc != 0` skipped the
+# whole install and the previous version of this file said nothing at all about it. `fvm list` is the
+# tool's own answer and does not depend on this file guessing where FVM caches SDKs.
+- name: Ask FVM which Flutter versions it actually has (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    export PATH="{{ fvm_bin_dir.stdout | trim }}:{{ non_root_home }}/.pub-cache/bin:$PATH"
+    export HOME="{{ non_root_home }}"
+    timeout 60 fvm list </dev/null
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: fvm_installed_versions
+  changed_when: false
+  failed_when: false
+  when: fvm_bin_dir.rc == 0
+
+- name: Establish whether the requested Flutter channel is installed
+  ansible.builtin.set_fact:
+    flutter_channel_present: >-
+      {{ (fvm_installed_versions.rc | default(1)) == 0
+         and flutter_channel in (fvm_installed_versions.stdout | default('')) }}
+
+- name: Report that FVM is absent, so Flutter was never even attempted
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] Flutter {{ flutter_channel }} was NOT installed, because FVM itself is not on this
+      machine: no fvm binary was found in ~/fvm/bin, ~/.fvm/bin, ~/.pub-cache/bin or /usr/local/bin
+      after the install step above. Every task that installs Flutter is gated on finding it, so they
+      all skipped silently. The FVM install itself is the thing to fix, and its own task above says
+      why it failed.
+  when: fvm_bin_dir.rc != 0
+
+- name: Report that the requested Flutter channel never arrived
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] Flutter {{ flutter_channel }} is NOT installed: FVM is present and does not list that
+      channel. `fvm list` said:
+      {{ fvm_installed_versions.stdout | default('nothing, the command itself failed') | trim }}.
+      The install either exited zero without unpacking an SDK or its async result was lost, and
+      rerunning with --tags flutter is the first thing to try.
+  when:
+    - fvm_bin_dir.rc == 0
+    - not (flutter_channel_present | bool)
+
+- name: Record the missing Flutter install in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
+  when: not (flutter_channel_present | bool)
 
 # `fvm global <channel>` writes a config file — no network, no download.
 # Re-setting to the current value is a no-op on disk, so the previous

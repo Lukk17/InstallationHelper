@@ -7,14 +7,14 @@
     creates: /etc/apt/sources.list.d/waydroid.list
     executable: /bin/bash
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Install Waydroid (Debian)
   ansible.builtin.apt:
     name: waydroid
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Install Waydroid (Archlinux)
   become: yes
@@ -24,14 +24,14 @@
     use: paru
     extra_args: "--noconfirm --skipreview"
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Install Waydroid (Fedora)
   ansible.builtin.dnf:
     name: waydroid
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 - name: Probe for Waydroid data image
   ansible.builtin.stat:

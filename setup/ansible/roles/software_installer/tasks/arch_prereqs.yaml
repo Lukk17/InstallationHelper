@@ -53,12 +53,66 @@
     - install_openrazer | default(false) | bool
     - arch_dkms_header_packages | length > 0
 
-# A container has no /usr/lib/modules at all, because the kernel belongs to the
-# host, so this is the expected outcome under the e2e harness rather than a
-# fault. On real hardware it means the DKMS module will not build.
-- name: Report that no kernel headers could be resolved (Arch)
-  ansible.builtin.debug:
-    msg: "[WARN] No installed kernel found under /usr/lib/modules, so DKMS kernel headers were not installed. The OpenRazer driver will not build until headers matching your kernel are present."
+# What matters is not whether a headers package installed but whether DKMS ends up with something to
+# build against, and that is a directory on disk: pacman's linux-headers packages provide
+# /usr/lib/modules/<version>/build and dkms compiles against exactly that. So the outcome is measured
+# rather than inferred from a module result, the same way the vendor .deb installs in
+# dynamic_install.yaml establish what happened from stat.
+#
+# Two outcomes have to be told apart here, and /usr/lib/modules is what tells them apart. A container
+# has no kernel of its own, and in the published Arch image /usr/lib/modules is not a directory at
+# all: the find above reports "Skipped '/usr/lib/modules' path due to this access issue:
+# '/usr/lib/modules' is not a directory", which is in every Arch tier 3 playbook log. Every real Arch
+# install has that directory with at least one pacman-managed kernel under it. So an absent module
+# tree means nothing on this machine manages kernels, which is informational, and a present module
+# tree with no build directory means the DKMS driver genuinely cannot build, which is a failure the
+# run has to report. Reporting both the same way would either fail every container run or keep saying
+# nothing on the hardware this matters on.
+- name: Check whether this machine manages kernel modules at all (Arch)
+  ansible.builtin.stat:
+    path: /usr/lib/modules
+  register: arch_kernel_module_tree
+  when: install_openrazer | default(false) | bool
+
+- name: Look for a DKMS build directory under any installed kernel (Arch)
+  ansible.builtin.find:
+    paths: /usr/lib/modules
+    patterns: build
+    file_type: any
+    recurse: true
+    depth: 2
+  register: arch_kernel_build_dirs
   when:
     - install_openrazer | default(false) | bool
-    - arch_kernel_pkgbase_files.files | default([]) | length == 0
+    - arch_kernel_module_tree.stat.isdir | default(false)
+
+- name: Report that this machine has no kernel module tree of its own (Arch)
+  ansible.builtin.debug:
+    msg: >-
+      /usr/lib/modules is not a directory here, so no kernel is managed on this machine and no DKMS
+      kernel headers were installed. That is what a container looks like and is not a fault there.
+      On real hardware it cannot happen.
+  when:
+    - install_openrazer | default(false) | bool
+    - not (arch_kernel_module_tree.stat.isdir | default(false))
+
+- name: Report that the OpenRazer driver cannot build without kernel headers (Arch)
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] OpenRazer will install and its kernel driver will NOT build: no
+      /usr/lib/modules/<version>/build directory exists for any installed kernel, and that is what
+      DKMS compiles against. The daemon starts and exits, no Razer device is controllable, and pacman
+      reports success anyway because Arch's dkms alpm hook ends in return 0. Install the headers
+      matching your kernel by hand, linux-headers for the stock kernel, then rerun.
+  when:
+    - install_openrazer | default(false) | bool
+    - arch_kernel_module_tree.stat.isdir | default(false)
+    - arch_kernel_build_dirs.matched | default(0) == 0
+
+- name: Record the unbuildable OpenRazer driver in the play summary (Arch)
+  ansible.builtin.set_fact:
+    any_role_failed: true
+  when:
+    - install_openrazer | default(false) | bool
+    - arch_kernel_module_tree.stat.isdir | default(false)
+    - arch_kernel_build_dirs.matched | default(0) == 0

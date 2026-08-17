@@ -1,0 +1,20 @@
+# Manjaro Linux. Verbatim 2026-08-17 from Manjaro's own packaging: the os-release source file in their
+# forked filesystem package, https://gitlab.manjaro.org/packages/core/filesystem/-/raw/master/os-release
+# The PKGBUILD at https://gitlab.manjaro.org/packages/core/filesystem/-/raw/master/PKGBUILD installs it
+# to /usr/lib/os-release, and the built filesystem-2025.10.12-1-any package is in Manjaro's stable core
+# repository, so this is what ships. Unlike EndeavourOS and CachyOS, Manjaro is a real packaged file
+# rather than the residue of a sed hook. Manjaro is also the only Arch derivative in Ansible's own
+# OS_FAMILY_MAP, so this fixture exists to prove the first branch of the derivation, taking Ansible's
+# answer when it is already one of the five, keeps working.
+NAME="Manjaro Linux"
+PRETTY_NAME="Manjaro Linux"
+ID=manjaro
+ID_LIKE=arch
+BUILD_ID=rolling
+ANSI_COLOR="32;1;24;144;200"
+HOME_URL="https://manjaro.org/"
+DOCUMENTATION_URL="https://wiki.manjaro.org/"
+SUPPORT_URL="https://forum.manjaro.org/"
+BUG_REPORT_URL="https://manjaro.org/help/"
+PRIVACY_POLICY_URL="https://manjaro.org/privacy-policy/"
+LOGO=manjarolinux

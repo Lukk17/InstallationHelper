@@ -4,21 +4,21 @@
   ansible.builtin.apt:
     name: git
     state: present
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Ensure git is installed (Fedora)
   become: yes
   ansible.builtin.dnf:
     name: git
     state: present
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 - name: Ensure git is installed (Arch)
   become: yes
   community.general.pacman:
     name: git
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Check if Oh-My-Zsh is already installed
   ansible.builtin.stat:

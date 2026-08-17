@@ -6,7 +6,7 @@
       - curl
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Install ZSH and curl (Fedora)
   ansible.builtin.dnf:
@@ -15,7 +15,7 @@
       - curl
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 - name: Install ZSH and curl (Archlinux)
   community.general.pacman:
@@ -24,13 +24,13 @@
       - curl
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Install ZSH (macOS)
   community.general.homebrew:
     name: zsh
     state: present
-  when: ansible_facts['os_family'] == 'Darwin'
+  when: ih_family == 'Darwin'
 
 # `command -v zsh` is a POSIX shell builtin, not an executable — must run
 # inside a shell (ansible.builtin.command invokes execve() directly with

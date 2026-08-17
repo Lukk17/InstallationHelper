@@ -269,7 +269,7 @@
 # --- Docker CE ---
 - name: Download Docker signing key
   ansible.builtin.get_url:
-    url: "https://download.docker.com/linux/{{ 'ubuntu' if ansible_facts['distribution'] == 'Ubuntu' else 'debian' }}/gpg"
+    url: "https://download.docker.com/linux/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/gpg"
     dest: /tmp/docker.asc
     mode: '0644'
     force: true
@@ -290,7 +290,7 @@
   ansible.builtin.apt_repository:
     repo: >-
       deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.gpg]
-      https://download.docker.com/linux/{{ 'ubuntu' if ansible_facts['distribution'] == 'Ubuntu' else 'debian' }}
+      https://download.docker.com/linux/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
       {{ ansible_facts['distribution_release'] }} stable
     filename: docker
     state: present
@@ -336,7 +336,7 @@
 - name: Download Tailscale binary keyring
   ansible.builtin.get_url:
     url: >-
-      https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ansible_facts['distribution'] == 'Ubuntu' else 'debian' }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg
+      https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg
     dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
     mode: '0644'
     force: true
@@ -347,7 +347,7 @@
   ansible.builtin.apt_repository:
     repo: >-
       deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg]
-      https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ansible_facts['distribution'] == 'Ubuntu' else 'debian' }}
+      https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
       {{ ansible_facts['distribution_release'] }} main
     filename: tailscale
     state: present

@@ -7,7 +7,7 @@
   become: true
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
     - install_antigravity | default(false) | bool
 
 - name: Download Antigravity Linux tarball
@@ -23,7 +23,7 @@
   until: antigravity_download is succeeded
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
     - install_antigravity | default(false) | bool
 
 - name: Extract Antigravity tarball
@@ -36,7 +36,7 @@
   become: true
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
     - install_antigravity | default(false) | bool
 
 - name: Symlink Antigravity to /usr/local/bin
@@ -47,7 +47,7 @@
   become: true
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
     - install_antigravity | default(false) | bool
 
 # --- AppImageLauncher (Fedora only): rpm -i --nodigest bypass ---
@@ -57,23 +57,57 @@
 # directly with --nodigest. On Debian the same package installs cleanly via
 # apt_url; on Arch the AUR `appimagelauncher` package handles it.
 
+# Staged in the role's private directory rather than /tmp, and this one is the most dangerous of
+# the three vendor downloads in this file. /tmp is writable by every local account, the file name
+# is fixed, get_url does not overwrite a path that already exists, and the next task installs it as
+# root with --nodigest, which is to say with no integrity checking at all. Any local user could
+# pre-create that path and have their own payload installed as root. The staging directory is created
+# in dynamic_install.yaml, owned by root and mode 0700.
+#
+# The checksum, the timeout and the retries are not optional extras here, and this was the one vendor
+# download in this file that had none of the three while both of its siblings below had all three.
+# Because the install runs `rpm --nodigest`, with rpm's own integrity checking switched off,
+# `download_checksums.appimagelauncher_rpm` is the only place left where these bytes can be checked
+# at all. It is keyed by artifact, like every other entry in that mapping, and the mapping is empty
+# today, so `| default(omit)` leaves behaviour unchanged until someone populates it. The timeout
+# bounds a socket operation that otherwise has none, and the retries stop a single vendor blip
+# costing the install outright.
 - name: Download AppImageLauncher RPM (Fedora)
   ansible.builtin.get_url:
     url: "{{ appimage_launcher_rpm_url }}"
-    dest: /tmp/appimagelauncher.rpm
-    mode: '0644'
+    dest: "{{ software_installer_stage_dir }}/appimagelauncher.rpm"
+    force: true
+    mode: '0600'
+    checksum: "{{ download_checksums.appimagelauncher_rpm | default(omit) }}"
+    timeout: 60
   become: true
+  register: appimagelauncher_download
+  retries: 3
+  delay: 10
+  until: appimagelauncher_download is succeeded
   when:
-    - ansible_facts['os_family'] == 'RedHat'
+    - ih_family == 'RedHat'
     - install_appimagelauncher | default(false) | bool
 
 - name: Install AppImageLauncher via rpm with --nodigest (Fedora)
   ansible.builtin.command:
-    cmd: rpm --install --upgrade --replacepkgs --nodigest /tmp/appimagelauncher.rpm
+    cmd: rpm --install --upgrade --replacepkgs --nodigest {{ software_installer_stage_dir }}/appimagelauncher.rpm
     creates: /usr/bin/appimagelauncher
   become: true
   when:
-    - ansible_facts['os_family'] == 'RedHat'
+    - ih_family == 'RedHat'
+    - install_appimagelauncher | default(false) | bool
+
+# Removed once installed, in the shape dynamic_install.yaml uses for the vendor .deb files. The
+# staging directory is permanent now that it is not /tmp, so an artifact left in it is both a file
+# that grows /var/cache on every run and a file a later run could be made to trust.
+- name: Remove the staged AppImageLauncher RPM (Fedora)
+  ansible.builtin.file:
+    path: "{{ software_installer_stage_dir }}/appimagelauncher.rpm"
+    state: absent
+  become: true
+  when:
+    - ih_family == 'RedHat'
     - install_appimagelauncher | default(false) | bool
 
 # --- k3d: lightweight Kubernetes-in-Docker (all Linux distros) ---
@@ -116,7 +150,7 @@
     mode: '0644'
   become: true
   when:
-    - ansible_facts['os_family'] == 'RedHat'
+    - ih_family == 'RedHat'
     - install_docker | default(false) | bool
 
 # --- Gridcoin: official flatpak bundle on ALL Linux distros ---
@@ -128,8 +162,9 @@
 - name: Download Gridcoin flatpak bundle (Linux)
   ansible.builtin.get_url:
     url: "{{ gridcoin_flatpak_url }}"
-    dest: /tmp/gridcoin.flatpak
-    mode: '0644'
+    dest: "{{ software_installer_stage_dir }}/gridcoin.flatpak"
+    force: true
+    mode: '0600'
     checksum: "{{ download_checksums.gridcoin_flatpak | default(omit) }}"
     timeout: 60
   become: true
@@ -152,7 +187,7 @@
     - install_gridcoin | default(false) | bool
 
 - name: Install Gridcoin flatpak bundle (Linux)
-  ansible.builtin.command: flatpak install --system --bundle --assumeyes /tmp/gridcoin.flatpak
+  ansible.builtin.command: flatpak install --system --bundle --assumeyes {{ software_installer_stage_dir }}/gridcoin.flatpak
   become: true
   when:
     - ansible_facts['system'] == 'Linux'
@@ -160,6 +195,17 @@
     - gridcoin_flatpak_check is defined
     - gridcoin_flatpak_check.rc != 0
   changed_when: true
+
+# Removed whether or not the install above ran, because the download runs whenever the toggle is on
+# and the install only when flatpak does not already have it.
+- name: Remove the staged Gridcoin flatpak bundle (Linux)
+  ansible.builtin.file:
+    path: "{{ software_installer_stage_dir }}/gridcoin.flatpak"
+    state: absent
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_gridcoin | default(false) | bool
 
 # Lens is installed via the official apt/dnf repo on Debian/Fedora (configured
 # in debian_repos.yaml / fedora_repos.yaml) and via AUR `lens-bin` on Arch.
@@ -177,14 +223,15 @@
   become: true
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
     - install_gputest | default(false) | bool
 
 - name: Download GpuTest binary archive
   ansible.builtin.get_url:
     url: "{{ gputest_url }}"
-    dest: /tmp/gputest.zip
-    mode: '0644'
+    dest: "{{ software_installer_stage_dir }}/gputest.zip"
+    force: true
+    mode: '0600'
     checksum: "{{ download_checksums.gputest | default(omit) }}"
     timeout: 60
   become: true
@@ -194,19 +241,31 @@
   until: gputest_download is succeeded
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
     - install_gputest | default(false) | bool
 
 - name: Extract GpuTest archive
   ansible.builtin.unarchive:
-    src: /tmp/gputest.zip
+    src: "{{ software_installer_stage_dir }}/gputest.zip"
     dest: /opt/gputest
     remote_src: true
     creates: /usr/local/bin/GpuTest
   become: true
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
+    - install_gputest | default(false) | bool
+
+# Same as the two above: extracted, so the archive itself is of no further use, and the staging
+# directory is permanent.
+- name: Remove the staged GpuTest archive
+  ansible.builtin.file:
+    path: "{{ software_installer_stage_dir }}/gputest.zip"
+    state: absent
+  become: true
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - ih_family != 'Archlinux'
     - install_gputest | default(false) | bool
 
 # The ozone3d zip extracts to a versioned subdirectory
@@ -221,7 +280,7 @@
   register: gputest_binary
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
     - install_gputest | default(false) | bool
 
 - name: Create GpuTest symlink
@@ -233,7 +292,7 @@
   become: true
   when:
     - ansible_facts['system'] == 'Linux'
-    - ansible_facts['os_family'] != 'Archlinux'
+    - ih_family != 'Archlinux'
     - install_gputest | default(false) | bool
     - gputest_binary is defined
     - gputest_binary.files | default([]) | length > 0

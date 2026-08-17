@@ -1,9 +1,9 @@
 ---
 - name: Include Pyenv Unix tasks
   ansible.builtin.include_tasks: pyenv_unix.yaml
-  when: ansible_facts['os_family'] != 'Windows' and install_python | default(false) | bool
+  when: ih_family != 'Windows' and install_python | default(false) | bool
 
 - name: Include Pyenv Windows tasks
   ansible.builtin.include_tasks: pyenv_windows.yaml
-  when: ansible_facts['os_family'] == 'Windows' and install_python | default(false) | bool
+  when: ih_family == 'Windows' and install_python | default(false) | bool
 

@@ -27,7 +27,7 @@
   # line means nothing changed. Any other output means real work happened.
   changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (virt_apt_result.stdout | default(''))"
   failed_when: virt_apt_result.rc | default(0) != 0
-  when: ansible_facts['os_family'] == 'Debian' and install_virt_manager | default(false) | bool
+  when: ih_family == 'Debian' and install_virt_manager | default(false) | bool
   tags: [libvirt]
 
 - name: Install QEMU/KVM and virt-manager packages (Arch)
@@ -41,7 +41,7 @@
       - nftables
       - virtiofsd
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux' and install_virt_manager | default(false) | bool
+  when: ih_family == 'Archlinux' and install_virt_manager | default(false) | bool
   tags: [libvirt]
 
 - name: Install QEMU/KVM and virt-manager packages (Fedora)
@@ -55,7 +55,7 @@
       - bridge-utils
       - virtiofsd
     state: present
-  when: ansible_facts['os_family'] == 'RedHat' and install_virt_manager | default(false) | bool
+  when: ih_family == 'RedHat' and install_virt_manager | default(false) | bool
   tags: [libvirt]
 
 # spice-vdagent — only when this machine is itself a guest VM.
@@ -71,7 +71,7 @@
   register: spice_apt_result
   changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (spice_apt_result.stdout | default(''))"
   failed_when: spice_apt_result.rc | default(0) != 0
-  when: ansible_facts['os_family'] == 'Debian' and ansible_virtualization_role == 'guest'
+  when: ih_family == 'Debian' and ansible_virtualization_role == 'guest'
   tags: [libvirt]
 
 - name: Install spice-vdagent (Arch guest)
@@ -79,7 +79,7 @@
   community.general.pacman:
     name: spice-vdagent
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux' and ansible_virtualization_role == 'guest'
+  when: ih_family == 'Archlinux' and ansible_virtualization_role == 'guest'
   tags: [libvirt]
 
 - name: Install spice-vdagent (Fedora guest)
@@ -87,7 +87,7 @@
   ansible.builtin.dnf:
     name: spice-vdagent
     state: present
-  when: ansible_facts['os_family'] == 'RedHat' and ansible_virtualization_role == 'guest'
+  when: ih_family == 'RedHat' and ansible_virtualization_role == 'guest'
   tags: [libvirt]
 
 - name: Enable and start libvirtd service (Linux)
@@ -148,7 +148,7 @@
   register: docker_apt_result
   changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (docker_apt_result.stdout | default(''))"
   failed_when: docker_apt_result.rc | default(0) != 0
-  when: ansible_facts['os_family'] == 'Debian' and install_docker | default(false) | bool
+  when: ih_family == 'Debian' and install_docker | default(false) | bool
   tags: [docker]
 
 - name: Install Docker CE (Fedora)
@@ -161,7 +161,7 @@
       - docker-buildx-plugin
       - docker-compose-plugin
     state: present
-  when: ansible_facts['os_family'] == 'RedHat' and install_docker | default(false) | bool
+  when: ih_family == 'RedHat' and install_docker | default(false) | bool
   tags: [docker]
 
 - name: Install Docker (Arch)
@@ -183,7 +183,7 @@
       # longer in the Arch repositories.
       - iptables
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux' and install_docker | default(false) | bool
+  when: ih_family == 'Archlinux' and install_docker | default(false) | bool
   tags: [docker]
 
 # On Arch, libvirtd loaded the legacy iptables kernel modules when it
@@ -204,7 +204,7 @@
     - /usr/lib/systemd/system/libvirtd.service
     - /lib/systemd/system/libvirtd.service
   when:
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
     - install_docker | default(false) | bool
     - install_virt_manager | default(false) | bool
   tags: [docker, libvirt]
@@ -221,7 +221,7 @@
   become: true
   register: libvirt_firewall_backend
   when:
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
     - install_docker | default(false) | bool
     - install_virt_manager | default(false) | bool
     - libvirtd_service_units is defined
@@ -234,7 +234,7 @@
     state: restarted
   become: true
   when:
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
     - libvirt_firewall_backend is defined
     - libvirt_firewall_backend is changed
   tags: [docker, libvirt]
@@ -248,7 +248,7 @@
   ansible.builtin.pause:
     seconds: 5
   when:
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
     - libvirt_firewall_backend is defined
     - libvirt_firewall_backend is changed
   tags: [docker, libvirt]

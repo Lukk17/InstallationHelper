@@ -19,7 +19,11 @@ software_mapping:
   openssl: { manager: "apt", package: "openssl" }
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
   kubectl: { manager: "apt", package: "kubectl" }               # Official k8s.io repo
-  minikube: { manager: "apt_url", package: "minikube_latest_amd64.deb", is_deb_url: true }
+  # For apt_url the download location comes from minikube_url in group_vars/versions.yaml, and
+  # `package` is the name dpkg records once the .deb is installed, so verification can look for it
+  # the same way it looks for an ordinary apt package. Measured with `dpkg-deb -f <file> Package`
+  # against the real vendor artifact, not guessed from the filename.
+  minikube: { manager: "apt_url", package: "minikube", is_deb_url: true }
   helm: { manager: "apt", package: "helm" }                     # Official Helm apt repo (debian_repos.yaml)
   terraform: { manager: "apt", package: "terraform" }           # Official HashiCorp apt repo (debian_repos.yaml)
   gh: { manager: "apt", package: "gh" }                         # Official GitHub CLI apt repo (debian_repos.yaml)
@@ -71,12 +75,12 @@ software_mapping:
   prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
-  teamviewer: { manager: "apt_url", package: "teamviewer_amd64.deb", is_deb_url: true }
-  veracrypt: { manager: "apt_url", package: "veracrypt.deb", is_deb_url: true }
+  teamviewer: { manager: "apt_url", package: "teamviewer", is_deb_url: true }
+  veracrypt: { manager: "apt_url", package: "veracrypt", is_deb_url: true }
   speedtest: { manager: "apt", package: "speedtest-cli" }
   syncthing: { manager: "apt", package: "syncthing" }             # Official Syncthing apt repo, stable-v2 (debian_repos.yaml)
   tailscale: { manager: "apt", package: "tailscale" }             # Official Tailscale apt repo, stable channel (debian_repos.yaml)
-  appimagelauncher: { manager: "apt_url", package: "{{ appimage_launcher_url }}", is_deb_url: true }
+  appimagelauncher: { manager: "apt_url", package: "appimagelauncher", is_deb_url: true }
 
   # Crypto / Crypto Hardware
   boinc: { manager: "apt", package: "boinc-client" }

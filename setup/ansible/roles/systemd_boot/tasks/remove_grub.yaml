@@ -33,7 +33,7 @@
       - os-prober
     state: absent
     purge: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Remove GRUB packages (Arch)
   become: yes
@@ -42,7 +42,7 @@
       - grub
       - os-prober
     state: absent
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Remove GRUB packages (Fedora)
   become: yes
@@ -55,7 +55,7 @@
       - grub2-common
       - os-prober
     state: absent
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 # --- Remove this distro's GRUB EFI directory from ESP ---
 
@@ -78,21 +78,21 @@
   ansible.builtin.apt:
     name: efibootmgr
     state: present
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Install efibootmgr if not present (Arch)
   become: yes
   community.general.pacman:
     name: efibootmgr
     state: present
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Install efibootmgr if not present (Fedora)
   become: yes
   ansible.builtin.dnf:
     name: efibootmgr
     state: present
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 # Match NVRAM entries by Loader path (\EFI\<distro>\), not by free-text
 # label — labels collide with Windows / other distros and a wrong delete

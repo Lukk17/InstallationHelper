@@ -1,8 +1,8 @@
 ---
 - name: Include Grok Unix tasks
   ansible.builtin.include_tasks: grok_unix.yaml
-  when: ansible_facts['os_family'] != 'Windows' and install_grok | default(false) | bool
+  when: ih_family != 'Windows' and install_grok | default(false) | bool
 
 - name: Include Grok Windows tasks
   ansible.builtin.include_tasks: grok_windows.yaml
-  when: ansible_facts['os_family'] == 'Windows' and install_grok | default(false) | bool
+  when: ih_family == 'Windows' and install_grok | default(false) | bool

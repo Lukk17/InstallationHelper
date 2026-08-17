@@ -121,13 +121,14 @@ The verify log carries these assertions, each on its own PASS or FAIL line. Ever
 Before any of them, `Assert the installed-package query returned a plausible list` checks the input to the comparison rather than the comparison itself. It fails when the query behind the native package assertion returns fewer than fifty entries, which no working Linux installation does. It exists because a format string whose newline was being discarded made that query return one concatenated blob, so every expected package was reported missing and read exactly like a playbook that had installed nothing.
 
 1. `Assert every enabled native package is installed`, checked against `pacman -Qq`. For this scenario the expected set is what [../../setup/ansible/vars/Archlinux.yaml](../../setup/ansible/vars/Archlinux.yaml) maps for `steam`, `syncthing`, `tailscale`, `openrazer` and `chkrootkit`, which resolves to `steam`, `syncthing`, `tailscale`, `openrazer-daemon` and the AUR `chkrootkit`. A failure names the missing packages.
-2. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`. For this scenario that is `app.polychromatic.controller`.
-3. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
-4. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
-5. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
-6. `Assert docker.service is enabled when Docker was requested`.
-7. `Assert flatpak is installed and the Flathub remote is configured`. This scenario is where that matters most: it is the assertion for the ledger's first entry, where flatpak was installed only for Debian and RedHat while the Flathub remote-add ran on every Linux, so on Arch it shelled out to a missing binary and the run died fifteen minutes in with nothing installed. The scenario also exercises the whole of `system_core`, which is where the missing `Install flatpak (Arch)` task now lives.
-8. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
+2. `Assert every enabled URL-installed package resolved a download location`. Some packages install from a vendor URL rather than a repository, and both dispatch tasks skip silently when that URL renders empty, so this fails the run instead of letting it look clean. The candidate set is empty on Arch, because `vars/Archlinux.yaml` maps nothing to `apt_url` or `dnf_url`. On the Debian and Ubuntu images it is the enabled subset of the five `apt_url` mappings, and on Fedora the enabled subset of the four `dnf_url` mappings, so an Arch run does not prove this one and the assertion says so by reporting how many candidates it examined.
+3. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`. For this scenario that is `app.polychromatic.controller`.
+4. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
+5. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
+6. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
+7. `Assert docker.service is enabled when Docker was requested`.
+8. `Assert flatpak is installed and the Flathub remote is configured`. This scenario is where that matters most: it is the assertion for the ledger's first entry, where flatpak was installed only for Debian and RedHat while the Flathub remote-add ran on every Linux, so on Arch it shelled out to a missing binary and the run died fifteen minutes in with nothing installed. The scenario also exercises the whole of `system_core`, which is where the missing `Install flatpak (Arch)` task now lives.
+9. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
 
 `Assert the expected desktop environment is installed` does not run here. The scenario declares `e2e_expect_desktop: none`, so the probe is skipped rather than asserted absent.
 

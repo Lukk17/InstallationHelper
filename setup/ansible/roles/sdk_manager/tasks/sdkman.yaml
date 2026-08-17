@@ -1,9 +1,9 @@
 ---
 - name: Include SDKMAN Unix tasks
   ansible.builtin.include_tasks: sdkman_unix.yaml
-  when: ansible_facts['os_family'] != 'Windows' and install_java | default(false) | bool
+  when: ih_family != 'Windows' and install_java | default(false) | bool
 
 - name: Include SDKMAN Windows tasks
   ansible.builtin.include_tasks: sdkman_windows.yaml
-  when: ansible_facts['os_family'] == 'Windows' and install_java | default(false) | bool
+  when: ih_family == 'Windows' and install_java | default(false) | bool
 

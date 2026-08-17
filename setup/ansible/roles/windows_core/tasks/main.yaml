@@ -1,17 +1,17 @@
 ---
 - name: Include Windows Features tasks
   ansible.builtin.include_tasks: windows_features.yaml
-  when: ansible_facts['os_family'] == 'Windows' and enable_hyperv | default(false) | bool
+  when: ih_family == 'Windows' and enable_hyperv | default(false) | bool
 
 - name: Include WSL Setup tasks
   ansible.builtin.include_tasks: wsl_setup.yaml
-  when: ansible_facts['os_family'] == 'Windows' and (setup_wsl | default(false) | bool or import_hibernate_task | default(false) | bool)
+  when: ih_family == 'Windows' and (setup_wsl | default(false) | bool or import_hibernate_task | default(false) | bool)
 
 - name: Include Windows Wallpaper tasks
   ansible.builtin.include_tasks: wallpaper_windows.yaml
-  when: ansible_facts['os_family'] == 'Windows' and set_custom_wallpaper | default(false) | bool
+  when: ih_family == 'Windows' and set_custom_wallpaper | default(false) | bool
 
 - name: Include Windows Virtualization tasks
   ansible.builtin.include_tasks: virtualization_windows.yaml
-  when: ansible_facts['os_family'] == 'Windows' and (install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)
+  when: ih_family == 'Windows' and (install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)
 

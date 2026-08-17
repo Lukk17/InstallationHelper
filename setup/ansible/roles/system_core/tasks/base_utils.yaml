@@ -14,14 +14,14 @@
     name: flatpak
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 - name: Install flatpak (Debian/Ubuntu)
   ansible.builtin.apt:
     name: flatpak
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 # Arch was missing entirely. flatpak was installed for RedHat and Debian only, while the
 # Flathub task below runs on every Linux, so on Arch it shelled out to a binary that was not
@@ -37,7 +37,7 @@
   retries: 3
   delay: 10
   until: arch_flatpak_install is succeeded
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 # site.yaml runs this role without a rescue, on purpose, because it is the bootstrap
 # everything later depends on. The consequence nobody accounted for is that one transient
@@ -116,7 +116,7 @@
   register: apt_full_upgrade
   changed_when: apt_full_upgrade.stdout | default('') is search('^(Inst |Setting up |Removing )', multiline=True)
   failed_when: apt_full_upgrade.rc | default(0) != 0
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 # No failed_when on either of these two, and that is the change. Both carried
 #
@@ -139,7 +139,7 @@
   async: 1800
   poll: 30
   register: pacman_full_upgrade
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Full system upgrade (Fedora)
   ansible.builtin.dnf:
@@ -149,7 +149,7 @@
   async: 1800
   poll: 30
   register: dnf_full_upgrade
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 # git is required by pyenv's bootstrap script (curl pyenv.run | bash) and
 # by several other SDK installers. Minimal Ubuntu/Debian VMs don't ship it.
@@ -161,7 +161,7 @@
       - git
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Install unzip, zip and git (Debian)
   ansible.builtin.apt:
@@ -171,7 +171,7 @@
       - git
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Install unzip, zip, patch and git (Fedora)
   ansible.builtin.dnf:
@@ -182,4 +182,4 @@
       - git
     state: present
   become: yes
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'

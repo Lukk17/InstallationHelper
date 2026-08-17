@@ -43,7 +43,7 @@ WINDOWS_DIR="${REPO_ROOT}/setup/windows"
 
 windows_native_consumers() {
     sed -n '/NpmToolPackages = \[ordered\]@{/,/^}/p' "${WINDOWS_DIR}/WindowsNpmTools.ps1" 2>/dev/null \
-        | grep -oE '^\s{4}[a-z_]+' | tr -d ' '
+        | grep -oE '^\s{4}[a-z0-9_]+' | tr -d ' '
     # Read out of the declared array rather than the dispatch, so the two cannot drift.
     sed -n "s/^\\\$script:CustomInstallKeys = @(\(.*\))$/\1/p" "${WINDOWS_DIR}/WindowsCustomInstalls.ps1" 2>/dev/null \
         | tr -d "' " | tr ',' '\n'
@@ -107,6 +107,93 @@ check_family RedHat    linux.yaml
 check_family Archlinux linux.yaml
 check_family Darwin    macos.yaml
 check_family Windows   windows.yaml
+
+# A mapping resolving to a package manager is not the end of it for apt_url and dnf_url, which
+# install a vendor file instead of a repository package. Both dispatch tasks in dynamic_install.yaml
+# are guarded by `when: item_url | length > 0`, so a download location that renders empty skips the
+# download and the install and prints nothing at all. Nine mappings sit on that path, and until now
+# no tier looked at them: tier 2 resolves names against repository indexes these packages are not
+# in, and tier 3 excluded both managers from its expected set.
+#
+# The package name is checked too, because verification looks the installed package up by it. These
+# entries used to hold a filename such as minikube_latest_amd64.deb, which no package database ever
+# reports, and which had rotted out of step with the real filename anyway, since the pinned version
+# has been 1.38.1-0 for some time. The values now in the files were measured with
+# `dpkg-deb -f <file> Package` and `rpm -qp --qf '%{NAME}'` against the real vendor artifacts.
+#
+# The accepted variable names differ per family on purpose: the apt path reads only <key>_url, so
+# accepting <key>_rpm_url for Debian would report a location the playbook never looks at.
+#
+# Only group_vars/versions.yaml is searched, while the playbook's lookup('vars', ...) sees the whole
+# variable space, so a URL defined in all.yaml, linux.yaml or a profile overlay would be invisible
+# here and this check would call it absent. Every such variable lives in versions.yaml today, which
+# is the convention, and this is the check that will complain first if someone breaks it.
+check_url_managers() {
+    local family="$1" manager="$2"
+    shift 2
+    local suffixes=("$@")
+    local vars_file="${VARS_DIR}/${family}.yaml"
+    local versions="${GV_DIR}/versions.yaml"
+    local bad_name=() no_location=() n=0 key pkg line found suffix
+
+    while IFS= read -r line; do
+        n=$((n + 1))
+        key="$(sed -E 's/^  ([a-z0-9_]+):.*/\1/' <<<"${line}")"
+
+        # The sed leaves the line untouched when there is no package field, and an unchanged mapping
+        # line is neither empty nor filename-shaped, so it would have sailed through the name check
+        # below. Absence is checked first for that reason.
+        if ! grep -q 'package: "' <<<"${line}"; then
+            bad_name+=("${key} -> no package field")
+            continue
+        fi
+        pkg="$(sed -E 's/.*package: "([^"]*)".*/\1/' <<<"${line}")"
+
+        if [[ -z "${pkg}" || "${pkg}" =~ \.(deb|rpm)$ || "${pkg}" =~ (http|\{\{) ]]; then
+            bad_name+=("${key} -> '${pkg}'")
+        fi
+
+        # An inline url: field on the mapping itself outranks the versions file, same as the
+        # dispatcher's own resolution order.
+        if grep -qE '\burl: ' <<<"${line}"; then
+            continue
+        fi
+        found=false
+        for suffix in "${suffixes[@]}"; do
+            grep -qE "^${key}${suffix}:[[:space:]]*\"?[^\"[:space:]]" "${versions}" && found=true
+        done
+        [[ "${found}" == false ]] && no_location+=("${key}")
+
+    # manager is matched anywhere in the mapping rather than as the first field, because field order
+    # inside a flow mapping carries no meaning to YAML and all nine entries happening to be written
+    # manager-first today is a coincidence this check should not depend on. An entry written the other
+    # way round would have been skipped in silence, and the zero-entries guard below only fires when
+    # every single one is missed.
+    done < <(grep -E "^  [a-z0-9_]+: \{.*manager: \"${manager}\"" "${vars_file}")
+
+    if [[ "${n}" -eq 0 ]]; then
+        fail "${family}: no ${manager} mappings found, so this check cannot mean anything" \
+             "expected entries in ${vars_file}, the grep pattern or the file layout has changed"
+        return 0
+    fi
+
+    if [[ ${#no_location[@]} -eq 0 ]]; then
+        pass "${family}: all ${n} ${manager} mappings have a download location"
+    else
+        fail "${family}: ${#no_location[@]} of ${n} ${manager} mappings have no download location, so they install nothing silently" \
+             "${no_location[*]}"
+    fi
+
+    if [[ ${#bad_name[@]} -eq 0 ]]; then
+        pass "${family}: all ${n} ${manager} mappings name the package the way the package database will"
+    else
+        fail "${family}: ${#bad_name[@]} of ${n} ${manager} mappings hold a filename or URL where the installed package name belongs" \
+             "${bad_name[*]}"
+    fi
+}
+
+check_url_managers Debian apt_url _url
+check_url_managers RedHat dnf_url _rpm_url _url
 
 # A stale entry in the no-op file is its own hazard: it silently forgives a toggle
 # that has since gained a real mapping, so a later break in that mapping looks

@@ -6,7 +6,7 @@
     repo: https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
     dest: "{{ non_root_home }}/stable-diffusion-webui"
     version: "{{ stable_diffusion_webui_version }}"
-  when: ansible_facts['os_family'] != 'Windows' and install_stable_diffusion | bool
+  when: ih_family != 'Windows' and install_stable_diffusion | bool
 
 - name: Check if LM Studio is already installed (Linux)
   ansible.builtin.stat:

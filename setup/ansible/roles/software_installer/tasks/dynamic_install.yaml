@@ -8,19 +8,71 @@
 - name: Fail fast if os_dict.software_mapping is missing
   ansible.builtin.fail:
     msg: >-
-      os_dict.software_mapping not loaded for os_family={{ ansible_facts['os_family'] }}.
-      Check that vars/{{ ansible_facts['os_family'] }}.yaml exists and was loaded in site.yaml pre_tasks.
+      os_dict.software_mapping not loaded for ih_family={{ ih_family }}, which is the family
+      derived in site.yaml pre_tasks by tasks/derive_os_facts.yaml, not Ansible's own os_family.
+      Check that vars/{{ ih_family }}.yaml exists and was loaded in site.yaml pre_tasks.
   when: os_dict is not defined or os_dict.software_mapping is not defined
 
+# Both carry `always`, because every task below depends on this fact and none of the per-manager
+# tags select these two. tags.md documents invocations such as `--tags apt_batch`, and without this
+# the fact was undefined under any of them, the block's own `when` at the bottom of this file
+# evaluated false, and a documented command installed nothing while exiting zero. A set_fact costs
+# nothing to run under a tag selection that does not need it.
 - name: Initialise dynamic package list
   ansible.builtin.set_fact:
     software_installer_packages: []
+  tags: always
 
 - name: Build list of packages to dynamically install
   ansible.builtin.set_fact:
     software_installer_packages: "{{ software_installer_packages + [item] }}"
   loop: "{{ os_dict.software_mapping | default({}) | dict2items }}"
   when: lookup('vars', 'install_' ~ item.key, default=false) | bool
+  tags: always
+
+# One place where each batched manager's package list is worked out, and every task below reads it
+# from here.
+#
+# Two reasons, and the second one is the older problem. A batch is a single call, so when one fails
+# every application in it is missing, and the rescue at the bottom of this file could only ever name
+# the task: the user learned that "Install DNF packages (batched)" failed and never which forty
+# applications they did not get. A task-level `vars:` is invisible from a rescue, so the list has to
+# live somewhere the rescue can reach, and a fact is that somewhere.
+#
+# And the same list was already written out more than once: the apt expression appeared twice, once for
+# the install and once for the log tail, and the flatpak one five times across the daemon install, the
+# health probe, the repository purge, the Flathub remote and the batch itself. Editing one copy and not
+# the others is how a run installs under one condition and reports under another, which this repository
+# has already been burnt by. One definition each now.
+#
+# `always`, for the same reason as the two tasks above: every batch task depends on this fact, none of
+# the per-manager tags selects it, and without the tag a documented invocation such as
+# `--tags apt_batch` would find the fact undefined and install nothing while exiting zero.
+- name: Group the requested packages by the manager that installs them
+  ansible.builtin.set_fact:
+    software_installer_batches:
+      apt: >-
+        {{ software_installer_packages
+           | selectattr('value.manager', 'equalto', 'apt')
+           | rejectattr('value.is_deb_url', 'defined')
+           | map(attribute='value.package')
+           | list }}
+      dnf: >-
+        {{ software_installer_packages
+           | selectattr('value.manager', 'in', ['dnf', 'dnf_repo'])
+           | map(attribute='value.package')
+           | list }}
+      pacman: >-
+        {{ software_installer_packages
+           | selectattr('value.manager', 'equalto', 'pacman')
+           | map(attribute='value.package')
+           | list }}
+      flatpak: >-
+        {{ software_installer_packages
+           | selectattr('value.manager', 'equalto', 'flatpak')
+           | map(attribute='value.package')
+           | list }}
+  tags: always
 
 - name: Dynamically Install Packages
   block:
@@ -31,7 +83,7 @@
         apply:
           tags: [apt_batch]
       tags: [apt_batch]
-      when: ansible_facts['os_family'] == 'Debian'
+      when: ih_family == 'Debian'
 
     - name: Configure official Fedora dnf repositories
       ansible.builtin.include_tasks:
@@ -39,7 +91,7 @@
         apply:
           tags: [dnf_batch]
       tags: [dnf_batch]
-      when: ansible_facts['os_family'] == 'RedHat'
+      when: ih_family == 'RedHat'
 
     - name: Install Arch prerequisites (DKMS kernel headers)
       ansible.builtin.include_tasks:
@@ -47,7 +99,7 @@
         apply:
           tags: [pacman_batch]
       tags: [pacman_batch]
-      when: ansible_facts['os_family'] == 'Archlinux'
+      when: ih_family == 'Archlinux'
 
     # APT batched install runs ~7 min on Ubuntu and trips the 2.19 ansiballz
     # race; raw bypasses the Python module entirely. Env vars are inline
@@ -63,23 +115,16 @@
       ansible.builtin.raw: >-
         set -o pipefail;
         {{ apt_raw_env }}
-        apt-get install {{ apt_raw_flags }} {{ apt_packages | join(' ') }}
+        apt-get install {{ apt_raw_flags }} {{ software_installer_batches.apt | join(' ') }}
         2>&1 | tee -a /var/log/installation-apt-batch.log
       become: true
-      vars:
-        apt_packages: >-
-          {{ software_installer_packages
-             | selectattr('value.manager', 'equalto', 'apt')
-             | rejectattr('value.is_deb_url', 'defined')
-             | map(attribute='value.package')
-             | list }}
       register: apt_batch_result
       # Detect "no work" via apt's own output to avoid always-changed reports.
       changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (apt_batch_result.stdout | default(''))"
       failed_when: apt_batch_result.rc | default(0) != 0
       when:
-        - ansible_facts['os_family'] == 'Debian'
-        - apt_packages | length > 0
+        - ih_family == 'Debian'
+        - software_installer_batches.apt | length > 0
       tags: [apt_batch]
 
     - name: Show last 30 lines of apt batch install log (debug)
@@ -88,71 +133,227 @@
       changed_when: false
       failed_when: false
       when:
-        - ansible_facts['os_family'] == 'Debian'
-        - apt_packages | length > 0
-      vars:
-        apt_packages: >-
-          {{ software_installer_packages
-             | selectattr('value.manager', 'equalto', 'apt')
-             | rejectattr('value.is_deb_url', 'defined')
-             | map(attribute='value.package')
-             | list }}
+        - ih_family == 'Debian'
+        - software_installer_batches.apt | length > 0
       tags: [apt_batch]
 
-    # Two-step pattern for apt_url installs: download with retries first (so a
-    # transient network blip on one vendor doesn't kill the whole loop), then
-    # install from the local file. apt module's `deb: <url>` parameter has no
-    # retry support; doing the fetch ourselves lets us add `retries:` + `delay:`.
-    # Downloads are network-bound — fire in parallel via poll: 0.
-    # `throttle: 4` keeps the count reasonable on slow connections;
-    # async_status collects results in the next task.
-    - name: Download .deb files for apt_url installs (parallel, fire-and-forget)
-      ansible.builtin.get_url:
-        url: "{{ item_url }}"
-        dest: "/tmp/apt_url-{{ item.key }}.deb"
-        mode: '0644'
-        timeout: 60
-      become: true
-      register: apt_url_jobs
-      async: 300
-      poll: 0
-      throttle: 4
+    # Resolved once, into a list of {key, url, dest}, and every task below loops over that. The
+    # download task and the install task each used to re-derive the URL with their own copy of the
+    # same expression, which is the two-lists shape this repository has already been burnt by: edit
+    # one and the run downloads under one condition and installs under another.
+    #
+    # An empty url is dropped here rather than guarded for three times. That is also the shape the
+    # verify play asserts against, so a mapping with no download location is a named failure in the
+    # e2e run instead of a package that silently never installs.
+    - name: Resolve the vendor .deb downloads this run needs
+      ansible.builtin.set_fact:
+        apt_url_items: >-
+          {{ apt_url_items | default([]) + [{
+               'key': item.key,
+               'url': item_url | trim,
+               'dest': software_installer_stage_dir ~ '/' ~ item.key ~ '.deb'
+             }] }}
       loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'apt_url') | list }}"
       vars:
         item_url: "{{ item.value.url | default(lookup('vars', item.key ~ '_url', default='')) }}"
       when:
-        - ansible_facts['os_family'] == 'Debian'
-        - item_url | length > 0
+        - ih_family == 'Debian'
+        - item_url | trim | length > 0
       loop_control:
         label: "{{ item.key }}"
       tags: [apt_batch]
 
-    - name: Wait for .deb downloads to finish
-      ansible.builtin.async_status:
-        jid: "{{ item.ansible_job_id }}"
-      register: apt_url_download
-      retries: 60
-      delay: 5
-      until: apt_url_download.finished
-      loop: "{{ apt_url_jobs.results | default([]) }}"
-      loop_control:
-        label: "{{ item.item.key | default('skipped') }}"
-      failed_when: false   # per-item failure shown by the next install task
-      when:
-        - ansible_facts['os_family'] == 'Debian'
-        - item is not skipped
-        - item.ansible_job_id is defined
+    # Vendor .deb files are staged in a directory only root can enter, never in /tmp. The old path
+    # was /tmp/apt_url-<key>.deb, which is a predictable name in a directory every local account can
+    # write to, and the file is then handed to apt and installed as root. Any unprivileged user on
+    # the machine could sit in a loop replacing that file between the download and the install and
+    # get their own package installed with root maintainer scripts. Mode 0700 on the directory closes
+    # the window without needing to trust the file name.
+    #
+    # Not gated on os_family, because custom_installs.yaml stages its own vendor artifacts here on
+    # Fedora as well, and a directory that exists only on Debian would send those back to /tmp.
+    #
+    # No `group:` on purpose, and this is the second time a hardcoded per-platform name has bitten this
+    # repository. Asking for `group: root` fails on macOS, where the group owning gid 0 is named wheel,
+    # and this task runs on every platform and sits early in the block, so a failed group lookup would
+    # have taken the Homebrew batches and every macOS custom install down with it and named only this
+    # task. Omitting it gives the directory root's own primary group, which is root on Linux and wheel
+    # on macOS, decided by the platform rather than by us. At mode 0700 the group cannot read it anyway.
+    - name: Create the private staging directory for vendor downloads
+      ansible.builtin.file:
+        path: "{{ software_installer_stage_dir }}"
+        state: directory
+        owner: root
+        mode: '0700'
+      become: true
       tags: [apt_batch]
 
+    # Two-step pattern: fetch the .deb, then install from the local file. The apt module's own
+    # `deb: <url>` parameter has no retry support, so the fetch is done here where `retries` and
+    # `delay` apply.
+    #
+    # `force: true` because the destination name is stable while several of these artifacts are not.
+    # TeamViewer's download URL has no version in it at all, so a cached file under a permanent path
+    # would be reused forever and the run would install a months-old build while reporting success,
+    # and tier 3 could not catch it because it compares package names and never versions. get_url
+    # with force compares content and still reports ok when the bytes match, so idempotency survives.
+    #
+    # `async` with `poll` above zero bounds the task without introducing any concurrency. It is here
+    # because `timeout: 60` bounds a single socket operation and not the transfer, so a vendor that
+    # dribbles bytes could hold an unattended run open indefinitely. This is the same mistake, in the
+    # same file, that the AUR loop below records having made.
+    #
+    # One dead vendor URL must not cost the rest of the phase. Before this was two tasks it could
+    # not: the download was fatal, and the tasks after it are the flatpak batch, snap, and every
+    # custom install, so a single 404 on a pinned artifact took roughly twenty applications down with
+    # it. `ignore_errors` keeps the item's own failure loud in the log and lets the others proceed,
+    # and what happened is then established from the file on disk rather than from the result's
+    # `failed` key, which `failed_when` rewrites and e2e/tier1/failed_key_reads.sh forbids reading.
+    - name: Download .deb files for apt_url installs
+      ansible.builtin.get_url:
+        url: "{{ item.url }}"
+        dest: "{{ item.dest }}"
+        # Keyed by artifact, `<toggle>_deb`, because every other callsite in the repository keys this
+        # mapping by artifact and the documented examples do too. This one keyed it by the bare toggle
+        # name, so the five entries it looks for could not be written by anyone following the
+        # documentation, and the mapping is empty, so nothing noticed.
+        checksum: "{{ download_checksums[item.key ~ '_deb'] | default(omit) }}"
+        force: true
+        mode: '0600'
+        timeout: 60
+      become: true
+      register: apt_url_download
+      async: 900
+      poll: 5
+      retries: 3
+      delay: 10
+      until: apt_url_download is succeeded
+      ignore_errors: true
+      loop: "{{ apt_url_items | default([]) }}"
+      loop_control:
+        label: "{{ item.key }}"
+      tags: [apt_batch]
+
+    - name: Check which vendor .deb files actually arrived
+      ansible.builtin.stat:
+        path: "{{ item.dest }}"
+      become: true
+      register: apt_url_staged
+      loop: "{{ apt_url_items | default([]) }}"
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      tags: [apt_batch]
+
+    # The stat results are turned into two lists of keys here rather than looped over directly, and the
+    # reason is what the run record looks like. A loop over `apt_url_staged.results` makes each loop
+    # item an entire stat result, and the callback records the raw item rather than the loop label, so
+    # every per-item line for the install below read as several hundred characters of mode, inode and
+    # checksum before reaching the package name, and the end-of-run "installed" section carried four of
+    # those dictionaries instead of four package names. A failure has to name the software the user did
+    # not get, and that one did the opposite. Measured on a Debian container run, not reasoned about.
+    #
+    # Both lists come off the same results in one task, so present and absent cannot drift apart.
+    - name: List which vendor .deb files arrived and which did not
+      ansible.builtin.set_fact:
+        apt_url_present: >-
+          {{ apt_url_staged.results | default([])
+             | selectattr('stat.exists')
+             | map(attribute='item.key')
+             | list }}
+        apt_url_absent: >-
+          {{ apt_url_staged.results | default([])
+             | rejectattr('stat.exists')
+             | map(attribute='item.key')
+             | list }}
+      tags: [apt_batch]
+
+    # Tolerated per item, for the same reason the download above is, and this half was missed when the
+    # download half was fixed. Measured consequence, not a hypothetical: on the Debian defaults run of
+    # 2026-08-17 balenaEtcher's vendor package declared a dependency on a graphical authentication agent
+    # that a container has no desktop to provide, apt refused it, this task was fatal, and the block's
+    # rescue skipped everything after it. The flatpak batch of roughly twenty applications, snap and
+    # every custom install were lost to one unsatisfiable dependency on one of five artifacts, while the
+    # same scenario on Fedora installed its flatpaks. Compare the two result files if you want to see it.
+    #
+    # ignore_errors rather than failed_when, because failed_when rewrites the result's `failed` key and
+    # e2e/tier1/failed_key_reads.sh forbids reading that key, so what actually happened is established
+    # below from the package database instead of from this task's result.
     - name: Install APT from URL (deb, from local file)
       ansible.builtin.apt:
-        deb: "/tmp/apt_url-{{ item.key }}.deb"
+        deb: "{{ item.dest }}"
         state: present
       become: true
-      loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'apt_url') | list }}"
-      when:
-        - ansible_facts['os_family'] == 'Debian'
-        - (item.value.url | default(lookup('vars', item.key ~ '_url', default=''))) | length > 0
+      ignore_errors: true
+      loop: >-
+        {{ apt_url_items | default([])
+           | selectattr('key', 'in', apt_url_present | default([]))
+           | list }}
+      loop_control:
+        label: "{{ item.key }}"
+      tags: [apt_batch]
+
+    # Asks dpkg what is on the machine rather than trusting the task above, which is the same shape as
+    # the `pacman -Qq` check that finally caught the AUR case. A vendor package can also exit zero and
+    # install nothing, and this notices that too.
+    - name: Ask dpkg which vendor packages actually installed
+      ansible.builtin.shell: "dpkg-query -W -f='${Status}' {{ item.package }} 2>/dev/null | grep -c 'install ok installed' || true"
+      register: apt_url_installed_check
+      changed_when: false
+      loop: >-
+        {{ software_installer_packages
+           | selectattr('value.manager', 'equalto', 'apt_url')
+           | map(attribute='value') | list }}
+      loop_control:
+        label: "{{ item.package }}"
+      when: ansible_facts['system'] == 'Linux' and ih_family == 'Debian'
+      tags: [apt_batch]
+
+    - name: Work out which vendor packages the user did not get
+      ansible.builtin.set_fact:
+        apt_url_missing: >-
+          {{ (apt_url_installed_check.results | default([]))
+             | rejectattr('stdout', 'equalto', '1')
+             | map(attribute='item.package') | list }}
+      tags: [apt_batch]
+
+    # A package the user asked for and did not get marks the run failed at the end, whether the file
+    # never arrived or the install refused it. Tolerating a failure mid-run and pretending it did not
+    # happen are different things.
+    - name: Record vendor packages that are not installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+      when: (apt_url_absent | default([]) | length > 0) or (apt_url_missing | default([]) | length > 0)
+      tags: [apt_batch]
+
+    - name: Report vendor downloads that never arrived
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] These packages install from a vendor URL and the file never arrived, so they are not
+          installed: {{ apt_url_absent | join(', ') }}. The URLs come from group_vars/versions.yaml,
+          and a 404 there usually means the pinned version has been withdrawn.
+      when: apt_url_absent | default([]) | length > 0
+      tags: [apt_batch]
+
+    - name: Report vendor packages whose install was refused
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] These vendor packages downloaded but are not installed, so dpkg refused them:
+          {{ apt_url_missing | join(', ') }}. The reason is in the failed task above, and an
+          unsatisfiable dependency on a graphical component is the usual one on a machine with no
+          desktop. Everything after this step still ran.
+      when: apt_url_missing | default([]) | length > 0
+      tags: [apt_batch]
+
+    # Nothing here is wanted after the install: they are one-shot vendor artifacts, up to five of
+    # them, the largest measured at 119 MB, and leaving them behind grows /var/cache on every run
+    # for no benefit. Removing them also means there is no cached file for a later run to trust.
+    - name: Remove the staged vendor .deb files
+      ansible.builtin.file:
+        path: "{{ item.dest }}"
+        state: absent
+      become: true
+      loop: "{{ apt_url_items | default([]) }}"
       loop_control:
         label: "{{ item.key }}"
       tags: [apt_batch]
@@ -160,18 +361,12 @@
     # Kept on the native dnf module — last Fedora run was clean.
     - name: Install DNF packages (batched)
       ansible.builtin.dnf:
-        name: "{{ dnf_packages }}"
+        name: "{{ software_installer_batches.dnf }}"
         state: present
       become: true
-      vars:
-        dnf_packages: >-
-          {{ software_installer_packages
-             | selectattr('value.manager', 'in', ['dnf', 'dnf_repo'])
-             | map(attribute='value.package')
-             | list }}
       when:
-        - ansible_facts['os_family'] == 'RedHat'
-        - dnf_packages | length > 0
+        - ih_family == 'RedHat'
+        - software_installer_batches.dnf | length > 0
       tags: [dnf_batch]
 
     - name: Install DNF from URL (rpm)
@@ -197,8 +392,10 @@
       delay: 10
       until: dnf_url_install is succeeded
       when:
-        - ansible_facts['os_family'] == 'RedHat'
-        - item_url | length > 0
+        - ih_family == 'RedHat'
+        # Trimmed, so a pin holding nothing but whitespace counts as absent here and in
+        # e2e/tier3/verify.yaml alike rather than as absent to one and present to the other.
+        - item_url | trim | length > 0
       loop_control:
         label: "{{ item.key }}"
       tags: [dnf_batch]
@@ -206,18 +403,12 @@
     # Kept on the native pacman module — last Arch run was clean.
     - name: Install Pacman packages (batched)
       community.general.pacman:
-        name: "{{ pacman_packages }}"
+        name: "{{ software_installer_batches.pacman }}"
         state: present
       become: true
-      vars:
-        pacman_packages: >-
-          {{ software_installer_packages
-             | selectattr('value.manager', 'equalto', 'pacman')
-             | map(attribute='value.package')
-             | list }}
       when:
-        - ansible_facts['os_family'] == 'Archlinux'
-        - pacman_packages | length > 0
+        - ih_family == 'Archlinux'
+        - software_installer_batches.pacman | length > 0
       tags: [pacman_batch]
       # No failed_when here on purpose. It used to hold two conditions, which
       # Ansible combines with AND, so any "could not find" error marked a fully
@@ -271,7 +462,7 @@
         use: paru
         extra_args: "--noconfirm --skipreview --needed --noprovides"
       loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'aur') | list }}"
-      when: ansible_facts['os_family'] == 'Archlinux'
+      when: ih_family == 'Archlinux'
       register: aur_results
       async: "{{ aur_build_timeout | default(5400) | int }}"
       poll: 15
@@ -298,7 +489,7 @@
              | rejectattr('rc', 'equalto', 0)
              | map(attribute='item.value.package')
              | list }}
-      when: ansible_facts['os_family'] == 'Archlinux'
+      when: ih_family == 'Archlinux'
       tags: [pacman_batch]
 
     # A build killed by the async timeout comes back with no rc at all, so the collector above cannot
@@ -317,7 +508,7 @@
              | selectattr('msg', 'search', 'did not complete within the requested time')
              | map(attribute='item.value.package')
              | list }}
-      when: ansible_facts['os_family'] == 'Archlinux'
+      when: ih_family == 'Archlinux'
       tags: [pacman_batch]
 
     # A third shape, and the only one of the three that the job's own result cannot reveal: paru
@@ -344,7 +535,7 @@
       changed_when: false
       failed_when: false
       when:
-        - ansible_facts['os_family'] == 'Archlinux'
+        - ih_family == 'Archlinux'
         - software_installer_packages | selectattr('value.manager', 'equalto', 'aur') | list | length > 0
       tags: [pacman_batch]
 
@@ -356,7 +547,7 @@
              | map(attribute='value.package')
              | difference(aur_installed_query.stdout_lines | default([]))
              | list }}
-      when: ansible_facts['os_family'] == 'Archlinux'
+      when: ih_family == 'Archlinux'
       tags: [pacman_batch]
 
     - name: Combine every kind of AUR failure
@@ -365,7 +556,7 @@
           {{ (aur_reported_failures | default([])
               + aur_timed_out | default([])
               + aur_absent_after_install | default([])) | unique }}
-      when: ansible_facts['os_family'] == 'Archlinux'
+      when: ih_family == 'Archlinux'
       tags: [pacman_batch]
 
     # Diagnosis for the shape that reports success and installs nothing. It has now happened three
@@ -400,7 +591,7 @@
       changed_when: false
       failed_when: false
       when:
-        - ansible_facts['os_family'] == 'Archlinux'
+        - ih_family == 'Archlinux'
         - aur_absent_after_install | default([]) | length > 0
       tags: [pacman_batch]
 
@@ -411,7 +602,7 @@
       ansible.builtin.debug:
         msg: "[WARN] AUR packages failed to build: {{ aur_reported_failures | join(', ') }}"
       when:
-        - ansible_facts['os_family'] == 'Archlinux'
+        - ih_family == 'Archlinux'
         - aur_reported_failures | default([]) | length > 0
       tags: [pacman_batch]
 
@@ -419,7 +610,7 @@
       ansible.builtin.debug:
         msg: "[WARN] AUR packages reported a successful build and pacman does not have them: {{ aur_absent_after_install | join(', ') }}. Either the build exited zero without installing, which a rerun usually shows again, or the package name in vars/Archlinux.yaml is the AUR base rather than the built package name, in which case fix the mapping."
       when:
-        - ansible_facts['os_family'] == 'Archlinux'
+        - ih_family == 'Archlinux'
         - aur_absent_after_install | default([]) | length > 0
       tags: [pacman_batch]
 
@@ -427,7 +618,7 @@
       ansible.builtin.debug:
         msg: "[WARN] AUR packages were still building when their wait expired, so they are NOT installed: {{ aur_timed_out | join(', ') }}."
       when:
-        - ansible_facts['os_family'] == 'Archlinux'
+        - ih_family == 'Archlinux'
         - aur_timed_out | default([]) | length > 0
       tags: [pacman_batch]
 
@@ -440,17 +631,27 @@
       ansible.builtin.set_fact:
         any_role_failed: true
       when:
-        - ansible_facts['os_family'] == 'Archlinux'
+        - ih_family == 'Archlinux'
         - failed_aur_packages | default([]) | length > 0
       tags: [pacman_batch]
 
+    # No `| default(false)` on aur_allow_failures. defaults/main.yml sets it to true and is the single
+    # source for what absent means, and reading it here with a default of false gave the same question
+    # two answers: the role default said "carry on and report at the end", the read said "stop now".
+    # A role default cannot be absent in the first place, so the default here could only ever
+    # contradict it, and the message beside it described whichever of the two the reader happened to
+    # trust. The message now states the real default.
     - name: Fail immediately if AUR packages failed and aur_allow_failures is false
       ansible.builtin.fail:
-        msg: "AUR package install failed: {{ failed_aur_packages | join(', ') }}. Leave aur_allow_failures true to finish the run and be told at the end instead of stopping here."
+        msg: >-
+          AUR package install failed: {{ failed_aur_packages | join(', ') }}. This run stops here
+          because aur_allow_failures was set to false. Its default is true, which finishes the run and
+          names the missing packages at the end instead, and either way the run's exit code reports the
+          failure.
       when:
-        - ansible_facts['os_family'] == 'Archlinux'
+        - ih_family == 'Archlinux'
         - failed_aur_packages | default([]) | length > 0
-        - not (aur_allow_failures | default(false) | bool)
+        - not (aur_allow_failures | bool)
       tags: [pacman_batch]
 
     # Snap fetches from api.snapcraft.io can flake with HTTP 56 (peer reset)
@@ -479,7 +680,7 @@
       become: true
       when:
         - ansible_facts['system'] == 'Linux'
-        - software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0
+        - software_installer_batches.flatpak | length > 0
       tags: [flatpak]
 
     - name: Check flatpak repository health
@@ -490,7 +691,7 @@
       become: true
       when:
         - ansible_facts['system'] == 'Linux'
-        - software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0
+        - software_installer_batches.flatpak | length > 0
       tags: [flatpak]
 
     - name: Purge corrupted flatpak ostree repository (opt-in only)
@@ -500,7 +701,7 @@
       become: true
       when:
         - ansible_facts['system'] == 'Linux'
-        - software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0
+        - software_installer_batches.flatpak | length > 0
         - flatpak_health is defined
         - flatpak_health.rc != 0
         - flatpak_force_repo_reset | default(false) | bool
@@ -517,7 +718,7 @@
       become: true
       when:
         - ansible_facts['system'] == 'Linux'
-        - software_installer_packages | selectattr('value.manager', 'equalto', 'flatpak') | list | length > 0
+        - software_installer_batches.flatpak | length > 0
       tags: [flatpak]
 
     # Debian flatpak batch is large enough (15–20 min) to trip the 2.19 race
@@ -529,22 +730,16 @@
       ansible.builtin.raw: >-
         set -o pipefail;
         flatpak install --system --noninteractive --assumeyes flathub
-        {{ flatpak_packages | join(' ') }}
+        {{ software_installer_batches.flatpak | join(' ') }}
         2>&1 | tee -a /var/log/installation-flatpak-batch.log
       become: true
-      vars:
-        flatpak_packages: >-
-          {{ software_installer_packages
-             | selectattr('value.manager', 'equalto', 'flatpak')
-             | map(attribute='value.package')
-             | list }}
       register: flatpak_batch_result
       # flatpak prints "Nothing to do." when every package is already installed.
       changed_when: "'Nothing to do' not in (flatpak_batch_result.stdout | default(''))"
       failed_when: flatpak_batch_result.rc | default(0) != 0
       when:
-        - ansible_facts['os_family'] == 'Debian'
-        - flatpak_packages | length > 0
+        - ih_family == 'Debian'
+        - software_installer_batches.flatpak | length > 0
       tags: [flatpak]
 
     - name: Show last 30 lines of flatpak batch install log (Debian, debug)
@@ -553,32 +748,20 @@
       changed_when: false
       failed_when: false
       when:
-        - ansible_facts['os_family'] == 'Debian'
-        - flatpak_packages | length > 0
-      vars:
-        flatpak_packages: >-
-          {{ software_installer_packages
-             | selectattr('value.manager', 'equalto', 'flatpak')
-             | map(attribute='value.package')
-             | list }}
+        - ih_family == 'Debian'
+        - software_installer_batches.flatpak | length > 0
       tags: [flatpak]
 
     - name: Install Flatpak packages (Arch/Fedora, batched via community.general.flatpak)
       community.general.flatpak:
-        name: "{{ flatpak_packages }}"
+        name: "{{ software_installer_batches.flatpak }}"
         remote: flathub
         state: present
       become: true
-      vars:
-        flatpak_packages: >-
-          {{ software_installer_packages
-             | selectattr('value.manager', 'equalto', 'flatpak')
-             | map(attribute='value.package')
-             | list }}
       when:
         - ansible_facts['system'] == 'Linux'
-        - ansible_facts['os_family'] != 'Debian'
-        - flatpak_packages | length > 0
+        - ih_family != 'Debian'
+        - software_installer_batches.flatpak | length > 0
       tags: [flatpak]
 
     # ------------------ MACOS MANAGERS ------------------
@@ -594,7 +777,7 @@
              | map(attribute='value.package')
              | list }}
       when:
-        - ansible_facts['os_family'] == 'Darwin'
+        - ih_family == 'Darwin'
         - brew_packages | length > 0
       tags: [brew]
 
@@ -609,14 +792,14 @@
              | map(attribute='value.package')
              | list }}
       when:
-        - ansible_facts['os_family'] == 'Darwin'
+        - ih_family == 'Darwin'
         - brew_cask_packages | length > 0
       tags: [brew]
 
     # ------------------ WINDOWS MANAGERS ------------------
     - name: Include Windows installation tasks
       ansible.builtin.include_tasks: windows_install.yaml
-      when: ansible_facts['os_family'] == 'Windows'
+      when: ih_family == 'Windows'
       tags: [choco, winget]
 
     # ------------------ CUSTOM INSTALLS (flatpak bundles, AppImages, binaries) --
@@ -626,23 +809,43 @@
 
     - name: Include macOS custom install tasks
       ansible.builtin.include_tasks: macos_install.yaml
-      when: ansible_facts['os_family'] == 'Darwin'
+      when: ih_family == 'Darwin'
   # This rescue keeps the rest of the playbook running after an install error, but
   # it used to emit one anonymous warning line, which hid both which task failed
   # and the fact that every later task in this block was skipped. It also never
   # propagated, so site.yaml's own rescue around this role never fired and the run
   # exited zero. See docs/regression_ledger.md.
   rescue:
+    # Which batch failed, or an empty string when what failed was not a batch. Every batched task name
+    # in this file contains the word "batched" and the manager's own name, so matching on both is
+    # enough to tell "Install DNF packages (batched)" from "Install DNF from URL (rpm)", which loops
+    # per item and whose own failure says which item it was. An empty answer is the honest one for
+    # everything else in the block, snap and the custom installs among them, and the message below then
+    # names no list rather than the wrong one.
+    - name: Work out which batch failed, if a batch is what failed
+      ansible.builtin.set_fact:
+        failed_batch_manager: >-
+          {{ (software_installer_batches | default({}) | dict2items
+              | selectattr('key', 'in', ansible_failed_task.name | default('') | lower)
+              | map(attribute='key') | list | first | default(''))
+             if 'batched' in (ansible_failed_task.name | default('') | lower) else '' }}
+
     - name: Name the install step that failed and what it cost
       ansible.builtin.debug:
         msg: >-
           [ERROR] Install step '{{ ansible_failed_task.name | default('unknown') }}' failed:
           {{ ansible_failed_result.msg | default(ansible_failed_result.stderr | default('no message given')) }}
+          {% if failed_batch_manager | length > 0 %}
+          A batch is one call, so every application in it is missing, not just the one that broke.
+          These {{ software_installer_batches[failed_batch_manager] | length }} packages were in the
+          failed {{ failed_batch_manager }} batch and are NOT installed:
+          {{ software_installer_batches[failed_batch_manager] | join(', ') }}.
+          {% endif %}
           Every remaining task in the software installer was skipped, so anything
           listed after this step is NOT installed.
           {% if 'could not find' in (ansible_failed_result.msg | default('')) %}
           A package name did not resolve. Either the name in
-          vars/{{ ansible_facts['os_family'] }}.yaml is wrong, or it lives in a
+          vars/{{ ih_family }}.yaml is wrong, or it lives in a
           repository that is not enabled, which on Arch means multilib in
           /etc/pacman.conf for the 32-bit Steam dependencies.
           {% endif %}

@@ -17,7 +17,7 @@
   register: trezor_deb
   when:
     - install_trezor_suite | bool
-    - ansible_facts['os_family'] == 'Debian'
+    - ih_family == 'Debian'
 
 - name: Add Trezor udev rules (RedHat)
   ansible.builtin.get_url:
@@ -30,7 +30,7 @@
   register: trezor_rules_redhat
   when:
     - install_trezor_suite | bool
-    - ansible_facts['os_family'] == 'RedHat'
+    - ih_family == 'RedHat'
 
 - name: Add Trezor udev rules (Archlinux)
   ansible.builtin.get_url:
@@ -43,12 +43,26 @@
   register: trezor_rules_arch
   when:
     - install_trezor_suite | bool
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
 
+# Both udev calls are tolerated, and the reason is measured rather than defensive. A container, a WSL
+# instance and a chroot all have no running udev daemon, so `udevadm control --reload-rules` exits
+# non-zero there. These tasks had no tolerance, this role is wrapped in a rescue in site.yaml, and the
+# result was that a reload which cannot possibly work decided the exit code of the whole run and the
+# rescue then skipped the trigger, so nothing reloaded at all. Recorded in the Debian defaults run of
+# 2026-08-17, where `linux_crypto_hardware : Reload udev rules` failed with a non-zero return code
+# while every rule file had been written correctly.
+#
+# The rules on disk are what matter. They are read by udev when the real system boots, so on a machine
+# with no running daemon there is nothing to reload and nothing is lost. On a machine with one, a
+# failure to reload means the device rules do not take effect until the next boot, which is worth
+# saying out loud rather than swallowing, so it is reported and it marks the run failed.
 - name: Reload udev rules
   ansible.builtin.command: udevadm control --reload-rules
   become: yes
   changed_when: false
+  register: udev_reload
+  failed_when: false
   when: >-
     (ledger_rules is defined and ledger_rules is changed) or
     (trezor_deb is defined and trezor_deb is changed) or
@@ -59,8 +73,27 @@
   ansible.builtin.command: udevadm trigger
   become: yes
   changed_when: false
+  register: udev_trigger
+  failed_when: false
   when: >-
-    (ledger_rules is defined and ledger_rules is changed) or
-    (trezor_deb is defined and trezor_deb is changed) or
-    (trezor_rules_redhat is defined and trezor_rules_redhat is changed) or
-    (trezor_rules_arch is defined and trezor_rules_arch is changed)
+    (udev_reload is defined and udev_reload.rc is defined and udev_reload.rc == 0)
+
+# Read from rc rather than from the result's failed key, which failed_when has just rewritten and which
+# e2e/tier1/failed_key_reads.sh forbids reading.
+- name: Decide whether udev accepted the new rules
+  ansible.builtin.set_fact:
+    udev_rules_live: >-
+      {{ (udev_reload.rc | default(1)) == 0 and (udev_trigger.rc | default(1)) == 0 }}
+  when: udev_reload is defined
+
+- name: Report that the device rules are on disk but not yet active
+  ansible.builtin.debug:
+    msg: >-
+      [WARN] The crypto hardware device rules were written but udev did not reload them, so they take
+      effect at the next boot rather than now. On a container or a WSL instance that is expected,
+      because there is no udev daemon running. udevadm said:
+      {{ udev_reload.stderr | default(udev_trigger.stderr | default('nothing')) | trim }}
+  when:
+    - udev_reload is defined
+    - udev_reload is not skipped
+    - not (udev_rules_live | default(true))

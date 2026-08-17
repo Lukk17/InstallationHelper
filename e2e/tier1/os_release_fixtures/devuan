@@ -1,0 +1,17 @@
+# Devuan 5 "daedalus". Extracted 2026-08-17 from Devuan's own package archive: base-files
+# 12.4+deb12u14devuan1 from
+# http://deb.devuan.org/merged/pool/DEVUAN/main/b/base-files/base-files_12.4%2Bdeb12u14devuan1_all.deb
+# with sha256 716ddd1aa549e229b1873e95f85c4e52932201e15555c91c9080560151742f22 matching the daedalus
+# Packages index, unpacked with dpkg-deb. In the package /etc/os-release is a symlink to
+# ../usr/lib/os-release and this is that file. Packaging branch:
+# https://git.devuan.org/devuan/base-files
+PRETTY_NAME="Devuan GNU/Linux 5 (daedalus)"
+NAME="Devuan GNU/Linux"
+VERSION_ID="5"
+VERSION="5 (daedalus)"
+VERSION_CODENAME="daedalus"
+ID=devuan
+ID_LIKE=debian
+HOME_URL="https://www.devuan.org/"
+SUPPORT_URL="https://devuan.org/os/community"
+BUG_REPORT_URL="https://bugs.devuan.org/"

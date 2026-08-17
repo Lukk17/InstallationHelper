@@ -1,0 +1,26 @@
+# Rocky Linux 9.8 "Blue Onyx". Captured 2026-08-17 from the official image on Docker Hub:
+# docker run --rm rockylinux/rockylinux:9 cat /etc/os-release, image digest
+# sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f. The same container's
+# /etc/redhat-release reads "Rocky Linux release 9.8 (Blue Onyx)", which is what makes Ansible answer
+# distribution Rocky: it reads the first word of that file, and Rocky is in the RedHat family list in
+# OS_FAMILY_MAP. So this fixture proves the first branch of the derivation, not the ID_LIKE one.
+NAME="Rocky Linux"
+VERSION="9.8 (Blue Onyx)"
+RELEASE_TYPE="stable"
+ID="rocky"
+ID_LIKE="rhel centos fedora"
+VERSION_ID="9.8"
+PLATFORM_ID="platform:el9"
+PRETTY_NAME="Rocky Linux 9.8 (Blue Onyx)"
+ANSI_COLOR="0;32"
+LOGO="fedora-logo-icon"
+CPE_NAME="cpe:/o:rocky:rocky:9::baseos"
+HOME_URL="https://rockylinux.org/"
+VENDOR_NAME="RESF"
+VENDOR_URL="https://resf.org/"
+BUG_REPORT_URL="https://bugs.rockylinux.org/"
+SUPPORT_END="2032-05-31"
+ROCKY_SUPPORT_PRODUCT="Rocky-Linux-9"
+ROCKY_SUPPORT_PRODUCT_VERSION="9.8"
+REDHAT_SUPPORT_PRODUCT="Rocky Linux"
+REDHAT_SUPPORT_PRODUCT_VERSION="9.8"

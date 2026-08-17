@@ -12,7 +12,7 @@
   register: claude_desktop_stat
   when:
     - install_claude_desktop | default(false) | bool
-    - ansible_facts['os_family'] == 'Debian'
+    - ih_family == 'Debian'
 
 - name: Download Claude Desktop .deb (Linux Debian)
   ansible.builtin.get_url:
@@ -28,7 +28,7 @@
   until: claude_desktop_download is succeeded
   when:
     - install_claude_desktop | default(false) | bool
-    - ansible_facts['os_family'] == 'Debian'
+    - ih_family == 'Debian'
     - not (claude_desktop_stat.stat.exists | default(false))
 
 # Use raw apt-get instead of ansible.builtin.apt:deb to avoid the 2.19
@@ -57,7 +57,7 @@
   failed_when: claude_desktop_apt_result.rc | default(0) != 0
   when:
     - install_claude_desktop | default(false) | bool
-    - ansible_facts['os_family'] == 'Debian'
+    - ih_family == 'Debian'
     - not (claude_desktop_stat.stat.exists | default(false))
 
 - name: Check if Claude Desktop is installed (Arch Linux)
@@ -67,7 +67,7 @@
   failed_when: false
   when:
     - install_claude_desktop | default(false) | bool
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
 
 - name: Install Claude Desktop via AUR (Arch Linux)
   become: yes
@@ -79,7 +79,7 @@
     state: present
   when:
     - install_claude_desktop | default(false) | bool
-    - ansible_facts['os_family'] == 'Archlinux'
+    - ih_family == 'Archlinux'
     - claude_desktop_arch_check.rc != 0
 
 - name: Install Claude Desktop (macOS)
@@ -88,5 +88,5 @@
     state: present
   when:
     - install_claude_desktop | default(false) | bool
-    - ansible_facts['os_family'] == 'Darwin'
+    - ih_family == 'Darwin'
 

@@ -39,5 +39,5 @@
       export PATH="/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator:$HOME/.pub-cache/bin:$PATH"
   become: yes
   become_user: "{{ non_root_user }}"
-  when: ansible_facts['os_family'] == 'Darwin'
+  when: ih_family == 'Darwin'
 

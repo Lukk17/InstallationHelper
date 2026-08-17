@@ -93,7 +93,7 @@
   ansible.builtin.apt:
     name: systemd-boot
     state: present
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Backup existing loader entries before any write
   become: yes
@@ -149,15 +149,15 @@
 
 - name: Include Arch Linux boot entry setup
   ansible.builtin.include_tasks: arch.yaml
-  when: ansible_facts['os_family'] == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Include Debian boot entry setup
   ansible.builtin.include_tasks: debian.yaml
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ih_family == 'Debian'
 
 - name: Include Fedora boot entry setup
   ansible.builtin.include_tasks: fedora.yaml
-  when: ansible_facts['os_family'] == 'RedHat'
+  when: ih_family == 'RedHat'
 
 # --- Verification gate: ensure at least one valid boot entry exists ---
 
@@ -171,12 +171,27 @@
   ansible.builtin.set_fact:
     systemd_boot_verified: "{{ boot_entry_files.matched > 0 }}"
 
-- name: WARN if no boot entries found — GRUB will NOT be removed
+# Reported and flagged rather than failed hard, and the reasoning is worth stating because the
+# opposite looks safer than it is. site.yaml imports this role with no block and no rescue, so a
+# `fail` here aborts the entire play before a single package is installed: the user asked for a
+# bootloader and would lose the whole run over a missing loader entry. And the machine is not left
+# unbootable, which is the case that would justify aborting, because the GRUB removal below is gated
+# on systemd_boot_verified and therefore does not happen. So the machine still boots exactly as it did
+# before, through the bootloader it already had, and what the user did not get is systemd-boot as a
+# working boot path. That is a failure to report at the end with a non-zero exit code, not a reason to
+# abandon the run.
+- name: Report that systemd-boot has no boot entries — GRUB will NOT be removed
   ansible.builtin.debug:
-    msg: >
-      WARNING: systemd-boot installed but NO boot entries found in {{ esp_path }}/loader/entries/.
-      GRUB will NOT be removed to keep the system bootable.
-      Check kernel-install output or create entries manually.
+    msg: >-
+      [ERROR] systemd-boot was installed to {{ esp_path }} and NO boot entries exist in
+      {{ esp_path }}/loader/entries/, so booting through it would land at an empty menu. GRUB has been
+      left in place deliberately and the machine still boots the way it did before. Check the
+      kernel-install output above, or write an entry by hand, before enabling remove_distro_grub.
+  when: not systemd_boot_verified | bool
+
+- name: Record the missing systemd-boot entries in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
   when: not systemd_boot_verified | bool
 
 # --- Remove GRUB only if verified AND explicitly requested ---
