@@ -31,14 +31,23 @@ $script:ToggleLinePattern = '^(?<key>[a-z0-9_]+):\s*(?<value>true|false)\s*(#.*)
 # uniform, verified by checking that no line matching the key pattern fails this one.
 $script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?\}'
 
-function Get-WindowsSoftwareToggle {
+function Get-WindowsGroupVarToggle {
     <#
     .SYNOPSIS
-        Returns every install_ toggle that applies to Windows, as a key to boolean map.
+        Returns every boolean toggle that applies to Windows, as a key to boolean map.
     .DESCRIPTION
         group_vars/windows.yaml is layered over group_vars/all.yaml, which is the same
-        precedence the playbook and both wizards use. The key is returned without its
-        install_ prefix so it lines up with the mapping keys.
+        precedence the playbook and both wizards use. Keys come back exactly as written, so
+        one parse of one pair of files serves both the install_ toggles this file dispatches
+        and the system-setting toggles WindowsSettings.ps1 applies. A second hand-written
+        reader of the same format would drift from this one, which is the defect the bash and
+        PowerShell wizards shipped for months.
+
+        ToggleOverride is the wizard's non-interactive selection, and it is applied last, after both
+        files, because it is the caller's explicit answer and the files are only defaults. It is
+        applied here rather than at each callsite for the same single-source-of-truth reason: a
+        selection honoured by the software phase and dropped by the settings phase would be a run
+        that installs a different set from the one it was asked for, and says nothing about it.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -49,7 +58,9 @@ function Get-WindowsSoftwareToggle {
 
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
-        [string] $WindowsVarsPath
+        [string] $WindowsVarsPath,
+
+        [hashtable] $ToggleOverride
     )
 
     $toggles = @{}
@@ -60,11 +71,53 @@ function Get-WindowsSoftwareToggle {
         }
         foreach ($line in (Get-Content -LiteralPath $path)) {
             if ($line -match $script:ToggleLinePattern) {
-                $key = $Matches['key']
-                if (-not $key.StartsWith('install_')) { continue }
-                $toggles[$key.Substring('install_'.Length)] = ($Matches['value'] -eq 'true')
+                $toggles[$Matches['key']] = ($Matches['value'] -eq 'true')
             }
         }
+    }
+
+    if ($null -ne $ToggleOverride) {
+        foreach ($key in $ToggleOverride.Keys) {
+            $toggles[$key] = [bool] $ToggleOverride[$key]
+        }
+        Write-Verbose "Applied $($ToggleOverride.Count) toggle override(s) from the wizard's selection"
+    }
+
+    Write-Verbose "Read $($toggles.Count) boolean toggles"
+    return $toggles
+}
+
+function Get-WindowsSoftwareToggle {
+    <#
+    .SYNOPSIS
+        Returns every install_ toggle that applies to Windows, as a key to boolean map.
+    .DESCRIPTION
+        A filter over Get-WindowsGroupVarToggle, so the file precedence, the line pattern and the
+        wizard's selection override all live in one place. The key is returned without its install_
+        prefix so it lines up with the mapping keys, which is also why the override has to be applied
+        before the strip rather than here: its keys are the checklist's, and the checklist carries the
+        prefix.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string] $AllVarsPath,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string] $WindowsVarsPath,
+
+        [hashtable] $ToggleOverride
+    )
+
+    $all = Get-WindowsGroupVarToggle -AllVarsPath $AllVarsPath -WindowsVarsPath $WindowsVarsPath -ToggleOverride $ToggleOverride
+
+    $toggles = @{}
+    foreach ($key in $all.Keys) {
+        if (-not $key.StartsWith('install_')) { continue }
+        $toggles[$key.Substring('install_'.Length)] = $all[$key]
     }
     Write-Verbose "Read $($toggles.Count) install toggles"
     return $toggles
@@ -324,6 +377,55 @@ exit `$LASTEXITCODE
     }
 }
 
+function Get-ChocolateyInstalledPackage {
+    <#
+    .SYNOPSIS
+        The package ids Chocolatey itself reports as installed on this machine.
+    .DESCRIPTION
+        Asked rather than assumed. Install-ChocolateyPackageBatch returns one status for the whole
+        batch, and stamping that onto every package meant a single bad id reported all of them as
+        failed, so the summary lied about what the user lost. This is the same move the Arch path
+        makes when it asks `pacman -Qq` instead of trusting the module's own answer, see
+        docs/regression_ledger.md.
+
+        `--local-only` is passed even though Chocolatey 2 lists local packages by default, because
+        Chocolatey 1's bare `list` searches the remote feed instead, and a remote hit would report a
+        package as installed when it is absent. Chocolatey 2 still accepts the switch.
+
+        Returns an empty list when choco is not on PATH, which is the honest answer rather than an
+        error: it means the bootstrap inside the elevated child never finished, so nothing from the
+        batch is installed. Comparison at the callsite is `-contains`, which is case-insensitive for
+        strings, because Chocolatey reports ids in the casing the package author used and the
+        mappings are written lowercase.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+
+    if (-not (Get-Command choco -CommandType Application -ErrorAction SilentlyContinue)) {
+        Write-Verbose 'choco is not on PATH, so no package can be installed'
+        return @()
+    }
+
+    $previous = $PSNativeCommandUseErrorActionPreference
+    try {
+        # A non-zero exit is an answer here, not a fault.
+        $PSNativeCommandUseErrorActionPreference = $false
+        $output = & choco list --limit-output --local-only 2>&1 | Out-String
+    } finally {
+        $PSNativeCommandUseErrorActionPreference = $previous
+    }
+
+    # id|version, one per line. Chocolatey mixes its own retry chatter into the same stream, so the
+    # lines are selected by shape rather than by position.
+    $ids = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in ($output -split "`r?`n")) {
+        if ($line -match '^(?<id>[^|\s]+)\|') { $ids.Add($Matches['id']) }
+    }
+    Write-Verbose "Chocolatey reports $($ids.Count) installed package(s)"
+    return $ids.ToArray()
+}
+
 function Invoke-WindowsSoftwareInstall {
     <#
     .SYNOPSIS
@@ -336,12 +438,14 @@ function Invoke-WindowsSoftwareInstall {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $AnsibleDir,
-        [string[]] $OnlyKeys
+        [string[]] $OnlyKeys,
+        [hashtable] $ToggleOverride
     )
 
     $toggles  = Get-WindowsSoftwareToggle `
         -AllVarsPath     (Join-Path $AnsibleDir 'group_vars\all.yaml') `
-        -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml')
+        -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
+        -ToggleOverride  $ToggleOverride
     $mappings = Get-WindowsSoftwareMapping `
         -WindowsMappingPath (Join-Path $AnsibleDir 'vars\Windows.yaml')
 
@@ -351,25 +455,71 @@ function Invoke-WindowsSoftwareInstall {
 
     $wingetItems = @($plan.Planned | Where-Object { $_.Manager -eq 'winget' })
     if ($wingetItems.Count -gt 0) {
-        $winget = Get-WingetPath
-        Write-Verbose "Using winget at $winget"
-        foreach ($item in $wingetItems) {
-            $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source
-            $results.Add([PSCustomObject]@{
-                Key = $item.Key; Manager = 'winget'; Package = $item.Package
-                Status = $r.Status; Detail = $r.Detail
-            })
+        # Get-WingetPath throws when App Installer is absent, and setup.ps1 runs with
+        # $ErrorActionPreference = 'Stop', so letting that out of here ended the whole wizard: a
+        # machine without winget lost the Chocolatey batch, the npm tools, every custom install and
+        # every summary line, none of which need winget. One failed result per affected package
+        # instead, so the summary names exactly what was lost, and the run carries on.
+        $winget = $null
+        try {
+            $winget = Get-WingetPath
+            Write-Verbose "Using winget at $winget"
+        } catch {
+            foreach ($item in $wingetItems) {
+                $results.Add([PSCustomObject]@{
+                    Key = $item.Key; Manager = 'winget'; Package = $item.Package
+                    Status = 'failed'; Detail = $_.Exception.Message
+                })
+            }
+        }
+
+        if ($winget) {
+            foreach ($item in $wingetItems) {
+                $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source
+                $results.Add([PSCustomObject]@{
+                    Key = $item.Key; Manager = 'winget'; Package = $item.Package
+                    Status = $r.Status; Detail = $r.Detail
+                })
+            }
         }
     }
 
     $chocoItems = @($plan.Planned | Where-Object { $_.Manager -eq 'choco' })
     if ($chocoItems.Count -gt 0) {
-        $batch = Install-ChocolateyPackageBatch -PackageId ($chocoItems.Package)
-        foreach ($item in $chocoItems) {
-            $results.Add([PSCustomObject]@{
-                Key = $item.Key; Manager = 'choco'; Package = $item.Package
-                Status = $batch.Status; Detail = $batch.Detail
-            })
+        # Asked before and after, so present, installed and failed can be told apart per package.
+        # The batch's single status used to be stamped onto all of them, which meant one bad package
+        # id marked every package in the batch failed and the summary named losses that were not
+        # lost, while a batch that exited zero with one package silently absent named nothing.
+        $before = @(Get-ChocolateyInstalledPackage)
+        $batch  = Install-ChocolateyPackageBatch -PackageId ($chocoItems.Package)
+
+        if ($batch.Status -eq 'skipped') {
+            # WhatIf. Nothing ran, so asking Chocolatey what is installed would report the machine's
+            # existing state as work this dry run did.
+            foreach ($item in $chocoItems) {
+                $results.Add([PSCustomObject]@{
+                    Key = $item.Key; Manager = 'choco'; Package = $item.Package
+                    Status = 'skipped'; Detail = $batch.Detail
+                })
+            }
+        } else {
+            $after = @(Get-ChocolateyInstalledPackage)
+            foreach ($item in $chocoItems) {
+                if ($before -contains $item.Package) {
+                    $status = 'present'
+                    $detail = ''
+                } elseif ($after -contains $item.Package) {
+                    $status = 'installed'
+                    $detail = ''
+                } else {
+                    $status = 'failed'
+                    $detail = "Chocolatey does not list it as installed after the batch. The batch reported $($batch.Status): $($batch.Detail)"
+                }
+                $results.Add([PSCustomObject]@{
+                    Key = $item.Key; Manager = 'choco'; Package = $item.Package
+                    Status = $status; Detail = $detail
+                })
+            }
         }
     }
 
@@ -379,6 +529,10 @@ function Invoke-WindowsSoftwareInstall {
         Results   = $results
         Installed = @($results | Where-Object { $_.Status -eq 'installed' })
         Present   = @($results | Where-Object { $_.Status -eq 'present' })
+        # Only -WhatIf produces this, and it has to be counted rather than dropped: without it a dry
+        # run reported "0 installed, 74 present, 0 failed" and said nothing at all about the seven
+        # Chocolatey packages it would have installed.
+        Skipped   = @($results | Where-Object { $_.Status -eq 'skipped' })
         Failed    = @($results | Where-Object { $_.Status -eq 'failed' })
     }
 }

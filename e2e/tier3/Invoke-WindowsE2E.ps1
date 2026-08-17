@@ -97,18 +97,39 @@ try {
     & docker cp (Join-Path $RepoRoot 'setup') "${Container}:C:\work\setup" | Out-Null
     & docker cp (Join-Path $Tier3Dir 'windows\WindowsSoftware.Tests.ps1') "${Container}:C:\work\WindowsSoftware.Tests.ps1" | Out-Null
 
-    $excludeTag = if ($SkipSlow) { "-ExcludeTagFilter @('Slow','Network') " } else { '' }
+    # A configuration property, not a command-line parameter. This used to interpolate the string
+    # "-ExcludeTagFilter @('Slow','Network')" onto a line of its own inside the generated script,
+    # where PowerShell reads a leading hyphen as an operator it does not have, so the whole script
+    # was a parse error and every -SkipSlow run failed before Pester started. Proven by feeding that
+    # exact line to [scriptblock]::Create, which throws at the character where the array begins.
+    $excludeTag = if ($SkipSlow) { "`$cfg.Filter.ExcludeTag = @('Slow','Network')" } else { '' }
+
+    # PassThru is what makes Invoke-Pester return the result object. Without it the call returns
+    # nothing, $r is null, $r.FailedCount is null, and `exit $null` exits 0, so this gate reported
+    # success no matter how many tests failed. Measured: `$r = $null; exit $r.FailedCount` gives
+    # exit code 0. The explicit null guard below covers the other way this can go wrong, which is
+    # Pester failing to produce a result at all, and reports that as a failure rather than a pass.
     $pesterCmd = @"
 `$ErrorActionPreference = 'Stop'
 if (`$PSStyle) { `$PSStyle.OutputRendering = 'PlainText' }
 Import-Module Pester -MinimumVersion 5.0
 `$cfg = New-PesterConfiguration
 `$cfg.Run.Path = 'C:\work\WindowsSoftware.Tests.ps1'
+`$cfg.Run.PassThru = `$true
 `$cfg.Output.Verbosity = 'Detailed'
 `$cfg.TestResult.Enabled = `$true
 `$cfg.TestResult.OutputPath = 'C:\work\pester-results.xml'
 $excludeTag
 `$r = Invoke-Pester -Configuration `$cfg
+if (`$null -eq `$r) {
+    Write-Host 'Invoke-Pester returned no result object, so nothing can be proved about this run.'
+    exit 99
+}
+Write-Host "pester totals: total=`$(`$r.TotalCount) passed=`$(`$r.PassedCount) failed=`$(`$r.FailedCount) skipped=`$(`$r.SkippedCount)"
+if (`$r.TotalCount -eq 0) {
+    Write-Host 'Pester discovered no tests, which is a failure of this gate rather than a clean run.'
+    exit 98
+}
 exit `$r.FailedCount
 "@
 
@@ -141,7 +162,14 @@ exit `$r.FailedCount
         exit 0
     }
     Write-Host ''
-    Write-Bad "windows pester: $pesterExit failing test(s). See $pesterLog"
+    # 99 and 98 are this script's own codes for a run that proved nothing, as opposed to a run that
+    # found failing tests. They are called out separately because the first reads as a pass to
+    # anyone skimming for a failure count.
+    switch ($pesterExit) {
+        99 { Write-Bad "windows pester: Pester returned no result object, so the suite proved nothing. See $pesterLog" }
+        98 { Write-Bad "windows pester: no tests were discovered, so the suite proved nothing. See $pesterLog" }
+        default { Write-Bad "windows pester: $pesterExit failing test(s). See $pesterLog" }
+    }
     exit 1
 }
 finally {

@@ -62,7 +62,7 @@ while IFS= read -r key; do
     [[ -z "${key}" ]] && continue
     grep -qE "^install_${key}:" "${ANSIBLE_DIR}/group_vars/all.yaml" "${ANSIBLE_DIR}/group_vars/windows.yaml" \
         || missing_toggles+=("${key}")
-done < <(sed -n '/NpmToolPackages = \[ordered\]@{/,/^}/p' "${PS_FILE}" | grep -oE '^\s{4}[a-z_]+' | tr -d ' ')
+done < <(sed -n '/NpmToolPackages = \[ordered\]@{/,/^}/p' "${PS_FILE}" | grep -oE '^\s{4}[a-z0-9_]+' | tr -d ' ')
 
 if [[ ${#missing_toggles[@]} -eq 0 ]]; then
     pass "every npm tool has an install toggle"

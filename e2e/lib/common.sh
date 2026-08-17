@@ -132,7 +132,7 @@ EOF
 # independently of setup.sh, so tier 1 can compare the two and catch drift.
 yaml_bool_toggles() {
     sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "$1" \
-        | grep -E '^[a-z_]+: (true|false)$' \
+        | grep -E '^[a-z0-9_]+: (true|false)$' \
         | tr -d ':'
 }
 

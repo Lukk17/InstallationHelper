@@ -13,6 +13,23 @@
 #                                     # (a throwaway container or a hosted runner). Without it,
 #                                     # every path prompts for the sudo password as it always has.
 #
+# Choosing without the menus. These reach the same code the interactive screens reach, so a
+# scripted run and a hand-driven run produce the same playbook command. Any of them implies
+# --non-interactive.
+#
+#   setup.sh --desktop-environment skip|kde|gnome    # what screen 1 asks
+#   setup.sh --desktop-action full|install|configure # what screen 1 asks next, needs kde or gnome
+#   setup.sh --software defaults|all|none            # the starting point for screen 2
+#   setup.sh --enable <keys>                         # turn these on, comma separated
+#   setup.sh --disable <keys>                        # turn these off, comma separated, wins over --enable
+#   setup.sh --list-software                         # print every key --enable and --disable accept
+#   setup.sh --print-command                         # print the resolved playbook command, run nothing
+#
+#   defaults means the group_vars values as they are, all means every selectable toggle on, and
+#   none means every selectable toggle off so --enable can build a run up from nothing. An unknown
+#   key is refused rather than ignored, because a typo that installs nothing while the run reports
+#   success is this project's most repeated defect.
+#
 # Exit codes:
 #   0   success
 #   1   bootstrap or playbook failure
@@ -82,9 +99,39 @@ OPT_SKIP_SYSTEM_UPGRADE=false
 # anything surprising, which is the point of making this explicit instead of auto-detected.
 OPT_PASSWORDLESS_SUDO=false
 
-# The range must cover the whole header block above, exit codes included. Adding three lines of
-# usage text and forgetting this is how --help silently stops printing the exit codes.
-usage() { sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+# Empty means "not asked for", which is not the same as any of the accepted values. The interactive
+# path defaults the desktop environment to skip, and so does a run that passes none of these, but
+# only after parse_args has had the chance to tell an empty --desktop-environment apart from an
+# absent one.
+OPT_DESKTOP_ENVIRONMENT=""
+OPT_DESKTOP_ACTION=""
+OPT_SOFTWARE=""
+OPT_ENABLE=""
+OPT_DISABLE=""
+OPT_LIST_SOFTWARE=false
+OPT_PRINT_COMMAND=false
+
+# The whole leading comment block, however long it grows. This was a fixed line range and it had
+# already truncated the exit codes once, because adding usage text and remembering to widen a
+# hardcoded range are two separate acts and the second one gets forgotten.
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; }
+
+# One place that refuses a value, so every option reports the same way and lists what it would
+# have accepted. A silent fallback to a default is how a pipeline ends up testing something other
+# than what its own configuration says it is testing.
+require_one_of() {
+    local option="$1" value="$2"; shift 2
+    local allowed=("$@") candidate
+    for candidate in "${allowed[@]}"; do
+        [[ "${value}" == "${candidate}" ]] && return 0
+    done
+    # printf rather than "${allowed[*]}", because this script sets IFS to newline and tab, so the
+    # star expansion would put each accepted value on a line of its own and the reader of a log sees
+    # only the first one.
+    printf "ERROR: %s does not accept '%s'. Accepted: %s\n" \
+           "${option}" "${value}" "$(printf '%s ' "${allowed[@]}")" >&2
+    exit 2
+}
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
@@ -96,10 +143,53 @@ parse_args() {
             --no-color)        USE_COLOR=false ;;
             --skip-system-upgrade) OPT_SKIP_SYSTEM_UPGRADE=true ;;
             --passwordless-sudo)   OPT_PASSWORDLESS_SUDO=true ;;
+            --desktop-environment) shift; OPT_DESKTOP_ENVIRONMENT="${1:-}" ;;
+            --desktop-environment=*) OPT_DESKTOP_ENVIRONMENT="${1#--desktop-environment=}" ;;
+            --desktop-action)  shift; OPT_DESKTOP_ACTION="${1:-}" ;;
+            --desktop-action=*) OPT_DESKTOP_ACTION="${1#--desktop-action=}" ;;
+            --software)        shift; OPT_SOFTWARE="${1:-}" ;;
+            --software=*)      OPT_SOFTWARE="${1#--software=}" ;;
+            --enable)          shift; OPT_ENABLE="${1:-}" ;;
+            --enable=*)        OPT_ENABLE="${1#--enable=}" ;;
+            --disable)         shift; OPT_DISABLE="${1:-}" ;;
+            --disable=*)       OPT_DISABLE="${1#--disable=}" ;;
+            --list-software)   OPT_LIST_SOFTWARE=true ;;
+            --print-command)   OPT_PRINT_COMMAND=true ;;
             *)                 echo "ERROR: Unknown option: $1" >&2; usage >&2; exit 2 ;;
         esac
         shift
     done
+
+    [[ -n "${OPT_DESKTOP_ENVIRONMENT}" ]] \
+        && require_one_of --desktop-environment "${OPT_DESKTOP_ENVIRONMENT}" skip kde gnome
+    [[ -n "${OPT_DESKTOP_ACTION}" ]] \
+        && require_one_of --desktop-action "${OPT_DESKTOP_ACTION}" full install configure
+    [[ -n "${OPT_SOFTWARE}" ]] \
+        && require_one_of --software "${OPT_SOFTWARE}" defaults all none
+
+    # An action without an environment is a run that silently does nothing about the desktop, and
+    # an environment of skip with an action is a contradiction. Both are refused rather than
+    # resolved, because either resolution would be a guess at what the caller meant.
+    if [[ -n "${OPT_DESKTOP_ACTION}" && ( -z "${OPT_DESKTOP_ENVIRONMENT}" || "${OPT_DESKTOP_ENVIRONMENT}" == skip ) ]]; then
+        echo "ERROR: --desktop-action needs --desktop-environment kde or gnome" >&2
+        exit 2
+    fi
+    if [[ -n "${OPT_DESKTOP_ENVIRONMENT}" && "${OPT_DESKTOP_ENVIRONMENT}" != skip && -z "${OPT_DESKTOP_ACTION}" ]]; then
+        echo "ERROR: --desktop-environment ${OPT_DESKTOP_ENVIRONMENT} needs --desktop-action full, install or configure" >&2
+        exit 2
+    fi
+
+    # A profile and an explicit software baseline are two answers to the same question, and the
+    # playbook would take whichever the extra-vars precedence happened to favour rather than
+    # whichever the caller meant.
+    if [[ -n "${OPT_PROFILE}" && -n "${OPT_SOFTWARE}" ]]; then
+        echo "ERROR: --profile and --software both decide the software set, pass one of them" >&2
+        exit 2
+    fi
+
+    if [[ -n "${OPT_DESKTOP_ENVIRONMENT}${OPT_SOFTWARE}${OPT_ENABLE}${OPT_DISABLE}" ]]; then
+        OPT_NON_INTERACTIVE=true
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -388,7 +478,7 @@ is_de_key() {
 read_boolean_toggles() {
     local file="$1"
     sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${file}" 2>/dev/null \
-        | grep -E '^[a-z_]+: (true|false)$' \
+        | grep -E '^[a-z0-9_]+: (true|false)$' \
         | grep -vE "^(${EXCLUDED_VARS}):" \
         | sed 's/: true$/ ON/;s/: false$/ OFF/'
 }
@@ -397,16 +487,35 @@ read_boolean_toggles() {
 PRELOADED_ITEMS=()   # parallel arrays: key label state ; flattened triplets
 PRELOADED_KEYS=()    # ordered keys (parallel to PRELOADED_ITEMS / 3)
 
+# The order below is the playbook's precedence, and it used to be the opposite of it. site.yaml loads
+# group_vars/all.yaml as a vars_files entry and the per-OS file through include_vars in its pre-tasks,
+# and include_vars outranks play vars, so the per-OS value wins there. This function read all.yaml first
+# and kept the first spelling of each key, so the per-OS value lost.
+#
+# One toggle differs today and it is enough to show the cost: install_claude_desktop is true in all.yaml
+# and false in linux.yaml. The checklist showed it ON while a defaults run installed nothing, and the two
+# paths disagreed with each other, because opening the checklist and confirming passes every state as an
+# extra variable, which outranks everything, so the same toggle installed on one path and not the other.
+# The Windows wizard had the same shape for two packages and was corrected the same way.
+#
+# Keys are still ordered all.yaml first, because that is the reading order of the checklist and the
+# grouping the user recognises. Only the state comes from the per-OS file.
 preload_toggles() {
-    local all_toggles=()
-    while IFS= read -r line; do all_toggles+=("${line}"); done \
-        < <(read_boolean_toggles "${ALL_VARS}")
+    local all_toggles=() os_states=""
+    os_states="$(read_boolean_toggles "${OS_VARS_FILE}")"
+
+    while IFS= read -r line; do
+        local k="${line%% *}" os_line=""
+        os_line="$(grep -m1 -E "^${k} " <<<"${os_states}" || true)"
+        all_toggles+=("${os_line:-${line}}")
+    done < <(read_boolean_toggles "${ALL_VARS}")
+
     while IFS= read -r line; do
         local k="${line%% *}"
         local seen=false
         for t in "${all_toggles[@]}"; do [[ "${t%% *}" == "${k}" ]] && seen=true && break; done
         [[ "${seen}" == false ]] && all_toggles+=("${line}")
-    done < <(read_boolean_toggles "${OS_VARS_FILE}")
+    done <<<"${os_states}"
 
     PRELOADED_ITEMS=(); PRELOADED_KEYS=()
     for entry in "${all_toggles[@]}"; do
@@ -468,6 +577,136 @@ load_profiles() {
         done
         PROF_COUNTS+=("${pcnt}")
     done
+}
+
+# ---------------------------------------------------------------------------
+# What a choice means to the playbook
+#
+# The interactive screens and the command line options both come through here, so there is one
+# description of each choice rather than one per entrypoint. Screen 3 used to hold the only copy of
+# the desktop mapping and the non-interactive entrypoint had no equivalent at all, which is why a
+# scripted run could reach the profile and nothing else the wizard offers.
+# ---------------------------------------------------------------------------
+
+#   skip       no overrides at all, whatever group_vars says stands
+#   full       install the packages and apply the configuration
+#   install    install the packages, leave the configuration alone
+#   configure  install nothing, apply the configuration to an existing desktop
+desktop_override_vars() {
+    local environment="$1" action="$2" keys=""
+    case "${environment}" in
+        kde)   keys="kde_plasma" ;;
+        gnome) keys="gnome" ;;
+        *)     return 0 ;;
+    esac
+    case "${action}" in
+        full)      printf '%s\n' "install_${keys}=true"  "configure_${keys}=true" ;;
+        install)   printf '%s\n' "install_${keys}=true"  "configure_${keys}=false" ;;
+        configure) printf '%s\n' "install_${keys}=false" "configure_${keys}=true" ;;
+    esac
+}
+
+# Comma or space separated, because a pipeline writes these as a list and a person types them with
+# commas.
+split_key_list() { tr ',' '\n' <<<"$1" | tr -s '[:space:]' '\n' | grep -v '^$' || true; }
+
+# Every key has to be one the checklist itself offers. Refused, never ignored: the point of these
+# options is to exercise what the wizard can do, so a key the wizard cannot reach is either a typo
+# or a setting deliberately kept off the checklist, and both deserve an error rather than a run that
+# quietly installs something else.
+assert_known_keys() {
+    local option="$1" list="$2"
+    local unknown=() key candidate found
+    while IFS= read -r key; do
+        [[ -z "${key}" ]] && continue
+        found=false
+        for candidate in "${PRELOADED_KEYS[@]+"${PRELOADED_KEYS[@]}"}"; do
+            [[ "${candidate}" == "${key}" ]] && { found=true; break; }
+        done
+        [[ "${found}" == false ]] && unknown+=("${key}")
+    done < <(split_key_list "${list}")
+
+    if [[ ${#unknown[@]} -gt 0 ]]; then
+        printf 'ERROR: %s names %d key(s) the wizard does not offer: %s\n' \
+               "${option}" "${#unknown[@]}" "$(printf '%s ' "${unknown[@]}")" >&2
+        printf '       Run setup.sh --list-software for the keys it does offer.\n' >&2
+        exit 2
+    fi
+}
+
+# One key=value line per selectable toggle, or nothing at all when none of the three options was
+# passed, which leaves group_vars untouched exactly as --non-interactive always did.
+#
+# --disable is applied after --enable so a key named in both ends up off. That order is the safe
+# one: the option that removes software wins over the option that adds it.
+software_override_vars() {
+    [[ -z "${OPT_SOFTWARE}${OPT_ENABLE}${OPT_DISABLE}" ]] && return 0
+
+    local baseline="${OPT_SOFTWARE:-defaults}"
+    local enabled disabled
+    enabled="$(split_key_list "${OPT_ENABLE}")"
+    disabled="$(split_key_list "${OPT_DISABLE}")"
+
+    local i key value
+    for (( i=0; i<${#PRELOADED_KEYS[@]}; i++ )); do
+        key="${PRELOADED_KEYS[$i]}"
+        case "${baseline}" in
+            all)  value=true ;;
+            none) value=false ;;
+            *)    if [[ "${PRELOADED_ITEMS[$((i*3+2))]}" == "ON" ]]; then value=true; else value=false; fi ;;
+        esac
+        grep -qx -- "${key}" <<<"${enabled}"  && value=true
+        grep -qx -- "${key}" <<<"${disabled}" && value=false
+        printf '%s=%s\n' "${key}" "${value}"
+    done
+}
+
+# Called from the entrypoint rather than from software_override_vars, and that placement is the
+# whole point. software_override_vars runs inside a process substitution, where `exit 2` ends the
+# subshell and nothing else: the error would print, the script would carry on with an empty
+# override list, and the run would install the group_vars defaults while claiming to honour the
+# options it had just rejected.
+validate_selection_options() {
+    assert_known_keys --enable "${OPT_ENABLE}"
+    assert_known_keys --disable "${OPT_DISABLE}"
+}
+
+list_software() {
+    local i key
+    for (( i=0; i<${#PRELOADED_KEYS[@]}; i++ )); do
+        key="${PRELOADED_KEYS[$i]}"
+        printf '%-32s %-4s %s\n' "${key}" "${PRELOADED_ITEMS[$((i*3+2))]}" "${PRELOADED_ITEMS[$((i*3+1))]}"
+    done
+}
+
+# Both entrypoints assemble the playbook command here, into PLAYBOOK_ARGS. Two separate
+# assemblies is how the non-interactive path came to accept a profile and nothing else, and how a
+# second -K could have appeared in one of them without the other noticing.
+PLAYBOOK_ARGS=()
+build_playbook_args() {
+    local overrides=("$@")
+
+    PLAYBOOK_ARGS=(
+        "${ANSIBLE_DIR}/site.yaml"
+        -i "localhost,"
+        -c local
+        "${BECOME_ARGS[@]+"${BECOME_ARGS[@]}"}"
+    )
+
+    if [[ -n "${OPT_PROFILE}" ]]; then
+        local pfile="${ANSIBLE_DIR}/profiles/${OPT_PROFILE}.yaml"
+        if [[ ! -f "${pfile}" ]]; then
+            echo "ERROR: profile not found: ${pfile}" >&2
+            exit 2
+        fi
+        PLAYBOOK_ARGS+=(-e "@${pfile}")
+    fi
+
+    if [[ ${#overrides[@]} -gt 0 ]]; then
+        local extra_str
+        extra_str="$(printf ' %s' "${overrides[@]}")"
+        PLAYBOOK_ARGS+=(--extra-vars "${extra_str:1}")
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -693,46 +932,17 @@ main_interactive() {
                 ;;
 
             confirm)
-                # Build DE override vars from de_choice + de_action.
-                #   skip       => no overrides (use group_vars defaults)
-                #   full       => install_X=true, configure_X=true
-                #   install    => install_X=true, configure_X=false
-                #   configure  => install_X=false, configure_X=true
                 local de_vars=()
-                case "${de_choice}" in
-                    kde)
-                        case "${de_action}" in
-                            full)      de_vars+=("install_kde_plasma=true"  "configure_kde_plasma=true")  ;;
-                            install)   de_vars+=("install_kde_plasma=true"  "configure_kde_plasma=false") ;;
-                            configure) de_vars+=("install_kde_plasma=false" "configure_kde_plasma=true")  ;;
-                        esac ;;
-                    gnome)
-                        case "${de_action}" in
-                            full)      de_vars+=("install_gnome=true"  "configure_gnome=true")  ;;
-                            install)   de_vars+=("install_gnome=true"  "configure_gnome=false") ;;
-                            configure) de_vars+=("install_gnome=false" "configure_gnome=true")  ;;
-                        esac ;;
-                    skip)
-                        # Leave whatever's in group_vars/linux.yaml. No overrides.
-                        ;;
-                esac
+                while IFS= read -r line; do
+                    [[ -n "${line}" ]] && de_vars+=("${line}")
+                done < <(desktop_override_vars "${de_choice}" "${de_action}")
 
                 local all_extra=("${de_vars[@]+"${de_vars[@]}"}")
                 [[ "${have_pkg_vars}" == true ]] && all_extra+=("${pkg_vars[@]}")
 
-                local extra_str=""
-                [[ ${#all_extra[@]} -gt 0 ]] \
-                    && extra_str=$(printf ' %s' "${all_extra[@]}") && extra_str="${extra_str:1}"
-
                 export ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg"
-                local -a ansible_args=(
-                    "${ANSIBLE_DIR}/site.yaml"
-                    -i "localhost,"
-                    -c local
-                    "${BECOME_ARGS[@]+"${BECOME_ARGS[@]}"}"
-                )
-                [[ -n "${OPT_PROFILE}" ]] && ansible_args+=(-e "@${ANSIBLE_DIR}/profiles/${OPT_PROFILE}.yaml")
-                [[ -n "${extra_str}" ]] && ansible_args+=(--extra-vars "${extra_str}")
+                build_playbook_args "${all_extra[@]+"${all_extra[@]}"}"
+                local -a ansible_args=("${PLAYBOOK_ARGS[@]}")
 
                 local display_cmd
                 display_cmd=$(printf 'ansible-playbook'; printf ' %q' "${ansible_args[@]}")
@@ -753,21 +963,20 @@ main_interactive() {
     done
 }
 
-# Non-interactive entrypoint — used by --profile / --non-interactive.
+# Non-interactive entrypoint, used by --profile, --non-interactive and every selection option.
 run_non_interactive() {
-    local -a ansible_args=("${ANSIBLE_DIR}/site.yaml" -i "localhost," -c local
-                           "${BECOME_ARGS[@]+"${BECOME_ARGS[@]}"}")
-    if [[ -n "${OPT_PROFILE}" ]]; then
-        local pfile="${ANSIBLE_DIR}/profiles/${OPT_PROFILE}.yaml"
-        if [[ ! -f "${pfile}" ]]; then
-            echo "ERROR: profile not found: ${pfile}" >&2
-            exit 2
-        fi
-        ansible_args+=(-e "@${pfile}")
-    fi
+    local overrides=() line
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && overrides+=("${line}")
+    done < <(
+        desktop_override_vars "${OPT_DESKTOP_ENVIRONMENT}" "${OPT_DESKTOP_ACTION}"
+        software_override_vars
+    )
+
+    build_playbook_args "${overrides[@]+"${overrides[@]}"}"
     export ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg"
-    echo "Running: ansible-playbook $(printf '%q ' "${ansible_args[@]}")"
-    ansible-playbook "${ansible_args[@]}"
+    echo "Running: ansible-playbook $(printf '%q ' "${PLAYBOOK_ARGS[@]}")"
+    ansible-playbook "${PLAYBOOK_ARGS[@]}"
 }
 
 # ---------------------------------------------------------------------------
@@ -798,6 +1007,40 @@ fi
 check_requirements
 detect_os
 say "Detected OS: ${DISTRO} (family: ${OS_FAMILY})"
+
+# Read before either entrypoint, because both need the toggle list now: the checklist renders it and
+# --enable, --disable and --list-software are all validated against it. It is file parsing only, so
+# the interactive path pays nothing for having it a few lines earlier, and --list-software answers
+# without installing Ansible or upgrading the system first.
+say "Loading toggles..."
+preload_toggles
+
+if [[ "${OPT_LIST_SOFTWARE}" == true ]]; then
+    list_software
+    exit 0
+fi
+
+validate_selection_options
+
+# Answers what a set of options resolves to and changes nothing, so a pipeline author can read the
+# command before spending an hour on it, and so the gate can check the resolution of every branch
+# without installing anything. It sits before ensure_ansible on purpose: the question is what this
+# script would run, and answering it does not need Ansible to be present.
+if [[ "${OPT_PRINT_COMMAND}" == true ]]; then
+    overrides=() line=""
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && overrides+=("${line}")
+    done < <(
+        desktop_override_vars "${OPT_DESKTOP_ENVIRONMENT}" "${OPT_DESKTOP_ACTION}"
+        software_override_vars
+    )
+    build_playbook_args "${overrides[@]+"${overrides[@]}"}"
+    printf 'ansible-playbook'
+    printf ' %q' "${PLAYBOOK_ARGS[@]}"
+    printf '\n'
+    exit 0
+fi
+
 # Pre-create Ansible tmp + fact-cache dirs (ansible.cfg uses ~/.ansible/...).
 # jsonfile fact cache fails on first run if its dir doesn't exist.
 mkdir -p "${HOME}/.ansible/tmp" "${HOME}/.ansible/facts-cache"
@@ -813,8 +1056,6 @@ fi
 ensure_gum
 install_collections
 
-say "Loading toggles..."
-preload_toggles
 say "Loading profiles..."
 load_profiles
 echo

@@ -165,10 +165,28 @@ function Install-TemurinJdk {
         }
     }
 
-    $winget = Get-WingetPath
-    foreach ($major in $majors) {
-        $r = Install-WingetPackage -WingetPath $winget -PackageId "EclipseAdoptium.Temurin.$major.JDK"
-        $results.Add([PSCustomObject]@{ Key = 'java'; Package = $r.Package; Status = $r.Status; Detail = $r.Detail })
+    # Get-WingetPath throws when App Installer is absent, and this function's contract, stated
+    # eleven lines above, is that one bad item never takes the others down. It was broken here in
+    # the same way it was broken for the java pins: setup.ps1 runs with $ErrorActionPreference
+    # 'Stop' and does not wrap this call, so a machine without winget lost nodejs, flutter,
+    # gridcoin, razer_cortex and every summary line along with the four JDKs. One failed result per
+    # JDK instead, then JAVA_HOME is still attempted, because a JDK installed by some earlier means
+    # is worth pointing at and finding none is already reported below.
+    $winget = $null
+    try {
+        $winget = Get-WingetPath
+    } catch {
+        foreach ($major in $majors) {
+            $results.Add([PSCustomObject]@{ Key = 'java'; Package = "EclipseAdoptium.Temurin.$major.JDK"
+                                            Status = 'failed'; Detail = $_.Exception.Message })
+        }
+    }
+
+    if ($winget) {
+        foreach ($major in $majors) {
+            $r = Install-WingetPackage -WingetPath $winget -PackageId "EclipseAdoptium.Temurin.$major.JDK"
+            $results.Add([PSCustomObject]@{ Key = 'java'; Package = $r.Package; Status = $r.Status; Detail = $r.Detail })
+        }
     }
 
     # JAVA_HOME last, so it points at something that exists. Discovered rather than constructed:
@@ -189,6 +207,15 @@ function Install-TemurinJdk {
         Sort-Object Name -Descending | Select-Object -First 1
 
     if (-not $jdkDir) {
+        # Under -WhatIf the winget installs above were never really run, so no jdk-$defaultMajor*
+        # directory existing yet is the expected shape of a dry run, not a failure. Reporting it as
+        # failed here is exactly the lie a dry run must not tell: a clean machine that has never run
+        # this wizard before would show a false failure on its very first -WhatIf.
+        if ($WhatIfPreference) {
+            $results.Add([PSCustomObject]@{ Key = 'java'; Package = 'JAVA_HOME'; Status = 'skipped'
+                                            Detail = "WhatIf, would look for a jdk-$defaultMajor* directory under $adoptium and point JAVA_HOME at it" })
+            return $results
+        }
         $results.Add([PSCustomObject]@{ Key = 'java'; Package = 'JAVA_HOME'; Status = 'failed'
                                         Detail = "no jdk-$defaultMajor* directory under $adoptium, so JAVA_HOME was left alone rather than pointed at nothing" })
         return $results
@@ -234,9 +261,10 @@ function Invoke-ManagedTool {
         Runs one command of a version manager and returns a result object.
     .DESCRIPTION
         Shared by the Node and Flutter paths, which are the same shape: install a manager through
-        Chocolatey, then drive it. stdin is redirected from nothing and a timeout is enforced,
-        because an interactive prompt inside one of these is exactly what stalled the Unix FVM path
-        for eight hours with no signal. See docs/regression_ledger.md.
+        Chocolatey, then drive it. stdin is redirected from an empty file, so a prompt reads
+        immediate EOF instead of blocking, and a timeout is enforced on top of that, because an
+        interactive prompt inside one of these is exactly what stalled the Unix FVM path for eight
+        hours with no signal. See docs/regression_ledger.md.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -263,11 +291,12 @@ function Invoke-ManagedTool {
         [Environment]::SetEnvironmentVariable($name, $Environment[$name], 'Process')
     }
 
+    $stdin = New-TemporaryFile
     $stdout = New-TemporaryFile
     $stderr = New-TemporaryFile
     try {
         $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -NoNewWindow -PassThru `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         if (-not $p.WaitForExit($TimeoutMinutes * 60 * 1000)) {
             try { $p.Kill($true) } catch { Write-Verbose "could not kill $($p.Id): $($_.Exception.Message)" }
             return [PSCustomObject]@{ Key = $Key; Package = $label; Status = 'failed'
@@ -283,7 +312,7 @@ function Invoke-ManagedTool {
                                   Detail = "exit $($p.ExitCode). $($tail -join ' ')" }
     } finally {
         foreach ($name in $restore.Keys) { [Environment]::SetEnvironmentVariable($name, $restore[$name], 'Process') }
-        Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stdin, $stdout, $stderr -Force -ErrorAction SilentlyContinue
     }
 }
 

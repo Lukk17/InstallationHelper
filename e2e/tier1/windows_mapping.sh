@@ -16,6 +16,9 @@
 # check says so and skips rather than silently passing.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+# Finding a runnable pwsh and converting a path for it are shared with windows_settings.sh, and both
+# are fiddly enough that a second copy would be the one that rots. See pwsh_probe.sh.
+source "$(dirname "${BASH_SOURCE[0]}")/pwsh_probe.sh"
 
 PS_FILE="${REPO_ROOT}/setup/windows/WindowsSoftware.ps1"
 MAPPING_YAML="${ANSIBLE_DIR}/vars/Windows.yaml"
@@ -41,47 +44,12 @@ n_yaml="$(grep -c . <<<"${yaml_mappings}")"
 n_looks_like="$(grep -cE '^  [a-z0-9_]+: \{' "${MAPPING_YAML}")"
 assert_eq "every mapping-shaped line parses in bash" "${n_looks_like}" "${n_yaml}"
 
-# Locate a PowerShell 7 that actually runs. `command -v pwsh.exe` is not enough: on Windows the
-# first hit is often the Store app-execution-alias stub under WindowsApps, which is a zero-length
-# reparse point that WSL cannot execute, and trying produces
-# "pwsh.exe: line 1: MZ: command not found" as WSL reads the PE header as a script. So each
-# candidate is probed by running something trivial and checking the output, rather than trusted
-# because it exists.
-PWSH=""
-for candidate in \
-    pwsh \
-    "/mnt/c/Program Files/PowerShell/7/pwsh.exe" \
-    "/mnt/c/Program Files/PowerShell/7-preview/pwsh.exe" \
-    pwsh.exe
-do
-    command -v "${candidate}" &>/dev/null || [[ -x "${candidate}" ]] || continue
-    if [[ "$("${candidate}" -NoProfile -NonInteractive -Command 'Write-Output E2EOK' 2>/dev/null | tr -d '\r')" == *E2EOK* ]]; then
-        PWSH="${candidate}"
-        break
-    fi
-done
+PWSH="$(find_runnable_pwsh || true)"
 
 if [[ -z "${PWSH}" ]]; then
-    skip "PowerShell parser compared against the YAML" \
-         "No runnable PowerShell 7 found from here. On this machine pwsh is installed only as a Microsoft Store app, whose WindowsApps entry is an alias stub WSL cannot execute, so run this check from Windows with pwsh directly, or install PowerShell 7 inside WSL."
+    skip "PowerShell parser compared against the YAML" "${PWSH_ABSENT_REASON}"
     finish "Windows mapping parse"
 fi
-
-# Windows-side paths, because a Windows pwsh cannot read the POSIX path this script sees, whether
-# that path came from WSL (/mnt/d/...) or from Git Bash (/d/...). Two different converters, one per
-# environment, and this check only ever runs usefully in one of the two: WSL has wslpath but on this
-# machine the only pwsh is a Store alias stub WSL cannot execute, while Git Bash has cygpath and a
-# pwsh that runs. Handing PowerShell an unconverted path is what made it report nothing at all.
-to_windows_path() {
-    local p="$1"
-    if command -v wslpath &>/dev/null; then
-        wslpath -w "${p}"
-    elif command -v cygpath &>/dev/null; then
-        cygpath -w "${p}"
-    else
-        printf '%s' "${p}"
-    fi
-}
 
 win_ps_file="$(to_windows_path "${PS_FILE}")"
 win_mapping="$(to_windows_path "${MAPPING_YAML}")"

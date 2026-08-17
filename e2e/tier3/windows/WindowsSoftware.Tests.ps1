@@ -14,14 +14,48 @@
 #>
 
 BeforeAll {
-    $script:RepoRoot   = $env:E2E_REPO_ROOT ?? 'C:\work'
-    $script:AnsibleDir = Join-Path $script:RepoRoot 'setup\ansible'
-    $script:PsFile     = Join-Path $script:RepoRoot 'setup\windows\WindowsSoftware.ps1'
+    # The repository root is found by walking up from this file rather than assumed, because this
+    # suite runs from two places that put it at a different depth: a real checkout, where it sits
+    # three levels under the root at e2e\tier3\windows, and the tier 3 container, where
+    # Invoke-WindowsE2E.ps1 copies just this one file straight to C:\work with none of that nesting.
+    # E2E_REPO_ROOT stays as an explicit override, which is how the container script already pins
+    # it to C:\work, but nothing here hardcodes C:\work or any other path as the only place this can
+    # find the repository, so a developer running this straight from a checkout gets a real answer
+    # instead of a path that only exists inside a container.
+    function Find-RepositoryRoot {
+        [OutputType([string])]
+        param([Parameter(Mandatory)] [string] $StartPath)
+
+        $dir = Get-Item -LiteralPath $StartPath
+        while ($dir) {
+            if (Test-Path -LiteralPath (Join-Path $dir.FullName 'setup\windows\WindowsSoftware.ps1')) {
+                return $dir.FullName
+            }
+            $dir = $dir.Parent
+        }
+        return $null
+    }
+
+    $script:RepoRoot = $env:E2E_REPO_ROOT
+    if (-not $script:RepoRoot) {
+        $script:RepoRoot = Find-RepositoryRoot -StartPath $PSScriptRoot
+    }
+    if (-not $script:RepoRoot) {
+        throw "Could not find the repository root by walking up from $PSScriptRoot, and E2E_REPO_ROOT is not set."
+    }
+
+    $script:AnsibleDir        = Join-Path $script:RepoRoot 'setup\ansible'
+    $script:PsFile            = Join-Path $script:RepoRoot 'setup\windows\WindowsSoftware.ps1'
+    $script:CustomInstallFile = Join-Path $script:RepoRoot 'setup\windows\WindowsCustomInstalls.ps1'
 
     if (-not (Test-Path -LiteralPath $script:PsFile)) {
         throw "WindowsSoftware.ps1 not found at $script:PsFile. Was the repository copied in?"
     }
+    if (-not (Test-Path -LiteralPath $script:CustomInstallFile)) {
+        throw "WindowsCustomInstalls.ps1 not found at $script:CustomInstallFile. Was the repository copied in?"
+    }
     . $script:PsFile
+    . $script:CustomInstallFile
 }
 
 Describe 'Get-WindowsSoftwareToggle' {
@@ -180,6 +214,101 @@ Describe 'Get-WingetPath on a machine without winget' {
             return
         }
         { Get-WingetPath } | Should -Throw -ExpectedMessage '*App Installer*'
+    }
+}
+
+Describe 'Get-PinnedVersion' {
+
+    It 'resolves a plain scalar pin' {
+        $tmp = Join-Path $TestDrive 'plain.yaml'
+        @('---', 'java21_id: "21.0.11-tem"') | Set-Content -LiteralPath $tmp
+        $v = Get-PinnedVersion -VersionsPath $tmp
+        $v['java21_id'] | Should -Be '21.0.11-tem'
+    }
+
+    It 'resolves a {{ ref }} pin to the value it points at' {
+        $tmp = Join-Path $TestDrive 'ref.yaml'
+        @('---', 'java21_id: "21.0.11-tem"', 'default_java: "{{ java21_id }}"') | Set-Content -LiteralPath $tmp
+        $v = Get-PinnedVersion -VersionsPath $tmp
+        $v['default_java'] | Should -Be '21.0.11-tem'
+    }
+
+    # This is the shape default_java is written in today, and the one Install-TemurinJdk's
+    # own comments call out by name as reachable without a typo. A reference to a key that
+    # is not in the file must stay visibly unresolved rather than resolving to an empty
+    # string, so a caller downstream sees "{{ nope }}" and can say so instead of silently
+    # treating it as blank.
+    It 'leaves an unresolved {{ ref }} pin intact rather than blanking it' {
+        $tmp = Join-Path $TestDrive 'unresolved.yaml'
+        @('---', 'default_java: "{{ nope }}"') | Set-Content -LiteralPath $tmp
+        $v = Get-PinnedVersion -VersionsPath $tmp
+        $v['default_java'] | Should -Be '{{ nope }}'
+    }
+
+    # A pin absent from the file entirely, as opposed to present with a bad value. There is
+    # nothing to resolve, so this must not throw, and the caller sees it through
+    # ContainsKey rather than a KeyNotFoundException.
+    It 'has no entry for a pin that is absent from the file' {
+        $tmp = Join-Path $TestDrive 'absent.yaml'
+        @('---', 'java21_id: "21.0.11-tem"') | Set-Content -LiteralPath $tmp
+        $v = Get-PinnedVersion -VersionsPath $tmp
+        $v.ContainsKey('java25_id') | Should -BeFalse
+    }
+
+    It 'reads a pin whose value is empty as an empty string, not as absent' {
+        $tmp = Join-Path $TestDrive 'empty.yaml'
+        @('---', 'flutter_channel: ""') | Set-Content -LiteralPath $tmp
+        $v = Get-PinnedVersion -VersionsPath $tmp
+        $v.ContainsKey('flutter_channel') | Should -BeTrue
+        $v['flutter_channel'] | Should -Be ''
+    }
+
+    It 'throws rather than returning an empty map when the versions file does not exist' {
+        { Get-PinnedVersion -VersionsPath (Join-Path $TestDrive 'nope.yaml') } |
+            Should -Throw -ExpectedMessage '*not found*'
+    }
+
+    It 'parses the real group_vars/versions.yaml without throwing' {
+        $versionsPath = Join-Path $script:AnsibleDir 'group_vars\versions.yaml'
+        $v = Get-PinnedVersion -VersionsPath $versionsPath
+        $v['default_java'] | Should -Not -Match '\{\{'
+    }
+}
+
+Describe 'Get-TemurinMajor' {
+
+    It 'extracts the major version out of an SDKMAN identifier' {
+        Get-TemurinMajor -SdkmanId '21.0.11-tem' | Should -Be '21'
+    }
+
+    It 'extracts a two-digit major version' {
+        Get-TemurinMajor -SdkmanId '25.0.3-tem' | Should -Be '25'
+    }
+
+    # The malformed shape Install-TemurinJdk's own comments warn is reachable without a
+    # typo: an unresolved "{{ ref }}" pin passed straight through, since Get-PinnedVersion
+    # deliberately leaves it that way instead of blanking it.
+    It 'throws on a pin that is still an unresolved {{ ref }}' {
+        { Get-TemurinMajor -SdkmanId '{{ default_java }}' } |
+            Should -Throw -ExpectedMessage "*'{{ default_java }}'*"
+    }
+
+    # The error must name the value that failed, so whoever reads it can go straight to the
+    # offending line in versions.yaml instead of guessing which of four pins broke.
+    It 'names the malformed value in the thrown error' {
+        { Get-TemurinMajor -SdkmanId 'tem-21.0.11' } |
+            Should -Throw -ExpectedMessage "*'tem-21.0.11'*"
+    }
+
+    It 'throws on an identifier with no major version at all' {
+        { Get-TemurinMajor -SdkmanId 'not-a-version' } |
+            Should -Throw -ExpectedMessage "*'not-a-version'*"
+    }
+
+    # ValidateNotNullOrEmpty rejects this before the function body runs, which is the
+    # "missing pin" shape: a key present in versions.yaml with nothing after the colon.
+    It 'throws on an empty identifier' {
+        { Get-TemurinMajor -SdkmanId '' } | Should -Throw
     }
 }
 
