@@ -358,7 +358,15 @@ function Invoke-AnsiblePlaybook {
     $cmd = ($argList -join ' ')
     Write-Status "Running: $cmd"
     Write-Host
-    wsl bash -c $cmd
+
+    # Out-Host, not a bare call. A native command's output inside a function goes to the output
+    # stream, so without this the function returned every line the playbook printed and then the
+    # integer. The caller's $rc was therefore an array, `$rc -eq 0` became an array filter rather
+    # than a comparison, and `exit $rc` could not convert. The exit code of the whole wizard was
+    # unusable on Windows, which matters most for an unattended run where the exit code is the only
+    # thing anyone reads. Out-Host also restores live streaming, which the accidental capture had
+    # been suppressing.
+    wsl bash -c $cmd | Out-Host
     return $LASTEXITCODE
 }
 

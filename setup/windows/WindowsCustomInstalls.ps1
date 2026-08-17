@@ -144,13 +144,25 @@ function Install-TemurinJdk {
     $results = [System.Collections.Generic.List[object]]::new()
     $majors  = [System.Collections.Generic.List[string]]::new()
 
+    # Each derivation is caught, because Get-TemurinMajor throws on an identifier that does not start
+    # with a major version and this function's contract is that one bad item never takes the others
+    # down. That contract was broken: an unthrown exception here propagated out of
+    # Invoke-WindowsCustomInstall, which setup.ps1 does not wrap, so a malformed java pin killed
+    # nodejs, flutter, gridcoin and razer_cortex with it and stopped the wizard before the WSL
+    # playbook ran. It is reachable without a typo, since Get-PinnedVersion deliberately leaves an
+    # unresolvable {{ ref }} intact and default_java is written in exactly that shape.
     foreach ($key in @('java11_id', 'java17_id', 'java21_id', 'java25_id')) {
         if (-not $Versions.ContainsKey($key)) {
             $results.Add([PSCustomObject]@{ Key = 'java'; Package = $key; Status = 'failed'
                                             Detail = "versions.yaml has no $key, so no Temurin package could be derived" })
             continue
         }
-        $majors.Add((Get-TemurinMajor -SdkmanId $Versions[$key]))
+        try {
+            $majors.Add((Get-TemurinMajor -SdkmanId $Versions[$key]))
+        } catch {
+            $results.Add([PSCustomObject]@{ Key = 'java'; Package = $key; Status = 'failed'
+                                            Detail = $_.Exception.Message })
+        }
     }
 
     $winget = Get-WingetPath
@@ -161,8 +173,17 @@ function Install-TemurinJdk {
 
     # JAVA_HOME last, so it points at something that exists. Discovered rather than constructed:
     # the directory carries the full patch version and the hotspot suffix, neither of which the
-    # pin in versions.yaml knows.
-    $defaultMajor = if ($Versions.ContainsKey('default_java')) { Get-TemurinMajor -SdkmanId $Versions['default_java'] } else { '21' }
+    # pin in versions.yaml knows. Falls back to 21 when default_java is missing or malformed, which
+    # is the pinned default in versions.yaml, rather than throwing out of the whole phase.
+    $defaultMajor = '21'
+    if ($Versions.ContainsKey('default_java')) {
+        try {
+            $defaultMajor = Get-TemurinMajor -SdkmanId $Versions['default_java']
+        } catch {
+            $results.Add([PSCustomObject]@{ Key = 'java'; Package = 'default_java'; Status = 'failed'
+                                            Detail = "$($_.Exception.Message) Falling back to major 21 for JAVA_HOME." })
+        }
+    }
     $adoptium = Join-Path $env:ProgramFiles 'Eclipse Adoptium'
     $jdkDir = Get-ChildItem -Path $adoptium -Directory -Filter "jdk-$defaultMajor*" -ErrorAction SilentlyContinue |
         Sort-Object Name -Descending | Select-Object -First 1

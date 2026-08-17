@@ -284,16 +284,35 @@ exit `$LASTEXITCODE
     $isElevated = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
 
+    # -PassThru with an explicit WaitForExit rather than -Wait, so this cannot block forever. It was
+    # the last unbounded blocking call in the Windows path, and it is now on the critical path for
+    # install_nodejs and install_flutter as well as the mapped Chocolatey packages. Two ways it hangs:
+    # choco prompting inside the elevated child despite -y, or a consent dialog nobody answers.
+    # -Wait offers no timeout at all, which is why it had to go.
+    $timeoutMinutes = 30
     try {
+        $startArgs = @{
+            FilePath     = 'pwsh.exe'
+            ArgumentList = @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
+            PassThru     = $true
+            ErrorAction  = 'Stop'
+        }
         if ($isElevated) {
             Write-Verbose 'Already elevated, running choco in this process'
-            $proc = Start-Process -FilePath 'pwsh.exe' `
-                -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded) `
-                -Wait -PassThru -NoNewWindow -ErrorAction Stop
+            $startArgs['NoNewWindow'] = $true
         } else {
-            $proc = Start-Process -FilePath 'pwsh.exe' `
-                -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded) `
-                -Verb RunAs -Wait -PassThru -ErrorAction Stop
+            $startArgs['Verb'] = 'RunAs'
+        }
+        $proc = Start-Process @startArgs
+
+        if (-not $proc.WaitForExit($timeoutMinutes * 60 * 1000)) {
+            # Kill($true) takes the tree, because choco spawns msiexec and installer children that
+            # would otherwise survive the parent and keep holding their locks.
+            try { $proc.Kill($true) } catch { Write-Verbose "could not kill $($proc.Id): $($_.Exception.Message)" }
+            return [PSCustomObject]@{
+                Status = 'failed'
+                Detail = "the Chocolatey batch was still running after $timeoutMinutes minutes and was killed, so those packages are NOT installed. Most likely a prompt inside the elevated child, or an unanswered consent dialog. Run 'choco install $($PackageId -join ' ') -y' by hand to see it."
+            }
         }
         if ($proc.ExitCode -eq 0) {
             return [PSCustomObject]@{ Status = 'installed'; Detail = "$($PackageId.Count) package(s)" }
