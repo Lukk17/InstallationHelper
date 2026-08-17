@@ -1,6 +1,6 @@
 # Regression ledger
 
-Current as of 2026-08-16. Every entry below is written against the tree at that date, and the one still-open finding says so in its own status line.
+Current as of 2026-08-17. Every entry below is written against the tree at that date, and the one still-open finding says so in its own status line.
 
 This is the list of defects the Ansible playbook and its wizard scripts have actually suffered, mined from the project's git history and from a container audit run the same day this page was written. Every entry states the cause, what it broke, and where the fix lives, or says plainly that it is still open. The point is prevention. Read the checklist below before touching anything under [setup/](../setup/), then use the grouped entries as a reference for the failure mode you are about to repeat.
 
@@ -21,8 +21,13 @@ The older, pre-Ansible bash-script era of this repository (2022 to early 2024, t
 8. Do not wrap a resolution or install step in a spinner or a generic heartbeat without also checking that the wrapped command's own error output still reaches the terminal. A spinner that swallows the one line saying "version not found" costs hours. See the SDKMAN and Ansible Galaxy entries under package drift and silent failure.
 9. Anything that writes to shared on-disk state (a shared config file, a shared candidate registry, a shared cache) from a loop needs serialization, not just `async` for throughput. See the SDKMAN concurrency entry.
 10. When a task builds against, configures, or shells out to a platform that has major versions, check which major version the distributions actually ship now, not which one the task was written for. Every current release of all four supported Linux families ships KDE Plasma 6 with Frameworks 6, and the KDE role was Plasma 5 throughout: a dead source repository, Qt 5 development packages, a `kwriteconfig5` that no longer exists, and probe paths nothing writes. The tell is a version digit in a name, so grep the role for one. Note that the old names do not all stop resolving, which is why this needs looking for rather than waiting for a failure. See the four Plasma rows below.
+11. A check that reads a file must fail when it reads nothing. An assertion over an empty set passes and is indistinguishable from an assertion that found no problem, and so is a loop over an empty candidate list. Every collector needs a companion condition proving it examined something, a package count, a candidate count or a mapping count, and the tier 1 reader of the URL mappings had that guard while the tier 3 assertion mirroring it did not. See the 2026-08-17 entries.
+12. Verify what the package database will call the software, not what the download is called. A mapping whose `package` field held a filename could never match an installed-package query, and the filename had rotted out of step with the real artifact anyway. Measure the name from the artifact itself with `dpkg-deb -f <file> Package` or `rpm -qp --qf '%{NAME}'`, and record in the file which tool produced it.
+13. When you tolerate a failure so the run can continue, work out what else you are tolerating. A fatal task near the top of a block takes every later task in that block with it, which here meant one dead vendor URL costing roughly twenty flatpak applications, snap, and every custom install. Tolerating the item and reporting it are two separate pieces of work and both are needed.
+14. A predictable path under `/tmp` is not a staging directory. Every local account can write there, so a fixed file name later installed as root, especially with a digest check disabled, lets any local user have their payload installed with root maintainer scripts. Stage in a root-owned directory with mode 0700, and remember that `get_url` does not overwrite an existing destination unless told to, which turns any permanent staging path into a cache that a version bump cannot invalidate.
+15. Adding a task to a role means asking which tag selections must reach it. Tags inherited from the import are not enough for a fact every later task depends on: two `set_fact` tasks carrying no tag made every documented per-manager tag selection a silent no-op, because the fact they build was undefined and the block's own `when` then evaluated false.
 
-A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5 are fully covered by its tier 1 checks, which run in seconds and are proven to fail against the code from before each fix. Item 2 is covered by tier 2, in two halves that cover different things. The `vars/{OS}.yaml` dictionary names are resolved over HTTP for Arch, the Arch User Repository, Flathub, Homebrew, Chocolatey and winget, and deliberately not for apt or dnf, because most of those names come from repositories the playbook adds while it runs and resolving them beforehand would report healthy packages as missing. The names written directly into role task files are resolved for all four Linux families, apt and dnf included, inside the same pinned base images the tier 3 scenarios use, with the handful that genuinely need a run-time repository listed in [runtime_repo_packages.txt](../e2e/tier2/runtime_repo_packages.txt) rather than silently forgiven. So for apt and dnf, a stale name in a role is caught in seconds and a stale name in a dictionary is caught only by tier 3. Items 1 and 6 are covered by tier 3, which runs the real playbook in a container. Coverage there is uneven and worth stating exactly, because a green tier 3 is easy to read as more than it is. Arch has run all seven scenarios. Debian, Ubuntu and Fedora have run smoke and nothing else, so on those three families the six remaining scenarios are still something a person has to do by hand, and the desktop environment scenarios in particular have never run outside Arch. macOS has no container at all and Windows has never been run in one, its gate being a separate PowerShell entry point that needs the Docker daemon switched to Windows containers. Items 3, 7, 8, 9 and 10 are not mechanised at all and remain review discipline.
+A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5 are fully covered by its tier 1 checks, which run in seconds and are proven to fail against the code from before each fix. Item 2 is covered by tier 2, in two halves that cover different things. The `vars/{OS}.yaml` dictionary names are resolved over HTTP for Arch, the Arch User Repository, Flathub, Homebrew, Chocolatey and winget, and deliberately not for apt or dnf, because most of those names come from repositories the playbook adds while it runs and resolving them beforehand would report healthy packages as missing. The names written directly into role task files are resolved for all four Linux families, apt and dnf included, inside the same pinned base images the tier 3 scenarios use, with the handful that genuinely need a run-time repository listed in [runtime_repo_packages.txt](../e2e/tier2/runtime_repo_packages.txt) rather than silently forgiven. So for apt and dnf, a stale name in a role is caught in seconds and a stale name in a dictionary is caught only by tier 3. Items 1 and 6 are covered by tier 3, which runs the real playbook in a container. Coverage there is uneven and worth stating exactly, because a green tier 3 is easy to read as more than it is. Arch has run all seven scenarios. Debian and Fedora have since also run the defaults scenario, on 2026-08-17: Fedora passed clean, Debian did not, failing on a balena-etcher dependency the container image cannot satisfy (`Dependency is not satisfiable: polkit-1-auth-agent|policykit-1-gnome|polkit-kde-1`, run `2026-08-17T10-13-03Z_debian_defaults`), an open finding not yet triaged. Ubuntu has run smoke and nothing else. So five of the seven scenarios remain something a person has to do by hand on Debian and Fedora, six on Ubuntu, and the desktop environment scenarios in particular have never run outside Arch. macOS has no container at all and Windows has never been run in one, its gate being a separate PowerShell entry point that needs the Docker daemon switched to Windows containers. Items 3, 7, 8, 9 and 10 are not mechanised at all and remain review discipline.
 
 [AGENTS.md](../AGENTS.md) carries the mandatory recurring check for the upstream ansible-core deserialization bug referenced at the bottom of this ledger, and that file is the authoritative copy, this ledger only summarises it.
 
@@ -95,23 +100,89 @@ Effect: a sweep where kde-full, kde-configure-only and smoke all failed reported
 
 ---
 
+### Found on 2026-08-17, closing the vendor-URL blind spot
+
+Seven, all fixed, and they belong together because one of them is the reason the other six were invisible. Nine mappings across Debian, Ubuntu and Fedora install from a vendor URL rather than a repository, and no tier of the harness looked at them at all, so everything else in this section could sit in the code indefinitely with every run green.
+
+Two of the seven were caught by review before they ever ran, and they are recorded here rather than quietly dropped, because a defect stopped at review is evidence the review is worth the time.
+
+#### Nine URL-installed mappings that no tier checked
+
+Status: fixed in [e2e/tier3/verify.yaml](../e2e/tier3/verify.yaml), [e2e/tier1/toggle_coverage.sh](../e2e/tier1/toggle_coverage.sh), [setup/ansible/vars/Debian.yaml](../setup/ansible/vars/Debian.yaml) and [setup/ansible/vars/RedHat.yaml](../setup/ansible/vars/RedHat.yaml).
+
+Cause: three separate blind spots lining up. The verify play's expected set selected on `['pacman', 'aur', 'apt', 'dnf']`, so `apt_url` and `dnf_url` were excluded by construction. Tier 2 resolves names against repository indexes these packages are not in. And the `package` field for those nine mappings held a decorative filename such as `minikube_latest_amd64.deb`, which no package database ever reports, so even including them would have reported all nine as missing.
+
+Effect: both dispatch tasks are guarded by `when: item_url | length > 0`, so a URL variable that renders empty skips the download and the install and prints nothing. Minikube, TeamViewer, VeraCrypt, AppImageLauncher and balenaEtcher, all enabled by default, could each have been silently absent on every Debian, Ubuntu and Fedora run.
+
+Fix: `package` now holds the name the package database reports, measured against the real vendor artifacts rather than guessed, five with `dpkg-deb -f <file> Package` and four with `rpm -qp --qf '%{NAME}'`. TeamViewer's needed a second look because the rpm prints an OpenPGP `NOKEY` warning that hid the answer. The verify play now includes both managers in the comparison, records how many candidates it examined, and asserts separately that every enabled one resolved a download location. Tier 1 gained four checks that catch the same thing statically in a second, and both of their branches were proven to fail against a deliberately broken mapping and an emptied URL before being trusted.
+
+#### A predictable /tmp path for packages installed as root
+
+Status: fixed in [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) and [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml).
+
+Cause: four vendor artifacts were downloaded to fixed paths under `/tmp`, `apt_url-<key>.deb`, `appimagelauncher.rpm`, `gridcoin.flatpak` and `gputest.zip`, then installed as root. `/tmp` is writable by every local account, and `get_url` does not overwrite a destination that already exists.
+
+Effect: any unprivileged local user could pre-create one of those paths and have their own file installed as root. The AppImageLauncher path is the worst of the four, because the next task runs `rpm --install --nodigest`, which is to say with integrity checking switched off. All four now stage in a root-owned directory with mode 0700, and the fix was applied to all four rather than only the one being worked on, because two answers to the same question is how the next person picks the wrong one.
+
+#### A staging directory that would have become a stale cache
+
+Status: caught in review, never ran.
+
+Cause: moving the staging path out of `/tmp` made it permanent, while `get_url` still defaulted to not overwriting an existing file and the destination was keyed on the toggle name rather than the artifact.
+
+Effect, had it shipped: bumping a pinned version would have been ignored, the previously cached file installed instead, and tier 3 could not have caught it because it compares package names and never versions. The old `/tmp` path had bounded this to a single boot. Now the download forces a refetch, the staged files are removed after the install, and the checksum hook every other vendor download in this repository already uses is wired in here too.
+
+#### One dead vendor URL took twenty applications with it
+
+Status: fixed in [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml).
+
+Cause: making the download synchronous, which was itself a fix, also made it fatal, and it sits near the top of a block whose rescue skips everything after the failing task.
+
+Effect: a single 404 on a pinned artifact, which is the failure mode this repository hits most often, would have cost the flatpak batch of roughly twenty applications, snap, and every custom install. The download is now tolerated per item, what happened is established from the file on disk rather than from the result's `failed` key, and every absent artifact is named and marks the run failed at the end.
+
+#### A documented tag selection installed nothing
+
+Status: fixed in [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml).
+
+Cause: the two `set_fact` tasks that build `software_installer_packages` carried no tag, so under any per-manager selection such as `--tags apt_batch`, both were skipped, the fact was undefined and the block's own `when` evaluated false.
+
+Effect: [setup/ansible/tags.md](../setup/ansible/tags.md) documents `apt_batch` as a way to run the batched apt install and the vendor .deb installs, and running it did nothing at all while exiting zero. Both tasks now carry `always`.
+
+#### The Windows gate could not fail
+
+Status: fixed in [e2e/tier3/Invoke-WindowsE2E.ps1](../e2e/tier3/Invoke-WindowsE2E.ps1).
+
+Cause: two defects in the command generated for the container. `Invoke-Pester` was called without `PassThru`, so it returned nothing, and the script then ran `exit $r.FailedCount` on a null. Separately, the `-SkipSlow` branch interpolated the string `-ExcludeTagFilter @('Slow','Network')` onto a line of its own inside the generated script, where a leading hyphen is an operator PowerShell does not have.
+
+Effect: with `-SkipSlow` the generated script was a parse error and the run failed before Pester started. Without it, the gate exited 0 no matter how many tests failed. Both were proven directly: `$r = $null; exit $r.FailedCount` exits 0, and feeding that exclude line to `[scriptblock]::Create` throws at the character where the array begins. The fixed form was proven the other way too, with throwaway suites: a green suite exits 0 and a suite with two failures exits 2, and the script now also refuses a run that discovered no tests rather than calling it a pass.
+
+#### A test suite that only passed with an environment variable nobody sets
+
+Status: fixed in [e2e/tier3/windows/WindowsSoftware.Tests.ps1](../e2e/tier3/windows/WindowsSoftware.Tests.ps1).
+
+Cause: the suite located the repository through `$env:E2E_REPO_ROOT` with a fallback to `C:\work`, the path inside the Windows container. The variable is set by the container entry point and by nothing else.
+
+Effect: run the normal way from the repository, the suite reported 31 tests discovered and 0 passed, every one failing in `BeforeAll`. It had been reported as 28 passing, measured in a session that had exported the variable by hand. It now walks up from its own directory to find the repository, keeps the variable as an explicit override, and throws a clear error rather than guessing when neither works. Verified from the repository root and from an unrelated working directory, 28 passed and 0 failed in both.
+
+---
+
 ### Open findings, not yet fixed
 
-Four entries follow, and one of them is closed rather than open. The AUR finding is kept in this section, with its status line saying plainly that it is fixed and confirmed, because the reasoning that got from "one package in eleven, at random" to three named causes is worth more than tidy filing and moving it would scatter it. Three of the four originally recorded here are also closed: the desktop environment roles' Debian branch has been split by `ansible_distribution` with every package name checked in both a Debian and an Ubuntu container, the thirteen retry-less network operations in the no-rescue bootstrap path now retry, and every Windows toggle that installed nothing now has a native path. Two entries below are kept rather than deleted because each still carries something true, stated at the end of each. What remains:
+Five entries follow, and three of them are closed rather than open, kept anyway because each still carries something worth keeping. The AUR finding is kept in this section, with its status line saying plainly that it is fixed and confirmed, because the reasoning that got from "one package in eleven, at random" to three named causes is worth more than tidy filing and moving it would scatter it. The Windows toggles with no native install path are closed because reading the dead Ansible first shaped the native replacements that took over. `import_hibernate_task`'s missing scheduled-task file is closed because the native settings script that replaced the import is worth pointing readers at directly. The entire Windows path entry is addressed rather than closed, since the Ansible side of it is dead permanently rather than fixed, and it still records what remains true about that. The correction to an earlier entry is kept because a wrong cause left on the page is worse than no entry at all. What remains:
 
 #### The entire Windows path is unreachable
 
-Both wizards invoke the playbook as `ansible-playbook site.yaml -i localhost, -c local` from inside WSL. [setup/setup.ps1](../setup/setup.ps1) does it at its `Invoke-AnsiblePlaybook` function and hands the command to `wsl bash -c`. So the target is the WSL distribution, and `ansible_os_family` reports Debian, which was verified by running the same command the wizard runs and printing the fact.
+Both wizards used to invoke the playbook as `ansible-playbook site.yaml -i localhost, -c local` from inside WSL. [setup/setup.ps1](../setup/setup.ps1) did it at an `Invoke-AnsiblePlaybook` function, since removed, that handed the command to `wsl bash -c`. So the target was the WSL distribution, and `ansible_os_family` reported Debian, which was verified by running the same command the wizard ran and printing the fact.
 
 Consequence: every task gated on `os_family == 'Windows'` never executes, the `windows_core` role never runs, [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) is never loaded as `os_dict` because the pre-task loads `vars/{{ os_family }}.yaml`, and all 77 winget plus 6 Chocolatey mappings are dead. What a Windows user actually gets is the Debian software set installed into their WSL instance.
 
 This is architectural rather than a small bug. Making Ansible do it would need the playbook to target Windows as a host over WinRM or SSH, with an inventory that says so, and there is no `ansible_connection`, `ansible_host` or WinRM configuration anywhere in the repository.
 
-Partly addressed, and the part that is addressed does not go through Ansible at all. The software catalogue now installs natively through [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1), which reads the same YAML the playbook reads so the toggles and mappings stay one source of truth and only the executor differs. [setup.ps1](../setup/setup.ps1) runs that first and then runs the playbook inside WSL, labelled as configuring the Linux environment rather than pretending to configure Windows. So the 83 mappings are live again, including any added on the assumption that they ran.
+Addressed, and not by making Ansible reach Windows. [setup.ps1](../setup/setup.ps1) no longer runs the playbook at all, on WSL or anywhere else. The software catalogue installs natively through [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1), [setup/windows/WindowsNpmTools.ps1](../setup/windows/WindowsNpmTools.ps1) and [setup/windows/WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1), and the four settings that used to live in `windows_core` install natively through [setup/windows/WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1). All four read the same `group_vars` and `vars/Windows.yaml` the playbook reads, so the toggles and mappings stay one source of truth and only the executor differs. Every winget and Chocolatey mapping is live again, including any added on the assumption that a reachable playbook would install it. The only thing `setup.ps1` still does with WSL is install Ansible inside the distribution, because the owner wants that tool available there, not because anything in this repository drives it from Windows.
 
-What is still true: every task gated on `os_family == 'Windows'` in the playbook remains dead, and `vars/Windows.yaml` is still never loaded as `os_dict`. It is read by the PowerShell installer instead. Nothing new should be added to the Ansible Windows roles expecting it to run.
+What is still true: every task gated on `os_family == 'Windows'` in the playbook remains dead, and `vars/Windows.yaml` is still never loaded as `os_dict`. It is read directly by the PowerShell installers instead. Nothing new should be added to the Ansible Windows roles expecting it to run.
 
-#### Windows toggles with no native install path: closed, with one remainder
+#### Windows toggles with no native install path: closed
 
 Closed. This entry recorded seventeen, then eleven as the CLI tools were covered, and now none. What closed the last eleven, and what reading the dead Ansible first was worth:
 
@@ -119,7 +190,7 @@ Six became mapping lines, because a single package is the whole install: `claude
 
 Five needed [setup/windows/WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1), because no single package expresses them: `java` is four JDKs plus a discovered `JAVA_HOME`, `nodejs` and `flutter` are a version manager followed by a version inside it, and `gridcoin` and `razer_cortex` are direct installer downloads. Here the dead Ansible was actively wrong and copying it would have shipped the bug: `sdkman_windows.yaml` named four Chocolatey packages, `temurin11`, `temurin17`, `temurin21` and `temurin`, none of which exist on the feed, then set `JAVA_HOME` machine-wide to a hardcoded `jdk-21.0.6+7-hotspot` when the real directory on this machine is `jdk-21.0.12.8-hotspot`.
 
-The remainder, and it is the reason this entry is not simply deleted: `windows_core` still owns the optional features, the WSL install and the wallpaper, and those are OS configuration rather than software, so they have no native path yet and nothing installs them. The toggle coverage check no longer counts an unreachable Windows Ansible task as coverage, so any new gap of this kind fails the gate instead of hiding, which is how the eleven were found in the first place.
+The remainder is closed too, and it is the reason this entry still records the history rather than being deleted: [setup/windows/WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1) now applies the optional features, the WSL registration, the wallpaper and the hibernate scheduled task natively, so the four `windows_core` task files that owned this OS configuration each have a working replacement. The toggle coverage check no longer counts an unreachable Windows Ansible task as coverage, so any new gap of this kind fails the gate instead of hiding, which is how the eleven were found in the first place.
 
 #### A correction to an earlier entry in this file
 
@@ -186,9 +257,11 @@ The evidence, once the async result files were read directly, said the opposite 
 
 One process note worth keeping. While the cause was open, this entry carried an instruction not to reduce the concurrency yet, on the grounds that serialising the installs was the obvious candidate fix and would also stop the failure reproducing, leaving the cause unknown and the fix unproven. That held, and it was the right call: serialising early would have fixed the lock contention, hidden the provider prompts entirely, and left the dead collector undiscovered. Two of the three defects would still be in the tree.
 
-#### import_hibernate_task referenced a file that does not exist
+#### import_hibernate_task referenced a file that does not exist: closed
 
-`roles/windows_core/tasks/wsl_setup.yaml` runs `schtasks` against `{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml`, and there is no `setup/tasks/` directory anywhere in this repository. The toggle defaulted to true, so it would have failed on every Windows run had the Windows path been reachable at all. Now set false with the reason recorded beside it, which closes the immediate hazard, but the scheduled-task definition is still missing.
+`roles/windows_core/tasks/wsl_setup.yaml` runs `schtasks` against `{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml`, and there is no `setup/tasks/` directory anywhere in this repository. The toggle defaulted to true, so it would have failed on every Windows run had the Windows path been reachable at all. That task never runs anyway, per the entry above, so the missing XML is moot rather than fixed.
+
+[setup/windows/WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1)'s `Register-HibernateTask` is the native replacement, and it builds the scheduled task from its action, trigger and settings directly instead of importing anything, so there is no artefact to commit before the toggle can be turned on. `import_hibernate_task` is still `false` in [group_vars/windows.yaml](../setup/ansible/group_vars/windows.yaml), which is now an owner decision rather than a hazard being avoided, and the comment beside it says so.
 
 ---
 
@@ -324,7 +397,7 @@ Cause: `read_boolean_toggles` in [setup/setup.sh](../setup/setup.sh), lines 344 
 
 Effect: 11 toggles on Linux and 4 more on macOS rendered as unchecked in the customise checklist with a stray colon in the label, and could not be controlled in either direction. The wizard emitted a line like `install_tailscale:=false`, a variable name that does not match the real toggle, which Ansible accepts silently and leaves the real value untouched. The profile picker's package count was also 11 too low. Affected toggles: `install_chatgpt`, `install_synapse`, `install_tailscale`, `install_stable_diffusion`, `install_hardinfo`, `install_lm_sensors`, `install_greenenvy`, `install_baobab`, `install_openrazer`, `install_polychromatic`, `install_gputest`, plus `install_stats`, `install_grandperspective`, `install_lulu`, and `install_balena_etcher` on macOS.
 
-[setup/setup.ps1](../setup/setup.ps1) was never affected, its equivalent regex at line 246 is `^([a-z_]+): (true|false)` with no end anchor, so it matches the value regardless of a trailing comment. That asymmetry is itself the lesson behind item 5 on the checklist above, two implementations of the same parse drifted apart, and only one of them was ever tested against a commented toggle line.
+[setup/setup.ps1](../setup/setup.ps1) was never affected, its equivalent regex at line 582 is `^([a-z_]+): (true|false)` with no end anchor, so it matches the value regardless of a trailing comment. That asymmetry is itself the lesson behind item 5 on the checklist above, two implementations of the same parse drifted apart, and only one of them was ever tested against a commented toggle line.
 
 #### Toggles enabled with no mapping and no task
 

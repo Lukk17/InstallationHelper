@@ -6,10 +6,11 @@
 # Windows System Configurations
 setup_wsl: true
 enable_hyperv: true
-# Off because the scheduled-task definition it imports does not exist. wsl_setup.yaml
-# runs schtasks against "{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml", and there is no
-# setup/tasks/ directory anywhere in this repository, so the task would fail on every
-# Windows run. Turn it back on once that XML is committed. See docs/regression_ledger.md.
+# Off by owner choice, not by a missing artefact. wsl_setup.yaml (the dead Ansible task) still
+# imports a scheduled-task XML that does not exist in this repository, but setup/windows/
+# WindowsSettings.ps1 builds the task natively from its action, trigger and settings instead of
+# importing anything, so there is nothing left to commit before this can be turned on. See
+# docs/regression_ledger.md.
 import_hibernate_task: false
 
 # Windows Only Dev Tools

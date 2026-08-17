@@ -1,6 +1,6 @@
 # Setup
 
-> Cross-platform, data-driven Ansible setup for Ubuntu, Debian, Fedora, Arch, macOS, and Windows (via WSL).
+> Cross-platform, data-driven setup for Ubuntu, Debian, Fedora, Arch, and macOS through Ansible, and for Windows natively through PowerShell.
 
 ---
 
@@ -17,8 +17,7 @@ source, see [version_sources.md](version_sources.md). Authoritative per-OS packa
 
 ---
 
-The setup script detects your OS, installs Ansible and the required Galaxy collections, then runs an interactive
-checklist for software selection.
+The setup script detects your OS and runs an interactive checklist for software selection. On Linux and macOS it installs Ansible and the required Galaxy collections first, then drives the playbook. On Windows it installs everything natively instead, see the breakdown below.
 
 The wizard uses `gum` (charm.sh) on Linux and macOS and `Microsoft.PowerShell.ConsoleGuiTools` on Windows for
 filter-as-you-type pickers. Both are installed automatically on first run.
@@ -31,30 +30,32 @@ Linux / macOS:
 bash setup/setup.sh
 ```
 
-Windows (PowerShell 7+ — **non-elevated session**, not "Run as Administrator"):
+Windows (PowerShell 7 or newer, in a non-elevated session, not "Run as Administrator"):
 
 ```powershell
 pwsh setup/setup.ps1
 ```
 
-The playbook installs npm-based CLIs (Claude Code, OpenCode, OpenSpec, Codex, Grok, Bruno CLI) globally via
-`npm install -g`. Running the playbook from an elevated PowerShell window writes those packages into
-`%ProgramFiles%\nodejs\node_modules` and executes lifecycle scripts with Administrator rights, which
-is a wider blast radius than necessary. From a normal user session, `npm install -g` lands in
-`%AppData%\Roaming\npm` and runs unprivileged. Chocolatey tasks that legitimately need elevation will
-trigger UAC prompts on their own — there is no benefit to pre-elevating the whole run.
+On Windows, `setup.ps1` installs npm-based CLIs (Claude Code, OpenCode, OpenSpec, Codex, Grok, Bruno CLI) globally via `npm install -g`. Running it from an elevated PowerShell window writes those packages into `%ProgramFiles%\nodejs\node_modules` and executes lifecycle scripts with Administrator rights, which is a wider blast radius than necessary. From a normal user session, `npm install -g` lands in `%AppData%\Roaming\npm` and runs unprivileged. Chocolatey tasks that legitimately need elevation will trigger UAC prompts on their own, there is no benefit to pre-elevating the whole run.
 
-What the script does:
+What `setup.sh` does on Linux and macOS:
 
 1. Detects the OS and distribution.
 2. Installs Ansible via the matching package manager if it is missing.
-3. Installs `gum` (Linux / macOS) or `Microsoft.PowerShell.ConsoleGuiTools` (Windows) if missing.
-4. Installs the Galaxy collections pinned in
-   [setup/ansible/requirements.yaml](ansible/requirements.yaml) (`community.general`, `community.windows`,
-   `ansible.windows`, `ansible.posix`, `community.docker`, `kewlfft.aur`). Re-runs are no-ops.
+3. Installs `gum` if missing.
+4. Installs the Galaxy collections pinned in [setup/ansible/requirements.yaml](ansible/requirements.yaml) (`community.general`, `community.windows`, `ansible.windows`, `ansible.posix`, `community.docker`, `kewlfft.aur`). Re-runs are no-ops.
 5. Presents an interactive menu for the desktop environment.
 6. Optionally lets you review individual software and feature toggles in a filter-as-you-type grid.
 7. Runs the playbook with your selections, prompting for sudo when needed.
+
+What `setup.ps1` does on Windows: it never runs the Ansible playbook, because a playbook run from inside WSL would configure the WSL distribution rather than Windows, see [docs/regression_ledger.md](../docs/regression_ledger.md). Instead it:
+
+1. Upgrades already-installed winget and Chocolatey packages, unless `-SkipSystemUpgrade` is given.
+2. Installs `Microsoft.PowerShell.ConsoleGuiTools` if missing.
+3. Presents an interactive picker for software and the four Windows system settings together, or applies `group_vars` defaults non-interactively.
+4. Installs the selected software natively through winget, Chocolatey, and npm, plus the installs no single package can express (Java, Node.js, Flutter, Gridcoin, Razer Cortex), through [setup/windows/](windows/).
+5. Applies the four Windows system settings natively: the optional features, WSL registration, the desktop wallpaper, and the hibernate scheduled task.
+6. Installs Ansible inside WSL, because the toggle wants that tool available there. Nothing else in WSL is touched.
 
 #### Script options
 
@@ -74,7 +75,7 @@ Apply a preset profile and skip the wizard:
 bash setup/setup.sh --profile linux_live --non-interactive
 ```
 
-PowerShell equivalent:
+Accepted on Windows too, so the same command keeps working, but `-Profile` selects nothing there: profiles are Ansible variable overrides for the Linux side, and `setup.ps1` no longer runs the playbook. Only `-NonInteractive` has any effect, skipping the picker in favour of `group_vars` defaults:
 
 ```powershell
 pwsh setup/setup.ps1 -Profile linux_live -NonInteractive
@@ -108,7 +109,7 @@ pwsh setup/setup.ps1 -SkipSystemUpgrade
 Requirements:
 
 - Linux (Ubuntu / Debian, Fedora, Arch) or macOS, with an internet connection and `sudo`.
-- Windows: PowerShell 7+ and WSL (`wsl --install -d Ubuntu`).
+- Windows: PowerShell 7+. WSL (`wsl --install -d Ubuntu`) is optional, used only so `setup.ps1` can install Ansible inside it for later use, and its absence does not stop the rest of the run.
 
 ### Manual run
 
@@ -261,8 +262,7 @@ The available log files match the running task:
 | `Install Docker CE (Debian)` | `/var/log/installation-docker-apt.log` |
 | `Install Claude Desktop .deb (Linux Debian)` | `/var/log/installation-claude-desktop-apt.log` |
 
-On Windows the playbook runs inside WSL, so the same files live under WSL's filesystem. Tail them from PowerShell
-with:
+These logs and tables only apply when the playbook runs, which on Windows means the Manual run section above, driven by hand inside WSL. `setup.ps1` never runs the playbook itself, see [docs/regression_ledger.md](../docs/regression_ledger.md). If you do run it that way, the same files live under WSL's filesystem. Tail them from PowerShell with:
 
 ```powershell
 wsl -d Ubuntu tail -f /var/log/installation-flatpak-batch.log
@@ -388,9 +388,7 @@ Some installations cannot be abstracted through a single package manager and hav
 - [waydroid](ansible/roles/waydroid/): kernel parameters and custom GDM files for the Wayland container.
 - [system_core](ansible/roles/system_core/): system upgrade, tmpfs, GRUB timeout, RTC fix, locale.
 - [virtualization_config](ansible/roles/virtualization_config/): QEMU/KVM, virt-manager, and virtiofsd on Linux.
-  Auto-installs `spice-vdagent` inside a VM guest. macOS uses UTM (Apple Virtualization). Windows uses VirtualBox via
-  Chocolatey. VMware Workstation Player auto-install is currently broken (Broadcom moved the download behind a portal
-  login); install manually or use VirtualBox.
+  Auto-installs `spice-vdagent` inside a VM guest. macOS uses UTM (Apple Virtualization). Windows uses VirtualBox via winget, installed natively by [setup/windows/](windows/), not by this Ansible role. VMware Workstation Player auto-install is currently broken (Broadcom moved the download behind a portal login), install manually or use VirtualBox.
 
 ### Non-standard installation methods
 
@@ -409,7 +407,7 @@ Source role: [roles/ai_tools/](ansible/roles/ai_tools/).
 | Software | Ubuntu / Debian | Arch | Fedora | macOS | Windows |
 |---|---|---|---|---|---|
 | **Claude Code CLI** | `npm install -g @anthropic-ai/claude-code` | same | same | same | same |
-| **Claude Desktop** | unofficial APT repo script, then `sudo apt-get install -y claude-desktop` | `yay -S claude-desktop-bin` | `alien` conversion of the official `.deb`, then `sudo dnf install -y ./claude-desktop*.rpm` | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, not wired into the playbook |
+| **Claude Desktop** | unofficial APT repo script, then `sudo apt-get install -y claude-desktop` | `yay -S claude-desktop-bin` | `alien` conversion of the official `.deb`, then `sudo dnf install -y ./claude-desktop*.rpm` | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, installed natively by [setup/windows/](windows/), the `ai_tools` role's Windows task file for it can never run |
 | **Claude Cowork** | Build from source via `go` and `make install` | same | same | same | not available |
 | **OpenCode** | `npm install -g opencode-ai` | same | same | same | same |
 | **OpenSpec** | `npm install -g openspec` | same | same | same | same |
@@ -437,11 +435,11 @@ Source role: [roles/sdk_manager/](ansible/roles/sdk_manager/).
 
 | Software | Ubuntu / Debian | Arch | Fedora | macOS | Windows |
 |---|---|---|---|---|---|
-| **NVM** | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | same | same | same | `winget install -e --id CoreyButler.NVMforWindows` |
-| **Pyenv** | `curl https://pyenv.run \| bash` | same | same | same | `choco install pyenv-win -y` |
-| **SDKMAN** | `curl -s https://get.sdkman.io \| bash` | same | same | same | not available, use WSL |
+| **NVM** | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | same | same | same | `choco install nvm` (nvm-windows), then `nvm install lts` and `nvm use lts` |
+| **Pyenv** | `curl https://pyenv.run \| bash` | same | same | same | no Pyenv equivalent, installs a single interpreter instead, `winget install -e --id Python.Python.3.11`, kept in sync with `default_python` |
+| **SDKMAN** | `curl -s https://get.sdkman.io \| bash` | same | same | same | not available, Java itself installs through [setup/windows/](windows/) directly, four Temurin builds plus a discovered `JAVA_HOME` |
 | **Dart SDK** | `sudo apt-get install -y dart` | `sudo pacman -S --needed dart` | `sudo dnf install -y dart` | `brew install dart` | manual from [dart.dev](https://dart.dev/get-dart) |
-| **FVM (Flutter)** | `curl -fsSL https://fvm.app/install.sh \| bash` | same | same | same | manual from [fvm.app](https://fvm.app/documentation/getting-started/installation) |
+| **FVM (Flutter)** | `curl -fsSL https://fvm.app/install.sh \| bash` | same | same | same | `choco install fvm`, then `fvm install <channel>` and `fvm global <channel>`, channel pinned by `flutter_channel` in `versions.yaml` |
 | **Android SDK** | `sdkmanager "platform-tools" "build-tools;35.0.0"` after the cmdline-tools zip is unpacked | same | same | same | `winget install -e --id Google.AndroidStudio` |
 
 #### URL-based package installs

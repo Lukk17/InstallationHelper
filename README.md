@@ -1,6 +1,6 @@
 # Installation Helper
 
-> Cross-platform Ansible playbooks that bootstrap a dev machine on Linux, macOS, and Windows in minutes.
+> Bootstraps a dev machine on Linux and macOS through an Ansible playbook, and on Windows natively through PowerShell, from one shared toggle file.
 
 ![Ansible](https://img.shields.io/badge/Ansible-EE0000?logo=ansible&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
@@ -16,9 +16,7 @@
 
 ---
 
-Setting up a fresh dev machine should not take a weekend of copy-pasting install commands. This playbook treats
-workstation provisioning as infrastructure: declarative, idempotent, version-controlled. One command produces the same
-environment on Ubuntu, Fedora, Arch, macOS, and Windows.
+Setting up a fresh dev machine should not take a weekend of copy-pasting install commands. This repository treats workstation provisioning as infrastructure: declarative, idempotent, version-controlled. One command produces the same environment on Ubuntu, Fedora, Arch, and macOS through an Ansible playbook, and on Windows through a native PowerShell installer reading the same toggle files.
 
 The trick is a small dispatch layer. [group_vars/all.yaml](setup/ansible/group_vars/all.yaml) declares intent
 (`install_chrome: true`); per-OS dictionaries under [vars/](setup/ansible/vars/) map that intent to the correct
@@ -34,7 +32,7 @@ package manager.
 - Per-OS translation dictionaries under [vars/](setup/ansible/vars/) map a generic app name to `apt`, `dnf`, `pacman`,
   `brew`, `choco`, `winget`, `flatpak`, `snap`, or AUR.
 - Profile overrides for live USB, minimal, or full installs without touching the base playbook.
-- PowerShell entrypoint on Windows that hands off to Ansible inside WSL.
+- Native PowerShell entrypoint on Windows: installs the software catalogue and four system settings directly, with winget, Chocolatey, and npm, then installs Ansible inside WSL so it is there for later use.
 - Docker Compose stack for local-dev databases and Keycloak.
 - Home lab stack for an always-on Proxmox box: Home Assistant, private DNS, reverse proxy, dashboard, uptime monitor, file sync.
 - OpenSpec workflow for spec-driven changes.
@@ -51,28 +49,19 @@ Ansible, Bash, PowerShell, Docker Compose, WSL, Keycloak, KDE Plasma, GNOME, sys
 
 ```mermaid
 flowchart TD
-    A[setup.sh / setup.ps1] --> B[Interactive TUI<br/>software selection]
-    B --> C{Detect OS}
-    C -->|Windows| D[WSL bridge]
-    C -->|Linux/macOS| E[Ansible playbook<br/>site.yaml]
-    D --> E
-    E --> F[Load group_vars + vars/&#123;OS&#125;.yaml<br/>os_dict translation]
-    F --> G[OS core roles<br/>system_core, windows_core, macos_core, arch_core, fedora_core]
-    G --> R[Repo provisioning<br/>debian_repos.yaml, fedora_repos.yaml]
-    R --> H[Cross-platform roles<br/>shell_zsh, env_variables, sdk_manager, ai_tools]
-    H --> I[software_installer<br/>dynamic_install.yaml]
-    I --> J1[apt, dnf, pacman, AUR]
-    I --> J2[brew, brew_cask, mas]
-    I --> J3[choco, winget]
-    I --> J4[flatpak, snap]
-    I --> CI[custom_installs.yaml<br/>macos_install.yaml<br/>windows_install.yaml]
-    H --> K[Linux advanced<br/>systemd_boot, virtualization_config, linux_security]
+    accTitle: Two execution paths sharing one toggle source
+    accDescr: setup.sh drives the Ansible playbook on the five Unix-like families. setup.ps1 drives native PowerShell installers on Windows and only touches WSL to install Ansible there for later use. Both read the same group_vars and vars/OS.yaml files.
+    A[setup.sh<br/>Ubuntu, Debian, Fedora, Arch, macOS] --> E[Ansible playbook<br/>site.yaml]
+    T[group_vars + vars/&#123;OS&#125;.yaml<br/>single source of truth for what to install] --> E
+    T --> W
+    E --> G[OS core roles, repo provisioning,<br/>SDK managers, software_installer<br/>apt, dnf, pacman, AUR, brew, flatpak, snap]
+    B[setup.ps1<br/>Windows] --> W[Native PowerShell installers<br/>WindowsSoftware, WindowsCustomInstalls,<br/>WindowsNpmTools, WindowsSettings]
+    W --> WSL[Installs Ansible inside WSL<br/>for later manual use, not driven from here]
 ```
 
-The phase order matches [setup/ansible/site.yaml](setup/ansible/site.yaml). OS core bootstrap first, then APT and DNF
-repo provisioning (keyrings, `.list` and `.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Docker), then
-SDK and runtime managers, then snapd and flatpak setup, then a single batched install per package manager, then
-custom installs for AppImages, DMGs, and `.exe` artefacts.
+On the five Unix-like families the phase order matches [setup/ansible/site.yaml](setup/ansible/site.yaml). OS core bootstrap first, then APT and DNF repo provisioning (keyrings, `.list` and `.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Docker), then SDK and runtime managers, then snapd and flatpak setup, then a single batched install per package manager, then custom installs for AppImages and macOS `.dmg`/`.pkg` artefacts.
+
+On Windows, [setup/setup.ps1](setup/setup.ps1) never drives the Ansible playbook: every task in the playbook gated on `os_family == 'Windows'` is unreachable, because the playbook only ever runs against WSL's own Linux environment. The software catalogue, the npm-based CLI tools, and the four system settings (optional features, WSL registration, the wallpaper, the hibernate scheduled task) all install through [setup/windows/](setup/windows/) instead, reading the same `group_vars` and [setup/ansible/vars/Windows.yaml](setup/ansible/vars/Windows.yaml) the playbook would have used. The only thing this wizard still does with WSL is install Ansible inside the distribution, because that tool is wanted there. See [docs/regression_ledger.md](docs/regression_ledger.md) for how this was found and fixed.
 
 ### What it installs
 
@@ -95,9 +84,7 @@ under [setup/ansible/vars/](setup/ansible/vars/).
 
 ---
 
-The interactive wizard installs Ansible if missing, pulls the required collections, and presents a
-filter-as-you-type checklist for what to install. The TUI uses `gum` on Linux and macOS and
-`Microsoft.PowerShell.ConsoleGuiTools` on Windows. Both are auto-installed on first run.
+The interactive wizard presents a filter-as-you-type checklist for what to install. On Linux and macOS it installs Ansible and the required Galaxy collections first, then drives the playbook with your selections. On Windows it installs everything natively instead, through winget, Chocolatey, and npm, see the Architecture section above. The TUI uses `gum` on Linux and macOS and `Microsoft.PowerShell.ConsoleGuiTools` on Windows, both auto-installed on first run.
 
 Linux / macOS (run as your regular user, not root):
 
@@ -105,7 +92,7 @@ Linux / macOS (run as your regular user, not root):
 bash setup/setup.sh
 ```
 
-Windows (PowerShell 7+, not as Administrator; the script runs Ansible inside WSL):
+Windows (PowerShell 7+, not as Administrator, installs software and settings natively, then installs Ansible inside WSL for later use):
 
 ```powershell
 pwsh setup/setup.ps1
@@ -137,10 +124,11 @@ PowerShell equivalent on Windows:
 pwsh setup/setup.ps1 -Profile linux_live -NonInteractive
 ```
 
+On Windows, `-Profile` is accepted so this exact command keeps working, but it selects nothing: profiles are Ansible variable overrides for the Linux side, and `setup.ps1` no longer runs the playbook. Only `-NonInteractive` has any effect there, skipping the picker in favour of `group_vars` defaults.
+
 Available flags:
 
-- `--profile <name>` / `-Profile <name>`: apply [setup/ansible/profiles/<name>.yaml](setup/ansible/profiles/) and skip
-  selection.
+- `--profile <name>` / `-Profile <name>`: on Linux and macOS, apply [setup/ansible/profiles/<name>.yaml](setup/ansible/profiles/) and skip selection. On Windows it is accepted for compatibility only and selects nothing, see the note above.
 - `--non-interactive` / `-NonInteractive`: use [group_vars](setup/ansible/group_vars/) defaults, never prompt.
 - `--no-color` / `-NoColor`: disable themed output (also honoured via `NO_COLOR=1`).
 - `--help` / `Get-Help .\setup.ps1`: show usage.
@@ -152,7 +140,7 @@ For manual instructions, logging notes, and per-OS caveats, see
 
 ---
 
-Ubuntu, Debian, Fedora, Arch, Manjaro, macOS, Windows (via WSL).
+Ubuntu, Debian, Fedora, Arch, Manjaro, macOS through Ansible, Windows natively through PowerShell (WSL is used only to host Ansible for later use, not to run the playbook against Windows).
 
 ### Repo structure
 
@@ -162,7 +150,7 @@ Ubuntu, Debian, Fedora, Arch, Manjaro, macOS, Windows (via WSL).
 InstallationHelper/
 ├── setup/
 │   ├── setup.sh                # Linux/macOS entrypoint
-│   ├── setup.ps1               # Windows entrypoint (WSL bridge)
+│   ├── setup.ps1               # Windows entrypoint (native installers, then Ansible inside WSL)
 │   ├── software.md             # Per-OS software catalog
 │   └── ansible/
 │       ├── site.yaml           # Main playbook
