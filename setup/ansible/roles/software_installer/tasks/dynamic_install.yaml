@@ -247,6 +247,21 @@
     # failed_when: false keeps one bad build from abandoning a forty minute play, and the collectors
     # below read rc rather than `failed`, because failed_when rewrites `failed` and used to erase the
     # evidence they were looking for.
+    # async with poll above zero, which is the combination that gives a hard time bound WITHOUT
+    # bringing the concurrency back. Ansible waits for each item before starting the next, so the
+    # pacman database lock is still uncontended, and the async wrapper still kills a build that
+    # exceeds 90 minutes.
+    #
+    # Recorded because I broke it and a review caught it: removing the old `poll: 0` firing to fix
+    # the lock contention also removed the only time bound in this path, leaving a plain foreground
+    # module call with nothing to stop it. --noconfirm --skipreview --noprovides does not cover every
+    # prompt paru can raise, a PGP key import or a pkgver() reaching an unreachable host among them,
+    # and one such package would have hung an unattended run forever. Trading a real timeout away
+    # while fixing something else is exactly the kind of thing this repository's ledger exists for.
+    #
+    # An expired job returns "async task did not complete within the requested time" with no rc, so
+    # the rc collector below cannot see it. The pacman -Qq absence check can, which is why that check
+    # is load-bearing rather than belt-and-braces.
     - name: Install AUR packages (one at a time, so the pacman database lock cannot be contended)
       become: true
       become_user: "{{ non_root_user }}"
@@ -258,6 +273,8 @@
       loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'aur') | list }}"
       when: ansible_facts['os_family'] == 'Archlinux'
       register: aur_results
+      async: "{{ aur_build_timeout | default(5400) | int }}"
+      poll: 15
       failed_when: false
       loop_control:
         label: "{{ item.value.package }}"
@@ -284,13 +301,22 @@
       when: ansible_facts['os_family'] == 'Archlinux'
       tags: [pacman_batch]
 
-    # The timed-out collector is gone with the async firing that made it necessary. A build now runs
-    # in the foreground of its own loop iteration, so it either finishes or fails, and there is no
-    # third state where a job is still running after the wait budget expired. `aur_wait_retries` is
-    # no longer read by anything.
-    - name: There is no separate timeout state any more
+    # A build killed by the async timeout comes back with no rc at all, so the collector above cannot
+    # see it, and its msg is Ansible's own "async task did not complete within the requested time".
+    # Selected on that message rather than on `failed`, for the same reason as above.
+    #
+    # This collector was briefly hardcoded to an empty list, when serialising the loop removed the
+    # async firing and I reasoned there was no longer a timeout state to collect. That was wrong in
+    # two ways: it also removed the timeout itself, and a hardcoded empty list is a collector that
+    # cannot report. Both are back.
+    - name: Collect AUR packages whose build was killed by the timeout
       ansible.builtin.set_fact:
-        aur_timed_out: []
+        aur_timed_out: >-
+          {{ (aur_results.results | default([]))
+             | selectattr('msg', 'defined')
+             | selectattr('msg', 'search', 'did not complete within the requested time')
+             | map(attribute='item.value.package')
+             | list }}
       when: ansible_facts['os_family'] == 'Archlinux'
       tags: [pacman_batch]
 
@@ -348,29 +374,28 @@
     # a package problem, and the packages were checked: visual-studio-code-bin's AUR entry is
     # healthy and its 239 MB source matched the declared sha256 exactly.
     #
-    # What is missing is the failing job's own result. The three warnings are debug tasks and the
-    # dual_logger callback does not render a debug message on an ok task, so nothing about the
-    # failure reached the log or the run record. This prints the async result file for each absent
-    # package, which is the only artefact that can distinguish paru exiting zero without installing
-    # from the job never running from a lost pacman database lock. It runs only when something is
-    # actually absent, so a healthy run pays nothing for it.
-    # `command` rather than `debug` on purpose. The dual_logger callback renders a command's stdout
-    # and does not render a debug message on an ok task, which is why the three warnings above were
-    # invisible and why this took three runs to notice. cat is the one form that gets the evidence
-    # into the log without failing the task and abandoning the rest of the install, which is what
-    # `fail` or `assert` here would do.
-    - name: Show what paru actually said about every AUR package that is absent
-      ansible.builtin.command:
+    # What is missing is the build's own output, and a review caught that my first attempt could not
+    # supply it. It printed the module's `msg`, which for a successful-but-absent item is the canned
+    # string "installed package(s)": kewlfft.aur.aur only carries paru's stdout when it fails, and
+    # those items are already named by the rc collector above. So the one shape this exists to
+    # explain would have produced nothing useful.
+    #
+    # pacman's own log is the artefact that does not depend on the module. It records every
+    # transaction with a timestamp, so a package that paru claimed to install and pacman never
+    # committed is visible as an absence of any `installed <name>` line, and a partial transaction is
+    # visible as an `upgraded`/`removed` pair without it.
+    #
+    # `shell` rather than `debug` on purpose. The dual_logger callback renders a command's stdout and
+    # does not render a debug message on an ok task, which is why the three warnings above were
+    # invisible and why this took three runs to notice. It must not fail the task either, or it would
+    # abandon the rest of the install, which is what `fail` or `assert` here would do.
+    - name: Show what pacman recorded for every AUR package that is absent
+      ansible.builtin.shell:
         cmd: >-
-          printf '%s\n'
-          {{ (aur_results.results | default([]))
-             | selectattr('item.value.package', 'in', aur_absent_after_install | default([]))
-             | map(attribute='msg')
-             | map('default', 'no message', true)
-             | map('regex_replace', '[^ -~]', ' ')
-             | map('truncate', 900, true, '')
-             | map('quote')
-             | join(' ') }}
+          grep -aE '\[ALPM\] (installed|upgraded|removed) ({{ aur_absent_after_install | join('|') }})'
+          /var/log/pacman.log | tail -20;
+          echo "--- last 15 pacman transactions ---";
+          grep -aE '\[ALPM\] (installed|upgraded|removed)' /var/log/pacman.log | tail -15
       register: aur_absent_job_results
       changed_when: false
       failed_when: false

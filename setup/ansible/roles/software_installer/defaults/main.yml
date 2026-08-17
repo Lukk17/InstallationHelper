@@ -17,8 +17,15 @@ aur_allow_failures: true
 # contended machine, where the old 20 minute ceiling silently dropped packages. google-chrome went
 # missing from a run that reported success for exactly this reason, while three containers competed
 # for the same cores.
-# aur_wait_retries removed with the async AUR firing it paced. The installs now run one at a time
-# in the foreground of their own loop iteration, so there is no wait budget to size.
+# Hard ceiling on a single AUR build, in seconds. The installs run one at a time, so this is per
+# package rather than for the batch, and 90 minutes is well clear of the slowest observed build while
+# still bounding a paru that has stopped on a prompt none of --noconfirm, --skipreview or
+# --noprovides covers. Raise it only if a genuine build is this slow on your machine.
+#
+# Replaces aur_wait_retries, which paced the old concurrent firing. Serialising the loop removed the
+# concurrency and, as a review pointed out, removed the time bound with it, leaving nothing at all to
+# stop a hung build on an unattended run.
+aur_build_timeout: 5400
 
 # When true, dynamic_install.yaml will purge /var/lib/flatpak/repo if the
 # health probe reports an ostree-corruption error. Off by default because

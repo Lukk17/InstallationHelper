@@ -374,35 +374,75 @@ function Install-DirectInstaller {
     param(
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Key,
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Url,
-        [Parameter(Mandatory)] [string[]] $SilentArgument,
-        [ValidateRange(1, 60)] [int] $TimeoutMinutes = 15
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string[]] $SilentArgument,
+
+        # A path that must exist afterwards for the install to count. Ledger rule 5: an install that
+        # exits zero and leaves nothing behind is still a bug. Razer Cortex matters most here, since
+        # its /S switch is corroborated by the Chocolatey Synapse package and not documented anywhere.
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ProofPath,
+
+        [ValidateRange(1, 60)] [int] $TimeoutMinutes = 15,
+        [ValidateRange(30, 3600)] [int] $DownloadTimeoutSeconds = 300
     )
 
     if (-not $PSCmdlet.ShouldProcess($Url, 'download and run installer')) {
         return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'skipped'; Detail = 'WhatIf' }
     }
 
-    $target = Join-Path ([System.IO.Path]::GetTempPath()) "$Key-installer.exe"
+    # Scheme checked before anything is fetched. These URLs are built by textual {{ ref }}
+    # substitution out of versions.yaml, so a bad edit there can point this somewhere unintended, and
+    # what arrives is then executed. http would also mean an installer any network position can
+    # replace. Neither vendor needs it.
+    if ($Url -notmatch '^https://') {
+        return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
+                                  Detail = 'refusing to download an installer over anything but https' }
+    }
+
+    # Written into a per-run directory rather than straight into the temp root. The old path was
+    # predictable, and a predictable name in a shared writable directory is worth avoiding when the
+    # file is about to be executed.
+    $stage = Join-Path ([System.IO.Path]::GetTempPath()) ("installation-helper-" + [guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $stage -Force
+    $target = Join-Path $stage "$Key-installer.exe"
     try {
-        Invoke-WebRequest -Uri $Url -OutFile $target -UseBasicParsing -ErrorAction Stop
+        # TimeoutSec is not optional. PowerShell 7 maps the default of 0 to an infinite timeout, so a
+        # server that completes the handshake and then stalls mid-body blocks here forever, and unlike
+        # the Start-Process below there is no watchdog to notice.
+        Invoke-WebRequest -Uri $Url -OutFile $target -UseBasicParsing `
+            -TimeoutSec $DownloadTimeoutSeconds -MaximumRedirection 5 -ErrorAction Stop
     } catch {
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
         return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
                                   Detail = "download failed: $($_.Exception.Message)" }
     }
 
     try {
+        # An Authenticode check is the only integrity evidence available here, since neither vendor
+        # publishes a hash for these evergreen URLs. Both do sign their installers, so this is
+        # enforceable today rather than aspirational, and it is the difference between running a
+        # verified vendor binary and running whatever the URL returned.
+        $sig = Get-AuthenticodeSignature -LiteralPath $target
+        if ($sig.Status -ne 'Valid') {
+            return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
+                                      Detail = "refusing to run it: Authenticode status is $($sig.Status), signer '$($sig.SignerCertificate.Subject)'" }
+        }
+
         $p = Start-Process -FilePath $target -ArgumentList $SilentArgument -PassThru -WindowStyle Hidden
         if (-not $p.WaitForExit($TimeoutMinutes * 60 * 1000)) {
             try { $p.Kill($true) } catch { Write-Verbose "could not kill $($p.Id): $($_.Exception.Message)" }
             return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
                                       Detail = "the installer was still running after $TimeoutMinutes minutes and was killed, which means it ignored $($SilentArgument -join ' ') and put up a window. Download it from $Url and run it by hand." }
         }
-        if ($p.ExitCode -eq 0) {
-            return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'installed'; Detail = '' }
+        if ($p.ExitCode -ne 0) {
+            return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'; Detail = "installer exited $($p.ExitCode)" }
         }
-        return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'; Detail = "installer exited $($p.ExitCode)" }
+        if (-not (Test-Path -LiteralPath $ProofPath)) {
+            return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
+                                      Detail = "the installer exited 0 and $ProofPath does not exist, so it did not install. For Razer Cortex this most likely means /S is not its silent switch." }
+        }
+        return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'installed'; Detail = $ProofPath }
     } finally {
-        Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -441,7 +481,10 @@ function Invoke-WindowsCustomInstall {
     if (& $wanted 'gridcoin') {
         $url = $versions['gridcoin_win_installer_url']
         if ($url -and $url -notmatch '\{\{') {
-            $results.Add((Install-DirectInstaller -Key 'gridcoin' -Url $url -SilentArgument @('/S')))
+            # NSIS installs to Program Files by default and the package name is Gridcoin, confirmed
+            # from the installer's own version resources when its framework was identified.
+            $results.Add((Install-DirectInstaller -Key 'gridcoin' -Url $url -SilentArgument @('/S') `
+                -ProofPath (Join-Path $env:ProgramFiles 'Gridcoin')))
         } else {
             $results.Add([PSCustomObject]@{ Key = 'gridcoin'; Package = 'gridcoin_win_installer_url'; Status = 'failed'
                                             Detail = "versions.yaml does not give a usable URL, it reads '$url'" })
@@ -456,7 +499,14 @@ function Invoke-WindowsCustomInstall {
     if (& $wanted 'razer_cortex') {
         $url = $versions['razer_cortex_win_installer_url']
         if ($url -and $url -notmatch '\{\{') {
-            $results.Add((Install-DirectInstaller -Key 'razer_cortex' -Url $url -SilentArgument @('/S') -TimeoutMinutes 10))
+            # The proof path is a guess and is labelled as one. Razer Cortex is a 32-bit installer so
+            # Program Files (x86) is the right root, but the exact directory has not been verified on a
+            # real install because nothing here has ever run it. If this reports a failure while Cortex
+            # is visibly installed, the path is wrong rather than the install, and the message says so.
+            # That direction is the safe one: a false failure gets investigated, a false success does not.
+            $results.Add((Install-DirectInstaller -Key 'razer_cortex' -Url $url -SilentArgument @('/S') `
+                -TimeoutMinutes 10 `
+                -ProofPath (Join-Path ${env:ProgramFiles(x86)} 'Razer\Razer Cortex')))
         } else {
             $results.Add([PSCustomObject]@{ Key = 'razer_cortex'; Package = 'razer_cortex_win_installer_url'; Status = 'failed'
                                             Detail = "versions.yaml does not give a usable URL, it reads '$url'" })

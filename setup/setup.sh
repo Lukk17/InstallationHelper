@@ -423,21 +423,18 @@ PROF_NAMES=()        # display name (Title Case)
 PROF_FILES=()        # basename without .yaml (or "" for Default)
 PROF_DESCS=()        # one-line description
 PROF_COUNTS=()       # enabled-package count
-PROF_STATES=()       # space-separated 0/1 per PRELOADED_KEYS index
 
 load_profiles() {
     PROF_NAMES+=("Default")
     PROF_FILES+=("")
     PROF_DESCS+=("All software from group_vars defaults")
-    local cnt=0 st=""
+    local cnt=0
     for (( i=0; i<${#PRELOADED_KEYS[@]}; i++ )); do
         if [[ "${PRELOADED_ITEMS[$((i*3+2))]}" == "ON" ]]; then
-            cnt=$((cnt+1)); st+="${st:+ }1"
-        else
-            st+="${st:+ }0"
+            cnt=$((cnt+1))
         fi
     done
-    PROF_COUNTS+=("${cnt}"); PROF_STATES+=("${st}")
+    PROF_COUNTS+=("${cnt}")
 
     for pfile in "${ANSIBLE_DIR}/profiles/"*.yaml; do
         [[ ! -f "${pfile}" ]] && continue
@@ -456,7 +453,7 @@ load_profiles() {
         done < "${pfile}"
         PROF_DESCS+=("${desc:-No description}")
 
-        local pcnt=0 pst=""
+        local pcnt=0
         for (( i=0; i<${#PRELOADED_KEYS[@]}; i++ )); do
             local key="${PRELOADED_KEYS[$i]}"
             local val="${PRELOADED_ITEMS[$((i*3+2))]}"
@@ -466,12 +463,10 @@ load_profiles() {
                 [[ "${ovr}" == *"true"* ]] && val="ON" || val="OFF"
             fi
             if [[ "${val}" == "ON" ]]; then
-                pcnt=$((pcnt+1)); pst+="${pst:+ }1"
-            else
-                pst+="${pst:+ }0"
+                pcnt=$((pcnt+1))
             fi
         done
-        PROF_COUNTS+=("${pcnt}"); PROF_STATES+=("${pst}")
+        PROF_COUNTS+=("${pcnt}")
     done
 }
 
