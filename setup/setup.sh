@@ -9,6 +9,9 @@
 #   setup.sh --non-interactive        # use group_vars defaults, no prompts
 #   setup.sh --no-color               # disable ANSI colour
 #   setup.sh --skip-system-upgrade    # don't run full system upgrade before Ansible
+#   setup.sh --passwordless-sudo      # drop Ansible's -K, for a machine with NOPASSWD sudo
+#                                     # (a throwaway container or a hosted runner). Without it,
+#                                     # every path prompts for the sudo password as it always has.
 #
 # Exit codes:
 #   0   success
@@ -72,8 +75,16 @@ DE_KEYS=("install_kde_plasma" "configure_kde_plasma" "install_gnome" "configure_
 OPT_PROFILE=""
 OPT_NON_INTERACTIVE=false
 OPT_SKIP_SYSTEM_UPGRADE=false
+# Default false, so every existing invocation keeps asking for the sudo password exactly as before.
+# Only a caller that passes --passwordless-sudo drops Ansible's -K, and it should only do that on a
+# machine whose account genuinely has a NOPASSWD sudo rule, which means a throwaway container or a
+# hosted runner. On a normal machine the run fails early with a sudo error rather than doing
+# anything surprising, which is the point of making this explicit instead of auto-detected.
+OPT_PASSWORDLESS_SUDO=false
 
-usage() { sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+# The range must cover the whole header block above, exit codes included. Adding three lines of
+# usage text and forgetting this is how --help silently stops printing the exit codes.
+usage() { sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
@@ -84,6 +95,7 @@ parse_args() {
             --non-interactive) OPT_NON_INTERACTIVE=true ;;
             --no-color)        USE_COLOR=false ;;
             --skip-system-upgrade) OPT_SKIP_SYSTEM_UPGRADE=true ;;
+            --passwordless-sudo)   OPT_PASSWORDLESS_SUDO=true ;;
             *)                 echo "ERROR: Unknown option: $1" >&2; usage >&2; exit 2 ;;
         esac
         shift
@@ -722,7 +734,7 @@ main_interactive() {
                     "${ANSIBLE_DIR}/site.yaml"
                     -i "localhost,"
                     -c local
-                    -K
+                    "${BECOME_ARGS[@]+"${BECOME_ARGS[@]}"}"
                 )
                 [[ -n "${OPT_PROFILE}" ]] && ansible_args+=(-e "@${ANSIBLE_DIR}/profiles/${OPT_PROFILE}.yaml")
                 [[ -n "${extra_str}" ]] && ansible_args+=(--extra-vars "${extra_str}")
@@ -748,7 +760,8 @@ main_interactive() {
 
 # Non-interactive entrypoint — used by --profile / --non-interactive.
 run_non_interactive() {
-    local -a ansible_args=("${ANSIBLE_DIR}/site.yaml" -i "localhost," -c local -K)
+    local -a ansible_args=("${ANSIBLE_DIR}/site.yaml" -i "localhost," -c local
+                           "${BECOME_ARGS[@]+"${BECOME_ARGS[@]}"}")
     if [[ -n "${OPT_PROFILE}" ]]; then
         local pfile="${ANSIBLE_DIR}/profiles/${OPT_PROFILE}.yaml"
         if [[ ! -f "${pfile}" ]]; then
@@ -767,6 +780,16 @@ run_non_interactive() {
 # ---------------------------------------------------------------------------
 
 parse_args "$@"
+
+# Built once, here, so the interactive path and the non-interactive path cannot disagree about
+# whether Ansible asks for a sudo password. Two literal -K flags in two places is how they would
+# drift, and the whole point of the flag is that the answer is the same wherever the run starts.
+#
+# Empty by default, which means -K is present and the prompt appears exactly as it always has.
+BECOME_ARGS=(-K)
+if [[ "${OPT_PASSWORDLESS_SUDO}" == true ]]; then
+    BECOME_ARGS=()
+fi
 
 echo
 echo "Installation Helper - bootstrap wizard"

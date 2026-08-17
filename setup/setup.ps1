@@ -16,17 +16,32 @@
     Use group_vars defaults; never prompt.
 .PARAMETER NoColor
     Disable themed output (also honored via $env:NO_COLOR).
+.PARAMETER SkipSystemUpgrade
+    Do not run the full system upgrade inside WSL before the playbook.
+.PARAMETER PasswordlessSudo
+    Drop Ansible's -K, so it does not prompt for a sudo password. Only correct on a WSL
+    distribution whose account has a NOPASSWD sudo rule, which in practice means a hosted
+    runner. Omitted by default, and omitting it keeps the prompt exactly as it has always been.
 .EXAMPLE
     .\setup.ps1
 .EXAMPLE
     .\setup.ps1 -Profile linux_live -NonInteractive
+.EXAMPLE
+    .\setup.ps1 -NonInteractive -PasswordlessSudo
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string] $Profile,
     [switch] $NonInteractive,
     [switch] $NoColor,
-    [switch] $SkipSystemUpgrade
+    [switch] $SkipSystemUpgrade,
+
+    # Drops Ansible's -K from the WSL call, for a WSL distribution whose account has a NOPASSWD
+    # sudo rule, which in practice means a hosted runner. Absent by default, so every existing
+    # invocation keeps prompting for the sudo password exactly as it always has. Explicit rather
+    # than auto-detected on purpose: privilege behaviour should not change because of something
+    # the script noticed about its environment.
+    [switch] $PasswordlessSudo
 )
 
 Set-StrictMode -Version Latest
@@ -309,18 +324,30 @@ function Install-Collections {
 }
 
 function Invoke-AnsiblePlaybook {
+    <#
+    .SYNOPSIS
+        Runs the playbook inside WSL and returns its exit code.
+    .DESCRIPTION
+        AskBecomePass is an explicit parameter rather than a read of the script-level switch, so the
+        function's behaviour is a function of its arguments alone and can be exercised without
+        setting up script scope. Its default is $true, which is the historical behaviour: Ansible
+        prompts for the sudo password.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
     param(
-        [string]   $WslAnsibleDir,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $WslAnsibleDir,
         [string[]] $ExtraVars,
-        [string]   $ProfileName
+        [string]   $ProfileName,
+        [bool]     $AskBecomePass = $true
     )
     $argList = @(
         'ansible-playbook',
         "$WslAnsibleDir/site.yaml",
         '-i', 'localhost,',
-        '-c', 'local',
-        '-K'
+        '-c', 'local'
     )
+    if ($AskBecomePass) { $argList += '-K' }
     if ($ProfileName) {
         $argList += @('-e', "@$WslAnsibleDir/profiles/$ProfileName.yaml")
     }
@@ -491,7 +518,7 @@ function Invoke-Main {
         $customResult = Invoke-AndShowCustomInstalls
 
         Write-Section 'Configuring the Linux environment inside WSL'
-        $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars @() -ProfileName $Profile
+        $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars @() -ProfileName $Profile -AskBecomePass (-not $PasswordlessSudo)
         $winFailed = $windowsResult.Failed.Count + $npmResult.Failed.Count + [int]$npmResult.NpmMissing + $customResult.Failed.Count
         if ($winFailed -gt 0 -and $rc -eq 0) { exit 1 }
         exit $rc
@@ -626,7 +653,7 @@ function Invoke-Main {
 
     # Then the WSL side, which is what the playbook has always actually configured.
     Write-Section 'Configuring the Linux environment inside WSL'
-    $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars $extraVars.ToArray() -ProfileName $Profile
+    $rc = Invoke-AnsiblePlaybook -WslAnsibleDir $wslAnsibleDir -ExtraVars $extraVars.ToArray() -ProfileName $Profile -AskBecomePass (-not $PasswordlessSudo)
 
     # A Windows package failure must not be hidden behind a green playbook exit.
     # npm tools count toward this too, and a missing npm counts as a failure rather than a skip,
