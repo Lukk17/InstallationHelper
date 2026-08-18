@@ -852,13 +852,24 @@ class CallbackModule(CallbackBase):
         # rc, not the result's `failed` key: failed_when has already rewritten that key, and
         # e2e/tier1/failed_key_reads.sh forbids reading it for exactly this reason.
         rc = result._result.get("rc")
-        tolerated = isinstance(rc, int) and rc != 0
+        task_name_early = result._task.get_name() if hasattr(result, "_task") else ""
+        enumerating = any(m in task_name_early for m in ENUMERATION_TASK_MARKERS)
+
+        # An enumeration task asks whether something is there, so a non-zero code is its way of saying
+        # no and not a failure to report. Without this the helper probe rendered as
+        # `TOLERATED: brew -- rc 1, which: no brew in ...` on every Linux run, which is a correct answer
+        # dressed as a problem. Reporting a non-failure as a failure erodes the same trust as the
+        # reverse, and this callback had just been changed to fix the reverse.
+        tolerated = isinstance(rc, int) and rc != 0 and not enumerating
 
         if tolerated:
             status = "TOLERATED"
             level = "WARNING"
         elif changed:
             status = "INSTALLED"
+            level = "INFO"
+        elif enumerating and isinstance(rc, int) and rc != 0:
+            status = "absent"
             level = "INFO"
         else:
             status = "present"

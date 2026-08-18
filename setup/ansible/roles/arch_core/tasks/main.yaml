@@ -222,10 +222,42 @@
     enabled: yes
   when: install_snapd | default(false) | bool
 
-- name: Wait for snapd socket to be ready
-  ansible.builtin.pause:
-    seconds: 5
+# A fixed five second pause replaced by asking snapd itself, because the socket being bound is not the
+# same thing as snapd being ready to install anything. After a fresh install snapd seeds itself, and
+# until that finishes every snap command answers `error: too early for operation, device not yet
+# seeded or device model not acknowledged`, which is exit code 10. That is what a real Arch run hits
+# when it installs snapd and reaches for a snap moments later, and it is what the container run of
+# 2026-08-18 hit: the core snap failed and marked the whole run failed while everything else passed.
+#
+# `snap wait system seed.loaded` is snapd's own answer to this and blocks until seeding completes.
+# Bounded at three minutes, tolerated, and the result is read below rather than assumed, because in a
+# container seeding cannot complete at all and a wait that never returns would be worse than the
+# failure it replaces.
+- name: Wait for snapd to finish seeding before installing any snap
+  ansible.builtin.command: timeout 180 snap wait system seed.loaded
+  become: yes
+  register: snapd_seeded
+  changed_when: false
+  failed_when: false
   when: install_snapd | default(false) | bool
+
+# rc, not the result's failed key, which failed_when has just rewritten and which
+# e2e/tier1/failed_key_reads.sh forbids reading.
+- name: Record whether snapd is usable in this environment
+  ansible.builtin.set_fact:
+    snapd_usable: "{{ (snapd_seeded.rc | default(1)) == 0 }}"
+  when: install_snapd | default(false) | bool
+
+- name: Explain that snaps are being skipped because snapd never finished seeding
+  ansible.builtin.debug:
+    msg: >-
+      [WARN] snapd installed but never finished seeding, so no snap can be installed in this run.
+      snapd said: {{ (snapd_seeded.stderr | default('') ~ ' ' ~ snapd_seeded.stdout | default('')) | trim | default('nothing', true) }}.
+      In a container that is expected, because seeding needs a real boot. On a real machine, run
+      `sudo snap wait system seed.loaded` and rerun, or reboot first.
+  when:
+    - install_snapd | default(false) | bool
+    - not (snapd_usable | default(false))
 
 - name: Create snapd symlink for classic mode
   become: yes
@@ -241,7 +273,12 @@
   changed_when: false
   failed_when: false
   register: snap_core_install
-  when: install_snapd | default(false) | bool
+  when:
+    - install_snapd | default(false) | bool
+    # Not attempted when seeding never finished, because the outcome is known: snap answers "too early
+    # for operation" and exits 10. Attempting it anyway turned a container's inability to seed into a
+    # failed run, and reported the cause as if the core snap itself were broken.
+    - snapd_usable | default(false)
 
 # snap exits 1 for two entirely different things here. `snap install core` on a machine that already
 # has it prints `error: snap "core" is already installed, see 'snap help refresh'` and exits 1, and a
