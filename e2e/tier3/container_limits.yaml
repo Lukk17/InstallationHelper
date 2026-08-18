@@ -38,3 +38,18 @@ install_vmware: false
 
 # Needs a btrfs filesystem to snapshot. The container's overlayfs is not one.
 install_snapper: false
+
+# JetBrains Toolbox installs the Toolbox application itself fine, and then cannot install a single
+# IDE in a container. Measured on the Debian and Fedora defaults runs of 2026-08-17, where the new
+# collector correctly reported all five as absent: idea, pycharm, webstorm, datagrip and rider.
+#
+# Three reasons, none of which a container can satisfy. Each IDE is roughly a gigabyte, so five of
+# them is more disk than a scenario image is given. Toolbox drives its installs through a background
+# service that expects a desktop session. And a licensed product wants a JetBrains account to be
+# logged in, which an unattended run has no way to provide.
+#
+# Suppressed as a whole rather than per IDE, because the toggle is one switch and the Toolbox install
+# on its own proves nothing worth the twenty minutes it costs. On a real machine this is one of the
+# most valuable things the playbook does, so this suppression is a statement about containers and not
+# about the feature.
+install_jetbrains_toolbox: false

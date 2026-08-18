@@ -1,0 +1,7 @@
+# Registered results of tolerated tasks that deliberately go unread.
+#
+# Format: <register-name> <reason on the same line>
+#
+# Empty on purpose. The one entry this file would have held was a diagnostic task whose value is its
+# stdout, which the callback renders, so the register itself was dead and was removed instead. Prefer
+# that: an unused register is easier to delete than to justify.

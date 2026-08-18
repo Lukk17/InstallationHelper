@@ -42,16 +42,33 @@
   until: apt_cache_contrib is succeeded
   when: ansible_facts['distribution'] == 'Debian'
 
-- name: Install curl (Debian - required for Antigravity)
+# curl and gpg, for the whole Debian family, before anything reaches for them.
+#
+# This task installed curl only, gated on the distribution being Debian, and the very next block
+# fetches the Antigravity signing key with `curl | gpg` on every Debian-family machine. So on Ubuntu
+# neither tool was installed and the key task died with "curl: command not found" followed by "gpg:
+# command not found", 58 seconds into a run that then abandoned every remaining role. Measured on the
+# ubuntu:26.04 container in the sweep of 2026-08-17, where 18 tasks ran out of 239 on Debian, and the
+# verification correctly reported more than twenty packages missing.
+#
+# gpg was never installed anywhere, on any distribution. Debian's image happened to carry both tools,
+# which is why this only surfaced on Ubuntu, and a real desktop usually has them too. That is the
+# whole failure mode: a prerequisite that is usually already there.
+#
+# ca-certificates joins them because a curl over https with no trust store fails the same way, later
+# and less clearly.
+- name: Install curl, gpg and certificates before any repository key is fetched (Debian family)
   become: yes
   ansible.builtin.apt:
-    name: curl
+    name:
+      - curl
+      - gnupg
+      - ca-certificates
     state: present
-  register: debian_curl_install
+  register: debian_keytools_install
   retries: 3
   delay: 10
-  until: debian_curl_install is succeeded
-  when: ansible_facts['distribution'] == 'Debian'
+  until: debian_keytools_install is succeeded
 
 - name: Install snapd (Debian non-Ubuntu)
   become: yes

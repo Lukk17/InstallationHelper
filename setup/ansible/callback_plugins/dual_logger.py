@@ -802,14 +802,73 @@ class CallbackModule(CallbackBase):
         self._display_and_log(f"{prefix}unreachable: [{host}] TASK: {task_name}", "ERROR")
 
     # --- per-item (looped) results ---
+    @staticmethod
+    def _informative_line(rd: dict) -> str:
+        """Pick the line from a failed result that says what went wrong.
+
+        Two wrong answers were tried before this one, both measured rather than reasoned about.
+
+        Taking the first line of stderr looked obvious: makepkg pipes curl's progress meter there, so a
+        failed AUR build reported itself as "% Total % Received % Xferd Average Speed", the least
+        informative text in the whole result, while the real cause was never printed anywhere.
+
+        Preferring the module's own `msg` was the second: for a failed command that is the string
+        "non-zero return code", which says only what the reader already knows from the return code
+        printed beside it.
+
+        So every candidate field is searched for a line that looks like a diagnosis, stderr first
+        because it is the most specific, and each field is read from the end because the useful line of
+        a build log is near its finish. The generic message is the last resort rather than the first.
+        """
+        fields = [rd.get(k) for k in ("stderr", "module_stderr", "stdout", "msg")]
+        blobs = [f for f in fields if isinstance(f, str) and f.strip()]
+        if not blobs:
+            return ""
+
+        keywords = ("error", "failed", "failure", "not found", "cannot", "unable",
+                    "denied", "no such", "timed out", "aborting", "refused")
+        for blob in blobs:
+            lines = [ln.strip() for ln in blob.strip().splitlines() if ln.strip()]
+            for line in reversed(lines):
+                if any(word in line.lower() for word in keywords):
+                    return line[:200]
+
+        lines = [ln.strip() for ln in blobs[0].strip().splitlines() if ln.strip()]
+        return lines[-1][:200] if lines else ""
+
     def v2_runner_item_on_ok(self, result) -> None:
         self._flush_pending()
         host = result._host.get_name()
         item = result._result.get("item", "unknown")
         display = self._extract_item_display(item)
         changed = bool(result._result.get("changed", False))
-        status = "INSTALLED" if changed else "present"
-        self._display_and_log(f"{status:>10}: [{host}] {display}", "INFO")
+
+        # A task carrying failed_when: false sends its per-item failures here, to the ok hook, with
+        # changed false and a non-zero rc, and reading only `changed` rendered every one of them as
+        # "present". That is how an AUR build that exited non-zero appeared in a real Arch run as
+        # `present: lens` and landed in the ALREADY PRESENT bucket, three lines above the warning
+        # saying pacman did not have it. Read as a whole, the log contradicted itself.
+        #
+        # rc, not the result's `failed` key: failed_when has already rewritten that key, and
+        # e2e/tier1/failed_key_reads.sh forbids reading it for exactly this reason.
+        rc = result._result.get("rc")
+        tolerated = isinstance(rc, int) and rc != 0
+
+        if tolerated:
+            status = "TOLERATED"
+            level = "WARNING"
+        elif changed:
+            status = "INSTALLED"
+            level = "INFO"
+        else:
+            status = "present"
+            level = "INFO"
+
+        suffix = ""
+        if tolerated:
+            suffix = f" -- rc {rc}" + (f", {self._informative_line(result._result)}"
+                                       if self._informative_line(result._result) else "")
+        self._display_and_log(f"{status:>10}: [{host}] {display}{suffix}", level)
         # End-of-run bucket — exclude enumeration tasks so they don't pollute
         # the "ALREADY PRESENT" count with items that were merely listed.
         task_name = result._task.get_name() if hasattr(result, "_task") else ""
@@ -825,7 +884,12 @@ class CallbackModule(CallbackBase):
             manager = role
         entry = {"name": item["key"] if isinstance(item, dict) and "key" in item else display,
                  "manager": manager or "other"}
-        (self.installed if changed else self.unchanged).append(entry)
+        if tolerated:
+            # Its own bucket, so the summary never counts a failed item as one that was already there.
+            entry["reason"] = f"rc {rc}"
+            self.tolerated.append(entry)
+        else:
+            (self.installed if changed else self.unchanged).append(entry)
 
     def v2_runner_item_on_failed(self, result) -> None:
         """Ansible passes no ignore_errors argument to the per-item hook, so the flag is read off

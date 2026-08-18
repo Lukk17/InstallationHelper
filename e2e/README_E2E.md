@@ -171,12 +171,15 @@ The first of those does not cost the same everywhere, which is why there is also
 
 | `--os` | Base image | Notes |
 |---|---|---|
-| arch | archlinux:base | Rolling, so there is no version to pin. The only one exercised so far |
+| arch | archlinux:base | Rolling, so there is no version to pin |
 | debian | debian:trixie | Debian 13, current stable |
 | ubuntu | ubuntu:26.04 | Latest LTS |
 | fedora | fedora:44 | Current stable. Tag 45 exists but is still branched |
+| cachyos | cachyos/cachyos-v3:latest | Arch with its own repositories in front of Arch's, and the distribution most Linux gamers actually run |
 
-Ansible reports Ubuntu as the Debian family, so both load the same [vars/Debian.yaml](../setup/ansible/vars/Debian.yaml) and both take the same branch in every task gated on `os_family`. That is exactly why they need separate images: the shared branch is only correct if the package names hold on both, and they do not. `ubuntu-desktop` and `language-pack-kde-pl` do not exist in Debian, while `qt6-style-kvantum` does not exist in Ubuntu 24.04, and all three are named in the desktop environment roles' Debian branch. One image would have hidden half of that.
+CachyOS earns an image rather than being assumed covered by the Arch one, because a package name resolves against its repositories first, so a name present in both can come from a different build. It is also the second most used distribution among Linux users on Steam as of July 2026, at 14.3 percent against plain Arch's 8.3, so a break there reaches more people than a break on Arch. The v3 tag is deliberate: CachyOS publishes one image per instruction-set level and its installer picks v3 on any processor from the last decade, so the baseline image would test a configuration almost nobody runs. Verified on the real image, its `os-release` reports `ID=cachyos` with `ID_LIKE=arch`, matching the fixture the tier 1 derivation check asserts against, and it ships Arch's own release file so Ansible already reports the Arch family for it.
+
+Ansible reports Ubuntu as the Debian family, so both load the same [vars/Debian.yaml](../setup/ansible/vars/Debian.yaml) and both take the same branch in every task gated on the family. That is exactly why they need separate images: the shared branch is only correct if the package names hold on both, and they do not. `ubuntu-desktop` and `language-pack-kde-pl` do not exist in Debian, while `qt6-style-kvantum` does not exist in Ubuntu 24.04, and all three are named in the desktop environment roles' Debian branch. One image would have hidden half of that.
 
 Base image tags are pinned rather than tracking `latest`, because a moving base means the harness quietly starts testing a different system than the one you last got a result from.
 
