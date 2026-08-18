@@ -81,7 +81,12 @@ param(
     [string[]] $DisableKey,
 
     [switch] $ListSoftware,
-    [switch] $PrintPlan
+    [switch] $PrintPlan,
+
+    # Permit an elevated run. Only correct on a machine that is thrown away afterwards, which in
+    # practice means a hosted CI runner, where every process is elevated and the guard cannot be
+    # satisfied. Explicit rather than detected, so privilege behaviour never changes by accident.
+    [switch] $AllowAdministrator
 )
 
 Set-StrictMode -Version Latest
@@ -446,10 +451,35 @@ function Write-RunSummary {
 # ---------------------------------------------------------------------------
 
 function Assert-NotAdmin {
+    <#
+    .SYNOPSIS
+        Refuse to run elevated, unless the caller says it means to.
+    .DESCRIPTION
+        Running this wizard elevated puts root-owned files in a normal user's profile and installs
+        per-user software for the wrong account, which is why the refusal exists and why it is the
+        first thing Invoke-Main does.
+
+        -AllowAdministrator is the documented way past it, and it is a parameter rather than an
+        environment sniff for the same reason -PasswordlessSudo is: privilege behaviour should change
+        because someone asked, not because the script noticed something about its surroundings.
+
+        The case that needs it is a hosted continuous integration runner. GitHub's own documentation
+        states that "Windows virtual machines are configured to run as administrators with User
+        Account Control (UAC) disabled", so every process on such a runner reads as elevated and this
+        guard would refuse on its first line, every time, with no way to comply. There is no user
+        profile to pollute there, because the machine is destroyed after the job.
+    #>
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        Write-Err 'Do not run as Administrator. Run as your regular user.'
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        return
     }
+
+    if ($AllowAdministrator) {
+        Write-Hint 'Running elevated because -AllowAdministrator was passed. On a real machine this leaves root-owned files in your profile.'
+        return
+    }
+
+    Write-Err 'Do not run as Administrator. Run as your regular user, or pass -AllowAdministrator if this is a throwaway machine such as a CI runner.'
 }
 
 function Assert-AnsibleDir {

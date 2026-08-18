@@ -7,6 +7,7 @@
 ![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)
 ![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)
+[![E2E - manual wizard run](https://github.com/Lukk17/InstallationHelper/actions/workflows/e2e-manual.yml/badge.svg)](https://github.com/Lukk17/InstallationHelper/actions/workflows/e2e-manual.yml)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 

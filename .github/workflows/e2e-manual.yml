@@ -1,0 +1,611 @@
+# Manual end-to-end run of the bootstrap wizard.
+#
+# Trigger: workflow_dispatch only, on purpose. No workflow in this repository may start on
+# push or on any other automatic event: every run here is a deliberate, explicit action by
+# whoever clicks "Run workflow", exactly the same decision as running setup/setup.sh or
+# setup/setup.ps1 by hand, just on a throwaway runner or throwaway container instead of a
+# real machine.
+#
+# The dispatch form mirrors what the wizards themselves accept today, verified by reading
+# setup/setup.sh, setup/setup.ps1 and e2e/run.sh rather than assumed:
+#   setup/setup.sh    --non-interactive --profile --no-color --skip-system-upgrade
+#                     --passwordless-sudo --desktop-environment skip|kde|gnome
+#                     --desktop-action full|install|configure --software defaults|all|none
+#                     --enable <keys> --disable <keys> --list-software --print-command
+#   setup/setup.ps1   -NonInteractive -Profile -NoColor -SkipSystemUpgrade
+#                     -Software defaults|all|none -EnableKey <keys> -DisableKey <keys>
+#                     -ListSoftware -PrintPlan
+#                     It has no -DesktopEnvironment / -DesktopAction: the Windows wizard no
+#                     longer runs the playbook (see setup.ps1's own .DESCRIPTION), configures
+#                     Windows only, and a switch that cannot change anything is worse than an
+#                     absent one.
+#
+# What each target platform actually does:
+#
+#   arch / debian / ubuntu / fedora / cachyos
+#     Never touches the runner itself. Delegates to the repository's own tier-3 container
+#     harness (e2e/run.sh --tier 3), which builds a systemd container from
+#     e2e/tier3/<distro>.Dockerfile and runs the real playbook inside it. container.sh has no
+#     CLI flag for an arbitrary per-toggle selection: it only accepts a scenario *file*, and a
+#     scenario file is nothing more than the same -e input setup.sh itself builds for
+#     --software/--enable/--disable/--profile, plus three control keys (e2e_generate,
+#     e2e_profile, e2e_scenario_name). So the linux-e2e job below builds exactly that file,
+#     at dispatch time, from this form's inputs, using the same precedence setup.sh uses
+#     (baseline, then --enable, then --disable winning), and hands it to the unmodified
+#     harness. That is what makes per-toggle selection possible here: earlier drafts of this
+#     workflow claimed it was not, because they called the harness's seven fixed scenarios
+#     directly instead of generating one.
+#   macos
+#     Nothing to containerise here (a Darwin container cannot run on a Linux or Windows
+#     kernel). Runs the actual bash wizard directly on the ephemeral runner, with
+#     --passwordless-sudo so the run never blocks on Ansible's -K prompt on a machine with no
+#     terminal attached, and --non-interactive always, because the interactive gum screens
+#     need a real terminal this runner does not have.
+#   windows
+#     Runs the actual PowerShell wizard directly, with -NonInteractive always for the same
+#     reason (Out-ConsoleGridView needs a real console). No Ansible invocation and no WSL
+#     bootstrap step: setup.ps1 no longer runs the playbook at all, and the one thing it still
+#     does with WSL (installing Ansible inside an already-registered distribution) is a
+#     best-effort phase inside the script itself, not something this workflow drives.
+#
+#     KNOWN BLOCKING ISSUE, found while writing this and not fixed here because it lives in
+#     setup.ps1, out of scope for this change: Invoke-Main's first call is Assert-NotAdmin,
+#     which throws "Do not run as Administrator" whenever
+#     [Security.Principal.WindowsPrincipal]::IsInRole(Administrator) is true. GitHub's hosted
+#     Windows runners execute the job as a member of the local Administrators group with User
+#     Account Control disabled (see the comment above the "Run the bootstrap wizard" step in
+#     the windows-wizard job for the citation). Without UAC's token split, that makes
+#     IsInRole(Administrator) true for every process the runner starts, elevated or not, so
+#     Assert-NotAdmin is expected to reject this job's very first line of work, before
+#     -ListSoftware or -PrintPlan could even answer. This is stated here rather than worked
+#     around, because the fix belongs in setup.ps1 (for example an escape hatch keyed off a CI
+#     environment variable) and that file is out of scope for this change. The job is wired up
+#     correctly regardless, so it starts working the moment that guard is relaxed for CI.
+#
+# Reproducing a run locally, without GitHub Actions:
+#
+#   Linux/macOS shell:
+#     bash e2e/run.sh --tier 3 --scenario defaults --os arch
+#     bash setup/setup.sh --non-interactive --passwordless-sudo --desktop-environment skip --software defaults
+#     bash setup/setup.sh --non-interactive --passwordless-sudo --enable docker,vim --disable steam
+#   PowerShell (Windows, from a non-administrator prompt once the issue above is resolved):
+#     pwsh setup/setup.ps1 -NonInteractive -Software defaults
+#     pwsh setup/setup.ps1 -NonInteractive -EnableKey docker,vim -DisableKey steam
+#   `act` is not a good fit for the macos/windows jobs (act only emulates Linux containers),
+#   but the linux-e2e job's own harness call runs under `act` the same way any other
+#   Docker-based job does, once the scenario file this job generates exists on disk:
+#     act workflow_dispatch -W .github/workflows/e2e-manual.yml -j linux-e2e \
+#       --input target_platform=arch --input software_mode=defaults
+#
+# Static verification performed on this file: YAML parses (python -c "import yaml;
+# list(yaml.safe_load_all(open(...)))") and yamllint reports no errors. actionlint is not
+# installed anywhere on this machine (checked: not on PATH, not under choco or scoop), so it
+# was not run, and that gap is stated rather than hidden. Nothing here has been executed: a
+# workflow_dispatch run needs an explicit, separate action from whoever runs it, and this
+# change does not take that action.
+name: E2E - manual wizard run
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_platform:
+        description: "Which OS to run the wizard against"
+        type: choice
+        required: true
+        options:
+          - arch
+          - debian
+          - ubuntu
+          - fedora
+          - cachyos
+          - macos
+          - windows
+        default: arch
+      desktop_environment:
+        description: "Linux/macOS only (Windows has no such option): skip, kde or gnome"
+        type: choice
+        required: true
+        options:
+          - skip
+          - kde
+          - gnome
+        default: skip
+      desktop_action:
+        description: "Used only when desktop_environment is kde or gnome: full, install or configure"
+        type: choice
+        required: true
+        options:
+          - full
+          - install
+          - configure
+        default: full
+      software_mode:
+        description: "--software / -Software. unset skips the flag entirely (group_vars as-is, or combine with profile_name)."
+        type: choice
+        required: false
+        options:
+          - unset
+          - defaults
+          - all
+          - none
+        default: unset
+      profile_name:
+        description: "--profile / -Profile. A file name under setup/ansible/profiles/, without the .yaml extension (e.g. linux_live). Mutually exclusive with software_mode on Linux/macOS; on Windows -Profile is accepted but is a documented no-op."
+        type: string
+        required: false
+        default: ""
+      enable_keys:
+        description: "--enable / -EnableKey. Comma-separated toggle keys to force on (e.g. install_docker,install_vim). Run with -ListSoftware/--list-software locally to see the accepted keys."
+        type: string
+        required: false
+        default: ""
+      disable_keys:
+        description: "--disable / -DisableKey. Comma-separated toggle keys to force off. Applied after enable_keys, so a key named in both ends up off."
+        type: string
+        required: false
+        default: ""
+      skip_system_upgrade:
+        description: "--skip-system-upgrade / -SkipSystemUpgrade. Defaults on: the hosted runner image is already current, so a full system upgrade only spends CI minutes."
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Validates the form and turns it into an execution plan. Runs on every dispatch
+  # regardless of target_platform, and is the one place that knows the cross-field rules
+  # setup.sh itself enforces, so that knowledge exists once instead of drifting across three
+  # OS-specific jobs.
+  # -----------------------------------------------------------------------
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run_linux: ${{ steps.plan.outputs.run_linux }}
+      run_macos: ${{ steps.plan.outputs.run_macos }}
+      run_windows: ${{ steps.plan.outputs.run_windows }}
+      linux_os: ${{ steps.plan.outputs.linux_os }}
+      desktop_environment: ${{ steps.plan.outputs.desktop_environment }}
+      desktop_action: ${{ steps.plan.outputs.desktop_action }}
+      software_mode: ${{ steps.plan.outputs.software_mode }}
+      profile_name: ${{ steps.plan.outputs.profile_name }}
+      enable_keys: ${{ steps.plan.outputs.enable_keys }}
+      disable_keys: ${{ steps.plan.outputs.disable_keys }}
+      skip_system_upgrade: ${{ steps.plan.outputs.skip_system_upgrade }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate the form and resolve the execution plan
+        id: plan
+        env:
+          IN_PLATFORM: ${{ inputs.target_platform }}
+          IN_DE: ${{ inputs.desktop_environment }}
+          IN_ACTION: ${{ inputs.desktop_action }}
+          IN_SOFTWARE: ${{ inputs.software_mode }}
+          IN_PROFILE: ${{ inputs.profile_name }}
+          IN_ENABLE: ${{ inputs.enable_keys }}
+          IN_DISABLE: ${{ inputs.disable_keys }}
+          IN_SKIP_UPGRADE: ${{ inputs.skip_system_upgrade }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "::error::$1" >&2
+            exit 1
+          }
+
+          PLATFORM="${IN_PLATFORM}"
+          DE="${IN_DE}"
+          ACTION="${IN_ACTION}"
+          SOFTWARE="${IN_SOFTWARE}"
+          PROFILE="${IN_PROFILE}"
+          ENABLE="${IN_ENABLE}"
+          DISABLE="${IN_DISABLE}"
+
+          # "unset" only exists because a GitHub Actions choice input option list is safest
+          # kept to non-empty strings. Translate it to empty here, once, so every check below
+          # and every downstream job can use a plain -n/-z test instead of also knowing about
+          # this sentinel.
+          [[ "${SOFTWARE}" == "unset" ]] && SOFTWARE=""
+
+          # --- cross-field validation --------------------------------------------------
+          # setup.sh: "ERROR: --profile and --software both decide the software set, pass
+          # one of them". setup.ps1 has no equivalent check: -Profile is a documented no-op
+          # there and coexists fine with -Software, so this rule applies to Linux/macOS only.
+          if [[ "${PLATFORM}" != "windows" && -n "${SOFTWARE}" && -n "${PROFILE}" ]]; then
+            fail "software_mode and profile_name both decide the software set on ${PLATFORM}. Set software_mode to unset or clear profile_name."
+          fi
+
+          if [[ -n "${PROFILE}" && ! -f "setup/ansible/profiles/${PROFILE}.yaml" ]]; then
+            fail "No such profile file: setup/ansible/profiles/${PROFILE}.yaml"
+          fi
+
+          # KDE/GNOME are Linux desktop environments. setup.sh also runs on macOS, but
+          # nothing there consumes install_kde_plasma/install_gnome.
+          if [[ "${PLATFORM}" == "macos" && "${DE}" != "skip" ]]; then
+            fail "desktop_environment=${DE} makes no sense on macOS. Set desktop_environment to skip for a macos run."
+          fi
+          # setup.ps1 has no -DesktopEnvironment/-DesktopAction at all (see the file header
+          # comment above), so there is nothing this input could select on Windows.
+          if [[ "${PLATFORM}" == "windows" && "${DE}" != "skip" ]]; then
+            fail "desktop_environment=${DE} is not offered by setup.ps1 (no -DesktopEnvironment parameter exists). Set desktop_environment to skip for a windows run."
+          fi
+
+          RUN_LINUX=false
+          RUN_MACOS=false
+          RUN_WINDOWS=false
+          LINUX_OS=""
+
+          case "${PLATFORM}" in
+            arch|debian|ubuntu|fedora|cachyos) RUN_LINUX=true; LINUX_OS="${PLATFORM}" ;;
+            macos)                             RUN_MACOS=true ;;
+            windows)                           RUN_WINDOWS=true ;;
+            *) fail "unknown target_platform: ${PLATFORM}" ;;
+          esac
+
+          {
+            echo "run_linux=${RUN_LINUX}"
+            echo "run_macos=${RUN_MACOS}"
+            echo "run_windows=${RUN_WINDOWS}"
+            echo "linux_os=${LINUX_OS}"
+            echo "desktop_environment=${DE}"
+            echo "desktop_action=${ACTION}"
+            echo "software_mode=${SOFTWARE}"
+            echo "profile_name=${PROFILE}"
+            echo "enable_keys=${ENABLE}"
+            echo "disable_keys=${DISABLE}"
+            echo "skip_system_upgrade=${IN_SKIP_UPGRADE}"
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "### E2E dispatch plan"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| target_platform | ${PLATFORM} |"
+            echo "| desktop_environment | ${DE} |"
+            echo "| desktop_action | ${ACTION} (used only when desktop_environment != skip) |"
+            echo "| software_mode | ${SOFTWARE:-(blank: flag not passed)} |"
+            echo "| profile_name | ${PROFILE:-(none)} |"
+            echo "| enable_keys | ${ENABLE:-(none)} |"
+            echo "| disable_keys | ${DISABLE:-(none)} |"
+            echo "| skip_system_upgrade | ${IN_SKIP_UPGRADE} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  # -----------------------------------------------------------------------
+  # arch / debian / ubuntu / fedora / cachyos: the proven tier-3 container harness, fed a
+  # scenario file generated from this dispatch's own inputs so it can exercise an arbitrary
+  # toggle selection, not just the seven scenarios checked into e2e/tier3/scenarios/.
+  # -----------------------------------------------------------------------
+  linux-e2e:
+    needs: plan
+    if: needs.plan.outputs.run_linux == 'true'
+    runs-on: ubuntu-latest
+    # The slowest shipped tier-3 scenario (all-software) is timed at 300 minutes. 340 leaves
+    # headroom for container start/copy/verify without getting near the 360-minute
+    # hosted-runner ceiling.
+    timeout-minutes: 340
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate a scenario file from the dispatch selections
+        env:
+          SEL_DE: ${{ needs.plan.outputs.desktop_environment }}
+          SEL_ACTION: ${{ needs.plan.outputs.desktop_action }}
+          SEL_SOFTWARE: ${{ needs.plan.outputs.software_mode }}
+          SEL_PROFILE: ${{ needs.plan.outputs.profile_name }}
+          SEL_ENABLE: ${{ needs.plan.outputs.enable_keys }}
+          SEL_DISABLE: ${{ needs.plan.outputs.disable_keys }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "::error::$1" >&2
+            exit 1
+          }
+
+          # container.sh (e2e/tier3/container.sh) has no CLI flag for an arbitrary per-toggle
+          # selection: it only accepts a scenario *file*, matched by the e2e_scenario_name it
+          # declares. A scenario file is exactly the -e input the playbook receives, plus
+          # three control keys (e2e_generate, e2e_profile, e2e_scenario_name/description/
+          # timeout/expect_desktop), the same shape setup.sh itself builds for
+          # --software/--enable/--disable/--profile. So this step builds one instead of
+          # inventing a second way to invoke ansible-playbook. The file lives only in this
+          # job's own checkout on the runner and is never committed.
+          SCENARIO_FILE="e2e/tier3/scenarios/manual-dispatch.yaml"
+
+          ALL_VARS="setup/ansible/group_vars/all.yaml"
+          LINUX_VARS="setup/ansible/group_vars/linux.yaml"
+          # Must track EXCLUDED_VARS in setup/setup.sh (e2e/tier1/wizard_parse.sh fails the
+          # tier-1 gate if the two wizards ever disagree about it), so a key hidden from the
+          # checklist for a real reason (rewrites the bootloader, needs swap, etc.) is refused
+          # here exactly as setup.sh would refuse it.
+          EXCLUDED_VARS="non_root_user|non_root_home|allow_callback_failure|default_wallpaper|install_system_core|setup_hibernate|setup_systemd_boot|setup_grub|remove_distro_grub|remove_distro_systemd_boot"
+
+          known_keys() {
+              sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${ALL_VARS}" "${LINUX_VARS}" 2>/dev/null \
+                  | grep -E '^[a-z0-9_]+: (true|false)$' \
+                  | grep -vE "^(${EXCLUDED_VARS}):" \
+                  | cut -d: -f1 | sort -u
+          }
+          KNOWN="$(known_keys)"
+
+          split_keys() { tr ',' '\n' <<<"$1" | tr -s '[:space:]' '\n' | grep -v '^$' || true; }
+
+          # Refused, not ignored, for the same reason setup.sh's assert_known_keys refuses: a
+          # typo that installs nothing while the run reports success is this project's most
+          # repeated defect (docs/regression_ledger.md). Fixes "fail loudly": a bad key must
+          # stop this job rather than quietly running a scenario with fewer overrides than
+          # asked for.
+          assert_known() {
+              local option="$1" list="$2" unknown=() key
+              while IFS= read -r key; do
+                  [[ -z "${key}" ]] && continue
+                  grep -qx -- "${key}" <<<"${KNOWN}" || unknown+=("${key}")
+              done < <(split_keys "${list}")
+              if [[ ${#unknown[@]} -gt 0 ]]; then
+                  fail "${option} names key(s) not found in group_vars/all.yaml or group_vars/linux.yaml: ${unknown[*]}"
+              fi
+          }
+          assert_known enable_keys "${SEL_ENABLE}"
+          assert_known disable_keys "${SEL_DISABLE}"
+
+          {
+            echo "---"
+            echo "# Generated at dispatch time from the manual E2E run's inputs. Not committed."
+            echo "e2e_scenario_name: \"manual-dispatch\""
+            echo "e2e_scenario_description: \"ad hoc selection from the E2E manual wizard run dispatch form\""
+          } > "${SCENARIO_FILE}"
+
+          # --- desktop environment, the same mapping as setup.sh's desktop_override_vars ---
+          EXPECT_DESKTOP="none"
+          case "${SEL_DE}" in
+            kde|gnome)
+              keys="kde_plasma"
+              [[ "${SEL_DE}" == gnome ]] && keys="gnome"
+              case "${SEL_ACTION}" in
+                full)
+                  { echo "install_${keys}: true"; echo "configure_${keys}: true"; } >> "${SCENARIO_FILE}"
+                  EXPECT_DESKTOP="${SEL_DE}"
+                  ;;
+                install)
+                  { echo "install_${keys}: true"; echo "configure_${keys}: false"; } >> "${SCENARIO_FILE}"
+                  EXPECT_DESKTOP="${SEL_DE}"
+                  ;;
+                configure)
+                  { echo "install_${keys}: false"; echo "configure_${keys}: true"; } >> "${SCENARIO_FILE}"
+                  ;;
+                *) fail "unknown desktop_action: ${SEL_ACTION}" ;;
+              esac
+              ;;
+            skip) : ;;
+            *) fail "unknown desktop_environment: ${SEL_DE}" ;;
+          esac
+
+          # --- software baseline --------------------------------------------------------
+          # e2e_generate only sweeps install_* toggles (see container.sh), which is also true
+          # of setup.sh's --software all/none for every toggle the checklist offers, not only
+          # install_*-prefixed ones. That gap is in the harness this job deliberately reuses
+          # rather than reimplements, and is called out here rather than silently papered
+          # over: a software_mode of all/none on Linux exercises the install_* sweep, not
+          # setup_zsh/setup_tmpfs/etc.
+          case "${SEL_SOFTWARE}" in
+            all)
+              echo "e2e_generate: all_software" >> "${SCENARIO_FILE}"
+              # Mirrors e2e/tier3/scenarios/02-all-software.yaml's own exclusion: this one
+              # clones a multi-gigabyte model repository, which a CI container should not do
+              # on every dispatch. Deliberately not what a literal `setup.sh --software all`
+              # would do on a real machine, and stated here rather than hidden.
+              { echo "e2e_generate_except:"; echo "  - stable_diffusion"; } >> "${SCENARIO_FILE}"
+              ;;
+            none) echo "e2e_generate: no_software" >> "${SCENARIO_FILE}" ;;
+            defaults|"") : ;;
+            *) fail "unknown software_mode: ${SEL_SOFTWARE}" ;;
+          esac
+
+          # --- profile --------------------------------------------------------------------
+          # container.sh turns e2e_profile into "-e @profiles/<name>.yaml", exactly what
+          # setup.sh does for --profile (see e2e/tier3/scenarios/05-live-profile.yaml).
+          [[ -n "${SEL_PROFILE}" ]] && echo "e2e_profile: ${SEL_PROFILE}" >> "${SCENARIO_FILE}"
+
+          # --- explicit enable/disable, disable wins ---------------------------------------
+          # Same precedence setup.sh documents for software_override_vars: "--disable is
+          # applied after --enable so a key named in both ends up off."
+          declare -A OVERRIDE=()
+          while IFS= read -r key; do [[ -n "${key}" ]] && OVERRIDE["${key}"]=true; done < <(split_keys "${SEL_ENABLE}")
+          while IFS= read -r key; do [[ -n "${key}" ]] && OVERRIDE["${key}"]=false; done < <(split_keys "${SEL_DISABLE}")
+          for key in "${!OVERRIDE[@]}"; do
+              echo "${key}: ${OVERRIDE[${key}]}" >> "${SCENARIO_FILE}"
+          done
+
+          {
+            # A heuristic, not measured like the shipped scenarios' timeouts: 300 minutes for
+            # an all_software sweep (matching 02-all-software.yaml), 180 otherwise (matching
+            # 01-defaults.yaml). A dispatch that names enough heavy enable_keys to need more
+            # than that should raise this by hand.
+            if [[ "${SEL_SOFTWARE}" == all ]]; then
+              echo "e2e_timeout_minutes: 300"
+            else
+              echo "e2e_timeout_minutes: 180"
+            fi
+            echo "e2e_expect_desktop: ${EXPECT_DESKTOP}"
+          } >> "${SCENARIO_FILE}"
+
+          echo "Generated scenario file (e2e/tier3/scenarios/manual-dispatch.yaml):"
+          cat "${SCENARIO_FILE}"
+
+      - name: Run the tier-3 container harness
+        run: |
+          set -euo pipefail
+          bash e2e/run.sh --tier 3 --scenario manual-dispatch --os "${{ needs.plan.outputs.linux_os }}"
+
+      - name: Upload e2e run artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-run-${{ needs.plan.outputs.linux_os }}-manual-dispatch-${{ github.run_id }}
+          # e2e/run.sh writes one directory per run under e2e/runs/, each holding
+          # playbook.log, verify.log, result.txt and effective-vars.yaml. That is everything
+          # e2e/README_E2E.md says makes a failure diagnosable.
+          path: e2e/runs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # -----------------------------------------------------------------------
+  # macOS: the real bash wizard, on an ephemeral runner. No container exists that can run a
+  # Darwin target, so this is the closest thing to "build once, deploy everywhere" available
+  # here: the same setup/setup.sh a user runs.
+  # -----------------------------------------------------------------------
+  macos-wizard:
+    needs: plan
+    if: needs.plan.outputs.run_macos == 'true'
+    runs-on: macos-14
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the bootstrap wizard
+        env:
+          SEL_DE: ${{ needs.plan.outputs.desktop_environment }}
+          SEL_ACTION: ${{ needs.plan.outputs.desktop_action }}
+          SEL_SOFTWARE: ${{ needs.plan.outputs.software_mode }}
+          SEL_PROFILE: ${{ needs.plan.outputs.profile_name }}
+          SEL_ENABLE: ${{ needs.plan.outputs.enable_keys }}
+          SEL_DISABLE: ${{ needs.plan.outputs.disable_keys }}
+          SEL_SKIP_UPGRADE: ${{ needs.plan.outputs.skip_system_upgrade }}
+        run: |
+          set -euo pipefail
+
+          # --non-interactive always: the gum-driven screens need a real terminal this
+          # runner does not have. --passwordless-sudo always: there is no one here to type
+          # a sudo password at Ansible's -K prompt.
+          args=(--non-interactive --passwordless-sudo)
+          [[ "${SEL_SKIP_UPGRADE}" == "true" ]] && args+=(--skip-system-upgrade)
+
+          if [[ "${SEL_DE}" != "skip" ]]; then
+            args+=(--desktop-environment "${SEL_DE}" --desktop-action "${SEL_ACTION}")
+          fi
+
+          if [[ -n "${SEL_PROFILE}" ]]; then
+            args+=(--profile "${SEL_PROFILE}")
+          elif [[ -n "${SEL_SOFTWARE}" ]]; then
+            args+=(--software "${SEL_SOFTWARE}")
+          fi
+          [[ -n "${SEL_ENABLE}" ]]  && args+=(--enable "${SEL_ENABLE}")
+          [[ -n "${SEL_DISABLE}" ]] && args+=(--disable "${SEL_DISABLE}")
+
+          echo "Running: bash setup/setup.sh ${args[*]}"
+          # No pipe, no tee: the step's own exit code is setup.sh's exit code, unmasked.
+          bash setup/setup.sh "${args[@]}"
+
+      - name: Collect wizard log artefacts
+        if: always()
+        run: |
+          mkdir -p /tmp/wizard-logs
+          cp "${HOME}"/installation_full.log /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_errors.log /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_warnings.log /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_skipped.log /tmp/wizard-logs/ 2>/dev/null || true
+
+      - name: Upload wizard log artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wizard-run-macos-${{ github.run_id }}
+          path: /tmp/wizard-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # -----------------------------------------------------------------------
+  # Windows: the real PowerShell wizard, on an ephemeral runner. setup.ps1 no longer runs
+  # Ansible or touches WSL beyond installing the ansible package inside an already-registered
+  # distribution, as a best-effort phase inside the script itself (see setup.ps1's own
+  # Invoke-AndShowWslAnsible). Nothing here drives WSL directly.
+  # -----------------------------------------------------------------------
+  windows-wizard:
+    needs: plan
+    if: needs.plan.outputs.run_windows == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Best-effort winget bootstrap
+        shell: pwsh
+        # Best effort and non-fatal on purpose: windows-latest's runner-images inventory does
+        # not list winget/App Installer as guaranteed present, and the open request to add it
+        # (actions/runner-images) has had no resolution as of this writing. If the bootstrap
+        # below does not leave winget on PATH, every winget-mapped package in
+        # setup/ansible/vars/Windows.yaml is skipped by the wizard and reported under
+        # "Enabled toggle(s) have no Windows package mapping" / a failed winget call, stated
+        # here rather than left to be discovered from a confusing log. Chocolatey-mapped and
+        # npm-based tools are unaffected either way.
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Write-Host "winget already present: $(winget --version)"
+          } else {
+            Write-Host 'winget not found. Attempting to install the App Installer package from Microsoft''s own https://aka.ms/getwinget redirect (documented at https://github.com/microsoft/winget-cli#installing-the-client). This is best effort and has not been exercised on this runner image by this change.'
+            try {
+              $ProgressPreference = 'SilentlyContinue'
+              Invoke-WebRequest -Uri 'https://aka.ms/getwinget' -OutFile "$env:TEMP\DesktopAppInstaller.msixbundle"
+              Add-AppxPackage -Path "$env:TEMP\DesktopAppInstaller.msixbundle"
+            } catch {
+              Write-Warning "App Installer bootstrap failed: $_"
+            }
+            if (Get-Command winget -ErrorAction SilentlyContinue) {
+              Write-Host "winget installed: $(winget --version)"
+            } else {
+              Write-Warning 'winget is still not on PATH. Every winget-mapped package will be skipped; Chocolatey and npm-based tools are unaffected.'
+            }
+          }
+
+      - name: Run the bootstrap wizard
+        shell: pwsh
+        # Elevation is not the concern here that it would be on a personal machine: GitHub's
+        # hosted Windows runners execute the job as a member of the local Administrators
+        # group with User Account Control disabled (documented in the runner-images
+        # repository's per-image Windows readme, github.com/actions/runner-images). The
+        # concern is the opposite one: setup.ps1's Assert-NotAdmin refuses to run AS an
+        # administrator, and without UAC's token split, a member of Administrators IS the
+        # Administrator role for IsInRole's purposes on this runner regardless of elevation.
+        # This step is therefore expected to fail at Assert-NotAdmin until that guard grows a
+        # CI exception in setup.ps1, which is out of scope here. See the file header comment
+        # for the full note. The argument-building below is correct and ready for when it does.
+        env:
+          SEL_SOFTWARE: ${{ needs.plan.outputs.software_mode }}
+          SEL_PROFILE: ${{ needs.plan.outputs.profile_name }}
+          SEL_ENABLE: ${{ needs.plan.outputs.enable_keys }}
+          SEL_DISABLE: ${{ needs.plan.outputs.disable_keys }}
+          SEL_SKIP_UPGRADE: ${{ needs.plan.outputs.skip_system_upgrade }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # -NonInteractive always: -Software/-EnableKey/-DisableKey being unset would
+          # otherwise fall into the interactive Out-ConsoleGridView picker, which needs a
+          # real console this runner does not have.
+          $psArgs = @('-NonInteractive')
+          if ($env:SEL_SKIP_UPGRADE -eq 'true') { $psArgs += '-SkipSystemUpgrade' }
+
+          if ($env:SEL_PROFILE) { $psArgs += @('-Profile', $env:SEL_PROFILE) }
+          if ($env:SEL_SOFTWARE -and -not $env:SEL_PROFILE) { $psArgs += @('-Software', $env:SEL_SOFTWARE) }
+          if ($env:SEL_ENABLE)  { $psArgs += @('-EnableKey', $env:SEL_ENABLE) }
+          if ($env:SEL_DISABLE) { $psArgs += @('-DisableKey', $env:SEL_DISABLE) }
+
+          Write-Host "Running: setup/setup.ps1 $($psArgs -join ' ')"
+          # No pipeline stage between this call and the step's own result: $LASTEXITCODE is
+          # setup.ps1's exit code, and re-throwing it (rather than a fixed number) is what
+          # keeps the step's failure the wizard's own, not a step's approximation of it.
+          & ./setup/setup.ps1 @psArgs
+          if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
