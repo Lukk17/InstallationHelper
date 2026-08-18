@@ -1,0 +1,588 @@
+---
+# Post-install verification. Asserts what this machine should look like after a playbook run and
+# changes nothing at all: every task here is a read (slurp, stat, or a command marked
+# changed_when: false), there is no module in this file that can create, modify or remove anything,
+# and it is safe to run on a machine the playbook has never touched. It will simply report most
+# applications as missing, which is the honest answer.
+#
+# The wizard runs this by itself as its last step, so a normal install needs none of the commands
+# below. They are for a virtual machine, or for checking a machine long after the fact.
+#
+# Run it by hand from the repository root, Unix shell:
+#
+#   ANSIBLE_STDOUT_CALLBACK=default ANSIBLE_CALLBACK_RESULT_FORMAT=yaml ansible-playbook -i localhost, -c local -K setup/ansible/verify_install.yaml
+#
+# Run it by hand from PowerShell, driving WSL, which is where Ansible lives on Windows:
+#
+#   wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ANSIBLE_STDOUT_CALLBACK=default ANSIBLE_CALLBACK_RESULT_FORMAT=yaml ansible-playbook -i 'localhost,' -c local -K setup/ansible/verify_install.yaml"
+#
+# The two environment settings are what make the report readable, and the wizard sets the same pair.
+# The report is one multi-line message: the stock stdout callback renders it as a block, one line per
+# application, while ansible.cfg's dual_logger does not print a debug message at all on a task that
+# succeeded, and the default JSON result format collapses the whole report onto one line with literal
+# backslash-n in it. The play still runs and still exits correctly without them, it just prints badly.
+#
+# -K is not decoration. Two reads need root: /etc/sudoers.d is mode 0750 on Debian and Arch, and
+# the Flathub remote is a system-wide setting. Without it those two checks report that they could
+# not be performed, which counts as a failure rather than as a pass, because an unverifiable claim
+# is not a verified one.
+#
+# It must be told the same selection the run itself was given, or it will demand applications that
+# were deliberately deselected. The wizard passes its own resolved selection through automatically.
+# By hand, pass what the run passed:
+#
+#   ansible-playbook -i localhost, -c local -K setup/ansible/verify_install.yaml -e install_chrome=false
+#   ansible-playbook -i localhost, -c local -K setup/ansible/verify_install.yaml -e "@profiles/linux_live.yaml"
+#
+# Exit code: 0 when everything asked for is present, 2 (Ansible's own failure code) when anything is
+# missing or could not be verified. A verification that cannot fail is decoration.
+#
+# Windows is deliberately not covered. It has no Ansible, and setup/setup.ps1 already reports a
+# per-package result and exits non-zero on failure, so a second Windows path would be a second
+# source of truth for the same question.
+#
+# This play is also the only implementation of the check: e2e/tier3/verify.yaml imports this file
+# rather than carrying its own copy, so the container scenarios and a real machine assert exactly
+# the same things.
+
+- name: Verify the state the playbook was supposed to produce
+  hosts: all
+  connection: local
+  gather_facts: true
+
+  pre_tasks:
+    # playbook_dir is this file's own directory, which is how the play locates the repository
+    # instead of carrying a hardcoded path. Measured under ansible-core 2.19: an imported playbook
+    # reports its own directory here, not the importing one, so e2e/tier3/verify.yaml importing the
+    # copy at /work/setup/ansible/verify_install.yaml resolves /work/setup/ansible without being
+    # told, and a run from any working directory resolves the checkout it was started from.
+    - name: Derive the same family facts the playbook derives
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/derive_os_facts.yaml"
+
+    # Nothing below this line can produce a meaningful answer on Windows, and a verification that
+    # reports 89 winget packages as missing because it never looked for them is worse than one that
+    # refuses. Stop with the reason instead.
+    - name: Stop on Windows, which has its own installer and its own reporting
+      ansible.builtin.fail:
+        msg: >-
+          This play does not cover Windows. Ansible does not run there natively, and
+          setup/setup.ps1 already prints a per-package result for every mapping it processed and
+          exits non-zero when one fails. Read that output instead of this play.
+      when: ih_family == 'Windows'
+
+    - name: Load cross-platform toggles
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/group_vars/all.yaml"
+
+    # The same expression site.yaml uses, so the toggles this play resolves are the toggles the
+    # playbook acted on. Reading linux.yaml on a Mac would offer install_openrazer and a docker
+    # group that macOS has neither of.
+    - name: Load the OS-specific toggles
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/group_vars/{{ 'macos' if ih_family == 'Darwin' else 'linux' }}.yaml"
+
+    # site.yaml loads this as a vars_file and so must this play. Two things here need it. The URL
+    # collector below resolves <key>_url and <key>_rpm_url out of this file through lookup('vars'),
+    # and any OS dictionary entry that templates a pinned value would otherwise fail to render at all.
+    #
+    # The second reason is why this load exists: Debian used to map appimagelauncher to
+    # `{ manager: apt_url, package: "{{ appimage_launcher_url }}" }`, so rendering software_mapping
+    # through dict2items failed with "'appimage_launcher_url' is undefined" and took the whole
+    # verification with it. Arch never showed it, because it maps the same application to the AUR by
+    # name with no URL to dereference, so five green Arch runs proved nothing about it. Found by the
+    # first Debian and Ubuntu smoke runs, recorded in docs/regression_ledger.md. That mapping now
+    # holds a literal package name, so this particular trigger is gone and the load is not.
+    - name: Load the pinned versions the OS dictionaries template against
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/group_vars/versions.yaml"
+
+    - name: Load the OS translation dictionary
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/vars/{{ ih_family }}.yaml"
+        name: os_dict
+
+  tasks:
+    # --- what the toggles asked for -----------------------------------------
+    # One list of manager names, read twice below, because a manager that installs a package but is
+    # missing from this list is a package installed by the playbook and checked by nothing.
+    #
+    # apt_url and dnf_url belong here even though nothing about them goes through an ordinary
+    # repository, because the end state is the same: dpkg or rpm records the package and `package`
+    # in the OS dictionary is the name it records. Leaving them out meant nine mappings across
+    # Debian, Ubuntu and Fedora were installed by the playbook and checked by nothing, and the way
+    # they fail is silent by construction: both dispatch tasks are guarded by
+    # `when: item_url | length > 0`, so a URL variable that renders empty skips the download and
+    # the install without a warning and the run stays green. Minikube, TeamViewer, VeraCrypt,
+    # AppImageLauncher and balenaEtcher all sit in that path.
+    #
+    # brew and brew_cask are the whole of vars/Darwin.yaml. `brew list` reports formulae and casks
+    # by the same names the dictionary holds, so they compare against one installed set like the
+    # Linux families do.
+    - name: Name the package managers whose end state is a recorded native package
+      ansible.builtin.set_fact:
+        ih_native_managers: [pacman, aur, apt, dnf, apt_url, dnf_url, brew, brew_cask]
+        ih_url_managers: [apt_url, dnf_url]
+
+    # One place that turns a dictionary entry into the name its manager actually records, so the
+    # expected set, the missing set and the per-application report cannot disagree about what to
+    # look for. The only mapping in the repository that needs it today is Darwin's
+    # `hashicorp/tap/terraform`, which `brew list` reports as `terraform`. It is applied to every
+    # family because it is also correct for the other spellings a package can carry a slash in:
+    # apt's `name/suite` pins record `name`, and no Linux mapping currently holds a slash at all.
+    - name: Resolve every application to the package name its manager records
+      ansible.builtin.set_fact:
+        ih_package_by_key: >-
+          {{ dict(os_dict.software_mapping | dict2items | map(attribute='key') | list
+                  | zip(os_dict.software_mapping | dict2items | map(attribute='value.package')
+                        | map('regex_replace', '^.*/', '') | list)) }}
+
+    - name: Determine which mapped software this run enabled
+      ansible.builtin.set_fact:
+        enabled_mapped: "{{ enabled_mapped | default([]) + [item.key] }}"
+      loop: "{{ os_dict.software_mapping | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: lookup('vars', 'install_' ~ item.key, default=false) | bool
+
+    - name: Split the enabled software by package manager
+      ansible.builtin.set_fact:
+        expected_native: >-
+          {{ os_dict.software_mapping | dict2items
+             | selectattr('key', 'in', enabled_mapped | default([]))
+             | selectattr('value.manager', 'in', ih_native_managers)
+             | map(attribute='key') | map('extract', ih_package_by_key) | list }}
+        expected_flatpak: >-
+          {{ os_dict.software_mapping | dict2items
+             | selectattr('key', 'in', enabled_mapped | default([]))
+             | selectattr('value.manager', 'equalto', 'flatpak')
+             | map(attribute='key') | map('extract', ih_package_by_key) | list }}
+
+    # The missing-package comparison below catches a URL install that did not happen, but it cannot
+    # say why. This names the one cause that produces no output anywhere: a rendered download
+    # location of zero length, which both dispatch paths treat as "nothing to do". The two candidate
+    # orders mirror dynamic_install.yaml, per manager, rather than merging them, because on Debian
+    # several of these keys also have an unrelated <key>_rpm_url and reading that one would report a
+    # location the apt path never looks at. Both sides also trim before measuring length, so a
+    # variable holding nothing but whitespace is an absent location to the check and to the playbook
+    # alike rather than one to each.
+    # Named as its own fact so the assertion below can prove it examined something. An assertion over
+    # an empty candidate list passes and reads exactly like an assertion that found no problem, which
+    # is the trap the native-package assertion already guards against by requiring a non-empty
+    # expected set.
+    - name: Record which URL-installed packages this run examined
+      ansible.builtin.set_fact:
+        url_candidates: >-
+          {{ os_dict.software_mapping | dict2items
+             | selectattr('key', 'in', enabled_mapped | default([]))
+             | selectattr('value.manager', 'in', ih_url_managers)
+             | map(attribute='key') | list }}
+
+    - name: Collect any enabled URL-installed package with no download location
+      ansible.builtin.set_fact:
+        url_without_location: "{{ url_without_location | default([]) + [item.key] }}"
+      loop: >-
+        {{ os_dict.software_mapping | dict2items
+           | selectattr('key', 'in', enabled_mapped | default([]))
+           | selectattr('value.manager', 'in', ih_url_managers) | list }}
+      loop_control:
+        label: "{{ item.key }}"
+      vars:
+        deb_url: "{{ item.value.url | default(lookup('vars', item.key ~ '_url', default='')) }}"
+        rpm_url: >-
+          {{ item.value.url
+             | default(lookup('vars', item.key ~ '_rpm_url', default=''))
+             | default(lookup('vars', item.key ~ '_url', default=''), true) }}
+        item_url: "{{ rpm_url if item.value.manager == 'dnf_url' else deb_url }}"
+      when: item_url | trim | length == 0
+
+    # --- what is actually there ---------------------------------------------
+    # One command per family, each printing one bare package name per line so the
+    # comparison below is family-independent. Ubuntu is not listed separately because
+    # Ansible reports it as the Debian family, which is also why it shares
+    # vars/Debian.yaml and why it needs its own container to catch the cases where that
+    # sharing is wrong.
+    #
+    # Set as a fact once, because this mapping used to be written out twice: once as task vars for
+    # the query below and once again as task vars for the plausibility assertion further down, whose
+    # failure message quotes the command it ran. Two copies of the same per-family fact is the
+    # two-lists problem the wizards already had, and here the drift would be invisible in the worst
+    # way: the assertion would keep passing or failing on the real query while telling the reader to
+    # go and check a different command. The doubled backslash before n is deliberate and is explained
+    # in the next comment.
+    #
+    # Darwin asks Homebrew twice in one line, once for formulae and once for casks, because the
+    # dictionary mixes both and they are two subcommands. The PATH prefix is there because a
+    # non-login shell on Apple Silicon does not have /opt/homebrew/bin on it, and a missing brew
+    # would otherwise read as a Mac with no software installed rather than as a Mac with no
+    # Homebrew.
+    #
+    # The plausible minimum differs by family for the same reason. Any working Linux installation
+    # has hundreds of packages, and the lightest container here reported 194, so fifty is far below
+    # anything real and far above the one line a broken format string produces. Homebrew only ever
+    # reports what somebody installed on purpose, which on a fresh Mac is a handful, so there the
+    # question is whether the query answered at all.
+    - name: Define the per-family installed-package query
+      ansible.builtin.set_fact:
+        native_query:
+          Archlinux: "pacman -Qq"
+          Debian: "dpkg-query -W -f='${Package}\\n'"
+          RedHat: "rpm -qa --qf '%{NAME}\\n'"
+          Darwin: 'export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"; brew list --formula -1; brew list --cask -1'
+        native_plausible_minimum: "{{ 50 if ih_family in ['Archlinux', 'Debian', 'RedHat'] else 1 }}"
+
+    # `shell` rather than `command`, and the single quotes around each format string are
+    # load-bearing. dpkg-query and rpm interpret `\n` in a format string themselves, so the two
+    # characters backslash and n have to reach them, and `command` cannot deliver them: it splits
+    # its argument with shlex in POSIX mode, which consumes a backslash as an escape. Measured in a
+    # clean debian:trixie container with real Ansible:
+    #
+    #   command, -f=${Package}\n       1 line,   adduseransibleansible-coreapt...
+    #   shell,   -f='${Package}\n'     201 lines, adduser / ansible / ansible-core / apt
+    #
+    # The single quotes also stop the shell expanding ${Package} and %{NAME} itself, which would
+    # substitute empty strings and print nothing at all.
+    #
+    # Splitting that one concatenated line on newline produced a single enormous pseudo-package, so
+    # the difference against the expected set reported every expected package as missing. Arch was
+    # unaffected because `pacman -Qq` needs no format string, which meant the largest assertion in
+    # this play could not pass on Debian, Ubuntu or Fedora and always passed on Arch: the worst
+    # available arrangement, because it looked proven.
+    - name: List installed native packages
+      ansible.builtin.shell: "{{ native_query[ih_family] }}"
+      register: installed_native_raw
+      changed_when: false
+      failed_when: false
+      when: ih_family in ['Archlinux', 'Debian', 'RedHat', 'Darwin']
+
+    # No flatpak on macOS, and vars/Darwin.yaml maps nothing to it, so asking would only produce a
+    # command-not-found to explain in the report.
+    - name: List installed flatpak applications
+      ansible.builtin.command: flatpak list --app --columns=application
+      register: installed_flatpak_raw
+      changed_when: false
+      failed_when: false
+      when: ih_family != 'Darwin'
+
+    - name: Normalise the installed sets
+      ansible.builtin.set_fact:
+        installed_native: "{{ (installed_native_raw.stdout | default('')).split('\n') | map('trim') | select() | list }}"
+        installed_flatpak: "{{ (installed_flatpak_raw.stdout | default('')).split('\n') | map('trim') | select() | list }}"
+
+    - name: Work out what is missing
+      ansible.builtin.set_fact:
+        missing_native: "{{ expected_native | difference(installed_native) }}"
+        missing_flatpak: "{{ expected_flatpak | difference(installed_flatpak) }}"
+
+    # Back from package names to the names a person recognises, computed from the same two missing
+    # sets the assertions fail on, so the report and the verdict cannot disagree.
+    - name: Name the applications that are missing, requested and present, or not requested
+      ansible.builtin.set_fact:
+        ih_missing_keys: >-
+          {{ ih_package_by_key | dict2items
+             | selectattr('key', 'in', enabled_mapped | default([]))
+             | selectattr('value', 'in', missing_native + missing_flatpak)
+             | map(attribute='key') | list }}
+        ih_all_keys: "{{ os_dict.software_mapping | dict2items | map(attribute='key') | list | sort }}"
+
+    # --- systemd units -------------------------------------------------------
+    # Only asserted when the toggle that owns the unit was on, so a scenario that
+    # never asked for Tailscale is not marked down for not having it. Skipped entirely on macOS,
+    # which has launchd and no systemctl at all: a unit check there could only ever fail, and
+    # failing a Mac for not being Linux tells nobody anything.
+    - name: Check the tailscaled unit
+      ansible.builtin.command: systemctl is-enabled tailscaled.service
+      register: tailscaled_enabled
+      changed_when: false
+      failed_when: false
+      when:
+        - install_tailscale | default(false) | bool
+        - ih_family != 'Darwin'
+
+    - name: Check the docker unit
+      ansible.builtin.command: systemctl is-enabled docker.service
+      register: docker_enabled
+      changed_when: false
+      failed_when: false
+      when:
+        - install_docker | default(false) | bool
+        - ih_family != 'Darwin'
+
+    # --- flatpak and the Flathub remote --------------------------------------
+    # system_core installs flatpak and adds the Flathub remote on every Linux, so both are
+    # asserted whenever that role ran. This is the check that would have caught flatpak never
+    # being installed on Arch: the remote-add shelled out to a missing binary and the play
+    # died, but nothing downstream ever asserted the remote existed.
+    - name: List the configured flatpak remotes
+      ansible.builtin.command: flatpak remotes --columns=name
+      register: flatpak_remotes
+      changed_when: false
+      # Two different tolerances, for two different things. failed_when covers flatpak answering
+      # non-zero, which is an answer worth asserting on: that is what a distribution with no flatpak
+      # installed looks like. ignore_errors covers not being able to run it at all, which is what a
+      # run with no usable become password looks like, and which is fatal without it because
+      # failed_when never gets to see a task that died escalating privilege. Neither one turns a
+      # missing remote into a pass: the assertion below reads the result and fails on both.
+      failed_when: false
+      ignore_errors: true
+      become: true
+      when:
+        - install_system_core | default(false) | bool
+        - ih_family != 'Darwin'
+
+    # --- group membership ----------------------------------------------------
+    # The OpenRazer group is the regression that started this harness: the name is a
+    # per-distribution fact and was hardcoded to Debian's answer.
+    - name: Read the invoking user's groups
+      ansible.builtin.command: "id -nG {{ ansible_facts['user_id'] }}"
+      register: user_groups
+      changed_when: false
+
+    # --- the temporary sudoers entry must be gone ---------------------------
+    # become is required: /etc/sudoers.d is mode 0750 and root-owned on Debian and Arch, so an
+    # unprivileged stat fails with Permission denied rather than reporting the file's absence.
+    #
+    # ignore_errors so that a run without a usable become password says so in the assertion below
+    # instead of aborting the play on its way to the report. failed_when cannot do this job: a task
+    # that dies escalating privilege never produces a result for failed_when to judge, which is
+    # measured, not assumed. Tolerating the read is not tolerating the answer: an unreadable
+    # /etc/sudoers.d fails the assertion, because "I could not look" is not "it is not there".
+    - name: Check that the temporary passwordless sudoers entry was removed
+      ansible.builtin.stat:
+        path: /etc/sudoers.d/99-ansible-user
+      become: true
+      register: temp_sudoers
+      ignore_errors: true
+
+    # --- desktop environment ------------------------------------------------
+    # Probes for the binary rather than a package name. The package names differ per
+    # family and are not even packages everywhere: KDE is kde-standard on Debian,
+    # plasma-meta on Arch and the "@KDE Plasma Workspaces" group on Fedora. The shell
+    # binary is the same path on all three, and its presence is what actually determines
+    # whether the user gets a desktop. gnome_setup already stats this exact path.
+    #
+    # Derived from the install toggles, which is what a real machine has to go on, and the
+    # configure-only toggles are deliberately not part of it: configuring a Plasma this run did not
+    # install says nothing about whether Plasma is on the disk. e2e_expect_desktop overrides the
+    # derivation because each container scenario declares its own expectation, and every scenario's
+    # declared value agrees with what this derivation produces from its toggles.
+    - name: Decide which desktop environment this run should have installed
+      ansible.builtin.set_fact:
+        ih_expect_desktop: >-
+          {{ e2e_expect_desktop | default('kde' if (install_kde_plasma | default(false) | bool)
+                                          else 'gnome' if (install_gnome | default(false) | bool)
+                                          else 'none') }}
+
+    - name: Check for the expected desktop environment
+      ansible.builtin.stat:
+        path: "{{ '/usr/bin/plasmashell' if ih_expect_desktop == 'kde' else '/usr/bin/gnome-shell' }}"
+      register: de_probe
+      when: ih_expect_desktop in ['kde', 'gnome']
+
+    # --- the report a person reads ------------------------------------------
+    # Printed before the assertions, because an assertion failure ends the play and the whole point
+    # of this block is that the reader sees every verdict, not the first one that went wrong.
+    #
+    # Every line carries the [verify] marker so setup.sh can lift the report out of the Ansible
+    # output it wrote to the log and show that, rather than showing the reader a play recap and
+    # calling it a verdict.
+    - name: Build the per-application verdict
+      ansible.builtin.set_fact:
+        ih_report: |-
+          [verify] ==========================================================================
+          [verify] Installation verification: {{ ih_reported_distribution | default('unknown', true) }} {{ ansible_facts['distribution_version'] | default('') }} (family {{ ih_family }}, base {{ ih_base | default('n/a') }})
+          [verify] {{ '%-30s %-14s %s' | format('APPLICATION', 'VERDICT', 'PACKAGE') }}
+          [verify] --------------------------------------------------------------------------
+          {% for key in ih_all_keys %}
+          {% set verdict = 'MISSING' if key in ih_missing_keys else 'installed' if key in (enabled_mapped | default([])) else 'not requested' %}
+          [verify] {{ '%-30s %-14s %s' | format(key, verdict, os_dict.software_mapping[key].manager ~ ': ' ~ ih_package_by_key[key]) }}
+          {% endfor %}
+          [verify] --------------------------------------------------------------------------
+          {% if ih_expect_desktop in ['kde', 'gnome'] %}
+          [verify] {{ '%-30s %-14s %s' | format('desktop ' ~ ih_expect_desktop, 'installed' if de_probe.stat.exists | default(false) else 'MISSING', 'shell binary on disk') }}
+          {% endif %}
+          {% if tailscaled_enabled.rc is defined %}
+          [verify] {{ '%-30s %-14s %s' | format('tailscaled.service', 'enabled' if tailscaled_enabled.rc == 0 else 'MISSING', 'systemctl is-enabled') }}
+          {% endif %}
+          {% if docker_enabled.rc is defined %}
+          [verify] {{ '%-30s %-14s %s' | format('docker.service', 'enabled' if docker_enabled.rc == 0 else 'MISSING', 'systemctl is-enabled') }}
+          {% endif %}
+          {% if flatpak_remotes is defined and not flatpak_remotes.skipped | default(false) %}
+          [verify] {{ '%-30s %-14s %s' | format('flathub remote', 'present' if (flatpak_remotes.rc | default(1) | int == 0 and 'flathub' in flatpak_remotes.stdout | default('')) else 'MISSING' if flatpak_remotes.rc is defined else 'UNREADABLE', 'flatpak remotes') }}
+          {% endif %}
+          {% if install_docker | default(false) | bool and ih_family != 'Darwin' %}
+          [verify] {{ '%-30s %-14s %s' | format('docker group', 'joined' if 'docker' in user_groups.stdout.split() else 'MISSING', ansible_facts['user_id']) }}
+          {% endif %}
+          {% if install_openrazer | default(false) | bool %}
+          [verify] {{ '%-30s %-14s %s' | format('openrazer device group', 'joined' if os_dict.openrazer_device_group in user_groups.stdout.split() else 'MISSING', os_dict.openrazer_device_group) }}
+          {% endif %}
+          [verify] {{ '%-30s %-14s %s' | format('temporary sudo rule', 'removed' if (temp_sudoers.stat is defined and not temp_sudoers.stat.exists) else 'STILL THERE' if (temp_sudoers.stat is defined) else 'UNREADABLE', '/etc/sudoers.d/99-ansible-user') }}
+          [verify] --------------------------------------------------------------------------
+          [verify] requested {{ (enabled_mapped | default([])) | length }} of {{ ih_all_keys | length }} mapped applications: {{ ((enabled_mapped | default([])) | length) - (ih_missing_keys | length) }} installed, {{ ih_missing_keys | length }} missing
+          [verify] missing: {{ ih_missing_keys | join(', ') | default('none', true) }}
+          [verify] native packages expected {{ expected_native | length }}, missing {{ missing_native | length }}; flatpak expected {{ expected_flatpak | length }}, missing {{ missing_flatpak | length }}
+          [verify] URL-installed candidates examined {{ url_candidates | default([]) | length }}, without a download location {{ (url_without_location | default([])) | length }}
+          [verify] ==========================================================================
+
+    - name: Report every application, and what the system state came out as
+      ansible.builtin.debug:
+        msg: "{{ ih_report }}"
+
+    # --- assertions ----------------------------------------------------------
+    # A query that answers wrongly is worse than one that errors, because the comparison below
+    # still runs and reports every expected package as missing, which reads exactly like a
+    # playbook that installed nothing. That is what the eaten newline produced. Both queries carry
+    # failed_when: false, so nothing else would have caught it.
+    #
+    # The expected side is asserted too, because an assertion over an empty set passes and looks
+    # exactly like an assertion that found everything. The tally above prints both counts, but
+    # the dual_logger callback does not show a debug message on an ok task, so a set of zero was
+    # invisible in the log and in result.txt alike. Every scenario in the suite expects at least one
+    # native package, including live-profile whose whole point is turning most of them off, so zero
+    # means the expected-set computation broke rather than that a scenario has nothing to check.
+    - name: Assert the installed-package query returned a plausible list
+      ansible.builtin.assert:
+        that:
+          - installed_native | length >= native_plausible_minimum | int
+          - expected_native | length > 0
+        fail_msg: >-
+          Installed {{ installed_native | length }} entries against a plausible minimum of
+          {{ native_plausible_minimum }}, expected set {{ expected_native | length }}.
+          An installed count below that minimum cannot be right for a working
+          {{ ih_family }} system, and an expected set of zero means nothing was
+          going to be checked, so either way every comparison below would be meaningless. The query
+          was "{{ native_query[ih_family] | default('none') }}". If the installed
+          count is the problem, check that the format string still reaches the tool intact: it must
+          run through `shell` with the format single-quoted, because `command` shlex-splits its
+          argument and eats the backslash, which makes every package name come back concatenated
+          into one line. On macOS the same symptom means Homebrew was not found on PATH at all. If
+          the expected count is the problem, the fault is in the toggle resolution
+          or the OS dictionary rather than in the query.
+        success_msg: >-
+          installed-package query returned {{ installed_native | length }} entries, expected set is
+          {{ expected_native | length }}
+      when: ih_family in ['Archlinux', 'Debian', 'RedHat', 'Darwin']
+
+    - name: Assert every enabled native package is installed
+      ansible.builtin.assert:
+        that: missing_native | length == 0
+        success_msg: "PASS native packages: all {{ expected_native | length }} present"
+        fail_msg: "FAIL native packages missing: {{ missing_native | join(', ') }}"
+        quiet: true
+
+    # The second condition is family-dependent, and deliberately so. Arch installs nothing from a
+    # vendor URL, so an empty candidate list is the correct answer there, while on Debian, Ubuntu and
+    # Fedora it means the selection above broke and the check is reporting on nothing.
+    - name: Assert every enabled URL-installed package resolved a download location
+      ansible.builtin.assert:
+        that:
+          - (url_without_location | default([])) | length == 0
+          - url_candidates | length > 0 or ih_family not in ['Debian', 'RedHat']
+        success_msg: >-
+          PASS URL-installed packages: all {{ url_candidates | length }} enabled ones have a download
+          location
+        # Both conditions get a sentence, because a message describing only the first one would send
+        # the reader looking for a broken URL when what actually broke was the selection.
+        fail_msg: >-
+          FAIL URL-installed packages. Examined {{ url_candidates | length }} candidates, of which
+          {{ (url_without_location | default([])) | length }} have no download location:
+          {{ (url_without_location | default([])) | join(', ') | default('none', true) }}. A location
+          comes from <key>_url in group_vars/versions.yaml, or <key>_rpm_url on Fedora, or an inline
+          url: field on the mapping itself, and when it renders empty the playbook skips both the
+          download and the install without saying so. If instead the candidate count is zero on
+          {{ ih_family }}, nothing was examined at all and the fault is in the
+          manager selection or in the toggle resolution rather than in any one URL.
+        quiet: true
+
+    - name: Assert every enabled flatpak application is installed
+      ansible.builtin.assert:
+        that: missing_flatpak | length == 0
+        success_msg: "PASS flatpak applications: all {{ expected_flatpak | length }} present"
+        fail_msg: "FAIL flatpak applications missing: {{ missing_flatpak | join(', ') }}"
+        quiet: true
+
+    - name: Assert tailscaled is enabled when Tailscale was requested
+      ansible.builtin.assert:
+        that: tailscaled_enabled.rc == 0
+        success_msg: "PASS tailscaled is enabled"
+        fail_msg: "FAIL tailscaled is not enabled, systemctl said: {{ tailscaled_enabled.stdout | default('') }} {{ tailscaled_enabled.stderr | default('') }}"
+        quiet: true
+      when:
+        - install_tailscale | default(false) | bool
+        - ih_family != 'Darwin'
+
+    - name: Assert the user is in the OpenRazer device group when OpenRazer was requested
+      ansible.builtin.assert:
+        that: os_dict.openrazer_device_group in user_groups.stdout.split()
+        success_msg: "PASS user is in {{ os_dict.openrazer_device_group }}"
+        fail_msg: "FAIL user is not in {{ os_dict.openrazer_device_group }}, groups are: {{ user_groups.stdout }}"
+        quiet: true
+      when: install_openrazer | default(false) | bool
+
+    # macOS is excluded because Docker Desktop there is a signed application bundle with a
+    # privileged helper, not a daemon socket guarded by a unix group, so there is no docker group
+    # for the user to be in and asserting one would fail every Mac.
+    - name: Assert the user is in the docker group when Docker was requested
+      ansible.builtin.assert:
+        that: "'docker' in user_groups.stdout.split()"
+        success_msg: "PASS user is in docker"
+        fail_msg: "FAIL user is not in docker, groups are: {{ user_groups.stdout }}"
+        quiet: true
+      when:
+        - install_docker | default(false) | bool
+        - ih_family != 'Darwin'
+
+    # The unit state was registered but never asserted, so a Docker install that left
+    # its service disabled would have passed. Collected-but-unchecked is the same
+    # shape of defect as a toggle nothing consumes.
+    - name: Assert docker.service is enabled when Docker was requested
+      ansible.builtin.assert:
+        that: docker_enabled.rc == 0
+        success_msg: "PASS docker.service is enabled"
+        fail_msg: "FAIL docker.service is not enabled, systemctl said: {{ docker_enabled.stdout | default('') }} {{ docker_enabled.stderr | default('') }}"
+        quiet: true
+      when:
+        - install_docker | default(false) | bool
+        - ih_family != 'Darwin'
+
+    - name: Assert flatpak is installed and the Flathub remote is configured
+      ansible.builtin.assert:
+        that:
+          - flatpak_remotes.rc | default(1) | int == 0
+          - "'flathub' in flatpak_remotes.stdout | default('')"
+        success_msg: "PASS flatpak is installed and flathub is a configured remote"
+        fail_msg: >-
+          FAIL flatpak or the Flathub remote is missing. rc={{ flatpak_remotes.rc | default('unreadable') }}
+          remotes={{ flatpak_remotes.stdout | default('(none)') | trim }}
+          stderr={{ flatpak_remotes.stderr | default('') | trim }}
+          A non-zero rc usually means flatpak itself was never installed for this
+          distribution, which is what happened on Arch. No rc at all means this read never ran,
+          which is what a run without a usable sudo password looks like: rerun with -K.
+        quiet: true
+      when:
+        - install_system_core | default(false) | bool
+        - ih_family != 'Darwin'
+
+    # Three outcomes, not two. The file being absent is the pass, the file being present is the
+    # failure everybody expects, and not having been able to look is also a failure, because a
+    # verification that reports what it did not check is the defect this harness exists to prevent.
+    - name: Assert the temporary passwordless sudoers entry was removed
+      ansible.builtin.assert:
+        that:
+          - temp_sudoers.stat is defined
+          - not (temp_sudoers.stat.exists | default(true))
+        success_msg: "PASS /etc/sudoers.d/99-ansible-user is gone"
+        fail_msg: >-
+          {{ 'FAIL /etc/sudoers.d/99-ansible-user still exists, which leaves NOPASSWD sudo in place permanently'
+             if temp_sudoers.stat is defined
+             else 'FAIL /etc/sudoers.d could not be read, so whether the temporary NOPASSWD rule is gone is unknown: '
+                  ~ (temp_sudoers.msg | default('no reason given'))
+                  ~ '. Rerun with -K, which is what the wizard does, or from an account that can sudo.' }}
+        quiet: true
+
+    - name: Assert the expected desktop environment is installed
+      ansible.builtin.assert:
+        that: de_probe.stat.exists
+        success_msg: "PASS {{ ih_expect_desktop }} shell binary is present"
+        fail_msg: "FAIL {{ ih_expect_desktop }} was requested but its shell binary is not on disk"
+        quiet: true
+      when: ih_expect_desktop in ['kde', 'gnome']

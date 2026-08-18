@@ -24,16 +24,28 @@
 #   setup.sh --disable <keys>                        # turn these off, comma separated, wins over --enable
 #   setup.sh --list-software                         # print every key --enable and --disable accept
 #   setup.sh --print-command                         # print the resolved playbook command, run nothing
+#   setup.sh --verify-only                           # only verify what is installed, install nothing
 #
 #   defaults means the group_vars values as they are, all means every selectable toggle on, and
 #   none means every selectable toggle off so --enable can build a run up from nothing. An unknown
 #   key is refused rather than ignored, because a typo that installs nothing while the run reports
 #   success is this project's most repeated defect.
 #
+# Verification. Every run ends by asking the machine what it actually ended up with, per
+# application: installed, missing, or not requested. There is no flag to turn it off, because a run
+# that reports success without checking is how every regression in docs/regression_ledger.md
+# reached a real machine. The full result goes to ~/installation_verify.log, named on screen when
+# the wizard finishes, and a missing application makes this script exit non-zero.
+#
+# --verify-only runs that step alone, against the same selection options, and installs nothing. Use
+# it on a virtual machine, or to re-check a machine long after its install. The verification play
+# can also be run directly without this wizard; its own header documents that.
+#
 # Exit codes:
 #   0   success
 #   1   bootstrap or playbook failure
 #   2   bad usage
+#   3   the playbook succeeded but the verification found something missing
 #   130 cancelled (SIGINT/SIGQUIT)
 
 set -euo pipefail
@@ -57,6 +69,12 @@ ANSIBLE_DIR="${SCRIPT_DIR}/ansible"
 ALL_VARS="${ANSIBLE_DIR}/group_vars/all.yaml"
 LINUX_VARS="${ANSIBLE_DIR}/group_vars/linux.yaml"
 MACOS_VARS="${ANSIBLE_DIR}/group_vars/macos.yaml"
+
+# The verification play and where its output is kept. The log sits beside the four the
+# dual_logger callback writes (installation_full.log and friends), under the same name pattern, so
+# everything one run produced is in one place.
+VERIFY_PLAY="${ANSIBLE_DIR}/verify_install.yaml"
+VERIFY_LOG="${HOME}/installation_verify.log"
 
 # Variables hidden from the wizard's checklist. Only two reasons qualify: the value
 # is not a boolean the checklist could render, or getting it wrong costs you a working
@@ -110,6 +128,7 @@ OPT_ENABLE=""
 OPT_DISABLE=""
 OPT_LIST_SOFTWARE=false
 OPT_PRINT_COMMAND=false
+OPT_VERIFY_ONLY=false
 
 # The whole leading comment block, however long it grows. This was a fixed line range and it had
 # already truncated the exit codes once, because adding usage text and remembering to widen a
@@ -155,6 +174,7 @@ parse_args() {
             --disable=*)       OPT_DISABLE="${1#--disable=}" ;;
             --list-software)   OPT_LIST_SOFTWARE=true ;;
             --print-command)   OPT_PRINT_COMMAND=true ;;
+            --verify-only)     OPT_VERIFY_ONLY=true ;;
             *)                 echo "ERROR: Unknown option: $1" >&2; usage >&2; exit 2 ;;
         esac
         shift
@@ -189,6 +209,13 @@ parse_args() {
 
     if [[ -n "${OPT_DESKTOP_ENVIRONMENT}${OPT_SOFTWARE}${OPT_ENABLE}${OPT_DISABLE}" ]]; then
         OPT_NON_INTERACTIVE=true
+    fi
+
+    # Both answer a question and run nothing, so a caller passing both would get whichever this
+    # script happens to check first. Refuse instead of picking.
+    if [[ "${OPT_VERIFY_ONLY}" == true && "${OPT_PRINT_COMMAND}" == true ]]; then
+        echo "ERROR: --verify-only and --print-command each end the run on their own, pass one of them" >&2
+        exit 2
     fi
 }
 
@@ -679,10 +706,27 @@ list_software() {
     done
 }
 
+# The selection a non-interactive run resolves, in one place, into OVERRIDE_VARS. Three callers need
+# it: the real run, --print-command and --verify-only. Three hand-copied read loops is how one of
+# them ends up resolving something the other two do not, and the whole value of --print-command is
+# that it prints what the run would really do.
+OVERRIDE_VARS=()
+resolve_overrides() {
+    OVERRIDE_VARS=()
+    local line
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && OVERRIDE_VARS+=("${line}")
+    done < <(
+        desktop_override_vars "${OPT_DESKTOP_ENVIRONMENT}" "${OPT_DESKTOP_ACTION}"
+        software_override_vars
+    )
+}
+
 # Both entrypoints assemble the playbook command here, into PLAYBOOK_ARGS. Two separate
 # assemblies is how the non-interactive path came to accept a profile and nothing else, and how a
 # second -K could have appeared in one of them without the other noticing.
 PLAYBOOK_ARGS=()
+VERIFY_ARGS=()
 build_playbook_args() {
     local overrides=("$@")
 
@@ -707,6 +751,112 @@ build_playbook_args() {
         extra_str="$(printf ' %s' "${overrides[@]}")"
         PLAYBOOK_ARGS+=(--extra-vars "${extra_str:1}")
     fi
+
+    # The verification is handed exactly what the playbook was handed: the same inventory, the same
+    # become flags, the same profile and the same --extra-vars, with only the playbook file swapped.
+    # It is sliced off the list built above rather than assembled a second time, because the two
+    # would drift and the drift has a known shape. The wizard passes every toggle as an extra
+    # variable and extra variables outrank group_vars, so a verification resolving toggles from
+    # group_vars alone would demand every application the user unticked and report it missing. The
+    # container harness learned the same lesson from the other end: without the scenario's profile
+    # its verification failed the live-profile run for doing exactly what it was told.
+    VERIFY_ARGS=("${VERIFY_PLAY}" "${PLAYBOOK_ARGS[@]:1}")
+}
+
+# ---------------------------------------------------------------------------
+# Verification — the last step of every run
+# ---------------------------------------------------------------------------
+
+# Asks the machine what it actually ended up with and prints one verdict per application. Nothing
+# here installs, changes or removes anything: setup/ansible/verify_install.yaml only reads.
+#
+# There is no option to skip it. A run that says "success" without asking the machine anything is
+# the shape of every regression in docs/regression_ledger.md, and the one that hurt most was an
+# install that exited zero with a driver that could never work.
+run_verification() {
+    local rc=0
+    echo
+    say "Verifying what actually landed (this installs and changes nothing)..."
+    # Said out loud because Ansible's own "BECOME password:" prompt goes to the terminal device
+    # while everything else goes to the log, so without this line a second prompt looks like a
+    # wizard that stopped for no reason. -K is here for two reads that need root: /etc/sudoers.d is
+    # mode 0750 on Debian and Arch, and the Flathub remote is a system-wide setting.
+    if [[ "${OPT_PASSWORDLESS_SUDO}" != true ]]; then
+        say "It asks for your sudo password once more: two of the checks read root-owned settings."
+    fi
+
+    # Three environment settings, each for its own reason.
+    #
+    # ANSIBLE_STDOUT_CALLBACK: ansible.cfg selects dual_logger, which opens installation_full.log,
+    # installation_errors.log, installation_warnings.log and installation_skipped.log with mode "w".
+    # Running the verification under it would truncate the logs of the run being verified, the
+    # moment it started. The stock callback writes nothing but stdout, which is captured below.
+    #
+    # ANSIBLE_CALLBACK_RESULT_FORMAT: the report is one multi-line message. As JSON it arrives as a
+    # single line with literal backslash-n in it, unreadable on screen and in the log alike. As yaml
+    # it arrives as a block, one report line per line, which is what the extraction below reads.
+    #
+    # ANSIBLE_DISPLAY_SKIPPED_HOSTS: one skipped line per unrequested toggle buries the report in
+    # the log for no gain, and the verdict already names every application that was not asked for.
+    ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg" ANSIBLE_STDOUT_CALLBACK=default ANSIBLE_CALLBACK_RESULT_FORMAT=yaml ANSIBLE_DISPLAY_SKIPPED_HOSTS=false ansible-playbook "${VERIFY_ARGS[@]}" >"${VERIFY_LOG}" 2>&1 || rc=$?
+
+    # The screen gets the report, the log keeps everything. Ansible's own output is a play recap and
+    # a task list, which is not a verdict a person can read, so the report lines are lifted out of
+    # it by their [verify] marker. awk rather than sed -E with a T command, because BSD sed on macOS
+    # has no T and this script runs there too. The trailing-quote strip is there in case a future
+    # Ansible renders the message as JSON after all: then the marker still matches and the line is
+    # still readable.
+    echo
+    if grep -q '\[verify\]' "${VERIFY_LOG}"; then
+        awk '/\[verify\]/ { sub(/^.*\[verify\] ?/, ""); sub(/",?$/, ""); print "  " $0 }' "${VERIFY_LOG}"
+    else
+        echo "  The verification printed no report, so it died before it could look at anything." >&2
+        echo "  Read the log and start at the first fatal task." >&2
+    fi
+
+    echo
+    if [[ "${rc}" -eq 0 ]]; then
+        say "Verification passed. Full result: ${VERIFY_LOG}"
+    else
+        say "Verification FAILED, ansible-playbook exited ${rc}. Full result: ${VERIFY_LOG}"
+    fi
+    return "${rc}"
+}
+
+# The single exit for both entrypoints, and the only place the two results are combined.
+#
+# The playbook's own status always wins when it is non-zero, and a happy verification never erases
+# it. That case is real rather than theoretical: a task the playbook tolerates can mark the run
+# failed while every application the user asked for is present, and exiting zero there would hide a
+# failure the playbook itself reported. It is called out on screen, because "the playbook failed but
+# everything you asked for is installed" is a genuinely different situation from either half alone.
+#
+# A verification failure on a playbook that succeeded exits 3, which is its own code so that a
+# caller can tell "the install broke" from "the install claimed success and the machine disagrees".
+finish_run() {
+    local playbook_rc="$1" verify_rc=0
+    run_verification || verify_rc=$?
+
+    echo
+    if [[ "${playbook_rc}" -ne 0 ]]; then
+        if [[ "${verify_rc}" -eq 0 ]]; then
+            echo "The playbook exited ${playbook_rc}, but the verification found everything that was requested." >&2
+            echo "Something failed that the verification does not cover. Start with ${HOME}/installation_errors.log." >&2
+        else
+            echo "The playbook exited ${playbook_rc} and the verification found problems too." >&2
+            echo "Start with ${HOME}/installation_errors.log, then ${VERIFY_LOG}." >&2
+        fi
+        exit "${playbook_rc}"
+    fi
+
+    if [[ "${verify_rc}" -ne 0 ]]; then
+        echo "The playbook succeeded and the verification did not: something it asked for is not on this machine." >&2
+        echo "Read ${VERIFY_LOG}." >&2
+        exit 3
+    fi
+
+    say "Done. The playbook succeeded and every requested application is present."
+    exit 0
 }
 
 # ---------------------------------------------------------------------------
@@ -956,8 +1106,9 @@ main_interactive() {
                 echo
                 echo "Running: ${display_cmd}"
                 echo
-                ansible-playbook "${ansible_args[@]}"
-                exit $?
+                local playbook_rc=0
+                ansible-playbook "${ansible_args[@]}" || playbook_rc=$?
+                finish_run "${playbook_rc}"
                 ;;
         esac
     done
@@ -965,18 +1116,16 @@ main_interactive() {
 
 # Non-interactive entrypoint, used by --profile, --non-interactive and every selection option.
 run_non_interactive() {
-    local overrides=() line
-    while IFS= read -r line; do
-        [[ -n "${line}" ]] && overrides+=("${line}")
-    done < <(
-        desktop_override_vars "${OPT_DESKTOP_ENVIRONMENT}" "${OPT_DESKTOP_ACTION}"
-        software_override_vars
-    )
-
-    build_playbook_args "${overrides[@]+"${overrides[@]}"}"
+    resolve_overrides
+    build_playbook_args "${OVERRIDE_VARS[@]+"${OVERRIDE_VARS[@]}"}"
     export ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg"
     echo "Running: ansible-playbook $(printf '%q ' "${PLAYBOOK_ARGS[@]}")"
-    ansible-playbook "${PLAYBOOK_ARGS[@]}"
+    # `|| playbook_rc=$?` rather than a bare call, so a failed playbook reaches the verification
+    # instead of ending the script through set -e. A failed run still put software on the machine,
+    # and which parts survived is exactly what a person triaging it needs to know.
+    local playbook_rc=0
+    ansible-playbook "${PLAYBOOK_ARGS[@]}" || playbook_rc=$?
+    finish_run "${playbook_rc}"
 }
 
 # ---------------------------------------------------------------------------
@@ -1027,14 +1176,8 @@ validate_selection_options
 # without installing anything. It sits before ensure_ansible on purpose: the question is what this
 # script would run, and answering it does not need Ansible to be present.
 if [[ "${OPT_PRINT_COMMAND}" == true ]]; then
-    overrides=() line=""
-    while IFS= read -r line; do
-        [[ -n "${line}" ]] && overrides+=("${line}")
-    done < <(
-        desktop_override_vars "${OPT_DESKTOP_ENVIRONMENT}" "${OPT_DESKTOP_ACTION}"
-        software_override_vars
-    )
-    build_playbook_args "${overrides[@]+"${overrides[@]}"}"
+    resolve_overrides
+    build_playbook_args "${OVERRIDE_VARS[@]+"${OVERRIDE_VARS[@]}"}"
     printf 'ansible-playbook'
     printf ' %q' "${PLAYBOOK_ARGS[@]}"
     printf '\n'
@@ -1045,6 +1188,21 @@ fi
 # jsonfile fact cache fails on first run if its dir doesn't exist.
 mkdir -p "${HOME}/.ansible/tmp" "${HOME}/.ansible/facts-cache"
 ensure_ansible
+
+# Verification on its own, for a virtual machine or for a machine whose install finished long ago.
+# It sits above system_upgrade deliberately: this path is not allowed to change the machine, and an
+# upgrade is a change. It needs no collections either, because the play uses builtin modules only.
+#
+# The selection resolves exactly as a real run's would, through the same two functions and the same
+# assembly, so `--verify-only --disable chrome` asks about the same set that `--disable chrome`
+# would have installed.
+if [[ "${OPT_VERIFY_ONLY}" == true ]]; then
+    resolve_overrides
+    build_playbook_args "${OVERRIDE_VARS[@]+"${OVERRIDE_VARS[@]}"}"
+    run_verification || exit 3
+    exit 0
+fi
+
 system_upgrade
 
 if [[ "${OPT_NON_INTERACTIVE}" == true || -n "${OPT_PROFILE}" ]]; then

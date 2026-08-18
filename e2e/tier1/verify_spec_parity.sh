@@ -14,12 +14,18 @@
 # Matching is on the verify task name verbatim, so there is no third list to keep in step. That is
 # why the specs quote the task names rather than paraphrasing them.
 #
+# The assertions are read from setup/ansible/verify_install.yaml, which is where they live: that
+# play is what a person runs on a real machine and what the wizard runs as its last step, and
+# tier3/verify.yaml is a wrapper that imports it so the container scenarios assert the same things.
+# Reading the wrapper would find nothing and report no coverage gap, which is the failure mode this
+# check exists to prevent.
+#
 # The two non-container capabilities, 10 and 20, are excluded: they are tiers 1 and 2 and never run
 # the verify play at all.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-VERIFY_YAML="${E2E_ROOT}/tier3/verify.yaml"
+VERIFY_YAML="${ANSIBLE_DIR}/verify_install.yaml"
 TESTING_DIR="${E2E_ROOT}/testing"
 RUN_SH="${E2E_ROOT}/run.sh"
 
@@ -33,7 +39,7 @@ TIER1_SPEC="${TESTING_DIR}/10-wizard-toggle-parse-test.md"
 
 info "Tier 1: the harness against the capability specs"
 
-[[ -f "${VERIFY_YAML}" ]] || { fail "verify.yaml is missing" "${VERIFY_YAML}"; finish "harness spec parity"; }
+[[ -f "${VERIFY_YAML}" ]] || { fail "verify_install.yaml is missing" "${VERIFY_YAML}"; finish "harness spec parity"; }
 [[ -d "${TESTING_DIR}" ]] || { fail "the capability spec directory is missing" "${TESTING_DIR}"; finish "harness spec parity"; }
 
 # Assertion task names, in file order. An assert task is one whose name starts with Assert, which is
@@ -42,11 +48,11 @@ info "Tier 1: the harness against the capability specs"
 mapfile -t assertions < <(sed -nE 's/^[[:space:]]*-[[:space:]]*name:[[:space:]]*(Assert .*)$/\1/p' "${VERIFY_YAML}")
 
 if [[ ${#assertions[@]} -eq 0 ]]; then
-    fail "no assertion task names found in verify.yaml, so this check cannot mean anything" \
+    fail "no assertion task names found in verify_install.yaml, so this check cannot mean anything" \
          "expected task names beginning 'Assert ' in ${VERIFY_YAML}"
     finish "harness spec parity"
 fi
-pass "verify.yaml declares ${#assertions[@]} assertions"
+pass "verify_install.yaml declares ${#assertions[@]} assertions"
 
 for spec_stem in "${CONTAINER_SPECS[@]}"; do
     spec="${TESTING_DIR}/${spec_stem}-test.md"
