@@ -1,0 +1,5 @@
+# Pinned download locations deliberately not checked, as `<key> <reason>`.
+#
+# Keep this short. A location that cannot be checked is a location that can rot without anyone
+# noticing, which is the whole reason the check beside this file exists.
+vmware_url Broadcom serves this only to an authenticated session, so any answer here would be about the login page rather than the installer

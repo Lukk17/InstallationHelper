@@ -82,6 +82,10 @@ software_mapping:
   tailscale: { manager: "apt", package: "tailscale" }             # Official Tailscale apt repo, stable channel (debian_repos.yaml)
   appimagelauncher: { manager: "apt_url", package: "appimagelauncher", is_deb_url: true }
 
+  # Installed from Anthropic's own apt repository, added in debian_repos.yaml. The vendor distributes
+  # the Linux desktop application only that way, and the file this used to download is gone.
+  claude_desktop: { manager: "apt", package: "claude-desktop" }
+
   # Crypto / Crypto Hardware
   boinc: { manager: "apt", package: "boinc-client" }
   # gridcoin: installed via custom_installs.yaml PPA flow

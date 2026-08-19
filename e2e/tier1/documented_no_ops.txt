@@ -63,3 +63,4 @@ Darwin     gparted          Linux only, macOS uses Disk Utility
 Darwin     partitionmanager Linux only, macOS uses Disk Utility
 Windows    gparted          Linux only, Windows uses partition_wizard
 Windows    partitionmanager Linux only, Windows uses partition_wizard
+RedHat claude_desktop Anthropic distributes the Linux desktop application through an apt repository and its documentation states that Fedora and RHEL are not supported today, so there is deliberately no dnf mapping. Debian and Ubuntu install it as an ordinary package from that repository.

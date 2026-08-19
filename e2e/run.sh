@@ -74,6 +74,8 @@ run_tier2() {
     bash "${E2E_ROOT}/tier2/resolve_packages.sh" || rc=1
     echo
     bash "${E2E_ROOT}/tier2/resolve_role_packages.sh" || rc=1
+    echo
+    bash "${E2E_ROOT}/tier2/resolve_pinned_urls.sh" || rc=1
     return ${rc}
 }
 

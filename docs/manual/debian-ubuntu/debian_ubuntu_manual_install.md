@@ -437,6 +437,6 @@ These are **not** in `install.sh` — no package-manager path exists. Install by
   ```
 
 - **Ledger Live** — download the AppImage from [ledger.com/ledger-live](https://www.ledger.com/ledger-live).
-- **Trezor Suite** (pinned `26.4.2`) — download the AppImage from [trezor.io/trezor-suite](https://trezor.io/trezor-suite).
+- Trezor Suite: download the AppImage from [trezor.io/trezor-suite](https://trezor.io/trezor-suite). The playbook installs the udev rules only, so the application itself is a manual download and carries no pinned version.
 - **Claude Desktop** — Anthropic no longer publishes a Linux build (macOS/Windows only as of 2026-05). Skip on Linux until upstream restores it.
 - **VMware Workstation Player** — downloads now require a Broadcom Support Portal login. Use VirtualBox or QEMU/KVM instead.

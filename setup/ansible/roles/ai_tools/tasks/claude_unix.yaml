@@ -6,59 +6,14 @@
     npm_display_name: "Claude Code"
   when: install_claude_code | default(false) | bool
 
-- name: Check if Claude Desktop is installed (Linux Debian)
-  ansible.builtin.stat:
-    path: /usr/bin/claude-desktop
-  register: claude_desktop_stat
-  when:
-    - install_claude_desktop | default(false) | bool
-    - ih_family == 'Debian'
-
-- name: Download Claude Desktop .deb (Linux Debian)
-  ansible.builtin.get_url:
-    url: "{{ claude_desktop_deb_url }}"
-    dest: "{{ non_root_home }}/.lukkInstall/claude-desktop.deb"
-    mode: '0644'
-    timeout: 60
-  become: yes
-  become_user: "{{ non_root_user }}"
-  register: claude_desktop_download
-  retries: 3
-  delay: 10
-  until: claude_desktop_download is succeeded
-  when:
-    - install_claude_desktop | default(false) | bool
-    - ih_family == 'Debian'
-    - not (claude_desktop_stat.stat.exists | default(false))
-
-# Use raw apt-get instead of ansible.builtin.apt:deb to avoid the 2.19
-# ansiballz deserialization race triggered by needrestart/postinst stdout
-# on long Debian package installs. See AGENTS.md workaround section.
-- name: Install Claude Desktop .deb (Linux Debian) via apt-get → log file
-  ansible.builtin.shell: |
-    apt-get install -yqq \
-      -o DPkg::Lock::Timeout=300 \
-      -o Dpkg::Options::=--force-confdef \
-      -o Dpkg::Options::=--force-confold \
-      "{{ non_root_home }}/.lukkInstall/claude-desktop.deb" \
-      2>&1 | tee -a /var/log/installation-claude-desktop-apt.log
-  args:
-    executable: /bin/bash
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-    APT_LISTCHANGES_FRONTEND: none
-    NEEDRESTART_MODE: a
-    NEEDRESTART_SUSPEND: "1"
-    LANG: C.UTF-8
-    LC_ALL: C.UTF-8
-  become: yes
-  register: claude_desktop_apt_result
-  changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (claude_desktop_apt_result.stdout | default(''))"
-  failed_when: claude_desktop_apt_result.rc | default(0) != 0
-  when:
-    - install_claude_desktop | default(false) | bool
-    - ih_family == 'Debian'
-    - not (claude_desktop_stat.stat.exists | default(false))
+# Claude Desktop is no longer installed here. Anthropic publishes an apt repository and distributes the
+# Linux application only through it, so the mapping in vars/Debian.yaml installs `claude-desktop` like
+# any other apt package and debian_repos.yaml adds the repository and verifies its signing key.
+#
+# What was here before downloaded a file from a content host and installed it with a raw apt-get. That
+# URL now answers 404, so the install had been broken for some time and nothing noticed, because the
+# toggle is off by default on Linux and no container run reaches it. Found by the pinned-location check
+# in tier 2 rather than by a person.
 
 - name: Check if Claude Desktop is installed (Arch Linux)
   ansible.builtin.command: pacman -Q claude-desktop

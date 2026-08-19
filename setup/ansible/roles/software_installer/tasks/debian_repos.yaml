@@ -305,6 +305,53 @@
     docker_apt_arch: "{{ docker_apt_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
   when: install_docker | default(false) | bool
 
+# --- Claude Desktop ---
+# Anthropic publishes an apt repository, and the desktop application is only distributed that way on
+# Linux. This replaced a signed file on a content host: that URL now answers 404, so the install was
+# broken and nothing noticed until e2e/tier2/resolve_pinned_urls.sh started asking whether pinned
+# locations still exist. The toggle is off by default on Linux, which is why no container run hit it.
+#
+# The key is published already armoured, so it is written as .asc and referenced as such rather than
+# being dearmoured, which is what the vendor documentation instructs. Its fingerprint is
+# 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE, and that is worth knowing rather than trusting the file:
+# apt reports NO_PUBKEY BAA929FF1A7ECACE when the download silently returns the wrong content.
+#
+# Debian based only. The vendor states that Fedora and RHEL are not supported today, which is why
+# there is no equivalent block in fedora_repos.yaml and no RedHat mapping.
+- name: Download the Claude Desktop signing key
+  ansible.builtin.get_url:
+    url: https://downloads.claude.ai/claude-desktop/key.asc
+    dest: /usr/share/keyrings/claude-desktop-archive-keyring.asc
+    mode: '0644'
+    force: true
+  become: true
+  register: claude_desktop_key
+  retries: 3
+  delay: 10
+  until: claude_desktop_key is succeeded
+  when: install_claude_desktop | default(false) | bool
+
+# Verified rather than assumed, because a key that downloaded as an error page produces an apt failure
+# several tasks later that names a missing public key instead of a bad download.
+- name: Confirm the Claude Desktop key is the one Anthropic publishes
+  ansible.builtin.command: gpg --show-keys --with-colons /usr/share/keyrings/claude-desktop-archive-keyring.asc
+  become: true
+  register: claude_desktop_fpr
+  changed_when: false
+  failed_when: >-
+    claude_desktop_fpr.rc != 0 or
+    '31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE' not in claude_desktop_fpr.stdout
+  when: install_claude_desktop | default(false) | bool
+
+- name: Add the Claude Desktop apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main"
+    filename: claude-desktop
+    state: present
+    update_cache: false
+  become: true
+  when: install_claude_desktop | default(false) | bool
+
 # --- Syncthing ---
 # Syncthing publishes an already-dearmored (binary) release key, so no gpg
 # --dearmor step. The repo has one suite (`syncthing`) for every Debian

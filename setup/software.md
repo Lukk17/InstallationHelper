@@ -318,7 +318,7 @@ Installed by `shell_zsh`.
 | App | Method |
 |---|---|
 | Ledger Live | AppImage from [ledger.com/ledger-live](https://www.ledger.com/ledger-live) |
-| Trezor Suite | AppImage from [trezor.io/trezor-suite](https://trezor.io/trezor-suite), pinned to `26.4.2` |
+| Trezor Suite | AppImage from [trezor.io/trezor-suite](https://trezor.io/trezor-suite). The playbook installs the udev rules only, the application is downloaded by hand |
 
 ### Hardware monitoring and alternatives
 

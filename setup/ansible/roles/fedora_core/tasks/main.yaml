@@ -81,7 +81,7 @@
   ansible.builtin.yum_repository:
     name: antigravity-rpm
     description: Antigravity RPM Repository
-    baseurl: https://us-central1-yum.pkg.dev/projects/antigravity-auto-updater-dev/antigravity-rpm
+    baseurl: "{{ antigravity_yum_repo }}"
     gpgkey: https://us-central1-yum.pkg.dev/doc/repo-signing-key.gpg
     gpgcheck: yes
     enabled: yes

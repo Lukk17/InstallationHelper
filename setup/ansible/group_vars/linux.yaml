@@ -53,7 +53,11 @@ install_virtualbox: false
 install_vmware: false
 
 # AI Tools - Linux specific
-# Claude Desktop AUR requires compiling from source (1+ hour), CLI is faster
+# Off by your choice rather than by a limitation, and the reason it carried has changed. On Debian and
+# Ubuntu it now installs from Anthropic's own apt repository as an ordinary package, which is how the
+# vendor distributes it, so there is no source compile and no downloaded file. On Arch the AUR package
+# does still compile from source, which is the hour this comment used to describe. On Fedora the vendor
+# supports nothing today, recorded in e2e/tier1/documented_no_ops.txt.
 install_claude_desktop: false
 
 # Btrfs Snapshots with Snapper

@@ -288,4 +288,4 @@ These have no package-manager path on Arch even with the AUR. Install by hand:
   ```
 
 - **Ledger Live** — download the AppImage from [ledger.com/ledger-live](https://www.ledger.com/ledger-live).
-- **Trezor Suite** (pinned `26.4.2`) — download the AppImage from [trezor.io/trezor-suite](https://trezor.io/trezor-suite).
+- Trezor Suite: download the AppImage from [trezor.io/trezor-suite](https://trezor.io/trezor-suite). The playbook installs the udev rules only, so the application itself is a manual download and carries no pinned version.
