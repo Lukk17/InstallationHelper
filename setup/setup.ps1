@@ -14,6 +14,12 @@
     What remains of the WSL side is Ansible itself, installed inside the distribution because it is
     wanted there. Nothing else in WSL is touched.
 
+    Every run ends by asking the machine what it actually ended up with, per application: installed,
+    missing, or not requested. There is no flag to turn it off, because a run that reports success
+    without checking is how every regression in docs/regression_ledger.md reached a real machine.
+    The full result goes to installation_verify.log in the user profile, named on screen when the
+    wizard finishes, and a missing application makes this script exit non-zero.
+
     Uses Microsoft.PowerShell.ConsoleGuiTools (Out-ConsoleGridView) for the multi-select picker
     with filter-as-you-type.
 .PARAMETER Profile
@@ -53,7 +59,8 @@
     GNOME, this wizard configures Windows and runs no playbook, and a switch that cannot change
     anything is worse than an absent one.
 
-    Exit codes: 0 success, 1 at least one item failed, 2 bad usage.
+    Exit codes: 0 success, 1 at least one item failed, 2 bad usage, 3 every phase reported success
+    and the verification found something the run asked for missing from the machine.
 .EXAMPLE
     .\setup.ps1
 .EXAMPLE
@@ -105,6 +112,9 @@ $WindowsVars = Join-Path $AnsibleDir 'group_vars\windows.yaml'
 . (Join-Path $ScriptDir 'windows\WindowsNpmTools.ps1')
 . (Join-Path $ScriptDir 'windows\WindowsCustomInstalls.ps1')
 . (Join-Path $ScriptDir 'windows\WindowsSettings.ps1')
+# Last, because it asks the machine about what the other four installed and reads their tables to
+# know what to ask about.
+. (Join-Path $ScriptDir 'windows\WindowsVerify.ps1')
 
 # Hidden from the checklist. Only two reasons qualify: the value is not a boolean the
 # checklist could render, or getting it wrong costs a working machine. Everything else
@@ -356,6 +366,51 @@ function Invoke-AndShowWslAnsible {
         Write-Host "  [!] $($f.Key) ($($f.Package)): $($f.Detail)" -ForegroundColor Red
     }
     return $r
+}
+
+function Invoke-AndShowVerification {
+    <#
+    .SYNOPSIS
+        Asks the machine what actually landed, prints the verdicts, and returns the result.
+    .DESCRIPTION
+        The last thing a run does, on every path that installs anything, which is what setup.sh does
+        with finish_run on Linux and macOS. Everything above this point reports what the installers
+        believed they did. This reports what is on the disk, which is a different claim and the only
+        one worth exiting on.
+
+        It installs nothing and changes nothing, so there is no option to skip it. A run that says
+        success without asking the machine is the shape of every regression in
+        docs/regression_ledger.md.
+
+        The whole report goes to the log and to the screen. The Ansible side prints only the report
+        lines it lifts out of the play's own output, because Ansible surrounds them with a task list
+        nobody can read a verdict out of. Here the report is all there is.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [string[]] $OnlyKeys,
+        [hashtable] $ToggleOverride
+    )
+
+    Write-Section 'Verifying what actually landed'
+    Write-Hint '  This asks winget, Chocolatey, npm and the disk itself. It installs and changes nothing.'
+    Write-Hint '  It asks winget once per package, so it takes a couple of minutes on a full selection.'
+
+    $result = Invoke-WindowsVerification -AnsibleDir $AnsibleDir -OnlyKeys $OnlyKeys -ToggleOverride $ToggleOverride
+
+    Write-Host
+    foreach ($line in $result.Report) { Write-Host "  $line" }
+    Write-Host
+
+    if (-not $result.LogWritten) {
+        Write-Hint "  The report above could not be written to $($result.LogPath), so this screen is the only copy."
+    } elseif ($result.Failed.Count -eq 0) {
+        Write-Status "Verification passed. Full result: $($result.LogPath)"
+    } else {
+        Write-Host "  [!] Verification FAILED: $($result.Failed.Count) item(s) requested and not present. Full result: $($result.LogPath)" -ForegroundColor Red
+    }
+    return $result
 }
 
 function Get-PhaseFailure {
@@ -1151,7 +1206,41 @@ function Invoke-Main {
     # Always, and last. Every phase names its own failures as it goes, and a long run scrolls them
     # off the screen, so this is the one block that reconciles all of them in one place.
     $failed = Write-RunSummary -Phase $phases
-    if ($failed -gt 0) { exit 1 }
+
+    # Then the machine's own answer, which is a different question from the one above. The summary
+    # says what the installers reported, this says what is actually here, and the gap between those
+    # two is where every silent failure in docs/regression_ledger.md lived.
+    #
+    # Handed exactly the selection the run was given, from the same two variables the phases were
+    # handed, so an application the user unticked is reported as not requested rather than demanded
+    # and reported missing.
+    #
+    # Not run under -WhatIf, and that is not a way out of verifying. A dry run installed nothing, so
+    # every application it named would come back missing and a plan that did what it promised would
+    # exit non-zero. The reason is said out loud rather than skipped quietly.
+    $verifyFailed = 0
+    if ($WhatIfPreference) {
+        Write-Section 'Verifying what actually landed'
+        Write-Hint '  Skipped: -WhatIf installed nothing, so there is nothing this machine could be asked about yet.'
+    } else {
+        $verification = Invoke-AndShowVerification -OnlyKeys $selectedSoftwareKeys -ToggleOverride $toggleOverride
+        $verifyFailed = $verification.Failed.Count
+    }
+
+    # The install's own status wins when it is non-zero, and a happy verification never erases it,
+    # which is the same order finish_run uses on the Unix side. A verification failure on a run that
+    # otherwise succeeded gets its own code, so a caller can tell "the install broke" from "the
+    # install claimed success and the machine disagrees".
+    if ($failed -gt 0) {
+        if ($verifyFailed -gt 0) {
+            Write-Host "  [!] The run reported $failed failure(s) and the verification found $verifyFailed item(s) missing." -ForegroundColor Red
+        }
+        exit 1
+    }
+    if ($verifyFailed -gt 0) {
+        Write-Host "  [!] Every phase reported success and the machine disagrees about $verifyFailed item(s). Exiting 3." -ForegroundColor Red
+        exit 3
+    }
     exit 0
 }
 

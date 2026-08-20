@@ -37,6 +37,11 @@ Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'pinned_values\Pinne
 # reported full coverage.
 $script:CustomInstallKeys = @('java', 'nodejs', 'flutter', 'gridcoin', 'razer_cortex')
 
+# The pins that name the four JDKs, in the order they are installed. Read twice, once to derive the
+# packages and once to derive the directories those packages have to leave behind, so the list is
+# declared rather than written out at both sites.
+$script:JavaPinKeys = @('java11_id', 'java17_id', 'java21_id', 'java25_id')
+
 function Get-WindowsCustomInstallKey {
     <#
     .SYNOPSIS
@@ -46,6 +51,102 @@ function Get-WindowsCustomInstallKey {
     [OutputType([string[]])]
     param()
     return $script:CustomInstallKeys
+}
+
+function Get-FlutterChannel {
+    <#
+    .SYNOPSIS
+        The Flutter channel this run installs, falling back to stable when nothing pins one.
+    .DESCRIPTION
+        Read by the installer for the argument it passes to fvm and by the proof table for the
+        directory that argument has to produce. One expression, because a fallback that differs
+        between the two would have the verification look for a channel the install never asked for.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)] [hashtable] $Versions)
+
+    if ($Versions.ContainsKey('flutter_channel') -and $Versions['flutter_channel']) {
+        return [string] $Versions['flutter_channel']
+    }
+    return 'stable'
+}
+
+function Get-WindowsCustomInstallProof {
+    <#
+    .SYNOPSIS
+        What has to exist on disk for each custom install to count as done.
+    .DESCRIPTION
+        Ledger rule 5 in one table: an install that exits zero and leaves nothing behind is still a
+        bug. Install-DirectInstaller already refuses to call a run successful without its ProofPath,
+        and setup/windows/WindowsVerify.ps1 asks the same question again after the whole run, from
+        the same table, so the installer's idea of proof and the verification's cannot drift. A
+        drifted proof path reports a working install as missing, and a false failure nobody can
+        reproduce is how a verification stops being read.
+
+        Each entry carries one or more paths, which Test-Path accepts with a wildcard, and a mode.
+        All means every path has to exist, which is how four JDKs are one verdict. Any means one is
+        enough, which is how a tool with more than one documented install location is asked about
+        without guessing which one this machine used.
+
+        Two entries are read by the verification only, and they are the two the installer proves
+        differently as it goes. Java is proved by discovering the directory it points JAVA_HOME at,
+        and Node by nvm's own exit codes, neither of which survives the end of the run.
+
+        The Node paths are the nvm-windows defaults rather than a verified observation, and they are
+        ordered so an installation that set NVM_HOME answers from that first. If a machine with a
+        working nvm reports this missing, the path is wrong rather than the install, which is the
+        safe direction: a false failure gets investigated and a false success does not.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param([Parameter(Mandatory)] [hashtable] $Versions)
+
+    $adoptium = Join-Path $env:ProgramFiles 'Eclipse Adoptium'
+
+    # A pin that names no major version yields no path rather than a wrong one. The verification
+    # reports an entry with nothing to look for as unverifiable, which is the honest answer: the
+    # same broken pin also stopped the install from happening.
+    $jdkPaths = [System.Collections.Generic.List[string]]::new()
+    foreach ($key in $script:JavaPinKeys) {
+        if (-not $Versions.ContainsKey($key)) { continue }
+        try {
+            $jdkPaths.Add((Join-Path $adoptium "jdk-$(Get-TemurinMajor -SdkmanId $Versions[$key])*"))
+        } catch {
+            Write-Verbose "no Temurin directory could be derived from ${key}: $($_.Exception.Message)"
+        }
+    }
+
+    $nvmHome = if ($env:NVM_HOME) { $env:NVM_HOME } else { Join-Path $env:ProgramData 'nvm' }
+    $channel = Get-FlutterChannel -Versions $Versions
+
+    return [ordered]@{
+        java = [PSCustomObject]@{
+            Path        = $jdkPaths.ToArray()
+            Mode        = 'All'
+            Description = "the pinned Temurin JDKs under $adoptium"
+        }
+        nodejs = [PSCustomObject]@{
+            Path        = @((Join-Path $nvmHome 'nvm.exe'), (Join-Path $env:APPDATA 'nvm\nvm.exe'))
+            Mode        = 'Any'
+            Description = 'nvm-windows, which is what install_nodejs installs Node inside'
+        }
+        flutter = [PSCustomObject]@{
+            Path        = @(Join-Path $env:USERPROFILE "fvm\versions\$channel\bin\flutter.bat")
+            Mode        = 'All'
+            Description = "the Flutter $channel channel installed by FVM"
+        }
+        gridcoin = [PSCustomObject]@{
+            Path        = @(Join-Path $env:ProgramFiles 'Gridcoin')
+            Mode        = 'All'
+            Description = 'the Gridcoin installation directory'
+        }
+        razer_cortex = [PSCustomObject]@{
+            Path        = @(Join-Path ${env:ProgramFiles(x86)} 'Razer\Razer Cortex')
+            Mode        = 'All'
+            Description = 'the Razer Cortex installation directory'
+        }
+    }
 }
 
 function Get-TemurinMajor {
@@ -99,7 +200,7 @@ function Install-TemurinJdk {
     # playbook ran. The reader now refuses to hand out an unresolved reference, so that exact shape
     # cannot arrive any more, but a pin bumped to anything a major version cannot be read out of
     # still lands here, and it must not take the other four items down with it.
-    foreach ($key in @('java11_id', 'java17_id', 'java21_id', 'java25_id')) {
+    foreach ($key in $script:JavaPinKeys) {
         if (-not $Versions.ContainsKey($key)) {
             $results.Add([PSCustomObject]@{ Key = 'java'; Package = $key; Status = 'failed'
                                             Detail = "nothing pins $key, so no Temurin package could be derived" })
@@ -318,7 +419,7 @@ function Install-FlutterViaFvm {
         [Parameter(Mandatory)] [hashtable] $Versions
     )
 
-    $channel = if ($Versions.ContainsKey('flutter_channel')) { $Versions['flutter_channel'] } else { 'stable' }
+    $channel = Get-FlutterChannel -Versions $Versions
     $results = [System.Collections.Generic.List[object]]::new()
 
     $choco = Install-ChocolateyPackageBatch -PackageId @('fvm')
@@ -340,7 +441,8 @@ function Install-FlutterViaFvm {
     # $env, which would shadow the environment provider two lines below.
     $fvmEnv = @{ CI = 'true'; FLUTTER_SUPPRESS_ANALYTICS = 'true' }
 
-    $installed = Join-Path $env:USERPROFILE "fvm\versions\$channel\bin\flutter.bat"
+    # The same path the verification looks for after the run, from the one table that holds it.
+    $installed = @((Get-WindowsCustomInstallProof -Versions $Versions)['flutter'].Path)[0]
     if (Test-Path -LiteralPath $installed) {
         $results.Add([PSCustomObject]@{ Key = 'flutter'; Package = "fvm install $channel"; Status = 'present'; Detail = '' })
     } else {
@@ -515,6 +617,10 @@ function Invoke-WindowsCustomInstall {
         return $true
     }
 
+    # The paths an install has to leave behind, held in one table so the proof this phase demands and
+    # the proof the verification looks for after the run are the same paths.
+    $proofs = Get-WindowsCustomInstallProof -Versions $versions
+
     if (& $wanted 'java')   { $results.AddRange((Install-TemurinJdk   -Versions $versions)) }
     if (& $wanted 'nodejs') { $results.AddRange((Install-NodeViaNvm)) }
     if (& $wanted 'flutter'){ $results.AddRange((Install-FlutterViaFvm -Versions $versions)) }
@@ -527,7 +633,7 @@ function Invoke-WindowsCustomInstall {
             # NSIS installs to Program Files by default and the package name is Gridcoin, confirmed
             # from the installer's own version resources when its framework was identified.
             $results.Add((Install-DirectInstaller -Key 'gridcoin' -Url $pin.Url -SilentArgument @('/S') `
-                -ProofPath (Join-Path $env:ProgramFiles 'Gridcoin')))
+                -ProofPath @($proofs['gridcoin'].Path)[0]))
         } else {
             $results.Add([PSCustomObject]@{ Key = 'gridcoin'; Package = 'gridcoin_win_installer_url'; Status = 'failed'
                                             Detail = $pin.Reason })
@@ -542,14 +648,15 @@ function Invoke-WindowsCustomInstall {
     if (& $wanted 'razer_cortex') {
         $pin = Resolve-PinnedInstallerUrl -Versions $versions -Name 'razer_cortex_win_installer_url'
         if ($pin.Url) {
-            # The proof path is a guess and is labelled as one. Razer Cortex is a 32-bit installer so
-            # Program Files (x86) is the right root, but the exact directory has not been verified on a
-            # real install because nothing here has ever run it. If this reports a failure while Cortex
-            # is visibly installed, the path is wrong rather than the install, and the message says so.
-            # That direction is the safe one: a false failure gets investigated, a false success does not.
+            # The proof path is a guess and is labelled as one in the table it now comes from. Razer
+            # Cortex is a 32-bit installer so Program Files (x86) is the right root, but the exact
+            # directory has not been verified on a real install because nothing here has ever run it.
+            # If this reports a failure while Cortex is visibly installed, the path is wrong rather
+            # than the install, and the message says so. That direction is the safe one: a false
+            # failure gets investigated, a false success does not.
             $results.Add((Install-DirectInstaller -Key 'razer_cortex' -Url $pin.Url -SilentArgument @('/S') `
                 -TimeoutMinutes 10 `
-                -ProofPath (Join-Path ${env:ProgramFiles(x86)} 'Razer\Razer Cortex')))
+                -ProofPath @($proofs['razer_cortex'].Path)[0]))
         } else {
             $results.Add([PSCustomObject]@{ Key = 'razer_cortex'; Package = 'razer_cortex_win_installer_url'; Status = 'failed'
                                             Detail = $pin.Reason })
