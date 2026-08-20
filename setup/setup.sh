@@ -51,6 +51,39 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# --- bash 4, or a bash 4 to re-exec into -----------------------------------------------------------
+#
+# This script uses an associative array and one ${var^^} expansion, both of which are bash 4 syntax.
+# macOS ships bash 3.2, because Apple stopped shipping bash at the last version under the GPL version
+# 2 licence, and /bin/bash is still that. On 3.2 the associative array below is not an error the
+# reader would recognise: `declare -A` is silently a plain array, the subscript is read as a variable
+# name, and under `set -u` the script dies with "setup_zsh: unbound variable" at a line that has
+# nothing wrong with it.
+#
+# That is exactly how it was found: the first time a hosted macOS runner executed this wizard, on
+# 2026-08-20, it failed on that line, which means the macOS path had never actually been run rather
+# than merely never been tested.
+#
+# So the version is checked before any of that syntax is reached, and a newer bash is used when one
+# is installed. Homebrew's own paths are searched first, since brew is a prerequisite of the macOS
+# path anyway, and PATH last. Anything else is a clear refusal naming the fix rather than a crash
+# eighty lines later.
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+    for candidate in /opt/homebrew/bin/bash /usr/local/bin/bash "$(command -v bash 2>/dev/null || true)"; do
+        [ -n "${candidate}" ] || continue
+        [ -x "${candidate}" ] || continue
+        candidate_major="$("${candidate}" -c 'echo "${BASH_VERSINFO[0]}"' 2>/dev/null || echo 0)"
+        if [ "${candidate_major}" -ge 4 ]; then
+            exec "${candidate}" "$0" "$@"
+        fi
+    done
+    printf 'ERROR: this wizard needs bash 4 or newer and found %s.\n' "${BASH_VERSION:-unknown}" >&2
+    printf '       macOS ships bash 3.2 for licensing reasons. Install a current one:\n' >&2
+    printf '           brew install bash\n' >&2
+    printf '       then run this script again. Nothing has been changed.\n' >&2
+    exit 2
+fi
+
 # Force a UTF-8 locale so that the few non-ASCII glyphs we render don't
 # get mojibake'd into CJK fragments under a POSIX/C locale. Falls back
 # silently if the locale is not generated on the host.

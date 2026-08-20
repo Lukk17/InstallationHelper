@@ -103,4 +103,3 @@ software_mapping:
 
   # Virtualization — docker is installed by virtualization_config role
   virt_manager: { manager: "pacman", package: "virt-manager" }
-

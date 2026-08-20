@@ -474,5 +474,3 @@
       when:
         - any_role_failed | default(false) | bool
         - not (allow_role_failures | default(false) | bool)
-
-

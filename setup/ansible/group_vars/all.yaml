@@ -126,4 +126,3 @@ non_root_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
 # non_root_home comes from linux.yaml or macos.yaml and resolves non_root_user above, so only lazy
 # templating after fact gathering can render this. A file of pins has to resolve on its own.
 android_home: "{{ non_root_home }}/Android/Sdk"
-

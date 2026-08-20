@@ -145,4 +145,3 @@
   become: yes
   become_user: "{{ non_root_user }}"
   when: (pyenv_current_global.stdout | default('') | trim) != default_python
-

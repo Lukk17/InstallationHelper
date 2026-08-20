@@ -125,4 +125,3 @@
     name: dart-lang/dart/dart
     state: present
   when: ih_family == 'Darwin' and install_dart | bool
-

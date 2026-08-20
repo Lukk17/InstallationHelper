@@ -121,7 +121,6 @@
   when: yay_package_path is defined and yay_package_path | length > 0
 
 
-
 - name: Check if paru is already installed
   ansible.builtin.command: which paru
   register: paru_installed
@@ -199,7 +198,6 @@
     pacman -U --noconfirm {{ paru_package_path }}
   become: yes
   when: paru_package_path is defined and paru_package_path | length > 0
-
 
 
 - name: Install snapd via paru
@@ -319,7 +317,3 @@
     - install_snapd | default(false) | bool
     - snap_core_install.rc | default(0) != 0
     - "'already installed' not in (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))"
-
-
-
-

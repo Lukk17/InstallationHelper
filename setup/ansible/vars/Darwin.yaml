@@ -73,7 +73,7 @@ software_mapping:
   gog: { manager: "brew_cask", package: "gog-galaxy" }
   epic: { manager: "brew_cask", package: "epic-games" }
   curseforge: { manager: "brew_cask", package: "curseforge" }
-  
+
   # CAD / 3D
   freecad: { manager: "brew_cask", package: "freecad" }
   prusaslicer: { manager: "brew_cask", package: "prusaslicer" }
@@ -107,4 +107,3 @@ software_mapping:
   # next person does not re-add a name that cannot resolve. Use UTM instead, which is
   # already mapped above, or install Fusion by hand from Broadcom's portal.
   # vmware: { manager: "brew_cask", package: "vmware-fusion" }
-

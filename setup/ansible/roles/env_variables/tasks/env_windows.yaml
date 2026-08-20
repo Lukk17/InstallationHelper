@@ -26,4 +26,3 @@
   loop:
     - ANDROID_SDK_ROOT
     - ANDROID_HOME
-

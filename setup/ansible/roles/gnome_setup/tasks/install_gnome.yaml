@@ -135,4 +135,3 @@
     - existing_display_manager.stat.exists | default(false)
     - "'gdm' not in (existing_display_manager.stat.lnk_target | default(''))"
     - not (install_kde_plasma | default(false) | bool)
-

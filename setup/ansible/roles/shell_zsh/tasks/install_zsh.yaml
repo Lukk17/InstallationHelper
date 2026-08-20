@@ -50,4 +50,3 @@
     shell: "{{ zsh_path.stdout | trim }}"
   become: yes
   when: (zsh_path.stdout | default('') | trim) != ''
-

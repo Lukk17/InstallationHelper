@@ -297,4 +297,3 @@
     append: true
   when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool
   tags: [docker]
-

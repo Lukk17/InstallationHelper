@@ -54,4 +54,3 @@
     osascript -e "tell application \"System Events\" to tell every desktop to set picture to \"/Library/Desktop Pictures/wallpapers/{{ default_wallpaper }}\""
   when: set_custom_wallpaper | bool
   changed_when: false
-

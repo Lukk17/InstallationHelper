@@ -4,4 +4,3 @@
 
 - import_tasks: configure_kde.yaml
   when: configure_kde_plasma | bool
-

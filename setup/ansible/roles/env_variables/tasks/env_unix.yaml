@@ -40,4 +40,3 @@
   become: yes
   become_user: "{{ non_root_user }}"
   when: ih_family == 'Darwin'
-

@@ -2,4 +2,3 @@
 - name: Update Font Cache
   ansible.builtin.command: fc-cache -f -v
   become: yes
-

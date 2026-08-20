@@ -124,4 +124,3 @@
   ansible.builtin.command: efibootmgr -b {{ item }} -B
   loop: "{{ grub_nvram_ids }}"
   when: grub_nvram_ids | length > 0
-

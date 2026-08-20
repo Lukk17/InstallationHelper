@@ -142,4 +142,3 @@
   become_user: "{{ non_root_user }}"
   changed_when: false
   when: gnome_session_active | default(false)
-

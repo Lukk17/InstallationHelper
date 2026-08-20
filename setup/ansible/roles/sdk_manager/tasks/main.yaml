@@ -46,4 +46,3 @@
       tags: [android]
   tags: [android]
   when: install_android_sdk | default(false) | bool
-

@@ -110,4 +110,3 @@
     - sdk_install.rc is defined
     - sdk_install.rc != 0
   when: sdkman_java_stat.stat.exists
-

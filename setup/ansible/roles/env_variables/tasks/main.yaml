@@ -6,4 +6,3 @@
 - name: Include Windows Environment Variables tasks
   ansible.builtin.include_tasks: env_windows.yaml
   when: ih_family == 'Windows'
-

@@ -44,4 +44,3 @@
   when:
     - install_claude_desktop | default(false) | bool
     - ih_family == 'Darwin'
-

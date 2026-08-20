@@ -86,4 +86,3 @@
     gpgcheck: yes
     enabled: yes
   when: install_antigravity | default(false) | bool
-

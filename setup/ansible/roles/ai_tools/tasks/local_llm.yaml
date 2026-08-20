@@ -34,4 +34,3 @@
     - ansible_facts['system'] == 'Linux'
     - install_lm_studio | bool
     - not (lms_installed.stat.exists | default(false))
-

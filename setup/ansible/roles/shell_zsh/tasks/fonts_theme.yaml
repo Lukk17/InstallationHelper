@@ -49,4 +49,3 @@
     repo: https://github.com/romkatv/powerlevel10k.git
     dest: "{{ non_root_home }}/.oh-my-zsh/custom/themes/powerlevel10k"
     depth: 1
-

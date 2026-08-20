@@ -87,4 +87,3 @@
   become_user: "{{ non_root_user }}"
   register: sdk_java_default
   changed_when: "'Default java set to' in sdk_java_default.stdout"
-

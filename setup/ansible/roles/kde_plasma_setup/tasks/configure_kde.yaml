@@ -306,4 +306,3 @@
   when:
     - (kde_user_state.stdout | default('') | trim) == 'active'
     - applet_window_buttons_install is defined and applet_window_buttons_install is changed
-

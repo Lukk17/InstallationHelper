@@ -116,4 +116,3 @@
     name: sddm
     enabled: yes
   when: ih_family in ['RedHat', 'Archlinux']
-

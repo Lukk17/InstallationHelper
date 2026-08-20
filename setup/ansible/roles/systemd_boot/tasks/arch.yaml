@@ -96,4 +96,3 @@
       When = PostTransaction
       Exec = /usr/bin/bootctl update
     mode: '0644'
-

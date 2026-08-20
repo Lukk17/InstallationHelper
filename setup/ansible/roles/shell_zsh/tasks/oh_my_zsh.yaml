@@ -51,4 +51,3 @@
     - ".zshrc.pre-oh-my-zsh"
     - ".zshrc"
   when: not omz_dir.stat.exists
-

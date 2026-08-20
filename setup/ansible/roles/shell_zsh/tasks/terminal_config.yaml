@@ -70,4 +70,3 @@
   become: yes
   become_user: "{{ non_root_user }}"
   when: install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool
-
