@@ -132,7 +132,7 @@ Whether WSL can also reach the daemon depends on Docker Desktop having integrati
 
 A non-zero exit means the work is not done. Do not report success, do not commit, and do not explain the failure away. Fix it.
 
-**Additionally, when your change touches any of the following, run the container tier as well.** The cheapest scenario there is defaults, and its ceiling is 180 minutes. There is no cheap container scenario any more: the smoke scenario used to declare 45 minutes, but every toggle it enabled was already true in defaults, so it proved nothing defaults does not. Tier 1 is what runs in seconds.
+**Additionally, when your change touches any of the following, run the container tier as well.** The cheapest scenario there is forced-failure, at a 90 minute ceiling and 46 minutes measured on debian, because it is the only one that never installs the software set. The cheapest that installs anything is defaults, at 180. There is still no cheap container scenario: the smoke scenario used to declare 45 minutes, but every toggle it enabled was already true in defaults, so it proved nothing defaults does not. Tier 1 is what runs in seconds.
 
 | If you changed | Run |
 |---|---|
@@ -146,7 +146,9 @@ A non-zero exit means the work is not done. Do not report success, do not commit
 | `profiles/linux_live.yaml` | `./e2e/run.sh --tier 3 --scenario live-profile` |
 | `setup/setup.sh` | tier 1, then any one tier 3 scenario end to end |
 | the Windows installer (`setup/setup.ps1` or `setup/windows/`) | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, and note it cannot exercise winget at all, see `e2e/README_E2E.md` |
-| `setup/ansible/verify_install.yaml` | tier 1, then any one tier 3 scenario |
+| `setup/ansible/verify_install.yaml` | tier 1, then `--tier 3 --scenario forced-failure`, which is the only scenario that proves the play refuses over a broken machine, then any one passing scenario |
+| a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `./e2e/run.sh --tier 3 --scenario idempotency`, which applies the defaults configuration twice and fails on any task that reports changed on the second pass without a reason in `e2e/tier3/idempotent_changes_allowed.txt` |
+| a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, or the callback plugin's failure rendering | `./e2e/run.sh --tier 3 --scenario forced-failure`, which breaks the run on purpose and asserts the failure reaches the exit code, the terminal summary, the error log and the verification |
 | a check under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then run the whole gate from Git Bash and from WSL |
 | a distribution Dockerfile, or a new distribution | `./e2e/run.sh --tier 3 --scenario defaults --os <name>` |
 | anything macOS-only | tier 1 and tier 2, then the `macos` target of the dispatch workflow, which is the only thing that executes on macOS at all |
@@ -182,7 +184,7 @@ Full harness documentation, including what a container cannot test, is in [`e2e/
 
 ## Watch anything that runs long, every ten minutes
 
-A container scenario takes 45 to 300 minutes and a CI sweep takes hours. Neither tells you it is
+A container scenario takes 90 to 300 minutes by declared ceiling and a CI sweep takes hours. Neither tells you it is
 stuck, and a run that has hung looks exactly like a run that is working until you go and ask.
 
 So ask, on a timer, roughly every ten minutes, whichever way the work is running:

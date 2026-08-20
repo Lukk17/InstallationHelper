@@ -280,13 +280,14 @@ jobs:
   # -----------------------------------------------------------------------
   # arch / debian / ubuntu / fedora / cachyos: the proven tier-3 container harness, fed a
   # scenario file generated from this dispatch's own inputs so it can exercise an arbitrary
-  # toggle selection, not just the six scenarios checked into e2e/tier3/scenarios/.
+  # toggle selection, not just the eight scenarios checked into e2e/tier3/scenarios/.
   # -----------------------------------------------------------------------
   linux-e2e:
     needs: plan
     if: needs.plan.outputs.run_linux == 'true'
     runs-on: ubuntu-latest
-    # The slowest shipped tier-3 scenario (all-software) is timed at 300 minutes. 340 leaves
+    # The slowest shipped tier-3 scenarios (all-software, kde-full, gnome-full and idempotency)
+    # are each timed at 300 minutes. 340 leaves
     # headroom for container start/copy/verify without getting near the 360-minute
     # hosted-runner ceiling.
     timeout-minutes: 340
