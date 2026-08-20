@@ -407,6 +407,12 @@ jobs:
     outputs:
       ok: ${{ steps.gate.outputs.ok }}
     steps:
+      # The exit code matches the decision, deliberately. This job is a decision node rather than a
+      # verdict, and an earlier version always exited 0 and carried its answer only in an output, so
+      # the run showed a green "gate" tick beside a red stage 1 job. The overall run conclusion was
+      # correct, but a reader scanning the job list saw a green gate over a failed stage, which is
+      # exactly the shape of misreporting this repository keeps paying for. A bypassed stage still
+      # exits 0, because being told to skip it is not a failure.
       - id: gate
         env:
           START_FROM: ${{ inputs.start_from_stage }}
@@ -426,7 +432,7 @@ jobs:
             if [[ "${r}" != "success" ]]; then
               echo "Stage 1 did not pass cleanly, found a job result of '${r}'."
               echo "ok=false" >> "${GITHUB_OUTPUT}"
-              exit 0
+              exit 1
             fi
           done
           echo "Stage 1 passed."
@@ -640,6 +646,12 @@ jobs:
     outputs:
       ok: ${{ steps.gate.outputs.ok }}
     steps:
+      # The exit code matches the decision, deliberately. This job is a decision node rather than a
+      # verdict, and an earlier version always exited 0 and carried its answer only in an output, so
+      # the run showed a green "gate" tick beside a red stage 1 job. The overall run conclusion was
+      # correct, but a reader scanning the job list saw a green gate over a failed stage, which is
+      # exactly the shape of misreporting this repository keeps paying for. A bypassed stage still
+      # exits 0, because being told to skip it is not a failure.
       - id: gate
         env:
           START_FROM: ${{ inputs.start_from_stage }}
@@ -651,7 +663,7 @@ jobs:
           if [[ "${STAGE1_OK}" != "true" ]]; then
             echo "Stage 1 did not pass, so stage 2 could not run."
             echo "ok=false" >> "${GITHUB_OUTPUT}"
-            exit 0
+            exit 1
           fi
           if [[ "${START_FROM}" == "stage-3" ]]; then
             echo "Stage 2 intentionally bypassed by start_from_stage=stage-3."
@@ -661,7 +673,7 @@ jobs:
           if [[ "${PLAN_RESULT}" != "success" || "${SWEEP_RESULT}" != "success" ]]; then
             echo "Stage 2 did not pass cleanly, plan='${PLAN_RESULT}' sweep='${SWEEP_RESULT}'."
             echo "ok=false" >> "${GITHUB_OUTPUT}"
-            exit 0
+            exit 1
           fi
           echo "Stage 2 passed."
           echo "ok=true" >> "${GITHUB_OUTPUT}"
