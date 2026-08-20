@@ -78,7 +78,7 @@ Terraform on macOS comes from the HashiCorp tap rather than Homebrew core, which
 | Bruno | `flatpak install -y flathub com.usebruno.Bruno` | `flatpak install -y flathub com.usebruno.Bruno` | `flatpak install -y flathub com.usebruno.Bruno` | `brew install --cask bruno` | `winget install -e --id Bruno.Bruno` |
 | Bruno CLI | `npm install -g @usebruno/cli` | `npm install -g @usebruno/cli` | `npm install -g @usebruno/cli` | `brew install bruno-cli` | `npm install -g @usebruno/cli` |
 
-> The `intellij` toggle is intentionally disabled in `group_vars/all.yaml`. IntelliJ is installed and updated via JetBrains Toolbox, which the playbook manages directly. Carrying a parallel winget/cask install would create version drift.
+> IntelliJ has no toggle and no mapping on any platform, on purpose. It is installed and updated through JetBrains Toolbox, which the playbook manages directly, and the first launch needs a sign-in that no unattended run can do anyway. A parallel cask or winget install would only create version drift. macOS carried exactly that duplicate mapping until it was removed, and it could never have installed because no toggle ever reached it.
 
 ### Communication
 
@@ -338,7 +338,7 @@ Fedora 42 and newer ship `hardinfo2`, the active fork. The legacy `hardinfo` pac
 | App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
 |---|---|---|---|---|---|
 | QEMU/KVM + virt-manager | `sudo apt-get install -y qemu-kvm libvirt-daemon-system virt-manager virtinst bridge-utils virtiofsd` | `sudo dnf install -y qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd` | `sudo pacman -S --needed virt-manager qemu-full libvirt dnsmasq nftables bridge-utils virtiofsd` | not available | not available |
-| Docker | `sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo) | `sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo) | `sudo pacman -S --needed docker` | `brew install --cask docker-desktop` | `winget install -e --id Docker.DockerDesktop` |
+| Docker | `sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo) | `sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo) | `sudo pacman -S --needed docker` | `brew install colima docker docker-compose docker-buildx` then `colima start` | `winget install -e --id Docker.DockerDesktop` |
 | VirtualBox | not available | not available | not available | not available | `winget install -e --id Oracle.VirtualBox` |
 | VMware | not available | not available | not available | `brew install --cask vmware-fusion` | `choco install vmware-workstation-player -y` |
 | GParted | `sudo apt-get install -y gparted` | `sudo dnf install -y gparted` | `sudo pacman -S --needed gparted` | not available | not available |
@@ -368,7 +368,7 @@ Fedora 42 and newer ship `hardinfo2`, the active fork. The legacy `hardinfo` pac
 | LuLu | ufw / iptables | GlassWire | `brew install --cask lulu` |
 | Balena Etcher | not available | Rufus | `brew install --cask balenaetcher` |
 | UTM | virt-manager | VirtualBox | `brew install --cask utm` |
-| Docker Desktop | docker (native) | Docker Desktop | `brew install --cask docker-desktop` |
+| Docker | docker-ce from Docker's own repository, running on the host kernel | Docker Desktop | colima plus the docker, docker-compose and docker-buildx command line programs. macOS has no Linux kernel, so the engine always runs in a virtual machine. colima is that machine without Docker Desktop's graphical application or its licence |
 | VMware Fusion | virt-manager | not available | `brew install --cask vmware-fusion` |
 
 ## Windows-only

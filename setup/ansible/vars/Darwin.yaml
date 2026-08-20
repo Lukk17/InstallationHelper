@@ -30,7 +30,6 @@ software_mapping:
   filezilla: { manager: "brew_cask", package: "cyberduck" }
 
   # IDEs / Editors
-  intellij: { manager: "brew_cask", package: "intellij-idea" }
   vscode: { manager: "brew_cask", package: "visual-studio-code" }
   sublime: { manager: "brew_cask", package: "sublime-text" }
   arduino: { manager: "brew_cask", package: "arduino-ide" }
@@ -99,7 +98,6 @@ software_mapping:
 
   # Virtualization
   utm: { manager: "brew_cask", package: "utm" }
-  docker: { manager: "brew_cask", package: "docker-desktop" }
   # macOS does not have VMware Workstation Player (Windows/Linux only). The closest
   # equivalent was VMware Fusion, but the `vmware-fusion` cask no longer exists in
   # homebrew-cask: Broadcom moved the download behind a portal login, which is the same

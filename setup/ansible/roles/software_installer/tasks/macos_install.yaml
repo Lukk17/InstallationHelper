@@ -220,3 +220,63 @@
         path: "{{ software_installer_stage_dir }}/gridcoin.dmg"
         state: absent
       become: true
+# --- Docker, the same engine Linux gets, reached the only way macOS can reach it ---
+#
+# On Linux the virtualization_config role installs Docker CE from Docker's own repository, so the
+# engine runs on the host kernel. macOS has no Linux kernel, so there is no such thing as a native
+# Docker Engine there and any answer is a Linux virtual machine with the Docker CLI pointed at it.
+#
+# This installs the parts rather than Docker Desktop. colima runs the engine in a small Lima virtual
+# machine, and the docker, docker-compose and docker-buildx formulae are the same command line
+# programs Linux gets from Docker's repository, so `docker` and `docker compose` behave identically
+# on both. Docker Desktop is the alternative and was what this mapped to before: it bundles the same
+# virtual machine behind a graphical application and a licence that a large company has to pay for.
+#
+# Not in vars/Darwin.yaml, because the dictionary maps one application to one package and this needs
+# four packages plus a machine that has to be started. Linux keeps Docker out of its dictionary for
+# the same reason.
+- name: Install the Docker command line and the Linux machine that runs the engine (macOS)
+  community.general.homebrew:
+    name:
+      - colima
+      - docker
+      - docker-compose
+      - docker-buildx
+    state: present
+  when: install_docker | default(false) | bool
+  tags: [brew]
+
+# Asked rather than assumed, because `colima start` on an already running machine is not a no-op:
+# it prints an error and exits non-zero, which would make every rerun of this playbook report a
+# failure that is not one.
+- name: Ask whether the Docker machine is already running (macOS)
+  ansible.builtin.command: colima status
+  register: colima_state
+  changed_when: false
+  failed_when: false
+  when: install_docker | default(false) | bool
+
+# Tolerated on purpose and reported on purpose. Starting the machine needs the Virtualization
+# framework, which is unavailable inside a virtual machine that is not itself nested-virtualisation
+# capable, and a provisioning run should not die because of that. The result is read below rather
+# than registered and forgotten, which is the defect class docs/regression_ledger.md is full of.
+- name: Start the Docker machine (macOS)
+  ansible.builtin.command: colima start
+  register: colima_start
+  changed_when: colima_start.rc == 0
+  failed_when: false
+  when:
+    - install_docker | default(false) | bool
+    - colima_state is defined
+    - colima_state.rc | default(1) != 0
+
+- name: Say so when the Docker machine could not be started (macOS)
+  ansible.builtin.debug:
+    msg: >-
+      [WARN] colima start failed with rc={{ colima_start.rc }}, so the docker command has no engine
+      to talk to yet. Run `colima start` by hand and read what it says. The command line programs
+      are installed either way. Output: {{ (colima_start.stderr | default('')) | truncate(300) }}
+  when:
+    - install_docker | default(false) | bool
+    - colima_start is defined
+    - colima_start.rc | default(0) != 0
