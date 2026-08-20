@@ -506,6 +506,55 @@ Source role: [roles/linux_crypto_hardware/](ansible/roles/linux_crypto_hardware/
 | **Trezor udev rules** | Official `.deb` from trezor.io | AUR: `trezor-udev` | Direct rules file from trezor.io + `udevadm reload` |
 | **boot-repair** | PPA `yannubuntu/boot-repair` then apt (via `system_core`) | not available; use `grub-install` from base `grub` package | `grubby` (default Fedora GRUB management CLI) |
 
+### Installing without the playbook, from a generated manifest
+
+Three files under [manifests](manifests) hold the same software set the playbook would install, in
+the format each vendor's own tool understands. They exist for the case where you want the
+applications on a machine without running Ansible at all: a work laptop you do not control, a
+machine you are only borrowing, or a Windows box where you want the packages and none of the system
+settings.
+
+macOS, every formula and cask the playbook would install:
+
+```bash
+brew bundle install --file setup/manifests/Brewfile
+```
+
+Windows, the winget half, from an elevated shell:
+
+```powershell
+winget configure -f setup\manifests\configuration.winget --accept-configuration-agreements --disable-interactivity
+```
+
+Windows, the seven applications winget cannot serve, also elevated:
+
+```powershell
+choco install setup\manifests\packages.config -y --no-progress
+```
+
+They are generated, never edited by hand:
+
+```bash
+python3 setup/manifests/generate.py
+```
+
+```powershell
+python setup/manifests/generate.py
+```
+
+Change a toggle or a mapping and the gate fails until you regenerate, which is `e2e/tier1/manifests.sh`
+comparing the committed files against what the generator produces now. That check runs in the tier 1
+gate, so it is also the first job of every continuous integration sweep.
+
+What they cannot do, stated plainly, because a package list is not a configuration tool. No version
+is pinned, and the reasoning is at the top of the generator. Nothing that arrives through SDKMAN,
+Pyenv, NVM, FVM, the Android SDK or npm is there, which is every language runtime and every command
+line tool the `sdk_manager` and `ai_tools` roles install. Neither are the applications the playbook
+fetches directly from a vendor. And none of the system configuration is: no WSL, no Hyper-V, no
+shell setup, no environment variables, no groups, no services, no desktop environment.
+
+---
+
 ### Docs map
 
 ---
