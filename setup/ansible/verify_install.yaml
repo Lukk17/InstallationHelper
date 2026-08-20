@@ -476,14 +476,28 @@
         fail_msg: "FAIL native packages missing: {{ missing_native | join(', ') }}"
         quiet: true
 
-    # The second condition is family-dependent, and deliberately so. Arch installs nothing from a
-    # vendor URL, so an empty candidate list is the correct answer there, while on Debian, Ubuntu and
-    # Fedora it means the selection above broke and the check is reporting on nothing.
+    # The second condition asks about the manager list rather than about the candidate count, and
+    # that is a correction rather than a preference.
+    #
+    # It used to require a non-zero candidate count on Debian, Ubuntu and Fedora, on the reasoning
+    # that an empty list there meant the selection had broken. That is false for any run whose
+    # selection legitimately contains no URL-installed package, and such runs exist: the five
+    # apt_url mappings are minikube, teamviewer, veracrypt, appimagelauncher and balena_etcher, so a
+    # scenario that enables none of them examines nothing and was then failed for it. Found the first
+    # time a scenario other than defaults ran on Debian after this play was written, which was also
+    # the first Debian container run from a shell the old harness guard used to refuse.
+    #
+    # What the old condition was really guarding is still guarded, and more directly. The candidate
+    # count is a consequence of the selection, so asserting it non-zero tests the scenario rather
+    # than the code. The thing that can actually break is ih_url_managers, the per-family list of
+    # managers that install from a URL: empty or wrong there, and every URL-installed package
+    # silently drops out of this check while the count looks like an honest zero. An empty expected
+    # set is already caught by the native-package assertion above.
     - name: Assert every enabled URL-installed package resolved a download location
       ansible.builtin.assert:
         that:
           - (url_without_location | default([])) | length == 0
-          - url_candidates | length > 0 or ih_family not in ['Debian', 'RedHat']
+          - (ih_url_managers | default([])) | length > 0 or ih_family not in ['Debian', 'RedHat']
         success_msg: >-
           PASS URL-installed packages: all {{ url_candidates | length }} enabled ones have a download
           location
@@ -495,9 +509,11 @@
           {{ (url_without_location | default([])) | join(', ') | default('none', true) }}. A location
           comes from <key>_url in setup/pinned_values/pinned_values.toml, or <key>_rpm_url on Fedora, or an inline
           url: field on the mapping itself, and when it renders empty the playbook skips both the
-          download and the install without saying so. If instead the candidate count is zero on
-          {{ ih_family }}, nothing was examined at all and the fault is in the
-          manager selection or in the toggle resolution rather than in any one URL.
+          download and the install without saying so. A candidate count of zero is not itself a
+          failure, because a selection may legitimately contain no URL-installed package. What would
+          be a failure is an empty ih_url_managers on {{ ih_family }}, which is
+          the second condition here, because that would make every URL-installed package drop out of
+          this check while the zero looked honest.
         quiet: true
 
     - name: Assert every enabled flatpak application is installed

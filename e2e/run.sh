@@ -21,8 +21,12 @@
 # tier3/, and container.sh refuses a name that has none rather than quietly falling back
 # to arch, because testing the wrong distribution is worse than testing nothing.
 #
-# Tiers 2 and 3 need Docker and a Linux shell. On Windows run this from inside WSL,
-# which is also the only place the playbook itself runs.
+# Tiers 2 and 3 need a Docker daemon and a shell that can drive it. A Linux shell qualifies,
+# and so does Git Bash on Windows, where docker.exe reaches Docker Desktop directly and the
+# harness translates the host paths itself. WSL qualifies only when Docker Desktop has
+# integration enabled for that distribution, because without it there is no socket in there
+# at all. Ansible itself still only runs on Linux, so the playbook under test runs inside the
+# container either way.
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
@@ -86,7 +90,10 @@ E2E_MEM_PER_JOB_GB=5
 
 check_memory_headroom() {
     local jobs="$1" avail
-    avail="$(free -g 2>/dev/null | awk '/^Mem:/{print $7}')"
+    # `|| true` because there is no free(1) in Git Bash. Without it pipefail carries the 127 into
+    # the assignment and set -e ends the run, so a warning that exists only to be helpful would
+    # have killed every parallel tier 3 run started from that shell.
+    avail="$(free -g 2>/dev/null | awk '/^Mem:/{print $7}' || true)"
     [[ -z "${avail}" ]] && return 0
     local need=$(( jobs * E2E_MEM_PER_JOB_GB ))
     if [[ "${avail}" -lt "${need}" ]]; then
@@ -210,8 +217,8 @@ EOF
 
 case "${TIER}" in
     1)   run_tier1 ;;
-    2)   require_linux_docker; run_tier2 ;;
-    3)   require_linux_docker; run_tier3 ;;
-    all) rc=0; run_tier1 || rc=1; require_linux_docker; run_tier2 || rc=1; run_tier3 || rc=1; exit ${rc} ;;
+    2)   require_docker_host; run_tier2 ;;
+    3)   require_docker_host; run_tier3 ;;
+    all) rc=0; run_tier1 || rc=1; require_docker_host; run_tier2 || rc=1; run_tier3 || rc=1; exit ${rc} ;;
     *)   echo "ERROR: --tier must be 1, 2, 3 or all" >&2; exit 2 ;;
 esac

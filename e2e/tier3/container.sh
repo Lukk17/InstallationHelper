@@ -28,7 +28,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-require_linux_docker
+require_docker_host
 
 TIER3_DIR="${E2E_ROOT}/tier3"
 E2E_USER="lukk"
@@ -219,7 +219,10 @@ start_run() {
 
     # --- container ------------------------------------------------------------
     info "Building the ${OS} base image (cached after the first run)"
-    docker build -q -f "${DOCKERFILE}" -t "${IMAGE}" "${TIER3_DIR}" >/dev/null
+    # Both the Dockerfile and the build context name a location on this machine, so both go
+    # through host_path. The mounts and working directories further down do not, because those
+    # name locations inside the container.
+    docker build -q -f "$(host_path "${DOCKERFILE}")" -t "${IMAGE}" "$(host_path "${TIER3_DIR}")" >/dev/null
 
     info "Starting the container with systemd as PID 1"
     docker run -d --name "${CONTAINER}" \
@@ -298,7 +301,7 @@ start_run() {
     for attempt in 1 2 3; do
         copy_failed=""
         echo "=== attempt ${attempt} of 3: docker cp of setup/ ===" >>"${RUN_DIR}/copy.log"
-        docker cp "${REPO_ROOT}/setup" "${CONTAINER}:/work-setup" >/dev/null 2>>"${RUN_DIR}/copy.log" && break
+        docker cp "$(host_path "${REPO_ROOT}/setup")" "${CONTAINER}:/work-setup" >/dev/null 2>>"${RUN_DIR}/copy.log" && break
         copy_failed="docker cp of setup/"
         warn "copying setup/ failed on attempt ${attempt} of 3, retrying"
         docker exec "${CONTAINER}" rm -rf /work-setup &>/dev/null || true
@@ -309,10 +312,10 @@ start_run() {
             >>"${RUN_DIR}/copy.log" 2>&1 || copy_failed="moving setup/ into place"
     fi
     if [[ -z "${copy_failed}" ]]; then
-        docker cp "${EFFECTIVE_VARS}" "${CONTAINER}:/work/effective-vars.yaml" >/dev/null 2>>"${RUN_DIR}/copy.log" || copy_failed="docker cp of effective-vars.yaml"
+        docker cp "$(host_path "${EFFECTIVE_VARS}")" "${CONTAINER}:/work/effective-vars.yaml" >/dev/null 2>>"${RUN_DIR}/copy.log" || copy_failed="docker cp of effective-vars.yaml"
     fi
     if [[ -z "${copy_failed}" ]]; then
-        docker cp "${TIER3_DIR}/verify.yaml" "${CONTAINER}:/work/verify.yaml" >/dev/null 2>>"${RUN_DIR}/copy.log" || copy_failed="docker cp of verify.yaml"
+        docker cp "$(host_path "${TIER3_DIR}/verify.yaml")" "${CONTAINER}:/work/verify.yaml" >/dev/null 2>>"${RUN_DIR}/copy.log" || copy_failed="docker cp of verify.yaml"
     fi
     if [[ -z "${copy_failed}" ]]; then
         docker exec "${CONTAINER}" chown "${E2E_USER}:${E2E_USER}" /work/effective-vars.yaml /work/verify.yaml \
@@ -404,7 +407,7 @@ collect_and_verify() {
     VERIFY_LOG="${RUN_DIR}/verify.log"
     RESULT_FILE="${RUN_DIR}/result.txt"
 
-    docker cp "${CONTAINER}:/work/playbook.log" "${PLAYBOOK_LOG}" &>/dev/null || echo "(no playbook log)" > "${PLAYBOOK_LOG}"
+    docker cp "${CONTAINER}:/work/playbook.log" "$(host_path "${PLAYBOOK_LOG}")" &>/dev/null || echo "(no playbook log)" > "${PLAYBOOK_LOG}"
     PLAYBOOK_RC="$(docker exec "${CONTAINER}" cat /work/playbook.rc 2>/dev/null || echo "timeout-or-killed")"
     info "Playbook exit code: ${PLAYBOOK_RC}"
 

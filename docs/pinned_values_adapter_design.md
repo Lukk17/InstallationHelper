@@ -479,7 +479,7 @@ bash e2e/run.sh
 
 - [ ] 14.1 Run the smoke scenario on Arch, Debian, Ubuntu and Fedora, two at a time.
 
-Not run, and still owed. Docker Desktop's WSL integration is off for the Ubuntu distro, so there is no Docker socket inside it and `require_linux_docker` refuses rather than pretending. Enable Ubuntu under Docker Desktop, Settings, Resources, WSL integration, and this becomes one command per distribution.
+Not run, and still owed. It was blocked when this was written, because Docker Desktop's WSL integration was off for the Ubuntu distro and the harness would only run the container tiers from a Linux shell. Neither half of that holds now: the guard is `require_docker_host`, which asks whether a daemon answers rather than what the operating system is, so the command below runs from Git Bash, and as measured on 2026-08-20 the Ubuntu distribution has a socket again and runs it too.
 
 Files: none.
 

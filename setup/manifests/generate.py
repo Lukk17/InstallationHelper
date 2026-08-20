@@ -225,11 +225,18 @@ def main(argv: list[str]) -> int:
         path = HERE / name
         rendered = render()
         if args.check:
-            current = path.read_text(encoding="utf-8", newline="") if path.exists() else None
-            if current != rendered:
+            # Bytes rather than text, on purpose. Path.read_text and Path.write_text only accept
+            # a newline argument from Python 3.13, and this has to run wherever the shell
+            # adapter's interpreter search lands, which is 3.11 upward. Measured: Git Bash here
+            # has 3.13.15 and WSL has 3.12.3, so the text form worked in one shell and crashed
+            # in the other. Bytes also keep the comparison honest, since the text form would
+            # translate line endings on the way in and out and a file written on Windows would
+            # then compare unequal to the same file read on Linux.
+            current = path.read_bytes() if path.exists() else None
+            if current != rendered.encode("utf-8"):
                 stale.append(name)
         else:
-            path.write_text(rendered, encoding="utf-8", newline="\n")
+            path.write_bytes(rendered.encode("utf-8"))
             print(f"wrote {path.relative_to(REPO)} ({len(rendered.splitlines())} lines)")
 
     if args.check:

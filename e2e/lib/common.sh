@@ -12,6 +12,50 @@ REPO_ROOT="$(cd "${E2E_REPO_ROOT:-${E2E_ROOT}/..}" && pwd)"
 ANSIBLE_DIR="${REPO_ROOT}/setup/ansible"
 RUNS_DIR="${E2E_ROOT}/runs"
 
+# Which kind of shell this is, decided once. It is not a stand-in for the operating system: it
+# answers the only question the harness cares about, which is how a host path has to be spelled
+# before a Docker daemon will accept it. A Linux shell and Git Bash can both drive the daemon on
+# this machine, they just spell that path differently.
+E2E_HOST_KIND="other"
+case "$(uname -s)" in
+    Linux*)               E2E_HOST_KIND="linux" ;;
+    MINGW*|MSYS*|CYGWIN*) E2E_HOST_KIND="windows-msys" ;;
+esac
+
+# Under MSYS every argument that looks like an absolute POSIX path is rewritten before a native
+# Windows executable sees it, and for docker that is fatal in both directions. A container path is
+# destroyed: `-v /sys/fs/cgroup:/sys/fs/cgroup:rw` becomes `mkdir C:\Program Files\Git\sys: Access
+# is denied` and `-w /work/setup/ansible` becomes `Cwd must be an absolute path`. A host path is
+# destroyed differently and worse, because `-v /tmp/x:/probe` mounts a directory that is not the one
+# meant and reports no error at all.
+#
+# So the rewriting is turned off for every docker call the harness makes, and the host paths are
+# spelled out explicitly through host_path below. One wrapper rather than the same environment
+# variable repeated at forty callsites, because the callsite that gets forgotten is the one that
+# fails silently, and because it makes the commands in the documentation work unchanged from either
+# shell instead of needing a prefix only the reader can add.
+#
+# Defined only when a real docker executable is on PATH, so require_docker_host still notices its
+# absence rather than finding this function and calling it proof.
+if [[ "${E2E_HOST_KIND}" == "windows-msys" ]] && E2E_DOCKER_BIN="$(command -v docker 2>/dev/null)"; then
+    docker() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "${E2E_DOCKER_BIN}" "$@"; }
+fi
+
+# host_path <path>  ->  the same location, spelled the way the Docker daemon accepts it
+#
+# On Linux the daemon and the shell agree, so this is the identity. Under MSYS the daemon is a
+# Windows process that only understands the Windows form: `docker cp /d/repo/setup` answers
+# `GetFileAttributesEx D:\d: The system cannot find the file specified`. Every docker argument that
+# names a location on this machine goes through here, and every argument that names a location
+# inside a container must not.
+host_path() {
+    if [[ "${E2E_HOST_KIND}" == "windows-msys" ]]; then
+        cygpath -w "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
     C_BLUE=$'\033[34m'; C_DIM=$'\033[2m'; C_OFF=$'\033[0m'
@@ -108,22 +152,56 @@ require_cmd() {
     done
 }
 
-# The harness drives Linux containers, so it needs a Linux shell with Docker. On
-# Windows that means running it from inside WSL, which is also the only place the
-# playbook itself runs. Fail with that instruction rather than a confusing
-# docker error twenty lines later.
-require_linux_docker() {
-    if [[ "$(uname -s)" != Linux* ]]; then
-        cat >&2 <<'EOF'
-ERROR: this harness must run from a Linux shell with a Docker socket.
-On Windows, run it from inside WSL:
-  wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh --tier 1"
+# The container tiers need two things, and neither of them is an operating system: a Docker daemon
+# that answers, and a shell that can spell a host path the way that daemon expects. This asks those
+# two questions directly.
+#
+# It used to ask `uname -s` instead and refuse anything that was not Linux, which meant Git Bash was
+# turned away with a message telling the reader to use WSL, whether or not WSL could reach a daemon.
+# Git Bash reaches it through docker.exe and drives it fine once the MSYS path rewriting is dealt
+# with, which this file now does. Whether WSL can reach one depends on Docker Desktop having
+# integration enabled for that distribution: measured on 2026-08-20 the Ubuntu distribution has a
+# socket and answers, and it has been off before, in which case there is no socket in there at all.
+# Neither of those is a fact about the operating system, which is why the operating system is no
+# longer what decides. A guard that refuses a working setup is as much a defect as one that admits a
+# broken one, so the refusal that is left names the thing that is actually missing.
+require_docker_host() {
+    if [[ "${E2E_HOST_KIND}" == "other" ]]; then
+        cat >&2 <<EOF
+ERROR: the container tiers need a shell that can drive a Docker daemon, and this one cannot.
+It reports itself as $(uname -s), which is neither a Linux shell nor an MSYS shell such as Git Bash,
+so there is no known way to hand the daemon a host path it will accept. Run the container tiers from
+a Linux shell, from WSL, or from Git Bash on Windows.
 EOF
         exit 2
     fi
-    require_cmd docker
+
+    # cygpath is what host_path translates with, so on MSYS its absence is as disqualifying as
+    # docker's own. Named here rather than discovered as a "command not found" inside a docker
+    # argument, where it would read as a Docker problem.
+    [[ "${E2E_HOST_KIND}" == "windows-msys" ]] && require_cmd cygpath
+
+    # command -v would find the wrapper function common.sh defines on MSYS whether or not a real
+    # docker exists, so the executable is looked for through E2E_DOCKER_BIN instead, which is set
+    # only when that lookup already succeeded.
+    if [[ "${E2E_HOST_KIND}" == "windows-msys" ]]; then
+        [[ -n "${E2E_DOCKER_BIN:-}" ]] || {
+            echo "ERROR: required command not found: docker" >&2
+            exit 2
+        }
+    else
+        require_cmd docker
+    fi
+
     docker info &>/dev/null || {
-        echo "ERROR: cannot talk to the Docker daemon. Is Docker Desktop running with WSL integration enabled?" >&2
+        cat >&2 <<'EOF'
+ERROR: there is a docker command here but no daemon answering it.
+  Linux:    is the docker service running, and is this user in the docker group?
+  WSL:      Docker Desktop must have integration enabled for this distribution, under
+            Settings, Resources, WSL integration. With it off there is no socket inside
+            WSL at all, and Git Bash is the shell to use instead.
+  Git Bash: is Docker Desktop running?
+EOF
         exit 2
     }
 }

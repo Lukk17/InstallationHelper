@@ -86,7 +86,12 @@ fi
 echo PROBE_COMPLETE
 PROBE
 
-    out="$(docker run --rm -v "${work}:/probe" "${image}" sh /probe/probe.sh 2>/dev/null | tr -d '\r' || true)"
+    # The mount's left half is a host directory and goes through host_path, the right half and the
+    # script argument name locations inside the container and must not. Under MSYS the untranslated
+    # form is the dangerous one: the daemon accepts `/tmp/tmp.XXXX` as a relative name, creates an
+    # empty directory of its own and mounts that, so every name reads as missing and the check
+    # reports a hundred packages that do not exist.
+    out="$(docker run --rm -v "$(host_path "${work}"):/probe" "${image}" sh /probe/probe.sh 2>/dev/null | tr -d '\r' || true)"
     rm -rf "${work}"
 
     grep -qx 'PROBE_COMPLETE' <<<"${out}" || return 1
