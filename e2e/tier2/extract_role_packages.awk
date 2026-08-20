@@ -27,6 +27,18 @@ function flush_task() {
         } else if (index(whentext, "Debian") > 0) {
             applies = "debian"
         }
+    } else if (index(whentext, "ih_base") > 0) {
+        # The derived facts replaced Ansible's own distribution fact across this repository, because
+        # os_family answers with the distribution's own name on any derivative its table has never
+        # heard of. This branch was missing afterwards, so a task gated `ih_base == 'ubuntu'` kept the
+        # default label of debian,ubuntu and Debian was then checked for four Ubuntu language packs
+        # that never apply to it. Four false failures, which is worse than none: a check that cries
+        # wolf gets ignored, and this one guards names that really do disappear.
+        if (index(whentext, "!=") > 0 && index(whentext, "ubuntu") > 0) {
+            applies = "debian"
+        } else if (index(whentext, "ubuntu") > 0) {
+            applies = "ubuntu"
+        }
     }
 
     for (i = 1; i <= npkgs; i++) {

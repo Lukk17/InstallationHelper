@@ -1,6 +1,6 @@
 # package-name-resolution: e2e test
 
-Tier 2 of the harness. About a minute, no container, nothing installed, but it does talk to six real package indexes.
+Tier 2 of the harness. A few minutes, nothing installed anywhere, but it talks to every real package index this repository depends on and starts three throwaway containers to reach the two that need a package index of their own.
 
 Section headings sit at level two because the `e2e-runbooks` test-spec template fixes the seven section names at that level, which overrides this repository's level-three heading rule.
 
@@ -33,7 +33,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary rather than an error. Tier 2 starts no container and installs nothing, but the harness entry point gates tiers 2 and 3 behind the same Docker check, so an unreachable daemon stops tier 2 before the first request goes out. On Windows that means Docker Desktop running with WSL integration enabled.
+Expect a daemon summary rather than an error. Tier 2 needs it for real now: apt and dnf cannot be asked whether a package exists without a package index, so those names are resolved inside the same pinned base images the tier 3 scenarios use, read out of the Dockerfiles so the check and the scenarios cannot drift. The containers are asked and thrown away and nothing is installed in them. On Windows that means Docker Desktop running with WSL integration enabled for the distribution you run the harness from.
 
 Confirm curl is installed.
 
@@ -51,7 +51,7 @@ gh auth status
 
 Expect a logged-in account. There are more winget packages in the dictionary than GitHub's hourly limit for anonymous requests, so without authentication the entire winget check is skipped with a warning that says exactly that, and the run passes while covering less than it claims. Run `gh auth login` first if you want that coverage.
 
-Confirm outbound network access to the six indexes. A blocked or captive network turns every name into a missing name.
+Confirm outbound network access to the indexes and to the container registry. A blocked or captive network turns every name into a missing name, and a registry it cannot reach turns the apt and dnf halves into a skip that says so.
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' --max-time 20 https://archlinux.org/packages/search/json/?name=bash
@@ -63,7 +63,7 @@ Expect `200`.
 
 ## Reset state
 
-None. This test writes no persisted state, starts no container, and installs nothing. It performs read-only requests against six third-party indexes.
+None. This test writes no persisted state and installs nothing. It performs read-only requests against third-party indexes, and starts three throwaway containers, one per apt or dnf family, each removed as soon as it has answered.
 
 ---
 
@@ -95,9 +95,11 @@ The winget line reports how many entries were skipped as Microsoft Store product
 
 A transient empty body from `archlinux.org` is retried up to three times with a growing pause before a name is called missing. That retry is load-bearing: without it the check once reported eleven perfectly real packages as missing, all at the alphabetical tail where the throttle kicked in.
 
-Two stated gaps that a pass does not close. apt and dnf names are deliberately not resolved here, and the run prints a warning saying so on every invocation, because most of those names come from repositories the playbook adds while it runs and resolving them without those repositories in place would fail packages that are fine. Capabilities 30 through 80 cover them by actually installing them, and only for Arch today. Second, this capability proves a name exists upstream, not that the toggle behind it is wired up, which is capability 10's job, and not that the package installs and functions, which is capability 30 and above.
+apt and dnf used to be the stated gap here, and they are not any more. Both are resolved inside a pinned base image, Debian and Ubuntu separately because their answers differ, and the names that only exist once the playbook adds a vendor repository are forgiven by name and reason in [../tier2/runtime_repo_packages.txt](../tier2/runtime_repo_packages.txt), which is itself checked for entries that have gone stale in either direction.
 
-Container limitations do not apply to this capability. No container starts, so nothing in [../tier3/container_limits.yaml](../tier3/container_limits.yaml) is suppressed, and neither documented container consequence, the kernel modules that cannot build and the missing login session, is in play here.
+What a pass still does not close. This capability proves a name exists upstream, not that the toggle behind it is wired up, which is capability 10's job, and not that the package installs and functions, which is capability 30 and above. A templated name, one built from a variable at run time, is counted and warned about rather than resolved, because resolving it would mean rendering the playbook.
+
+Container limitations do not apply to this capability, even though containers now start. Nothing is installed in them and no service runs, so nothing in [../tier3/container_limits.yaml](../tier3/container_limits.yaml) is suppressed, and neither documented container consequence, the kernel modules that cannot build and the missing login session, is in play when the only question asked is whether a package name exists in an index.
 
 ---
 

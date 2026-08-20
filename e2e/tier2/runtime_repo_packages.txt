@@ -26,3 +26,63 @@ ubuntu  dart                      Dart apt repo, added by sdk_manager/tasks/dart
 # toggle defaults false.
 debian  waydroid                  Waydroid repo, added by the waydroid role
 ubuntu  waydroid                  Waydroid repo, added by the waydroid role
+
+# --- Names from the vars/<OS>.yaml dictionaries ------------------------------------------------
+# Everything above is a name written straight into a role task. The lines below are dictionary
+# entries, resolved by resolve_packages.sh inside the same pinned images. The rule does not change:
+# the repository has to be one the playbook really adds, and the file that adds it is named.
+#
+# Only the names that actually failed to resolve are listed. Debian trixie carries kubectl in its
+# own repositories and Ubuntu 26.04 does not, so kubectl is forgiven for ubuntu alone. Fedora 44
+# carries helm, syncthing and tailscale, so those get no line even though the playbook adds
+# repositories for them, and gh, git, syncthing and openrazer-meta all resolve on Debian and Ubuntu.
+
+# Google Chrome, from dl.google.com.
+debian  google-chrome-stable      Google Chrome repo, added by debian_repos.yaml
+ubuntu  google-chrome-stable      Google Chrome repo, added by debian_repos.yaml
+fedora  google-chrome-stable      Google Chrome repo, added by fedora_repos.yaml
+
+# Brave, from the brave-browser apt and rpm buckets.
+debian  brave-browser             Brave repo, added by debian_repos.yaml
+ubuntu  brave-browser             Brave repo, added by debian_repos.yaml
+fedora  brave-browser             Brave repo, added by fedora_repos.yaml
+
+# Visual Studio Code, from packages.microsoft.com.
+debian  code                      VS Code repo, added by debian_repos.yaml
+ubuntu  code                      VS Code repo, added by debian_repos.yaml
+fedora  code                      VS Code repo, added by fedora_repos.yaml
+
+# Sublime Text, from download.sublimetext.com.
+debian  sublime-text              Sublime Text repo, added by debian_repos.yaml
+ubuntu  sublime-text              Sublime Text repo, added by debian_repos.yaml
+fedora  sublime-text              Sublime Text repo, added by fedora_repos.yaml
+
+# Terraform, from the HashiCorp repositories.
+debian  terraform                 HashiCorp repo, added by debian_repos.yaml
+ubuntu  terraform                 HashiCorp repo, added by debian_repos.yaml
+fedora  terraform                 HashiCorp repo, added by fedora_repos.yaml
+
+# Lens Desktop, from downloads.k8slens.dev.
+debian  lens                      Lens repo, added by debian_repos.yaml
+ubuntu  lens                      Lens repo, added by debian_repos.yaml
+fedora  lens                      Lens repo, added by fedora_repos.yaml
+
+# Kubernetes, from pkgs.k8s.io. Debian trixie has its own kubectl, Ubuntu 26.04 has none.
+ubuntu  kubectl                   Kubernetes repo, added by debian_repos.yaml
+fedora  kubectl                   Kubernetes repo, added by fedora_repos.yaml
+
+# Helm, from packages.buildkite.com. Fedora packages helm itself, so no fedora line.
+debian  helm                      Helm repo, added by debian_repos.yaml
+ubuntu  helm                      Helm repo, added by debian_repos.yaml
+
+# Tailscale, from pkgs.tailscale.com. Fedora packages tailscale itself, so no fedora line.
+debian  tailscale                 Tailscale repo, added by debian_repos.yaml
+ubuntu  tailscale                 Tailscale repo, added by debian_repos.yaml
+
+# Claude Desktop, from downloads.claude.ai. Debian based only, the vendor does not ship RPMs.
+debian  claude-desktop            Claude Desktop repo, added by debian_repos.yaml
+ubuntu  claude-desktop            Claude Desktop repo, added by debian_repos.yaml
+
+# OpenRazer, from the openSUSE Build Service hardware:razer repo. Debian and Ubuntu package
+# openrazer-meta themselves, so only Fedora needs the line.
+fedora  openrazer-meta            OpenRazer repo, added by fedora_repos.yaml

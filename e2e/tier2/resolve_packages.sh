@@ -2,31 +2,31 @@
 #
 # Tier 2: every package name the playbook would install must actually exist.
 #
-# Nothing is installed and no container is started. Each name is resolved against the
-# real index for its package manager, which catches renames, drops and typos in about
-# a minute. Package names drift constantly: hardinfo became hardinfo2 on both Arch and
-# Fedora, arduino left the Arch repositories, and Broadcom pulled VMware's installer.
-# See docs/regression_ledger.md.
+# Nothing is installed. Each name is resolved against the real index for its package
+# manager, which catches renames, drops and typos in a few minutes. Package names drift
+# constantly: hardinfo became hardinfo2 on both Arch and Fedora, arduino left the Arch
+# repositories, and Broadcom pulled VMware's installer. See docs/regression_ledger.md.
 #
-# apt and dnf are deliberately NOT resolved here. Most of their names come from
-# repositories the playbook itself adds at run time, so resolving them without those
-# repositories would report false failures for packages that are perfectly fine. They
-# are covered by the real tier 3 runs instead. That is a stated gap, not an oversight.
+# apt and dnf are the two that cannot be resolved over HTTP, because the answer depends
+# on a package index that only exists on a machine of that distribution. They used to be
+# left out entirely, on the grounds that most of their names come from repositories the
+# playbook adds at run time and checking them would report false failures. That reasoning
+# left the 35 apt names and the 35 dnf names covered by nothing at all, on the two
+# families most people run. They are now resolved inside the same pinned base images the
+# tier 3 scenarios use, and the handful that genuinely need a repository the playbook adds
+# are forgiven by name and reason in runtime_repo_packages.txt.
+#
+# apt_url and dnf_url entries are not package names at all, they are vendor downloads.
+# tier1/toggle_coverage.sh and tier2/resolve_pinned_urls.sh cover those.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/package_probe.sh"
 
 require_cmd curl
 
 VARS_DIR="${ANSIBLE_DIR}/vars"
 
 info "Tier 2: package name resolution"
-warn "apt and dnf names are not checked here, their repositories are added at run time. Tier 3 covers them."
-
-# packages_for <vars-file> <manager>  ->  one package name per line
-packages_for() {
-    grep -E "^  [a-z0-9_]+: \{ *manager: \"$2\"" "$1" \
-        | sed -E 's/.*package: "([^"]+)".*/\1/' | sort -u || true
-}
 
 http_ok() { [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$1")" =~ ^(200|301|302)$ ]]; }
 
@@ -53,7 +53,7 @@ check_pacman() {
             sleep $((attempt * 2))
         done
         [[ "${found}" == false ]] && missing+=("${pkg}")
-    done < <(packages_for "${VARS_DIR}/Archlinux.yaml" pacman)
+    done < <(package_names_for "${VARS_DIR}/Archlinux.yaml" pacman)
     if [[ ${#missing[@]} -eq 0 ]]; then
         pass "Arch official repositories: all ${n} package names resolve"
     else
@@ -66,7 +66,7 @@ check_pacman() {
 # only the names it found, so the difference is the missing set.
 check_aur() {
     local pkgs=() query=""
-    mapfile -t pkgs < <(packages_for "${VARS_DIR}/Archlinux.yaml" aur)
+    mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Archlinux.yaml" aur)
     [[ ${#pkgs[@]} -eq 0 ]] && { pass "AUR: nothing mapped"; return; }
     for p in "${pkgs[@]}"; do query+="&arg[]=${p}"; done
     local found
@@ -87,9 +87,9 @@ check_aur() {
 check_flatpak() {
     local ids=() missing=()
     mapfile -t ids < <(
-        { packages_for "${VARS_DIR}/Archlinux.yaml" flatpak
-          packages_for "${VARS_DIR}/Debian.yaml" flatpak
-          packages_for "${VARS_DIR}/RedHat.yaml" flatpak; } | sort -u
+        { package_names_for "${VARS_DIR}/Archlinux.yaml" flatpak
+          package_names_for "${VARS_DIR}/Debian.yaml" flatpak
+          package_names_for "${VARS_DIR}/RedHat.yaml" flatpak; } | sort -u
     )
     for id in "${ids[@]}"; do
         [[ -z "${id}" ]] && continue
@@ -105,7 +105,7 @@ check_flatpak() {
 # --- Homebrew ----------------------------------------------------------------
 check_brew() {
     local kind="$1" api="$2" pkgs=() missing=()
-    mapfile -t pkgs < <(packages_for "${VARS_DIR}/Darwin.yaml" "${kind}")
+    mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Darwin.yaml" "${kind}")
     [[ ${#pkgs[@]} -eq 0 ]] && { pass "Homebrew ${kind}: nothing mapped"; return; }
     for p in "${pkgs[@]}"; do
         # A tap-qualified name (owner/tap/formula) is not in the core index, so
@@ -135,7 +135,7 @@ check_brew() {
 # --- Chocolatey --------------------------------------------------------------
 check_choco() {
     local pkgs=() missing=()
-    mapfile -t pkgs < <(packages_for "${VARS_DIR}/Windows.yaml" choco)
+    mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Windows.yaml" choco)
     [[ ${#pkgs[@]} -eq 0 ]] && { pass "Chocolatey: nothing mapped"; return; }
     for p in "${pkgs[@]}"; do
         http_ok "https://community.chocolatey.org/packages/${p}" || missing+=("${p}")
@@ -165,7 +165,7 @@ check_choco() {
 # manifest can exist while the id fails to resolve on a machine whose sources are stale.
 check_winget() {
     local pkgs=() missing=() skipped=0
-    mapfile -t pkgs < <(packages_for "${VARS_DIR}/Windows.yaml" winget)
+    mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Windows.yaml" winget)
     [[ ${#pkgs[@]} -eq 0 ]] && { pass "winget: nothing mapped"; return; }
 
     # Probed by running it, not by existing on PATH. On Windows the first hit is often the Store
@@ -210,6 +210,33 @@ check_winget() {
     fi
 }
 
+# --- apt and dnf, inside the pinned base image -------------------------------
+# The image comes out of e2e/tier3/<distro>.Dockerfile, so this check and the scenarios
+# always talk about the same distribution release. Nothing is installed: apt-cache policy
+# and dnf info both answer from the index alone.
+#
+# Debian and Ubuntu are both asked about the apt half of vars/Debian.yaml, because both
+# families read that one dictionary and their package sets are not the same. Ubuntu 26.04
+# has no kubectl of its own while Debian trixie does, and only asking one of them would
+# have missed that.
+check_dictionary() {
+    local distro="$1" manager="$2" file="$3"
+    probe_names "${distro}" "$(probe_image_for "${distro}")" \
+        "${distro} dictionary package names" \
+        "${manager} names in vars/${file}" \
+        "$(package_names_for "${VARS_DIR}/${file}" "${manager}")"
+}
+
+check_apt_and_dnf() {
+    if ! docker info &>/dev/null; then
+        skip "apt and dnf dictionary package names" "no reachable Docker daemon, so the package indexes cannot be queried"
+        return
+    fi
+    check_dictionary debian apt Debian.yaml
+    check_dictionary ubuntu apt Debian.yaml
+    check_dictionary fedora dnf RedHat.yaml
+}
+
 check_pacman
 check_aur
 check_flatpak
@@ -217,5 +244,7 @@ check_brew brew formula
 check_brew brew_cask cask
 check_choco
 check_winget
+check_apt_and_dnf
+probe_report_forgiveness "no dictionary forgiveness in runtime_repo_packages.txt has become unnecessary"
 
 finish "package name resolution"
