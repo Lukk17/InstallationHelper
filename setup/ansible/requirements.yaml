@@ -2,8 +2,14 @@
 # Collection version ranges. Bounded ranges (not exact pins) so that
 # ansible-galaxy resolves to a version that actually exists on Galaxy
 # given the user's installed ansible-core. Bump the upper bound only
-# after verifying compatibility against the supported ansible-core
-# branches (2.19.x, 2.20.x).
+# after verifying compatibility against every supported ansible-core
+# branch, which today means 2.19.x, 2.20.x and 2.21.x.
+#
+# ansible-core itself is not pinned from this file and cannot be, because
+# ansible-galaxy resolves collections and nothing else. The supported range is
+# enforced where ansible-core actually arrives: setup/setup.sh refuses a control
+# node outside ANSIBLE_CORE_MIN_VERSION to ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE,
+# and each Linux e2e/tier3 Dockerfile asserts the same two bounds at build time.
 collections:
   - name: community.general
     version: ">=9.0.0,<12.0.0"
@@ -17,5 +23,3 @@ collections:
     version: ">=3.10.0,<5.0.0"
   - name: kewlfft.aur
     version: ">=0.11.1,<2.0.0"
-  - name: chocolatey.chocolatey
-    version: ">=1.5.0,<2.0.0"

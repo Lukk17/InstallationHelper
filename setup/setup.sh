@@ -324,6 +324,88 @@ detect_os() {
 # Dependency bootstrap — Ansible, collections, gum
 # ---------------------------------------------------------------------------
 
+# The ansible-core versions this repository is written against, as a half-open range: the minimum is
+# accepted and the maximum is not. Checked rather than installed, because not one of the four package
+# managers below can be told which version to fetch. Each distribution publishes exactly one, and they
+# do not agree. Measured from the e2e images on 2026-08-20: Debian trixie carries 2.19.4, Ubuntu 26.04
+# carries 2.20.1, Fedora 44 carries 2.20.7 and the two Arch-family images carry 2.21.2 and 2.21.3. An
+# exact pin would therefore be a pin only on paper, so the range is the honest form of it, and this is
+# the one place that states it for a real machine.
+#
+# The floor is 2.19.0 because that is the floor this project has always declared: the collection
+# ranges in setup/ansible/requirements.yaml are resolved against it, docs/pinned_values_adapter_design.md
+# is written against 2.19 and later, and the oldest supported distribution, Debian trixie, already
+# carries 2.19.4, so nothing supported sits below it.
+#
+# The ceiling is 2.22.0 because 2.21 is the newest branch anything here has actually run. Arch and
+# CachyOS ship it today, so refusing it would refuse two of the five supported distributions outright.
+# 2.22 does not exist yet, and a branch nobody has run is not a branch this repository can claim.
+#
+# Note what the range deliberately does NOT promise. Every release inside it carries the ansiballz
+# result-deserialization race documented in AGENTS.md, because the upstream fix, pull request 86739
+# against ansible/ansible, is still unmerged. There is no version to move to that escapes it, so the
+# mitigations in this repository stay whatever version this check accepts.
+ANSIBLE_CORE_MIN_VERSION="2.19.0"
+ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE="2.22.0"
+
+# version_lt <a> <b>  true when dotted-numeric a is strictly older than b.
+#
+# Compared field by field as integers rather than handed to `sort -V`, which the sort that ships with
+# macOS does not have, and which would in any case sort 2.9.0 above 2.19.0 the moment it fell back to
+# a plain sort. Each field is cut at its first non-digit so a pre-release such as 2.20.0rc1 compares
+# as 2.20.0 instead of aborting the arithmetic under `set -e`.
+version_lt() {
+    local i left right
+    local -a left_fields right_fields
+    IFS=. read -r -a left_fields <<<"$1"
+    IFS=. read -r -a right_fields <<<"$2"
+    for ((i = 0; i < 3; i++)); do
+        left="${left_fields[i]:-0}";  left="${left%%[!0-9]*}"
+        right="${right_fields[i]:-0}"; right="${right%%[!0-9]*}"
+        (( 10#${left:-0} < 10#${right:-0} )) && return 0
+        (( 10#${left:-0} > 10#${right:-0} )) && return 1
+    done
+    return 1
+}
+
+# The core version behind ansible-playbook, as x.y.z, or nothing when it cannot be read.
+#
+# The first line is `ansible-playbook [core 2.19.9]`, and the number after the word core is the one
+# that matters here: the `ansible` community package has a version of its own, 14.3.1 today, which
+# says nothing about which core is underneath it.
+ansible_core_version() {
+    ansible-playbook --version 2>/dev/null | sed -n '1s/.*core \([0-9][0-9.]*\).*/\1/p'
+}
+
+# Refuses a control node outside the range above, rather than letting the run discover it somewhere
+# in the middle of the playbook. Both paths through ensure_ansible reach this: the one that installed
+# Ansible just now and the one that found it already there, which is the path that actually matters,
+# because that is where an unrelated system upgrade quietly moves the version under the project.
+ensure_ansible_version() {
+    local version
+    version="$(ansible_core_version)"
+    if [[ -z "${version}" ]]; then
+        echo "ERROR: cannot read the ansible-core version from 'ansible-playbook --version'." >&2
+        echo "       Ansible is on PATH but not answering, so the run stops here rather than guessing." >&2
+        exit 1
+    fi
+    if version_lt "${version}" "${ANSIBLE_CORE_MIN_VERSION}"; then
+        echo "ERROR: ansible-core ${version} is older than ${ANSIBLE_CORE_MIN_VERSION}, which this playbook needs." >&2
+        echo "       On Debian or Ubuntu add the Ansible PPA (ppa:ansible/ansible) and upgrade, on macOS run" >&2
+        echo "       'brew upgrade ansible', or install a supported version with pipx or pip." >&2
+        exit 1
+    fi
+    if ! version_lt "${version}" "${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}"; then
+        echo "ERROR: ansible-core ${version} is newer than anything this repository has run." >&2
+        echo "       The tested range is ${ANSIBLE_CORE_MIN_VERSION} up to but not including ${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}." >&2
+        echo "       Run the e2e suite against the new branch first, then widen" >&2
+        echo "       ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE in setup/setup.sh and the same value in the" >&2
+        echo "       e2e/tier3 Dockerfiles. Do not skip the check, it is the only thing that notices." >&2
+        exit 1
+    fi
+    say "Ansible: core ${version}, inside the tested ${ANSIBLE_CORE_MIN_VERSION} to ${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE} range"
+}
+
 ensure_ansible() {
     if command -v ansible-playbook &>/dev/null; then
         say "Ansible: already installed ($(ansible-playbook --version 2>/dev/null | head -1))"
@@ -1188,6 +1270,7 @@ fi
 # jsonfile fact cache fails on first run if its dir doesn't exist.
 mkdir -p "${HOME}/.ansible/tmp" "${HOME}/.ansible/facts-cache"
 ensure_ansible
+ensure_ansible_version
 
 # Verification on its own, for a virtual machine or for a machine whose install finished long ago.
 # It sits above system_upgrade deliberately: this path is not allowed to change the machine, and an

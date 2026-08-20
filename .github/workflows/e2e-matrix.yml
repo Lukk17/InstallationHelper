@@ -1,24 +1,58 @@
-# Full end-to-end matrix sweep: every tier-3 scenario against every Linux distribution.
+# Full end-to-end pipeline: three gated stages, cheapest first, the Linux container sweep in the
+# middle because that is where the playbook does the most and where a real defect is most likely.
 #
 # Trigger: workflow_dispatch only, on purpose. Same rule as e2e-manual.yml and the same reason:
 # no workflow in this repository may start on push, pull_request, schedule or any other automatic
 # event. Every run here is a deliberate action by whoever clicks "Run workflow", and this one is
 # the expensive one, so an accidental automatic trigger would be the worst place for it.
 #
-# Why this workflow exists, separate from e2e-manual.yml: e2e-manual.yml drives one platform at a
-# time from a rich dispatch form (desktop environment, software mode, individual toggles). This
-# workflow instead runs the seven fixed scenarios under e2e/tier3/scenarios/ against all five
-# Linux distributions the harness supports, which is the exhaustive sweep e2e/README_E2E.md's
-# own scenario table describes but that nobody can practically run end to end on one machine (35
-# jobs, several hours apiece for the heaviest ones). Public repositories get free standard
-# GitHub-hosted runners for exactly this, so the sweep moved here and the local Docker runs (see
-# e2e/README_E2E.md, "CI matrix sweep vs local runs") shrank back to one scenario on one platform
-# or distribution at a time, which is what a person actually needs while developing a change.
+# ---------------------------------------------------------------------------------------------
+# The three stages, exactly as e2e/README_E2E.md's "The exact order every pipeline runs in"
+# section specifies. Nothing in a later stage starts until every job in the stage before it has
+# passed. A stage that is bypassed with start_from_stage counts as passed for this purpose, so
+# jumping straight to stage 3 does not need stage 1 or 2 to have run in the same workflow run.
 #
-# It reuses the harness unmodified. Every cell of the matrix is one call to
-# `e2e/run.sh --tier 3 --scenario <name> --os <distro>`, the same command documented in
-# e2e/README_E2E.md and the same one a developer runs by hand. Nothing in e2e/, setup/ or
-# AGENTS.md is touched by this file.
+# Stage 1, static and parse only, five jobs, nothing installed anywhere:
+#   1. stage1_tier1_gate          ubuntu-latest   the whole static gate, every check
+#   2. stage1_windows_pester      windows-latest  the Pester suite over the Windows installer logic
+#   3. stage1_linux_wizard_plan   ubuntu-latest   setup.sh --print-command
+#   4. stage1_macos_wizard_plan   macos-14        setup.sh --print-command, Darwin toggles
+#   5. stage1_windows_wizard_plan windows-latest  setup.ps1 -PrintPlan
+#
+# Stage 2, the container sweep, thirty-five jobs, twenty at a time, smoke first on all five
+# distributions, then the rest longest-first, matching e2e/README_E2E.md's own table exactly:
+#   6-10 smoke, 11-15 all-software, 16-20 kde-full, 21-25 gnome-full, 26-30 defaults,
+#   31-35 live-profile, 36-40 kde-configure-only, each across arch, debian, ubuntu, fedora,
+#   cachyos in that order.
+#
+# Stage 3, the short real installs on the other two platforms, seven jobs, each a real wizard run
+# ending in the wizard's own verification:
+#   41. macOS defaults          macos-14        toggles as shipped
+#   42. macOS everything        macos-14        every selectable toggle on
+#   43. macOS from nothing      macos-14        every toggle off, then a handful by name
+#   44. Windows defaults        windows-latest  toggles as shipped
+#   45. Windows everything      windows-latest  every selectable toggle on
+#   46. Windows from nothing    windows-latest  every toggle off, then a handful by name
+#   47. Windows settings only   windows-latest  the four native settings, no software
+#
+# Three more jobs exist outside that numbered list: stage1_gate and stage2_gate, which decide
+# whether the next stage is allowed to start, and stage2_plan, which turns the stage 2 dispatch
+# inputs into the matrix stage2_sweep runs. None of them install or verify anything themselves.
+#
+# ---------------------------------------------------------------------------------------------
+# max-parallel: 20 on the stage 2 matrix. This is not a readability choice, it is simply the
+# ceiling: 20 is every concurrent job the GitHub Free plan allows account-wide, and the owner
+# wants the maximum. https://docs.github.com/en/actions/reference/limits
+#
+# The separate 5-concurrent-macOS cap is unaffected: stage 2 runs entirely on ubuntu-latest, and
+# stage 3, where the macOS jobs live, only ever has 3 running at once, under that cap on its own.
+#
+# How long the sweep takes, using the numbers e2e/README_E2E.md's own section states: each
+# distribution carries 1335 minutes of declared scenario ceilings (45 + 300 + 300 + 300 + 180 +
+# 120 + 90), so five distributions is 6675 minutes of total declared work. At twenty concurrent
+# that is roughly six hours in the worst case, and the real figure should be well under it,
+# because every ceiling is generous. Stage 1 and stage 3 are small enough that concurrency never
+# binds them either way.
 #
 # ---------------------------------------------------------------------------------------------
 # Facts this design was verified against on 2026-08-20 (see the URLs, not re-fetched by this
@@ -34,60 +68,91 @@
 #     https://docs.github.com/en/actions/reference/runners/github-hosted-runners
 #     The 14 GB figure is the FREE space left after GitHub's own preinstalled toolchains
 #     (dotnet, the Android SDK, GHC, hosted tool caches, Swift, and more), not the disk size.
-#     This workflow uses none of that preinstalled software, so it is deleted before anything
-#     is built, with a plain `rm -rf` rather than a third-party disk-cleanup action, so the
-#     exact list removed is visible in this file and nowhere else. Disk usage is printed before
-#     and after so a disk-exhaustion failure is diagnosable from the job log alone rather than
-#     guessed at.
+#     This workflow uses none of that preinstalled software in the stage 2 jobs, so it is
+#     deleted before anything is built, with a plain `rm -rf` rather than a third-party
+#     disk-cleanup action, so the exact list removed is visible in this file and nowhere else.
+#     Disk usage is printed before and after so a disk-exhaustion failure is diagnosable from
+#     the job log alone rather than guessed at.
 #
-# Matrix shape and job count: 5 distributions (arch, debian, ubuntu, fedora, cachyos, read from
-# e2e/tier3/*.Dockerfile at plan time rather than hardcoded here) times 7 scenarios (read from
-# e2e/tier3/scenarios/*.yaml at plan time) is 35 jobs for a full, unfiltered sweep, well under
-# the 256-job matrix ceiling. Every job runs on ubuntu-latest; this workflow never requests
-# macOS, so the 5-macOS-job sub-limit above never applies to it.
+# Matrix shape and job count for stage 2: 5 distributions (arch, debian, ubuntu, fedora,
+# cachyos, read from e2e/tier3/*.Dockerfile at plan time and checked against the deliberate
+# order below rather than hardcoded blind) times 7 scenarios (read from
+# e2e/tier3/scenarios/*.yaml at plan time, same check) is 35 jobs for a full, unfiltered sweep,
+# well under the 256-job matrix ceiling.
 #
-# Concurrency against the 20-job account-wide cap: 35 jobs is more than 20, so GitHub queues the
-# remainder automatically and starts each as a slot frees up. `max-parallel` is deliberately NOT
-# set on the matrix strategy below, for three reasons stated here rather than left to be
-# discovered. First, unlike the local `e2e/run.sh --tier 3 --scenario all --jobs N` queue, which
-# caps concurrency because every local scenario shares one host's Docker daemon, CPU and roughly
-# 5 GB of memory apiece (see run.sh's own E2E_MEM_PER_JOB_GB comment), every job here gets its
-# own isolated GitHub-hosted VM with its own 4 processors, 16 GB and 14 GB disk, so there is no
-# shared-resource contention between matrix cells for an explicit cap to protect against. Second,
-# this workflow is dispatch-only and this repository has never had a workflow execute at all as
-# of this writing, so contention with some other pipeline for the account's 20-job ceiling is not
-# a realistic concern today; if that changes, add `max-parallel` then, against a real number
-# instead of a guess. Third, an artificial cap below 20 would only stretch the sweep's wall-clock
-# time for no safety benefit, since GitHub already enforces the real ceiling by queuing.
+# Per-job timeout for stage 2: each matrix cell's `timeout-minutes` is that scenario's own
+# declared timeout (from e2e_timeout_minutes in its scenario file, the same value
+# `e2e/run.sh --list` prints) plus a 40-minute buffer for container build, copy and
+# verification overhead, the same buffer e2e-manual.yml uses for its one 300-minute case
+# (300 -> 340). Capped defensively at the 360-minute hosted-runner ceiling, though nothing
+# shipped today reaches it: all-software, kde-full and gnome-full are the scenarios with the
+# longest declared timeout (300 minutes each), so at 340 minutes buffered they are the ones
+# closest to the 360-minute ceiling, 20 minutes (about 5.6 percent) under it. A future scenario
+# whose own timeout plus 40 exceeds 360 would be silently truncated to 360 by this cap rather
+# than rejected, which is worth knowing if a run times out right at 360: raise the scenario's
+# own e2e_timeout_minutes first and check whether this workflow's buffer is still enough,
+# rather than assuming the buffer failed.
 #
-# Per-job timeout: each matrix cell's `timeout-minutes` is that scenario's own declared timeout
-# (from e2e_timeout_minutes in its scenario file, the same value `e2e/run.sh --list` prints) plus
-# a 40-minute buffer for container build, copy and verification overhead, the same buffer
-# e2e-manual.yml uses for its one 300-minute case (300 -> 340). Capped defensively at the
-# 360-minute hosted-runner ceiling, though nothing shipped today reaches it: all-software,
-# kde-full and gnome-full are the scenarios with the longest declared timeout (300 minutes each),
-# so at 340 minutes buffered they are the ones closest to the 360-minute ceiling, 20 minutes
-# (about 5.6 percent) under it. A future scenario whose own timeout plus 40 exceeds 360 would be
-# silently truncated to 360 by this cap rather than rejected, which is worth knowing if a run
-# times out right at 360: raise the scenario's own e2e_timeout_minutes first and check whether
-# this workflow's buffer is still enough, rather than assuming the buffer failed.
+# Stage 3 timeouts are reused rather than freshly calibrated: 120 minutes for the macOS jobs and
+# 60 for the Windows jobs, the same figures e2e-manual.yml already uses for one wizard run on
+# each of those runners. NEVER RUN IN CI: those figures were calibrated against a defaults-shaped
+# dispatch, not against "every selectable toggle on", so the macOS-everything and
+# Windows-everything jobs reusing them is an assumption, not a measurement. If either times out,
+# raise its own timeout-minutes rather than assuming the harness is broken.
 #
-# Two things this workflow cannot establish without actually being run, and are stated as
-# unverified rather than asserted:
-#
-#   1. Whether every scenario actually completes within its buffered timeout on GitHub's
+# NEVER RUN IN CI, stated here rather than only in chat:
+#   1. Whether every stage 2 scenario actually completes within its buffered timeout on GitHub's
 #      hardware. The heaviest three (all-software, kde-full, gnome-full) install a large software
-#      set inside the container; their 300-minute timeouts were set against runs on the
-#      repository owner's own machine, not against a GitHub-hosted runner, and this workflow has
-#      never executed as of this writing.
-#   2. Whether all-software specifically fits inside the disk this workflow frees. It already
-#      excludes the multi-gigabyte Stable Diffusion model clone and the JetBrains Toolbox IDEs
-#      (see e2e/tier3/scenarios/02-all-software.yaml and container_limits.yaml), which are the
-#      two heaviest known costs, and the cleanup step below is expected to free tens of
-#      gigabytes beyond the default 14 GB, based on widely reported figures for the same
-#      preinstalled toolchains on this runner image. Neither of those is a measurement taken in
-#      this repository's own CI, because none exists yet, so read the "Disk space after cleanup"
-#      line in a real run's log rather than trusting this comment.
+#      set inside the container. Their 300-minute timeouts were set against runs on the
+#      repository owner's own machine, not against a GitHub-hosted runner.
+#   2. Whether all-software specifically fits inside the disk stage 2's cleanup step frees. It
+#      already excludes the multi-gigabyte Stable Diffusion model clone and the JetBrains
+#      Toolbox IDEs (see e2e/tier3/scenarios/02-all-software.yaml and container_limits.yaml),
+#      which are the two heaviest known costs, but the exact free space after cleanup on a real
+#      runner is not measured anywhere in this repository yet.
+#   3. The macOS-everything and Windows-everything jobs in stage 3 have no such exclusion
+#      mechanism: setup.sh --software all and setup.ps1 -Software all enable every selectable
+#      toggle including install_stable_diffusion, which clones gigabytes of model weights on a
+#      runner whose disk this workflow does not clean up first (stage 3 runners keep their
+#      default free space, unlike stage 2's own cleanup step). This may fail on disk space or
+#      time out at 120 minutes. That risk is accepted here rather than quietly excluding the
+#      toggle, because e2e-manual.yml's own exclusion is stated as a deliberate deviation from a
+#      literal `--software all`, and stage 3 exists to run the wizard exactly as documented.
+#   4. stage1_windows_pester runs Invoke-Pester directly against
+#      e2e/tier3/windows/WindowsSoftware.Tests.ps1 on windows-latest itself, excluding the
+#      Slow and Network tagged Describe block (the Chocolatey bootstrap, which installs
+#      something and so does not belong in a stage that installs nothing). This is different
+#      from e2e/tier3/Invoke-WindowsE2E.ps1, which runs the same suite inside a Windows Server
+#      Core container. Running it directly on windows-latest has never been tried: whether
+#      Pester 5 ships preinstalled on that runner image is assumed rather than confirmed, so a
+#      defensive install step is included.
+#   5. The Windows-settings-only job in stage 3 enables enable_hyperv, which turns on the
+#      Hyper-V Windows optional feature and asks for a reboot. Whether that succeeds inside a
+#      GitHub-hosted Windows runner's own virtualised environment (nested virtualisation) has
+#      never been tried by this repository.
+#   6. The artefact collection for the Windows jobs in stage 3. setup/setup.sh already writes
+#      installation_full.log, installation_errors.log, installation_warnings.log,
+#      installation_skipped.log and installation_verify.log under $HOME on Linux and macOS
+#      (see finish_run and its VERIFY_LOG constant), so the macOS jobs below collect all five by
+#      name. setup.ps1 writes no log file at all today: the run log is only ever what
+#      Write-Host printed to the console, and AGENTS.md says a verification step is being added
+#      to it in a separate, concurrent change whose file names are not known yet. Rather than
+#      naming a file that may not exist, the Windows jobs below capture their own transcript as
+#      the run log, and separately glob for `installation_*.log` under $env:USERPROFILE, on the
+#      assumption that whatever verification step lands there follows the same naming convention
+#      the Linux and macOS side already use ($env:USERPROFILE being the Windows analogue of
+#      $HOME). As of writing this file, that concurrent change already exists on disk
+#      (setup/windows/WindowsVerify.ps1) though it is uncommitted and not part of this change,
+#      and its own -LogPath default is installation_verify.log under $env:USERPROFILE, which
+#      matches the glob below. That was read to sanity check the assumption, not to depend on
+#      an uncommitted file, so the glob stays a pattern rather than a literal file name: if the
+#      final, committed shape of that change differs, the glob still finds nothing gracefully
+#      rather than failing this job outright, `if-no-files-found: warn` says so in the job log,
+#      and the transcript is still uploaded.
+#   7. Whether Assert-NotAdmin's -AllowAdministrator escape hatch and Assert-KnownSelectionKey's
+#      handling of enable_hyperv, setup_wsl and import_hibernate_task as ordinary selectable
+#      keys behave as read here, since e2e-manual.yml's own equivalent job has never run either
+#      (its own header says so).
 #
 # `--privileged` systemd-in-Docker, which every tier-3 scenario needs (see container.sh), is not
 # flagged as a risk here: GitHub-hosted Linux runners execute each job inside a full Linux VM
@@ -97,8 +162,8 @@
 # has not been exercised in this repository's own CI as of this writing, so the first real run
 # of this workflow is still the first actual proof.
 #
-# Reproducing one cell of this sweep locally, without GitHub Actions, is exactly what the plan
-# job below tells the harness to do:
+# Reproducing one cell of stage 2 locally, without GitHub Actions, is exactly what stage2_plan
+# tells the harness to do:
 #
 #   bash e2e/run.sh --tier 3 --scenario smoke --os debian
 #
@@ -112,8 +177,17 @@ name: E2E - full matrix sweep
 on:
   workflow_dispatch:
     inputs:
+      start_from_stage:
+        description: "Skip straight to a later stage. 'stage-1' (the default) runs everything. A skipped stage is treated as passed, so the stage after it still runs."
+        type: choice
+        required: true
+        options:
+          - stage-1
+          - stage-2
+          - stage-3
+        default: stage-1
       scenario:
-        description: "Which tier-3 scenario(s) to run. 'all' runs every scenario under e2e/tier3/scenarios/."
+        description: "Stage 2 only. Which tier-3 scenario(s) to run. 'all' runs every scenario under e2e/tier3/scenarios/."
         type: choice
         required: true
         options:
@@ -127,7 +201,7 @@ on:
           - smoke
         default: all
       distro:
-        description: "Which Linux distribution(s) to run against. 'all' runs every distro with a e2e/tier3/*.Dockerfile."
+        description: "Stage 2 only. Which Linux distribution(s) to run against. 'all' runs every distro with a e2e/tier3/*.Dockerfile."
         type: choice
         required: true
         options:
@@ -143,23 +217,206 @@ permissions:
   contents: read
 
 # Queues a second dispatch behind a running sweep rather than cancelling either one. These runs
-# are expensive (up to 35 jobs, hours apiece), and silently cancelling a partially finished sweep
+# are expensive (up to 47 jobs, hours apiece), and silently cancelling a partially finished sweep
 # because someone else clicked "Run workflow" would throw away real signal for no reason. A
-# second full sweep queuing behind the first is the safe default; a human who wants to abandon
+# second full sweep queuing behind the first is the safe default. A human who wants to abandon
 # one can still cancel it from the Actions tab.
 concurrency:
   group: e2e-matrix-sweep
   cancel-in-progress: false
 
 jobs:
-  # -----------------------------------------------------------------------
-  # Turns the dispatch form into an actual job matrix. The distribution list and each scenario's
-  # own timeout are read out of e2e/tier3/*.Dockerfile and e2e/tier3/scenarios/*.yaml here,
-  # rather than hardcoded, so a distribution or scenario added to the harness is covered by this
-  # workflow with no edit to this file, the same reasoning container.sh itself uses for the
-  # all-software toggle list.
-  # -----------------------------------------------------------------------
-  plan:
+  # ===========================================================================================
+  # STAGE 1 - static and parse only. Nothing here installs anything. Five jobs, matching
+  # e2e/README_E2E.md's stage 1 table in order.
+  # ===========================================================================================
+
+  # 1. The whole static gate, every tier 1 check, from a clean checkout. Needs ansible-playbook
+  # on PATH, which this runner does not ship with, and the collections site.yaml's syntax check
+  # walks through, so both are installed first. Neither step is part of the harness itself. They
+  # are what e2e/README_E2E.md's own quick start assumes is already true on a developer machine.
+  stage1_tier1_gate:
+    name: "Stage 1: tier 1 gate"
+    if: inputs.start_from_stage == 'stage-1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ansible-core and the collections site.yaml needs to parse
+        run: |
+          set -euo pipefail
+          # The range setup/setup.sh enforces and every tier 3 image asserts at build time.
+          # This is the one place a version is chosen freely rather than handed over by a
+          # distribution, so it is the one place that has to say the range out loud.
+          python3 -m pip install --user 'ansible-core>=2.19.0,<2.22.0'
+          echo "$HOME/.local/bin" >> "${GITHUB_PATH}"
+          export PATH="$HOME/.local/bin:${PATH}"
+          ansible-galaxy collection install -r setup/ansible/requirements.yaml
+
+      - name: Run the tier 1 gate
+        run: |
+          set -euo pipefail
+          bash e2e/run.sh
+
+  # 2. The Pester suite over the Windows installer's own logic. Run directly on the runner,
+  # excluding the one Describe block tagged Slow and Network (the Chocolatey bootstrap, which
+  # actually installs something), so this job keeps stage 1's "nothing is installed" property.
+  # See the NEVER RUN IN CI note at the top of this file: this direct invocation, as opposed to
+  # going through e2e/tier3/Invoke-WindowsE2E.ps1's own container, has never been exercised.
+  stage1_windows_pester:
+    name: "Stage 1: Windows Pester suite"
+    if: inputs.start_from_stage == 'stage-1'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure Pester 5 is available
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mod = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [Version]'5.0.0' } | Select-Object -First 1
+          if ($mod) {
+            Write-Host "Pester $($mod.Version) already available."
+          } else {
+            Write-Host 'Installing Pester 5, not found preinstalled on this runner image.'
+            Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          }
+
+      - name: Run the Pester suite, excluding the Slow and Network tagged Chocolatey bootstrap
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester -MinimumVersion 5.0
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = 'e2e/tier3/windows/WindowsSoftware.Tests.ps1'
+          $cfg.Run.PassThru = $true
+          $cfg.Output.Verbosity = 'Detailed'
+          $cfg.Filter.ExcludeTag = @('Slow', 'Network')
+          $r = Invoke-Pester -Configuration $cfg
+          if ($null -eq $r) {
+            Write-Host 'Invoke-Pester returned no result object, so nothing can be proved about this run.'
+            exit 1
+          }
+          Write-Host "pester totals: total=$($r.TotalCount) passed=$($r.PassedCount) failed=$($r.FailedCount) skipped=$($r.SkippedCount)"
+          if ($r.TotalCount -eq 0) {
+            Write-Host 'Pester discovered no tests, which is a failure of this gate rather than a clean run.'
+            exit 1
+          }
+          exit $r.FailedCount
+
+  # 3. setup.sh --print-command resolves a real selection into a real playbook command, and
+  # exits without installing anything or asking for Ansible.
+  stage1_linux_wizard_plan:
+    name: "Stage 1: Linux wizard plan"
+    if: inputs.start_from_stage == 'stage-1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the default selection with --print-command
+        run: |
+          set -euo pipefail
+          bash setup/setup.sh --print-command
+
+  # 4. The same resolution on Darwin, where the toggle files and the OS dictionary differ.
+  stage1_macos_wizard_plan:
+    name: "Stage 1: macOS wizard plan"
+    if: inputs.start_from_stage == 'stage-1'
+    runs-on: macos-14
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the default selection with --print-command
+        run: |
+          set -euo pipefail
+          bash setup/setup.sh --print-command
+
+  # 5. setup.ps1 -PrintPlan resolves without installing. -AllowAdministrator is needed because
+  # GitHub's hosted Windows runners execute the job as a member of the local Administrators
+  # group with UAC disabled, which Assert-NotAdmin (called before -PrintPlan is even read) would
+  # otherwise refuse. See e2e-manual.yml's own windows-wizard job for the longer citation.
+  stage1_windows_wizard_plan:
+    name: "Stage 1: Windows wizard plan"
+    if: inputs.start_from_stage == 'stage-1'
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the default selection with -PrintPlan
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -PrintPlan
+          if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
+
+  # Decides whether stage 2 is allowed to start. ok=true when stage 1 was bypassed on purpose
+  # (start_from_stage is stage-2 or stage-3, so every job above is 'skipped' by its own `if`,
+  # which for a job with no `needs` of its own only ever means an intentional bypass), or when
+  # every stage 1 job actually ran and succeeded. Any other combination, including a real stage
+  # 1 failure, sets ok=false and stage 2 stays off.
+  stage1_gate:
+    name: "Stage 1: gate"
+    needs: [stage1_tier1_gate, stage1_windows_pester, stage1_linux_wizard_plan, stage1_macos_wizard_plan, stage1_windows_wizard_plan]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      ok: ${{ steps.gate.outputs.ok }}
+    steps:
+      - id: gate
+        env:
+          START_FROM: ${{ inputs.start_from_stage }}
+          R1: ${{ needs.stage1_tier1_gate.result }}
+          R2: ${{ needs.stage1_windows_pester.result }}
+          R3: ${{ needs.stage1_linux_wizard_plan.result }}
+          R4: ${{ needs.stage1_macos_wizard_plan.result }}
+          R5: ${{ needs.stage1_windows_wizard_plan.result }}
+        run: |
+          set -euo pipefail
+          if [[ "${START_FROM}" != "stage-1" ]]; then
+            echo "Stage 1 intentionally bypassed by start_from_stage=${START_FROM}."
+            echo "ok=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          for r in "${R1}" "${R2}" "${R3}" "${R4}" "${R5}"; do
+            if [[ "${r}" != "success" ]]; then
+              echo "Stage 1 did not pass cleanly, found a job result of '${r}'."
+              echo "ok=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          done
+          echo "Stage 1 passed."
+          echo "ok=true" >> "${GITHUB_OUTPUT}"
+
+  # ===========================================================================================
+  # STAGE 2 - the container sweep. Turns the dispatch inputs into a matrix, then runs it,
+  # scenario-major in the deliberate order e2e/README_E2E.md documents: smoke across every
+  # distribution first, then the rest longest-first. Every cell is one call to
+  # `e2e/run.sh --tier 3 --scenario <name> --os <distro>`, the same command a developer runs by
+  # hand, and nothing in e2e/, setup/ or AGENTS.md is touched by this file.
+  # ===========================================================================================
+
+  stage2_plan:
+    name: "Stage 2: plan"
+    needs: stage1_gate
+    if: needs.stage1_gate.outputs.ok == 'true' && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -170,7 +427,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve the matrix from the dispatch inputs
+      - name: Resolve the matrix from the dispatch inputs, in the documented order
         id: plan
         env:
           IN_SCENARIO: ${{ inputs.scenario }}
@@ -183,57 +440,59 @@ jobs:
             exit 1
           }
 
-          # Distributions: every *.Dockerfile in e2e/tier3/ except windows, which has its own
-          # non-container entry point (see run.sh's own refusal message for --os windows), and
-          # queue, which is not a --os target at all, it builds the unattended queue driver
-          # documented in AGENTS.md.
-          mapfile -t ALL_DISTROS < <(
+          # The deliberate order e2e/README_E2E.md's "exact order every pipeline runs in"
+          # section documents: distributions left to right as arch, debian, ubuntu, fedora,
+          # cachyos, and scenarios smoke first, then the rest longest declared timeout first.
+          # This is not the same order `ls | sort` or a scenario file's own numeric prefix
+          # would give, so it is stated here rather than derived, and checked against what
+          # actually exists on disk so an added or removed distribution or scenario fails loudly
+          # instead of silently falling out of the sweep.
+          DISTRO_ORDER=(arch debian ubuntu fedora cachyos)
+          SCENARIO_ORDER=(smoke all-software kde-full gnome-full defaults live-profile kde-configure-only)
+
+          mapfile -t DISCOVERED_DISTROS < <(
             ls -1 e2e/tier3/*.Dockerfile \
               | xargs -n1 basename \
               | sed 's/\.Dockerfile$//' \
               | grep -vE '^(windows|queue)$' \
               | sort
           )
+          mapfile -t SORTED_DISTRO_ORDER < <(printf '%s\n' "${DISTRO_ORDER[@]}" | sort)
+          if [[ "$(printf '%s\n' "${DISCOVERED_DISTROS[@]}")" != "$(printf '%s\n' "${SORTED_DISTRO_ORDER[@]}")" ]]; then
+            fail "DISTRO_ORDER in this file (${DISTRO_ORDER[*]}) no longer matches the Dockerfiles under e2e/tier3/ (${DISCOVERED_DISTROS[*]}). Update DISTRO_ORDER."
+          fi
 
-          # Scenarios and their own declared timeouts, read straight out of the scenario files.
-          SCENARIOS=()
-          TIMEOUTS=()
+          SCENARIO_TIMEOUT=()
           for f in e2e/tier3/scenarios/*.yaml; do
             name="$(grep -E '^e2e_scenario_name:' "${f}" | sed -E 's/^[^:]+:[[:space:]]*//' | tr -d '"')"
             timeout="$(grep -E '^e2e_timeout_minutes:' "${f}" | sed -E 's/^[^:]+:[[:space:]]*//')"
             : "${timeout:=180}"
-            SCENARIOS+=("${name}")
-            TIMEOUTS+=("${timeout}")
+            SCENARIO_TIMEOUT["${name}"]="${timeout}"
           done
+          mapfile -t DISCOVERED_SCENARIOS < <(printf '%s\n' "${!SCENARIO_TIMEOUT[@]}" | sort)
+          mapfile -t SORTED_SCENARIO_ORDER < <(printf '%s\n' "${SCENARIO_ORDER[@]}" | sort)
+          if [[ "$(printf '%s\n' "${DISCOVERED_SCENARIOS[@]}")" != "$(printf '%s\n' "${SORTED_SCENARIO_ORDER[@]}")" ]]; then
+            fail "SCENARIO_ORDER in this file (${SCENARIO_ORDER[*]}) no longer matches e2e_scenario_name in e2e/tier3/scenarios/ (${DISCOVERED_SCENARIOS[*]}). Update SCENARIO_ORDER."
+          fi
 
           # Narrow to one distro/scenario if the dispatch form asked for it, validated against
           # the sets just derived rather than trusted blindly: a choice input's option list can
           # still drift from these files if one is renamed without the other being updated, the
           # same risk e2e-manual.yml's own target_platform list carries.
           if [[ "${IN_DISTRO}" != "all" ]]; then
-            printf '%s\n' "${ALL_DISTROS[@]}" | grep -qx -- "${IN_DISTRO}" \
+            printf '%s\n' "${DISTRO_ORDER[@]}" | grep -qx -- "${IN_DISTRO}" \
               || fail "distro '${IN_DISTRO}' has no e2e/tier3/${IN_DISTRO}.Dockerfile"
             DISTROS=("${IN_DISTRO}")
           else
-            DISTROS=("${ALL_DISTROS[@]}")
+            DISTROS=("${DISTRO_ORDER[@]}")
           fi
 
-          SEL_NAMES=()
-          SEL_TIMEOUTS=()
           if [[ "${IN_SCENARIO}" != "all" ]]; then
-            found=false
-            for i in "${!SCENARIOS[@]}"; do
-              if [[ "${SCENARIOS[$i]}" == "${IN_SCENARIO}" ]]; then
-                SEL_NAMES=("${SCENARIOS[$i]}")
-                SEL_TIMEOUTS=("${TIMEOUTS[$i]}")
-                found=true
-                break
-              fi
-            done
-            [[ "${found}" == true ]] || fail "scenario '${IN_SCENARIO}' not found under e2e/tier3/scenarios/"
+            printf '%s\n' "${SCENARIO_ORDER[@]}" | grep -qx -- "${IN_SCENARIO}" \
+              || fail "scenario '${IN_SCENARIO}' not found under e2e/tier3/scenarios/"
+            SCENARIOS=("${IN_SCENARIO}")
           else
-            SEL_NAMES=("${SCENARIOS[@]}")
-            SEL_TIMEOUTS=("${TIMEOUTS[@]}")
+            SCENARIOS=("${SCENARIO_ORDER[@]}")
           fi
 
           # 40 minute buffer above each scenario's own declared timeout, same margin as
@@ -241,14 +500,16 @@ jobs:
           BUFFER=40
           CEILING=360
 
+          # Scenario-major, distro-minor: smoke on every distribution before all-software starts
+          # on any of them, matching e2e/README_E2E.md's own reasoning that a fundamental
+          # breakage should show up in half an hour rather than five hours in.
           MATRIX="["
           first=true
-          for distro in "${DISTROS[@]}"; do
-            for i in "${!SEL_NAMES[@]}"; do
-              scenario="${SEL_NAMES[$i]}"
-              base_timeout="${SEL_TIMEOUTS[$i]}"
-              job_timeout=$(( base_timeout + BUFFER ))
-              [[ ${job_timeout} -gt ${CEILING} ]] && job_timeout=${CEILING}
+          for scenario in "${SCENARIOS[@]}"; do
+            base_timeout="${SCENARIO_TIMEOUT[${scenario}]}"
+            job_timeout=$(( base_timeout + BUFFER ))
+            [[ ${job_timeout} -gt ${CEILING} ]] && job_timeout=${CEILING}
+            for distro in "${DISTROS[@]}"; do
               [[ "${first}" == true ]] || MATRIX+=","
               MATRIX+="{\"distro\":\"${distro}\",\"scenario\":\"${scenario}\",\"timeout\":${job_timeout}}"
               first=false
@@ -256,7 +517,7 @@ jobs:
           done
           MATRIX+="]"
 
-          JOB_COUNT=$(( ${#DISTROS[@]} * ${#SEL_NAMES[@]} ))
+          JOB_COUNT=$(( ${#DISTROS[@]} * ${#SCENARIOS[@]} ))
 
           {
             echo "matrix=${MATRIX}"
@@ -264,39 +525,37 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
           {
-            echo "### E2E matrix sweep plan"
+            echo "### E2E stage 2 plan"
             echo
-            echo "${#DISTROS[@]} distribution(s) x ${#SEL_NAMES[@]} scenario(s) = ${JOB_COUNT} job(s)."
+            echo "${#SCENARIOS[@]} scenario(s) x ${#DISTROS[@]} distribution(s) = ${JOB_COUNT} job(s), scenario-major."
             echo
-            echo "| distro | scenario | job timeout (minutes) |"
-            echo "|---|---|---|"
-            for distro in "${DISTROS[@]}"; do
-              for i in "${!SEL_NAMES[@]}"; do
-                base_timeout="${SEL_TIMEOUTS[$i]}"
-                job_timeout=$(( base_timeout + BUFFER ))
-                [[ ${job_timeout} -gt ${CEILING} ]] && job_timeout=${CEILING}
-                echo "| ${distro} | ${SEL_NAMES[$i]} | ${job_timeout} |"
+            echo "| order | scenario | distro | job timeout (minutes) |"
+            echo "|---|---|---|---|"
+            n=0
+            for scenario in "${SCENARIOS[@]}"; do
+              base_timeout="${SCENARIO_TIMEOUT[${scenario}]}"
+              job_timeout=$(( base_timeout + BUFFER ))
+              [[ ${job_timeout} -gt ${CEILING} ]] && job_timeout=${CEILING}
+              for distro in "${DISTROS[@]}"; do
+                n=$((n+1))
+                echo "| ${n} | ${scenario} | ${distro} | ${job_timeout} |"
               done
             done
           } >> "${GITHUB_STEP_SUMMARY}"
 
-  # -----------------------------------------------------------------------
-  # One cell of the sweep. Every step below is either checkout, disk cleanup, or a direct,
-  # unmodified call into the harness (e2e/run.sh --tier 3), plus an artifact upload. No part of
-  # e2e/tier3/container.sh or e2e/run.sh's own logic is reimplemented here.
-  # -----------------------------------------------------------------------
-  e2e-sweep:
-    needs: plan
-    if: needs.plan.outputs.job_count != '0'
-    name: ${{ matrix.distro }} / ${{ matrix.scenario }}
+  stage2_sweep:
+    name: "Stage 2: ${{ matrix.scenario }} / ${{ matrix.distro }}"
+    needs: [stage1_gate, stage2_plan]
+    if: needs.stage1_gate.outputs.ok == 'true' && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage) && needs.stage2_plan.outputs.job_count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
+      max-parallel: 20
       matrix:
-        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+        include: ${{ fromJSON(needs.stage2_plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -332,10 +591,347 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-sweep-${{ matrix.distro }}-${{ matrix.scenario }}-${{ github.run_id }}
+          name: e2e-stage2-${{ matrix.scenario }}-${{ matrix.distro }}-${{ github.run_id }}
           # e2e/run.sh writes one directory per run under e2e/runs/, each holding
           # playbook.log, verify.log, result.txt and effective-vars.yaml, exactly as
           # e2e-manual.yml's own artifact upload documents.
           path: e2e/runs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Decides whether stage 3 is allowed to start, the same shape as stage1_gate. ok=false
+  # propagates a real stage 1 or stage 2 failure forward without stage 3 needing to re-check
+  # stage 1 itself: stage2_gate depends on stage1_gate's own verdict as well as stage 2's jobs.
+  stage2_gate:
+    name: "Stage 2: gate"
+    needs: [stage1_gate, stage2_plan, stage2_sweep]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      ok: ${{ steps.gate.outputs.ok }}
+    steps:
+      - id: gate
+        env:
+          START_FROM: ${{ inputs.start_from_stage }}
+          STAGE1_OK: ${{ needs.stage1_gate.outputs.ok }}
+          PLAN_RESULT: ${{ needs.stage2_plan.result }}
+          SWEEP_RESULT: ${{ needs.stage2_sweep.result }}
+        run: |
+          set -euo pipefail
+          if [[ "${STAGE1_OK}" != "true" ]]; then
+            echo "Stage 1 did not pass, so stage 2 could not run."
+            echo "ok=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if [[ "${START_FROM}" == "stage-3" ]]; then
+            echo "Stage 2 intentionally bypassed by start_from_stage=stage-3."
+            echo "ok=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if [[ "${PLAN_RESULT}" != "success" || "${SWEEP_RESULT}" != "success" ]]; then
+            echo "Stage 2 did not pass cleanly, plan='${PLAN_RESULT}' sweep='${SWEEP_RESULT}'."
+            echo "ok=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "Stage 2 passed."
+          echo "ok=true" >> "${GITHUB_OUTPUT}"
+
+  # ===========================================================================================
+  # STAGE 3 - the short real installs on the other two platforms. Seven jobs, each a real wizard
+  # run ending in the wizard's own verification (run_verification on Linux and macOS, whatever
+  # the concurrent Windows change adds there). No job here adds a separate verification step:
+  # setup.sh and setup.ps1 already verify themselves before exiting, and adding a second check
+  # here would test the harness rather than the thing it is supposed to prove.
+  #
+  # "A handful enabled by name" (the from-nothing jobs) uses the same four keys on both
+  # platforms: install_git, install_chrome, install_docker and install_vscode. All four exist in
+  # group_vars/all.yaml or the platform's own group_vars file on macOS and Windows alike, are
+  # fast, and are not gated behind anything that only makes sense on Linux.
+  #
+  # Stage 3 always runs once stage2_gate says stage 1 and 2 passed or were legitimately
+  # bypassed: it is the last stage, so start_from_stage never skips past it, only into it.
+  # ===========================================================================================
+
+  stage3_macos_defaults:
+    name: "Stage 3: macOS defaults"
+    needs: stage2_gate
+    if: needs.stage2_gate.outputs.ok == 'true'
+    runs-on: macos-14
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the bootstrap wizard, toggles as shipped
+        run: |
+          set -euo pipefail
+          bash setup/setup.sh --non-interactive --passwordless-sudo --skip-system-upgrade
+
+      - name: Collect wizard log artefacts
+        if: always()
+        run: |
+          mkdir -p /tmp/wizard-logs
+          cp "${HOME}"/installation_full.log     /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_errors.log   /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_warnings.log /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_skipped.log  /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_verify.log   /tmp/wizard-logs/ 2>/dev/null || true
+
+      - name: Upload wizard log artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-stage3-macos-defaults-${{ github.run_id }}
+          path: /tmp/wizard-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  stage3_macos_everything:
+    name: "Stage 3: macOS everything on"
+    needs: stage2_gate
+    if: needs.stage2_gate.outputs.ok == 'true'
+    runs-on: macos-14
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the bootstrap wizard, every selectable toggle on
+        run: |
+          set -euo pipefail
+          bash setup/setup.sh --non-interactive --passwordless-sudo --skip-system-upgrade --software all
+
+      - name: Collect wizard log artefacts
+        if: always()
+        run: |
+          mkdir -p /tmp/wizard-logs
+          cp "${HOME}"/installation_full.log     /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_errors.log   /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_warnings.log /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_skipped.log  /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_verify.log   /tmp/wizard-logs/ 2>/dev/null || true
+
+      - name: Upload wizard log artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-stage3-macos-everything-${{ github.run_id }}
+          path: /tmp/wizard-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  stage3_macos_from_nothing:
+    name: "Stage 3: macOS from nothing"
+    needs: stage2_gate
+    if: needs.stage2_gate.outputs.ok == 'true'
+    runs-on: macos-14
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the bootstrap wizard, everything off then a handful enabled by name
+        run: |
+          set -euo pipefail
+          bash setup/setup.sh --non-interactive --passwordless-sudo --skip-system-upgrade --software none --enable install_git,install_chrome,install_docker,install_vscode
+
+      - name: Collect wizard log artefacts
+        if: always()
+        run: |
+          mkdir -p /tmp/wizard-logs
+          cp "${HOME}"/installation_full.log     /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_errors.log   /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_warnings.log /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_skipped.log  /tmp/wizard-logs/ 2>/dev/null || true
+          cp "${HOME}"/installation_verify.log   /tmp/wizard-logs/ 2>/dev/null || true
+
+      - name: Upload wizard log artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-stage3-macos-from-nothing-${{ github.run_id }}
+          path: /tmp/wizard-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  stage3_windows_defaults:
+    name: "Stage 3: Windows defaults"
+    needs: stage2_gate
+    if: needs.stage2_gate.outputs.ok == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the bootstrap wizard, toggles as shipped
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path (Join-Path $env:RUNNER_TEMP 'wizard-run.log') -Force | Out-Null
+          try {
+            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade
+            if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
+          } finally {
+            Stop-Transcript | Out-Null
+          }
+
+      - name: Collect wizard log artefacts
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'wizard-logs') | Out-Null
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'wizard-run.log') (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+          # NEVER RUN IN CI: a verification step is being added to setup.ps1 in a concurrent
+          # change, and its log file name is not known yet. This assumes it follows the same
+          # installation_*.log convention already used on Linux and macOS, under the Windows
+          # analogue of $HOME. If that assumption is wrong, this glob finds nothing and the
+          # upload step below warns rather than failing the job.
+          Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
+            Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+
+      - name: Upload wizard log artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-stage3-windows-defaults-${{ github.run_id }}
+          path: ${{ runner.temp }}\wizard-logs\
+          if-no-files-found: warn
+          retention-days: 14
+
+  stage3_windows_everything:
+    name: "Stage 3: Windows everything on"
+    needs: stage2_gate
+    if: needs.stage2_gate.outputs.ok == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the bootstrap wizard, every selectable toggle on
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path (Join-Path $env:RUNNER_TEMP 'wizard-run.log') -Force | Out-Null
+          try {
+            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade -Software all
+            if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
+          } finally {
+            Stop-Transcript | Out-Null
+          }
+
+      - name: Collect wizard log artefacts
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'wizard-logs') | Out-Null
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'wizard-run.log') (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+          Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
+            Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+
+      - name: Upload wizard log artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-stage3-windows-everything-${{ github.run_id }}
+          path: ${{ runner.temp }}\wizard-logs\
+          if-no-files-found: warn
+          retention-days: 14
+
+  stage3_windows_from_nothing:
+    name: "Stage 3: Windows from nothing"
+    needs: stage2_gate
+    if: needs.stage2_gate.outputs.ok == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the bootstrap wizard, everything off then a handful enabled by name
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path (Join-Path $env:RUNNER_TEMP 'wizard-run.log') -Force | Out-Null
+          try {
+            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade -Software none -EnableKey install_git,install_chrome,install_docker,install_vscode
+            if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
+          } finally {
+            Stop-Transcript | Out-Null
+          }
+
+      - name: Collect wizard log artefacts
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'wizard-logs') | Out-Null
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'wizard-run.log') (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+          Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
+            Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+
+      - name: Upload wizard log artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-stage3-windows-from-nothing-${{ github.run_id }}
+          path: ${{ runner.temp }}\wizard-logs\
+          if-no-files-found: warn
+          retention-days: 14
+
+  stage3_windows_settings_only:
+    name: "Stage 3: Windows settings only"
+    needs: stage2_gate
+    if: needs.stage2_gate.outputs.ok == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # -Software none turns every selectable toggle off, including the three settings keys
+      # below (setup_wsl, enable_hyperv, import_hibernate_task are ordinary entries in the same
+      # selectable list -Software all/none sweeps, per setup.ps1's own Resolve-ToggleOverride),
+      # so -EnableKey turns exactly those three back on. The fourth of the "four Windows system
+      # settings" (the desktop wallpaper) is not selectable at all: setup.ps1 excludes it from
+      # the checklist entirely and always applies it, the same as non_root_user and
+      # non_root_home, so it needs no key here to run.
+      - name: Run the bootstrap wizard, no software, the four native system settings
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path (Join-Path $env:RUNNER_TEMP 'wizard-run.log') -Force | Out-Null
+          try {
+            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade -Software none -EnableKey setup_wsl,enable_hyperv,import_hibernate_task
+            if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
+          } finally {
+            Stop-Transcript | Out-Null
+          }
+
+      - name: Collect wizard log artefacts
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'wizard-logs') | Out-Null
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'wizard-run.log') (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+          Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
+            Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+
+      - name: Upload wizard log artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-stage3-windows-settings-only-${{ github.run_id }}
+          path: ${{ runner.temp }}\wizard-logs\
           if-no-files-found: warn
           retention-days: 14
