@@ -161,6 +161,72 @@ One more thing about the queue container, in [AGENTS.md](../AGENTS.md) but worth
 
 ---
 
+### The exact order every pipeline runs in
+
+Three stages, and nothing in a later stage starts until the stage before it has passed. Twenty jobs
+run at once, which is every concurrent job GitHub Free allows, with at most five of those on macOS,
+which is its own separate cap.
+
+Every job that installs anything ends by verifying, and uploads two logs: what the run did, and what
+the machine looks like afterwards. Those are different claims, and only the second one is evidence.
+
+Stage 1, static and parse only. Nothing is installed anywhere. Five jobs, all finish inside about
+five minutes, and the whole sweep stops here if any of them fails.
+
+| Order | Job | Runner | What it proves |
+|---|---|---|---|
+| 1 | tier 1 gate | ubuntu-latest | the whole static gate, every check, from a clean checkout |
+| 2 | Windows unit tests | windows-latest | the Pester suite over the Windows installer's own logic |
+| 3 | Linux wizard plan | ubuntu-latest | `setup.sh --print-command` resolves a real selection into a real playbook command |
+| 4 | macOS wizard plan | macos-14 | the same on Darwin, where the toggle files and the OS dictionary differ |
+| 5 | Windows wizard plan | windows-latest | `setup.ps1 -PrintPlan` resolves without installing |
+
+Jobs 3 to 5 are what "parse only" means: the wizard runs its own resolution, prints the command or
+plan it would execute, and exits. They cost seconds and they catch a broken toggle file, a renamed
+option or a wizard that no longer agrees with the YAML, before anything spends an hour installing.
+
+Stage 2, the container sweep. Thirty-five jobs, twenty at a time. Linux goes before the other two
+platforms because it is where the playbook does the most and where a real defect is most likely.
+
+The order inside the stage is deliberate: the fastest scenario runs first on all five distributions,
+so a fundamental breakage shows up in half an hour rather than five hours in, and the rest run
+longest first, because a long job started late is what decides when the sweep ends.
+
+| Order | Scenario | Distributions | Ceiling |
+|---|---|---|---|
+| 6 to 10 | smoke | arch, debian, ubuntu, fedora, cachyos | 45 minutes |
+| 11 to 15 | all-software | the same five | 300 minutes |
+| 16 to 20 | kde-full | the same five | 300 minutes |
+| 21 to 25 | gnome-full | the same five | 300 minutes |
+| 26 to 30 | defaults | the same five | 180 minutes |
+| 31 to 35 | live-profile | the same five | 120 minutes |
+| 36 to 40 | kde-configure-only | the same five | 90 minutes |
+
+Stage 3, the short real installs on the other two platforms. Seven jobs, each a real wizard run on a
+real machine, each ending in verification. Roughly 30 to 90 minutes. macOS sits at three, under its
+own cap of five concurrent macOS jobs.
+
+| Order | Job | Runner | Selection |
+|---|---|---|---|
+| 41 | macOS defaults | macos-14 | the toggles as they ship |
+| 42 | macOS everything | macos-14 | every selectable toggle on |
+| 43 | macOS from nothing | macos-14 | every toggle off, then a handful enabled by name |
+| 44 | Windows defaults | windows-latest | the toggles as they ship |
+| 45 | Windows everything | windows-latest | every selectable toggle on |
+| 46 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
+| 47 | Windows settings only | windows-latest | the four native system settings, no software |
+
+Forty-seven jobs in total. Those ceilings are timeouts rather than measurements: a smoke run takes
+around 20 to 30 minutes in practice, not 45, and no scenario has ever run on a GitHub runner, so the
+real numbers will only exist after the first sweep.
+
+How long the sweep takes. Adding the ceilings gives 1335 minutes of work per distribution and 6675
+across all five. At twenty concurrent that is roughly six hours in the worst case, and the real
+figure should be well under it, because every ceiling is generous. Stage 1 and stage 3 are small
+enough that concurrency never binds them.
+
+---
+
 ### What tier 1 checks, and which bug each check exists for
 
 | Check | Guards against |

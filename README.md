@@ -237,6 +237,7 @@ Released under the [MIT License](LICENSE).
 | [setup/README_SETUP.md](setup/README_SETUP.md)                          | Manual setup walk-through, script flags, logging, troubleshooting |
 | [setup/configuration.md](setup/configuration.md)                        | Toggle reference per OS                                           |
 | [setup/software.md](setup/software.md)                                  | Full per-OS software catalogue with install methods               |
+| [docs/tool_usage.md](docs/tool_usage.md)                                  | How to use the installed tools that are not self-explanatory      |
 | [setup/version_sources.md](setup/version_sources.md)                    | Where to look up the latest version for every pinned package      |
 | [setup/ansible/tags.md](setup/ansible/tags.md)                          | Ansible `--tags` taxonomy for surgical partial runs               |
 | [local-dev/README_LOCAL_DEV.md](local-dev/README_LOCAL_DEV.md)          | Docker Compose stack: ports, credentials, image tags              |

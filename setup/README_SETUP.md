@@ -515,6 +515,7 @@ Source role: [roles/linux_crypto_hardware/](ansible/roles/linux_crypto_hardware/
 | [../README.md](../README.md) | Project overview, quick start, repo structure |
 | [configuration.md](configuration.md) | Toggle reference per OS |
 | [software.md](software.md) | Full per-OS software catalogue with install methods |
+| [../docs/tool_usage.md](../docs/tool_usage.md) | How to use the installed tools that are not self-explanatory |
 | [version_sources.md](version_sources.md) | Where to look up the latest version for every pinned package |
 | [ansible/tags.md](ansible/tags.md) | Ansible `--tags` taxonomy for surgical partial runs |
 | [../docs/AGENT_TOOLING.md](../docs/AGENT_TOOLING.md) | Agent-standards, OpenSpec, per-agent integration notes |

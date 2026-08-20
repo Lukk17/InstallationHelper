@@ -432,3 +432,9 @@ gridcoin_flatpak = "sha256:..."
 ```
 
 Leaving an entry absent disables checksum enforcement for that download, Ansible substitutes `omit`.
+### Using Lynis
+
+Moved to [docs/tool_usage.md](../docs/tool_usage.md), which is where usage instructions for installed
+tools live now, so this catalogue stays a catalogue.
+
+---
