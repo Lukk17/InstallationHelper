@@ -74,7 +74,7 @@
 #   `act` is not a good fit for the macos/windows jobs (act only emulates Linux containers),
 #   but the linux-e2e job's own harness call runs under `act` the same way any other
 #   Docker-based job does, once the scenario file this job generates exists on disk:
-#     act workflow_dispatch -W .github/workflows/e2e-manual.yml -j linux-e2e \
+#     act workflow_dispatch -W .github/workflows/e2e-manual.yaml -j linux-e2e \
 #       --input target_platform=arch --input software_mode=defaults
 #
 # Static verification performed on this file: YAML parses (python -c "import yaml;

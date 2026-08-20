@@ -25,7 +25,10 @@ services:
     volumes:
       # NOT mounted :ro because SearXNG's container init chowns the file at
       # boot; a read-only mount makes the container restart-loop.
-      - ./searxng/settings.yml:/etc/searxng/settings.yml
+      # The two names differ on purpose. The host side follows this
+      # repository's .yaml convention, the container side is the fixed
+      # path SearXNG reads.
+      - ./searxng/settings.yaml:/etc/searxng/settings.yml
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/healthz"]
       interval: 10s

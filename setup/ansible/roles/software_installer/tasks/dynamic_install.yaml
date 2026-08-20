@@ -649,7 +649,7 @@
         - failed_aur_packages | default([]) | length > 0
       tags: [pacman_batch]
 
-    # No `| default(false)` on aur_allow_failures. defaults/main.yml sets it to true and is the single
+    # No `| default(false)` on aur_allow_failures. defaults/main.yaml sets it to true and is the single
     # source for what absent means, and reading it here with a default of false gave the same question
     # two answers: the role default said "carry on and report at the end", the read said "stop now".
     # A role default cannot be absent in the first place, so the default here could only ever

@@ -48,7 +48,7 @@ When this deployment sits inside a homelab that already runs Redis on a shared `
 
 ### Quick start
 
-Copy this whole directory to the host. It needs all four files, including `searxng/settings.yml`, which SearXNG will not start without.
+Copy this whole directory to the host. It needs all four files, including `searxng/settings.yaml`, which SearXNG will not start without.
 
 Create the secrets file from the example.
 
@@ -108,7 +108,7 @@ Three secrets live in `.env` and nothing else should. Everything else is set dir
 
 | Variable | Required | What it does |
 |---|---|---|
-| SEARXNG_SECRET | Yes | SearXNG session-signing key. Read by SearXNG from the environment, which is why `searxng/settings.yml` has no `secret_key` entry. Generate a fresh one per deployment. |
+| SEARXNG_SECRET | Yes | SearXNG session-signing key. Read by SearXNG from the environment, which is why `searxng/settings.yaml` has no `secret_key` entry. Generate a fresh one per deployment. |
 | VNC_PASSWORD | Yes | Password for the NoVNC desktop. Turned into an encrypted x11vnc password file at container start. |
 | NGROK_AUTHTOKEN | Yes | Authenticates the ngrok tunnel. |
 
@@ -239,10 +239,10 @@ The equivalent file in the repository root is `ascend-scrapper.docker-compose.ya
 
 ### Keeping this directory in sync
 
-`searxng/settings.yml` here is a copy of `searxng/settings.yml` in the repository root, kept byte-identical on purpose so that a diff is the whole check.
+`searxng/settings.yaml` here is a copy of `searxng/settings.yml` in the repository root, kept byte-identical on purpose so that a diff is the whole check. Only the extension differs, because this repository standardises on `.yaml` and the container reads the fixed path `/etc/searxng/settings.yml`, which the compose mount maps the file onto.
 
 ```bash
-diff searxng/settings.yml ../../searxng/settings.yml
+diff searxng/settings.yaml ../../searxng/settings.yml
 ```
 
 That command printing nothing means they match. When you change one, change the other in the same commit.
