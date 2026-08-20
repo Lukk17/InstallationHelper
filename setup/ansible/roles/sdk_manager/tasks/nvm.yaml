@@ -1,9 +1,4 @@
 ---
 - name: Include NVM Unix tasks
   ansible.builtin.include_tasks: nvm_unix.yaml
-  when: ih_family != 'Windows' and install_nodejs | default(false) | bool
-
-- name: Include NVM Windows tasks
-  ansible.builtin.include_tasks: nvm_windows.yaml
-  when: ih_family == 'Windows' and install_nodejs | default(false) | bool
-
+  when: install_nodejs | default(false) | bool

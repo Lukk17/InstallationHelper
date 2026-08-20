@@ -1,6 +1,0 @@
----
-- name: Install OpenSpec CLI via npm helper (Windows)
-  ansible.builtin.include_tasks: npm_install_windows.yaml
-  vars:
-    npm_pkg: "openspec"
-    npm_display_name: "OpenSpec"

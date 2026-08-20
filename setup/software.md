@@ -20,12 +20,12 @@ flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flat
 
 The playbook runs in this order. Each phase must succeed before the next can start safely.
 
-1. OS core bootstrap: `system_core`, `arch_core`, `fedora_core`, `debian_core`, `windows_core`, `macos_core` (multilib, locale, keyrings dir, Homebrew bootstrap on macOS).
+1. OS core bootstrap: `system_core`, `arch_core`, `fedora_core`, `debian_core`, `macos_core` (multilib, locale, keyrings dir, Homebrew bootstrap on macOS). There is no Windows role, because the playbook never runs on Windows.
 2. APT / DNF repo provisioning: `roles/software_installer/tasks/debian_repos.yaml` and `fedora_repos.yaml` write keyrings under `/etc/apt/keyrings/` and `*.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Helm, Terraform, GitHub CLI, Syncthing, Tailscale, Docker before any package install runs.
 3. SDK / runtime managers: JVM, Pyenv, NVM, SDKMAN (Java, Gradle), FVM.
 4. Snapd and Flatpak with the Flathub remote (Linux).
 5. Batched package installs: one call per manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`) so dependency resolution happens once per OS.
-6. Custom installs: `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`), `macos_install.yaml` (Antigravity DMG when published, Gridcoin DMG), `windows_install.yaml` (Chocolatey + winget batches, Gridcoin `.exe` silent install).
+6. Custom installs: `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`), `macos_install.yaml` (Antigravity DMG when published, Gridcoin DMG). Windows takes none of this path. `setup/windows/WindowsSoftware.ps1` runs the Chocolatey and winget batches natively and `setup/windows/WindowsCustomInstalls.ps1` runs the Gridcoin and Razer Cortex silent installs.
 
 Gradle is managed via SDKMAN on every Linux distro, not the system package manager. The `pinned_values.toml` pin drives `sdk install gradle`.
 
@@ -137,11 +137,11 @@ The desktop app is the former Codex desktop app renamed, its bundle identifier i
 | Razer Cortex | not available | not available | `curl.exe -fsSLo "$env:TEMP\RazerCortexInstaller.exe" https://rzr.to/cortex-download && & "$env:TEMP\RazerCortexInstaller.exe" /S` |
 | WoW Logs Companion / TSM | not available | not available | manual, from Overwolf or tradeskillmaster.com |
 
-Razer Cortex has no package on any manager, so the playbook installs it from Razer's own installer in `windows_install.yaml`, the same shape as Gridcoin. The Store product id `9PK9W5QV2PKX` was the Razer Cortex Game Bar widget, which Razer discontinued on 1 July 2026, and it now resolves on neither the winget nor the msstore source. winget-pkgs carries no Cortex manifest under any Razer publisher folder, and Chocolatey has only the Synapse packages. The `/S` switch is the one Razer's own installer family takes, evidenced by the Chocolatey `razer-synapse-4` package driving all five Razer component installers with `silentArgs '/S'` and `validExitCodes 0, 3010, 1641`.
+Razer Cortex has no package on any manager, so `setup/windows/WindowsCustomInstalls.ps1` installs it from Razer's own installer, the same shape as Gridcoin. The Store product id `9PK9W5QV2PKX` was the Razer Cortex Game Bar widget, which Razer discontinued on 1 July 2026, and it now resolves on neither the winget nor the msstore source. winget-pkgs carries no Cortex manifest under any Razer publisher folder, and Chocolatey has only the Synapse packages. The `/S` switch is the one Razer's own installer family takes, evidenced by the Chocolatey `razer-synapse-4` package driving all five Razer component installers with `silentArgs '/S'` and `validExitCodes 0, 3010, 1641`.
 
-Cortex is the only entry here whose idempotency comes from the uninstall registry rather than a file path. The bootstrapper is a downloader stub that leaves no predictable path to key `creates_path` on, so the task queries both the 64-bit and the WOW6432Node uninstall hives for a `Razer Cortex*` display name and skips when it finds one.
+Cortex is the only entry here whose idempotency comes from the uninstall registry rather than a file path. The bootstrapper is a downloader stub that leaves no predictable path to test for, so the installer queries both the 64-bit and the WOW6432Node uninstall hives for a `Razer Cortex*` display name and skips when it finds one.
 
-Every Microsoft Store entry carries `source: "msstore"` in `vars/Windows.yaml`. A bare Store product id does not resolve on the default winget source, and because the winget loop sits inside the `software_installer` block, one unresolvable id drops the whole play into the rescue handler and silently skips every package after it.
+Every Microsoft Store entry carries `source: "msstore"` in `vars/Windows.yaml`. A bare Store product id does not resolve on the default winget source, and an id that resolves on neither source is reported as that package's own failure by `setup/windows/WindowsSoftware.ps1` rather than taking the rest of the catalogue with it.
 
 ### Peripherals
 

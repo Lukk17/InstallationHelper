@@ -215,7 +215,7 @@ Use multiline prompts when you need to include logs or detailed context with a c
 
 A cross-platform Ansible-based system setup and local development toolkit. It has three main parts:
 
-1. **`setup/`** — Ansible playbook to automate OS configuration and software installation across Ubuntu/Debian, Fedora, Arch Linux, macOS, and Windows (via WSL).
+1. **`setup/`** — OS configuration and software installation. An Ansible playbook covers Ubuntu/Debian, Fedora, Arch Linux and macOS. Windows is not covered by Ansible at all: `setup/setup.ps1` and the modules in `setup/windows/` provision it natively from the same toggles and mappings.
 2. **`local-dev/`** — Docker Compose stack for local development services (MySQL, PostgreSQL, MongoDB, Keycloak).
 3. **`homelab/`** — Docker Compose stack and documentation for an always-on home server: a Proxmox host running a Home Assistant OS VM and an Ubuntu Docker VM (AdGuard Home, Nginx Proxy Manager, Homepage, Uptime Kuma, Syncthing, Perlite). Docs only plus one compose file, no Ansible. Write instructions against `<angle-bracket>` placeholders so the docs stay reusable, then give the LAN addresses of this specific lab as a concrete example block underneath. Never commit credentials, API tokens, device keys, or MAC addresses.
 
@@ -235,7 +235,7 @@ Every doc directory has one hub page that links to all of its siblings: `README.
 The playbook (`site.yaml`) follows this execution order:
 
 1. **Pre-tasks**: Loads OS-specific group vars (`group_vars/{linux,macos,windows}.yaml`) and the OS translation dictionary (`vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml`) as `os_dict`.
-2. **OS core roles**: `windows_core`, `macos_core`, `arch_core`, `fedora_core`, `system_core` — bootstrap the specific OS.
+2. **OS core roles**: `macos_core`, `arch_core`, `fedora_core`, `debian_core`, `system_core` — bootstrap the specific OS. There is no Windows role: Windows is provisioned natively by `setup/setup.ps1` and the modules in `setup/windows/`, and the playbook never runs there.
 3. **Desktop environments**: `kde_plasma_setup`, `gnome_setup` — gated by `install_kde_plasma`/`configure_kde_plasma` and `install_gnome`/`configure_gnome` flags.
 4. **Cross-platform settings**: `env_variables`, `shell_zsh`.
 5. **Complex roles**: `sdk_manager` (Pyenv, NVM, SDKMAN, FVM, Android SDK, Dart/Flutter), `ai_tools` (Claude Code, Claude Desktop, OpenCode, OpenSpec).
@@ -286,9 +286,11 @@ Two parts of this playbook bypass the standard Ansible module mechanism. They lo
 
 `Module result deserialization failed: No start of json char found` — raised by the controller when it tries to deserialize a module's result. Introduced in ansible-core 2.19 by the new `_internal/_json` lazy-import system. Root cause: the ansiballz zip payload (Python module wrapper) gets cleaned up or becomes unreadable before `_return_formatted()` lazy-imports the JSON profile from it. Race triggers most often on long-running modules (>5-7 min) under heavy `/tmp` activity (dpkg postinst writes, systemd-tmpfiles).
 
-**Affected versions:** ansible-core 2.19.0 through 2.19.9, and 2.20.0 through 2.20.5 (latest stable on both branches as of 2026-05). Fix is in [PR #86739](https://github.com/ansible/ansible/pull/86739) against `devel` — **still open and unmerged**. Pre-bug version: 2.18.x.
+**Affected versions:** every ansible-core release from 2.19.0 onwards, on all three live branches. Re-checked 2026-08-20: [PR #86739](https://github.com/ansible/ansible/pull/86739) is still open against `devel`, created 2026-03-27 and last touched 2026-08-18, `merged_at` null. Nothing on `stable-2.19`, `stable-2.20` or `stable-2.21` mentions the fix in its changelog, so 2.19.12, 2.20.8 and 2.21.3, the newest release on each branch as of 2026-08-10, all still carry it. An earlier version of this section named 2.19.9 and 2.20.5 as the end of the affected range, which was only ever the newest release at the time of writing and not a statement that anything later was fixed. Pre-bug version: 2.18.x, which is below this project's floor for other reasons.
 
-**Upstream tracking:** issues [#86738](https://github.com/ansible/ansible/issues/86738) and [#86562](https://github.com/ansible/ansible/issues/86562).
+**The version this repository runs, and where that is pinned.** ansible-core cannot be pinned to one exact version across the places it arrives from, because four package managers each publish exactly one and they do not agree: Debian trixie carries 2.19.4, Ubuntu 26.04 carries 2.20.1, Fedora 44 carries 2.20.7 and Arch carries 2.21.3. What is pinned is the half-open range 2.19.0 accepted up to but not including 2.22.0, in two places that enforce it rather than merely document it: `setup/setup.sh` reads the version behind `ansible-playbook` and refuses a control node outside `ANSIBLE_CORE_MIN_VERSION` to `ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE`, and each Linux `e2e/tier3/*.Dockerfile` asserts the same two bounds at build time so a rolling distribution moving under the harness fails the image build in seconds instead of a scenario twenty-five minutes in. Widening either bound means running the e2e suite against the new branch first. Note what the range does not buy: no release inside it escapes the bug above, so the mitigations stay whatever version is in use.
+
+**Upstream tracking:** issues [#86738](https://github.com/ansible/ansible/issues/86738), closed as a duplicate on 2026-03-31 and therefore no longer a place to watch for movement, and [#86562](https://github.com/ansible/ansible/issues/86562), still open. The pull request above is the one to watch.
 
 **Mitigations in this repo**
 
@@ -306,9 +308,9 @@ Once ansible-core ships a release that contains the fix from PR #86739 — both 
 
 Before recommending changes to the `raw` callsites or claiming the workaround is "still needed", verify the upstream status:
 
-1. Check the current ansible-core release that this repo's `requirements.yaml` / target hosts will use. The version is in `ansible --version` on the dev machine.
+1. Check the current ansible-core release that this repo's target hosts will use. The version is in `ansible --version` on the dev machine, and the accepted range is the one `setup/setup.sh` enforces.
 2. Confirm PR #86739 status: https://github.com/ansible/ansible/pull/86739 — merged or still open?
-3. If merged, find the first release tag containing it: https://github.com/ansible/ansible/releases — both `stable-2.19` and `stable-2.20` need a patched point release.
+3. If merged, find the first release tag containing it: https://github.com/ansible/ansible/releases. Every branch this project accepts needs a patched point release before the workaround can go, which today means `stable-2.19`, `stable-2.20` and `stable-2.21`.
 4. If the target ansible-core version is on a release that includes the fix, schedule the revert: replace the 3 `raw` tasks (apt-batch, flatpak-batch, apt-full-upgrade) with the native modules in one change, drop `apt_raw_env` / `apt_raw_flags` from `group_vars/linux.yaml`, and update this section.
 5. If still unmerged, leave the workaround in place and note the upstream status in the commit message of any related change.
 

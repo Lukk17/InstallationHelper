@@ -12,11 +12,19 @@ dispatcher instead — see [setup/software.md](../setup/software.md).
 Use the npm-install pattern when **all** of these are true:
 
 - The tool's primary distribution is `npm install -g <pkg>`.
-- It must work on Linux + Windows (and optionally macOS).
+- It must work on Linux and Windows (and optionally macOS).
 - It has no native package on Linux distros (no apt / dnf / pacman / AUR).
 
 If macOS has a Homebrew formula (e.g. `bruno-cli`), prefer that path on macOS
-and use npm only on Linux + Windows. See the "Mixed macOS path" section below.
+and use npm only on Linux and Windows. See the "Mixed macOS path" section below.
+
+Windows is not part of the playbook at all. Ansible never runs there, so the
+Windows half of every tool below lives in
+[setup/windows/WindowsNpmTools.ps1](../setup/windows/WindowsNpmTools.ps1) and is
+driven by [setup/setup.ps1](../setup/setup.ps1). Adding a tool means adding it in
+both places, and
+[e2e/tier1/windows_npm_parity.sh](../e2e/tier1/windows_npm_parity.sh) fails the
+gate if you add it to one and forget the other.
 
 ---
 
@@ -53,25 +61,22 @@ Path: `setup/ansible/roles/ai_tools/tasks/<tool>.yaml`. Mirror this template:
 ```yaml
 ---
 # macOS install (if any) handled by software_installer via vars/Darwin.yaml.
-# This file covers Linux + Windows via npm.
+# This file covers Linux via npm. Windows installs it natively through
+# setup/windows/WindowsNpmTools.ps1.
 - name: Include <tool> Unix tasks
   ansible.builtin.include_tasks: <tool>_unix.yaml
   when:
-    - ansible_facts['os_family'] != 'Windows'
-    - ansible_facts['os_family'] != 'Darwin'
-    - install_<tool> | default(false) | bool
-
-- name: Include <tool> Windows tasks
-  ansible.builtin.include_tasks: <tool>_windows.yaml
-  when:
-    - ansible_facts['os_family'] == 'Windows'
+    - ih_family != 'Darwin'
     - install_<tool> | default(false) | bool
 ```
 
 If the tool has no macOS brew formula (i.e. macOS goes through npm too),
-drop the `os_family != 'Darwin'` guard on the Unix include.
+drop the `ih_family != 'Darwin'` guard and leave the toggle as the only
+condition. Branch on `ih_family`, never on Ansible's own `os_family`:
+[e2e/tier1/os_family_derivation.sh](../e2e/tier1/os_family_derivation.sh) fails
+the gate for any task that reads the raw fact.
 
-#### 4. Create the per-OS wrappers
+#### 4. Create the Unix wrapper
 
 `setup/ansible/roles/ai_tools/tasks/<tool>_unix.yaml`:
 
@@ -84,20 +89,26 @@ drop the `os_family != 'Darwin'` guard on the Unix include.
     npm_display_name: "<Tool>"
 ```
 
-`setup/ansible/roles/ai_tools/tasks/<tool>_windows.yaml`:
-
-```yaml
----
-- name: Install <Tool> CLI via npm helper (Windows)
-  ansible.builtin.include_tasks: npm_install_windows.yaml
-  vars:
-    npm_pkg: "<npm-package-name>"
-    npm_display_name: "<Tool>"
-```
-
-Both helpers handle: nvm/npm probe, warn-skip on missing, idempotent
+The helper handles: nvm/npm probe, warn-skip on missing, idempotent
 `npm list -g` check, install with secure `chdir`, async + retry on flaky
 network. You inherit all of that for free.
+
+#### 4a. Add the Windows entry
+
+In [setup/windows/WindowsNpmTools.ps1](../setup/windows/WindowsNpmTools.ps1),
+add one line to the `$script:NpmToolPackages` table. The key is the toggle name
+without its `install_` prefix, so it lines up with the software mapping keys:
+
+```powershell
+<tool> = @{ Package = '<npm-package-name>'; Display = '<Tool>' }
+```
+
+That table is the whole Windows path. `Invoke-WindowsNpmToolInstall` reads it,
+applies the same idempotency check, the same two retries and the same
+user-profile working directory the Unix helper does, and reports one result row
+per tool. Skipping this step is a gate failure rather than a silent gap:
+[e2e/tier1/windows_npm_parity.sh](../e2e/tier1/windows_npm_parity.sh) compares
+that table against the `*_unix.yaml` files package by package.
 
 #### 5. Wire the dispatcher into `main.yaml`
 
@@ -134,7 +145,7 @@ wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projek
 
 ---
 
-### Mixed macOS path (npm on Linux/Windows, brew on macOS)
+### Mixed macOS path (npm on Linux and Windows, brew on macOS)
 
 This is the pattern Bruno CLI uses. Same toggle drives two install paths:
 
@@ -142,7 +153,7 @@ This is the pattern Bruno CLI uses. Same toggle drives two install paths:
 |---|---|---|
 | macOS | `software_installer` → `vars/Darwin.yaml` mapping → `brew install <formula>` | `--tags brew` or `--tags software` |
 | Linux | `ai_tools` role → npm helper | `--tags <tool>` or `--tags ai` |
-| Windows | `ai_tools` role → npm helper | `--tags <tool>` or `--tags ai` |
+| Windows | `setup.ps1` → `WindowsNpmTools.ps1` | `-EnableKey <tool>`, no Ansible involved |
 
 A surgical `--tags <tool>` re-run is a **no-op on macOS** — the macOS install
 sits under `software_installer` tags, not `ai_tools` tags. This is intentional
@@ -170,19 +181,25 @@ Behaviour:
 - `timeout 600`, `async: 900`, `retries: 2` on the install task.
 - Idempotent: skips install when `npm list -g <pkg>` already finds it.
 
-#### `npm_install_windows.yaml`
+#### `WindowsNpmTools.ps1`
 
-| Var | Required | Description |
+Not an Ansible helper. Windows has no playbook path at all, so the table in
+[setup/windows/WindowsNpmTools.ps1](../setup/windows/WindowsNpmTools.ps1) is
+both the declaration and the installer.
+
+| Field | Required | Description |
 |---|---|---|
-| `npm_pkg` | yes | Full npm package spec |
-| `npm_display_name` | yes | Human label |
-| `npm_install_extra_args` | no | Extra args appended to `npm install -g` |
+| `Package` | yes | Full npm package spec |
+| `Display` | yes | Human label used in the wizard's summary |
 
 Behaviour:
 
-- Probes `where.exe npm`. Skips with debug message if not on PATH.
-- Anchors `chdir` at `{{ ansible_env.USERPROFILE }}`.
+- Probes `Get-Command npm`. Reports every wanted tool as not installed when npm
+  is absent, rather than skipping quietly.
+- Runs every npm call with `%USERPROFILE%` as the working directory, so an
+  `.npmrc` in an ancestor of the launch directory cannot redirect the registry.
 - Idempotent via `npm list -g <pkg>`.
+- Two attempts per tool, 15 seconds apart, and one failure never stops the rest.
 
 ---
 
@@ -191,10 +208,10 @@ Behaviour:
 `npm install -g` on Windows writes to `%AppData%\Roaming\npm` when run from
 an unprivileged shell, and to `%ProgramFiles%\nodejs\node_modules` when run
 elevated. Lifecycle scripts in transitive dependencies execute with the
-invoking shell's privileges. **Always run this playbook from a non-elevated
-PowerShell**; the rest of the playbook does not need Administrator for the
-npm path. Chocolatey tasks that legitimately need elevation prompt via UAC
-on their own.
+invoking shell's privileges. **Always run `setup.ps1` from a non-elevated
+PowerShell.** The npm path needs no Administrator at all, and the two phases
+that genuinely do, the Chocolatey batch and the optional features, raise their
+own consent prompt for one elevated child rather than elevating the wizard.
 
 See [setup/README_SETUP.md](../setup/README_SETUP.md) for the canonical
 Windows run instructions.
@@ -212,5 +229,6 @@ Windows run instructions.
 | Codex | `install_codex` | `@openai/codex` | none (a `codex` cask exists, npm chosen for one code path) |
 | Grok | `install_grok` | `@xai-official/grok` | none (a `grok-build` cask exists, npm chosen for one code path) |
 
-All six go through the helpers — look at any of their `*_unix.yaml` /
-`*_windows.yaml` files (each is 5 lines) for a working reference.
+All six go through the Unix helper on Linux and macOS, and all six are rows in
+the `WindowsNpmTools.ps1` table on Windows. Look at any of the `*_unix.yaml`
+files (each is 5 lines) for a working reference.

@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 #
-# Tier 1: the native Windows npm tool list must match the Ansible role it replaces.
+# Tier 1: the native Windows npm tool list must match the one the ai_tools role installs everywhere
+# else.
 #
-# The ai_tools role has a Windows task file per npm tool and none of them can run, because the
-# playbook is invoked from inside WSL and reports os_family Debian. setup/windows/WindowsNpmTools.ps1
-# is the native replacement, which means there are now two lists of the same packages.
+# The role used to carry a Windows task file per npm tool and none of them could run, because the
+# playbook is invoked from inside WSL and reports os_family Debian. Those files have been deleted and
+# setup/windows/WindowsNpmTools.ps1 is the whole Windows path now. See docs/regression_ledger.md.
 #
-# Two lists of the same thing drift. That is not a hypothetical here: the bash and PowerShell wizards
-# drifted on toggle parsing and one of them was broken for months before anyone noticed. This compares
-# them directly, extracting each side independently, so adding a tool to one and forgetting the other
-# fails immediately instead of silently shipping a tool nobody installs.
+# That still leaves two lists of the same packages, one per platform, and two lists of the same thing
+# drift. That is not a hypothetical here: the bash and PowerShell wizards drifted on toggle parsing
+# and one of them was broken for months before anyone noticed. The Unix task files are the other
+# list, and they are a better reference than the deleted Windows ones ever were, because they
+# execute: a tool whose Windows package has drifted from the package Linux and macOS install is a
+# real difference in what the user gets, not a difference between a live file and a dead one.
 #
-# The Ansible side is kept as the reference even though it cannot execute, because it is where the
-# toggle wiring and the documentation still live, and because deleting it would lose the record of
-# what the Windows path is supposed to do.
+# Each side is extracted with a different expression on purpose, so a shared mistake cannot hide the
+# difference.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -25,11 +27,11 @@ info "Tier 1: Windows npm tool parity"
 [[ -f "${PS_FILE}" ]] || { fail "WindowsNpmTools.ps1 is missing" "${PS_FILE}"; finish "Windows npm parity"; }
 [[ -d "${AI_TASKS}" ]] || { fail "ai_tools task directory is missing" "${AI_TASKS}"; finish "Windows npm parity"; }
 
-# The Ansible side: every npm_pkg named by a *_windows.yaml consumer. The shared helper itself only
+# The Ansible side: every npm_pkg named by a *_unix.yaml consumer. The shared helper itself only
 # documents the variable, so it is excluded.
 ansible_pkgs="$(
-    for f in "${AI_TASKS}"/*_windows.yaml; do
-        [[ "$(basename "${f}")" == "npm_install_windows.yaml" ]] && continue
+    for f in "${AI_TASKS}"/*_unix.yaml; do
+        [[ "$(basename "${f}")" == "npm_install_unix.yaml" ]] && continue
         grep -hE '^\s*npm_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_pkg:\s*//; s/"//g; s/\s+$//'
     done | sort -u
 )"

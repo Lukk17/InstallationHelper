@@ -1,40 +1,44 @@
 #!/usr/bin/env bash
 #
-# Tier 1: the native Windows system settings must agree with the Ansible they replaced and with the
-# toggles that select them.
+# Tier 1: the native Windows system settings must agree with the toggles that select them, and the
+# feature list a checker is shown must be the one the machine actually gets.
 #
-# setup/windows/WindowsSettings.ps1 applies the four Windows system settings natively, because the
-# windows_core task files that used to do it can never run: both wizards invoke the playbook from
-# inside WSL as `-i localhost, -c local`, so ansible_os_family reports Debian and every Windows-gated
-# task is skipped. See docs/regression_ledger.md.
+# setup/windows/WindowsSettings.ps1 applies the four Windows system settings natively. The
+# windows_core task files that used to express them could never run, because both wizards invoke the
+# playbook from inside WSL as `-i localhost, -c local`, so ansible_os_family reports Debian and every
+# Windows-gated task is skipped. Those files have been deleted, so this file is the only place the
+# four settings exist at all. See docs/regression_ledger.md.
 #
-# That leaves the same two-lists shape the bash and PowerShell wizards shipped for months, and the
-# same shape windows_mapping.sh and windows_npm_parity.sh already watch for the software catalogue.
-# Nothing watched this file at all until now. Two invariants matter.
+# Three invariants matter.
 #
-# 1. The optional features enable_hyperv turns on must be the list windows_features.yaml loops over,
-#    in the same order. The Ansible side stays as the reference even though it cannot execute,
-#    because that is where the toggle wiring and the documented intent still live.
+# 1. The optional features enable_hyperv turns on are declared once, they lead with the two features
+#    WSL 2 needs, and the applier is handed that declaration rather than a list of its own. Order is
+#    part of the claim: the elevated child enables them in the order given, and VirtualMachinePlatform
+#    and Microsoft-Windows-Subsystem-Linux are the two WSL 2 cannot start without.
 #
-# 2. Every setting key this file claims must be a real toggle, and every system-setting toggle a
+# 2. The accessor a checker asks returns exactly that declaration. Anything else means this check and
+#    the machine are looking at different lists, which is the shape of failure the deleted YAML file
+#    used to stand in for.
+#
+# 3. Every setting key this file claims must be a real toggle, and every system-setting toggle a
 #    Windows user can tick must be claimed by this file. Both directions, because a key with no
 #    toggle can never be selected and a toggle with no key is ledger rule 4: a toggle is not
 #    implemented until something consumes it, and install_gradle sat unimplemented behind a comment
 #    claiming otherwise.
 #
-# The second direction is also where toggle_coverage.sh stops. That check reasons about install_
-# toggles only, resolving each one to a package mapping or to a task, and these four have neither and
-# never will: they are system settings with no vars/Windows.yaml entry possible and one consumer,
-# this file. Teaching toggle_coverage a fifth non-install shape would mean special-casing Windows
-# inside it a second time, so the non-install half of Windows coverage lives here, next to the only
-# thing that implements it.
+# The third is also where toggle_coverage.sh stops. That check reasons about install_ toggles only,
+# resolving each one to a package mapping or to a task, and these four have neither and never will:
+# they are system settings with no vars/Windows.yaml entry possible and one consumer, this file.
+# Teaching toggle_coverage a fifth non-install shape would mean special-casing Windows inside it a
+# second time, so the non-install half of Windows coverage lives here, next to the only thing that
+# implements it.
 #
 # The two lists are asked of the file through Get-WindowsOptionalFeatureName and
 # Get-WindowsSettingKey rather than parsed out of it, which is why they are exported. Asking means
-# the check sees what the applier sees. It also means the comparisons need a runnable PowerShell 7,
+# the check sees what the applier sees. It also means those comparisons need a runnable PowerShell 7,
 # and where there is none they report SKIP rather than passing quietly, the same way the mapping
-# check does. The one assertion that needs no PowerShell is that both accessors still exist, so a
-# SKIP cannot hide their deletion.
+# check does. The two assertions that need no PowerShell are that both accessors still exist and that
+# the feature declaration is what reaches the applier, so a SKIP cannot hide either.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/pwsh_probe.sh"
@@ -42,13 +46,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/pwsh_probe.sh"
 PS_FILE="${REPO_ROOT}/setup/windows/WindowsSettings.ps1"
 SOFTWARE_PS1="${REPO_ROOT}/setup/windows/WindowsSoftware.ps1"
 SETUP_PS1="${REPO_ROOT}/setup/setup.ps1"
-FEATURES_YAML="${ANSIBLE_DIR}/roles/windows_core/tasks/windows_features.yaml"
 ALL_VARS="${ANSIBLE_DIR}/group_vars/all.yaml"
 WINDOWS_VARS="${ANSIBLE_DIR}/group_vars/windows.yaml"
 
 info "Tier 1: Windows system settings"
 
-for f in "${PS_FILE}" "${SOFTWARE_PS1}" "${SETUP_PS1}" "${FEATURES_YAML}" "${ALL_VARS}" "${WINDOWS_VARS}"; do
+for f in "${PS_FILE}" "${SOFTWARE_PS1}" "${SETUP_PS1}" "${ALL_VARS}" "${WINDOWS_VARS}"; do
     [[ -f "${f}" ]] || { fail "a file this check compares is missing" "${f}"; finish "Windows system settings"; }
 done
 
@@ -67,30 +70,48 @@ else
     finish "Windows system settings"
 fi
 
-# The Ansible side of the feature list, in file order. Read out of the loop body rather than by
-# matching feature names, so a name added to the loop that this check does not recognise still counts
-# as a difference instead of vanishing.
-yaml_features="$(
-    awk '
-        /^[[:space:]]+loop:[[:space:]]*$/ { in_loop = 1; next }
-        in_loop && /^[[:space:]]+-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$/ {
-            sub(/^[[:space:]]+-[[:space:]]+/, "", $0); sub(/[[:space:]]+$/, "", $0); print; next
-        }
-        in_loop { in_loop = 0 }
-    ' "${FEATURES_YAML}"
+# --- invariant 1: one declaration, in the right order, and it is what the applier is handed -------
+# Read out of the declared array rather than by matching feature names, so a name added to it that
+# this check does not recognise still counts instead of vanishing. The call sites are checked in the
+# same assertion because a declaration nothing passes on is decoration: Enable-WindowsFeatureSet
+# takes -FeatureName, so a second literal list at the call site would enable something else entirely
+# while every other assertion here still passed.
+declared_features="$(
+    sed -n '/^\$script:OptionalFeatureNames = @($/,/^)$/p' "${PS_FILE}" \
+        | sed -nE "s/^[[:space:]]+'([^']+)'[[:space:]]*$/\1/p"
 )"
-n_yaml_features="$(grep -c . <<<"${yaml_features}" || true)"
+n_declared="$(grep -c . <<<"${declared_features}" || true)"
 
-if [[ "${n_yaml_features}" -eq 0 ]]; then
-    fail "no optional feature names found in windows_features.yaml, so this check cannot mean anything" \
-         "expected a loop of feature names in ${FEATURES_YAML}"
+# Call sites only, so the function definition and any prose mentioning it are excluded.
+mapfile -t feature_callsites < <(
+    grep -nE 'Enable-WindowsFeatureSet' "${PS_FILE}" \
+        | grep -vE ':[[:space:]]*#' \
+        | grep -vE ':function Enable-WindowsFeatureSet \{'
+)
+
+feature_problems=()
+[[ "${n_declared}" -ge 2 ]] || feature_problems+=("the declared feature list has ${n_declared} entries")
+[[ "$(sed -n 1p <<<"${declared_features}")" == 'VirtualMachinePlatform' ]] \
+    || feature_problems+=("VirtualMachinePlatform is not first")
+[[ "$(sed -n 2p <<<"${declared_features}")" == 'Microsoft-Windows-Subsystem-Linux' ]] \
+    || feature_problems+=("Microsoft-Windows-Subsystem-Linux is not second")
+[[ ${#feature_callsites[@]} -gt 0 ]] || feature_problems+=("nothing calls Enable-WindowsFeatureSet")
+for line in "${feature_callsites[@]}"; do
+    [[ "${line}" == *'Enable-WindowsFeatureSet -FeatureName (Get-WindowsOptionalFeatureName)'* ]] \
+        || feature_problems+=("a call site passes something other than the declaration: ${line}")
+done
+
+if [[ ${#feature_problems[@]} -eq 0 ]]; then
+    pass "the ${n_declared} optional features are declared once, WSL 2's two lead them, and every call site enables that declaration"
+else
+    fail "the optional feature declaration and what gets enabled do not line up" "${feature_problems[*]}"
     finish "Windows system settings"
 fi
 
 PWSH="$(find_runnable_pwsh || true)"
 
 if [[ -z "${PWSH}" ]]; then
-    skip "WindowsSettings.ps1 compared against windows_features.yaml and the toggles" "${PWSH_ABSENT_REASON}"
+    skip "WindowsSettings.ps1's accessors compared against the declaration and the toggles" "${PWSH_ABSENT_REASON}"
     finish "Windows system settings"
 fi
 
@@ -117,18 +138,18 @@ if [[ -z "${ps_features}" || -z "${ps_keys}" ]]; then
     finish "Windows system settings"
 fi
 
-# --- invariant 1: the feature list ------------------------------------------------------------
-# Order is compared as well as membership. WindowsSettings.ps1 states that its list is
-# windows_features.yaml's, in its order, and a reordering is the cheapest way for that claim to stop
-# being true. It also matters: VirtualMachinePlatform and Microsoft-Windows-Subsystem-Linux are what
-# WSL 2 needs, and the elevated child enables them in the order given.
-if [[ "${yaml_features}" == "${ps_features}" ]]; then
-    pass "WindowsSettings.ps1 and windows_features.yaml name the same ${n_yaml_features} optional features, in the same order"
+# --- invariant 2: the accessor returns the declaration ------------------------------------------
+# Order is compared as well as membership, because the elevated child enables them in the order
+# given. This is the successor to the comparison against windows_core/tasks/windows_features.yaml,
+# which was deleted with the rest of the unreachable Windows Ansible: the second list is now the
+# file's own declaration, so what this catches is an accessor that filters, reorders or answers with
+# something else entirely, which is the only way the applier and a checker can still disagree.
+if [[ "${declared_features}" == "${ps_features}" ]]; then
+    pass "Get-WindowsOptionalFeatureName returns the ${n_declared} declared optional features, in the declared order"
 else
-    fail "WindowsSettings.ps1 and windows_features.yaml disagree about the optional features enable_hyperv turns on" \
-         "$(diff <(echo "${yaml_features}") <(echo "${ps_features}") | head -12 | tr '\n' ' ')"
+    fail "Get-WindowsOptionalFeatureName and the declaration in the same file disagree about the optional features enable_hyperv turns on" \
+         "$(diff <(echo "${declared_features}") <(echo "${ps_features}") | head -12 | tr '\n' ' ')"
 fi
-
 # --- invariant 2, forward: every declared key is a real toggle ---------------------------------
 # The pair of files is all.yaml overlaid by windows.yaml, which is what Get-WindowsGroupVarToggle
 # reads and the precedence the playbook and both wizards use. windows.yaml alone would be the wrong

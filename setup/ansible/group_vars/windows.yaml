@@ -6,11 +6,11 @@
 # Windows System Configurations
 setup_wsl: true
 enable_hyperv: true
-# Off by owner choice, not by a missing artefact. wsl_setup.yaml (the dead Ansible task) still
-# imports a scheduled-task XML that does not exist in this repository, but setup/windows/
-# WindowsSettings.ps1 builds the task natively from its action, trigger and settings instead of
-# importing anything, so there is nothing left to commit before this can be turned on. See
-# docs/regression_ledger.md.
+# Off by owner choice, not by a missing artefact. The Ansible task that used to own this imported a
+# scheduled-task XML that does not exist in this repository, and it has been deleted along with the
+# rest of the unreachable Windows Ansible. setup/windows/WindowsSettings.ps1 builds the task natively
+# from its action, trigger and settings instead of importing anything, so there is nothing left to
+# commit before this can be turned on. See docs/regression_ledger.md.
 import_hibernate_task: false
 
 # Windows Only Dev Tools

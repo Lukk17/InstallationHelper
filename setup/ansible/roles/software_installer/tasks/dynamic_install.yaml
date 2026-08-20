@@ -810,12 +810,6 @@
         - brew_cask_packages | length > 0
       tags: [brew]
 
-    # ------------------ WINDOWS MANAGERS ------------------
-    - name: Include Windows installation tasks
-      ansible.builtin.include_tasks: windows_install.yaml
-      when: ih_family == 'Windows'
-      tags: [choco, winget]
-
     # ------------------ CUSTOM INSTALLS (flatpak bundles, AppImages, binaries) --
     - name: Include Linux custom install tasks
       ansible.builtin.include_tasks: custom_installs.yaml

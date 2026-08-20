@@ -1,17 +1,10 @@
 ---
 # macOS install is handled by software_installer via the `bruno_cli`
-# entry in vars/Darwin.yaml (brew formula). This file covers Linux + Windows
-# where no native CLI package exists and npm is the only upstream-supported
-# install method.
+# entry in vars/Darwin.yaml (brew formula). This file covers Linux, where no
+# native CLI package exists and npm is the only upstream-supported install
+# method. Windows installs it natively through setup/windows/WindowsNpmTools.ps1.
 - name: Include Bruno CLI Unix tasks
   ansible.builtin.include_tasks: bruno_cli_unix.yaml
   when:
-    - ih_family != 'Windows'
     - ih_family != 'Darwin'
-    - install_bruno_cli | default(false) | bool
-
-- name: Include Bruno CLI Windows tasks
-  ansible.builtin.include_tasks: bruno_cli_windows.yaml
-  when:
-    - ih_family == 'Windows'
     - install_bruno_cli | default(false) | bool

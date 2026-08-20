@@ -1,6 +1,0 @@
----
-- name: Install Bruno CLI via npm helper (Windows)
-  ansible.builtin.include_tasks: npm_install_windows.yaml
-  vars:
-    npm_pkg: "@usebruno/cli"
-    npm_display_name: "Bruno CLI"

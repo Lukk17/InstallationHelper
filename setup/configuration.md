@@ -13,8 +13,8 @@ Configuration tasks the Ansible playbook performs, grouped by desktop environmen
 | Antigravity | Linux | Installed from Google's official apt/yum repos (`us-central1-apt.pkg.dev` / `us-central1-yum.pkg.dev`) configured by `debian_repos.yaml` / `fedora_repos.yaml`. AUR slug `antigravity` on Arch. Auto-updates work the same as Chrome. |
 | Antigravity | macOS | Direct DMG from Google's official CDN `edgedl.me.gvt1.com` (Google Video Transcoding — same CDN that delivers Chrome). `macos_install.yaml` reads `ansible_facts['architecture']` and picks the arm64 DMG on Apple Silicon, the x64 DMG on Intel. Version pinned in `pinned_values.toml` (`antigravity_version`, `antigravity_build`). |
 | Antigravity | Windows | winget `Google.AntigravityIDE`. |
-| Gridcoin | macOS / Windows | DMG / `.exe` from `github.com/gridcoin-community/Gridcoin-Research` releases (tag `5.5.0.0`) — handled by `macos_install.yaml` / `windows_install.yaml`. Arch uses the official flatpak bundle (`custom_installs.yaml`). |
-| FileZilla / Maven / Gradle / VMware Workstation Player / GeForce Experience | Windows | No winget manifest. Each falls back to Chocolatey via `manager: choco` in `vars/Windows.yaml`. The `win_chocolatey` module bootstraps Chocolatey on first use. |
+| Gridcoin | macOS / Windows | DMG / `.exe` from `github.com/gridcoin-community/Gridcoin-Research` releases (tag `5.5.0.0`) — handled by `macos_install.yaml` on macOS and by `setup/windows/WindowsCustomInstalls.ps1` on Windows. Arch uses the official flatpak bundle (`custom_installs.yaml`). |
+| FileZilla / Maven / Gradle / VMware Workstation Player / GeForce Experience | Windows | No winget manifest. Each falls back to Chocolatey via `manager: choco` in `vars/Windows.yaml`. `setup/windows/WindowsSoftware.ps1` bootstraps Chocolatey on first use and installs the whole `choco` set in one elevated batch. |
 | Lens | Linux | Lens Desktop is free for personal use. Installed from the official apt/dnf repo (`downloads.k8slens.dev`) configured by `debian_repos.yaml` / `fedora_repos.yaml`. macOS uses cask `lens`; Windows uses winget `Mirantis.Lens`; Arch uses AUR `lens-bin`. |
 | FileZilla | macOS | No Homebrew cask exists for FileZilla on macOS. The `install_filezilla` toggle maps to **Cyberduck** (cask `cyberduck`) — the standard free macOS FTP/SFTP/S3 client. Set the toggle to `false` and install FileZilla manually from `filezilla-project.org` if you need FileZilla specifically. |
 | Game storefronts (EA app, GOG Galaxy, Epic, CurseForge) | Linux | No official Linux clients. `install_ea_app` / `install_gog` / `install_epic` / `install_curseforge` map to winget (Windows) and Homebrew casks (macOS) only; they no-op on Linux since `vars/{Debian,RedHat,Archlinux}.yaml` carry no mapping for these keys. Run the games on Linux via Lutris/Heroic + Proton if needed. |
@@ -67,13 +67,16 @@ Configuration tasks the Ansible playbook performs, grouped by desktop environmen
 | Base Setup | macos_core | macOS-specific configuration |
 | Zsh Setup | shell_zsh | Oh My Zsh installation |
 
-## Windows (via WSL)
+## Windows
 
-| Task | Role | Description |
-|------|------|-------------|
-| Base Setup | windows_core | Windows-specific configuration |
-| WSL Setup | windows_core | WSL configuration |
-| Virtualization | windows_core | Windows virtualization features |
+Windows is not provisioned by Ansible at all. `setup/setup.ps1` runs natively and dispatches to the modules in `setup/windows/`, which read the same `group_vars` toggles and the same `vars/Windows.yaml` mappings the playbook reads, so only the executor differs.
+
+| Task | Module | Description |
+|------|--------|-------------|
+| Optional features, WSL, wallpaper, hibernate task | `WindowsSettings.ps1` | The four Windows system settings |
+| winget and Chocolatey catalogue | `WindowsSoftware.ps1` | Everything with a `vars/Windows.yaml` mapping, virtualization included |
+| Java, Node, Flutter, Gridcoin, Razer Cortex | `WindowsCustomInstalls.ps1` | The five no single package expresses |
+| Claude Code, OpenCode, OpenSpec, Codex, Grok, Bruno CLI | `WindowsNpmTools.ps1` | The npm-based command line tools |
 
 ## Cross-Platform (All Operating Systems)
 

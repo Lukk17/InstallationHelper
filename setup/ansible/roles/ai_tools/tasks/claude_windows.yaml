@@ -1,6 +1,0 @@
----
-- name: Install Claude Code CLI via npm helper (Windows)
-  ansible.builtin.include_tasks: npm_install_windows.yaml
-  vars:
-    npm_pkg: "@anthropic-ai/claude-code"
-    npm_display_name: "Claude Code"

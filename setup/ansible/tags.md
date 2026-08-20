@@ -42,7 +42,6 @@ Pass any of these to run a whole role.
 
 | Tag | What it runs |
 |---|---|
-| `bootstrap_windows` | Core Windows bootstrap (winget enablement, prereqs) |
 | `bootstrap_macos` | Core macOS bootstrap (Homebrew install + PATH) |
 | `bootstrap_arch` | Core Arch bootstrap (paru/yay, multilib, base config) |
 | `bootstrap_fedora` | Core Fedora bootstrap (Chrome/Brave/VSCode/Sublime/Antigravity repos, snapd) |
@@ -87,7 +86,7 @@ Pass any of these to run just that subsystem. Inherits the parent role tag autom
 | `openspec` | OpenSpec CLI (npm) | `nvm` (skips with warning) |
 | `codex` | Codex CLI — `@openai/codex` via npm on every OS | `nvm` (skips with warning) |
 | `grok` | Grok CLI — `@xai-official/grok` via npm on every OS | `nvm` (skips with warning) |
-| `bruno_cli` | Bruno CLI — `bruno-cli` brew formula on macOS, `@usebruno/cli` via npm on Linux + Windows | `nvm` on Linux/Windows (skips with warning) |
+| `bruno_cli` | Bruno CLI — `bruno-cli` brew formula on macOS, `@usebruno/cli` via npm on Linux | `nvm` on Linux (skips with warning) |
 | `local_llm` | LM Studio + Stable Diffusion WebUI | — |
 
 #### Virtualization subsystems
@@ -107,8 +106,6 @@ Pass any of these to run just that subsystem. Inherits the parent role tag autom
 | `snap` | Snap package installs |
 | `flatpak` | Flathub remote + Flatpak batched installs (Debian via raw, Arch/Fedora via module) |
 | `brew` | Homebrew formulas + Casks (macOS) |
-| `choco` | Chocolatey packages (Windows) |
-| `winget` | Winget packages (Windows) |
 
 ## Common recipes
 
@@ -167,7 +164,7 @@ Some Layer 2 subsystems genuinely depend on other Layer 2 subsystems. The playbo
 | Subsystem | Hard dep | Behavior when dep is missing |
 |---|---|---|
 | `fvm` on Arch | `dart` | Auto-installs dart via pacman (idempotent — no-op if already there) |
-| `claude`, `opencode`, `openspec`, `bruno_cli` | `nvm` (Linux + Windows only) | Skips with `[WARN]` debug message; instructs you to run `--tags nvm,ai`. On macOS, these tools install via brew (`bruno_cli` uses the `bruno-cli` formula; `claude`/`opencode`/`openspec` continue to use npm under brew-installed Node) and have no nvm dep. |
+| `claude`, `opencode`, `openspec`, `bruno_cli` | `nvm` (Linux only) | Skips with `[WARN]` debug message; instructs you to run `--tags nvm,ai`. On macOS, these tools install via brew (`bruno_cli` uses the `bruno-cli` formula; `claude`/`opencode`/`openspec` continue to use npm under brew-installed Node) and have no nvm dep. |
 | `android` | `sdkman` (provides Java) | Skips with `[WARN]` debug message; instructs you to run `--tags sdkman,android` |
 | `docker` on Arch (with virt-manager installed) | `libvirt` | The libvirt firewall_backend fixup is skipped if libvirtd unit is absent (which is correct — without libvirt, Docker doesn't need that fixup) |
 
@@ -182,7 +179,7 @@ If you see a `[WARN] Skipping ...` debug line, that's the playbook telling you w
   `--tags brew` or `--tags software`.
 - A full run (no `--tags` filter) installs Bruno CLI on every OS as expected; the asymmetry only
   matters for surgical re-runs.
-- Linux and Windows still install via the npm helper, gated by `--tags bruno_cli`.
+- Linux still installs via the npm helper, gated by `--tags bruno_cli`.
 
 The same applies to any future tool that adds a brew formula entry in `vars/Darwin.yaml` —
 see [docs/AI_TOOLS_ADDING.md](../../docs/AI_TOOLS_ADDING.md).
@@ -200,7 +197,7 @@ Don't apply `always` or `never` to new tasks unless you actually want that behav
 
 For each role-include in `site.yaml`:
 
-- Plain `import_role` lines (windows_core, macos_core, etc.) — tag is added on the line directly. `import_role` is static, so the tag propagates to every task inside the role.
+- Plain `import_role` lines (macos_core, arch_core, etc.) — tag is added on the line directly. `import_role` is static, so the tag propagates to every task inside the role.
 - Block-wrapped `import_role` lines (sdk_manager, virt, etc.) — tag is on the **block**, propagates to the inner `import_role` and to the `rescue:` handler. `include_role` was converted to `import_role` specifically so this static propagation works; the block+rescue semantics are unchanged.
 
 For dispatchers inside roles (e.g. `sdk_manager/tasks/main.yaml` includes `nvm.yaml`):

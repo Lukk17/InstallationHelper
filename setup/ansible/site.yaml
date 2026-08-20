@@ -61,11 +61,6 @@
         #    Order: per-OS core roles install bootloader prerequisites (efibootmgr, sbctl, etc.)
         #    that systemd_boot depends on. systemd_boot must run AFTER core roles.
         - ansible.builtin.import_role:
-            name: windows_core
-          when: "ih_family == 'Windows'"
-          tags: [bootstrap_windows]
-
-        - ansible.builtin.import_role:
             name: macos_core
           when: "ih_family == 'Darwin'"
           tags: [bootstrap_macos]

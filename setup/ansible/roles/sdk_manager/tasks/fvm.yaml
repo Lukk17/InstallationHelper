@@ -1,9 +1,4 @@
 ---
 - name: Include FVM Unix tasks
   ansible.builtin.include_tasks: fvm_unix.yaml
-  when: ih_family != 'Windows' and install_flutter | default(false) | bool
-
-- name: Include FVM Windows tasks
-  ansible.builtin.include_tasks: fvm_windows.yaml
-  when: ih_family == 'Windows' and install_flutter | default(false) | bool
-
+  when: install_flutter | default(false) | bool

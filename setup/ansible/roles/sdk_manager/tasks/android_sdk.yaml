@@ -1,9 +1,4 @@
 ---
 - name: Include Android SDK Unix tasks
   ansible.builtin.include_tasks: android_sdk_unix.yaml
-  when: ih_family != 'Windows' and install_android_sdk | default(false) | bool
-
-- name: Include Android SDK Windows tasks
-  ansible.builtin.include_tasks: android_sdk_windows.yaml
-  when: ih_family == 'Windows' and install_android_sdk | default(false) | bool
-
+  when: install_android_sdk | default(false) | bool

@@ -1,6 +1,0 @@
----
-- name: Install NVM (Windows)
-  chocolatey.chocolatey.win_chocolatey:
-    name: nvm
-    state: present
-
