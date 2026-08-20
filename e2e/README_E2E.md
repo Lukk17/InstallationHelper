@@ -68,6 +68,35 @@ Run every scenario, sequentially. Budget most of a day.
 
 ---
 
+### CI matrix sweep vs local runs
+
+The seven scenarios above cross five Linux distributions, which is 35 combinations. Nobody runs all 35 on one machine, so the harness is split across two places that prove different things.
+
+[.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each matrix cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 35 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
+
+Local Docker runs, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: fast feedback on the distribution and scenario a change actually touches, without waiting on 34 others.
+
+What each side proves, and does not:
+
+| | Proves | Does not prove |
+|---|---|---|
+| CI matrix sweep | The full cross product passes on GitHub's own infrastructure, including a distro/scenario pairing nobody happened to run locally | Correctness on the hardware you actually deploy to. A hosted runner's disk, memory and privileged-container behaviour differ from a personal Docker Desktop or WSL setup, and the sweep has not been observed to catch a defect that a local run would have missed, because it has not run yet |
+| Local run | The harness works on your actual machine, against your actual Docker setup, for the one scenario and distribution you are actively changing | The other 34 combinations still pass, unless you run them too |
+
+Dispatch the sweep from the Actions tab, or narrow it to one scenario or one distribution from the same form.
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=smoke -f distro=debian
+```
+
+Run everything.
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=all -f distro=all
+```
+
+---
+
 ### What to run when you change something
 
 The complete map. Tier 1 is not optional for anything under `setup/`, and the rest of this table
@@ -91,6 +120,7 @@ green: what that run still does not tell you.
 | a distribution Dockerfile, or a new distribution | `--tier 3 --scenario smoke --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
 | anything that only affects macOS | `./e2e/run.sh` and `./e2e/run.sh --tier 2` | everything that executes, because a Darwin container cannot run on a Linux or Windows kernel and the only executing macOS test is the `macos` target of the dispatch workflow |
 | `.github/workflows/e2e-manual.yml` | dispatch it from the Actions tab, one target platform at a time | nothing locally, and note that as of 2026-08-20 no workflow run has ever happened, because the remote is behind |
+| `.github/workflows/e2e-matrix.yml` | dispatch it from the Actions tab, the full sweep or narrowed to one scenario or one distribution | nothing locally, and it has never run either, added the same day as this row |
 | `homelab/` or `local-dev/` | nothing, and that is the honest answer | everything, no tier covers either directory today |
 
 Two rules that are easy to miss.
@@ -152,11 +182,15 @@ Intended no-ops are listed with a reason in [tier1/documented_no_ops.txt](tier1/
 
 ### What tier 2 checks
 
-Every package name in [setup/ansible/vars/](../setup/ansible/vars/) is resolved against the real index for its package manager. Nothing is installed and no container starts.
+Every package name in [setup/ansible/vars/](../setup/ansible/vars/) is resolved against the real index for its package manager, and so is every package name written directly into a role task. Nothing is installed anywhere.
 
-Covered: Arch official repositories, the Arch User Repository, Flathub, Homebrew formulae and casks, Chocolatey, and winget.
+Covered without a container: Arch official repositories, the Arch User Repository, Flathub, Homebrew formulae and casks, Chocolatey, and winget.
 
-Not covered, on purpose: apt and dnf. Most of those names come from repositories the playbook adds while it runs, so resolving them without those repositories in place would report failures for packages that are fine. Tier 3 covers them by actually installing them. This gap is stated rather than hidden, because a check that quietly skips half its input is worse than no check.
+Covered inside a throwaway container: apt and dnf. Both need a package index, so the check queries it inside the same pinned base image the tier 3 scenarios use, read out of [tier3/](tier3/)'s Dockerfiles so the check and the scenarios cannot drift apart. The container is asked and thrown away, and nothing is installed in it.
+
+This used to say apt and dnf were not covered on purpose, which left the 35 apt names and the 35 dnf names in the dictionaries resolved by nothing at all, on the two families most people run. The reasoning behind that gap was real: many of those names come from repositories the playbook adds while it runs, so asking a stock image about them reports failures for packages that are fine. The answer is [tier2/runtime_repo_packages.txt](tier2/runtime_repo_packages.txt), which forgives exactly those names with a reason each, and which is itself checked for entries that have gone stale in both directions, one that now resolves without the repository and one that nothing asks for any more.
+
+Debian and Ubuntu are both asked, against their own images, because their answers differ. Debian trixie ships its own kubectl and Ubuntu 26.04 does not, and openrazer-meta is packaged by both while Fedora has no such package. Asking one of them and assuming the other is the mistake that put four entries in the regression ledger.
 
 winget resolves two ways. The better one asks winget itself with `winget show --id <id> --exact`, which queries the source the installer will actually use, has no request budget, and answers the real question. It needs no setup and it is reachable from Git Bash and, measured on 2026-08-20, from WSL as well, because the Store `winget.exe` runs through interop and answers there. The check decides by running a candidate rather than by trusting a shell, so it takes that path wherever it works. The fallback looks for each manifest directory in `microsoft/winget-pkgs`, which needs an authenticated `gh` because unauthenticated GitHub allows 60 requests an hour and there are more ids than that.
 
@@ -279,3 +313,4 @@ Then prove it. Copy the tree, reintroduce the defect, and confirm the check fail
 | [AGENTS.md](../AGENTS.md) | The mandatory gate, and the rest of the agent contract |
 | [setup/README_SETUP.md](../setup/README_SETUP.md) | Running the playbook for real |
 | [setup/ansible/tags.md](../setup/ansible/tags.md) | Partial runs by tag, useful when triaging a scenario failure |
+| [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) | The full CI sweep, every scenario against every Linux distribution, dispatch-only |

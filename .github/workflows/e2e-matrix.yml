@@ -1,0 +1,341 @@
+# Full end-to-end matrix sweep: every tier-3 scenario against every Linux distribution.
+#
+# Trigger: workflow_dispatch only, on purpose. Same rule as e2e-manual.yml and the same reason:
+# no workflow in this repository may start on push, pull_request, schedule or any other automatic
+# event. Every run here is a deliberate action by whoever clicks "Run workflow", and this one is
+# the expensive one, so an accidental automatic trigger would be the worst place for it.
+#
+# Why this workflow exists, separate from e2e-manual.yml: e2e-manual.yml drives one platform at a
+# time from a rich dispatch form (desktop environment, software mode, individual toggles). This
+# workflow instead runs the seven fixed scenarios under e2e/tier3/scenarios/ against all five
+# Linux distributions the harness supports, which is the exhaustive sweep e2e/README_E2E.md's
+# own scenario table describes but that nobody can practically run end to end on one machine (35
+# jobs, several hours apiece for the heaviest ones). Public repositories get free standard
+# GitHub-hosted runners for exactly this, so the sweep moved here and the local Docker runs (see
+# e2e/README_E2E.md, "CI matrix sweep vs local runs") shrank back to one scenario on one platform
+# or distribution at a time, which is what a person actually needs while developing a change.
+#
+# It reuses the harness unmodified. Every cell of the matrix is one call to
+# `e2e/run.sh --tier 3 --scenario <name> --os <distro>`, the same command documented in
+# e2e/README_E2E.md and the same one a developer runs by hand. Nothing in e2e/, setup/ or
+# AGENTS.md is touched by this file.
+#
+# ---------------------------------------------------------------------------------------------
+# Facts this design was verified against on 2026-08-20 (see the URLs, not re-fetched by this
+# comment, trust the date next to each):
+#
+#   - GitHub Free plan: 20 concurrent jobs total across the account, of which at most 5 may be
+#     macOS. 6 hours (360 minutes) maximum per job. 35 days maximum per workflow run. 256 jobs
+#     maximum in one matrix. https://docs.github.com/en/actions/reference/limits
+#   - Public repositories using standard GitHub-hosted runners are free. Larger runners are
+#     always charged for, even on public repositories, so this workflow never requests one.
+#     https://docs.github.com/en/billing/concepts/product-billing/github-actions
+#   - Standard Linux runner (ubuntu-latest): 4 processors, 16 GB memory, 14 GB SSD.
+#     https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+#     The 14 GB figure is the FREE space left after GitHub's own preinstalled toolchains
+#     (dotnet, the Android SDK, GHC, hosted tool caches, Swift, and more), not the disk size.
+#     This workflow uses none of that preinstalled software, so it is deleted before anything
+#     is built, with a plain `rm -rf` rather than a third-party disk-cleanup action, so the
+#     exact list removed is visible in this file and nowhere else. Disk usage is printed before
+#     and after so a disk-exhaustion failure is diagnosable from the job log alone rather than
+#     guessed at.
+#
+# Matrix shape and job count: 5 distributions (arch, debian, ubuntu, fedora, cachyos, read from
+# e2e/tier3/*.Dockerfile at plan time rather than hardcoded here) times 7 scenarios (read from
+# e2e/tier3/scenarios/*.yaml at plan time) is 35 jobs for a full, unfiltered sweep, well under
+# the 256-job matrix ceiling. Every job runs on ubuntu-latest; this workflow never requests
+# macOS, so the 5-macOS-job sub-limit above never applies to it.
+#
+# Concurrency against the 20-job account-wide cap: 35 jobs is more than 20, so GitHub queues the
+# remainder automatically and starts each as a slot frees up. `max-parallel` is deliberately NOT
+# set on the matrix strategy below, for three reasons stated here rather than left to be
+# discovered. First, unlike the local `e2e/run.sh --tier 3 --scenario all --jobs N` queue, which
+# caps concurrency because every local scenario shares one host's Docker daemon, CPU and roughly
+# 5 GB of memory apiece (see run.sh's own E2E_MEM_PER_JOB_GB comment), every job here gets its
+# own isolated GitHub-hosted VM with its own 4 processors, 16 GB and 14 GB disk, so there is no
+# shared-resource contention between matrix cells for an explicit cap to protect against. Second,
+# this workflow is dispatch-only and this repository has never had a workflow execute at all as
+# of this writing, so contention with some other pipeline for the account's 20-job ceiling is not
+# a realistic concern today; if that changes, add `max-parallel` then, against a real number
+# instead of a guess. Third, an artificial cap below 20 would only stretch the sweep's wall-clock
+# time for no safety benefit, since GitHub already enforces the real ceiling by queuing.
+#
+# Per-job timeout: each matrix cell's `timeout-minutes` is that scenario's own declared timeout
+# (from e2e_timeout_minutes in its scenario file, the same value `e2e/run.sh --list` prints) plus
+# a 40-minute buffer for container build, copy and verification overhead, the same buffer
+# e2e-manual.yml uses for its one 300-minute case (300 -> 340). Capped defensively at the
+# 360-minute hosted-runner ceiling, though nothing shipped today reaches it: all-software,
+# kde-full and gnome-full are the scenarios with the longest declared timeout (300 minutes each),
+# so at 340 minutes buffered they are the ones closest to the 360-minute ceiling, 20 minutes
+# (about 5.6 percent) under it. A future scenario whose own timeout plus 40 exceeds 360 would be
+# silently truncated to 360 by this cap rather than rejected, which is worth knowing if a run
+# times out right at 360: raise the scenario's own e2e_timeout_minutes first and check whether
+# this workflow's buffer is still enough, rather than assuming the buffer failed.
+#
+# Two things this workflow cannot establish without actually being run, and are stated as
+# unverified rather than asserted:
+#
+#   1. Whether every scenario actually completes within its buffered timeout on GitHub's
+#      hardware. The heaviest three (all-software, kde-full, gnome-full) install a large software
+#      set inside the container; their 300-minute timeouts were set against runs on the
+#      repository owner's own machine, not against a GitHub-hosted runner, and this workflow has
+#      never executed as of this writing.
+#   2. Whether all-software specifically fits inside the disk this workflow frees. It already
+#      excludes the multi-gigabyte Stable Diffusion model clone and the JetBrains Toolbox IDEs
+#      (see e2e/tier3/scenarios/02-all-software.yaml and container_limits.yaml), which are the
+#      two heaviest known costs, and the cleanup step below is expected to free tens of
+#      gigabytes beyond the default 14 GB, based on widely reported figures for the same
+#      preinstalled toolchains on this runner image. Neither of those is a measurement taken in
+#      this repository's own CI, because none exists yet, so read the "Disk space after cleanup"
+#      line in a real run's log rather than trusting this comment.
+#
+# `--privileged` systemd-in-Docker, which every tier-3 scenario needs (see container.sh), is not
+# flagged as a risk here: GitHub-hosted Linux runners execute each job inside a full Linux VM
+# with its own Docker daemon rather than inside a container themselves, which is the same
+# environment `--privileged` already works in on any bare Linux host with Docker installed, and
+# is a widely used pattern in other projects' CI. It is called out explicitly anyway because it
+# has not been exercised in this repository's own CI as of this writing, so the first real run
+# of this workflow is still the first actual proof.
+#
+# Reproducing one cell of this sweep locally, without GitHub Actions, is exactly what the plan
+# job below tells the harness to do:
+#
+#   bash e2e/run.sh --tier 3 --scenario smoke --os debian
+#
+# Static verification performed on this file: YAML parses (python -c "import yaml;
+# list(yaml.safe_load_all(open(...)))"). actionlint is not installed anywhere on this machine
+# (same gap e2e-manual.yml's own header names), so it was not run. Nothing here has been
+# executed: a workflow_dispatch run needs an explicit, separate action by whoever runs it, and
+# writing this file does not take that action.
+name: E2E - full matrix sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Which tier-3 scenario(s) to run. 'all' runs every scenario under e2e/tier3/scenarios/."
+        type: choice
+        required: true
+        options:
+          - all
+          - defaults
+          - all-software
+          - kde-full
+          - gnome-full
+          - live-profile
+          - kde-configure-only
+          - smoke
+        default: all
+      distro:
+        description: "Which Linux distribution(s) to run against. 'all' runs every distro with a e2e/tier3/*.Dockerfile."
+        type: choice
+        required: true
+        options:
+          - all
+          - arch
+          - debian
+          - ubuntu
+          - fedora
+          - cachyos
+        default: all
+
+permissions:
+  contents: read
+
+# Queues a second dispatch behind a running sweep rather than cancelling either one. These runs
+# are expensive (up to 35 jobs, hours apiece), and silently cancelling a partially finished sweep
+# because someone else clicked "Run workflow" would throw away real signal for no reason. A
+# second full sweep queuing behind the first is the safe default; a human who wants to abandon
+# one can still cancel it from the Actions tab.
+concurrency:
+  group: e2e-matrix-sweep
+  cancel-in-progress: false
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Turns the dispatch form into an actual job matrix. The distribution list and each scenario's
+  # own timeout are read out of e2e/tier3/*.Dockerfile and e2e/tier3/scenarios/*.yaml here,
+  # rather than hardcoded, so a distribution or scenario added to the harness is covered by this
+  # workflow with no edit to this file, the same reasoning container.sh itself uses for the
+  # all-software toggle list.
+  # -----------------------------------------------------------------------
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      job_count: ${{ steps.plan.outputs.job_count }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the matrix from the dispatch inputs
+        id: plan
+        env:
+          IN_SCENARIO: ${{ inputs.scenario }}
+          IN_DISTRO: ${{ inputs.distro }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "::error::$1" >&2
+            exit 1
+          }
+
+          # Distributions: every *.Dockerfile in e2e/tier3/ except windows, which has its own
+          # non-container entry point (see run.sh's own refusal message for --os windows), and
+          # queue, which is not a --os target at all, it builds the unattended queue driver
+          # documented in AGENTS.md.
+          mapfile -t ALL_DISTROS < <(
+            ls -1 e2e/tier3/*.Dockerfile \
+              | xargs -n1 basename \
+              | sed 's/\.Dockerfile$//' \
+              | grep -vE '^(windows|queue)$' \
+              | sort
+          )
+
+          # Scenarios and their own declared timeouts, read straight out of the scenario files.
+          SCENARIOS=()
+          TIMEOUTS=()
+          for f in e2e/tier3/scenarios/*.yaml; do
+            name="$(grep -E '^e2e_scenario_name:' "${f}" | sed -E 's/^[^:]+:[[:space:]]*//' | tr -d '"')"
+            timeout="$(grep -E '^e2e_timeout_minutes:' "${f}" | sed -E 's/^[^:]+:[[:space:]]*//')"
+            : "${timeout:=180}"
+            SCENARIOS+=("${name}")
+            TIMEOUTS+=("${timeout}")
+          done
+
+          # Narrow to one distro/scenario if the dispatch form asked for it, validated against
+          # the sets just derived rather than trusted blindly: a choice input's option list can
+          # still drift from these files if one is renamed without the other being updated, the
+          # same risk e2e-manual.yml's own target_platform list carries.
+          if [[ "${IN_DISTRO}" != "all" ]]; then
+            printf '%s\n' "${ALL_DISTROS[@]}" | grep -qx -- "${IN_DISTRO}" \
+              || fail "distro '${IN_DISTRO}' has no e2e/tier3/${IN_DISTRO}.Dockerfile"
+            DISTROS=("${IN_DISTRO}")
+          else
+            DISTROS=("${ALL_DISTROS[@]}")
+          fi
+
+          SEL_NAMES=()
+          SEL_TIMEOUTS=()
+          if [[ "${IN_SCENARIO}" != "all" ]]; then
+            found=false
+            for i in "${!SCENARIOS[@]}"; do
+              if [[ "${SCENARIOS[$i]}" == "${IN_SCENARIO}" ]]; then
+                SEL_NAMES=("${SCENARIOS[$i]}")
+                SEL_TIMEOUTS=("${TIMEOUTS[$i]}")
+                found=true
+                break
+              fi
+            done
+            [[ "${found}" == true ]] || fail "scenario '${IN_SCENARIO}' not found under e2e/tier3/scenarios/"
+          else
+            SEL_NAMES=("${SCENARIOS[@]}")
+            SEL_TIMEOUTS=("${TIMEOUTS[@]}")
+          fi
+
+          # 40 minute buffer above each scenario's own declared timeout, same margin as
+          # e2e-manual.yml's 300 -> 340, capped at GitHub's 360 minute hard ceiling per job.
+          BUFFER=40
+          CEILING=360
+
+          MATRIX="["
+          first=true
+          for distro in "${DISTROS[@]}"; do
+            for i in "${!SEL_NAMES[@]}"; do
+              scenario="${SEL_NAMES[$i]}"
+              base_timeout="${SEL_TIMEOUTS[$i]}"
+              job_timeout=$(( base_timeout + BUFFER ))
+              [[ ${job_timeout} -gt ${CEILING} ]] && job_timeout=${CEILING}
+              [[ "${first}" == true ]] || MATRIX+=","
+              MATRIX+="{\"distro\":\"${distro}\",\"scenario\":\"${scenario}\",\"timeout\":${job_timeout}}"
+              first=false
+            done
+          done
+          MATRIX+="]"
+
+          JOB_COUNT=$(( ${#DISTROS[@]} * ${#SEL_NAMES[@]} ))
+
+          {
+            echo "matrix=${MATRIX}"
+            echo "job_count=${JOB_COUNT}"
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "### E2E matrix sweep plan"
+            echo
+            echo "${#DISTROS[@]} distribution(s) x ${#SEL_NAMES[@]} scenario(s) = ${JOB_COUNT} job(s)."
+            echo
+            echo "| distro | scenario | job timeout (minutes) |"
+            echo "|---|---|---|"
+            for distro in "${DISTROS[@]}"; do
+              for i in "${!SEL_NAMES[@]}"; do
+                base_timeout="${SEL_TIMEOUTS[$i]}"
+                job_timeout=$(( base_timeout + BUFFER ))
+                [[ ${job_timeout} -gt ${CEILING} ]] && job_timeout=${CEILING}
+                echo "| ${distro} | ${SEL_NAMES[$i]} | ${job_timeout} |"
+              done
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  # -----------------------------------------------------------------------
+  # One cell of the sweep. Every step below is either checkout, disk cleanup, or a direct,
+  # unmodified call into the harness (e2e/run.sh --tier 3), plus an artifact upload. No part of
+  # e2e/tier3/container.sh or e2e/run.sh's own logic is reimplemented here.
+  # -----------------------------------------------------------------------
+  e2e-sweep:
+    needs: plan
+    if: needs.plan.outputs.job_count != '0'
+    name: ${{ matrix.distro }} / ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space before building any image
+        run: |
+          set -euo pipefail
+
+          echo "Disk space before cleanup:"
+          df -h /
+
+          # ubuntu-latest ships tens of gigabytes of preinstalled toolchains this repository
+          # never touches: the harness only needs Docker itself. A plain rm rather than a
+          # third-party disk-cleanup action, so the exact list removed is visible here and
+          # nowhere else. Each path is removed independently so one missing path (a runner
+          # image change) does not stop the rest from being freed.
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/.ghcup || true
+          sudo rm -rf /opt/hostedtoolcache || true
+          sudo rm -rf /usr/share/swift || true
+          sudo docker image prune -af >/dev/null || true
+
+          echo "Disk space after cleanup:"
+          df -h /
+
+      - name: Run the tier-3 container harness
+        run: |
+          set -euo pipefail
+          bash e2e/run.sh --tier 3 --scenario "${{ matrix.scenario }}" --os "${{ matrix.distro }}"
+
+      - name: Upload e2e run artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-sweep-${{ matrix.distro }}-${{ matrix.scenario }}-${{ github.run_id }}
+          # e2e/run.sh writes one directory per run under e2e/runs/, each holding
+          # playbook.log, verify.log, result.txt and effective-vars.yaml, exactly as
+          # e2e-manual.yml's own artifact upload documents.
+          path: e2e/runs/
+          if-no-files-found: warn
+          retention-days: 14
