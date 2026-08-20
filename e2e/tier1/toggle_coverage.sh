@@ -103,6 +103,41 @@ check_family() {
         fail "${family}: ${#unresolved[@]} enabled toggles install nothing and are not documented as no-ops" \
              "${unresolved[*]}"
     fi
+
+    # The other direction, which nothing checked until this was written, and which was already
+    # costing five applications.
+    #
+    # The dispatcher gates every mapping on lookup('vars', 'install_' ~ key, default=false), and the
+    # toggles a run can see are all.yaml overlaid by the one per-OS file that family loads. A mapping
+    # whose toggle is defined in neither can never install, whatever its value, and nothing says so:
+    # the default of false makes it look like a deliberate choice. Found this way: Fedora mapped
+    # boot_repair with no toggle anywhere, and macOS mapped intellij and utm with no toggle anywhere
+    # plus docker and lynis whose toggles live only in linux.yaml, which macOS never loads.
+    #
+    # Defined is what matters here rather than enabled, because a toggle set to false is reachable
+    # and is a decision, while an absent toggle is an accident nobody can see from the mapping file.
+    local defined unreachable=() n_mapped=0
+    defined="$(
+        {
+            sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${GV_DIR}/${os_gv}"
+            sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${GV_DIR}/all.yaml"
+        } | grep -E '^install_[a-z0-9_]+: (true|false)$' \
+          | sed -E 's/^install_([a-z0-9_]+):.*/\1/' \
+          | sort -u
+    )"
+
+    while IFS= read -r key; do
+        [[ -z "${key}" ]] && continue
+        n_mapped=$((n_mapped + 1))
+        grep -qx "${key}" <<<"${defined}" || unreachable+=("${key}")
+    done <<<"${mapped}"
+
+    if [[ ${#unreachable[@]} -eq 0 ]]; then
+        pass "${family}: every one of the ${n_mapped} mappings has a toggle this family can see"
+    else
+        fail "${family}: ${#unreachable[@]} mapping(s) have no toggle this family loads, so they can never install" \
+             "${unreachable[*]}"
+    fi
 }
 
 check_family Debian    linux.yaml

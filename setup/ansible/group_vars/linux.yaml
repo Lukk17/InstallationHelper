@@ -84,3 +84,7 @@ apt_raw_flags: >-
   -o Dpkg::Options::=--force-confdef
   -o Dpkg::Options::=--force-confold
 
+# Mapped in vars/RedHat.yaml and, until this was added, unreachable: no install_boot_repair existed
+# in all.yaml or in this file, so Fedora could never install it whatever the mapping said. False
+# because false is what the run did before. boot-repair is a Fedora-only mapping here.
+install_boot_repair: false

@@ -20,3 +20,13 @@ install_vmware: false          # The vmware-fusion Homebrew cask no longer exist
 # User Identity for privilege-safe operations (macOS)
 non_root_home: "/Users/{{ non_root_user }}"
 
+# Mapped in vars/Darwin.yaml and, until this was added, unreachable: the dispatcher reads
+# install_<key> out of all.yaml overlaid by this file, and none of these four was defined in either,
+# so macOS could never install them whatever the mapping said. They are defined as false rather than
+# true because false is what the run did before, and turning four applications on is your decision
+# rather than a side effect of making the gate honest. docker and lynis do have toggles, in
+# group_vars/linux.yaml, which macOS does not load.
+install_intellij: false
+install_utm: false
+install_docker: false
+install_lynis: false
