@@ -98,6 +98,7 @@ software_mapping:
 
   # Virtualization
   utm: { manager: "brew_cask", package: "utm" }
+  docker: { manager: "brew_cask", package: "docker-desktop" }        # Docker Desktop, the same product Windows gets. macOS has no Linux kernel, so the engine runs in a virtual machine whichever tool provides it.
   # macOS does not have VMware Workstation Player (Windows/Linux only). The closest
   # equivalent was VMware Fusion, but the `vmware-fusion` cask no longer exists in
   # homebrew-cask: Broadcom moved the download behind a portal login, which is the same

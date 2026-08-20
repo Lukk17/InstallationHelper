@@ -160,6 +160,30 @@ Rules that come out of the ledger and that the gate cannot check for you:
 
 Full harness documentation, including what a container cannot test, is in [`e2e/README_E2E.md`](e2e/README_E2E.md).
 
+## Watch anything that runs long, every ten minutes
+
+A container scenario takes 45 to 300 minutes and a CI sweep takes hours. Neither tells you it is
+stuck, and a run that has hung looks exactly like a run that is working until you go and ask.
+
+So ask, on a timer, roughly every ten minutes, whichever way the work is running:
+
+```bash
+docker ps --filter name=e2e --format '{{.Names}}\t{{.Status}}'
+```
+
+```bash
+tail -5 e2e/runs/queue.log
+```
+
+```powershell
+gh run list --workflow e2e-matrix.yml --limit 5
+```
+
+Watching only for completion is the mistake. A queue that died leaves no notification, and one that
+did exactly that started two scenarios of three, exited, and nobody noticed for four hours. Check
+progress rather than presence: the same status ten minutes later is a stall, and the container being
+alive proves nothing about whether the playbook inside it is still doing anything.
+
 ## OpenSpec Workflow
 
 This project uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven development. Specs and changes live under `openspec/`.
@@ -354,13 +378,6 @@ wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projek
 - Adding new roles or tasks
 - Installing collections from requirements.yaml
 - Modifying any file in `setup/ansible/`
-
-## How to be compatible with IDE
-
-Always output file edits using strict SEARCH/REPLACE blocks.
-Ensure exact matching of existing indentation and formatting for the diff viewer to parse correctly.
-Never use the built-in read tool.
-If you need to read a file, use the bash tool to execute cat, head, or grep on the file path instead.
 
 ## OpenSpec Project Conventions
 

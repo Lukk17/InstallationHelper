@@ -24,14 +24,13 @@ non_root_home: "/Users/{{ non_root_user }}"
 # install_<key> out of all.yaml overlaid by this file, and none of them was defined in either, so
 # macOS could never install them whatever the mapping said.
 #
-# docker and lynis are on, because they are on for Linux and they are the same software. Docker on
-# macOS is colima plus the Docker command line rather than Docker Desktop, installed by
-# roles/software_installer/tasks/macos_install.yaml, which is also where the reasoning lives. Lynis
-# is the same Unix security auditing tool Linux gets, from the same upstream.
+# docker and lynis are on, because they are on for Linux too. Docker on macOS is Docker Desktop, the
+# cask, which is the same product Windows gets: macOS has no Linux kernel, so the engine runs in a
+# virtual machine whatever you choose, and Docker Desktop is the one Docker supports. Lynis is the
+# same Unix security auditing tool Linux gets, from the same upstream.
 #
-# utm is off, and it is the one entry here with no Linux counterpart: it is a macOS-only virtual
-# machine application built on QEMU. The Linux answer to the same need is install_virt_manager,
-# which is a separate toggle in group_vars/linux.yaml.
+# utm is the one entry here with no Linux counterpart: it is a macOS-only virtual machine
+# application built on QEMU, and it is the Mac answer to what install_virt_manager gives Linux.
 install_docker: true
 install_lynis: true
-install_utm: false
+install_utm: true
