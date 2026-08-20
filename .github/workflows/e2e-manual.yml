@@ -48,16 +48,16 @@
 #     does with WSL (installing Ansible inside an already-registered distribution) is a
 #     best-effort phase inside the script itself, not something this workflow drives.
 #
-#     KNOWN BLOCKING ISSUE, found while writing this and not fixed here because it lives in
-#     setup.ps1, out of scope for this change: Invoke-Main's first call is Assert-NotAdmin,
-#     which throws "Do not run as Administrator" whenever
+#     ELEVATION, which used to block this job entirely: Invoke-Main's first call is
+#     Assert-NotAdmin, which throws "Do not run as Administrator" whenever
 #     [Security.Principal.WindowsPrincipal]::IsInRole(Administrator) is true. GitHub's hosted
 #     Windows runners execute the job as a member of the local Administrators group with User
 #     Account Control disabled (see the comment above the "Run the bootstrap wizard" step in
 #     the windows-wizard job for the citation). Without UAC's token split, that makes
-#     IsInRole(Administrator) true for every process the runner starts, elevated or not, so
-#     Assert-NotAdmin is expected to reject this job's very first line of work, before
-#     -ListSoftware or -PrintPlan could even answer. This is stated here rather than worked
+#     IsInRole(Administrator) true for every process the runner starts, elevated or not. The
+#     job therefore passes -AllowAdministrator, which setup.ps1 grew for exactly this case and
+#     which names the cost in its own output. This paragraph used to say the job was expected
+#     to fail here. It is not any more. Stated at length rather than worked
 #     around, because the fix belongs in setup.ps1 (for example an escape hatch keyed off a CI
 #     environment variable) and that file is out of scope for this change. The job is wired up
 #     correctly regardless, so it starts working the moment that guard is relaxed for CI.
@@ -580,9 +580,9 @@ jobs:
         # concern is the opposite one: setup.ps1's Assert-NotAdmin refuses to run AS an
         # administrator, and without UAC's token split, a member of Administrators IS the
         # Administrator role for IsInRole's purposes on this runner regardless of elevation.
-        # This step is therefore expected to fail at Assert-NotAdmin until that guard grows a
-        # CI exception in setup.ps1, which is out of scope here. See the file header comment
-        # for the full note. The argument-building below is correct and ready for when it does.
+        # -AllowAdministrator is the documented way past that guard and it exists for exactly
+        # this case, a throwaway machine. It is passed unconditionally below rather than
+        # guessed at, because every runner this job can land on has that property.
         env:
           SEL_SOFTWARE: ${{ needs.plan.outputs.software_mode }}
           SEL_PROFILE: ${{ needs.plan.outputs.profile_name }}
@@ -595,7 +595,9 @@ jobs:
           # -NonInteractive always: -Software/-EnableKey/-DisableKey being unset would
           # otherwise fall into the interactive Out-ConsoleGridView picker, which needs a
           # real console this runner does not have.
-          $psArgs = @('-NonInteractive')
+          # -AllowAdministrator: see the note above this step. Without it the wizard rejects
+          # the run on its first line, before -ListSoftware or -PrintPlan could answer.
+          $psArgs = @('-NonInteractive', '-AllowAdministrator')
           if ($env:SEL_SKIP_UPGRADE -eq 'true') { $psArgs += '-SkipSystemUpgrade' }
 
           if ($env:SEL_PROFILE) { $psArgs += @('-Profile', $env:SEL_PROFILE) }

@@ -68,6 +68,39 @@ Run every scenario, sequentially. Budget most of a day.
 
 ---
 
+### What to run when you change something
+
+The complete map. Tier 1 is not optional for anything under `setup/`, and the rest of this table
+says what else the change owes. The last column is the part that matters most when a run comes back
+green: what that run still does not tell you.
+
+| If you changed | Run | What it still cannot prove |
+|---|---|---|
+| a toggle in `group_vars/*.yaml` | `./e2e/run.sh` | that the application behind the toggle installs, only that something is wired to install it |
+| a mapping in `setup/ansible/vars/*.yaml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the package installs cleanly, only that the name resolves in that distribution's index |
+| a package name written directly into a role task | `./e2e/run.sh --tier 2` | the same, and nothing at all for a name built at run time from a variable |
+| a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the pinned version is the right version, only that it resolves and that its download location answers |
+| the pinned values reader or any of its adapters | `./e2e/run.sh`, then `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, then `--tier 3 --scenario smoke` | nothing about macOS, which has no container tier |
+| anything in `roles/` touching groups, systemd units or per-distribution behaviour | `./e2e/run.sh --tier 3 --scenario smoke` on arch, debian, ubuntu and fedora | anything needing a graphical session, a real kernel module, or hardware |
+| the desktop environment roles | `--scenario kde-full` and `--scenario gnome-full` | that the desktop actually starts, since no container has a display |
+| `profiles/linux_live.yaml` | `--scenario live-profile` | that a real live USB behaves the same, since the container has a writable root |
+| `setup/setup.sh` | `./e2e/run.sh`, then any one `--tier 3` scenario end to end | the interactive screens, which need a terminal no test has |
+| `setup/setup.ps1` or anything in `setup/windows/` | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1` | 82 of the 89 Windows mappings, because winget ships as an MSIX package and Server Core has no AppX subsystem |
+| `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then any one `--tier 3` scenario | nothing, if the gate and one scenario both pass, this is the best covered file in the repository |
+| a tier 1 check, or anything under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then `./e2e/run.sh` from Git Bash and from WSL | that the check is testing the thing rather than its own implementation, which only the failure proof shows |
+| a distribution Dockerfile, or a new distribution | `--tier 3 --scenario smoke --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
+| anything that only affects macOS | `./e2e/run.sh` and `./e2e/run.sh --tier 2` | everything that executes, because a Darwin container cannot run on a Linux or Windows kernel and the only executing macOS test is the `macos` target of the dispatch workflow |
+| `.github/workflows/e2e-manual.yml` | dispatch it from the Actions tab, one target platform at a time | nothing locally, and note that as of 2026-08-20 no workflow run has ever happened, because the remote is behind |
+| `homelab/` or `local-dev/` | nothing, and that is the honest answer | everything, no tier covers either directory today |
+
+Two rules that are easy to miss.
+
+A change that touches more than one row owes every row it touches. A pinned value that is also read by a role task is both the fourth row and the third.
+
+A tier that cannot run is not a tier that passed. The container tiers need a Linux shell with a Docker socket, which on Windows means WSL with Docker Desktop's integration enabled for that distribution. When it is off, `require_linux_docker` refuses and says so, and the correct response is to enable it and run, not to record the change as verified.
+
+---
+
 ### Long runs, and why they detach
 
 The playbook always runs detached inside the container, writing its own log and exit code there, and the runner only watches it. So a run does not die with the shell that started it. That is not a nicety: the all-software scenario takes hours, and a run tied to a terminal session throws away the whole thing on an ordinary disconnect.

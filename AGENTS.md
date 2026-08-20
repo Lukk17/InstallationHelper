@@ -122,13 +122,22 @@ A non-zero exit means the work is not done. Do not report success, do not commit
 
 | If you changed | Run |
 |---|---|
-| a package mapping in `vars/*.yaml` | `./e2e/run.sh --tier 2` |
+| a toggle in `group_vars/*.yaml` | tier 1 is enough |
+| a package mapping in `setup/ansible/vars/*.yaml` | `./e2e/run.sh --tier 2` |
 | **any package name written directly into a role task** | `./e2e/run.sh --tier 2`, which resolves them per distribution. Five shipped defects came from here, including two that were themselves earlier fixes that had rotted |
-| anything in `roles/` that touches groups, systemd units, or per-distro behaviour | `./e2e/run.sh --tier 3 --scenario smoke` |
+| a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh --tier 2`, which asks every download location whether it still exists |
+| the pinned values reader or any of its adapters | tier 1, then `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, then `--tier 3 --scenario smoke` |
+| anything in `roles/` that touches groups, systemd units, or per-distro behaviour | `./e2e/run.sh --tier 3 --scenario smoke`, on all four Linux distributions and not just one |
 | the desktop environment roles | `./e2e/run.sh --tier 3 --scenario kde-full` and `--scenario gnome-full` |
 | `profiles/linux_live.yaml` | `./e2e/run.sh --tier 3 --scenario live-profile` |
-| the wizard (`setup.sh` or `setup.ps1`) | tier 1 is sufficient, it compares both wizards against the YAML |
-| the Windows installer (`setup/windows/`) | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, and note it cannot exercise winget at all, see `e2e/README_E2E.md` |
+| `setup/setup.sh` | tier 1, then any one tier 3 scenario end to end |
+| the Windows installer (`setup/setup.ps1` or `setup/windows/`) | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, and note it cannot exercise winget at all, see `e2e/README_E2E.md` |
+| `setup/ansible/verify_install.yaml` | tier 1, then any one tier 3 scenario |
+| a check under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then run the whole gate from Git Bash and from WSL |
+| a distribution Dockerfile, or a new distribution | `./e2e/run.sh --tier 3 --scenario smoke --os <name>` |
+| anything macOS-only | tier 1 and tier 2, then the `macos` target of the dispatch workflow, which is the only thing that executes on macOS at all |
+
+That table is the short version. The complete map, including what each run still cannot prove, is the "What to run when you change something" section of [`e2e/README_E2E.md`](e2e/README_E2E.md).
 
 **For a run that must survive you closing the terminal**, drive it from the queue container rather than a shell. A queue tied to a shell is not a queue: one previously started two scenarios of three, exited, and nobody noticed for four hours.
 
