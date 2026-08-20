@@ -12,8 +12,9 @@
 # Prints the path of a PowerShell 7 that actually runs, or nothing with a non-zero status.
 #
 # `command -v pwsh.exe` is not enough: on Windows the first hit is often the Store
-# app-execution-alias stub under WindowsApps, which is a zero-length reparse point that WSL cannot
-# execute, and trying produces "pwsh.exe: line 1: MZ: command not found" as WSL reads the PE header as
+# app-execution-alias stub under WindowsApps, and whether WSL can execute one is a property of the
+# Windows build rather than something to assume. It ran on 2026-08-20 and it has failed before, with
+# "pwsh.exe: line 1: MZ: command not found" as WSL reads the PE header as
 # a script. So each candidate is probed by running something trivial and checking the output, rather
 # than trusted because it exists.
 find_runnable_pwsh() {
@@ -35,7 +36,7 @@ find_runnable_pwsh() {
 
 # The reason a check reports when find_runnable_pwsh comes back empty. Shared so both checks say the
 # same true thing about this machine rather than one of them going stale.
-PWSH_ABSENT_REASON="No runnable PowerShell 7 found from here. On this machine pwsh is installed only as a Microsoft Store app, whose WindowsApps entry is an alias stub WSL cannot execute, so run this check from Windows with pwsh directly, or install PowerShell 7 inside WSL."
+PWSH_ABSENT_REASON="No runnable PowerShell 7 found from here. Every candidate was tried by running it, not by finding it on PATH. On this machine pwsh is installed only as a Microsoft Store app, and its WindowsApps alias does run from WSL when Windows lets it, so this message means it did not this time: run this check from Windows with pwsh directly, or install PowerShell 7 inside WSL."
 
 # to_windows_path <posix path>
 #

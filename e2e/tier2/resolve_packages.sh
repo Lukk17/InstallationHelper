@@ -152,10 +152,11 @@ check_choco() {
 #
 # Preferred: ask winget. `winget show --id <id> --exact` queries the real source the installer
 # will use, has no request budget, and answers the actual question, which is whether the id
-# resolves for the user. It is only reachable when the check runs from a Windows shell such as
-# Git Bash, because WSL cannot execute the Store build of winget. That is where this check ran
-# unproven for a long time: from WSL it skipped, and WSL was the documented way to run the gate,
-# so 82 mapped ids had never been resolved by anything.
+# resolves for the user. Reachable from Git Bash, and measured on 2026-08-20, from WSL too, because
+# the Store winget.exe runs through interop. This is why the probe below runs a candidate instead of
+# trusting the shell it is in. It once ran unproven for a long time for exactly the opposite reason:
+# from WSL it skipped, WSL was the documented way to run the gate, and 82 mapped ids had never been
+# resolved by anything.
 #
 # Fallback: look for the manifest directory in microsoft/winget-pkgs, whose path is
 # manifests/<first letter lowercased>/<id split on dots>. Needs an authenticated gh, because

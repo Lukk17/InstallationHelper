@@ -1,0 +1,21 @@
+# Line endings, decided here rather than per machine.
+#
+# Every text file in this repository is stored and checked out with Unix line endings. This is not a
+# style preference. Git Bash strips a carriage return transparently in grep, sed and awk while a real
+# Linux shell does not, so a file that picks up Windows line endings passes the tier 1 gate from Git
+# Bash and fails it from WSL and inside every container. That happened: three checks reported eight
+# failures under WSL against a tree that Git Bash called clean, and the cause was invisible in every
+# diff, because a carriage return has no width.
+#
+# Without this file the outcome depends on each clone's core.autocrlf setting, which is a local
+# preference no reviewer can see.
+* text=auto eol=lf
+
+# Binary content, so Git never inspects or rewrites it. text=auto already detects these, and naming
+# them is what makes the intent explicit rather than inferred.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.knsv binary
