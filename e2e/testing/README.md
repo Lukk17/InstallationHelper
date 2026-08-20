@@ -41,14 +41,15 @@ The `{N}` prefix is setup cost, cheapest first, which is also the order a sweep 
 |---|---|---|---|
 | 10 | [wizard-toggle-parse](10-wizard-toggle-parse-test.md) | `./e2e/run.sh` | seconds |
 | 20 | [package-name-resolution](20-package-name-resolution-test.md) | `./e2e/run.sh --tier 2` | about a minute |
-| 30 | [smoke](30-smoke-test.md) | `./e2e/run.sh --tier 3 --scenario smoke` | 45 minute timeout |
 | 40 | [kde-configure-only](40-kde-configure-only-test.md) | `./e2e/run.sh --tier 3 --scenario kde-configure-only` | 90 minute timeout |
 | 50 | [live-profile](50-live-profile-test.md) | `./e2e/run.sh --tier 3 --scenario live-profile` | 120 minute timeout |
 | 60 | [defaults](60-defaults-test.md) | `./e2e/run.sh --tier 3 --scenario defaults` | 180 minute timeout |
 | 70 | [desktop-environments](70-desktop-environments-test.md) | `--scenario kde-full` then `--scenario gnome-full` | 300 minute timeout each |
 | 80 | [all-software](80-all-software-test.md) | `./e2e/run.sh --tier 3 --scenario all-software` | 300 minute timeout |
 
-Capabilities 10 and 20 are the two static tiers. They start no container, install nothing, and are the only two that are cheap enough to run on every commit. Everything from 30 up runs the real playbook inside a throwaway Arch container.
+Capabilities 10 and 20 are the two static tiers. They start no container, install nothing, and are the only two that are cheap enough to run on every commit. Everything from 40 up runs the real playbook inside a throwaway Arch container.
+
+Capability 30 was the smoke test, removed because every toggle it enabled was already true in capability 60, which made it the same test with most of the toggles taken away. The number is left free rather than reused, so a run record naming 30 still points at the capability it was written against.
 
 ---
 

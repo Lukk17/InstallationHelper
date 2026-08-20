@@ -110,15 +110,29 @@ On Windows, prefer Git Bash, because that is the only shell here that can prove 
 bash e2e/run.sh
 ```
 
-WSL also works, is what the container tiers need, and now reports every check as passed too. Measured on 2026-08-20: the Store build's `pwsh.exe` and `winget.exe` under `WindowsApps` both run from inside WSL through interop and answer real queries, so the PowerShell halves of the Windows checks pass there rather than reporting SKIP. This paragraph used to say the opposite, and the note it carried is worth keeping as a reason to measure rather than remember: a Store app-execution alias is not a normal executable, and whether WSL can run one is a property of the Windows build rather than of this repository. Git Bash remains the better default, because it needs no interop hop and delegates the two Ansible checks to WSL by itself. The gate prints its own tally, and [`e2e/README_E2E.md`](e2e/README_E2E.md) describes the shells without restating a number that goes stale every time a check is added.
+WSL runs the gate too, but as measured on 2026-08-20 it does not come back clean, and neither reason is about the tree under test. One check fails because `setup/manifests/generate.py` passes `newline=` to `Path.read_text`, which needs Python 3.13 and WSL has 3.12.3, and three more skip because the Store `pwsh` alias did not answer through interop that time. Both were reproduced against a clean worktree at `HEAD`. The interop route does work when Windows lets it: the Store build's `pwsh.exe` and `winget.exe` under `WindowsApps` have been observed running from inside WSL and answering real queries, which is why those checks report SKIP rather than a pass when nothing runs. This paragraph has now been rewritten twice in both directions, which is itself the lesson: a Store app-execution alias is not a normal executable, whether WSL can run one is a property of the Windows build rather than of this repository, so measure it on the day rather than trusting what is written here. Git Bash remains the better default, because it needs no interop hop and delegates the two Ansible checks to WSL by itself. The gate prints its own tally, and [`e2e/README_E2E.md`](e2e/README_E2E.md) describes the shells without restating a number that goes stale every time a check is added.
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh"
 ```
 
+**The container tiers run from Git Bash as well.** This section used to say WSL was what they needed, which was wrong in the direction that costs coverage. What refused Git Bash was the harness rather than Docker: the guard asked `uname -s`, turned away anything that was not Linux, and pointed the reader at WSL whether or not WSL could reach a daemon. It now asks whether a daemon answers and whether the shell can spell a host path for it, and from Git Bash both answers are yes whenever Docker Desktop is running. Run tiers 2 and 3 exactly as written, from the repository root, with no prefix and nothing exported:
+
+```bash
+bash e2e/run.sh --tier 2
+```
+
+```bash
+bash e2e/run.sh --tier 3 --scenario defaults --os debian
+```
+
+The MSYS path rewriting that makes `docker` unusable by hand from Git Bash is handled inside `e2e/lib/common.sh` rather than left to the caller, which is why those two commands are identical to the ones a Linux shell runs. If you ever call `docker` yourself from Git Bash, remember what the harness is doing for you: prefix `MSYS_NO_PATHCONV=1` so container paths such as `-v /sys/fs/cgroup:...` and `-w /work/setup/ansible` survive, and pass every host path through `cygpath -w`.
+
+Whether WSL can also reach the daemon depends on Docker Desktop having integration enabled for that distribution, so measure it rather than assume it either way. Measured on 2026-08-20, the Ubuntu distribution has `/var/run/docker.sock` and `docker info` reports server 29.3.1, so the container tiers run from there too. That integration has been off before, and while it is off there is no socket inside WSL at all, which the guard now reports by name instead of blaming the operating system.
+
 A non-zero exit means the work is not done. Do not report success, do not commit, and do not explain the failure away. Fix it.
 
-**Additionally, when your change touches any of the following, run the container tier as well.** It takes 20 to 30 minutes for the smoke scenario.
+**Additionally, when your change touches any of the following, run the container tier as well.** The cheapest scenario there is defaults, and its ceiling is 180 minutes. There is no cheap container scenario any more: the smoke scenario used to declare 45 minutes, but every toggle it enabled was already true in defaults, so it proved nothing defaults does not. Tier 1 is what runs in seconds.
 
 | If you changed | Run |
 |---|---|
@@ -126,15 +140,15 @@ A non-zero exit means the work is not done. Do not report success, do not commit
 | a package mapping in `setup/ansible/vars/*.yaml` | `./e2e/run.sh --tier 2` |
 | **any package name written directly into a role task** | `./e2e/run.sh --tier 2`, which resolves them per distribution. Five shipped defects came from here, including two that were themselves earlier fixes that had rotted |
 | a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh --tier 2`, which asks every download location whether it still exists |
-| the pinned values reader or any of its adapters | tier 1, then `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, then `--tier 3 --scenario smoke` |
-| anything in `roles/` that touches groups, systemd units, or per-distro behaviour | `./e2e/run.sh --tier 3 --scenario smoke`, on all four Linux distributions and not just one |
+| the pinned values reader or any of its adapters | tier 1, then `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, then `--tier 3 --scenario defaults` |
+| anything in `roles/` that touches groups, systemd units, or per-distro behaviour | `./e2e/run.sh --tier 3 --scenario defaults`, on all four Linux distributions and not just one |
 | the desktop environment roles | `./e2e/run.sh --tier 3 --scenario kde-full` and `--scenario gnome-full` |
 | `profiles/linux_live.yaml` | `./e2e/run.sh --tier 3 --scenario live-profile` |
 | `setup/setup.sh` | tier 1, then any one tier 3 scenario end to end |
 | the Windows installer (`setup/setup.ps1` or `setup/windows/`) | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, and note it cannot exercise winget at all, see `e2e/README_E2E.md` |
 | `setup/ansible/verify_install.yaml` | tier 1, then any one tier 3 scenario |
 | a check under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then run the whole gate from Git Bash and from WSL |
-| a distribution Dockerfile, or a new distribution | `./e2e/run.sh --tier 3 --scenario smoke --os <name>` |
+| a distribution Dockerfile, or a new distribution | `./e2e/run.sh --tier 3 --scenario defaults --os <name>` |
 | anything macOS-only | tier 1 and tier 2, then the `macos` target of the dispatch workflow, which is the only thing that executes on macOS at all |
 
 That table is the short version. The complete map, including what each run still cannot prove, is the "What to run when you change something" section of [`e2e/README_E2E.md`](e2e/README_E2E.md).
@@ -145,9 +159,15 @@ That table is the short version. The complete map, including what each run still
 docker run -d --name e2e-queue -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/repo" -w /repo installationhelper-e2e-queue:latest -c './e2e/run.sh --tier 3 --scenario all --jobs 3 > /repo/e2e/runs/queue.log 2>&1; rc=$?; echo "QUEUE_EXIT=$rc" >> /repo/e2e/runs/queue.log; exit $rc'
 ```
 
-The `rc=$?` and `exit $rc` are not decoration. Append anything after the run without capturing the status first, an `echo` for instance, and the container exits with the echo's status instead: a sweep where three of seven scenarios failed reported `Exited (0)` for exactly that reason, which makes the queue impossible to alarm on or chain behind. Verified both ways, this form writes `QUEUE_EXIT=2` into the log and exits 2.
+That form is for a Linux shell. From Git Bash the same run needs the two path rules spelled out, because this command is yours rather than the harness's: the rewriting has to be off so the socket mount survives, and the repository mount has to be a Windows path. Verified from Git Bash on 2026-08-20, the container reaches the daemon and finds `e2e/run.sh` under `/repo`.
 
-Roughly 5 GB of memory per concurrent scenario, measured. On a 16 GB WSL ceiling that means three at a time, not seven. Three against 12 GB available does not corrupt anything, but it does make `wsl.exe` intermittently answer `Wsl/Service/0x8007274c` and it cost one scenario a failed `docker cp` of `setup/`. Use `--jobs 2` when you want clean timings rather than throughput.
+```bash
+MSYS_NO_PATHCONV=1 docker run -d --name e2e-queue -v /var/run/docker.sock:/var/run/docker.sock -v "$(cygpath -w "$PWD"):/repo" -w /repo installationhelper-e2e-queue:latest -c './e2e/run.sh --tier 3 --scenario all --jobs 3 > /repo/e2e/runs/queue.log 2>&1; rc=$?; echo "QUEUE_EXIT=$rc" >> /repo/e2e/runs/queue.log; exit $rc'
+```
+
+The `rc=$?` and `exit $rc` are not decoration. Append anything after the run without capturing the status first, an `echo` for instance, and the container exits with the echo's status instead: a sweep where three of the seven scenarios that existed then failed reported `Exited (0)` for exactly that reason, which makes the queue impossible to alarm on or chain behind. Verified both ways, this form writes `QUEUE_EXIT=2` into the log and exits 2.
+
+Roughly 5 GB of memory per concurrent scenario, measured. On a 16 GB WSL ceiling that means three at a time, not six. Three against 12 GB available does not corrupt anything, but it does make `wsl.exe` intermittently answer `Wsl/Service/0x8007274c` and it cost one scenario a failed `docker cp` of `setup/`. Use `--jobs 2` when you want clean timings rather than throughput.
 
 Rules that come out of the ledger and that the gate cannot check for you:
 

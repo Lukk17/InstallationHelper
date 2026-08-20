@@ -6,10 +6,10 @@
 #   run.sh                          tier 1 only, the pre-commit gate (seconds)
 #   run.sh --tier 1                 static checks against the working tree
 #   run.sh --tier 2                 resolve every package name against real repositories
-#   run.sh --tier 3 --scenario smoke        one scenario in a container
+#   run.sh --tier 3 --scenario defaults     one scenario in a container
 #   run.sh --tier 3 --scenario all          every scenario, sequentially (hours)
 #   run.sh --tier 3 --scenario all --jobs 3 every scenario, three at a time
-#   run.sh --tier 3 --scenario smoke --os debian    the same scenario on another distro
+#   run.sh --tier 3 --scenario defaults --os debian the same scenario on another distro
 #   run.sh --list                   show the scenarios and what each one covers
 #   run.sh --help
 #
@@ -132,7 +132,7 @@ EOF
         mapfile -t files < <(ls -1 "${E2E_ROOT}"/tier3/scenarios/*.yaml)
     else
         # Comma-separated list accepted, so a parallel run can be aimed at the two or
-        # three scenarios a change actually touches instead of all seven.
+        # three scenarios a change actually touches instead of all six.
         local name found
         IFS=',' read -ra wanted <<<"${SCENARIO}"
         for name in "${wanted[@]}"; do
@@ -155,9 +155,9 @@ EOF
         done
     else
         check_memory_headroom "${JOBS}"
-        # Sliding window rather than fixed batches. Scenario runtimes differ by a factor
-        # of six, so batching would leave the 45 minute one idle waiting on a 300 minute
-        # one. Each scenario gets its own throwaway container, so nothing they touch
+        # Sliding window rather than fixed batches. Scenario runtimes differ by more than a
+        # factor of three, so batching would leave the 90 minute one idle waiting on a 300
+        # minute one. Each scenario gets its own throwaway container, so nothing they touch
         # overlaps and they are safe to overlap in time. What they do contend for is the
         # single Docker daemon, host CPU and network bandwidth.
         # set -e is off for the whole scheduler on purpose. The readiness probe below is

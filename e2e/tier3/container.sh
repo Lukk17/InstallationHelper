@@ -162,10 +162,10 @@ start_run() {
         # The wizard's EXCLUDED_VARS list is read out of setup.sh rather than restated,
         # because those keys are system settings rather than software and must not be swept
         # into a generated software set. install_system_core is the one that mattered: the
-        # smoke scenario generated it as false, which disabled the entire system_core role,
-        # so the scenario silently skipped the bootstrap and reported a pass over far less
-        # than it appeared to cover. Exactly the kind of hole this suite exists to close, in
-        # the suite itself.
+        # smoke scenario, since removed, generated it as false, which disabled the entire
+        # system_core role, so that scenario silently skipped the bootstrap and reported a
+        # pass over far less than it appeared to cover. Exactly the kind of hole this suite
+        # exists to close, in the suite itself.
         excluded_line="$(grep -m1 '^EXCLUDED_VARS=' "${REPO_ROOT}/setup/setup.sh" || true)"
         eval "${excluded_line}"
 

@@ -37,7 +37,7 @@ Heading levels and the single horizontal rule follow the `e2e-runbooks` tasks-te
 - [ ] `windows_mapping`: PowerShell and the YAML agree on every mapping including manager and source, count recorded, and whether the PowerShell half ran or reported SKIP
 - [ ] `windows_mapping`: the Windows python mapping matches `default_python`
 - [ ] `windows_npm_parity`: both lists name the same npm packages and each has a toggle
-- [ ] `verify_spec_parity`: every verify assertion is named in all six container specs, and this spec names every tier 1 check script
+- [ ] `verify_spec_parity`: every verify assertion is named in all five container specs, and this spec names every tier 1 check script
 - [ ] `ansible_static`: `site.yaml` parses
 - [ ] `ansible_static`: syntax check emitted at most two warnings, actual count recorded
 - [ ] `ansible_static`: no repository file was mistaken for an inventory source

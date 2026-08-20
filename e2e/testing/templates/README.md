@@ -14,7 +14,6 @@ The specs live one level up, directly under [..](..), as `{N}-{capability}-test.
 |---|---|---|
 | 10 | [../10-wizard-toggle-parse-test.md](../10-wizard-toggle-parse-test.md) | [10-wizard-toggle-parse-tasks.template.md](10-wizard-toggle-parse-tasks.template.md) |
 | 20 | [../20-package-name-resolution-test.md](../20-package-name-resolution-test.md) | [20-package-name-resolution-tasks.template.md](20-package-name-resolution-tasks.template.md) |
-| 30 | [../30-smoke-test.md](../30-smoke-test.md) | [30-smoke-tasks.template.md](30-smoke-tasks.template.md) |
 | 40 | [../40-kde-configure-only-test.md](../40-kde-configure-only-test.md) | [40-kde-configure-only-tasks.template.md](40-kde-configure-only-tasks.template.md) |
 | 50 | [../50-live-profile-test.md](../50-live-profile-test.md) | [50-live-profile-tasks.template.md](50-live-profile-tasks.template.md) |
 | 60 | [../60-defaults-test.md](../60-defaults-test.md) | [60-defaults-tasks.template.md](60-defaults-tasks.template.md) |

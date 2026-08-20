@@ -14,8 +14,9 @@
 #
 # The damage is not limited to OpenRazer. dnf batches the install, so syncthing, tailscale and
 # chkrootkit were reported missing too even though they had installed, which is what the first
-# Fedora smoke run failed on. Reproduced by hand in a plain Fedora container: openrazer-meta
-# resolves, downloads and unpacks, and only the DKMS scriptlet fails.
+# Fedora run of the smoke scenario, since removed, failed on. Reproduced by hand in a plain
+# Fedora container: openrazer-meta resolves, downloads and unpacks, and only the DKMS scriptlet
+# fails.
 #
 # This is suppressed here rather than in the shared file because the same DKMS failure is
 # harmless on Arch: pacman's alpm hook prints the error and returns 0, so the package installs

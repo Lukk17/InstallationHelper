@@ -2,8 +2,8 @@
 #
 # Tier 1: every assertion the verify play makes must be named in every container scenario's spec.
 #
-# All six container scenarios run one verify.yaml, so an assertion added there applies to all of
-# them at once and belongs in all six specs. Two had already drifted by the time this check was
+# Every container scenario runs one verify.yaml, so an assertion added there applies to all of them
+# at once and belongs in all five container specs. Two had already drifted by the time this check was
 # written: "Assert docker.service is enabled when Docker was requested" and "Assert flatpak is
 # installed and the Flathub remote is configured" existed in the play and were named in no spec at
 # all, while 60-defaults-test.md still told the reader that the Docker unit state was collected and
@@ -30,7 +30,7 @@ TESTING_DIR="${E2E_ROOT}/testing"
 RUN_SH="${E2E_ROOT}/run.sh"
 
 # Capabilities that drive a container scenario, and therefore run verify.yaml.
-CONTAINER_SPECS=(30-smoke 40-kde-configure-only 50-live-profile 60-defaults 70-desktop-environments 80-all-software)
+CONTAINER_SPECS=(40-kde-configure-only 50-live-profile 60-defaults 70-desktop-environments 80-all-software)
 
 # Capability 10 is the whole of tier 1, so its spec has to name every check tier 1 runs. It named
 # three of six. windows_mapping, windows_npm_parity and this script itself were absent, so a reader

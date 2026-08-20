@@ -14,7 +14,7 @@ The harness answers one question per tier, cheapest first.
 |---|---|---|---|
 | 1 | Does the working tree contradict itself? | seconds | bash and ansible-playbook |
 | 2 | Do the package names still exist upstream? | about a minute | curl, and gh for winget |
-| 3 | Does the playbook actually produce the right machine? | 20 minutes to several hours | Docker and a Linux shell |
+| 3 | Does the playbook actually produce the right machine? | 90 minutes to 5 hours by declared ceiling | Docker, and a shell that can reach its daemon |
 
 Tier 1 is the pre-commit gate. Tier 3 is what catches the bugs that matter, and it is slow because installing software is slow.
 
@@ -28,13 +28,13 @@ Run the gate. This is the one to run after any change to the playbook or the wiz
 ./e2e/run.sh
 ```
 
-On Windows, tier 1 is best run from Git Bash, and as of 2026-08-20 both shells report every check as passed. Each shell reaches what it is missing a different way. Git Bash has `pwsh` and no Ansible, so the two checks that need Ansible, `tier1/ansible_static.sh` and `tier1/os_family_derivation.sh`, re-execute themselves inside WSL when `ansible-playbook` is missing locally, through the helper they share, `tier1/wsl_delegate.sh`. WSL has Ansible and no native PowerShell, and reaches the Windows `pwsh.exe` through interop, which was measured rather than assumed: the only PowerShell 7 here is the Microsoft Store build, whose `WindowsApps` entry is an app-execution alias, and it does run from WSL. That is why `tier1/pwsh_probe.sh` decides by running a candidate rather than by finding it on PATH, and why it still reports SKIP rather than a pass when nothing runs. Whether an alias works from WSL is a property of the Windows build, so treat it as something to re-measure rather than as a fact this document owns. The absolute number of checks is not written down here on purpose, because it changes with every check added and a stale total in prose is read as the definition of the gate's size.
+On Windows, tier 1 is best run from Git Bash, and as of 2026-08-20 that is the shell where every check passes. Measured the same day, WSL comes back with one failure and three skips, and neither is about the tree under test. The failure is `setup/manifests/generate.py` calling `Path.read_text(newline="")`, a keyword that only exists from Python 3.13, against WSL's Python 3.12.3, so the manifest comparison cannot run there at all. The interpreter search in `setup/pinned_values/pinned_values.sh` accepts anything from 3.11 upward, which is the floor `tomllib` needs rather than the floor the generator needs, so the check finds an interpreter and then crashes in it. The three skips are the PowerShell halves, which need the Store `pwsh` alias to run through interop and it did not answer that time. Both were reproduced against a clean worktree at `HEAD`, so they are properties of this machine and of `setup/`, not of any change. Each shell reaches what it is missing a different way. Git Bash has `pwsh` and no Ansible, so the two checks that need Ansible, `tier1/ansible_static.sh` and `tier1/os_family_derivation.sh`, re-execute themselves inside WSL when `ansible-playbook` is missing locally, through the helper they share, `tier1/wsl_delegate.sh`. WSL has Ansible and no native PowerShell, and reaches the Windows `pwsh.exe` through interop, which was measured rather than assumed: the only PowerShell 7 here is the Microsoft Store build, whose `WindowsApps` entry is an app-execution alias, and it does run from WSL. That is why `tier1/pwsh_probe.sh` decides by running a candidate rather than by finding it on PATH, and why it still reports SKIP rather than a pass when nothing runs. Whether an alias works from WSL is a property of the Windows build, so treat it as something to re-measure rather than as a fact this document owns. The absolute number of checks is not written down here on purpose, because it changes with every check added and a stale total in prose is read as the definition of the gate's size.
 
 ```bash
 bash e2e/run.sh
 ```
 
-From WSL, which is also where the container tiers have to run:
+The same gate from WSL:
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh"
@@ -42,22 +42,36 @@ wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && .
 
 One caveat on the Git Bash path: WSL interop times out intermittently while tier 3 containers are running, answering `Wsl/Service/0x8007274c`. The delegation retries three times for that reason. If it still cannot reach WSL it warns and fails rather than skipping, because a gate that goes quiet under load is the thing this harness exists to prevent.
 
+The container tiers run from either shell too. What used to block Git Bash was the harness rather than Docker: the guard asked `uname -s`, refused anything that was not Linux, and sent the reader to WSL whether or not WSL could reach a daemon. It now asks whether a daemon answers and whether this shell can spell a host path for it, which is the question that was always meant, and from Git Bash both answers are yes as long as Docker Desktop is running.
+
+Whether WSL can reach the daemon is a separate question with its own answer, and it is worth measuring rather than remembering. It depends on Docker Desktop having integration enabled for that distribution. Measured on 2026-08-20, the Ubuntu distribution has `/var/run/docker.sock` and `docker info` reports server 29.3.1, so tiers 2 and 3 run from there as well. That integration has been off before, and while it is off there is no socket inside WSL at all and the guard says so by name.
+
+```bash
+bash e2e/run.sh --tier 2
+```
+
+```bash
+bash e2e/run.sh --tier 3 --scenario defaults --os debian
+```
+
+Nothing has to be prefixed or exported to make those work. Under MSYS the shell rewrites any argument that looks like an absolute POSIX path before a Windows executable sees it, which turns `-v /sys/fs/cgroup:/sys/fs/cgroup:rw` into `mkdir C:\Program Files\Git\sys: Access is denied` and `-w /work/setup/ansible` into `Cwd must be an absolute path`. So `lib/common.sh` wraps `docker` in a function that disables the rewriting for the whole command, and every argument that names a location on this machine, rather than one inside a container, goes through its `host_path` helper and comes out as a Windows path. That is the harness's business, not the caller's, and it is why the commands above are the same ones a Linux shell runs.
+
 See what scenarios exist and what each covers.
 
 ```bash
 ./e2e/run.sh --list
 ```
 
-Run the fast container scenario, which takes roughly 20 minutes.
+Run the cheapest container scenario. There is no fast one: defaults carries a 180 minute ceiling, which is the honest cost of proving anything inside a container, and it is the configuration a user actually gets.
 
 ```bash
-./e2e/run.sh --tier 3 --scenario smoke
+./e2e/run.sh --tier 3 --scenario defaults
 ```
 
 Run it on a different distribution.
 
 ```bash
-./e2e/run.sh --tier 3 --scenario smoke --os debian
+./e2e/run.sh --tier 3 --scenario defaults --os debian
 ```
 
 Run every scenario, sequentially. Budget most of a day.
@@ -70,23 +84,23 @@ Run every scenario, sequentially. Budget most of a day.
 
 ### CI matrix sweep vs local runs
 
-The seven scenarios above cross five Linux distributions, which is 35 combinations. Nobody runs all 35 on one machine, so the harness is split across two places that prove different things.
+The six scenarios above cross five Linux distributions, which is 30 combinations. Nobody runs all 30 on one machine, so the harness is split across two places that prove different things.
 
-[.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each matrix cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 35 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
+[.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each matrix cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 30 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
 
-Local Docker runs, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: fast feedback on the distribution and scenario a change actually touches, without waiting on 34 others.
+Local Docker runs, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: fast feedback on the distribution and scenario a change actually touches, without waiting on 29 others.
 
 What each side proves, and does not:
 
 | | Proves | Does not prove |
 |---|---|---|
 | CI matrix sweep | The full cross product passes on GitHub's own infrastructure, including a distro/scenario pairing nobody happened to run locally | Correctness on the hardware you actually deploy to. A hosted runner's disk, memory and privileged-container behaviour differ from a personal Docker Desktop or WSL setup, and the sweep has not been observed to catch a defect that a local run would have missed, because it has not run yet |
-| Local run | The harness works on your actual machine, against your actual Docker setup, for the one scenario and distribution you are actively changing | The other 34 combinations still pass, unless you run them too |
+| Local run | The harness works on your actual machine, against your actual Docker setup, for the one scenario and distribution you are actively changing | The other 29 combinations still pass, unless you run them too |
 
 Dispatch the sweep from the Actions tab, or narrow it to one scenario or one distribution from the same form.
 
 ```bash
-gh workflow run e2e-matrix.yml -f scenario=smoke -f distro=debian
+gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=debian
 ```
 
 Run everything.
@@ -109,25 +123,27 @@ green: what that run still does not tell you.
 | a mapping in `setup/ansible/vars/*.yaml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the package installs cleanly, only that the name resolves in that distribution's index |
 | a package name written directly into a role task | `./e2e/run.sh --tier 2` | the same, and nothing at all for a name built at run time from a variable |
 | a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the pinned version is the right version, only that it resolves and that its download location answers |
-| the pinned values reader or any of its adapters | `./e2e/run.sh`, then `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, then `--tier 3 --scenario smoke` | nothing about macOS, which has no container tier |
-| anything in `roles/` touching groups, systemd units or per-distribution behaviour | `./e2e/run.sh --tier 3 --scenario smoke` on arch, debian, ubuntu and fedora | anything needing a graphical session, a real kernel module, or hardware |
+| the pinned values reader or any of its adapters | `./e2e/run.sh`, then `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, then `--tier 3 --scenario defaults` | nothing about macOS, which has no container tier |
+| anything in `roles/` touching groups, systemd units or per-distribution behaviour | `./e2e/run.sh --tier 3 --scenario defaults` on arch, debian, ubuntu and fedora | anything needing a graphical session, a real kernel module, or hardware |
 | the desktop environment roles | `--scenario kde-full` and `--scenario gnome-full` | that the desktop actually starts, since no container has a display |
 | `profiles/linux_live.yaml` | `--scenario live-profile` | that a real live USB behaves the same, since the container has a writable root |
 | `setup/setup.sh` | `./e2e/run.sh`, then any one `--tier 3` scenario end to end | the interactive screens, which need a terminal no test has |
 | `setup/setup.ps1` or anything in `setup/windows/` | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1` | 82 of the 89 Windows mappings, because winget ships as an MSIX package and Server Core has no AppX subsystem |
 | `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then any one `--tier 3` scenario | nothing, if the gate and one scenario both pass, this is the best covered file in the repository |
 | a tier 1 check, or anything under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then `./e2e/run.sh` from Git Bash and from WSL | that the check is testing the thing rather than its own implementation, which only the failure proof shows |
-| a distribution Dockerfile, or a new distribution | `--tier 3 --scenario smoke --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
+| a distribution Dockerfile, or a new distribution | `--tier 3 --scenario defaults --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
 | anything that only affects macOS | `./e2e/run.sh` and `./e2e/run.sh --tier 2` | everything that executes, because a Darwin container cannot run on a Linux or Windows kernel and the only executing macOS test is the `macos` target of the dispatch workflow |
 | `.github/workflows/e2e-manual.yml` | dispatch it from the Actions tab, one target platform at a time | nothing locally, and note that as of 2026-08-20 no workflow run has ever happened, because the remote is behind |
 | `.github/workflows/e2e-matrix.yml` | dispatch it from the Actions tab, the full sweep or narrowed to one scenario or one distribution | nothing locally, and it has never run either, added the same day as this row |
 | `homelab/` or `local-dev/` | nothing, and that is the honest answer | everything, no tier covers either directory today |
 
-Two rules that are easy to miss.
+Three rules that are easy to miss.
+
+Every row that names a container scenario now names defaults, and that is a 180 minute ceiling rather than the 45 the removed smoke scenario declared. The smoke scenario is gone because every toggle it enabled was already true in defaults, so it was the same test with most of the toggles taken away, and a 20 to 30 minute run was never cheap enough to be a pre-commit gate either. Tier 1 is the thing that runs in seconds.
 
 A change that touches more than one row owes every row it touches. A pinned value that is also read by a role task is both the fourth row and the third.
 
-A tier that cannot run is not a tier that passed. The container tiers need a Linux shell with a Docker socket, which on Windows means WSL with Docker Desktop's integration enabled for that distribution. When it is off, `require_linux_docker` refuses and says so, and the correct response is to enable it and run, not to record the change as verified.
+A tier that cannot run is not a tier that passed. The container tiers need a Docker daemon that answers and a shell that can hand it a host path, which `require_docker_host` checks in that order and names whichever one is missing. From Windows, Git Bash satisfies both whenever Docker Desktop is running. WSL satisfies both only when Docker Desktop has integration enabled for that distribution, and with it off there is no socket in there at all, so the guard refuses and points at the other shell. Either way the correct response is to run the tier from a shell where it works, not to record the change as verified.
 
 ---
 
@@ -155,9 +171,9 @@ Then verify, record and tear down, whenever it has finished.
 
 Collecting a run that has not finished yet is safe. It reports the task currently executing and exits 3 without touching anything.
 
-One infrastructure failure is worth knowing about, because it looks like a hung scenario. `setup/` is copied into each container rather than bind-mounted, and with three scenarios running that copy occasionally fails mid-archive with `archive/tar: missed writing N bytes` followed by `unexpected EOF`. The repository reaches the queue container over a drvfs bind mount and that mount stumbles under load, at the same moments `wsl.exe` starts answering `Wsl/Service/0x8007274c`. It cost one smoke run: nothing checked the copy, the playbook launched against a `/work` that did not exist, and the container sat idle while the queue waited for an exit code that was never coming. The copy now retries three times, asserts that `site.yaml`, `all.yaml` and at least a hundred files actually arrived, and on failure removes the container and writes a `result.txt` saying the run proves nothing and must be rerun. A copy that half succeeded is the dangerous case, because the tree looks plausible and the run dies somewhere unrelated an hour later.
+One infrastructure failure is worth knowing about, because it looks like a hung scenario. `setup/` is copied into each container rather than bind-mounted, and with three scenarios running that copy occasionally fails mid-archive with `archive/tar: missed writing N bytes` followed by `unexpected EOF`. The repository reaches the queue container over a drvfs bind mount and that mount stumbles under load, at the same moments `wsl.exe` starts answering `Wsl/Service/0x8007274c`. It cost one run of the smoke scenario, since removed: nothing checked the copy, the playbook launched against a `/work` that did not exist, and the container sat idle while the queue waited for an exit code that was never coming. The copy now retries three times, asserts that `site.yaml`, `all.yaml` and at least a hundred files actually arrived, and on failure removes the container and writes a `result.txt` saying the run proves nothing and must be rerun. A copy that half succeeded is the dangerous case, because the tree looks plausible and the run dies somewhere unrelated an hour later.
 
-One more thing about the queue container, in [AGENTS.md](../AGENTS.md) but worth repeating where the harness is documented. Whatever you put after `run.sh` in the `-c` string becomes the container's exit status. Append a plain `echo` and the container reports success no matter what the sweep did: a run where three of seven scenarios failed came back `Exited (0)` for exactly that reason, and a queue whose exit code cannot be trusted cannot be alarmed on or chained behind. Capture the status into a variable first and `exit` it explicitly.
+One more thing about the queue container, in [AGENTS.md](../AGENTS.md) but worth repeating where the harness is documented. Whatever you put after `run.sh` in the `-c` string becomes the container's exit status. Append a plain `echo` and the container reports success no matter what the sweep did: a run where three of the seven scenarios that existed then failed came back `Exited (0)` for exactly that reason, and a queue whose exit code cannot be trusted cannot be alarmed on or chained behind. Capture the status into a variable first and `exit` it explicitly.
 
 ---
 
@@ -185,22 +201,21 @@ Jobs 3 to 5 are what "parse only" means: the wizard runs its own resolution, pri
 plan it would execute, and exits. They cost seconds and they catch a broken toggle file, a renamed
 option or a wizard that no longer agrees with the YAML, before anything spends an hour installing.
 
-Stage 2, the container sweep. Thirty-five jobs, twenty at a time. Linux goes before the other two
+Stage 2, the container sweep. Thirty jobs, twenty at a time. Linux goes before the other two
 platforms because it is where the playbook does the most and where a real defect is most likely.
 
-The order inside the stage is deliberate: the fastest scenario runs first on all five distributions,
-so a fundamental breakage shows up in half an hour rather than five hours in, and the rest run
-longest first, because a long job started late is what decides when the sweep ends.
+The order inside the stage is deliberate. Defaults runs first on all five distributions, because it
+is the configuration people actually get and a breakage in it is the one that matters most, and the
+rest run longest first, because a long job started late is what decides when the sweep ends.
 
 | Order | Scenario | Distributions | Ceiling |
 |---|---|---|---|
-| 6 to 10 | smoke | arch, debian, ubuntu, fedora, cachyos | 45 minutes |
+| 6 to 10 | defaults | arch, debian, ubuntu, fedora, cachyos | 180 minutes |
 | 11 to 15 | all-software | the same five | 300 minutes |
 | 16 to 20 | kde-full | the same five | 300 minutes |
 | 21 to 25 | gnome-full | the same five | 300 minutes |
-| 26 to 30 | defaults | the same five | 180 minutes |
-| 31 to 35 | live-profile | the same five | 120 minutes |
-| 36 to 40 | kde-configure-only | the same five | 90 minutes |
+| 26 to 30 | live-profile | the same five | 120 minutes |
+| 31 to 35 | kde-configure-only | the same five | 90 minutes |
 
 Stage 3, the short real installs on the other two platforms. Seven jobs, each a real wizard run on a
 real machine, each ending in verification. Roughly 30 to 90 minutes. macOS sits at three, under its
@@ -208,22 +223,21 @@ own cap of five concurrent macOS jobs.
 
 | Order | Job | Runner | Selection |
 |---|---|---|---|
-| 41 | macOS defaults | macos-14 | the toggles as they ship |
-| 42 | macOS everything | macos-14 | every selectable toggle on |
-| 43 | macOS from nothing | macos-14 | every toggle off, then a handful enabled by name |
-| 44 | Windows defaults | windows-latest | the toggles as they ship |
-| 45 | Windows everything | windows-latest | every selectable toggle on |
-| 46 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
-| 47 | Windows settings only | windows-latest | the four native system settings, no software |
+| 36 | macOS defaults | macos-14 | the toggles as they ship |
+| 37 | macOS everything | macos-14 | every selectable toggle on |
+| 38 | macOS from nothing | macos-14 | every toggle off, then a handful enabled by name |
+| 39 | Windows defaults | windows-latest | the toggles as they ship |
+| 40 | Windows everything | windows-latest | every selectable toggle on |
+| 41 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
+| 42 | Windows settings only | windows-latest | the four native system settings, no software |
 
-Forty-seven jobs in total. Those ceilings are timeouts rather than measurements: a smoke run takes
-around 20 to 30 minutes in practice, not 45, and no scenario has ever run on a GitHub runner, so the
-real numbers will only exist after the first sweep.
+Forty-two jobs in total. Those ceilings are timeouts rather than measurements, and no scenario has
+ever run on a GitHub runner, so the real numbers will only exist after the first sweep.
 
-How long the sweep takes. Adding the ceilings gives 1335 minutes of work per distribution and 6675
-across all five. At twenty concurrent that is roughly six hours in the worst case, and the real
-figure should be well under it, because every ceiling is generous. Stage 1 and stage 3 are small
-enough that concurrency never binds them.
+How long the sweep takes. Adding the ceilings gives 1290 minutes of work per distribution and 6450
+across all five. At twenty concurrent that is roughly five and a half hours in the worst case, and
+the real figure should be well under it, because every ceiling is generous. Stage 1 and stage 3 are
+small enough that concurrency never binds them.
 
 ---
 
@@ -235,7 +249,7 @@ enough that concurrency never binds them.
 | [tier1/toggle_coverage.sh](tier1/toggle_coverage.sh) | A toggle enabled with no mapping and no task, so the user asks for software and gets a successful run with nothing installed. For Windows it accepts only the three native installers, because a Windows-gated Ansible task cannot run and counting one as coverage is what hid eleven empty toggles |
 | [tier1/windows_mapping.sh](tier1/windows_mapping.sh) | The PowerShell installer and `vars/Windows.yaml` disagreeing about a package, a manager or a source, a mapping with no toggle to select it, and the Windows Python mapping drifting away from `default_python` |
 | [tier1/windows_npm_parity.sh](tier1/windows_npm_parity.sh) | The native npm tool list and the `ai_tools` role it replaces drifting apart, which is the same two-lists problem the two wizards already had |
-| [tier1/verify_spec_parity.sh](tier1/verify_spec_parity.sh) | A capability spec understating what its run proves. All six container scenarios share one `verify.yaml`, so an assertion added there belongs in all six specs, and two had already gone unrecorded |
+| [tier1/verify_spec_parity.sh](tier1/verify_spec_parity.sh) | A capability spec understating what its run proves. Every container scenario shares one `verify.yaml`, so an assertion added there belongs in all five container specs, and two had already gone unrecorded |
 | [tier1/failed_key_reads.sh](tier1/failed_key_reads.sh) | Any task deciding something from a result's `failed` key, which `failed_when` rewrites. A collector selecting on `failed == true` was dead code from the day it was written and counted three AUR builds that exited rc 1 as successes |
 | [tier1/os_family_derivation.sh](tier1/os_family_derivation.sh) | A task branching on Ansible's own `os_family` instead of the derived `ih_family`, and the derivation itself misreading a distribution. Ansible resolves the family through one fixed table and falls back to the distribution's own name for anything absent from it, so on Nobara every family condition here was false and the run stopped with nothing installed. The derivation is now the single point of failure for every distribution, so it is run against one real `/etc/os-release` per distribution in [tier1/os_release_fixtures/](tier1/os_release_fixtures/), openSUSE included, which must resolve to none of the five families rather than be rounded up to RedHat |
 | [tier1/ansible_static.sh](tier1/ansible_static.sh) | The playbook failing to parse, and warning noise growing to the point where a real warning cannot be seen |
@@ -282,7 +296,6 @@ Each scenario is one configuration the wizard can actually produce. Between them
 | gnome-full | Desktop environment "gnome", action "full" |
 | live-profile | Step 2 "profile", the Linux Live entry. The path a USB or live-session install takes |
 | kde-configure-only | Desktop environment "kde", action "configure". The only combination where the configure tasks cannot assume their own install step just ran |
-| smoke | Not a wizard path. The fast gate, limited to toggles that sit on top of a defect this project has actually shipped |
 
 The all-software toggle list is generated at run time from [group_vars/](../setup/ansible/group_vars/) rather than written into the scenario file, so a newly added toggle is covered with no edit here. The exact list used is written into the run directory.
 

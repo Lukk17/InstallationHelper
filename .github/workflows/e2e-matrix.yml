@@ -19,21 +19,20 @@
 #   4. stage1_macos_wizard_plan   macos-14        setup.sh --print-command, Darwin toggles
 #   5. stage1_windows_wizard_plan windows-latest  setup.ps1 -PrintPlan
 #
-# Stage 2, the container sweep, thirty-five jobs, twenty at a time, smoke first on all five
+# Stage 2, the container sweep, thirty jobs, twenty at a time, defaults first on all five
 # distributions, then the rest longest-first, matching e2e/README_E2E.md's own table exactly:
-#   6-10 smoke, 11-15 all-software, 16-20 kde-full, 21-25 gnome-full, 26-30 defaults,
-#   31-35 live-profile, 36-40 kde-configure-only, each across arch, debian, ubuntu, fedora,
-#   cachyos in that order.
+#   6-10 defaults, 11-15 all-software, 16-20 kde-full, 21-25 gnome-full, 26-30 live-profile,
+#   31-35 kde-configure-only, each across arch, debian, ubuntu, fedora, cachyos in that order.
 #
 # Stage 3, the short real installs on the other two platforms, seven jobs, each a real wizard run
 # ending in the wizard's own verification:
-#   41. macOS defaults          macos-14        toggles as shipped
-#   42. macOS everything        macos-14        every selectable toggle on
-#   43. macOS from nothing      macos-14        every toggle off, then a handful by name
-#   44. Windows defaults        windows-latest  toggles as shipped
-#   45. Windows everything      windows-latest  every selectable toggle on
-#   46. Windows from nothing    windows-latest  every toggle off, then a handful by name
-#   47. Windows settings only   windows-latest  the four native settings, no software
+#   36. macOS defaults          macos-14        toggles as shipped
+#   37. macOS everything        macos-14        every selectable toggle on
+#   38. macOS from nothing      macos-14        every toggle off, then a handful by name
+#   39. Windows defaults        windows-latest  toggles as shipped
+#   40. Windows everything      windows-latest  every selectable toggle on
+#   41. Windows from nothing    windows-latest  every toggle off, then a handful by name
+#   42. Windows settings only   windows-latest  the four native settings, no software
 #
 # Three more jobs exist outside that numbered list: stage1_gate and stage2_gate, which decide
 # whether the next stage is allowed to start, and stage2_plan, which turns the stage 2 dispatch
@@ -48,9 +47,9 @@
 # stage 3, where the macOS jobs live, only ever has 3 running at once, under that cap on its own.
 #
 # How long the sweep takes, using the numbers e2e/README_E2E.md's own section states: each
-# distribution carries 1335 minutes of declared scenario ceilings (45 + 300 + 300 + 300 + 180 +
-# 120 + 90), so five distributions is 6675 minutes of total declared work. At twenty concurrent
-# that is roughly six hours in the worst case, and the real figure should be well under it,
+# distribution carries 1290 minutes of declared scenario ceilings (180 + 300 + 300 + 300 + 120 +
+# 90), so five distributions is 6450 minutes of total declared work. At twenty concurrent that is
+# roughly five and a half hours in the worst case, and the real figure should be well under it,
 # because every ceiling is generous. Stage 1 and stage 3 are small enough that concurrency never
 # binds them either way.
 #
@@ -76,8 +75,8 @@
 #
 # Matrix shape and job count for stage 2: 5 distributions (arch, debian, ubuntu, fedora,
 # cachyos, read from e2e/tier3/*.Dockerfile at plan time and checked against the deliberate
-# order below rather than hardcoded blind) times 7 scenarios (read from
-# e2e/tier3/scenarios/*.yaml at plan time, same check) is 35 jobs for a full, unfiltered sweep,
+# order below rather than hardcoded blind) times 6 scenarios (read from
+# e2e/tier3/scenarios/*.yaml at plan time, same check) is 30 jobs for a full, unfiltered sweep,
 # well under the 256-job matrix ceiling.
 #
 # Per-job timeout for stage 2: each matrix cell's `timeout-minutes` is that scenario's own
@@ -165,7 +164,7 @@
 # Reproducing one cell of stage 2 locally, without GitHub Actions, is exactly what stage2_plan
 # tells the harness to do:
 #
-#   bash e2e/run.sh --tier 3 --scenario smoke --os debian
+#   bash e2e/run.sh --tier 3 --scenario defaults --os debian
 #
 # Static verification performed on this file: YAML parses (python -c "import yaml;
 # list(yaml.safe_load_all(open(...)))"). actionlint is not installed anywhere on this machine
@@ -198,7 +197,6 @@ on:
           - gnome-full
           - live-profile
           - kde-configure-only
-          - smoke
         default: all
       distro:
         description: "Stage 2 only. Which Linux distribution(s) to run against. 'all' runs every distro with a e2e/tier3/*.Dockerfile."
@@ -217,7 +215,7 @@ permissions:
   contents: read
 
 # Queues a second dispatch behind a running sweep rather than cancelling either one. These runs
-# are expensive (up to 47 jobs, hours apiece), and silently cancelling a partially finished sweep
+# are expensive (up to 42 jobs, hours apiece), and silently cancelling a partially finished sweep
 # because someone else clicked "Run workflow" would throw away real signal for no reason. A
 # second full sweep queuing behind the first is the safe default. A human who wants to abandon
 # one can still cancel it from the Actions tab.
@@ -407,7 +405,7 @@ jobs:
 
   # ===========================================================================================
   # STAGE 2 - the container sweep. Turns the dispatch inputs into a matrix, then runs it,
-  # scenario-major in the deliberate order e2e/README_E2E.md documents: smoke across every
+  # scenario-major in the deliberate order e2e/README_E2E.md documents: defaults across every
   # distribution first, then the rest longest-first. Every cell is one call to
   # `e2e/run.sh --tier 3 --scenario <name> --os <distro>`, the same command a developer runs by
   # hand, and nothing in e2e/, setup/ or AGENTS.md is touched by this file.
@@ -442,13 +440,13 @@ jobs:
 
           # The deliberate order e2e/README_E2E.md's "exact order every pipeline runs in"
           # section documents: distributions left to right as arch, debian, ubuntu, fedora,
-          # cachyos, and scenarios smoke first, then the rest longest declared timeout first.
+          # cachyos, and scenarios defaults first, then the rest longest declared timeout first.
           # This is not the same order `ls | sort` or a scenario file's own numeric prefix
           # would give, so it is stated here rather than derived, and checked against what
           # actually exists on disk so an added or removed distribution or scenario fails loudly
           # instead of silently falling out of the sweep.
           DISTRO_ORDER=(arch debian ubuntu fedora cachyos)
-          SCENARIO_ORDER=(smoke all-software kde-full gnome-full defaults live-profile kde-configure-only)
+          SCENARIO_ORDER=(defaults all-software kde-full gnome-full live-profile kde-configure-only)
 
           mapfile -t DISCOVERED_DISTROS < <(
             ls -1 e2e/tier3/*.Dockerfile \
@@ -500,9 +498,9 @@ jobs:
           BUFFER=40
           CEILING=360
 
-          # Scenario-major, distro-minor: smoke on every distribution before all-software starts
-          # on any of them, matching e2e/README_E2E.md's own reasoning that a fundamental
-          # breakage should show up in half an hour rather than five hours in.
+          # Scenario-major, distro-minor: defaults on every distribution before all-software
+          # starts on any of them, matching e2e/README_E2E.md's own reasoning that the
+          # configuration people actually get is the one whose breakage matters most.
           MATRIX="["
           first=true
           for scenario in "${SCENARIOS[@]}"; do

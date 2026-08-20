@@ -280,7 +280,7 @@ jobs:
   # -----------------------------------------------------------------------
   # arch / debian / ubuntu / fedora / cachyos: the proven tier-3 container harness, fed a
   # scenario file generated from this dispatch's own inputs so it can exercise an arbitrary
-  # toggle selection, not just the seven scenarios checked into e2e/tier3/scenarios/.
+  # toggle selection, not just the six scenarios checked into e2e/tier3/scenarios/.
   # -----------------------------------------------------------------------
   linux-e2e:
     needs: plan
