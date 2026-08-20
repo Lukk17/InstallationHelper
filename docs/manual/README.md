@@ -17,7 +17,7 @@ Each OS folder has two files:
 
 ## What the scripts do and don't do
 
-**The scripts install** everything reachable through a package manager: `apt` / `dnf` / `pacman` (incl. official third-party repos for Chrome, Brave, VS Code, Sublime, kubectl, Lens), `flatpak` (Flathub), `brew` / `brew --cask`, `winget`, `choco`, and direct `.deb` / `.rpm` downloads pinned in [`group_vars/versions.yaml`](../../setup/ansible/group_vars/versions.yaml).
+**The scripts install** everything reachable through a package manager: `apt` / `dnf` / `pacman` (incl. official third-party repos for Chrome, Brave, VS Code, Sublime, kubectl, Lens), `flatpak` (Flathub), `brew` / `brew --cask`, `winget`, `choco`, and direct `.deb` / `.rpm` downloads pinned in [`pinned_values.toml`](../../setup/pinned_values/pinned_values.toml).
 
 **The scripts do NOT install** (each is listed in its page's *Manual install required* section, with commands):
 
@@ -30,7 +30,7 @@ Each OS folder has two files:
 These pages are generated from, and must stay consistent with:
 
 - [`setup/ansible/vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml`](../../setup/ansible/vars/) — app → `{manager, package}` mappings.
-- [`setup/ansible/group_vars/versions.yaml`](../../setup/ansible/group_vars/versions.yaml) — pinned versions and download URLs.
+- [`setup/pinned_values/pinned_values.toml`](../../setup/pinned_values/pinned_values.toml) — pinned versions and download URLs.
 - [`setup/ansible/roles/software_installer/tasks/`](../../setup/ansible/roles/software_installer/tasks/) — repo provisioning (`debian_repos.yaml`, `fedora_repos.yaml`) and custom installs.
 
 If anything here drifts from those files, **trust the YAML**.

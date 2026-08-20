@@ -217,7 +217,7 @@ The playbook (`site.yaml`) follows this execution order:
 | `group_vars/linux.yaml` | Linux-only toggles (DEs, system settings, Linux-specific apps) |
 | `group_vars/macos.yaml` | macOS-only toggles |
 | `group_vars/windows.yaml` | Windows-only toggles |
-| `group_vars/versions.yaml` | Pinned version numbers for tools |
+| `setup/pinned_values/pinned_values.toml` | Pinned versions, download locations and vendor identifiers, read through `setup/pinned_values/pinned_values.py` |
 | `vars/{OS}.yaml` | Translation dictionaries mapping generic app name → `{manager, package}` |
 | `profiles/linux_live.yaml` | Override profile for USB/live installs |
 | `software.md` | Complete per-OS software list with installation methods |

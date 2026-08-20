@@ -81,20 +81,19 @@
       ansible.builtin.include_vars:
         file: "{{ playbook_dir }}/group_vars/{{ 'macos' if ih_family == 'Darwin' else 'linux' }}.yaml"
 
-    # site.yaml loads this as a vars_file and so must this play. Two things here need it. The URL
-    # collector below resolves <key>_url and <key>_rpm_url out of this file through lookup('vars'),
-    # and any OS dictionary entry that templates a pinned value would otherwise fail to render at all.
+    # The pinned versions and download locations are not loaded here, and must not be: the vars
+    # plugin configured in ansible.cfg injects them into every play, this one included, and it finds
+    # its file from its own location rather than from playbook_dir, which is what makes one
+    # implementation serve both this play and site.yaml. See docs/pinned_values_adapter_design.md.
     #
-    # The second reason is why this load exists: Debian used to map appimagelauncher to
-    # `{ manager: apt_url, package: "{{ appimage_launcher_url }}" }`, so rendering software_mapping
-    # through dict2items failed with "'appimage_launcher_url' is undefined" and took the whole
-    # verification with it. Arch never showed it, because it maps the same application to the AUR by
-    # name with no URL to dereference, so five green Arch runs proved nothing about it. Found by the
-    # first Debian and Ubuntu smoke runs, recorded in docs/regression_ledger.md. That mapping now
-    # holds a literal package name, so this particular trigger is gone and the load is not.
-    - name: Load the pinned versions the OS dictionaries template against
-      ansible.builtin.include_vars:
-        file: "{{ playbook_dir }}/group_vars/versions.yaml"
+    # Two things in this play need them present, and the second is why the loss would be expensive.
+    # The URL collector below resolves <key>_url and <key>_rpm_url through lookup('vars'), and any OS
+    # dictionary entry that templates a pinned value fails to render at all without them. Debian used
+    # to map appimagelauncher to `{ manager: apt_url, package: "{{ appimage_launcher_url }}" }`, so
+    # rendering software_mapping through dict2items failed with "'appimage_launcher_url' is undefined"
+    # and took the whole verification with it. Arch never showed it, because it maps the same
+    # application to the AUR by name with no URL to dereference, so five green Arch runs proved
+    # nothing about it. Recorded in docs/regression_ledger.md.
 
     - name: Load the OS translation dictionary
       ansible.builtin.include_vars:
@@ -486,7 +485,7 @@
           FAIL URL-installed packages. Examined {{ url_candidates | length }} candidates, of which
           {{ (url_without_location | default([])) | length }} have no download location:
           {{ (url_without_location | default([])) | join(', ') | default('none', true) }}. A location
-          comes from <key>_url in group_vars/versions.yaml, or <key>_rpm_url on Fedora, or an inline
+          comes from <key>_url in setup/pinned_values/pinned_values.toml, or <key>_rpm_url on Fedora, or an inline
           url: field on the mapping itself, and when it renders empty the playbook skips both the
           download and the install without saying so. If instead the candidate count is zero on
           {{ ih_family }}, nothing was examined at all and the fault is in the

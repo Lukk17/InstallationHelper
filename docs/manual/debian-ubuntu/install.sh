@@ -23,12 +23,31 @@ SKIPPED=(
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$1"; }
 
-# --- Direct .deb downloads, pinned to versions.yaml ---
-MINIKUBE_DEB="https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube_1.38.1-0_amd64.deb"
-TEAMVIEWER_DEB="https://download.teamviewer.com/download/linux/teamviewer_amd64.deb"
-VERACRYPT_DEB="https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-Ubuntu-24.04-amd64.deb"
-APPIMAGELAUNCHER_DEB="https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb"
-BALENA_ETCHER_DEB="https://github.com/balena-io/etcher/releases/download/v2.1.6/balena-etcher_2.1.6_amd64.deb"
+# --- Direct .deb downloads, read from the pinned values ---
+# Not copies of the URLs. The versions and locations live in setup/pinned_values and are read through
+# the one adapter the whole repository uses, so this script pulls exactly what the playbook pulls and
+# a bumped pin cannot leave a stale address behind here.
+ADAPTER="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd)/setup/pinned_values/pinned_values.sh"
+if [ ! -f "$ADAPTER" ]; then
+  printf 'ERROR: the pinned download locations are read from the repository, and\n' >&2
+  printf '       %s\n' "$ADAPTER" >&2
+  printf '       is not there. Run this from a clone rather than as a single downloaded file:\n' >&2
+  printf '         git clone https://github.com/Lukk17/InstallationHelper.git\n' >&2
+  exit 1
+fi
+# shellcheck source=../../../setup/pinned_values/pinned_values.sh
+source "$ADAPTER"
+if ! pinned_values_load; then
+  printf 'ERROR: reading the pinned download locations needs Python 3.11 or newer. Install it with\n' >&2
+  printf '         sudo apt-get install -y python3\n' >&2
+  exit 1
+fi
+
+MINIKUBE_DEB="$(pinned_value minikube_url)"
+TEAMVIEWER_DEB="$(pinned_value teamviewer_url)"
+VERACRYPT_DEB="$(pinned_value veracrypt_url)"
+APPIMAGELAUNCHER_DEB="$(pinned_value appimage_launcher_url)"
+BALENA_ETCHER_DEB="$(pinned_value balena_etcher_url)"
 
 # apt packages from the default repos.
 APT_PACKAGES=(

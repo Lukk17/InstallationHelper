@@ -2,7 +2,7 @@
 
 Install commands for every app the playbook manages on Debian/Ubuntu. To install the whole package-manager set at once, run [`install.sh`](install.sh) instead.
 
-> Tested against Ubuntu 24.04. All `apt` commands need `sudo`. Direct `.deb` versions are pinned in [`versions.yaml`](../../../setup/ansible/group_vars/versions.yaml).
+> Tested against Ubuntu 24.04. All `apt` commands need `sudo`. Direct `.deb` versions are pinned in [`pinned_values.toml`](../../../setup/pinned_values/pinned_values.toml).
 
 ## Prerequisites
 

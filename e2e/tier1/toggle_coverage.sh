@@ -15,6 +15,9 @@
 # there is treated as a defect.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+# The download locations checked at the bottom of this file are pinned values, and the shell end
+# of the pinned values port is the only thing allowed to read them. See setup/pinned_values.
+source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
 
 NO_OPS_FILE="$(dirname "${BASH_SOURCE[0]}")/documented_no_ops.txt"
 VARS_DIR="${ANSIBLE_DIR}/vars"
@@ -124,17 +127,28 @@ check_family Windows   windows.yaml
 # The accepted variable names differ per family on purpose: the apt path reads only <key>_url, so
 # accepting <key>_rpm_url for Debian would report a location the playbook never looks at.
 #
-# Only group_vars/versions.yaml is searched, while the playbook's lookup('vars', ...) sees the whole
+# Only the pinned values are consulted, while the playbook's lookup('vars', ...) sees the whole
 # variable space, so a URL defined in all.yaml, linux.yaml or a profile overlay would be invisible
-# here and this check would call it absent. Every such variable lives in versions.yaml today, which
-# is the convention, and this is the check that will complain first if someone breaks it.
+# here and this check would call it absent. Every such value is a pin today, which is the
+# convention, and this is the check that will complain first if someone breaks it.
+#
+# The pins are loaded once, up front, because a set of pins that cannot be read has to be one
+# named failure rather than nine mappings each reported as having no download location.
+PINS_READABLE=true
+pinned_values_load || PINS_READABLE=false
+
 check_url_managers() {
     local family="$1" manager="$2"
     shift 2
     local suffixes=("$@")
     local vars_file="${VARS_DIR}/${family}.yaml"
-    local versions="${GV_DIR}/versions.yaml"
     local bad_name=() no_location=() n=0 key pkg line found suffix
+
+    if [[ "${PINS_READABLE}" != true ]]; then
+        fail "${family}: the pinned values could not be read, so no ${manager} download location can be checked" \
+             "install Python 3.11 or newer, or point PINNED_VALUES_PYTHON at one"
+        return 0
+    fi
 
     while IFS= read -r line; do
         n=$((n + 1))
@@ -153,14 +167,18 @@ check_url_managers() {
             bad_name+=("${key} -> '${pkg}'")
         fi
 
-        # An inline url: field on the mapping itself outranks the versions file, same as the
+        # An inline url: field on the mapping itself outranks the pinned value, same as the
         # dispatcher's own resolution order.
         if grep -qE '\burl: ' <<<"${line}"; then
             continue
         fi
         found=false
         for suffix in "${suffixes[@]}"; do
-            grep -qE "^${key}${suffix}:[[:space:]]*\"?[^\"[:space:]]" "${versions}" && found=true
+            # Absence and emptiness are deliberately one answer here. A pin resolving to an empty
+            # string makes the dispatcher skip the download exactly as an unpinned name does, so
+            # both count as no location: pinned_value prints nothing for the first and returns 3
+            # for the second, which is why the status is discarded and only the value is tested.
+            [[ -n "$(pinned_value "${key}${suffix}" 2>/dev/null || true)" ]] && found=true
         done
         [[ "${found}" == false ]] && no_location+=("${key}")
 

@@ -1,0 +1,11 @@
+# A reference chain three hops deep, an empty value, and a checksum entry.
+[pins]
+version = "2.2.0"
+file = "app_{{ version }}_amd64.deb"
+url = "https://example.invalid/v{{ version }}/{{ file }}"
+alias = "{{ url }}"
+blank = ""
+quoted = "it's quoted"
+
+[checksums]
+app_deb = "sha256:abc"

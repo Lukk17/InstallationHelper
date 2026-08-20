@@ -15,15 +15,20 @@
       install_gridcoin      a direct installer download, no package anywhere
       install_razer_cortex  the same, and Razer ships no unattended switch it will admit to
 
-    Every version comes from group_vars/versions.yaml so the pins stay a single source of
-    truth with the Unix path. Nothing here writes to the console: the caller renders, which
-    keeps the functions testable.
+    Every version comes from the pinned values, read through setup/pinned_values, so the pins
+    stay a single source of truth with the Unix path. Nothing here writes to the console: the
+    caller renders, which keeps the functions testable.
 
     Depends on Get-WingetPath, Install-WingetPackage and Install-ChocolateyPackageBatch from
     WindowsSoftware.ps1, which setup.ps1 dot-sources first.
 #>
 
 Set-StrictMode -Version Latest
+
+# The pinned versions and download locations, read through the one adapter allowed to reach them.
+# This file used to carry its own resolver over the YAML, one of three hand-written parsers of the
+# same data that could disagree with each other. Nothing here parses anything now.
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'pinned_values\PinnedValues.psm1')
 
 # The toggles this file is responsible for. Declared as data rather than left implicit in the
 # dispatch below, so e2e/tier1/toggle_coverage.sh can ask what is covered here instead of inferring
@@ -41,64 +46,6 @@ function Get-WindowsCustomInstallKey {
     [OutputType([string[]])]
     param()
     return $script:CustomInstallKeys
-}
-
-# A scalar assignment in group_vars/versions.yaml. Only quoted and bare scalars, because that is
-# all the file contains, and anything structured would be a change worth failing on rather than
-# half-reading. The template form "{{ other_key }}" is captured so it can be resolved afterwards.
-$script:VersionLinePattern = '^(?<key>[a-z0-9_]+):\s*"?(?<value>[^"#]*?)"?\s*(#.*)?$'
-
-function Get-PinnedVersion {
-    <#
-    .SYNOPSIS
-        Returns group_vars/versions.yaml as a key to value map, with one level of {{ ref }} resolved.
-    .DESCRIPTION
-        Two shapes of reference appear in that file and only handling the first is a trap I walked
-        into. default_java is the whole value, "{{ java21_id }}". But gridcoin_win_installer_url
-        embeds one mid-string, ".../download/{{ gridcoin_version }}/gridcoin-{{ gridcoin_version
-        }}-win64-setup.exe", and antigravity_cdn_base nests a reference inside a value that other
-        values then reference. So substitution is textual and repeated until nothing changes, with a
-        pass limit so a circular reference cannot spin.
-
-        A reference that does not resolve is left with its braces intact rather than blanked, so a
-        caller can see it is unresolved and say so instead of silently fetching a broken URL.
-    #>
-    [CmdletBinding()]
-    [OutputType([hashtable])]
-    param(
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $VersionsPath
-    )
-
-    if (-not (Test-Path -LiteralPath $VersionsPath)) {
-        throw "Versions file not found: $VersionsPath"
-    }
-
-    $versions = @{}
-    foreach ($line in (Get-Content -LiteralPath $VersionsPath)) {
-        if ($line -match '^\s*#') { continue }
-        if ($line -notmatch $script:VersionLinePattern) { continue }
-        $versions[$Matches['key']] = $Matches['value'].Trim()
-    }
-
-    for ($pass = 1; $pass -le 5; $pass++) {
-        $changed = $false
-        foreach ($key in @($versions.Keys)) {
-            $value = $versions[$key]
-            if ($value -notmatch '\{\{') { continue }
-            $resolved = [regex]::Replace($value, '\{\{\s*(?<ref>[a-z0-9_]+)\s*\}\}', {
-                param($m)
-                $ref = $m.Groups['ref'].Value
-                # Left alone when it names nothing, so it stays visibly unresolved.
-                if ($versions.ContainsKey($ref) -and $versions[$ref] -notmatch '\{\{') { return $versions[$ref] }
-                return $m.Value
-            })
-            if ($resolved -ne $value) { $versions[$key] = $resolved; $changed = $true }
-        }
-        if (-not $changed) { break }
-    }
-
-    Write-Verbose "Read $($versions.Count) pinned versions"
-    return $versions
 }
 
 function Get-TemurinMajor {
@@ -124,8 +71,8 @@ function Install-TemurinJdk {
         Installs the pinned Temurin JDKs and points JAVA_HOME at the default one.
     .DESCRIPTION
         SDKMAN needs bash and cannot run on Windows, so there is no version manager here. The four
-        majors pinned in versions.yaml are installed as four winget packages instead, which is the
-        same vendor and the same four versions the Unix path gets.
+        pinned majors are installed as four winget packages instead, which is the same vendor and
+        the same four versions the Unix path gets.
 
         The dead sdkman_windows.yaml named Chocolatey packages temurin11, temurin17, temurin21 and
         temurin. None of those exist on the Chocolatey feed, and it then set JAVA_HOME machine-wide
@@ -149,12 +96,13 @@ function Install-TemurinJdk {
     # down. That contract was broken: an unthrown exception here propagated out of
     # Invoke-WindowsCustomInstall, which setup.ps1 does not wrap, so a malformed java pin killed
     # nodejs, flutter, gridcoin and razer_cortex with it and stopped the wizard before the WSL
-    # playbook ran. It is reachable without a typo, since Get-PinnedVersion deliberately leaves an
-    # unresolvable {{ ref }} intact and default_java is written in exactly that shape.
+    # playbook ran. The reader now refuses to hand out an unresolved reference, so that exact shape
+    # cannot arrive any more, but a pin bumped to anything a major version cannot be read out of
+    # still lands here, and it must not take the other four items down with it.
     foreach ($key in @('java11_id', 'java17_id', 'java21_id', 'java25_id')) {
         if (-not $Versions.ContainsKey($key)) {
             $results.Add([PSCustomObject]@{ Key = 'java'; Package = $key; Status = 'failed'
-                                            Detail = "versions.yaml has no $key, so no Temurin package could be derived" })
+                                            Detail = "nothing pins $key, so no Temurin package could be derived" })
             continue
         }
         try {
@@ -191,8 +139,8 @@ function Install-TemurinJdk {
 
     # JAVA_HOME last, so it points at something that exists. Discovered rather than constructed:
     # the directory carries the full patch version and the hotspot suffix, neither of which the
-    # pin in versions.yaml knows. Falls back to 21 when default_java is missing or malformed, which
-    # is the pinned default in versions.yaml, rather than throwing out of the whole phase.
+    # pin knows. Falls back to 21 when default_java is unpinned or malformed, which is the pinned
+    # default itself, rather than throwing out of the whole phase.
     $defaultMajor = '21'
     if ($Versions.ContainsKey('default_java')) {
         try {
@@ -325,7 +273,7 @@ function Install-NodeViaNvm {
         makes the toggle a no-op in practice. The Unix path runs `nvm install --lts`, so this does
         the equivalent. nvm-windows spells it `nvm install lts` with no dashes.
 
-        nvm_version in versions.yaml pins nvm.sh and does not apply here: nvm-windows is a separate
+        The nvm_version pin is for nvm.sh and does not apply here: nvm-windows is a separate
         project with its own versioning, and Chocolatey carries it as `nvm`.
     #>
     [CmdletBinding(SupportsShouldProcess)]
@@ -439,10 +387,10 @@ function Install-DirectInstaller {
         return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'skipped'; Detail = 'WhatIf' }
     }
 
-    # Scheme checked before anything is fetched. These URLs are built by textual {{ ref }}
-    # substitution out of versions.yaml, so a bad edit there can point this somewhere unintended, and
-    # what arrives is then executed. http would also mean an installer any network position can
-    # replace. Neither vendor needs it.
+    # Scheme checked before anything is fetched. These URLs are assembled from pinned values by
+    # textual substitution, so a bad edit to a pin can point this somewhere unintended, and what
+    # arrives is then executed. http would also mean an installer any network position can replace.
+    # Neither vendor needs it.
     if ($Url -notmatch '^https://') {
         return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
                                   Detail = 'refusing to download an installer over anything but https' }
@@ -496,6 +444,38 @@ function Install-DirectInstaller {
     }
 }
 
+function Resolve-PinnedInstallerUrl {
+    <#
+    .SYNOPSIS
+        A pinned installer location, or an empty one carrying the reason it cannot be used.
+    .DESCRIPTION
+        Absence and emptiness are different answers and the reason says which, because "nobody
+        pinned this" and "somebody pinned it to nothing" send whoever reads the failure to
+        different places. Neither raises: Invoke-WindowsCustomInstall's contract is that one bad
+        item never takes the others down, so an unusable location becomes one named failed result.
+
+        There is no check for a leftover {{ ref }} here. The reader resolves every reference before
+        a value leaves it and refuses to hand out one it could not resolve, which is the whole
+        reason this file no longer carries a resolver of its own.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory)] [hashtable] $Versions,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Name
+    )
+
+    if (-not $Versions.ContainsKey($Name)) {
+        return [PSCustomObject]@{ Url = ''; Reason = "nothing pins $Name, so there is no installer to download" }
+    }
+
+    $url = [string] $Versions[$Name]
+    if (-not $url) {
+        return [PSCustomObject]@{ Url = ''; Reason = "$Name is pinned to an empty value, so there is no installer to download" }
+    }
+    return [PSCustomObject]@{ Url = $url; Reason = '' }
+}
+
 function Invoke-WindowsCustomInstall {
     <#
     .SYNOPSIS
@@ -508,12 +488,25 @@ function Invoke-WindowsCustomInstall {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [hashtable] $Toggles,
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $VersionsPath,
         [string[]] $OnlyKeys
     )
 
-    $versions = Get-PinnedVersion -VersionsPath $VersionsPath
-    $results  = [System.Collections.Generic.List[object]]::new()
+    $results = [System.Collections.Generic.List[object]]::new()
+
+    # The whole set in one call, so a name nobody pinned is absent from the map instead of raising,
+    # and every guard below reports it as one named failed result.
+    #
+    # The load itself is caught for the same reason those guards exist. setup.ps1 does not wrap this
+    # call and runs with $ErrorActionPreference 'Stop', so throwing here would stop the wizard before
+    # the WSL playbook ran, which is the shape of two regressions in the ledger. An empty map plus
+    # this one named failure degrades into named failures per item rather than a wrong install.
+    $versions = @{}
+    try {
+        $versions = Get-PinnedValueMap
+    } catch {
+        $results.Add([PSCustomObject]@{ Key = 'pinned values'; Package = 'PinnedValues.psm1'
+                                        Status = 'failed'; Detail = $_.Exception.Message })
+    }
 
     $wanted = {
         param([string] $key)
@@ -529,15 +522,15 @@ function Invoke-WindowsCustomInstall {
     # Gridcoin's installer is NSIS, confirmed by finding Nullsoft.NSIS.exehead in the downloaded
     # binary rather than by assuming it. NSIS takes /S.
     if (& $wanted 'gridcoin') {
-        $url = $versions['gridcoin_win_installer_url']
-        if ($url -and $url -notmatch '\{\{') {
+        $pin = Resolve-PinnedInstallerUrl -Versions $versions -Name 'gridcoin_win_installer_url'
+        if ($pin.Url) {
             # NSIS installs to Program Files by default and the package name is Gridcoin, confirmed
             # from the installer's own version resources when its framework was identified.
-            $results.Add((Install-DirectInstaller -Key 'gridcoin' -Url $url -SilentArgument @('/S') `
+            $results.Add((Install-DirectInstaller -Key 'gridcoin' -Url $pin.Url -SilentArgument @('/S') `
                 -ProofPath (Join-Path $env:ProgramFiles 'Gridcoin')))
         } else {
             $results.Add([PSCustomObject]@{ Key = 'gridcoin'; Package = 'gridcoin_win_installer_url'; Status = 'failed'
-                                            Detail = "versions.yaml does not give a usable URL, it reads '$url'" })
+                                            Detail = $pin.Reason })
         }
     }
 
@@ -547,19 +540,19 @@ function Invoke-WindowsCustomInstall {
     # proof, so the timeout matters more here than anywhere else in this file. If Cortex ignores it,
     # the run is not lost, the user is told to install it by hand.
     if (& $wanted 'razer_cortex') {
-        $url = $versions['razer_cortex_win_installer_url']
-        if ($url -and $url -notmatch '\{\{') {
+        $pin = Resolve-PinnedInstallerUrl -Versions $versions -Name 'razer_cortex_win_installer_url'
+        if ($pin.Url) {
             # The proof path is a guess and is labelled as one. Razer Cortex is a 32-bit installer so
             # Program Files (x86) is the right root, but the exact directory has not been verified on a
             # real install because nothing here has ever run it. If this reports a failure while Cortex
             # is visibly installed, the path is wrong rather than the install, and the message says so.
             # That direction is the safe one: a false failure gets investigated, a false success does not.
-            $results.Add((Install-DirectInstaller -Key 'razer_cortex' -Url $url -SilentArgument @('/S') `
+            $results.Add((Install-DirectInstaller -Key 'razer_cortex' -Url $pin.Url -SilentArgument @('/S') `
                 -TimeoutMinutes 10 `
                 -ProofPath (Join-Path ${env:ProgramFiles(x86)} 'Razer\Razer Cortex')))
         } else {
             $results.Add([PSCustomObject]@{ Key = 'razer_cortex'; Package = 'razer_cortex_win_installer_url'; Status = 'failed'
-                                            Detail = "versions.yaml does not give a usable URL, it reads '$url'" })
+                                            Detail = $pin.Reason })
         }
     }
 

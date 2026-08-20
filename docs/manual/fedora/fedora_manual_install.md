@@ -2,7 +2,7 @@
 
 Install commands for every app the playbook manages on Fedora. To install the whole package-manager set at once, run [`install.sh`](install.sh) instead.
 
-> Tested against Fedora 42/43. All `dnf` commands need `sudo`. Direct `.rpm` versions are pinned in [`versions.yaml`](../../../setup/ansible/group_vars/versions.yaml).
+> Tested against Fedora 42/43. All `dnf` commands need `sudo`. Direct `.rpm` versions are pinned in [`pinned_values.toml`](../../../setup/pinned_values/pinned_values.toml).
 
 ## Prerequisites
 

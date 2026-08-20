@@ -11,7 +11,7 @@ Configuration tasks the Ansible playbook performs, grouped by desktop environmen
 | VMware Workstation Player | Windows | Auto-download broken — Broadcom moved installers behind a portal login. Install manually or use VirtualBox. |
 | Trello / WhatsApp | Windows | No maintained winget manifest. Mapped to MS Store IDs (`XP8K0HKJFRXGCK` / `9NKSQGP7F2NH`); winget routes them through Store install. |
 | Antigravity | Linux | Installed from Google's official apt/yum repos (`us-central1-apt.pkg.dev` / `us-central1-yum.pkg.dev`) configured by `debian_repos.yaml` / `fedora_repos.yaml`. AUR slug `antigravity` on Arch. Auto-updates work the same as Chrome. |
-| Antigravity | macOS | Direct DMG from Google's official CDN `edgedl.me.gvt1.com` (Google Video Transcoding — same CDN that delivers Chrome). `macos_install.yaml` reads `ansible_facts['architecture']` and picks the arm64 DMG on Apple Silicon, the x64 DMG on Intel. Version pinned in `versions.yaml` (`antigravity_version`, `antigravity_build`). |
+| Antigravity | macOS | Direct DMG from Google's official CDN `edgedl.me.gvt1.com` (Google Video Transcoding — same CDN that delivers Chrome). `macos_install.yaml` reads `ansible_facts['architecture']` and picks the arm64 DMG on Apple Silicon, the x64 DMG on Intel. Version pinned in `pinned_values.toml` (`antigravity_version`, `antigravity_build`). |
 | Antigravity | Windows | winget `Google.AntigravityIDE`. |
 | Gridcoin | macOS / Windows | DMG / `.exe` from `github.com/gridcoin-community/Gridcoin-Research` releases (tag `5.5.0.0`) — handled by `macos_install.yaml` / `windows_install.yaml`. Arch uses the official flatpak bundle (`custom_installs.yaml`). |
 | FileZilla / Maven / Gradle / VMware Workstation Player / GeForce Experience | Windows | No winget manifest. Each falls back to Chocolatey via `manager: choco` in `vars/Windows.yaml`. The `win_chocolatey` module bootstraps Chocolatey on first use. |
@@ -151,7 +151,7 @@ The cross-platform toggle file has 50+ entries grouped by category — see the f
 - **Crypto/Volunteer:** `install_boinc`, `install_gridcoin`
 - **SDKs:** `install_dart`, `install_flutter`, `install_android_sdk`
 
-OS-specific toggles live in `group_vars/{linux,macos,windows}.yaml`. Version pins for downloaded artefacts (Java, Python, Node, Minikube, balena_etcher, etc.) are in `group_vars/versions.yaml`, alongside an optional `download_checksums` mapping for sha256 enforcement on `get_url` tasks.
+OS-specific toggles live in `group_vars/{linux,macos,windows}.yaml`. Version pins for downloaded artefacts (Java, Python, Node, Minikube, balena_etcher, etc.) are in [pinned_values.toml](pinned_values/pinned_values.toml), alongside a `[checksums]` table for sha256 enforcement on `get_url` tasks.
 
 ## Related Documentation
 

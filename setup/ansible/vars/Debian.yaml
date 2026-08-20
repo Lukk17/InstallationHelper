@@ -19,7 +19,7 @@ software_mapping:
   openssl: { manager: "apt", package: "openssl" }
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
   kubectl: { manager: "apt", package: "kubectl" }               # Official k8s.io repo
-  # For apt_url the download location comes from minikube_url in group_vars/versions.yaml, and
+  # For apt_url the download location comes from minikube_url in setup/pinned_values/pinned_values.toml, and
   # `package` is the name dpkg records once the .deb is installed, so verification can look for it
   # the same way it looks for an ordinary apt package. Measured with `dpkg-deb -f <file> Package`
   # against the real vendor artifact, not guessed from the filename.

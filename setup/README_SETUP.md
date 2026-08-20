@@ -439,7 +439,7 @@ Source role: [roles/sdk_manager/](ansible/roles/sdk_manager/).
 | **Pyenv** | `curl https://pyenv.run \| bash` | same | same | same | no Pyenv equivalent, installs a single interpreter instead, `winget install -e --id Python.Python.3.11`, kept in sync with `default_python` |
 | **SDKMAN** | `curl -s https://get.sdkman.io \| bash` | same | same | same | not available, Java itself installs through [setup/windows/](windows/) directly, four Temurin builds plus a discovered `JAVA_HOME` |
 | **Dart SDK** | `sudo apt-get install -y dart` | `sudo pacman -S --needed dart` | `sudo dnf install -y dart` | `brew install dart` | manual from [dart.dev](https://dart.dev/get-dart) |
-| **FVM (Flutter)** | `curl -fsSL https://fvm.app/install.sh \| bash` | same | same | same | `choco install fvm`, then `fvm install <channel>` and `fvm global <channel>`, channel pinned by `flutter_channel` in `versions.yaml` |
+| **FVM (Flutter)** | `curl -fsSL https://fvm.app/install.sh \| bash` | same | same | same | `choco install fvm`, then `fvm install <channel>` and `fvm global <channel>`, channel pinned by `flutter_channel` in `pinned_values.toml` |
 | **Android SDK** | `sdkmanager "platform-tools" "build-tools;35.0.0"` after the cmdline-tools zip is unpacked | same | same | same | `winget install -e --id Google.AndroidStudio` |
 
 #### URL-based package installs
@@ -449,7 +449,7 @@ Source role: [roles/sdk_manager/](ansible/roles/sdk_manager/).
 Source role: [roles/software_installer/](ansible/roles/software_installer/). These entries use direct download URLs
 (via the `url:` field on a software mapping, dispatched by the `apt_url` and `dnf_url` managers) because no official
 distro package exists or the repo version is too old. Pinned versions and URL templates live in
-[group_vars/versions.yaml](ansible/group_vars/versions.yaml).
+[pinned_values.toml](pinned_values/pinned_values.toml).
 
 | Software | Ubuntu / Debian | Arch | Fedora |
 |---|---|---|---|
@@ -462,7 +462,7 @@ distro package exists or the repo version is too old. Pinned versions and URL te
 | **Brave** | `sudo apt-get install -y brave-browser` (repo first) | `yay -S brave-bin` | `sudo dnf install -y brave-browser` (repo first) |
 | **VS Code** | `sudo apt-get install -y code` (repo first) | `yay -S visual-studio-code-bin` | `sudo dnf install -y code` (repo first) |
 | **Sublime Text** | `sudo apt-get install -y sublime-text` (repo first) | `yay -S sublime-text-4` | `sudo dnf install -y sublime-text` (repo first) |
-| **kubectl** | `sudo apt-get install -y kubectl` (repo first, minor pinned in `versions.yaml`) | `sudo pacman -S --needed kubectl` | `sudo dnf install -y kubectl` (repo first) |
+| **kubectl** | `sudo apt-get install -y kubectl` (repo first, minor pinned in `pinned_values.toml`) | `sudo pacman -S --needed kubectl` | `sudo dnf install -y kubectl` (repo first) |
 | **Helm** | `sudo apt-get install -y helm` (repo first) | `sudo pacman -S --needed helm` | `sudo dnf install -y helm` |
 | **Terraform** | `sudo apt-get install -y terraform` (repo first) | `sudo pacman -S --needed terraform` | `sudo dnf install -y terraform` (repo first) |
 | **GitHub CLI (gh)** | `sudo apt-get install -y gh` (repo first) | `sudo pacman -S --needed github-cli` | `sudo dnf install -y gh` |
@@ -479,19 +479,20 @@ runs.
 
 ---
 
-The file [group_vars/versions.yaml](ansible/group_vars/versions.yaml) exposes a `download_checksums` mapping. To
-enforce sha256 verification on `get_url` tasks (e.g. AppImage downloads, custom DMG / EXE installers), set:
+The `[checksums]` table in [pinned_values.toml](pinned_values/pinned_values.toml) holds the download verification
+keys, injected into Ansible as `download_checksums` by the vars plugin. To enforce sha256 verification on `get_url`
+tasks (e.g. AppImage downloads, custom DMG / EXE installers), add an entry:
 
-```yaml
-download_checksums:
-  lens_appimage: "sha256:0123abcd..."
-  gputest:       "sha256:..."
-  antigravity_macos: "sha256:..."
-  gridcoin_macos: "sha256:..."
-  gridcoin_flatpak: "sha256:..."
+```toml
+[checksums]
+jetbrains_toolbox = "sha256:0123abcd..."
+gputest = "sha256:..."
+antigravity_macos = "sha256:..."
+gridcoin_macos = "sha256:..."
+gridcoin_flatpak = "sha256:..."
 ```
 
-Leaving an entry unset disables checksum enforcement for that download (Ansible uses `omit`).
+Leaving an entry absent disables checksum enforcement for that download (Ansible uses `omit`).
 
 #### Crypto hardware
 

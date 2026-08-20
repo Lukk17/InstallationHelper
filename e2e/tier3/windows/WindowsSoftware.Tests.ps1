@@ -47,6 +47,7 @@ BeforeAll {
     $script:AnsibleDir        = Join-Path $script:RepoRoot 'setup\ansible'
     $script:PsFile            = Join-Path $script:RepoRoot 'setup\windows\WindowsSoftware.ps1'
     $script:CustomInstallFile = Join-Path $script:RepoRoot 'setup\windows\WindowsCustomInstalls.ps1'
+    $script:PinnedValuesFile  = Join-Path $script:RepoRoot 'setup\pinned_values\PinnedValues.psm1'
 
     if (-not (Test-Path -LiteralPath $script:PsFile)) {
         throw "WindowsSoftware.ps1 not found at $script:PsFile. Was the repository copied in?"
@@ -54,8 +55,14 @@ BeforeAll {
     if (-not (Test-Path -LiteralPath $script:CustomInstallFile)) {
         throw "WindowsCustomInstalls.ps1 not found at $script:CustomInstallFile. Was the repository copied in?"
     }
+    if (-not (Test-Path -LiteralPath $script:PinnedValuesFile)) {
+        throw "PinnedValues.psm1 not found at $script:PinnedValuesFile. Was the repository copied in?"
+    }
     . $script:PsFile
     . $script:CustomInstallFile
+    # Imported here as well as by WindowsCustomInstalls.ps1, so the adapter tests below state their
+    # own dependency instead of relying on a dot-source side effect.
+    Import-Module $script:PinnedValuesFile -Force
 }
 
 Describe 'Get-WindowsSoftwareToggle' {
@@ -217,61 +224,72 @@ Describe 'Get-WingetPath on a machine without winget' {
     }
 }
 
-Describe 'Get-PinnedVersion' {
+Describe 'PinnedValues module' {
 
-    It 'resolves a plain scalar pin' {
-        $tmp = Join-Path $TestDrive 'plain.yaml'
-        @('---', 'java21_id: "21.0.11-tem"') | Set-Content -LiteralPath $tmp
-        $v = Get-PinnedVersion -VersionsPath $tmp
-        $v['java21_id'] | Should -Be '21.0.11-tem'
+    # These do not test the resolver, they test the adapter over it. The resolver lives in
+    # setup/pinned_values/pinned_values.py and is the only one in the repository, so what is worth
+    # asserting here is that PowerShell gets what the resolver produced without a second parser
+    # between them. The module needs a Python 3.11 or newer to reach, which the Windows image pins
+    # in from the embeddable zip. If that step ever disappears these fail rather than skip, because
+    # a skipped check proves nothing.
+
+    # The two answers this adapter must keep apart. A pin nobody wrote and a pin written as nothing
+    # are different faults with different fixes, and Invoke-WindowsCustomInstall reports each as its
+    # own named result. An adapter that flattened both into an empty string would make a download
+    # location that renders to nothing look like a pin somebody forgot.
+    Context 'absence and emptiness are different answers' {
+
+        BeforeAll {
+            $script:Fixture = Join-Path $TestDrive 'pins.toml'
+            @('[pins]', 'flutter_channel = ""', 'java21_id = "21.0.11-tem"', '[checksums]') |
+                Set-Content -LiteralPath $script:Fixture
+            # The reader's own override, which is why no test carries the real file's path.
+            $env:INSTALLATION_HELPER_PINS_FILE = $script:Fixture
+        }
+
+        AfterAll {
+            Remove-Item Env:INSTALLATION_HELPER_PINS_FILE -ErrorAction SilentlyContinue
+        }
+
+        It 'reads a pin whose value is empty as an empty string, not as absent' {
+            $map = Get-PinnedValueMap
+            $map.ContainsKey('flutter_channel') | Should -BeTrue
+            $map['flutter_channel'] | Should -Be ''
+            Get-PinnedValue -Key flutter_channel | Should -Be ''
+        }
+
+        It 'has no entry for a pin that is absent from the file' {
+            (Get-PinnedValueMap).ContainsKey('java25_id') | Should -BeFalse
+        }
+
+        # Absence is the one case that must not come back as a value. It throws, and the message
+        # names both the pin and the file it was looked for in, so nobody has to guess which file
+        # was read.
+        It 'throws on an absent pin, naming the pin and the file it was looked for in' {
+            { Get-PinnedValue -Key java25_id } | Should -Throw -ExpectedMessage '*java25_id*pins.toml*'
+        }
     }
 
-    It 'resolves a {{ ref }} pin to the value it points at' {
-        $tmp = Join-Path $TestDrive 'ref.yaml'
-        @('---', 'java21_id: "21.0.11-tem"', 'default_java: "{{ java21_id }}"') | Set-Content -LiteralPath $tmp
-        $v = Get-PinnedVersion -VersionsPath $tmp
-        $v['default_java'] | Should -Be '21.0.11-tem'
-    }
+    Context 'the real pinned values file' {
 
-    # This is the shape default_java is written in today, and the one Install-TemurinJdk's
-    # own comments call out by name as reachable without a typo. A reference to a key that
-    # is not in the file must stay visibly unresolved rather than resolving to an empty
-    # string, so a caller downstream sees "{{ nope }}" and can say so instead of silently
-    # treating it as blank.
-    It 'leaves an unresolved {{ ref }} pin intact rather than blanking it' {
-        $tmp = Join-Path $TestDrive 'unresolved.yaml'
-        @('---', 'default_java: "{{ nope }}"') | Set-Content -LiteralPath $tmp
-        $v = Get-PinnedVersion -VersionsPath $tmp
-        $v['default_java'] | Should -Be '{{ nope }}'
-    }
+        It 'hands back a resolved set with no template left in any value' {
+            $map = Get-PinnedValueMap
+            $map.Count | Should -BeGreaterThan 0
+            @($map.Values | Where-Object { $_ -match '\{\{' }) | Should -BeNullOrEmpty
+        }
 
-    # A pin absent from the file entirely, as opposed to present with a bad value. There is
-    # nothing to resolve, so this must not throw, and the caller sees it through
-    # ContainsKey rather than a KeyNotFoundException.
-    It 'has no entry for a pin that is absent from the file' {
-        $tmp = Join-Path $TestDrive 'absent.yaml'
-        @('---', 'java21_id: "21.0.11-tem"') | Set-Content -LiteralPath $tmp
-        $v = Get-PinnedVersion -VersionsPath $tmp
-        $v.ContainsKey('java25_id') | Should -BeFalse
-    }
+        # default_java is written as a reference to another pin, which is the shape that needed a
+        # resolver in the first place. Compared against what it points at rather than against a
+        # literal version, so bumping the pin does not need this test edited.
+        It 'resolves default_java to the identifier java21_id pins' {
+            $map = Get-PinnedValueMap
+            $map['default_java'] | Should -Not -Match '\{\{'
+            $map['default_java'] | Should -Be $map['java21_id']
+        }
 
-    It 'reads a pin whose value is empty as an empty string, not as absent' {
-        $tmp = Join-Path $TestDrive 'empty.yaml'
-        @('---', 'flutter_channel: ""') | Set-Content -LiteralPath $tmp
-        $v = Get-PinnedVersion -VersionsPath $tmp
-        $v.ContainsKey('flutter_channel') | Should -BeTrue
-        $v['flutter_channel'] | Should -Be ''
-    }
-
-    It 'throws rather than returning an empty map when the versions file does not exist' {
-        { Get-PinnedVersion -VersionsPath (Join-Path $TestDrive 'nope.yaml') } |
-            Should -Throw -ExpectedMessage '*not found*'
-    }
-
-    It 'parses the real group_vars/versions.yaml without throwing' {
-        $versionsPath = Join-Path $script:AnsibleDir 'group_vars\versions.yaml'
-        $v = Get-PinnedVersion -VersionsPath $versionsPath
-        $v['default_java'] | Should -Not -Match '\{\{'
+        It 'gives one value the same answer as the whole set' {
+            Get-PinnedValue -Key default_java | Should -Be (Get-PinnedValueMap)['default_java']
+        }
     }
 }
 
@@ -285,16 +303,17 @@ Describe 'Get-TemurinMajor' {
         Get-TemurinMajor -SdkmanId '25.0.3-tem' | Should -Be '25'
     }
 
-    # The malformed shape Install-TemurinJdk's own comments warn is reachable without a
-    # typo: an unresolved "{{ ref }}" pin passed straight through, since Get-PinnedVersion
-    # deliberately leaves it that way instead of blanking it.
+    # The reader refuses to hand out a value it could not resolve, so this shape can no longer
+    # arrive from the pinned values. It is still asserted, because this function is also the thing
+    # that decides what a malformed pin does, and answering "major 21" to anything unrecognisable
+    # would install the wrong JDK silently.
     It 'throws on a pin that is still an unresolved {{ ref }}' {
         { Get-TemurinMajor -SdkmanId '{{ default_java }}' } |
             Should -Throw -ExpectedMessage "*'{{ default_java }}'*"
     }
 
     # The error must name the value that failed, so whoever reads it can go straight to the
-    # offending line in versions.yaml instead of guessing which of four pins broke.
+    # offending pin instead of guessing which of the four broke.
     It 'names the malformed value in the thrown error' {
         { Get-TemurinMajor -SdkmanId 'tem-21.0.11' } |
             Should -Throw -ExpectedMessage "*'tem-21.0.11'*"
@@ -306,7 +325,7 @@ Describe 'Get-TemurinMajor' {
     }
 
     # ValidateNotNullOrEmpty rejects this before the function body runs, which is the
-    # "missing pin" shape: a key present in versions.yaml with nothing after the colon.
+    # "missing pin" shape: a name present in the pins table with an empty value.
     It 'throws on an empty identifier' {
         { Get-TemurinMajor -SdkmanId '' } | Should -Throw
     }

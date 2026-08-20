@@ -122,7 +122,7 @@ default_wallpaper: "forest-house.jpg"
 # Falls back to ansible_user_id if not using sudo.
 non_root_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
 
-# Android SDK location. Not a pinned value, and deliberately not in group_vars/versions.yaml:
+# Android SDK location. Not a pinned value, and deliberately not in setup/pinned_values/pinned_values.toml:
 # non_root_home comes from linux.yaml or macos.yaml and resolves non_root_user above, so only lazy
 # templating after fact gathering can render this. A file of pins has to resolve on its own.
 android_home: "{{ non_root_home }}/Android/Sdk"

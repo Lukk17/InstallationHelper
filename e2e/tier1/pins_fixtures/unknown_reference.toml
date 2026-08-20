@@ -1,0 +1,2 @@
+[pins]
+url = "https://example.invalid/{{ nowhere }}/file"

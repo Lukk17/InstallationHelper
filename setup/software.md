@@ -1,6 +1,6 @@
 # Software catalog
 
-What the playbook installs on each OS, with a copy-paste command per platform. This file is a quick reference; the authoritative source is `setup/ansible/vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml` plus the URL/version pins in `setup/ansible/group_vars/versions.yaml`. If anything here drifts from a `vars/*.yaml`, trust the YAML.
+What the playbook installs on each OS, with a copy-paste command per platform. This file is a quick reference; the authoritative source is `setup/ansible/vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml` plus the URL/version pins in [setup/pinned_values/pinned_values.toml](pinned_values/pinned_values.toml). If anything here drifts from a `vars/*.yaml`, trust the YAML.
 
 ## How to read this file
 
@@ -27,7 +27,7 @@ The playbook runs in this order. Each phase must succeed before the next can sta
 5. Batched package installs: one call per manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`) so dependency resolution happens once per OS.
 6. Custom installs: `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`), `macos_install.yaml` (Antigravity DMG when published, Gridcoin DMG), `windows_install.yaml` (Chocolatey + winget batches, Gridcoin `.exe` silent install).
 
-Gradle is managed via SDKMAN on every Linux distro, not the system package manager. The `versions.yaml` pin drives `sdk install gradle`.
+Gradle is managed via SDKMAN on every Linux distro, not the system package manager. The `pinned_values.toml` pin drives `sdk install gradle`.
 
 ## Cross-platform applications
 
@@ -204,7 +204,7 @@ On Linux the playbook enables and starts the `tailscaled` system service in `cus
 
 ## SDK and runtime managers
 
-Installed by the `sdk_manager` role. All versions are pinned in `setup/ansible/group_vars/versions.yaml`. Run these as your normal user, not with sudo, and in order, because each writes to your shell rc and has to be sourced before the next.
+Installed by the `sdk_manager` role. All versions are pinned in [setup/pinned_values/pinned_values.toml](pinned_values/pinned_values.toml). Run these as your normal user, not with sudo, and in order, because each writes to your shell rc and has to be sourced before the next.
 
 | Manager / runtime | Linux | macOS | Windows |
 |---|---|---|---|
@@ -409,26 +409,26 @@ These ship as Microsoft Store packages or have no maintained winget manifest. Th
 ## Per-OS install caveats
 
 - **Antigravity Linux**: the official Google APT pool URLs are not publicly addressable, so `custom_installs.yaml` downloads the official tarball from `edgedl.me.gvt1.com` and extracts it to `/opt/antigravity`. The Arch AUR slug `antigravity` works today.
-- **Antigravity macOS**: direct DMG from Google's official CDN `edgedl.me.gvt1.com` (Google Video Transcoding, the same CDN Chrome itself uses, owned by Google, not a third-party mirror). `macos_install.yaml` reads `ansible_facts['architecture']` and picks `antigravity_dmg_arm64_url` on Apple Silicon, `antigravity_dmg_x64_url` on Intel. Version pinned in `versions.yaml` (`antigravity_version`, `antigravity_build`), bump these when a new release ships at [antigravity.google/download](https://antigravity.google/download).
+- **Antigravity macOS**: direct DMG from Google's official CDN `edgedl.me.gvt1.com` (Google Video Transcoding, the same CDN Chrome itself uses, owned by Google, not a third-party mirror). `macos_install.yaml` reads `ansible_facts['architecture']` and picks `antigravity_dmg_arm64_url` on Apple Silicon, `antigravity_dmg_x64_url` on Intel. Version pinned in `pinned_values.toml` (`antigravity_version`, `antigravity_build`), bump these when a new release ships at [antigravity.google/download](https://antigravity.google/download).
 - **VMware Workstation Player on Windows**: no winget manifest post-Broadcom. Falls back to Chocolatey (`vmware-workstation-player`, verified, installer functional, package itself marked deprecated by maintainer).
 - **VMware on macOS**: maps to `vmware-fusion` cask (the macOS-only product, Workstation Player is Windows and Linux).
 - **FileZilla on Windows**: FileZilla blocks third-party installers, so winget removed the manifest. Falls back to Chocolatey (`filezilla`, verified).
 - **FileZilla on macOS**: no Homebrew cask exists. The `install_filezilla` toggle maps to Cyberduck (cask `cyberduck`), the standard free macOS FTP/SFTP/S3 client. To install FileZilla specifically, set `install_filezilla: false` and download from `filezilla-project.org`.
 - **Lens on Linux**: installed from the official `downloads.k8slens.dev` apt/dnf repo, package name `lens`. Lens Desktop is free for personal use.
 - **GeForce Experience on Windows**: discontinued by NVIDIA, replaced by the NVIDIA App (which has no winget or Chocolatey manifest). The `install_geforce_experience` toggle defaults to `false` in `group_vars/windows.yaml`, install the NVIDIA App manually from nvidia.com.
-- **Gridcoin macOS DMG**: pinned to `5.5.0.0`. Apple Silicon users may want the `-macos-arm64.dmg` variant, today the playbook installs the `x86_64` build via Rosetta. Switching is a one-line change in `versions.yaml`.
+- **Gridcoin macOS DMG**: pinned to `5.5.0.0`. Apple Silicon users may want the `-macos-arm64.dmg` variant, today the playbook installs the `x86_64` build via Rosetta. Switching is a one-line change in `pinned_values.toml`.
 
 ## Download integrity
 
-`setup/ansible/group_vars/versions.yaml` exposes a `download_checksums` mapping. To enforce sha256 verification on `get_url` tasks (AppImages, custom DMG/EXE installers, the Gridcoin flatpak bundle), set entries like:
+The `[checksums]` table in [setup/pinned_values/pinned_values.toml](pinned_values/pinned_values.toml) is injected into Ansible as `download_checksums`. To enforce sha256 verification on `get_url` tasks (AppImages, custom DMG/EXE installers, the Gridcoin flatpak bundle), add entries like:
 
-```yaml
-download_checksums:
-  lens_appimage: "sha256:0123abcd..."
-  gputest: "sha256:..."
-  antigravity_macos: "sha256:..."
-  gridcoin_macos: "sha256:..."
-  gridcoin_flatpak: "sha256:..."
+```toml
+[checksums]
+jetbrains_toolbox = "sha256:0123abcd..."
+gputest = "sha256:..."
+antigravity_macos = "sha256:..."
+gridcoin_macos = "sha256:..."
+gridcoin_flatpak = "sha256:..."
 ```
 
-Leaving an entry unset disables checksum enforcement for that download, Ansible substitutes `omit`.
+Leaving an entry absent disables checksum enforcement for that download, Ansible substitutes `omit`.

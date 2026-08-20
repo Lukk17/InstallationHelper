@@ -4,19 +4,23 @@
 #
 # This is the gap that let Antigravity sit pinned at 1.13.3 while the package had moved to 2.8.1, with
 # no tier noticing. Names are resolved against package indexes by the check beside this one, and the
-# vendor URLs were resolved by nothing at all: a version pinned in group_vars/versions.yaml can rot
-# quietly, and the first sign is an install failing on a real machine months later. Three of those are
-# already in docs/regression_ledger.md, including a 404 that read as a network problem.
+# vendor URLs were resolved by nothing at all: a pinned version can rot quietly, and the first sign
+# is an install failing on a real machine months later. Three of those are already in
+# docs/regression_ledger.md, including a 404 that read as a network problem.
 #
 # Nothing is downloaded. Each location gets a HEAD request, and the ones that refuse HEAD get a ranged
 # GET of the first byte, which is what a redirecting content host tends to answer. So this costs a few
 # seconds and a few kilobytes for the whole set, rather than the several gigabytes the artifacts weigh.
 #
-# The URLs are resolved through Ansible rather than by pasting a regular expression here, because a
-# third of them are built from other pins with Jinja and only Ansible can render that. Reimplementing
-# the templating in bash is exactly the second-parser mistake this repository keeps paying for.
+# The locations come from the pinned values port rather than from a regular expression pasted here,
+# because a third of them are built out of other pins and only the port resolves those references.
+# Reimplementing that resolution in bash is exactly the second-parser mistake this repository keeps
+# paying for.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+# The shell end of the pinned values port, and the only thing here that reads a pin. Sourced rather
+# than executed. See setup/pinned_values.
+source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
 
 require_cmd curl
 
@@ -24,79 +28,29 @@ ALLOWED_FILE="$(dirname "${BASH_SOURCE[0]}")/pinned_urls_allowed.txt"
 
 info "Tier 2: pinned download locations"
 
-# Ask Ansible to render every pin whose value looks like a location, one per line as <key> <url>. The
-# rendering is what makes templated pins resolvable, and it needs the same interpreter the playbook
-# uses, so on a shell without ansible-playbook this delegates to WSL the way the tier 1 checks do.
-render_urls() {
-    local play out gv
-    play="$(mktemp)"
-    out="$(mktemp)"
-    gv="${ANSIBLE_DIR}/group_vars"
+# Every pinned value that looks like a location, one per line as <key> <url>. The port hands back
+# finished strings with every reference already resolved, so nothing here renders anything and no
+# Ansible is needed to read a pin: pinned_values_load puts each pin in PIN_<NAME> and compgen lists
+# what arrived. Pin names are lowercase by rule, so lowercasing the variable name recovers the name
+# to report.
+collect_urls() {
+    pinned_values_load || return 1
 
-    # Three things here are load-bearing and each was established by watching it fail.
-    #
-    # Absolute paths, because a playbook in a temporary directory resolves a relative vars_files entry
-    # against its own directory rather than the working directory, and the load simply fails.
-    #
-    # The same file loaded twice: as vars_files, which puts the pins in the top level scope where a pin
-    # that references another pin can resolve at all, and under a name, which gives the key list to
-    # iterate. Reading each value through lookup('vars', key) then renders it in the scope where its
-    # references exist.
-    #
-    # all.yaml and the Linux toggles loaded too, with facts gathered, because at least one pin resolves
-    # through a variable that comes from a run-time fact rather than from this file. Rendering the set
-    # without them fails on that one pin and takes the whole render with it.
-    #
-    # The result goes to a file rather than being scraped from the console, because this repository
-    # installs its own stdout callback and the shape of a printed line is that plugin's business.
-    cat > "${play}" <<'PLAY'
-- hosts: localhost
-  connection: local
-  gather_facts: true
-  vars_files:
-    - "{{ versions_file }}"
-    - "{{ all_file }}"
-    - "{{ os_file }}"
-  tasks:
-    - name: Read the pin names
-      ansible.builtin.include_vars:
-        file: "{{ versions_file }}"
-        name: pin_names
-
-    - name: Write every pinned value that resolves to a location
-      ansible.builtin.copy:
-        dest: "{{ out_file }}"
-        mode: '0600'
-        content: |
-          {% for key in pin_names.keys() | sort %}
-          {% set rendered = lookup('vars', key, default='') %}
-          {% if rendered is string and '://' in rendered %}
-          {{ key }} {{ rendered }}
-          {% endif %}
-          {% endfor %}
-PLAY
-
-    ( cd "${ANSIBLE_DIR}" && ansible-playbook -i localhost, -c local \
-        -e "versions_file=${gv}/versions.yaml" \
-        -e "all_file=${gv}/all.yaml" \
-        -e "os_file=${gv}/linux.yaml" \
-        -e "out_file=${out}" "${play}" >/dev/null 2>&1 )
-    grep -E '^[a-z0-9_]+ https?://' "${out}" || true
-    rm -f "${play}" "${out}"
+    local variable name
+    for variable in $(compgen -v PIN_ | sort); do
+        [[ "${!variable}" == *://* ]] || continue
+        name="$(tr '[:upper:]' '[:lower:]' <<<"${variable#PIN_}")"
+        printf '%s %s\n' "${name}" "${!variable}"
+    done
 }
 
-if ! command -v ansible-playbook &>/dev/null; then
-    source "$(dirname "${BASH_SOURCE[0]}")/../tier1/wsl_delegate.sh"
-    delegate_to_wsl_or_fail "e2e/tier2/resolve_pinned_urls.sh"
-fi
+mapfile -t entries < <(collect_urls)
 
-mapfile -t entries < <(render_urls)
-
-# A renderer that returns nothing would pass every assertion below without checking a single URL,
+# A collector that returns nothing would pass every assertion below without checking a single URL,
 # which is the vacuous pass this repository has been caught by twice. There are dozens of these pins.
 if [[ ${#entries[@]} -lt 10 ]]; then
-    fail "only ${#entries[@]} pinned locations were rendered, so this check cannot mean anything" \
-         "expected dozens from ${ANSIBLE_DIR}/group_vars/versions.yaml, the render step has probably stopped working"
+    fail "only ${#entries[@]} pinned locations were collected, so this check cannot mean anything" \
+         "expected dozens through setup/pinned_values, so either the pins cannot be read here or they have moved"
     finish "pinned download locations"
 fi
 

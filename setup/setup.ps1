@@ -257,8 +257,7 @@ function Invoke-AndShowCustomInstalls {
         -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
         -ToggleOverride  $ToggleOverride
 
-    $r = Invoke-WindowsCustomInstall -Toggles $toggles -OnlyKeys $OnlyKeys `
-        -VersionsPath (Join-Path $AnsibleDir 'group_vars\versions.yaml')
+    $r = Invoke-WindowsCustomInstall -Toggles $toggles -OnlyKeys $OnlyKeys
 
     if ($r.Results.Count -eq 0) {
         Write-Status 'SDKs and standalone installers: none enabled'

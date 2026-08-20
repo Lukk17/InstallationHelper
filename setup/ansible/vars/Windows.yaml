@@ -12,7 +12,7 @@ software_mapping:
   # Windows has no Pyenv equivalent worth carrying: pyenv-win exists on Chocolatey but installing it
   # leaves no Python behind, so the toggle would still install nothing usable. A single interpreter
   # matching default_python is the honest translation. e2e/tier1/windows_mapping.sh asserts the minor
-  # version here still matches default_python in group_vars/versions.yaml.
+  # version here still matches default_python in setup/pinned_values/pinned_values.toml.
   python: { manager: "winget", package: "Python.Python.3.11" }
   # Dart on Windows arrives with Flutter through FVM as well, but the toggle is independent and
   # Chocolatey carries the standalone SDK (verified dart-sdk 3.13.0 on the community feed).

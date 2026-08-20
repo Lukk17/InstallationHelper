@@ -1,12 +1,14 @@
 # Pinned values deliberately kept while no consumer reads them, as `<key> <reason>`.
 #
-# Every other pin in group_vars/versions.yaml is reachable: by a literal reference in a role, in
-# site.yaml, in verify_install.yaml or in one of the OS dictionaries, by a name the dispatcher builds
-# at run time from an apt_url or dnf_url mapping key, by a reference from another pin, or by name from
-# the Windows scripts or the e2e checks. Anything outside that union is dead weight and gets deleted,
-# because a pin nobody reads still looks authoritative and still gets bumped by hand.
+# Read by e2e/tier1/pinned_values.sh, which builds the reader set out of the pins table in
+# setup/pinned_values/pinned_values.toml. Every other pin there is reachable: by a reference in a
+# role, in site.yaml, in verify_install.yaml or in one of the OS dictionaries, by a name the
+# dispatcher builds at run time from an apt_url or dnf_url mapping key, by a reference from another
+# pin, or by name from the Windows scripts or the e2e checks. Anything outside that union is dead
+# weight and gets deleted, because a pin nobody reads still looks authoritative and still gets
+# bumped by hand.
 #
 # Keep this list short, and only for a value whose deletion would lose knowledge. A stale entry is its
 # own hazard: it forgives a pin that has since gained a reader, so a later break in that reader looks
-# intentional.
+# intentional. The check fails on one, and on an entry naming a pin that no longer exists.
 vmware_url Broadcom serves the Workstation Player download only to an authenticated Support Portal session, so nothing here can fetch it and no reader can exist. Kept as the record of where the installer lives, which is the note that stops the next person re-adding a direct download that cannot work

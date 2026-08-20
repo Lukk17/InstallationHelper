@@ -5,8 +5,8 @@
 # What it can test: the logic in setup/windows/WindowsSoftware.ps1, on a clean Windows with
 # no packages installed and nothing inherited from a developer machine. That is the parsing
 # of the toggle and mapping YAML, the plan that comes out of it, the winget resolution
-# failure path, and the Chocolatey bootstrap. Driven by Pester, see
-# e2e/tier3/windows/WindowsSoftware.Tests.ps1.
+# failure path, the pinned values adapter in setup/pinned_values/PinnedValues.psm1, and the
+# Chocolatey bootstrap. Driven by Pester, see e2e/tier3/windows/WindowsSoftware.Tests.ps1.
 #
 # What it cannot test: any winget install. winget ships as an MSIX package and depends on the
 # AppX deployment subsystem, which Server Core and Nano Server do not have. As of 2026-08-16
@@ -54,6 +54,30 @@ ARG PESTER_VERSION=5.6.1
 RUN & 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command \
       \"Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; \
         Install-Module -Name Pester -RequiredVersion $env:PESTER_VERSION -Force -SkipPublisherCheck -Scope AllUsers\"
+
+# Python from the official embeddable zip, for the same reason PowerShell comes from a zip: a
+# self-contained extract that cannot half-succeed and needs no installer service. It is here
+# because setup/pinned_values/pinned_values.py is the only reader of the pinned versions and
+# download locations, and PinnedValues.psm1 shims PowerShell onto it. With no interpreter in the
+# image those tests would report SKIP, and a skip proves nothing, so this step is not optional.
+#
+# tomllib is what the reader needs and it entered the standard library in 3.11. The embeddable
+# distribution carries it inside python313.zip, verified by importing it rather than assumed.
+# Note that this distribution ships python.exe and no python3.exe, which is one of the reasons the
+# adapter tries several names before giving up.
+ARG PYTHON_VERSION=3.13.7
+RUN Invoke-WebRequest -Uri \"https://www.python.org/ftp/python/$env:PYTHON_VERSION/python-$env:PYTHON_VERSION-embed-amd64.zip\" -OutFile C:\python.zip ; \
+    Expand-Archive -Path C:\python.zip -DestinationPath 'C:\Python' ; \
+    Remove-Item C:\python.zip
+
+# On PATH so the adapter finds it by name, which is what it does on a real machine too.
+RUN $p = [Environment]::GetEnvironmentVariable('PATH', 'Machine') ; \
+    [Environment]::SetEnvironmentVariable('PATH', ($p + ';C:\Python'), 'Machine')
+
+# Proven at build time rather than discovered by a failing test: an image that cannot read the
+# pinned values is a broken image, and this fails the build instead of six tests.
+RUN & 'C:\Python\python.exe' -c \"import tomllib\" ; \
+    if ($LASTEXITCODE -ne 0) { throw 'the embeddable Python cannot import tomllib, so the pinned values reader cannot run here' }
 
 # Deliberately absent, and each for a reason.
 #

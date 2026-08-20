@@ -20,7 +20,7 @@ software_mapping:
   openssl: { manager: "dnf", package: "openssl" }
   dbeaver: { manager: "flatpak", package: "io.dbeaver.DBeaverCommunity" }
   kubectl: { manager: "dnf", package: "kubectl" }               # Official k8s.io repo
-  # For dnf_url the download location comes from minikube_rpm_url in group_vars/versions.yaml, and
+  # For dnf_url the download location comes from minikube_rpm_url in setup/pinned_values/pinned_values.toml, and
   # `package` is the name rpm records once the package is installed, so verification can look for it
   # the same way it looks for an ordinary dnf package. Measured with `rpm -qp --qf '%{NAME}'` against
   # the real vendor artifact, not guessed from the filename.

@@ -21,12 +21,31 @@ SKIPPED=(
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$1"; }
 
-# Direct .rpm URLs, pinned to versions.yaml.
-MINIKUBE_RPM="https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube-1.38.1-0.x86_64.rpm"
-TEAMVIEWER_RPM="https://download.teamviewer.com/download/linux/teamviewer.x86_64.rpm"
-VERACRYPT_RPM="https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-CentOS-8-x86_64.rpm"
-BALENA_ETCHER_RPM="https://github.com/balena-io/etcher/releases/download/v2.1.6/balena-etcher-2.1.6-1.x86_64.rpm"
-APPIMAGELAUNCHER_RPM="https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher-2.2.0-travis995.0f91801.x86_64.rpm"
+# Direct .rpm URLs, read from the pinned values rather than copied out of them. The versions and
+# locations live in setup/pinned_values and are read through the one adapter the whole repository
+# uses, so this script pulls exactly what the playbook pulls and a bumped pin cannot leave a stale
+# address behind here.
+ADAPTER="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd)/setup/pinned_values/pinned_values.sh"
+if [ ! -f "$ADAPTER" ]; then
+  printf 'ERROR: the pinned download locations are read from the repository, and\n' >&2
+  printf '       %s\n' "$ADAPTER" >&2
+  printf '       is not there. Run this from a clone rather than as a single downloaded file:\n' >&2
+  printf '         git clone https://github.com/Lukk17/InstallationHelper.git\n' >&2
+  exit 1
+fi
+# shellcheck source=../../../setup/pinned_values/pinned_values.sh
+source "$ADAPTER"
+if ! pinned_values_load; then
+  printf 'ERROR: reading the pinned download locations needs Python 3.11 or newer. Install it with\n' >&2
+  printf '         sudo dnf install -y python3\n' >&2
+  exit 1
+fi
+
+MINIKUBE_RPM="$(pinned_value minikube_rpm_url)"
+TEAMVIEWER_RPM="$(pinned_value teamviewer_rpm_url)"
+VERACRYPT_RPM="$(pinned_value veracrypt_rpm_url)"
+BALENA_ETCHER_RPM="$(pinned_value balena_etcher_rpm_url)"
+APPIMAGELAUNCHER_RPM="$(pinned_value appimage_launcher_rpm_url)"
 
 # dnf packages from default repos.
 DNF_PACKAGES=(

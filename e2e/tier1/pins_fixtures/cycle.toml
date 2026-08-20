@@ -1,0 +1,4 @@
+[pins]
+first = "{{ second }}"
+second = "{{ third }}"
+third = "{{ first }}"

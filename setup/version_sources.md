@@ -1,8 +1,28 @@
 # Version sources
 
-Where to look up available versions for every package manager and direct-URL source this playbook touches. Use this when bumping versions in `ansible/group_vars/versions.yaml`, debugging an "I can't find that package" failure, or just confirming a vendor hasn't moved a download.
+Where to look up available versions for every package manager and direct-URL source this playbook touches. Use this when bumping a pin in [pinned_values.toml](pinned_values/pinned_values.toml), debugging an "I can't find that package" failure, or just confirming a vendor hasn't moved a download.
 
 Each row gives a **browse page** (open in a browser) and an **API endpoint** (for scripts and CI checks). Where the package's identity in this repo differs from the upstream slug, both are listed.
+
+## Pinned values file
+
+Every pinned version, download location, filename, vendor identifier, build number and channel lives in [setup/pinned_values/pinned_values.toml](pinned_values/pinned_values.toml), not in a `group_vars/versions.yaml` any more. The file holds two TOML tables. `[pins]` carries 67 keys covering all of the above. `[checksums]` is the download verification table, empty today, so no vendor download in this repository is verified yet.
+
+Every value in the file is a quoted string, even one that looks numeric, such as `android_api_level`. Unquoted, a two-component version such as `9.70` would arrive as a float that loses its trailing zero, and a three-component one such as `1.13.3` is not valid TOML at all. A value may reference another key in the same file with `{{ other_key }}`, and the reference always names a key inside the file itself, never a host fact, so the file resolves entirely on its own.
+
+[setup/pinned_values/pinned_values.py](pinned_values/pinned_values.py) is the only reader and the only thing allowed to resolve a `{{ ref }}`. Ansible reaches it through a vars plugin at [setup/ansible/vars_plugins/pinned_values.py](ansible/vars_plugins/pinned_values.py), which injects every pin as a host variable so `{{ minikube_url }}` keeps working unchanged in every role. PowerShell reaches it through `setup/pinned_values/PinnedValues.psm1`, and shell scripts by sourcing `setup/pinned_values/pinned_values.sh`. Nothing else in this repository is allowed to parse the file, which `e2e/tier1/pinned_values.sh` checks for.
+
+To read one value from a shell without writing Ansible:
+
+```bash
+python3 setup/pinned_values/pinned_values.py --get minikube_url
+```
+
+```powershell
+python setup/pinned_values/pinned_values.py --get minikube_url
+```
+
+Bumping a version is not enough on its own. Once the value is updated, [e2e/tier2/resolve_pinned_urls.sh](../e2e/tier2/resolve_pinned_urls.sh) sends every download location a request to confirm the vendor still serves it there, which is what catches a version pinned past the point the release was pulled or the URL shape changed.
 
 ## Linux package managers
 
@@ -171,7 +191,7 @@ Mapped in `vars/Windows.yaml` under `manager: winget`.
 
 ### `pyenv` Python releases
 
-`pyenv install` downloads from python.org, not PyPI. The version string in `versions.yaml` must match an exact `Python-<X.Y.Z>.tar.xz` filename.
+`pyenv install` downloads from python.org, not PyPI. The version string in `pinned_values.toml` must match an exact `Python-<X.Y.Z>.tar.xz` filename.
 
 | What | URL |
 |---|---|
@@ -196,7 +216,7 @@ pyenv install --list
 
 ### `nvm` Node releases
 
-`nvm install --lts` floats to the current Node LTS — no version pin needed in `versions.yaml`. The pin we DO keep is the nvm installer itself:
+`nvm install --lts` floats to the current Node LTS, no version pin needed in `pinned_values.toml`. The pin we DO keep is the nvm installer itself:
 
 | What | URL |
 |---|---|
@@ -303,15 +323,15 @@ A few vendors publish a "latest" alias that we point at:
 | Anthropic Claude Desktop | <https://claude.com/download> (currently macOS + Windows only; Linux build not published) |
 | Google Antigravity (Linux tarball) | <https://antigravity.google/download> |
 
-If a vendor switches the alias format, the entry in `versions.yaml` needs a real update — the playbook can't follow a moved redirect on its own.
+If a vendor switches the alias format, the entry in `pinned_values.toml` needs a real update, and the playbook can't follow a moved redirect on its own.
 
 ## Quick rerun
 
-The verification script under `setup/ansible/` (when present in a future tooling drop) can re-run all checks above against your current `versions.yaml` and `requirements.yaml`. Until that lands, the manual flow is:
+[e2e/tier2/resolve_pinned_urls.sh](../e2e/tier2/resolve_pinned_urls.sh) re-runs the one check a browse page cannot give you: whether every pinned download location still resolves. It says nothing about whether a version is the newest available, only that the URL built from it still answers. The manual flow for bumping a version is:
 
 1. Open the relevant browse page from this doc.
 2. Look up the package or version you're bumping.
-3. Update the entry in `setup/ansible/group_vars/versions.yaml`.
+3. Update the entry in [setup/pinned_values/pinned_values.toml](pinned_values/pinned_values.toml).
 4. Run a syntax check:
 
 ```bash
@@ -322,6 +342,12 @@ PowerShell equivalent:
 
 ```powershell
 wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projekty-IT/InstallationHelper/setup/ansible/site.yaml -i localhost, -c local"
+```
+
+5. If the bump touched a download location, confirm the vendor still serves it:
+
+```bash
+./e2e/run.sh --tier 2
 ```
 
 ## Catalogue of what we install

@@ -330,7 +330,7 @@
       ansible.builtin.debug:
         msg: >-
           [ERROR] These packages install from a vendor URL and the file never arrived, so they are not
-          installed: {{ apt_url_absent | join(', ') }}. The URLs come from group_vars/versions.yaml,
+          installed: {{ apt_url_absent | join(', ') }}. The URLs come from setup/pinned_values/pinned_values.toml,
           and a 404 there usually means the pinned version has been withdrawn.
       when: apt_url_absent | default([]) | length > 0
       tags: [apt_batch]
@@ -377,7 +377,7 @@
         # signed by the vendor's own key, not by Fedora's. dnf5 enforces GPG
         # validation strictly by default and rejects them. Disabling here is
         # safe because the URL itself comes from a curated vendor list in
-        # group_vars/versions.yaml under our own control.
+        # setup/pinned_values/pinned_values.toml under our own control.
         disable_gpg_check: true
       become: true
       loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'dnf_url') | list }}"

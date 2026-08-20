@@ -8,7 +8,9 @@
   gather_facts: yes
   vars_files:
     - group_vars/all.yaml
-    - group_vars/versions.yaml
+  # The pinned versions and download locations are no longer a vars_file. They come from
+  # setup/pinned_values/pinned_values.toml through the vars plugin named in ansible.cfg, which is
+  # what removed the three separate hand-written parsers of the old YAML.
 
   pre_tasks:
     # First thing in the run, because the vars file loaded two tasks below is named after the

@@ -1,6 +1,8 @@
 # Pinned values adapter design
 
-Design for moving the pinned versions, download locations and identifiers out of `setup/ansible/group_vars/versions.yaml` into TOML, behind one port with one adapter per runtime. Written 2026-08-17, not yet implemented.
+Design for moving the pinned versions, download locations and identifiers out of `setup/ansible/group_vars/versions.yaml` into TOML, behind one port with one adapter per runtime. Written 2026-08-17 and implemented on 2026-08-20.
+
+The analysis below is kept as written, so the counts in it are the counts at the time: 89 keys, of which 36 carried a reference. The preparatory commit removed the 22 that no reader could reach and moved `android_home` out, which is why the file that shipped holds 67 pins plus the checksum table. The task list at the end records what was done, what proved it, and what remains.
 
 ---
 
@@ -302,7 +304,7 @@ The shell adapter making the tier 1 gate skip instead of pass, because Git Bash 
 
 ### 1. Move android_home out of the pinned values
 
-- [ ] 1.1 Add `android_home: "{{ non_root_home }}/Android/Sdk"` to `group_vars/all.yaml` beside `non_root_user`, and remove it from `versions.yaml`.
+- [x] 1.1 Add `android_home: "{{ non_root_home }}/Android/Sdk"` to `group_vars/all.yaml` beside `non_root_user`, and remove it from `versions.yaml`.
 
 Files: `setup/ansible/group_vars/all.yaml`, `setup/ansible/group_vars/versions.yaml`.
 
@@ -314,7 +316,7 @@ wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper/setu
 
 ### 2. Remove the pins no reader can reach
 
-- [ ] 2.1 Delete the thirteen unread keys and the nine feeders that then feed nothing, and record any deliberate keep in an allowlist with its reason.
+- [x] 2.1 Delete the thirteen unread keys and the nine feeders that then feed nothing, and record any deliberate keep in an allowlist with its reason.
 
 Files: `setup/ansible/group_vars/versions.yaml`, `e2e/tier1/unread_pins_allowed.txt`.
 
@@ -326,7 +328,7 @@ bash e2e/run.sh
 
 ### 3. Prove the pruning changed no install
 
-- [ ] 3.1 Run the Debian smoke scenario, because the pruned keys sit on the vendor-download path.
+- [x] 3.1 Run the Debian smoke scenario, because the pruned keys sit on the vendor-download path.
 
 Files: none.
 
@@ -338,7 +340,7 @@ Files: none.
 
 ### 4. Write the TOML file
 
-- [ ] 4.1 Create `setup/pinned_values/pinned_values.toml` with a pins table and a checksums table, every value quoted, every reference spelling unchanged, every comment carried across.
+- [x] 4.1 Create `setup/pinned_values/pinned_values.toml` with a pins table and a checksums table, every value quoted, every reference spelling unchanged, every comment carried across.
 
 Files: `setup/pinned_values/pinned_values.toml`.
 
@@ -350,7 +352,7 @@ python3 -c "import tomllib,pathlib;print(len(tomllib.loads(pathlib.Path('setup/p
 
 ### 5. Write the port implementation
 
-- [ ] 5.1 Create `setup/pinned_values/pinned_values.py` with the three operations, the fixed-point resolver, the four load-time errors, and the three command line modes.
+- [x] 5.1 Create `setup/pinned_values/pinned_values.py` with the three operations, the fixed-point resolver, the four load-time errors, and the three command line modes.
 
 Files: `setup/pinned_values/pinned_values.py`.
 
@@ -362,7 +364,9 @@ python3 setup/pinned_values/pinned_values.py --get default_java
 
 ### 6. Prove the migration changed no value
 
-- [ ] 6.1 Resolve the old YAML and the new TOML and compare all keys, before the YAML is staged for deletion.
+- [x] 6.1 Resolve the old YAML and the new TOML and compare all keys, before the YAML is staged for deletion.
+
+Run on 2026-08-20. All 67 keys resolved twice, once by Ansible loading the old YAML as a `vars_files` entry and once by the new reader from the TOML, and compared. No key missing on either side and no value different, so the format change carried no value change.
 
 Files: none.
 
@@ -374,9 +378,9 @@ python3 setup/pinned_values/pinned_values.py --json
 
 ### 7. Add the Ansible adapter
 
-- [ ] 7.1 Create `setup/ansible/vars_plugins/pinned_values.py` with a documentation block, values marked unsafe, the checksum table always present, and the path anchored to the plugin's own location.
-- [ ] 7.2 Add the two lines to `[defaults]` in `ansible.cfg`.
-- [ ] 7.3 Stop loading the YAML in `site.yaml` and in the verify play.
+- [x] 7.1 Create `setup/ansible/vars_plugins/pinned_values.py` with a documentation block, values marked unsafe, the checksum table always present, and the path anchored to the plugin's own location.
+- [x] 7.2 Add the two lines to `[defaults]` in `ansible.cfg`.
+- [x] 7.3 Stop loading the YAML in `site.yaml` and in the verify play.
 
 Files: `setup/ansible/vars_plugins/pinned_values.py`, `setup/ansible/ansible.cfg`, `setup/ansible/site.yaml`, `e2e/tier3/verify.yaml`.
 
@@ -388,7 +392,9 @@ wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper/setu
 
 ### 8. Confirm the plugin is discoverable and group vars still load
 
-- [ ] 8.1 Assert the plugin is listed, and that a cross-platform toggle still resolves from the adjacent group vars.
+- [x] 8.1 Assert the plugin is listed, and that a cross-platform toggle still resolves from the adjacent group vars.
+
+All three answered. `minikube_url` resolves through the plugin, `install_chrome` still resolves from the adjacent `group_vars`, so listing `host_group_vars` kept that discovery, and `download_checksums` arrives as an empty mapping rather than undefined. Proven again against a relocated copy of `setup/`, which is the container's layout, so the plugin finds its file from its own path and not from the repository root.
 
 Files: none.
 
@@ -400,10 +406,10 @@ wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper/setu
 
 ### 9. Add the bash adapter and move its four callers onto it
 
-- [ ] 9.1 Create `setup/pinned_values/pinned_values.sh` with the two functions, the interpreter search and the WSL re-execution.
-- [ ] 9.2 Replace the version greps in `toggle_coverage.sh`.
-- [ ] 9.3 Replace the sed dereference in `windows_mapping.sh`.
-- [ ] 9.4 Replace the ten hand-copied URLs in the two manual install scripts.
+- [x] 9.1 Create `setup/pinned_values/pinned_values.sh` with the two functions, the interpreter search and the WSL re-execution.
+- [x] 9.2 Replace the version greps in `toggle_coverage.sh`.
+- [x] 9.3 Replace the sed dereference in `windows_mapping.sh`.
+- [x] 9.4 Replace the ten hand-copied URLs in the two manual install scripts.
 
 Files: `setup/pinned_values/pinned_values.sh`, `e2e/tier1/toggle_coverage.sh`, `e2e/tier1/windows_mapping.sh`, `docs/manual/debian-ubuntu/install.sh`, `docs/manual/fedora/install.sh`.
 
@@ -415,8 +421,8 @@ bash e2e/run.sh
 
 ### 10. Add the PowerShell adapter and delete the second parser
 
-- [ ] 10.1 Create `setup/pinned_values/PinnedValues.psm1` exporting the two functions.
-- [ ] 10.2 Delete the resolver, the line pattern and the path parameter from `WindowsCustomInstalls.ps1`, and drop the argument in `setup.ps1`.
+- [x] 10.1 Create `setup/pinned_values/PinnedValues.psm1` exporting the two functions.
+- [x] 10.2 Delete the resolver, the line pattern and the path parameter from `WindowsCustomInstalls.ps1`, and drop the argument in `setup.ps1`.
 
 Files: `setup/pinned_values/PinnedValues.psm1`, `setup/windows/WindowsCustomInstalls.ps1`, `setup/setup.ps1`.
 
@@ -428,8 +434,8 @@ pwsh -NoProfile -Command "Import-Module ./setup/pinned_values/PinnedValues.psm1;
 
 ### 11. Move the Pester tests onto the adapter and give the container a Python
 
-- [ ] 11.1 Replace the resolver tests with adapter tests, keeping the absent-versus-empty case and the real-file case.
-- [ ] 11.2 Add a pinned Python from the embeddable zip to the Windows Dockerfile.
+- [x] 11.1 Replace the resolver tests with adapter tests, keeping the absent-versus-empty case and the real-file case.
+- [x] 11.2 Add a pinned Python from the embeddable zip to the Windows Dockerfile.
 
 Files: `e2e/tier3/windows/WindowsSoftware.Tests.ps1`, `e2e/tier3/windows.Dockerfile`.
 
@@ -441,8 +447,10 @@ pwsh e2e/tier3/Invoke-WindowsE2E.ps1
 
 ### 12. Add the tier 1 guard
 
-- [ ] 12.1 Create the check with the six assertions and register it in the tier 1 loop.
-- [ ] 12.2 Prove each assertion fails against a copy of the tree carrying the defect.
+- [x] 12.1 Create the check with the six assertions and register it in the tier 1 loop.
+- [x] 12.2 Prove each assertion fails against a copy of the tree carrying the defect.
+
+Six proofs, each against a copy of the tree with the old YAML already gone so only the injected defect could fail: a second parser in three shapes, an unread pin and both stale-allowlist halves, a reader naming no pin in both its typo and its renamed-pin shapes, an emptied value and a stray brace and an unquoted version, a pin name redefined in group_vars, and a tampered PowerShell adapter. Two of them found defects in the check itself: a mapping scanned without its manager excused a missing pin because the sibling rpm pin survived, and grep -q at the end of a pipeline under pipefail gave sed a SIGPIPE, which reported all three needles as dead against the one file that carries all three.
 
 Files: `e2e/tier1/pinned_values.sh`, `e2e/run.sh`, `e2e/tier1/unread_pins_allowed.txt`.
 
@@ -454,8 +462,10 @@ bash e2e/run.sh
 
 ### 13. Delete the YAML and update every document that names it
 
-- [ ] 13.1 Remove `setup/ansible/group_vars/versions.yaml`.
-- [ ] 13.2 Update the roughly twenty prose and comment references.
+- [x] 13.1 Remove `setup/ansible/group_vars/versions.yaml`.
+
+Deleted. Every consumer had moved first, which is why the file could go in the same commit rather than leaving a half-migrated state.
+- [x] 13.2 Update the roughly twenty prose and comment references.
 
 Files: `setup/ansible/group_vars/versions.yaml`, `AGENTS.md`, `setup/README_SETUP.md`, `setup/configuration.md`, `setup/software.md`, `setup/version_sources.md`, `docs/manual/README.md`, the two manual install pages, the three OS dictionaries, `dynamic_install.yaml`, `e2e/tier3/verify.yaml`, `e2e/tier1/toggle_coverage.sh`, `e2e/testing/10-wizard-toggle-parse-test.md`.
 
@@ -469,8 +479,31 @@ bash e2e/run.sh
 
 - [ ] 14.1 Run the smoke scenario on Arch, Debian, Ubuntu and Fedora, two at a time.
 
+Not run, and still owed. Docker Desktop's WSL integration is off for the Ubuntu distro, so there is no Docker socket inside it and `require_linux_docker` refuses rather than pretending. Enable Ubuntu under Docker Desktop, Settings, Resources, WSL integration, and this becomes one command per distribution.
+
 Files: none.
 
 ```bash
 ./e2e/run.sh --tier 3 --scenario smoke --jobs 2
 ```
+
+---
+
+### 15. Test the reader itself, not only its callers
+
+- [x] 15.1 Create `e2e/tier1/pinned_values_reader.sh` with seven fixtures in `e2e/tier1/pins_fixtures/`, driving the reader through `INSTALLATION_HELPER_PINS_FILE` so no case depends on the values pinned today.
+- [x] 15.2 Prove all thirteen assertions fail when the defect each one exists to catch is reintroduced into a copy of the reader.
+
+Not in the original list, and it should have been. Task 12 guards the repository against acquiring a second parser, which is a different question from whether the one parser is correct, and every adapter is a shim over it, so a wrong answer here is a wrong answer in every runtime at once. The cases are the contract from section 1: a chain resolves, a reference inside a longer string resolves, nothing escapes still holding a template, an empty pin answers empty at exit 0 while an unpinned name exits 3, the checksum table stays separate and a file without one still loads, and each of the five load-time refusals names what is wrong.
+
+Both of the parsers this replaced would have failed it. The PowerShell one left a dangling reference as literal `{{ nope }}` and bailed out of a cycle silently after five passes, and the `sed` chain in `windows_mapping.sh` could dereference exactly one hop.
+
+The twelve mutations used for 15.2 were: resolving one hop instead of the chain, letting a template escape, reporting an empty pin as absent, answering an unpinned name with an empty string, mixing the checksum table into the pins, refusing a file that has no checksum table, accepting an unquoted version as a number, blanking a dangling reference, bailing out of a cycle, treating a missing pins table as an empty set, swallowing unparseable TOML, and dropping the quote escaping from the shell assignment output. Each one turned exactly the intended assertion red.
+
+Finding worth recording, because it is the same class the suite exists for: the first run of the twelfth proof killed the check instead of failing it. The adapter case runs in a subshell, `common.sh` runs under `set -e`, and a bare subshell returning non-zero ends the script before the line that reads its status. The check now collects that status with `||`, so a defect produces a FAIL line rather than a truncated run.
+
+```bash
+bash e2e/tier1/pinned_values_reader.sh
+```
+
+---
