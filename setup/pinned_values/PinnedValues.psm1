@@ -31,6 +31,14 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# A native command that exits non-zero becomes a terminating error, everywhere except the scopes
+# below that read an exit code as an answer. This setting is inert on PowerShell 7.2 and 7.3, where
+# it was still an experimental feature, and assigning it there quietly creates an ordinary variable
+# that nothing consults. The requirement above stays at 7.2 rather than rising to 7.4, because this
+# repository supports machines that ship 7.2 and refusing to import on them would be worse than the
+# gap. What actually makes the module safe on every supported version is that every callsite reads
+# $LASTEXITCODE itself instead of trusting this line to raise.
 $PSNativeCommandUseErrorActionPreference = $true
 
 # The reader sits beside this module, which is the same anchoring the reader uses for its own data
@@ -50,6 +58,12 @@ $script:VersionProbe = 'import sys;sys.exit(sys.version_info<(3,11))'
 # Located once per session. The search costs up to four process launches, and this module is
 # imported by a wizard that asks for pinned values more than once.
 $script:Interpreter = $null
+
+# The failure is remembered for the same reason the success is. On a machine with no Python at all
+# every call would otherwise pay the whole four-launch search again before throwing, and the wizard
+# asks more than once. The sentence is built once, where the search gives up, and replayed from
+# here, so the second throw says exactly what the first one said.
+$script:InterpreterFailure = $null
 
 function Test-PinnedValuesInterpreter {
     <#
@@ -76,6 +90,43 @@ function Test-PinnedValuesInterpreter {
     }
 }
 
+function Convert-PinnedValuesPathForWsl {
+    <#
+    .SYNOPSIS
+        The reader's path as WSL sees it, with the exit code of the conversion.
+
+    .DESCRIPTION
+        A Windows path means nothing inside WSL, and wslpath is asked rather than the drive letter
+        rewritten by hand, because a checkout on a network path, or a mount configured somewhere
+        other than /mnt, would make a hand-rolled conversion point at nothing.
+
+        This is a function rather than four lines inside the search loop because a PowerShell loop
+        body is not its own scope. Relaxing the preferences below in the loop leaves them relaxed
+        for the rest of the enclosing function, so from the first WSL candidate onward any later
+        native call would run without the protection the top of this module sets up. A function
+        body does scope them, so they end where this returns.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $FilePath,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $WindowsPath
+    )
+
+    # A non-zero exit is data here rather than a failure, and stderr is wanted because it carries
+    # the reason WSL could not see the path. Merging stderr into stdout with 2>&1 while
+    # $ErrorActionPreference is 'Stop' is what turns the first stderr line of a native command into
+    # a terminating NativeCommandError, so both preferences are relaxed together in this scope.
+    $PSNativeCommandUseErrorActionPreference = $false
+    $ErrorActionPreference = 'Continue'
+
+    $printed = (& $FilePath 'wslpath' '-a' ($WindowsPath -replace '\\', '/') 2>&1) -join ''
+    return [pscustomobject]@{
+        ExitCode = [int] $LASTEXITCODE
+        Text     = [string] $printed
+    }
+}
+
 function Resolve-PinnedValuesInterpreter {
     <#
     .SYNOPSIS
@@ -87,6 +138,12 @@ function Resolve-PinnedValuesInterpreter {
 
     if ($script:Interpreter) { return $script:Interpreter }
 
+    # A search that already failed is replayed, not repeated. Four launches that found nothing will
+    # find nothing again inside one session, because the remedy the message names is to install
+    # Python and reopen the shell, and repeating them is how a machine with no Python pays four
+    # process launches for every pinned value read.
+    if ($script:InterpreterFailure) { throw $script:InterpreterFailure }
+
     $candidates = @(
         [pscustomobject]@{ FilePath = 'python3'; Prefix = @();          Wsl = $false }
         [pscustomobject]@{ FilePath = 'python';  Prefix = @();          Wsl = $false }
@@ -97,7 +154,12 @@ function Resolve-PinnedValuesInterpreter {
     foreach ($candidate in $candidates) {
         $label = (@($candidate.FilePath) + $candidate.Prefix) -join ' '
 
-        if (-not (Get-Command $candidate.FilePath -CommandType Application -ErrorAction SilentlyContinue)) {
+        # No -CommandType filter. A python3 surfaced as a function or an alias is how a virtual
+        # environment is commonly put on a shell, and refusing it here would send the search off to
+        # WSL on a machine that has a working interpreter right in front of it. Whether the
+        # candidate actually runs, and is new enough, is settled by Test-PinnedValuesInterpreter
+        # below, which is the only thing that matters.
+        if (-not (Get-Command $candidate.FilePath -ErrorAction SilentlyContinue)) {
             Write-Verbose "$label is not on PATH"
             continue
         }
@@ -106,17 +168,14 @@ function Resolve-PinnedValuesInterpreter {
             continue
         }
 
-        # A Windows path means nothing inside WSL, and wslpath is asked rather than the drive letter
-        # rewritten by hand, because a checkout on a network path, or a mount configured somewhere
-        # other than /mnt, would make a hand-rolled conversion point at nothing.
         $core = $script:CorePath
         if ($candidate.Wsl) {
-            $PSNativeCommandUseErrorActionPreference = $false
-            $core = (& $candidate.FilePath 'wslpath' '-a' ($script:CorePath -replace '\\', '/') 2>&1) -join ''
-            if ($LASTEXITCODE -ne 0 -or -not $core) {
-                Write-Verbose "$label cannot see $($script:CorePath): $core"
+            $conversion = Convert-PinnedValuesPathForWsl -FilePath $candidate.FilePath -WindowsPath $script:CorePath
+            if ($conversion.ExitCode -ne 0 -or -not $conversion.Text) {
+                Write-Verbose "$label cannot see $($script:CorePath): $($conversion.Text)"
                 continue
             }
+            $core = $conversion.Text
         }
 
         $script:Interpreter = [pscustomobject]@{
@@ -129,10 +188,12 @@ function Resolve-PinnedValuesInterpreter {
         return $script:Interpreter
     }
 
-    throw ("pinned values: no Python 3.11 or newer could be found, having tried python3, python, " +
-           "py -3 and wsl.exe python3, so $script:CorePath cannot be read. Install Python 3.11 or " +
-           "newer from https://www.python.org/downloads/windows/ and reopen the shell, or make " +
-           "python3 reachable inside WSL.")
+    $script:InterpreterFailure = (
+        "pinned values: no Python 3.11 or newer could be found, having tried python3, python, " +
+        "py -3 and wsl.exe python3, so $script:CorePath cannot be read. Install Python 3.11 or " +
+        "newer from https://www.python.org/downloads/windows/ and reopen the shell, or make " +
+        "python3 reachable inside WSL.")
+    throw $script:InterpreterFailure
 }
 
 function Invoke-PinnedValuesCore {
@@ -151,12 +212,28 @@ function Invoke-PinnedValuesCore {
     # Both streams are wanted: the value on success, and the reader's own sentence on failure, which
     # is where the offending name and the file it was looked for in come from. As in the probe, a
     # non-zero exit is data rather than a terminating error, so the preference is off in this scope.
+    #
+    # $ErrorActionPreference is relaxed alongside it, and it has to be. Merging stderr into stdout
+    # with 2>&1 while the 'Stop' from the top of this module is still in force is the shape that
+    # turns the first stderr line of a native command into a terminating NativeCommandError, and
+    # every failing read of this reader writes its sentence to stderr. Get-PinnedValue would then
+    # throw a PowerShell complaint about a command having written to stderr, instead of reporting
+    # exit 3 with the reader's own naming of the pin and the file it was looked for in.
     $PSNativeCommandUseErrorActionPreference = $false
+    $ErrorActionPreference = 'Continue'
     $printed = & $interpreter.FilePath @($interpreter.Prefix) $interpreter.Core @Argument 2>&1
     $status = $LASTEXITCODE
 
     return [pscustomobject]@{
         ExitCode = [int] $status
+        # Rejoined here because --json prints a multi-line document, and this is the only place that
+        # can put it back together. The separator cannot change a value: the reader refuses at load
+        # any value holding a line feed or a carriage return, so --get prints exactly one line and
+        # --sh one line per pin, and no pinned value can straddle two of these elements. That closes
+        # the platform separator question at the source rather than needing a second guard here.
+        # Nothing downstream assumes otherwise either. Get-PinnedValue hands this text back
+        # unchanged, and Get-PinnedValueMap only feeds it to ConvertFrom-Json, which reads either
+        # line ending.
         Text     = (@($printed) | ForEach-Object { [string] $_ }) -join [Environment]::NewLine
     }
 }

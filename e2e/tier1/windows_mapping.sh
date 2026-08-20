@@ -108,14 +108,44 @@ fi
 #
 # default_python is pinned as a reference to one of the python<minor>_id pins, and the port
 # resolves it, so this is one lookup rather than the two-step dereference it used to be.
-pinned_python="$(pinned_value default_python 2>/dev/null || true)"
+#
+# The adapter's status is read and branched on rather than thrown away with `2>/dev/null || true`.
+# Its two failures are different kinds of news, and the single message they used to share had to
+# name both of them and leave the reader to work out which had happened:
+#
+#   PINNED_VALUES_UNUSABLE  no Python 3.11 or newer could be found. Its other meaning, an argument
+#                           that is not a pin name, cannot arise here because the name asked for
+#                           below is a literal. This one skips rather than fails, for the same
+#                           reason the absent pwsh above skips: a tool missing from this machine is
+#                           not a defect in the repository, and the pins port being unreadable at
+#                           all is already a failure of e2e/tier1/pinned_values.sh, which is the
+#                           check that owns that question. Failing here too would report one
+#                           environment problem twice while proving nothing about the mapping.
+#   PINNED_VALUES_ABSENT    nothing pins default_python, which is a real defect here, because the
+#                           Windows mapping then has nothing to be held against. It fails.
+#   anything else           the reader's own refusal of the file, unreadable or invalid. It fails
+#                           too, and quotes what the reader said.
+python_log="$(mktemp)"
+pinned_status=0
+pinned_python="$(pinned_value default_python 2>"${python_log}")" || pinned_status=$?
+pinned_why="$(tr '\n' ' ' <"${python_log}")"
+rm -f "${python_log}"
+
 pinned_minor="$(cut -d. -f1,2 <<<"${pinned_python}")"
 mapped_python="$(awk '$1 == "python" { print $3 }' <<<"${yaml_mappings}")"
 mapped_minor="${mapped_python#Python.Python.}"
 
-if [[ -z "${pinned_minor}" || "${pinned_minor}" == "." ]]; then
-    fail "could not read the pinned default Python" \
-         "pinned_value default_python answered '${pinned_python}', so either nothing pins it or no Python 3.11 or newer is on PATH for the reader"
+if [[ "${pinned_status}" -eq "${PINNED_VALUES_UNUSABLE}" ]]; then
+    skip "the Windows python mapping compared against the pinned default_python" "${pinned_why}"
+elif [[ "${pinned_status}" -eq "${PINNED_VALUES_ABSENT}" ]]; then
+    fail "nothing pins default_python, so the Windows python mapping has nothing to agree with" \
+         "${pinned_why}"
+elif [[ "${pinned_status}" -ne 0 ]]; then
+    fail "the pinned values reader failed with status ${pinned_status}, so the pinned default Python could not be read" \
+         "${pinned_why}"
+elif [[ -z "${pinned_minor}" || "${pinned_minor}" == "." ]]; then
+    fail "the pinned default Python does not read as a version" \
+         "pinned_value default_python answered '${pinned_python}', which carries no <major>.<minor> to compare with vars/Windows.yaml"
 elif [[ "${pinned_minor}" == "${mapped_minor}" ]]; then
     pass "the Windows python mapping matches default_python (${pinned_minor})"
 else

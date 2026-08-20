@@ -10,13 +10,21 @@
 #
 # Run it by hand from the repository root, Unix shell:
 #
-#   ANSIBLE_STDOUT_CALLBACK=default ANSIBLE_CALLBACK_RESULT_FORMAT=yaml ansible-playbook -i localhost, -c local -K setup/ansible/verify_install.yaml
+#   ANSIBLE_CONFIG=setup/ansible/ansible.cfg ANSIBLE_STDOUT_CALLBACK=default ANSIBLE_CALLBACK_RESULT_FORMAT=yaml ansible-playbook -i localhost, -c local -K setup/ansible/verify_install.yaml
 #
 # Run it by hand from PowerShell, driving WSL, which is where Ansible lives on Windows:
 #
-#   wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ANSIBLE_STDOUT_CALLBACK=default ANSIBLE_CALLBACK_RESULT_FORMAT=yaml ansible-playbook -i 'localhost,' -c local -K setup/ansible/verify_install.yaml"
+#   wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ANSIBLE_CONFIG=setup/ansible/ansible.cfg ANSIBLE_STDOUT_CALLBACK=default ANSIBLE_CALLBACK_RESULT_FORMAT=yaml ansible-playbook -i 'localhost,' -c local -K setup/ansible/verify_install.yaml"
 #
-# The two environment settings are what make the report readable, and the wizard sets the same pair.
+# ANSIBLE_CONFIG is not optional here, and leaving it out is a failure with a misleading
+# shape. Ansible looks for its configuration in ANSIBLE_CONFIG, then ./ansible.cfg, then
+# ~/.ansible.cfg, then /etc/ansible/ansible.cfg, and never in the playbook's own directory.
+# The only ansible.cfg here is setup/ansible/ansible.cfg, and it is what enables the vars
+# plugin that supplies every pinned value, so from the repository root without it the OS
+# dictionary cannot render and this play dies on an undefined variable that has nothing to do
+# with the machine being verified. setup/setup.sh exports it for the same reason.
+#
+# The two callback settings are what make the report readable, and the wizard sets the same pair.
 # The report is one multi-line message: the stock stdout callback renders it as a block, one line per
 # application, while ansible.cfg's dual_logger does not print a debug message at all on a task that
 # succeeded, and the default JSON result format collapses the whole report onto one line with literal
@@ -31,8 +39,8 @@
 # were deliberately deselected. The wizard passes its own resolved selection through automatically.
 # By hand, pass what the run passed:
 #
-#   ansible-playbook -i localhost, -c local -K setup/ansible/verify_install.yaml -e install_chrome=false
-#   ansible-playbook -i localhost, -c local -K setup/ansible/verify_install.yaml -e "@profiles/linux_live.yaml"
+#   ANSIBLE_CONFIG=setup/ansible/ansible.cfg ansible-playbook -i localhost, -c local -K setup/ansible/verify_install.yaml -e install_chrome=false
+#   ANSIBLE_CONFIG=setup/ansible/ansible.cfg ansible-playbook -i localhost, -c local -K setup/ansible/verify_install.yaml -e "@setup/ansible/profiles/linux_live.yaml"
 #
 # Exit code: 0 when everything asked for is present, 2 (Ansible's own failure code) when anything is
 # missing or could not be verified. A verification that cannot fail is decoration.

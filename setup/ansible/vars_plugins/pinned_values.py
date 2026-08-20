@@ -34,19 +34,34 @@ CORE = Path(__file__).resolve().parents[2] / "pinned_values" / "pinned_values.py
 
 CHECKSUMS_VAR = "download_checksums"
 
+MODULE_NAME = "installation_helper_pinned_values"
+
 
 def _core():
-    """Import the reader by path, so no PYTHONPATH or package layout has to be arranged."""
-    module = sys.modules.get("installation_helper_pinned_values")
+    """Import the reader by path, so no PYTHONPATH or package layout has to be arranged.
+
+    Registered in sys.modules only after it has executed. Registering first and executing second
+    leaves a half-initialised module behind when the import fails, and every later call then returns
+    that shell and raises AttributeError from somewhere unrelated instead of naming the real cause.
+    """
+    module = sys.modules.get(MODULE_NAME)
     if module is not None:
         return module
 
-    spec = importlib.util.spec_from_file_location("installation_helper_pinned_values", CORE)
+    if not CORE.is_file():
+        raise AnsibleError(f"the pinned values reader is missing at {CORE}")
+
+    spec = importlib.util.spec_from_file_location(MODULE_NAME, CORE)
     if spec is None or spec.loader is None:
         raise AnsibleError(f"cannot load the pinned values reader at {CORE}")
+
     module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        raise AnsibleError(f"cannot load the pinned values reader at {CORE}: {to_native(exc)}") from exc
+
+    sys.modules[MODULE_NAME] = module
     return module
 
 
@@ -58,13 +73,28 @@ class VarsModule(BaseVarsPlugin):
 
         core = _core()
         try:
-            # The reader caches on the file's modification time, so this is one parse per process
-            # however many hosts and groups Ansible asks about.
+            # The reader caches on the file's modification time and size, so this is one parse per
+            # process however many hosts and groups Ansible asks about.
             values = dict(core.pins())
+        except core.PinnedValuesError as exc:
+            raise AnsibleError(to_native(exc)) from exc
+
+        # A pin of this name would replace the checksum table with a string, and every callsite that
+        # reads download_checksums[<key>] would then fail on a string index rather than skip
+        # verification. Refused by name so the cause is obvious.
+        if CHECKSUMS_VAR in values:
+            raise AnsibleError(
+                f"{CHECKSUMS_VAR} is pinned as a value, and it is also the name this plugin gives "
+                "the checksum table. Rename the pin."
+            )
+        try:
             values[CHECKSUMS_VAR] = core.checksums()
         except core.PinnedValuesError as exc:
             raise AnsibleError(to_native(exc)) from exc
 
         # Every value arrives already resolved, so marking it unsafe stops a second templating pass
-        # from treating a brace inside a URL as a template.
+        # from treating a brace inside a value as a template. Measured on 2026-08-20 against
+        # ansible-core 2.19.9: importing ansible.utils.unsafe_proxy raises no deprecation warning,
+        # and 2.19's data tagging already treats a vars plugin's plain strings as untrusted, so this
+        # is belt and braces rather than the only protection. Re-measure before removing it.
         return {name: wrap_var(value) for name, value in values.items()}

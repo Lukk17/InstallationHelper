@@ -123,6 +123,48 @@ assert_refused "a reference naming nothing is refused by both names" unknown_ref
 assert_refused "a reference cycle is refused by the keys in it" cycle "cycle" "first" "second" "third"
 assert_refused "a missing pins table is refused" no_pins_table "[pins]"
 assert_refused "a file that is not TOML is refused by path" broken_syntax "broken_syntax.toml"
+assert_refused "two names differing only in case are refused, naming both" case_collision "java21_id" "Java21_id" "case"
+assert_refused "a name no adapter could carry is refused, naming it" hyphen_name "appimage-launcher-version"
+assert_refused "an empty pins table is refused" empty_pins "empty"
+assert_refused "a value containing a line break is refused" newline_value "multiline" "line break"
+
+# --- a broken file must not answer with the absence code -----------------------------------------
+# Exit 3 has exactly one meaning, that this name is not pinned, and a caller is entitled to branch on
+# it. Before this was fixed, --get reported a missing file, invalid TOML, a cycle and a bad value all
+# as 3, so a corrupt file read as "nobody pinned that" and a caller carried on with a default.
+read_fixture broken_syntax --get anything
+if [[ ${STATUS} -eq 1 ]]; then
+    pass "a broken file read through --get exits 1, not the absence code"
+else
+    fail "a broken file read through --get exits 1, not the absence code" \
+         "status ${STATUS}, stderr ${ERR}"
+fi
+
+read_fixture cycle --get first
+if [[ ${STATUS} -eq 1 ]]; then
+    pass "a cycle read through --get exits 1, not the absence code"
+else
+    fail "a cycle read through --get exits 1, not the absence code" "status ${STATUS}, stderr ${ERR}"
+fi
+
+# --- the port's single-value operation, which the command line no longer goes through --------------
+# --get reads the whole set now, so pin() would otherwise be code with no test behind it.
+pin_out="$(INSTALLATION_HELPER_PINS_FILE="${FIXTURE_DIR}/chained.toml" "${PYTHON}" -c '
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).parent))
+import pinned_values as reader
+print(reader.pin("alias"))
+try:
+    reader.pin("nothing_pins_this")
+    print("ABSENCE DID NOT RAISE")
+except reader.PinnedValuesError as exc:
+    print("raised:", exc)
+' "${CORE}" 2>&1)"
+if [[ "${pin_out}" == *"https://example.invalid/v2.2.0/app_2.2.0_amd64.deb"* && "${pin_out}" == *"raised: nothing pinned"* ]]; then
+    pass "pin() answers a resolved value and raises by name for an unpinned one"
+else
+    fail "pin() answers a resolved value and raises by name for an unpinned one" "${pin_out}"
+fi
 
 # --- the shell adapter, which is what the other checks call ---------------------------------------
 # Its own subshell, because the adapter caches into PIN_* variables on first use and the fixture is
@@ -146,9 +188,15 @@ adapter_status=0
     set +e
     pinned_value nothing_pins_this >/dev/null 2>&1
     absent_status=$?
+    # A name that is not a pin name at all, which without validation would be spliced into an
+    # indirect expansion: PIN_MINIKUBE_URL[0] reads element zero of a scalar, which bash answers with
+    # the scalar, so the call would return a value at status 0 for something that is not a pin.
+    pinned_value 'alias[0]' >/dev/null 2>&1
+    subscript_status=$?
     set -e
     [[ ${absent_status} -eq 0 ]] && exit 3
     [[ ${absent_status} -eq 3 ]] || exit 4
+    [[ ${subscript_status} -eq 0 ]] && exit 5
     exit 0
 ) || adapter_status=$?
 case ${adapter_status} in
@@ -159,6 +207,8 @@ case ${adapter_status} in
             "a value containing a single quote did not survive the eval in pinned_values_load" ;;
     3) fail "the shell adapter resolves, survives a quote, and returns 3 for an unpinned name" \
             "pinned_value answered an unpinned name instead of failing" ;;
+    5) fail "the shell adapter resolves, survives a quote, and returns 3 for an unpinned name" \
+            "pinned_value answered a subscripted name as though it were a pin" ;;
     *) fail "the shell adapter resolves, survives a quote, and returns 3 for an unpinned name" \
             "pinned_value returned ${adapter_status} for an unpinned name, expected 3" ;;
 esac

@@ -60,8 +60,12 @@ info "Tier 1: pinned values behind one reader"
 is_pin() { [[ -n "${pin_set["$1"]-}" ]]; }
 
 # pin_value <name>  one resolved value, out of the already-loaded set.
+#
+# Uppercased with tr rather than ${1^^} to match the adapter, which does it that way because stock
+# macOS still ships bash 3.2 and answers ${name^^} with a bad substitution error.
 pin_value() {
-    local holder="PIN_${1^^}"
+    local holder
+    holder="PIN_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
     printf '%s' "${!holder-}"
 }
 
@@ -101,10 +105,14 @@ if ! pinned_values_load 2>"${load_log}"; then
 fi
 rm -f "${load_log}"
 
-# Names come back from the adapter as PIN_<NAME>, so they are read out of the environment rather
-# than out of the file. The pins table is lowercase throughout, which assertion 3's family rule and
-# assertion 5's definition scan both rely on, and which assertion 4 asserts rather than assumes.
-mapfile -t pin_names < <(compgen -v 'PIN_' | sed 's/^PIN_//' | tr '[:upper:]' '[:lower:]' | LC_ALL=C sort)
+# The names come from the adapter's own record of what it loaded, not from `compgen -v PIN_`, which
+# reads the whole variable namespace: any PIN_-prefixed variable that happened to be exported into
+# the environment was counted as a pin, and then failed assertion 2 as a pin nobody reads and
+# assertion 6 as a pin PowerShell does not have. Neither failure was about this repository.
+#
+# The pins table is lowercase throughout, which assertion 3's family rule and assertion 5's
+# definition scan both rely on, and which assertion 4 asserts rather than assumes.
+mapfile -t pin_names < <(pinned_values_names | LC_ALL=C sort)
 fill_set pin_set "${pin_names[@]-}"
 
 # A scan that finds almost nothing passes every assertion below it, so the floor is checked first.

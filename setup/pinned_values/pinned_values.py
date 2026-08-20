@@ -42,17 +42,21 @@ CHECKSUMS_TABLE = "checksums"
 
 REFERENCE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
 
+# A name every adapter can carry. It becomes PIN_<NAME> in shell, a key in a PowerShell hashtable and
+# a variable name in Ansible, and none of those three survives a hyphen, a space or a dot.
+NAME = re.compile(r"^[A-Za-z0-9_]+$")
+
 EXIT_ABSENT = 3
 EXIT_USAGE = 2
-
-_MISSING = object()
 
 
 class PinnedValuesError(Exception):
     """Any refusal to hand out a value: the file, a value's type, a reference, or a cycle."""
 
 
-_cache: dict[Path, tuple[float, dict[str, str], dict[str, str]]] = {}
+# Keyed on the file's modification time in nanoseconds and its size, not on seconds: a file
+# rewritten inside one clock tick would otherwise be served from a stale cache.
+_cache: dict[Path, tuple[tuple[int, int], dict[str, str], dict[str, str]]] = {}
 
 
 def pins_file() -> Path:
@@ -66,15 +70,17 @@ def pins() -> dict[str, str]:
     return dict(_load()[0])
 
 
-def pin(name: str, default: object = _MISSING) -> str:
-    """One pinned value. Absence raises unless a default is passed at the callsite."""
+def pin(name: str) -> str:
+    """One pinned value. Absence raises, naming the name and the file it was looked for in.
+
+    There is deliberately no default parameter. A caller that wants to tolerate an absent pin can
+    ask for the whole set and check, which makes the tolerance visible at the callsite instead of
+    hidden in an argument, and nothing here needed it.
+    """
     resolved = _load()[0]
-    try:
+    if name in resolved:
         return resolved[name]
-    except KeyError:
-        if default is not _MISSING:
-            return default  # type: ignore[return-value]
-        raise PinnedValuesError(f"nothing pinned '{name}' in {pins_file()}") from None
+    raise PinnedValuesError(f"nothing pinned '{name}' in {pins_file()}")
 
 
 def checksums() -> dict[str, str]:
@@ -85,9 +91,10 @@ def checksums() -> dict[str, str]:
 def _load() -> tuple[dict[str, str], dict[str, str]]:
     path = pins_file()
     try:
-        stamp = path.stat().st_mtime
+        status = path.stat()
     except OSError as exc:
         raise PinnedValuesError(f"cannot read the pinned values file {path}: {exc}") from exc
+    stamp = (status.st_mtime_ns, status.st_size)
 
     cached = _cache.get(path)
     if cached is not None and cached[0] == stamp:
@@ -97,6 +104,8 @@ def _load() -> tuple[dict[str, str], dict[str, str]]:
         document = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as exc:
         raise PinnedValuesError(f"{path} is not valid TOML: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise PinnedValuesError(f"{path} is not UTF-8 text: {exc}") from exc
     except OSError as exc:
         raise PinnedValuesError(f"cannot read the pinned values file {path}: {exc}") from exc
 
@@ -109,7 +118,16 @@ def _load() -> tuple[dict[str, str], dict[str, str]]:
 
 
 def _string_table(document: dict[str, object], table: str, path: Path, *, required: bool) -> dict[str, str]:
-    """One table's worth of string values, refusing any value that is not a string."""
+    """One table's worth of string values, refusing anything the adapters could not carry.
+
+    Four refusals, each closing a way a caller could be handed the wrong answer instead of an error.
+    A value that is not a string is an unquoted version. A name outside [A-Za-z0-9_] cannot be a
+    shell variable, so `--sh` would render a line that eval treats as a command and the pin would
+    then read as absent. Two names differing only in case collapse into one PIN_<NAME> and into one
+    PowerShell hashtable key, so one of the pair would answer with the other's value. A value
+    containing a newline cannot round-trip through `--get`, and the PowerShell adapter rejoins output
+    lines with the platform separator, so the same pin would read differently per runtime.
+    """
     section = document.get(table)
     if section is None:
         if required:
@@ -117,13 +135,36 @@ def _string_table(document: dict[str, object], table: str, path: Path, *, requir
         return {}
     if not isinstance(section, dict):
         raise PinnedValuesError(f"{path}: [{table}] is not a table")
+    if required and not section:
+        raise PinnedValuesError(
+            f"{path}: [{table}] is empty. An empty set would make every caller report every value "
+            "as absent, which reads as a machine with nothing pinned rather than as a broken file."
+        )
 
     values: dict[str, str] = {}
+    folded: dict[str, str] = {}
     for name, value in section.items():
+        if not NAME.match(name):
+            raise PinnedValuesError(
+                f"{path}: [{table}] '{name}' is not a name every adapter can carry. Use letters, "
+                "digits and underscores, because the name becomes PIN_<NAME> in shell and a variable "
+                "name in Ansible."
+            )
+        if name.lower() in folded:
+            raise PinnedValuesError(
+                f"{path}: [{table}] {name} and {folded[name.lower()]} differ only in case, and "
+                "neither PIN_<NAME> in shell nor a PowerShell hashtable can tell them apart."
+            )
+        folded[name.lower()] = name
         if not isinstance(value, str):
             raise PinnedValuesError(
                 f"{path}: [{table}] {name} is {type(value).__name__}, not a string. "
                 "Quote it, because a version is text that happens to contain digits."
+            )
+        if "\n" in value or "\r" in value:
+            raise PinnedValuesError(
+                f"{path}: [{table}] {name} contains a line break, which no adapter can carry back "
+                "to its caller unchanged."
             )
         values[name] = value
     return values
@@ -157,8 +198,11 @@ def _resolve(name: str, raw: dict[str, str], resolved: dict[str, str], chain: li
     value = REFERENCE.sub(substitute, value)
     chain.pop()
 
-    if "{{" in value or "}}" in value:
-        raise PinnedValuesError(f"{path}: {name} still holds a template after resolution: {value}")
+    if "{" in value or "}" in value:
+        raise PinnedValuesError(
+            f"{path}: {name} resolves to a value containing a brace, which nothing pinned here ever "
+            f"needs and which a second templating pass could act on: {value}"
+        )
 
     resolved[name] = value
     return value
@@ -184,11 +228,15 @@ def main(argv: list[str]) -> int:
             sys.stdout.write(json.dumps(pins(), indent=2, sort_keys=True) + "\n")
             return 0
         if mode == "--get" and len(rest) == 1:
-            try:
-                sys.stdout.write(pin(rest[0]) + "\n")
-            except PinnedValuesError as exc:
-                sys.stderr.write(f"{exc}\n")
+            # Loaded first, deliberately. Reading the whole set here means a missing file, invalid
+            # TOML, a cycle or a bad value leaves through the load failure below at exit 1, and exit
+            # 3 keeps its one meaning: this name is not pinned. A caller that branches on 3 would
+            # otherwise read a corrupt file as an absent key and carry on with a default.
+            values = pins()
+            if rest[0] not in values:
+                sys.stderr.write(f"nothing pinned '{rest[0]}' in {pins_file()}\n")
                 return EXIT_ABSENT
+            sys.stdout.write(values[rest[0]] + "\n")
             return 0
         if mode == "--sh" and not rest:
             for name, value in sorted(pins().items()):
