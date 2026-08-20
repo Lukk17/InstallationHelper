@@ -132,7 +132,7 @@ EOF
         mapfile -t files < <(ls -1 "${E2E_ROOT}"/tier3/scenarios/*.yaml)
     else
         # Comma-separated list accepted, so a parallel run can be aimed at the two or
-        # three scenarios a change actually touches instead of all six.
+        # three scenarios a change actually touches instead of every one of them.
         local name found
         IFS=',' read -ra wanted <<<"${SCENARIO}"
         for name in "${wanted[@]}"; do

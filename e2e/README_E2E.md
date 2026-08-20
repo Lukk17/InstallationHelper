@@ -84,18 +84,18 @@ Run every scenario, sequentially. Budget most of a day.
 
 ### CI matrix sweep vs local runs
 
-The six scenarios above cross five Linux distributions, which is 30 combinations. Nobody runs all 30 on one machine, so the harness is split across two places that prove different things.
+The eight scenarios above cross five Linux distributions, which is 40 combinations. Nobody runs all 40 on one machine, so the harness is split across two places that prove different things.
 
-[.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each matrix cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 30 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
+[.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each matrix cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 40 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
 
-Local Docker runs, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: fast feedback on the distribution and scenario a change actually touches, without waiting on 29 others.
+Local Docker runs, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: fast feedback on the distribution and scenario a change actually touches, without waiting on 39 others.
 
 What each side proves, and does not:
 
 | | Proves | Does not prove |
 |---|---|---|
 | CI matrix sweep | The full cross product passes on GitHub's own infrastructure, including a distro/scenario pairing nobody happened to run locally | Correctness on the hardware you actually deploy to. A hosted runner's disk, memory and privileged-container behaviour differ from a personal Docker Desktop or WSL setup, and the sweep has not been observed to catch a defect that a local run would have missed, because it has not run yet |
-| Local run | The harness works on your actual machine, against your actual Docker setup, for the one scenario and distribution you are actively changing | The other 29 combinations still pass, unless you run them too |
+| Local run | The harness works on your actual machine, against your actual Docker setup, for the one scenario and distribution you are actively changing | The other 39 combinations still pass, unless you run them too |
 
 Dispatch the sweep from the Actions tab, or narrow it to one scenario or one distribution from the same form.
 
@@ -125,11 +125,13 @@ green: what that run still does not tell you.
 | a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the pinned version is the right version, only that it resolves and that its download location answers |
 | the pinned values reader or any of its adapters | `./e2e/run.sh`, then `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, then `--tier 3 --scenario defaults` | nothing about macOS, which has no container tier |
 | anything in `roles/` touching groups, systemd units or per-distribution behaviour | `./e2e/run.sh --tier 3 --scenario defaults` on arch, debian, ubuntu and fedora | anything needing a graphical session, a real kernel module, or hardware |
+| a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `./e2e/run.sh --tier 3 --scenario idempotency` | whether the task is idempotent on any distribution other than the one you ran, because a guard that is right on apt can be missing entirely on pacman |
+| a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, the callback plugin's failure rendering, or `verify_install.yaml`'s assertions | `./e2e/run.sh --tier 3 --scenario forced-failure` | that a real defect would be caught, only that a failure which does happen is reported in all four places, and it is the cheapest container scenario so there is no excuse for skipping it |
 | the desktop environment roles | `--scenario kde-full` and `--scenario gnome-full` | that the desktop actually starts, since no container has a display |
 | `profiles/linux_live.yaml` | `--scenario live-profile` | that a real live USB behaves the same, since the container has a writable root |
 | `setup/setup.sh` | `./e2e/run.sh`, then any one `--tier 3` scenario end to end | the interactive screens, which need a terminal no test has |
 | `setup/setup.ps1` or anything in `setup/windows/` | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1` | 82 of the 89 Windows mappings, because winget ships as an MSIX package and Server Core has no AppX subsystem |
-| `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then any one `--tier 3` scenario | nothing, if the gate and one scenario both pass, this is the best covered file in the repository |
+| `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then `--tier 3 --scenario forced-failure`, then any one passing scenario | nothing, if the gate and both scenarios pass, this is the best covered file in the repository. The forced-failure scenario is the half that matters: it proves the play refuses over a broken machine, which no passing scenario can show |
 | a tier 1 check, or anything under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then `./e2e/run.sh` from Git Bash and from WSL | that the check is testing the thing rather than its own implementation, which only the failure proof shows |
 | a distribution Dockerfile, or a new distribution | `--tier 3 --scenario defaults --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
 | anything that only affects macOS | `./e2e/run.sh` and `./e2e/run.sh --tier 2` | everything that executes, because a Darwin container cannot run on a Linux or Windows kernel and the only executing macOS test is the `macos` target of the dispatch workflow |
@@ -139,7 +141,7 @@ green: what that run still does not tell you.
 
 Three rules that are easy to miss.
 
-Every row that names a container scenario now names defaults, and that is a 180 minute ceiling rather than the 45 the removed smoke scenario declared. The smoke scenario is gone because every toggle it enabled was already true in defaults, so it was the same test with most of the toggles taken away, and a 20 to 30 minute run was never cheap enough to be a pre-commit gate either. Tier 1 is the thing that runs in seconds.
+There is no cheap container row. Most rows that name a scenario name defaults, at a 180 minute ceiling rather than the 45 the removed smoke scenario declared, and the two that name something else name it because that scenario asks a question defaults cannot: forced-failure is the cheapest of them, measured at 46 minutes on debian against a 90 minute ceiling, and it is still not a pre-commit gate. The smoke scenario is gone because every toggle it enabled was already true in defaults, so it was the same test with most of the toggles taken away, and a 20 to 30 minute run was never cheap enough either. Tier 1 is the thing that runs in seconds.
 
 A change that touches more than one row owes every row it touches. A pinned value that is also read by a role task is both the fourth row and the third.
 
@@ -201,12 +203,14 @@ Jobs 3 to 5 are what "parse only" means: the wizard runs its own resolution, pri
 plan it would execute, and exits. They cost seconds and they catch a broken toggle file, a renamed
 option or a wizard that no longer agrees with the YAML, before anything spends an hour installing.
 
-Stage 2, the container sweep. Thirty jobs, twenty at a time. Linux goes before the other two
+Stage 2, the container sweep. Forty jobs, twenty at a time. Linux goes before the other two
 platforms because it is where the playbook does the most and where a real defect is most likely.
 
 The order inside the stage is deliberate. Defaults runs first on all five distributions, because it
 is the configuration people actually get and a breakage in it is the one that matters most, and the
-rest run longest first, because a long job started late is what decides when the sweep ends.
+rest run longest first, because a long job started late is what decides when the sweep ends. Two
+scenarios share a ceiling with an existing one, and each was appended to the end of its own tie
+group rather than inserted into it, so adding them moved nothing that was already there.
 
 | Order | Scenario | Distributions | Ceiling |
 |---|---|---|---|
@@ -214,8 +218,10 @@ rest run longest first, because a long job started late is what decides when the
 | 11 to 15 | all-software | the same five | 300 minutes |
 | 16 to 20 | kde-full | the same five | 300 minutes |
 | 21 to 25 | gnome-full | the same five | 300 minutes |
-| 26 to 30 | live-profile | the same five | 120 minutes |
-| 31 to 35 | kde-configure-only | the same five | 90 minutes |
+| 26 to 30 | idempotency | the same five | 300 minutes, for two passes |
+| 31 to 35 | live-profile | the same five | 120 minutes |
+| 36 to 40 | kde-configure-only | the same five | 90 minutes |
+| 41 to 45 | forced-failure | the same five | 90 minutes |
 
 Stage 3, the short real installs on the other two platforms. Seven jobs, each a real wizard run on a
 real machine, each ending in verification. Roughly 30 to 90 minutes. macOS sits at three, under its
@@ -223,21 +229,25 @@ own cap of five concurrent macOS jobs.
 
 | Order | Job | Runner | Selection |
 |---|---|---|---|
-| 36 | macOS defaults | macos-14 | the toggles as they ship |
-| 37 | macOS everything | macos-14 | every selectable toggle on |
-| 38 | macOS from nothing | macos-14 | every toggle off, then a handful enabled by name |
-| 39 | Windows defaults | windows-latest | the toggles as they ship |
-| 40 | Windows everything | windows-latest | every selectable toggle on |
-| 41 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
-| 42 | Windows settings only | windows-latest | the four native system settings, no software |
+| 46 | macOS defaults | macos-14 | the toggles as they ship |
+| 47 | macOS everything | macos-14 | every selectable toggle on |
+| 48 | macOS from nothing | macos-14 | every toggle off, then a handful enabled by name |
+| 49 | Windows defaults | windows-latest | the toggles as they ship |
+| 50 | Windows everything | windows-latest | every selectable toggle on |
+| 51 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
+| 52 | Windows settings only | windows-latest | the four native system settings, no software |
 
-Forty-two jobs in total. Those ceilings are timeouts rather than measurements, and no scenario has
+Fifty-two jobs in total. Those ceilings are timeouts rather than measurements, and no scenario has
 ever run on a GitHub runner, so the real numbers will only exist after the first sweep.
 
-How long the sweep takes. Adding the ceilings gives 1290 minutes of work per distribution and 6450
-across all five. At twenty concurrent that is roughly five and a half hours in the worst case, and
-the real figure should be well under it, because every ceiling is generous. Stage 1 and stage 3 are
-small enough that concurrency never binds them.
+How long the sweep takes. Adding the ceilings gives 1710 minutes of work per distribution, which is
+180 plus 300 plus 300 plus 300 plus 300 plus 120 plus 90 plus 90, and 8550 minutes across all five.
+At twenty concurrent that is a little over seven hours in the worst case, and the real figure should
+be well under it, because every ceiling is generous and the two newest scenarios are the two least
+likely to reach theirs: the second pass of the idempotency run has nothing to download, and the
+forced-failure run stops the software installer at its first batch, which on debian measured 45m 55s
+against its 90 minute ceiling. Stage 1 and stage 3 are small enough that concurrency never binds
+them.
 
 ---
 
@@ -286,7 +296,7 @@ Note the two paths do not prove exactly the same thing. A manifest existing upst
 
 ### The tier 3 scenarios
 
-Each scenario is one configuration the wizard can actually produce. Between them they cover the wizard's whole output space, which is the desktop environment choice crossed with the three software paths.
+Six of them are one configuration the wizard can actually produce, and between them they cover the wizard's whole output space, which is the desktop environment choice crossed with the three software paths. The other two ask something about the run itself rather than about a selection.
 
 | Scenario | Wizard path it reproduces |
 |---|---|
@@ -298,6 +308,15 @@ Each scenario is one configuration the wizard can actually produce. Between them
 | kde-configure-only | Desktop environment "kde", action "configure". The only combination where the configure tasks cannot assume their own install step just ran |
 
 The all-software toggle list is generated at run time from [group_vars/](../setup/ansible/group_vars/) rather than written into the scenario file, so a newly added toggle is covered with no edit here. The exact list used is written into the run directory.
+
+Two scenarios are not wizard paths, and both carry a control key that changes what [tier3/container.sh](tier3/container.sh) does rather than what the playbook installs.
+
+| Scenario | Control key | What it asks |
+|---|---|---|
+| idempotency | `e2e_run_twice: true` | The defaults configuration applied twice in one container. The second pass must report no changed task that is not named, with a reason, in [tier3/idempotent_changes_allowed.txt](tier3/idempotent_changes_allowed.txt). This is the defining property of a configuration tool and nothing here had ever asked for it: a task that reports changed with nothing left to do is either doing its work twice or misreporting it, and the second one destroys the only signal there is for telling a run that did something from a run that did nothing |
+| forced-failure | `e2e_expect_failure: true` | A package name no repository has ever carried, injected over the batch the software installer computes for itself, so every distribution fails the same way. The verdicts invert: the run has to exit non-zero, name the failing task in the terminal summary and in `~/installation_errors.log`, and the verification has to refuse and say what is missing. Every one of those four mechanisms was proven once by a hand-made probe and then never exercised again, and a run that cannot report its own failure is worse than a run that fails |
+
+Both scenarios explain their own reasoning in full at the top of their scenario files, including why the forced-failure injection is the one chosen and what the alternatives would have failed to cover.
 
 ---
 

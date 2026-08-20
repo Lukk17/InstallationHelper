@@ -19,6 +19,17 @@
 # exact variable file that was used, the full playbook log, the verify log, and a
 # result file. Nothing is inferred after the fact.
 #
+# Two scenario keys change what this script does rather than what the playbook installs, and both
+# are read out of the scenario file below:
+#
+#   e2e_run_twice: true       run the same command a second time once the first pass exits 0, and
+#                             assert the second pass reports no changed task that is not named, with
+#                             a reason, in idempotent_changes_allowed.txt beside this file.
+#   e2e_expect_failure: true  the scenario breaks the run on purpose, so the verdicts invert: a
+#                             non-zero exit code is the pass, and the failure has to be named in the
+#                             terminal summary, in the error log the run writes, and by the
+#                             verification, which must refuse rather than report a clean machine.
+#
 # The playbook always runs detached INSIDE the container, writing its own log and exit
 # code there, and this script only watches it. That matters for the long scenarios: a
 # full software run takes hours, and tying it to the lifetime of whatever shell started
@@ -84,6 +95,28 @@ fi
 LIMITS_FILES=("${TIER3_DIR}/container_limits.yaml")
 [[ -f "${TIER3_DIR}/container_limits.${OS}.yaml" ]] && LIMITS_FILES+=("${TIER3_DIR}/container_limits.${OS}.yaml")
 
+# Tasks allowed to report changed on a second pass, each with the reason it cannot be repeatable.
+# Read only by the e2e_run_twice path below. It sits here rather than under tier1/ because tier 1
+# never runs a playbook and so can never consult it, and next to container_limits.yaml because the
+# two files answer the same shape of question: what this tier deliberately does not hold the
+# playbook to, stated in one place instead of being argued about per run.
+IDEMPOTENCY_ALLOWLIST="${TIER3_DIR}/idempotent_changes_allowed.txt"
+
+# Every task name the log says reported changed, in log order, one per line.
+#
+# ansible.cfg sets stdout_callback = dual_logger, so this reads that format and not Ansible's own: a
+# task header is "[HH:MM:SS] TASK [role : name]" and its result is "[HH:MM:SS] 1.2s CHANGED:
+# [localhost]". Only the task-level line ever says CHANGED, because the per-item hook renders
+# INSTALLED, present, absent or TOLERATED instead, so this counts tasks and never loop items. A task
+# header with no result line at all is a task that was skipped, and the pending name is simply
+# replaced by the next header rather than being attributed to it.
+changed_task_names() {
+    awk '
+        /TASK \[/     { task = $0; sub(/^.*TASK \[/, "", task); sub(/\]$/, "", task); next }
+        /CHANGED: \[/ { if (task != "") { print task; task = "" } }
+    ' "$1"
+}
+
 # ---------------------------------------------------------------------------
 # Start phase
 # ---------------------------------------------------------------------------
@@ -101,6 +134,8 @@ start_run() {
     SCENARIO_DESC="$(scenario_get e2e_scenario_description)"
     SCENARIO_PROFILE="$(scenario_get e2e_profile)"
     SCENARIO_GENERATE="$(scenario_get e2e_generate)"
+    SCENARIO_RUN_TWICE="$(scenario_get e2e_run_twice)"
+    SCENARIO_EXPECT_FAILURE="$(scenario_get e2e_expect_failure)"
     TIMEOUT_MIN="$(scenario_get e2e_timeout_minutes)"
     : "${SCENARIO_NAME:=$(basename "${SCENARIO_FILE}" .yaml)}"
     : "${TIMEOUT_MIN:=180}"
@@ -351,6 +386,35 @@ start_run() {
 
     info "Launching the playbook inside the container"
     dim "ansible-playbook site.yaml -i localhost, -c local ${profile_arg} -e @/work/effective-vars.yaml"
+
+    # One command string, run once or twice.
+    #
+    # The second pass is the whole of the idempotency scenario. playbook.rc is written last, after
+    # whichever pass was the final one, and that is deliberate rather than incidental:
+    # wait_for_playbook and the --collect readiness probe both decide "this run is over" by the
+    # existence of that one file, so writing it at the end makes both of them cover both passes with
+    # no change to either, and the scenario's own timeout budgets the pair. The first pass keeps its
+    # own exit code, captured into rc1 before anything else can overwrite $?.
+    #
+    # The second pass only runs when the first one exited 0. A first pass that failed leaves nothing
+    # to say about idempotency, and collect_and_verify reports that as a failed scenario rather than
+    # reading an absent playbook2.rc as "the second pass changed nothing".
+    #
+    # The error log is copied out while it still belongs to the pass that wrote it.
+    # callback_plugins/dual_logger.py opens installation_errors.log with mode "w", so a second pass
+    # truncates the first pass's copy, and the forced-failure scenario asserts on that file by name.
+    # The tilde form resolves the home directory through the passwd database, which is what the
+    # callback plugin itself does, rather than through HOME, which docker exec -u does not set.
+    local play_cmd="ansible-playbook site.yaml -i 'localhost,' -c local ${profile_arg} -e @/work/effective-vars.yaml"
+    local launch_script="${play_cmd} > /work/playbook.log 2>&1; rc1=\$?"
+    launch_script+="; cp -f ~${E2E_USER}/installation_errors.log /work/installation_errors.log 2>/dev/null || true"
+    if [[ "${SCENARIO_RUN_TWICE}" == "true" ]]; then
+        info "This scenario runs the playbook twice, and the second pass must change nothing"
+        launch_script+="; if [ \"\${rc1}\" -eq 0 ]; then ${play_cmd} > /work/playbook2.log 2>&1"
+        launch_script+="; echo \$? > /work/playbook2.rc"
+        launch_script+="; cp -f ~${E2E_USER}/installation_errors.log /work/installation_errors2.log 2>/dev/null || true; fi"
+    fi
+    launch_script+="; echo \"\${rc1}\" > /work/playbook.rc"
     # Checked, not inferred. This was the last step in the start phase whose result nothing looked
     # at, and it is the one step where an unnoticed failure is worst: `docker exec -d` returns
     # non-zero when the exec cannot be created at all, and under set -e that killed start_run on the
@@ -360,7 +424,7 @@ start_run() {
     # copy steps use: the container goes, and result.txt says in words that the run proves nothing.
     if ! docker exec -d -u "${E2E_USER}" -w /work/setup/ansible \
         -e ANSIBLE_FORCE_COLOR=0 \
-        "${CONTAINER}" bash -c "ansible-playbook site.yaml -i 'localhost,' -c local ${profile_arg} -e @/work/effective-vars.yaml > /work/playbook.log 2>&1; echo \$? > /work/playbook.rc" \
+        "${CONTAINER}" bash -c "${launch_script}" \
         >/dev/null 2>"${RUN_DIR}/launch.log"; then
         abort_before_playbook "launching the playbook, docker exec -d would not start it" "${RUN_DIR}/launch.log"
     fi
@@ -374,6 +438,8 @@ OS="${OS}"
 SCENARIO_PROFILE="${SCENARIO_PROFILE}"
 SCENARIO_NAME="${SCENARIO_NAME}"
 SCENARIO_DESC="${SCENARIO_DESC}"
+SCENARIO_RUN_TWICE="${SCENARIO_RUN_TWICE}"
+SCENARIO_EXPECT_FAILURE="${SCENARIO_EXPECT_FAILURE}"
 TIMEOUT_MIN="${TIMEOUT_MIN}"
 RUN_ID="${RUN_ID}"
 STARTED_AT="$(timestamp)"
@@ -407,9 +473,64 @@ collect_and_verify() {
     VERIFY_LOG="${RUN_DIR}/verify.log"
     RESULT_FILE="${RUN_DIR}/result.txt"
 
+    SECOND_LOG="${RUN_DIR}/playbook2.log"
+    ERRORS_LOG="${RUN_DIR}/installation_errors.log"
+
     docker cp "${CONTAINER}:/work/playbook.log" "$(host_path "${PLAYBOOK_LOG}")" &>/dev/null || echo "(no playbook log)" > "${PLAYBOOK_LOG}"
     PLAYBOOK_RC="$(docker exec "${CONTAINER}" cat /work/playbook.rc 2>/dev/null || echo "timeout-or-killed")"
     info "Playbook exit code: ${PLAYBOOK_RC}"
+
+    # The error log the run writes for a person to read afterwards, kept with the run rather than
+    # left inside a container that is about to be removed. Collected for every scenario, not only the
+    # one that asserts on it: it is four lines on a failed run and empty on a clean one, and the run
+    # record is the only place a failure can still be read once the container is gone.
+    docker cp "${CONTAINER}:/work/installation_errors.log" "$(host_path "${ERRORS_LOG}")" &>/dev/null \
+        || echo "(no installation_errors.log was copied out of the container)" > "${ERRORS_LOG}"
+
+    # --- the second pass, for a scenario that asked for one ----------------------
+    # Parsed here rather than inside the container, because the log is already on this side and the
+    # allowlist lives in the working tree, which the container deliberately cannot see.
+    SECOND_RC="not-requested"
+    SECOND_CHANGED=()
+    SECOND_EXCUSED=()
+    SECOND_UNEXPECTED=()
+    if [[ "${SCENARIO_RUN_TWICE:-}" == "true" ]]; then
+        docker cp "${CONTAINER}:/work/playbook2.log" "$(host_path "${SECOND_LOG}")" &>/dev/null \
+            || echo "(no second playbook log, so the second pass never started)" > "${SECOND_LOG}"
+        SECOND_RC="$(docker exec "${CONTAINER}" cat /work/playbook2.rc 2>/dev/null || echo "never-ran")"
+        info "Second pass exit code: ${SECOND_RC}"
+
+        mapfile -t SECOND_CHANGED < <(changed_task_names "${SECOND_LOG}")
+
+        # The allowlist holds "<task name> | <reason>", so the reason travels with the exception
+        # instead of living in a commit message nobody reads. An entry with no reason is rejected
+        # rather than honoured: an unexplained exception is how an allowlist becomes a place to hide
+        # a defect, which is the one thing this scenario cannot afford.
+        local allow_names=() allow_line name
+        if [[ -f "${IDEMPOTENCY_ALLOWLIST}" ]]; then
+            while IFS= read -r allow_line; do
+                [[ "${allow_line}" =~ ^[[:space:]]*(#|$) ]] && continue
+                if [[ "${allow_line}" != *"|"* ]]; then
+                    warn "ignoring an allowlist line with no reason after the pipe: ${allow_line}"
+                    continue
+                fi
+                name="${allow_line%%|*}"
+                name="$(sed -E 's/[[:space:]]+$//' <<<"${name}")"
+                [[ -n "${name}" ]] && allow_names+=("${name}")
+            done < "${IDEMPOTENCY_ALLOWLIST}"
+        else
+            warn "no allowlist at ${IDEMPOTENCY_ALLOWLIST}, so every changed task counts against the run"
+        fi
+
+        local t
+        for t in "${SECOND_CHANGED[@]+"${SECOND_CHANGED[@]}"}"; do
+            if printf '%s\n' "${allow_names[@]+"${allow_names[@]}"}" | grep -qxF -- "${t}"; then
+                SECOND_EXCUSED+=("${t}")
+            else
+                SECOND_UNEXPECTED+=("${t}")
+            fi
+        done
+    fi
 
     # Runs regardless of the playbook's exit code. A failed run still has state worth
     # asserting on, and knowing which parts survived is how a failure gets triaged.
@@ -485,19 +606,100 @@ collect_and_verify() {
 
         echo "verify_recap:"
         grep -oE 'localhost: ok=[0-9]+.*$' "${VERIFY_LOG}" 2>/dev/null | tail -1 | sed 's/^/  /' || echo "  (none)"
+
+        # The second pass, named task by task rather than reduced to a count. A count says a run is
+        # not idempotent and a list says which task to go and look at, and the list is the reason
+        # this scenario exists: the tasks it names are either doing their work twice or misreporting
+        # it, and neither is visible from anywhere else in this harness.
+        if [[ "${SCENARIO_RUN_TWICE:-}" == "true" ]]; then
+            echo "second_run_rc:  ${SECOND_RC}"
+            echo "second_run_recap:"
+            grep -oE 'localhost: ok=[0-9]+.*$' "${SECOND_LOG}" 2>/dev/null | tail -1 | sed 's/^/  /' || echo "  (none)"
+            echo "second_run_changed_total: ${#SECOND_CHANGED[@]}"
+            echo "second_run_changed_not_allowed: ${#SECOND_UNEXPECTED[@]}"
+            if [[ ${#SECOND_UNEXPECTED[@]} -gt 0 ]]; then
+                printf '  %s\n' "${SECOND_UNEXPECTED[@]}"
+            else
+                echo "  none"
+            fi
+            echo "second_run_changed_allowed: ${#SECOND_EXCUSED[@]}"
+            if [[ ${#SECOND_EXCUSED[@]} -gt 0 ]]; then
+                printf '  %s\n' "${SECOND_EXCUSED[@]}"
+            else
+                echo "  none"
+            fi
+        fi
     } > "${RESULT_FILE}"
 
     cat "${RESULT_FILE}"
 
-    if [[ "${PLAYBOOK_RC}" == "0" ]]; then
-        pass "${SCENARIO_NAME}: playbook completed"
+    if [[ "${SCENARIO_EXPECT_FAILURE:-}" == "true" ]]; then
+        # Every verdict inverts, because this scenario broke the run on purpose. A clean exit here is
+        # the defect: it means the machinery that makes a failure visible swallowed one instead. The
+        # four checks are the four places a failure has to appear, and they are separate on purpose,
+        # because each has failed on its own before: an exit code without a summary, a summary
+        # without an error log entry, and a verification that reported a pass over a broken machine.
+        if [[ "${PLAYBOOK_RC}" != "0" ]]; then
+            pass "${SCENARIO_NAME}: the playbook exited ${PLAYBOOK_RC}, so the failure reached the exit code"
+        else
+            fail "${SCENARIO_NAME}: the playbook exited 0 although the run was made to fail" \
+                 "the failure was swallowed somewhere between the failing task and the exit code, see ${PLAYBOOK_LOG}"
+        fi
+
+        # The terminal summary, which is what a person watching the console reads. dual_logger prints
+        # one "═══ FAILED (n) ═══" banner with one bullet per failing task.
+        local named_task
+        named_task="$(sed -n '/═══ FAILED (/,$p' "${PLAYBOOK_LOG}" | sed -E 's/^\[[0-9:]+\] //' \
+            | grep -m1 '^  • ' | sed -E 's/^  • //' || true)"
+        if [[ -n "${named_task}" ]]; then
+            pass "${SCENARIO_NAME}: the terminal summary names a failing task"
+            dim "first named: ${named_task}"
+        else
+            fail "${SCENARIO_NAME}: the terminal summary names no failing task" \
+                 "expected a '═══ FAILED (n) ═══' section with one bullet per task in ${PLAYBOOK_LOG}"
+        fi
+
+        # And the same task, by name, in the error log. Matching the name is what makes this more
+        # than a file-exists check: a log holding something unrelated would pass that and prove
+        # nothing about whether this failure was recorded.
+        if [[ -n "${named_task}" ]] && grep -qF -- "${named_task}" "${ERRORS_LOG}"; then
+            pass "${SCENARIO_NAME}: the error log names the same failing task"
+        else
+            fail "${SCENARIO_NAME}: the error log does not name the failing task" \
+                 "expected '${named_task:-the failing task}' in ${ERRORS_LOG}"
+        fi
+
+        # The verification has to refuse, and it has to say what is missing rather than only that
+        # something is. This is the assertion that a run which installed nothing cannot pass.
+        if [[ ${VERIFY_RC} -ne 0 ]] && grep -q 'FAIL native packages missing:' "${VERIFY_LOG}"; then
+            pass "${SCENARIO_NAME}: verification refused and named the missing packages"
+        else
+            fail "${SCENARIO_NAME}: verification did not refuse over a machine the run failed to build" \
+                 "expected a non-zero exit code and a 'FAIL native packages missing:' line, got exit ${VERIFY_RC}, see ${VERIFY_LOG}"
+        fi
     else
-        fail "${SCENARIO_NAME}: playbook exited ${PLAYBOOK_RC}" "see ${PLAYBOOK_LOG}"
+        if [[ "${PLAYBOOK_RC}" == "0" ]]; then
+            pass "${SCENARIO_NAME}: playbook completed"
+        else
+            fail "${SCENARIO_NAME}: playbook exited ${PLAYBOOK_RC}" "see ${PLAYBOOK_LOG}"
+        fi
+        if [[ ${VERIFY_RC} -eq 0 ]]; then
+            pass "${SCENARIO_NAME}: verification passed"
+        else
+            fail "${SCENARIO_NAME}: verification failed" "see ${VERIFY_LOG}"
+        fi
     fi
-    if [[ ${VERIFY_RC} -eq 0 ]]; then
-        pass "${SCENARIO_NAME}: verification passed"
-    else
-        fail "${SCENARIO_NAME}: verification failed" "see ${VERIFY_LOG}"
+
+    if [[ "${SCENARIO_RUN_TWICE:-}" == "true" ]]; then
+        if [[ "${SECOND_RC}" != "0" ]]; then
+            fail "${SCENARIO_NAME}: the second pass did not finish cleanly, exit ${SECOND_RC}" \
+                 "a second pass that never ran or did not exit 0 says nothing about idempotency, so this is a failed run rather than an unproven one, see ${SECOND_LOG}"
+        elif [[ ${#SECOND_UNEXPECTED[@]} -eq 0 ]]; then
+            pass "${SCENARIO_NAME}: the second pass changed nothing outside the allowlist, ${#SECOND_CHANGED[@]} changed task(s), all ${#SECOND_EXCUSED[@]} accounted for"
+        else
+            fail "${SCENARIO_NAME}: ${#SECOND_UNEXPECTED[@]} task(s) reported changed on a second pass with nothing left to do" \
+                 "$(printf '%s; ' "${SECOND_UNEXPECTED[@]}")"
+        fi
     fi
 }
 
@@ -536,10 +738,20 @@ case "${MODE}" in
             exit 2
         fi
         if ! docker exec "${CONTAINER}" test -f /work/playbook.rc 2>/dev/null; then
-            warn "the playbook is still running. Current task:"
-            docker exec "${CONTAINER}" bash -c "grep -E '^\[[0-9:]+\] TASK' /work/playbook.log | tail -1" 2>/dev/null || true
+            # Which pass is running, and therefore which log to read the current task out of. A
+            # two-pass scenario writes playbook.rc only after the second pass, so reading the first
+            # pass's log throughout would have reported its last task as the current one for the
+            # whole of the second pass, which reads as a stalled run.
+            CURRENT_LOG=/work/playbook.log
+            if docker exec "${CONTAINER}" test -f /work/playbook2.log 2>/dev/null; then
+                CURRENT_LOG=/work/playbook2.log
+                warn "the second pass is still running. Current task:"
+            else
+                warn "the playbook is still running. Current task:"
+            fi
+            docker exec "${CONTAINER}" bash -c "grep -E '^\[[0-9:]+\] TASK' ${CURRENT_LOG} | tail -1" 2>/dev/null || true
             info "Rerun --collect when it has finished, or watch it with:"
-            echo "  docker exec ${CONTAINER} tail -f /work/playbook.log"
+            echo "  docker exec ${CONTAINER} tail -f ${CURRENT_LOG}"
             exit 3
         fi
         collect_and_verify

@@ -110,6 +110,11 @@ pwsh setup/setup.ps1 -SkipSystemUpgrade
 Requirements:
 
 - Linux (Ubuntu / Debian, Fedora, Arch) or macOS, with an internet connection and `sudo`.
+- On macOS, bash 4 or newer, which macOS does not ship. Apple froze `/bin/bash` at 3.2, the last
+  version under the older licence, and the wizard uses two bash 4 constructs. Install one with
+  `brew install bash` and the wizard finds it by itself, re-executing into Homebrew's copy. Without
+  it the wizard refuses and says so rather than failing later with a misleading error, which is what
+  it used to do: it died reporting an unbound variable at a line where nothing was wrong.
 - Windows: PowerShell 7+. WSL (`wsl --install -d Ubuntu`) is optional, used only so `setup.ps1` can install Ansible inside it for later use, and its absence does not stop the rest of the run.
 
 ### Manual run

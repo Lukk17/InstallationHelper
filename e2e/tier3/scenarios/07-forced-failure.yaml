@@ -1,0 +1,61 @@
+---
+# Not a wizard path, and the only scenario here that is not one. This one breaks the run on purpose.
+#
+# Every mechanism in this repository that makes a failure visible was proven once, by hand, with a
+# throwaway probe, and then never exercised again: the non-zero exit code, ~/installation_errors.log,
+# the terminal summary the callback prints, and the verification's own refusal. All four are code,
+# and code that only runs on a bad day is the worst kind to take on trust. A run that cannot report
+# its own failure is worse than a run that fails, because the failure is then discovered on a real
+# machine by a person who was told everything went well.
+#
+# The injection. roles/software_installer/tasks/dynamic_install.yaml computes
+# software_installer_batches with a set_fact, one package list per batched manager, out of the
+# enabled toggles and the OS dictionary. Extra variables outrank a set_fact, so the value below is
+# what every batch task reads instead, and every batch then asks its manager for a package name that
+# no repository has ever carried.
+#
+# Why this injection and not another:
+#
+# 1. It fails inside a block that has a rescue, which is the entire point. A YAML parse error, or an
+#    undefined variable in a pre_task, aborts the play before the callback plugin has anything to
+#    summarise and before post_tasks run, so it would prove nothing about the reporting path. This
+#    failure travels the whole length of that path instead: the batch task fails, the rescue in
+#    dynamic_install.yaml names the failing task and every application in the batch that is now
+#    missing, it sets any_role_failed, the cleanup in site.yaml still runs, and the terminal fail
+#    task turns the recorded failure into a non-zero exit code.
+# 2. It fails the same way on all five distributions. apt, dnf and pacman each answer "no such
+#    package" for a name nobody has published. An injection through apt_raw_flags would have been
+#    Debian only, and one through a vendor download location would have been silently skipped on
+#    Arch and CachyOS, which map nothing to apt_url or dnf_url.
+# 3. It leaves something the verification can see. Nothing from the batch gets installed, so
+#    verify_install.yaml fails on "Assert every enabled native package is installed" and names them,
+#    rather than reporting a clean machine. That is the fourth reporting mechanism, and it is the one
+#    that decides whether a green run means anything.
+# 4. Nothing about it is flaky. The name cannot start resolving, and no outage is required to
+#    produce the failure. A real network problem during this scenario produces a different message
+#    and the same verdict, so the scenario degrades into still testing what it was written to test.
+#
+# All four manager keys are given even though only one of them is reached on any single
+# distribution. The fact is read as a whole dictionary, so a missing key fails as a template error
+# somewhere unrelated instead of as the package failure this scenario is about.
+#
+# The ceiling is measured rather than guessed. A first real run on debian took 45m 55s of playbook
+# time, and almost none of that is the failure: the run pays the same bootstrap, zsh, SDK and AI
+# tooling prelude every other scenario pays before the software installer starts, and the SDK step
+# alone was 25 minutes of it. So the injected failure lands at about minute 41, the roles after the
+# software installer still run, and the play ends normally. 90 minutes is that measurement with
+# room for a distribution that pays more up front, which Arch and CachyOS do because arch_core
+# compiles paru. The real cost is still the lowest of any container scenario, because this is the
+# only one that never installs the software set, which is why the capability spec is numbered 30
+# even though its ceiling ties the 90 of kde-configure-only.
+e2e_scenario_name: "forced-failure"
+e2e_scenario_description: "a package name that cannot resolve, proving a failure is reported rather than swallowed"
+e2e_timeout_minutes: 90
+e2e_expect_desktop: none
+e2e_expect_failure: true
+
+software_installer_batches:
+  apt: ["ih-e2e-forced-failure-no-such-package"]
+  dnf: ["ih-e2e-forced-failure-no-such-package"]
+  pacman: ["ih-e2e-forced-failure-no-such-package"]
+  flatpak: ["io.github.ih_e2e.ForcedFailureNoSuchApp"]

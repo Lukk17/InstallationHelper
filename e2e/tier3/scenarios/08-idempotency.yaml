@@ -1,0 +1,26 @@
+---
+# Wizard path: the same one 01-defaults.yaml reproduces, applied twice. The scenario file therefore
+# sets no toggle of its own, because the question is not which software gets installed. It is what
+# the playbook says the second time it is asked to do work that is already done.
+#
+# e2e_run_twice makes container.sh launch the identical command a second time inside the same
+# container, once the first pass has exited 0, and then assert that the second pass reports no
+# changed task except the ones named, with a reason each, in
+# e2e/tier3/idempotent_changes_allowed.txt.
+#
+# Idempotency is the defining property of a configuration tool and nothing here had ever asked for
+# it. A task that reports changed on a run where nothing needs changing is either doing its work
+# twice or misreporting what it did. The first wastes an hour of a real install and can undo a
+# setting the user changed since. The second is worse: `changed` is the only signal anybody has for
+# telling a run that did something from a run that did nothing, and a task that always says changed
+# destroys that signal for the whole run it appears in.
+#
+# The timeout is not double the defaults ceiling. A second pass has nothing to download and nothing
+# to compile, so it costs a fraction of the first, and 300 minutes is generous for the pair against
+# defaults' own 180 for one. It also stays under the point where the CI matrix's own 40 minute
+# buffer would be truncated by GitHub's 360 minute per-job ceiling.
+e2e_scenario_name: "idempotency"
+e2e_scenario_description: "the default configuration applied twice, where the second pass must change nothing"
+e2e_timeout_minutes: 300
+e2e_expect_desktop: none
+e2e_run_twice: true

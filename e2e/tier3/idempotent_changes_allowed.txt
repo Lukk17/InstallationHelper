@@ -1,0 +1,25 @@
+# Tasks allowed to report changed on the second pass of the idempotency scenario, with the reason
+# each one cannot be repeatable. Format: <task name exactly as the log prints it> | <reason>
+#
+# The task name is the whole of what the log puts inside "TASK [...]", which for a role task is
+# "<role> : <task name>". Matching is exact and on the full string, so a renamed task drops out of
+# this file rather than silently keeping its exemption under the old name, and the scenario fails
+# until somebody looks at it again. A line with nothing after the pipe is ignored with a warning
+# rather than honoured: an exception with no reason is how an allowlist becomes the place a defect
+# hides, which is the one thing this scenario cannot afford.
+#
+# Before adding a line, decide which of these it actually is.
+#
+# 1. Genuinely unrepeatable. The task's work is a fact about the moment it ran rather than a state it
+#    is converging on. A cache refresh, a timestamp, a temporary file it creates and removes.
+# 2. Repeatable, but the task cannot tell. This is a defect in the task, not a property of the work,
+#    and the fix is a changed_when or a creates guard on the task rather than a line here.
+# 3. Actually doing the work twice. A real bug. It belongs in docs/regression_ledger.md and gets
+#    fixed, never allowed.
+#
+# Only the first kind belongs in this file, and the reason has to say which fact about the moment
+# makes it unrepeatable. "Always changes" is not a reason, it is the observation that needs one.
+
+# Empty on purpose until a real second pass names an offender. The scenario's own run record is
+# where the list of tasks that reported changed is written, so the honest starting point is no
+# exemptions at all: every offender then has to be looked at once rather than pre-excused.

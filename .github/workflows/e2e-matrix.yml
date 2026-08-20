@@ -19,20 +19,28 @@
 #   4. stage1_macos_wizard_plan   macos-14        setup.sh --print-command, Darwin toggles
 #   5. stage1_windows_wizard_plan windows-latest  setup.ps1 -PrintPlan
 #
-# Stage 2, the container sweep, thirty jobs, twenty at a time, defaults first on all five
+# Stage 2, the container sweep, forty jobs, twenty at a time, defaults first on all five
 # distributions, then the rest longest-first, matching e2e/README_E2E.md's own table exactly:
-#   6-10 defaults, 11-15 all-software, 16-20 kde-full, 21-25 gnome-full, 26-30 live-profile,
-#   31-35 kde-configure-only, each across arch, debian, ubuntu, fedora, cachyos in that order.
+#   6-10 defaults, 11-15 all-software, 16-20 kde-full, 21-25 gnome-full, 26-30 idempotency,
+#   31-35 live-profile, 36-40 kde-configure-only, 41-45 forced-failure, each across arch, debian,
+#   ubuntu, fedora, cachyos in that order.
+#
+# Two of those scenarios are not wizard paths. idempotency applies the defaults configuration twice
+# in one container and asserts the second pass changes nothing, and forced-failure breaks the run on
+# purpose and asserts the failure is reported in all four places a person or a script would look.
+# Both share a declared ceiling with an existing scenario, 300 and 90 respectively, and each was
+# appended to the end of its own tie group rather than inserted into it, so adding them moved no job
+# that was already numbered.
 #
 # Stage 3, the short real installs on the other two platforms, seven jobs, each a real wizard run
 # ending in the wizard's own verification:
-#   36. macOS defaults          macos-14        toggles as shipped
-#   37. macOS everything        macos-14        every selectable toggle on
-#   38. macOS from nothing      macos-14        every toggle off, then a handful by name
-#   39. Windows defaults        windows-latest  toggles as shipped
-#   40. Windows everything      windows-latest  every selectable toggle on
-#   41. Windows from nothing    windows-latest  every toggle off, then a handful by name
-#   42. Windows settings only   windows-latest  the four native settings, no software
+#   46. macOS defaults          macos-14        toggles as shipped
+#   47. macOS everything        macos-14        every selectable toggle on
+#   48. macOS from nothing      macos-14        every toggle off, then a handful by name
+#   49. Windows defaults        windows-latest  toggles as shipped
+#   50. Windows everything      windows-latest  every selectable toggle on
+#   51. Windows from nothing    windows-latest  every toggle off, then a handful by name
+#   52. Windows settings only   windows-latest  the four native settings, no software
 #
 # Three more jobs exist outside that numbered list: stage1_gate and stage2_gate, which decide
 # whether the next stage is allowed to start, and stage2_plan, which turns the stage 2 dispatch
@@ -47,11 +55,14 @@
 # stage 3, where the macOS jobs live, only ever has 3 running at once, under that cap on its own.
 #
 # How long the sweep takes, using the numbers e2e/README_E2E.md's own section states: each
-# distribution carries 1290 minutes of declared scenario ceilings (180 + 300 + 300 + 300 + 120 +
-# 90), so five distributions is 6450 minutes of total declared work. At twenty concurrent that is
-# roughly five and a half hours in the worst case, and the real figure should be well under it,
-# because every ceiling is generous. Stage 1 and stage 3 are small enough that concurrency never
-# binds them either way.
+# distribution carries 1710 minutes of declared scenario ceilings (180 + 300 + 300 + 300 + 300 +
+# 120 + 90 + 90), so five distributions is 8550 minutes of total declared work. At twenty
+# concurrent that is a little over seven hours in the worst case, and the real figure should be
+# well under it,
+# because every ceiling is generous and the two newest scenarios are the two least likely to reach
+# theirs: an idempotency second pass has nothing to download, and forced-failure stops the software
+# installer at its first batch. Stage 1 and stage 3 are small enough that concurrency never binds
+# them either way.
 #
 # ---------------------------------------------------------------------------------------------
 # Facts this design was verified against on 2026-08-20 (see the URLs, not re-fetched by this
@@ -75,8 +86,8 @@
 #
 # Matrix shape and job count for stage 2: 5 distributions (arch, debian, ubuntu, fedora,
 # cachyos, read from e2e/tier3/*.Dockerfile at plan time and checked against the deliberate
-# order below rather than hardcoded blind) times 6 scenarios (read from
-# e2e/tier3/scenarios/*.yaml at plan time, same check) is 30 jobs for a full, unfiltered sweep,
+# order below rather than hardcoded blind) times 8 scenarios (read from
+# e2e/tier3/scenarios/*.yaml at plan time, same check) is 40 jobs for a full, unfiltered sweep,
 # well under the 256-job matrix ceiling.
 #
 # Per-job timeout for stage 2: each matrix cell's `timeout-minutes` is that scenario's own
@@ -84,9 +95,13 @@
 # `e2e/run.sh --list` prints) plus a 40-minute buffer for container build, copy and
 # verification overhead, the same buffer e2e-manual.yml uses for its one 300-minute case
 # (300 -> 340). Capped defensively at the 360-minute hosted-runner ceiling, though nothing
-# shipped today reaches it: all-software, kde-full and gnome-full are the scenarios with the
-# longest declared timeout (300 minutes each), so at 340 minutes buffered they are the ones
-# closest to the 360-minute ceiling, 20 minutes (about 5.6 percent) under it. A future scenario
+# shipped today reaches it: all-software, kde-full, gnome-full and idempotency are the scenarios
+# with the longest declared timeout (300 minutes each, idempotency's covering two passes rather
+# than one), so at 340 minutes buffered they are the ones closest to the 360-minute ceiling, 20
+# minutes (about 5.6 percent) under it. kde-configure-only and forced-failure are the other end of
+# the range at 90 minutes declared and 130 buffered, and forced-failure is the cheapest cell in the
+# sweep by measured cost, 45m 55s on debian, because it is the only scenario that never installs
+# the software set. A future scenario
 # whose own timeout plus 40 exceeds 360 would be silently truncated to 360 by this cap rather
 # than rejected, which is worth knowing if a run times out right at 360: raise the scenario's
 # own e2e_timeout_minutes first and check whether this workflow's buffer is still enough,
@@ -195,8 +210,10 @@ on:
           - all-software
           - kde-full
           - gnome-full
+          - idempotency
           - live-profile
           - kde-configure-only
+          - forced-failure
         default: all
       distro:
         description: "Stage 2 only. Which Linux distribution(s) to run against. 'all' runs every distro with a e2e/tier3/*.Dockerfile."
@@ -215,7 +232,7 @@ permissions:
   contents: read
 
 # Queues a second dispatch behind a running sweep rather than cancelling either one. These runs
-# are expensive (up to 42 jobs, hours apiece), and silently cancelling a partially finished sweep
+# are expensive (up to 52 jobs, hours apiece), and silently cancelling a partially finished sweep
 # because someone else clicked "Run workflow" would throw away real signal for no reason. A
 # second full sweep queuing behind the first is the safe default. A human who wants to abandon
 # one can still cancel it from the Actions tab.
@@ -336,6 +353,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # macOS ships bash 3.2.57 as /bin/bash and nothing newer anywhere, Homebrew included, because
+      # bash 4 changed licence to GPLv3 and Apple stopped shipping it. setup/setup.sh needs bash 4:
+      # it uses an associative array and one uppercase parameter expansion. Measured on macos-14 in
+      # this repository's own first CI run, where the wizard died eighty lines in with
+      # "setup_zsh: unbound variable" rather than saying what was missing. The wizard now checks its
+      # own version first and refuses with the reason, which is correct behaviour and still a failed
+      # job, because the prerequisite really is absent. So install one. Nothing else has to change:
+      # the wizard re-executes itself into Homebrew's bash as soon as one exists. Only the macOS
+      # jobs need this, and the Linux and Windows jobs deliberately do not have it.
+      - name: Install bash 4, which macOS does not ship
+        run: brew install bash
+
       - name: Resolve the default selection with --print-command
         run: |
           set -euo pipefail
@@ -446,7 +475,7 @@ jobs:
           # actually exists on disk so an added or removed distribution or scenario fails loudly
           # instead of silently falling out of the sweep.
           DISTRO_ORDER=(arch debian ubuntu fedora cachyos)
-          SCENARIO_ORDER=(defaults all-software kde-full gnome-full live-profile kde-configure-only)
+          SCENARIO_ORDER=(defaults all-software kde-full gnome-full idempotency live-profile kde-configure-only forced-failure)
 
           mapfile -t DISCOVERED_DISTROS < <(
             ls -1 e2e/tier3/*.Dockerfile \
@@ -664,6 +693,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # macOS ships bash 3.2.57 as /bin/bash and nothing newer anywhere, Homebrew included, because
+      # bash 4 changed licence to GPLv3 and Apple stopped shipping it. setup/setup.sh needs bash 4:
+      # it uses an associative array and one uppercase parameter expansion. Measured on macos-14 in
+      # this repository's own first CI run, where the wizard died eighty lines in with
+      # "setup_zsh: unbound variable" rather than saying what was missing. The wizard now checks its
+      # own version first and refuses with the reason, which is correct behaviour and still a failed
+      # job, because the prerequisite really is absent. So install one. Nothing else has to change:
+      # the wizard re-executes itself into Homebrew's bash as soon as one exists. Only the macOS
+      # jobs need this, and the Linux and Windows jobs deliberately do not have it.
+      - name: Install bash 4, which macOS does not ship
+        run: brew install bash
+
       - name: Run the bootstrap wizard, toggles as shipped
         run: |
           set -euo pipefail
@@ -699,6 +740,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # macOS ships bash 3.2.57 as /bin/bash and nothing newer anywhere, Homebrew included, because
+      # bash 4 changed licence to GPLv3 and Apple stopped shipping it. setup/setup.sh needs bash 4:
+      # it uses an associative array and one uppercase parameter expansion. Measured on macos-14 in
+      # this repository's own first CI run, where the wizard died eighty lines in with
+      # "setup_zsh: unbound variable" rather than saying what was missing. The wizard now checks its
+      # own version first and refuses with the reason, which is correct behaviour and still a failed
+      # job, because the prerequisite really is absent. So install one. Nothing else has to change:
+      # the wizard re-executes itself into Homebrew's bash as soon as one exists. Only the macOS
+      # jobs need this, and the Linux and Windows jobs deliberately do not have it.
+      - name: Install bash 4, which macOS does not ship
+        run: brew install bash
+
       - name: Run the bootstrap wizard, every selectable toggle on
         run: |
           set -euo pipefail
@@ -733,6 +786,18 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      # macOS ships bash 3.2.57 as /bin/bash and nothing newer anywhere, Homebrew included, because
+      # bash 4 changed licence to GPLv3 and Apple stopped shipping it. setup/setup.sh needs bash 4:
+      # it uses an associative array and one uppercase parameter expansion. Measured on macos-14 in
+      # this repository's own first CI run, where the wizard died eighty lines in with
+      # "setup_zsh: unbound variable" rather than saying what was missing. The wizard now checks its
+      # own version first and refuses with the reason, which is correct behaviour and still a failed
+      # job, because the prerequisite really is absent. So install one. Nothing else has to change:
+      # the wizard re-executes itself into Homebrew's bash as soon as one exists. Only the macOS
+      # jobs need this, and the Linux and Windows jobs deliberately do not have it.
+      - name: Install bash 4, which macOS does not ship
+        run: brew install bash
 
       - name: Run the bootstrap wizard, everything off then a handful enabled by name
         run: |
