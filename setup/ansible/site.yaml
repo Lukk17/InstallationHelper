@@ -377,15 +377,37 @@
 
         # unattended-upgrades on Ubuntu can hold the apt lock at this exact moment, which is what
         # the three attempts are for.
-        - name: Clean APT cache (Debian)
+        #
+        # Split in two, because the two halves answer differently about whether they changed
+        # anything. Removing orphaned packages is a state the machine converges on, so a second run
+        # with nothing to remove honestly reports no change. Emptying the download cache is an act
+        # rather than a state, and the apt module marks it changed every single time, which is why
+        # this task was one of the twelve the idempotency scenario caught on its first real second
+        # pass. Its Arch and macOS siblings twenty lines above and below already carry
+        # `changed_when: false` for the same reason, so this was an inconsistency rather than a
+        # judgement.
+        - name: Remove orphaned packages (Debian)
           ansible.builtin.apt:
             autoremove: yes
+          become: yes
+          register: autoremove_apt
+          retries: 3
+          delay: 5
+          until: autoremove_apt is succeeded
+          ignore_errors: yes
+          when:
+            - playbook_succeeded | bool
+            - ih_family == 'Debian'
+
+        - name: Clean APT cache (Debian)
+          ansible.builtin.apt:
             clean: yes
           become: yes
           register: clean_apt_cache
           retries: 3
           delay: 5
           until: clean_apt_cache is succeeded
+          changed_when: false
           ignore_errors: yes
           when:
             - playbook_succeeded | bool

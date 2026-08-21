@@ -44,3 +44,10 @@ software_installer : Download Gridcoin flatpak bundle (Linux) | the bundle is de
 software_installer : Remove the staged Gridcoin flatpak bundle (Linux) | it removes what this run downloaded, and there is always something to remove
 software_installer : Download GpuTest binary archive | the archive is deleted after extraction, so it is absent at the start of every run
 software_installer : Remove the staged GpuTest archive | it removes what this run downloaded, and there is always something to remove
+
+# The third staged archive, and the same shape as the two above. I called this one a genuine
+# offender at first and it is not: get_url does not re-download a file that is already there, and
+# the reason it is not there is that the post-tasks deleted the whole staging directory on the
+# previous run. The correction matters, because the fix for the second kind is a guard on the
+# task and the fix for this kind is a line here.
+software_installer : Download Antigravity Linux tarball | the tarball lives in the staging directory the post-tasks delete, so it is absent at the start of every run

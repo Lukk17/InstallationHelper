@@ -900,6 +900,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The wizard's last phase installs Ansible inside WSL, and a runner has WSL with no
+      # distribution registered, so it correctly reported "there is nothing to install Ansible into"
+      # and failed the cell. Registering one is the honest fix: it exercises the real path instead of
+      # teaching the wizard to forgive an empty WSL, which is a state a user should hear about.
+      #
+      # --no-launch on purpose. Without it the first launch stops at a prompt for a username and
+      # password, which in a job nobody is watching is an unbounded hang, and that is the same
+      # reasoning WindowsSettings.ps1 already carries for its own WSL install.
+      #
+      # Failure here is reported and does not stop the job, because a runner image where WSL cannot
+      # register is a fact about the runner, and the wizard's own message about it is the thing under
+      # test either way.
+      - name: Register Ubuntu inside WSL, which a bare runner has none of
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          wsl --set-default-version 2 2>&1 | Write-Host
+          wsl --install --distribution Ubuntu-26.04 --no-launch 2>&1 | Write-Host
+          Write-Host "wsl --install exited $LASTEXITCODE"
+          wsl --list --verbose 2>&1 | Write-Host
+
       - name: Run the bootstrap wizard, toggles as shipped
         shell: pwsh
         run: |
@@ -946,6 +968,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The wizard's last phase installs Ansible inside WSL, and a runner has WSL with no
+      # distribution registered, so it correctly reported "there is nothing to install Ansible into"
+      # and failed the cell. Registering one is the honest fix: it exercises the real path instead of
+      # teaching the wizard to forgive an empty WSL, which is a state a user should hear about.
+      #
+      # --no-launch on purpose. Without it the first launch stops at a prompt for a username and
+      # password, which in a job nobody is watching is an unbounded hang, and that is the same
+      # reasoning WindowsSettings.ps1 already carries for its own WSL install.
+      #
+      # Failure here is reported and does not stop the job, because a runner image where WSL cannot
+      # register is a fact about the runner, and the wizard's own message about it is the thing under
+      # test either way.
+      - name: Register Ubuntu inside WSL, which a bare runner has none of
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          wsl --set-default-version 2 2>&1 | Write-Host
+          wsl --install --distribution Ubuntu-26.04 --no-launch 2>&1 | Write-Host
+          Write-Host "wsl --install exited $LASTEXITCODE"
+          wsl --list --verbose 2>&1 | Write-Host
+
       - name: Run the bootstrap wizard, every selectable toggle on
         shell: pwsh
         run: |
@@ -987,6 +1031,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The wizard's last phase installs Ansible inside WSL, and a runner has WSL with no
+      # distribution registered, so it correctly reported "there is nothing to install Ansible into"
+      # and failed the cell. Registering one is the honest fix: it exercises the real path instead of
+      # teaching the wizard to forgive an empty WSL, which is a state a user should hear about.
+      #
+      # --no-launch on purpose. Without it the first launch stops at a prompt for a username and
+      # password, which in a job nobody is watching is an unbounded hang, and that is the same
+      # reasoning WindowsSettings.ps1 already carries for its own WSL install.
+      #
+      # Failure here is reported and does not stop the job, because a runner image where WSL cannot
+      # register is a fact about the runner, and the wizard's own message about it is the thing under
+      # test either way.
+      - name: Register Ubuntu inside WSL, which a bare runner has none of
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          wsl --set-default-version 2 2>&1 | Write-Host
+          wsl --install --distribution Ubuntu-26.04 --no-launch 2>&1 | Write-Host
+          Write-Host "wsl --install exited $LASTEXITCODE"
+          wsl --list --verbose 2>&1 | Write-Host
+
       - name: Run the bootstrap wizard, everything off then a handful enabled by name
         shell: pwsh
         run: |
@@ -1027,6 +1093,28 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      # The wizard's last phase installs Ansible inside WSL, and a runner has WSL with no
+      # distribution registered, so it correctly reported "there is nothing to install Ansible into"
+      # and failed the cell. Registering one is the honest fix: it exercises the real path instead of
+      # teaching the wizard to forgive an empty WSL, which is a state a user should hear about.
+      #
+      # --no-launch on purpose. Without it the first launch stops at a prompt for a username and
+      # password, which in a job nobody is watching is an unbounded hang, and that is the same
+      # reasoning WindowsSettings.ps1 already carries for its own WSL install.
+      #
+      # Failure here is reported and does not stop the job, because a runner image where WSL cannot
+      # register is a fact about the runner, and the wizard's own message about it is the thing under
+      # test either way.
+      - name: Register Ubuntu inside WSL, which a bare runner has none of
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          wsl --set-default-version 2 2>&1 | Write-Host
+          wsl --install --distribution Ubuntu-26.04 --no-launch 2>&1 | Write-Host
+          Write-Host "wsl --install exited $LASTEXITCODE"
+          wsl --list --verbose 2>&1 | Write-Host
 
       # -Software none turns every selectable toggle off, including the three settings keys
       # below (setup_wsl, enable_hyperv, import_hibernate_task are ordinary entries in the same

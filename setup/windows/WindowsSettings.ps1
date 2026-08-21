@@ -188,7 +188,17 @@ foreach (`$name in @($featureLiterals)) {
         if (`$applied.RestartNeeded) { `$lines.Add("reboot|`$name|enabled") }
         else { `$lines.Add("installed|`$name|enabled") }
     } catch {
-        `$lines.Add("failed|`$name|" + (`$_.Exception.Message -replace '[\r\n|]', ' '))
+        `$message = `$_.Exception.Message -replace '[
+|]', ' '
+        # DISM says "Feature name <x> is unknown" for a feature this Windows edition does not
+        # offer. On a Server SKU that is the truth about the edition rather than a fault, and three
+        # of the names in this list are client-only. On a client SKU it means the list has drifted
+        # from what Windows offers and it stays a failure so somebody looks at it.
+        if (`$message -match 'is unknown' -and '$installationType' -ne 'Client') {
+            `$lines.Add("skipped|`$name|not offered on this Windows edition ($installationType), so there is nothing to enable")
+        } else {
+            `$lines.Add("failed|`$name|" + `$message)
+        }
     }
 }
 Set-Content -LiteralPath '$resultFile' -Value `$lines -Encoding utf8
@@ -264,6 +274,13 @@ Set-Content -LiteralPath '$resultFile' -Value `$lines -Encoding utf8
                 'reboot'    { $results.Add((New-SettingResult -Key 'enable_hyperv' -Package $name -Status 'installed' -RebootRequired `
                                   -Detail 'enabled, and it does nothing until the machine is rebooted')) }
                 'failed'    { $results.Add((New-SettingResult -Key 'enable_hyperv' -Package $name -Status 'failed' -Detail $entry.Detail)) }
+                'skipped'   { $results.Add((New-SettingResult -Key 'enable_hyperv' -Package $name -Status 'skipped' -Detail $entry.Detail)) }
+                # A state this switch does not know is a failure rather than nothing. Without this
+                # default an unhandled state produced no result at all, which reads to the caller as a
+                # feature nobody asked about, and the skipped branch above is exactly the state that
+                # would have hit it.
+                default     { $results.Add((New-SettingResult -Key 'enable_hyperv' -Package $name -Status 'failed' `
+                                  -Detail "the elevated child reported a state this wizard does not understand, '$($entry.State)', so this feature is in an unknown state")) }
             }
         }
         return $results

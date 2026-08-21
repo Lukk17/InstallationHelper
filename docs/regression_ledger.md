@@ -618,3 +618,31 @@ The command is a fact now, `ih_timeout`, resolved once alongside `ih_family` in 
 Because the fix is a convention rather than a mechanism, tier 1 now refuses a bare call at a command position, checks that the fact exists and names both commands, and checks that coreutils is installed. It also asserts the number of indirected call sites has not collapsed, so undoing the indirection fails loudly rather than quietly. Proven against a copy of the tree with one call site reverted, where it names the file and the line.
 
 Two things this cost that are worth stating. The macOS wizard had already been fixed once today for a bash 3.2 problem, so the platform had been touched and this still was not found, because nothing ran the playbook there. And the tier 1 gate had been green throughout, which is the honest limit of a static check: it can only compare what the source says to what the source says.
+
+#### Three optional features the Windows Server SKU does not have, reported as failures
+
+Status: fixed in this change, in [WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1).
+
+`NetFx4-AdvSrvs`, `Containers-DisposableClientVM` and `ServicesForNFS-ClientOnly` are Windows client features. On a Server SKU, DISM answers `Feature name <x> is unknown`, and the wizard reported each as a failure. Every GitHub Windows runner is a Server SKU, so the settings cell could never pass, and the same three failures would have been shown to anyone running this on Windows Server as though the wizard were broken.
+
+The installation type is now read once from `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion`, which is a registry value rather than the several seconds `Get-ComputerInfo` costs, and passed into the elevated child. An unknown feature on a Server SKU becomes a skip that says which edition does not offer it. On a client SKU it stays a failure, deliberately, because there it means this list has drifted from what Windows offers and somebody has to look at it.
+
+Finding that turned up a second defect in the same function. The switch that maps the child's report onto results had branches for present, installed, reboot and failed, and no default. A state it did not recognise produced no result at all, which reads to the caller as a feature nobody asked about. The new skipped state was exactly what would have hit it. Both the branch and a default that reports an unrecognised state as a failure are now there.
+
+#### The Windows cell failed because the runner has no WSL distribution
+
+Status: fixed in this change, in [e2e-matrix.yml](../.github/workflows/e2e-matrix.yml).
+
+The wizard's last phase installs Ansible inside WSL, and a bare runner has WSL with no distribution registered, so it correctly said "there is nothing to install Ansible into" and the cell failed. Everything else in that cell had installed cleanly.
+
+The four Windows jobs now register Ubuntu 26.04 with `--no-launch` before the wizard runs. That exercises the real path rather than teaching the wizard to forgive an empty WSL, which is a state a user genuinely should hear about. `--no-launch` matters: a first launch stops at a prompt for a username and password, which in a job nobody is watching is an unbounded hang, and that is the same reasoning the wizard's own WSL install already carries.
+
+#### The idempotency scenario, corrected: one genuine offender, not three
+
+Status: fixed in this change, in [site.yaml](../setup/ansible/site.yaml) and [idempotent_changes_allowed.txt](../e2e/tier3/idempotent_changes_allowed.txt).
+
+I said three of the twelve were genuine and that was wrong. Only one is.
+
+`Clean APT cache (Debian)` combined `autoremove` and `clean` in one call. Removing orphaned packages is a state the machine converges on, so a second run with nothing to remove honestly reports no change. Emptying the download cache is an act rather than a state and the apt module marks it changed every time. Split in two, with `changed_when: false` on the clean half, which is what its Arch and macOS siblings twenty lines away already carried, so this was an inconsistency rather than a judgement.
+
+`Download Antigravity Linux tarball` is not an offender at all. `get_url` does not re-download a file that is already there, and the reason it is not there is that the post-tasks delete the whole staging directory at the end of the previous run. Same kind as the Gridcoin and GpuTest archives, and it belongs in the allowlist with them. The correction matters because the fix for a task that cannot tell it already ran is a guard on the task, and the fix for work that genuinely cannot repeat is a line in that file, and confusing the two puts a defect behind an exemption.
