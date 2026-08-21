@@ -12,6 +12,33 @@
 # Steam, lib32-* and many other native Arch packages live in the multilib
 # repo. Enable it before any pacman invocation so steam install doesn't fail
 # with "could not find or read package".
+#
+# Asked first, because a derivative may already have it. Arch itself ships the section commented out,
+# so appending a block is right there. CachyOS ships it enabled at line 99 of its own pacman.conf,
+# and appending a second [multilib] makes pacman refuse every later call with "error: database
+# already registered". That is not a warning it recovers from: the first AUR install after it, paru
+# -S snapd, failed outright and took the run down.
+#
+# Found on the first CachyOS container run this repository has ever done, on 2026-08-20, which is
+# exactly the kind of thing that only shows up when a distribution is actually exercised rather than
+# assumed to behave like its parent.
+#
+# The marker on the block below means blockinfile is idempotent by itself. It is the second, distinct
+# [multilib] that pacman objects to, and blockinfile cannot see one it did not write.
+- name: Ask whether multilib is already enabled (Arch)
+  ansible.builtin.command: >-
+    awk '/^[[:space:]]*\[multilib\][[:space:]]*$/ { found = 1 } END { exit !found }' /etc/pacman.conf
+  register: multilib_already_enabled
+  changed_when: false
+  failed_when: false
+
+- name: Say so when the distribution already enabled multilib (Arch)
+  ansible.builtin.debug:
+    msg: >-
+      multilib is already enabled in /etc/pacman.conf, so nothing is added. This is normal on
+      CachyOS and on any Arch derivative that ships it on.
+  when: multilib_already_enabled.rc == 0
+
 - name: Enable multilib repository in /etc/pacman.conf (Arch)
   become: yes
   ansible.builtin.blockinfile:
@@ -21,6 +48,7 @@
       [multilib]
       Include = /etc/pacman.d/mirrorlist
   register: multilib_enabled
+  when: multilib_already_enabled.rc != 0
 
 # Always do a full sync + upgrade. Partial upgrades on rolling-release Arch
 # are unsupported and cause download 404s when the local db is stale.

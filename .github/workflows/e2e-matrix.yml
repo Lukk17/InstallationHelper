@@ -56,7 +56,7 @@
 #
 # How long the sweep takes, using the numbers e2e/README_E2E.md's own section states: each
 # distribution carries 1710 minutes of declared scenario ceilings (180 + 300 + 300 + 300 + 300 +
-# 120 + 90 + 90), so five distributions is 8550 minutes of total declared work. At twenty
+# 120 + 90 + 90), so six distributions is 10260 minutes of total declared work. At twenty
 # concurrent that is a little over seven hours in the worst case, and the real figure should be
 # well under it,
 # because every ceiling is generous and the two newest scenarios are the two least likely to reach
@@ -87,7 +87,7 @@
 # Matrix shape and job count for stage 2: 5 distributions (arch, debian, ubuntu, fedora,
 # cachyos, read from e2e/tier3/*.Dockerfile at plan time and checked against the deliberate
 # order below rather than hardcoded blind) times 8 scenarios (read from
-# e2e/tier3/scenarios/*.yaml at plan time, same check) is 40 jobs for a full, unfiltered sweep,
+# e2e/tier3/scenarios/*.yaml at plan time, same check) is 48 jobs for a full, unfiltered sweep,
 # well under the 256-job matrix ceiling.
 #
 # Per-job timeout for stage 2: each matrix cell's `timeout-minutes` is that scenario's own
@@ -226,6 +226,7 @@ on:
           - ubuntu
           - fedora
           - cachyos
+          - popos
         default: all
 
 permissions:
@@ -480,7 +481,7 @@ jobs:
           # would give, so it is stated here rather than derived, and checked against what
           # actually exists on disk so an added or removed distribution or scenario fails loudly
           # instead of silently falling out of the sweep.
-          DISTRO_ORDER=(arch debian ubuntu fedora cachyos)
+          DISTRO_ORDER=(arch debian ubuntu fedora cachyos popos)
           SCENARIO_ORDER=(defaults all-software kde-full gnome-full idempotency live-profile kde-configure-only forced-failure)
 
           mapfile -t DISCOVERED_DISTROS < <(

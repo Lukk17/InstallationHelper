@@ -343,8 +343,33 @@ start_run() {
         sleep 10
     done
     if [[ -z "${copy_failed}" ]]; then
-        docker exec "${CONTAINER}" bash -c "mkdir -p /work && mv /work-setup /work/setup && chown -R ${E2E_USER}:${E2E_USER} /work" \
+        # go-w is not tidiness, it is what makes ansible.cfg load at all, and its absence cost four
+        # runs their entire reporting layer before anyone noticed.
+        #
+        # Ansible refuses to read a configuration file from a world writable directory, because
+        # anyone on the machine could then change what the next run executes. It says so and carries
+        # on: "Ansible is being run in a world writable directory, ignoring it as an ansible.cfg
+        # source". That single warning is the only symptom, and everything the file configures
+        # silently disappears with it: the dual_logger callback, so no error log, no terminal
+        # summary and no per-package accounting, and since today also the vars plugin, so no pinned
+        # values either. The playbook still runs, which is what makes it dangerous.
+        #
+        # docker cp preserves the source tree's permissions, and a checkout on a Windows filesystem
+        # reaches the daemon as 0777. So this only bites when the harness is driven from Git Bash,
+        # which is why the runs on 2026-08-18 from WSL looked clean and the ones on 2026-08-20 from
+        # Git Bash quietly were not. Found by comparing two logs: one had the callback's banners and
+        # the other had none.
+        docker exec "${CONTAINER}" bash -c "mkdir -p /work && mv /work-setup /work/setup && chown -R ${E2E_USER}:${E2E_USER} /work && chmod -R go-w /work" \
             >>"${RUN_DIR}/copy.log" 2>&1 || copy_failed="moving setup/ into place"
+    fi
+    # Asserted rather than assumed, because the failure above is silent by nature: the run works and
+    # only its reporting vanishes. If Ansible would ignore the config, this run proves nothing about
+    # the reporting the whole harness exists to check, so it is stopped here rather than allowed to
+    # produce a green result nobody can trust.
+    if [[ -z "${copy_failed}" ]]; then
+        if docker exec "${CONTAINER}" test -w /work/setup/ansible -a "$(docker exec "${CONTAINER}" stat -c '%A' /work/setup/ansible 2>/dev/null | cut -c9)" = w; then
+            copy_failed="the copied setup/ansible is world writable, so Ansible would ignore ansible.cfg"
+        fi
     fi
     if [[ -z "${copy_failed}" ]]; then
         docker cp "$(host_path "${EFFECTIVE_VARS}")" "${CONTAINER}:/work/effective-vars.yaml" >/dev/null 2>>"${RUN_DIR}/copy.log" || copy_failed="docker cp of effective-vars.yaml"
@@ -567,7 +592,12 @@ collect_and_verify() {
         # misleading output this harness exists to prevent.
         echo "playbook_recap:"
         local recap
-        recap="$(grep -oE 'localhost: ok=[0-9]+.*$' "${PLAYBOOK_LOG}" | tail -1 || true)"
+        # Two shapes, because there are two writers. dual_logger prints its own single-spaced recap,
+        # and Ansible's stock PLAY RECAP pads the host name out with spaces. Reading only the first
+        # meant that any run without the callback reported "the run did not reach the end" while its
+        # recap sat in the log three lines above, which is precisely backwards and is how the
+        # world writable defect above stayed hidden.
+        recap="$(grep -oE 'localhost[[:space:]]*: ok=[0-9]+.*$' "${PLAYBOOK_LOG}" | tail -1 | tr -s ' ' || true)"
         [[ -n "${recap}" ]] && echo "  ${recap}" || echo "  (no recap line, the run did not reach the end)"
 
         echo "wall_time:"

@@ -86,7 +86,7 @@ Run every scenario, sequentially. Budget most of a day.
 
 The eight scenarios above cross five Linux distributions, which is 40 combinations. Nobody runs all 40 on one machine, so the harness is split across two places that prove different things.
 
-[.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each matrix cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 40 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
+[.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each matrix cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 48 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
 
 Local Docker runs, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: fast feedback on the distribution and scenario a change actually touches, without waiting on 39 others.
 
@@ -206,7 +206,7 @@ option or a wizard that no longer agrees with the YAML, before anything spends a
 Stage 2, the container sweep. Forty jobs, twenty at a time. Linux goes before the other two
 platforms because it is where the playbook does the most and where a real defect is most likely.
 
-The order inside the stage is deliberate. Defaults runs first on all five distributions, because it
+The order inside the stage is deliberate. Defaults runs first on all six distributions, because it
 is the configuration people actually get and a breakage in it is the one that matters most, and the
 rest run longest first, because a long job started late is what decides when the sweep ends. Two
 scenarios share a ceiling with an existing one, and each was appended to the end of its own tie
@@ -240,8 +240,16 @@ own cap of five concurrent macOS jobs.
 Fifty-two jobs in total. Those ceilings are timeouts rather than measurements, and no scenario has
 ever run on a GitHub runner, so the real numbers will only exist after the first sweep.
 
+Pop!_OS is the sixth, and it is not what the other five are. System76 publishes no container image, so
+that one is Ubuntu carrying Pop's own identity, both `/etc/os-release` and the `/etc/lsb-release` that
+`pop-default-settings` diverts, generated from the base image's own version fields so the result is a
+machine that could exist. It proves the playbook on a machine whose ID is neither ubuntu nor debian,
+and it is the canary for the day Ansible's family table or Pop's identity changes. It proves nothing
+about System76's own packages, and no container can. The image asserts its own identity at build time
+and refuses to become Ubuntu wearing a different tag.
+
 How long the sweep takes. Adding the ceilings gives 1710 minutes of work per distribution, which is
-180 plus 300 plus 300 plus 300 plus 300 plus 120 plus 90 plus 90, and 8550 minutes across all five.
+180 plus 300 plus 300 plus 300 plus 300 plus 120 plus 90 plus 90, and 10260 minutes across all six.
 At twenty concurrent that is a little over seven hours in the worst case, and the real figure should
 be well under it, because every ceiling is generous and the two newest scenarios are the two least
 likely to reach theirs: the second pass of the idempotency run has nothing to download, and the
