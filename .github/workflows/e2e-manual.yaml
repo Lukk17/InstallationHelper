@@ -22,7 +22,7 @@
 #
 # What each target platform actually does:
 #
-#   arch / debian / ubuntu / fedora / cachyos
+#   arch / debian / ubuntu / fedora / cachyos / popos
 #     Never touches the runner itself. Delegates to the repository's own tier-3 container
 #     harness (e2e/run.sh --tier 3), which builds a systemd container from
 #     e2e/tier3/<distro>.Dockerfile and runs the real playbook inside it. container.sh has no
@@ -98,6 +98,7 @@ on:
           - ubuntu
           - fedora
           - cachyos
+          - popos
           - macos
           - windows
         default: arch
@@ -242,7 +243,7 @@ jobs:
           LINUX_OS=""
 
           case "${PLATFORM}" in
-            arch|debian|ubuntu|fedora|cachyos) RUN_LINUX=true; LINUX_OS="${PLATFORM}" ;;
+            arch|debian|ubuntu|fedora|cachyos|popos) RUN_LINUX=true; LINUX_OS="${PLATFORM}" ;;
             macos)                             RUN_MACOS=true ;;
             windows)                           RUN_WINDOWS=true ;;
             *) fail "unknown target_platform: ${PLATFORM}" ;;
@@ -278,7 +279,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
   # -----------------------------------------------------------------------
-  # arch / debian / ubuntu / fedora / cachyos: the proven tier-3 container harness, fed a
+  # arch / debian / ubuntu / fedora / cachyos / popos: the proven tier-3 container harness, fed a
   # scenario file generated from this dispatch's own inputs so it can exercise an arbitrary
   # toggle selection, not just the eight scenarios checked into e2e/tier3/scenarios/.
   # -----------------------------------------------------------------------

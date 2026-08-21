@@ -450,10 +450,22 @@ jobs:
   # hand, and nothing in e2e/, setup/ or AGENTS.md is touched by this file.
   # ===========================================================================================
 
+  # The `!cancelled()` prefix on this and every job below it is what makes start_from_stage
+  # actually work, and it is here because the first dispatch that used it did nothing at all.
+  # Measured in run 32455901182: start_from_stage was stage-2, all five stage 1 jobs skipped by
+  # their own `if`, the stage 1 gate ran under always() and set ok=true, and this job was skipped
+  # anyway. A skipped ancestor suppresses its descendants even when the job in between succeeded,
+  # because an `if` with no status-check function in it carries an implicit success() over the
+  # whole ancestry rather than over the direct `needs` alone. Naming cancelled() replaces that
+  # implicit check, so the gate output is the only thing that decides. Not always(): a cancelled
+  # run must still stop, and always() would keep launching container jobs after someone pressed
+  # cancel. The sweep below asks for the plan's own result as well, because with the implicit
+  # check gone a skipped plan would otherwise hand it an empty job_count, which is not '0' and
+  # would start a matrix with nothing in it.
   stage2_plan:
     name: "Stage 2 plan: which distribution and scenario each install job gets"
     needs: stage1_gate
-    if: needs.stage1_gate.outputs.ok == 'true' && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+    if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true' && contains(fromJSON('[\"stage-1\",\"stage-2\"]'), inputs.start_from_stage)"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -588,7 +600,7 @@ jobs:
   stage2_sweep:
     name: "Stage 2 install on ${{ matrix.distro }}: ${{ matrix.scenario }}"
     needs: [stage1_gate, stage2_plan]
-    if: needs.stage1_gate.outputs.ok == 'true' && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage) && needs.stage2_plan.outputs.job_count != '0'
+    if: "!cancelled() && needs.stage2_plan.result == 'success' && needs.stage2_plan.outputs.job_count != '0'"
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
     permissions:
@@ -706,7 +718,7 @@ jobs:
   stage3_macos_defaults:
     name: "Stage 3 install on macOS: the software set as it ships"
     needs: stage2_gate
-    if: needs.stage2_gate.outputs.ok == 'true'
+    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: macos-14
     timeout-minutes: 120
     permissions:
@@ -753,7 +765,7 @@ jobs:
   stage3_macos_everything:
     name: "Stage 3 install on macOS: every application turned on"
     needs: stage2_gate
-    if: needs.stage2_gate.outputs.ok == 'true'
+    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: macos-14
     timeout-minutes: 120
     permissions:
@@ -800,7 +812,7 @@ jobs:
   stage3_macos_from_nothing:
     name: "Stage 3 install on macOS: nothing on, then a few by name"
     needs: stage2_gate
-    if: needs.stage2_gate.outputs.ok == 'true'
+    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: macos-14
     timeout-minutes: 120
     permissions:
@@ -847,7 +859,7 @@ jobs:
   stage3_windows_defaults:
     name: "Stage 3 install on Windows: the software set as it ships"
     needs: stage2_gate
-    if: needs.stage2_gate.outputs.ok == 'true'
+    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -893,7 +905,7 @@ jobs:
   stage3_windows_everything:
     name: "Stage 3 install on Windows: every application turned on"
     needs: stage2_gate
-    if: needs.stage2_gate.outputs.ok == 'true'
+    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -934,7 +946,7 @@ jobs:
   stage3_windows_from_nothing:
     name: "Stage 3 install on Windows: nothing on, then a few by name"
     needs: stage2_gate
-    if: needs.stage2_gate.outputs.ok == 'true'
+    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -975,7 +987,7 @@ jobs:
   stage3_windows_settings_only:
     name: "Stage 3 configure Windows: system settings, no software"
     needs: stage2_gate
-    if: needs.stage2_gate.outputs.ok == 'true'
+    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:

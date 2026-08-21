@@ -120,6 +120,40 @@ changed_task_names() {
 # ---------------------------------------------------------------------------
 # Start phase
 # ---------------------------------------------------------------------------
+# A Dockerfile in this directory may build on another one from this same directory. popos.Dockerfile
+# is ubuntu.Dockerfile with Pop's own identity written over it, because System76 publishes no base
+# image and the only thing on Docker Hub is one stranger's snapshot. Docker cannot resolve a local
+# FROM that has not been built yet, and on a machine that has never run this harness, which every CI
+# runner is, it never has been. Every Pop!_OS job in the first GitHub sweep died on exactly that,
+# with "pull access denied, repository does not exist", eighty seconds in and before any playbook
+# ran. Walking the FROM chain and building each link first is what makes a derivative image work on
+# a fresh machine as well as on one that happens to have the parent lying around.
+build_base_chain() {
+    local dockerfile="$1"
+    local depth="$2"
+
+    if [[ "${depth}" -gt 4 ]]; then
+        echo "ERROR: the FROM chain starting at ${dockerfile} is more than four images deep." >&2
+        return 1
+    fi
+
+    local base
+    base="$(awk 'toupper($1) == "FROM" { print $2; exit }' "${dockerfile}")"
+    [[ "${base}" == installationhelper-e2e-* ]] || return 0
+
+    local base_os="${base#installationhelper-e2e-}"
+    base_os="${base_os%%:*}"
+    local base_dockerfile="${TIER3_DIR}/${base_os}.Dockerfile"
+    if [[ ! -f "${base_dockerfile}" ]]; then
+        echo "ERROR: ${dockerfile} builds on ${base}, and there is no ${base_dockerfile} to build it from." >&2
+        return 1
+    fi
+
+    build_base_chain "${base_dockerfile}" "$(( depth + 1 ))"
+    info "Building the ${base_os} image that ${OS} builds on"
+    docker build -q -f "$(host_path "${base_dockerfile}")" -t "${base}" "$(host_path "${TIER3_DIR}")" >/dev/null
+}
+
 start_run() {
     # An absent key is normal, not an error. Without the guard, grep's exit 1 travels
     # through pipefail into the assignment and set -e kills the run before it starts.
@@ -253,6 +287,7 @@ start_run() {
     grep -hE '^[a-z0-9_]+: false$' "${LIMITS_FILES[@]}" | sed 's/^/       /' || true
 
     # --- container ------------------------------------------------------------
+    build_base_chain "${DOCKERFILE}" 0
     info "Building the ${OS} base image (cached after the first run)"
     # Both the Dockerfile and the build context name a location on this machine, so both go
     # through host_path. The mounts and working directories further down do not, because those
