@@ -403,6 +403,14 @@ start_run() {
             docker exec "${CONTAINER}" sudo -n true 2>&1 && echo "root's own sudo works, so the setuid path is the difference"
             echo "--- what PAM logged about it, which is the only place the real reason is written ---"
             docker exec "${CONTAINER}" bash -c 'journalctl -t sudo -n 25 --no-pager 2>&1 | tail -15'
+            echo "--- pam_unix's own debug output, which names the call that failed ---"
+            # Everything cheaper has been asked and answered. pam_unix takes a debug option and logs
+            # the reason it returns AUTHINFO_UNAVAIL, which is the one sentence nobody has read yet.
+            # Turning it on edits the running container only, which is already being torn down, so
+            # nothing under test is changed by it.
+            docker exec "${CONTAINER}" bash -c "sed -i 's/^account\( *\)required\( *\)pam_unix.so$/account\1required\2pam_unix.so debug/' /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null; grep -h '^account' /etc/authselect/system-auth 2>/dev/null | head -3" 2>&1
+            docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n true >/dev/null 2>&1 || true
+            docker exec "${CONTAINER}" bash -c 'journalctl -n 40 --no-pager 2>&1 | grep -iE "pam_unix|pam_|sudo" | tail -12'
             echo "--- which PAM profile this image resolved, and whether sssd got pulled in ---"
             docker exec "${CONTAINER}" bash -c 'authselect current 2>&1 | head -4; echo; grep -h "^account" /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null | sort -u; echo; rpm -q sssd sssd-client 2>&1 | head -2; echo; grep -E "^(passwd|shadow|group)" /etc/nsswitch.conf'
             echo "--- the helper pam_unix falls back to, and the capability sets it inherits ---"
