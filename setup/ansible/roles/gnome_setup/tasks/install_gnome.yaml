@@ -46,7 +46,16 @@
 - name: Install GNOME Desktop (Fedora)
   become: yes
   ansible.builtin.dnf:
-    name: "@GNOME Desktop Environment"
+    # The group ID. "@GNOME Desktop Environment" matched nothing, because on Fedora 44 that group is
+    # named "GNOME" and its ID is gnome-desktop. Measured on fedora:44 with dnf5 5.4.2.1: the old
+    # value answers "No match for argument" and the ID resolves.
+    #
+    # This failed loudly rather than silently, because the group is the only argument in its list
+    # and there was nothing else for the module to succeed at. Every Fedora cell that installs
+    # GNOME failed on it, which is all-software and gnome-full, and they were the last two Fedora
+    # cells still red after the display manager fix. See the note in
+    # kde_plasma_setup/tasks/install_kde.yaml for why its sibling survived the same mistake.
+    name: "@gnome-desktop"
     state: present
   when:
     - ih_family == 'RedHat'

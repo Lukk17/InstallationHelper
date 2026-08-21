@@ -86,7 +86,21 @@
     set -o pipefail
     export PYENV_ROOT="{{ non_root_home }}/.pyenv"
     export PATH="$PYENV_ROOT/bin:$PATH"
-    {{ ih_timeout }} 1500 pyenv install --skip-existing {{ item }} </dev/null
+    # Three attempts inside the job, because Ansible's own retries cannot reach an async task
+    # launched with poll: 0: retrying that would mean relaunching it, and the collector below has no
+    # way to do so. Debian's all-software cell lost Python 3.12.13 to
+    # "curl: (35) TLS connect error: unexpected eof while reading" from python.org on 2026-08-21,
+    # after python-build's own single retry, and one interrupted download failed a run that had
+    # otherwise installed everything. --skip-existing makes a repeat attempt free when an earlier one
+    # got there, so the only cost of this loop is on the path where the alternative was failing.
+    for attempt in 1 2 3; do
+        if {{ ih_timeout }} 1500 pyenv install --skip-existing {{ item }} </dev/null; then
+            exit 0
+        fi
+        echo "pyenv install {{ item }} attempt ${attempt} of 3 failed" >&2
+        sleep 20
+    done
+    exit 1
   args:
     executable: /bin/bash
   become: yes

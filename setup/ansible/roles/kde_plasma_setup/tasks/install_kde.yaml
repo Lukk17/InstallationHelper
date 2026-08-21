@@ -82,7 +82,18 @@
   become: yes
   ansible.builtin.dnf:
     name:
-      - "@KDE Plasma Workspaces"
+      # The group ID, and it is the ID rather than a display name on purpose. On Fedora 44 the group
+      # whose ID is kde-desktop is named simply "KDE", and "KDE Plasma Workspaces" is the first four
+      # words of its description. The old value matched anyway, through whatever looser matching the
+      # module or libdnf5 does, and it installed a real desktop: four minutes and twelve seconds of
+      # work in the Fedora kde-full cell, with the verification's plasmashell assertion passing after
+      # it. So this is not a broken name being fixed, it is an ambiguous one being made exact.
+      #
+      # Its sibling in gnome_setup was not so lucky. "@GNOME Desktop Environment" matches nothing at
+      # all, because that group is named "GNOME", and it failed every Fedora cell that installs
+      # GNOME. Two display names, one tolerated and one not, is reason enough to stop using them:
+      # an ID is what the packaging system guarantees, and dnf group info prints it first.
+      - "@kde-desktop"
       - sddm
     state: present
   when: ih_family == 'RedHat'

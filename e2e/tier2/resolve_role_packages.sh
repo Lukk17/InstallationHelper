@@ -158,6 +158,13 @@ check_in_container() {
 # nothing fails here rather than passing silently.
 extract_shell_names() {
     awk '
+        # Comment lines are not commands. Without this the prose picks itself up: a comment in
+        # dynamic_install.yaml explaining why the task runs `apt-get install ./file.deb` handed this
+        # seven words including "hands", "the", "local" and "solver," to the resolver, which then
+        # reported seven packages missing on two distributions. Caught by this check failing on its
+        # own author, which is the good outcome.
+        /^[[:space:]]*#/ { next }
+
         # Start collecting at an apt-get install, and keep going while the line continues.
         /apt-get install/ { collecting = 1 }
         collecting {
@@ -175,6 +182,8 @@ extract_shell_names() {
                 if (w ~ /^-/) { continue }                 # a flag
                 if (w ~ /[{}]/) { continue }               # a Jinja expression, unresolvable here
                 if (w ~ /^\// || w ~ /\.log$/) { continue } # a path or the tee target
+                gsub(/"/, "", w)                            # a Jinja expression that was quoted
+                if (w == "") { continue }                   # leaves nothing but its quotes behind
                 print w
             }
             if ($0 !~ /\\[[:space:]]*$/) { collecting = 0 }
