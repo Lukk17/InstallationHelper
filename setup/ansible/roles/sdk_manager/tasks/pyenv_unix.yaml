@@ -86,7 +86,7 @@
     set -o pipefail
     export PYENV_ROOT="{{ non_root_home }}/.pyenv"
     export PATH="$PYENV_ROOT/bin:$PATH"
-    timeout 1500 pyenv install --skip-existing {{ item }} </dev/null
+    {{ ih_timeout }} 1500 pyenv install --skip-existing {{ item }} </dev/null
   args:
     executable: /bin/bash
   become: yes

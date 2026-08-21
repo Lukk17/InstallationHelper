@@ -245,7 +245,7 @@
 - name: Compile the widget
   ansible.builtin.shell: |
     set -o pipefail
-    timeout 900 make -j{{ ansible_processor_vcpus }} </dev/null
+    {{ ih_timeout }} 900 make -j{{ ansible_processor_vcpus }} </dev/null
   args:
     chdir: "{{ non_root_home }}/applet-window-buttons/build"
     creates: "{{ non_root_home }}/applet-window-buttons/build/libappletdecoration/libappletdecorationplugin.so"

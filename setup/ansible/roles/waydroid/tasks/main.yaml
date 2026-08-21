@@ -39,12 +39,12 @@
   register: waydroid_image
   become: yes
 
-# `timeout 1700` inside the shell guards against a stuck network mid-stream
+# `{{ ih_timeout }} 1700` inside the shell guards against a stuck network mid-stream
 # (waydroid init downloads ~1 GB and otherwise can hang past async window).
 - name: Initialise Waydroid system image
   ansible.builtin.shell: |
     set -o pipefail
-    timeout 1700 waydroid init -s GAPPS </dev/null
+    {{ ih_timeout }} 1700 waydroid init -s GAPPS </dev/null
   args:
     executable: /bin/bash
   become: yes

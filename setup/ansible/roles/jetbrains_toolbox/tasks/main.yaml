@@ -106,7 +106,7 @@
 - name: Install JetBrains IDEs via Toolbox (parallel, fire-and-forget)
   ansible.builtin.shell: |
     set -o pipefail
-    timeout 1800 "{{ non_root_home }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox" install {{ item.cli }} </dev/null
+    {{ ih_timeout }} 1800 "{{ non_root_home }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox" install {{ item.cli }} </dev/null
   args:
     executable: /bin/bash
   become: yes

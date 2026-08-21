@@ -111,7 +111,7 @@
 - name: Build yay package (non-root)
   ansible.builtin.shell: |
     set -o pipefail
-    timeout 1500 makepkg -s --noconfirm </dev/null
+    {{ ih_timeout }} 1500 makepkg -s --noconfirm </dev/null
   args:
     chdir: /tmp/yay
     executable: /bin/bash
@@ -190,7 +190,7 @@
 - name: Build paru package (non-root)
   ansible.builtin.shell: |
     set -o pipefail
-    timeout 1800 makepkg -s --noconfirm </dev/null
+    {{ ih_timeout }} 1800 makepkg -s --noconfirm </dev/null
   args:
     chdir: /tmp/paru
     executable: /bin/bash
@@ -260,7 +260,7 @@
 # container seeding cannot complete at all and a wait that never returns would be worse than the
 # failure it replaces.
 - name: Wait for snapd to finish seeding before installing any snap
-  ansible.builtin.command: timeout 180 snap wait system seed.loaded
+  ansible.builtin.command: "{{ ih_timeout }} 180 snap wait system seed.loaded"
   become: yes
   register: snapd_seeded
   changed_when: false

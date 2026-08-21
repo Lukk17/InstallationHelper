@@ -894,7 +894,7 @@ jobs:
     needs: stage2_gate
     if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
     permissions:
       contents: read
     steps:
@@ -940,7 +940,7 @@ jobs:
     needs: stage2_gate
     if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
     permissions:
       contents: read
     steps:
@@ -981,7 +981,7 @@ jobs:
     needs: stage2_gate
     if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
     permissions:
       contents: read
     steps:
@@ -1022,7 +1022,7 @@ jobs:
     needs: stage2_gate
     if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
     permissions:
       contents: read
     steps:

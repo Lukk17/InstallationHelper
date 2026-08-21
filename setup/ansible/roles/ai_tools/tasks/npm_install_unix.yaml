@@ -82,7 +82,7 @@
 - name: "Install {{ npm_display_name }} via NVM (Unix)"
   ansible.builtin.shell: |
     set -o pipefail
-    timeout 600 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g {% if npm_install_extra_args is defined and npm_install_extra_args | length > 0 %}{{ npm_install_extra_args }} {% endif %}{{ npm_pkg }} </dev/null'
+    {{ ih_timeout }} 600 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g {% if npm_install_extra_args is defined and npm_install_extra_args | length > 0 %}{{ npm_install_extra_args }} {% endif %}{{ npm_pkg }} </dev/null'
   args:
     executable: /bin/bash
     chdir: "{{ non_root_home }}"

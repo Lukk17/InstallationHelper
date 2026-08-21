@@ -141,7 +141,7 @@
   ansible.builtin.copy:
     dest: "{{ esp_path }}/loader/loader.conf"
     content: |
-      timeout 3
+      {{ ih_timeout }} 3
       default @saved
       console-mode auto
       editor no

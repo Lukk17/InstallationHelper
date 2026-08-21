@@ -77,7 +77,7 @@
 # Ensure parent dir exists for .dart-tool/dart-flutter-telemetry.config —
 # copy: fails if the parent doesn't exist. Without this the next
 # `failed_when: false` masked the failure and Flutter's interactive
-# analytics prompt then hung the install behind `timeout 1500`.
+# analytics prompt then hung the install behind `{{ ih_timeout }} 1500`.
 - name: Ensure .dart-tool directory exists
   ansible.builtin.file:
     path: "{{ non_root_home }}/.dart-tool"
@@ -109,7 +109,7 @@
     export CI=true
     export FLUTTER_SUPPRESS_ANALYTICS=true
     export PUB_CACHE="{{ non_root_home }}/.pub-cache"
-    timeout 1500 fvm install {{ flutter_channel }} </dev/null
+    {{ ih_timeout }} 1500 fvm install {{ flutter_channel }} </dev/null
   args:
     executable: /bin/bash
   become: yes
@@ -157,7 +157,7 @@
     set -o pipefail
     export PATH="{{ fvm_bin_dir.stdout | trim }}:{{ non_root_home }}/.pub-cache/bin:$PATH"
     export HOME="{{ non_root_home }}"
-    timeout 60 fvm list </dev/null
+    {{ ih_timeout }} 60 fvm list </dev/null
   args:
     executable: /bin/bash
   become: yes
@@ -210,7 +210,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     export PATH="{{ fvm_bin_dir.stdout | trim }}:{{ non_root_home }}/.pub-cache/bin:$PATH"
-    timeout 10 fvm global {{ flutter_channel }} </dev/null
+    {{ ih_timeout }} 10 fvm global {{ flutter_channel }} </dev/null
   args:
     executable: /bin/bash
   become: yes

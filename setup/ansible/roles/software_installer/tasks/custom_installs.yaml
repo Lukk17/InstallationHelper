@@ -113,7 +113,7 @@
 # --- k3d: lightweight Kubernetes-in-Docker (all Linux distros) ---
 # k3d has no stable package across apt/dnf (only AUR on Arch), so every Linux
 # distro uses the upstream install.sh, mirroring the LM Studio curl|bash path.
-# The stat guard keeps it idempotent; `timeout 300` bounds the piped bash so a
+# The stat guard keeps it idempotent; `{{ ih_timeout }} 300` bounds the piped bash so a
 # stalled download can't hang the run.
 
 - name: Check if k3d is already installed (Linux)
@@ -127,7 +127,7 @@
 - name: Install k3d via official script (Linux)
   ansible.builtin.shell: |
     set -o pipefail
-    timeout 300 bash -c 'curl -s --max-time 120 https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash'
+    {{ ih_timeout }} 300 bash -c 'curl -s --max-time 120 https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash'
   args:
     executable: /bin/bash
   become: true

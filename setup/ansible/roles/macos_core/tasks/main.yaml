@@ -29,6 +29,17 @@
     - ansible_facts['architecture'] == 'x86_64'
     - brew_check.rc != 0
 
+# gtimeout, which is what ih_timeout resolves to on macOS. Every long-running shell task in this
+# playbook bounds itself with a timeout, and macOS ships none: it is GNU coreutils and the BSD
+# userland does not have it. Without this the SDK phase dies at its first task with "timeout: command
+# not found", which is exactly what the first macOS run in CI did. Installed here rather than through
+# the software dictionary because it is a prerequisite of the playbook itself rather than an
+# application the user chose, and it has to be present before sdk_manager runs.
+- name: Install coreutils, which is where macOS gets a timeout command
+  community.general.homebrew:
+    name: coreutils
+    state: present
+
 - name: Install Karabiner-Elements
   community.general.homebrew_cask:
     name: karabiner-elements

@@ -32,7 +32,7 @@
 - name: Ask NVM whether the current LTS release is already installed (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    timeout 60 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm which "lts/*"'
+    {{ ih_timeout }} 60 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm which "lts/*"'
   args:
     executable: /bin/bash
   become: yes
@@ -48,7 +48,7 @@
 - name: Install Node LTS via NVM (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    timeout 900 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm install --lts </dev/null'
+    {{ ih_timeout }} 900 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm install --lts </dev/null'
   args:
     executable: /bin/bash
   become: yes

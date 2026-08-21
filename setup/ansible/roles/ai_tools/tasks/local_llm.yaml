@@ -36,14 +36,14 @@
   failed_when: false
   when: ansible_facts['system'] == 'Linux' and install_lm_studio | bool
 
-# `timeout 600` wraps the whole pipeline so the piped `bash` (which itself
+# `{{ ih_timeout }} 600` wraps the whole pipeline so the piped `bash` (which itself
 # downloads binaries) can't hang past 10 min. `--max-time 120` only bounds
 # curl's transfer, not the bash sub-process.
 - name: Install LM Studio via official script (Linux)
   ansible.builtin.shell: |
     set -o pipefail
     export PATH="$PATH:/sbin:/usr/sbin"
-    timeout 600 bash -c 'curl -fsSL --max-time 120 https://lmstudio.ai/install.sh | bash' </dev/null
+    {{ ih_timeout }} 600 bash -c 'curl -fsSL --max-time 120 https://lmstudio.ai/install.sh | bash' </dev/null
   args:
     executable: /bin/bash
   become: yes

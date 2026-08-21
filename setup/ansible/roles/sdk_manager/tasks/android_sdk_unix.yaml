@@ -99,7 +99,7 @@
     set -o pipefail
     export JAVA_HOME="{{ non_root_home }}/.sdkman/candidates/java/current"
     export PATH="$JAVA_HOME/bin:$PATH"
-    timeout 300 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses </dev/null
+    {{ ih_timeout }} 300 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses </dev/null
   args:
     executable: /bin/bash
   become: yes
@@ -123,7 +123,7 @@
     answers="$(mktemp)"
     trap 'rm -f "$answers"' EXIT
     for _ in $(seq 200); do echo y; done > "$answers"
-    timeout 300 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses < "$answers"
+    {{ ih_timeout }} 300 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses < "$answers"
   args:
     executable: /bin/bash
   become: yes
@@ -147,7 +147,7 @@
     set -o pipefail
     export JAVA_HOME="{{ non_root_home }}/.sdkman/candidates/java/current"
     export PATH="$JAVA_HOME/bin:$PATH"
-    timeout 1500 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager \
+    {{ ih_timeout }} 1500 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager \
       "platforms;android-{{ android_api_level }}" \
       "build-tools;{{ android_build_tools_version }}" \
       "platform-tools" </dev/null

@@ -85,3 +85,21 @@
       setup/ansible/tasks/derive_os_facts.yaml before running this here.
   when: ih_family not in ih_supported_families
   tags: always
+
+# The command that bounds a long-running shell task, resolved once here rather than spelled into
+# twenty-seven task lines. macOS has no `timeout`: it is GNU coreutils, and the BSD userland does not
+# ship it, so every one of those tasks died there with "/bin/bash: line 1: timeout: command not
+# found". The macOS defaults scenario failed at the first of them, taking the whole SDK phase with
+# it, which means Node, pyenv, SDKMAN, FVM, the Android SDK, the npm tools and JetBrains Toolbox have
+# never installed on a Mac through this playbook. Found by the first stage 3 run this repository has
+# ever done, on 2026-08-21.
+#
+# Homebrew's coreutils installs the same binary under the name gtimeout, which macos_core installs
+# before anything uses this fact. Resolved as a fact so a task reads `{{ ih_timeout }} 900 bash -c`
+# and neither knows nor cares which platform it is on, and so that a third platform needs one line
+# here rather than a sweep of the roles. e2e/tier1/timeout_indirection.sh fails the gate if a task
+# calls the bare command again.
+- name: Resolve the timeout command this platform actually has
+  ansible.builtin.set_fact:
+    ih_timeout: "{{ 'gtimeout' if ih_family == 'Darwin' else 'timeout' }}"
+  tags: always

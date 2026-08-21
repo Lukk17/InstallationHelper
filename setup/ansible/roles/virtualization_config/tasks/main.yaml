@@ -117,7 +117,7 @@
 # This used to be one task asking for libvirtd.service to be both enabled and started, and it
 # reported changed on every run that was more than about two minutes long. The reason is not a
 # reporting bug. libvirtd is socket-activated and the unit that ships with it carries
-# Environment=LIBVIRTD_ARGS="--timeout 120", so the daemon exits by itself two minutes after the last
+# Environment=LIBVIRTD_ARGS="--{{ ih_timeout }} 120", so the daemon exits by itself two minutes after the last
 # client disconnects and systemd leaves libvirtd.socket listening in its place. Asking for the
 # service to be started is therefore asking for a state the system deliberately walks away from, and
 # a second pass really does start the daemon again. The change was honest, the request was wrong.
@@ -137,7 +137,7 @@
 #
 # libvirtd.socket ships on all three Linux families this playbook supports, checked by listing the
 # unit directory in a container of each rather than generalising from Debian, and all three carry the
-# same --timeout 120 in libvirtd.service.
+# same --{{ ih_timeout }} 120 in libvirtd.service.
 - name: Enable libvirtd at boot (Linux)
   become: true
   ansible.builtin.systemd:

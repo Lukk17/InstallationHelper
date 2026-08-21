@@ -602,3 +602,19 @@ On 2026-08-17 the vendor .deb refused to install on `debian:trixie` with `Depend
 Measured on 2026-08-21 against the same package, version 2.1.6, whose control file still declares the same alternative dependency: `apt-get install ./balena-etcher_2.1.6_amd64.deb` exits 0 on both `debian:trixie` and `ubuntu:26.04`, and `dpkg -l` reports it installed. apt satisfies the virtual `polkit-1-auth-agent` by choosing `ukui-polkit`, which is a real cost rather than a free pass: it drags in `systemsettings`, `polkitd`, `biometric-auth` and the rest of that chain onto a machine with no desktop. Anyone provisioning a headless server should know that, and it is now the kind of thing the run itself shows rather than something a suppression hides.
 
 Two things worth keeping. The suppression was keyed on the image name `debian`, so it never applied to the `ubuntu` or `popos` images, which have been installing this package all along without anybody noticing the inconsistency. And a suppression written from one measurement needs re-measuring: this one outlived its reason by four days, and the only thing that found it was going back to check the claim rather than trusting the comment.
+
+#### Every long-running task on macOS failed at once, because macOS has no timeout command
+
+Status: fixed in this change, in [derive_os_facts.yaml](../setup/ansible/tasks/derive_os_facts.yaml), [macos_core](../setup/ansible/roles/macos_core/tasks/main.yaml), fourteen role task files, and guarded by [timeout_indirection.sh](../e2e/tier1/timeout_indirection.sh).
+
+`timeout` is GNU coreutils. The BSD userland macOS ships does not have it under that name, so every task that bounded a long command with `timeout N ...` failed there with `/bin/bash: line 1: timeout: command not found`. Twenty-seven call sites across fourteen files.
+
+The consequence was not twenty-seven small failures, it was one large one. The first of them is in `sdk_manager`, so the role failed, and with it Node through NVM, pyenv, SDKMAN, FVM, the Android SDK, the npm tools that depend on Node, and JetBrains Toolbox. A macOS user with any of those enabled has never had them install through this playbook.
+
+Not one of those call sites was wrong on Linux, which is exactly why it lasted: every Linux container run exercised them and passed. It took the first stage 3 run this repository has ever done, on 2026-08-21, and it showed up four minutes in.
+
+The command is a fact now, `ih_timeout`, resolved once alongside `ih_family` in the playbook's pre-tasks, and `macos_core` installs Homebrew's coreutils so `gtimeout` exists before anything reaches for it. A task reads `{{ ih_timeout }} 900 bash -c ...` and neither knows nor cares which platform it is on, and a third platform is one line here rather than a sweep of the roles.
+
+Because the fix is a convention rather than a mechanism, tier 1 now refuses a bare call at a command position, checks that the fact exists and names both commands, and checks that coreutils is installed. It also asserts the number of indirected call sites has not collapsed, so undoing the indirection fails loudly rather than quietly. Proven against a copy of the tree with one call site reverted, where it names the file and the line.
+
+Two things this cost that are worth stating. The macOS wizard had already been fixed once today for a bash 3.2 problem, so the platform had been touched and this still was not found, because nothing ran the playbook there. And the tier 1 gate had been green throughout, which is the honest limit of a static check: it can only compare what the source says to what the source says.
