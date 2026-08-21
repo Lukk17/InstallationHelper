@@ -354,14 +354,24 @@ start_run() {
             docker exec "${CONTAINER}" bash -c 'ls -l "$(command -v sudo)" 2>&1'
             echo "--- who the harness is running as ---"
             docker exec -u "${E2E_USER}" "${CONTAINER}" id 2>&1
+            echo "--- can the setuid bit take effect, or is the filesystem nosuid ---"
+            # A nosuid mount leaves the bit visible to ls and inert to the kernel, so sudo runs as
+            # the caller, cannot read /etc/shadow, and PAM answers exactly the way it did here.
+            docker exec "${CONTAINER}" bash -c 'findmnt -no TARGET,SOURCE,OPTIONS / /usr /etc 2>/dev/null || grep -E " / | /usr | /etc " /proc/self/mounts' 2>&1
+            echo "--- the no-new-privileges flag, which stops setuid another way ---"
+            docker exec -u "${E2E_USER}" "${CONTAINER}" bash -c 'grep NoNewPrivs /proc/self/status' 2>&1
             echo "--- the account, as the name service sees it ---"
-            docker exec "${CONTAINER}" bash -c "getent passwd ${E2E_USER}; getent shadow ${E2E_USER} | cut -d: -f1,3-" 2>&1
+            docker exec "${CONTAINER}" bash -c "getent passwd ${E2E_USER}; getent shadow ${E2E_USER} | cut -d: -f3-" 2>&1
+            # The hash itself is never printed. Only its shape matters here: locked, empty or set.
+            docker exec "${CONTAINER}" bash -c "getent shadow ${E2E_USER} | cut -d: -f2 | sed -E 's/^\$.*/a hash/; s/^!+.*/locked with !/; s/^\*.*/disabled with */; s/^$/EMPTY/'" 2>&1
+            echo "--- can root read the shadow file at all ---"
+            docker exec "${CONTAINER}" bash -c 'stat -c "%n %A %U:%G" /etc/shadow /etc/sudoers /etc/sudoers.d 2>&1'
             echo "--- the rule that is supposed to make this passwordless ---"
-            docker exec "${CONTAINER}" bash -c 'ls -l /etc/sudoers.d/ 2>&1; cat /etc/sudoers.d/00-e2e-runner 2>&1'
+            docker exec "${CONTAINER}" bash -c 'ls -l /etc/sudoers.d/ 2>&1; cat /etc/sudoers.d/00-e2e-runner 2>&1; grep -n includedir /etc/sudoers 2>&1'
             echo "--- what sudo itself thinks it may do ---"
             docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n -l 2>&1 | head -20
-            echo "--- the storage driver, because overlay copy-up has lost a setuid bit before ---"
-            docker info --format 'driver={{.Driver}} kernel={{.KernelVersion}} server={{.ServerVersion}}' 2>&1
+            echo "--- the daemon, because overlay copy-up and a nosuid docker root have both done this before ---"
+            docker info --format 'driver={{.Driver}} root={{.DockerRootDir}} kernel={{.KernelVersion}} server={{.ServerVersion}} security={{json .SecurityOptions}}' 2>&1
         } >>"${RUN_DIR}/sudo-preflight.log" 2>&1
         abort_before_playbook "sudo does not work in this container, so the playbook cannot escalate" "${RUN_DIR}/sudo-preflight.log"
     fi
