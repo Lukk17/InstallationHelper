@@ -45,13 +45,19 @@
     state: present
   when: ih_family == 'RedHat'
 
+# zlib is deliberately not in this list. Every Arch-family system already has a provider of it, and
+# on CachyOS that provider is zlib-ng-compat, which declares `Conflicts With: zlib`. Naming the real
+# package as an explicit target therefore asks pacman to replace the one that is installed, and with
+# --noconfirm it cannot answer its own question and the whole task fails with "unresolvable package
+# conflicts detected". Measured on the CachyOS image on 2026-08-21: with zlib in the list the install
+# exits 1, without it the install exits 0 and /usr/include/zlib.h is still there, from
+# zlib-ng-compat, so python-build has the headers it needs either way.
 - name: Install Pyenv build dependencies (Arch)
   become: yes
   community.general.pacman:
     name:
       - base-devel
       - openssl
-      - zlib
       - xz
       - tk
       - curl

@@ -592,3 +592,13 @@ Measured in CI and eliminated, in the order they were asked:
 What is left is inside the sudo process on that host, and the two tools that would see it are both unusable for this exact failure. The kernel drops the setuid grant for a traced or preloaded binary, so `strace` and `LD_PRELOAD` both change the thing being measured into something that cannot reproduce the fault. Root's own sudo passes PAM, which is consistent with that and narrows nothing further.
 
 The one thing worth stating plainly: nine rounds cost about ten minutes of runner time in total, because the preflight aborts before any install starts. Before the preflight existed, the same information cost twenty minutes a round and arrived attributed to Google Chrome's repository task, which had nothing to do with it. That is the whole argument for asking a cheap question early.
+
+#### balenaEtcher was suppressed on Debian for a dependency that is satisfiable again
+
+Status: suppression removed, coverage restored, [container_limits.debian.yaml](../e2e/tier3/) deleted.
+
+On 2026-08-17 the vendor .deb refused to install on `debian:trixie` with `Dependency is not satisfiable: polkit-1-auth-agent|policykit-1-gnome|polkit-kde-1`, so the toggle was turned off for the Debian image with the reason recorded beside it. That file said the application "cannot be installed by any means" on a headless Debian or Ubuntu, and as of today that sentence is false.
+
+Measured on 2026-08-21 against the same package, version 2.1.6, whose control file still declares the same alternative dependency: `apt-get install ./balena-etcher_2.1.6_amd64.deb` exits 0 on both `debian:trixie` and `ubuntu:26.04`, and `dpkg -l` reports it installed. apt satisfies the virtual `polkit-1-auth-agent` by choosing `ukui-polkit`, which is a real cost rather than a free pass: it drags in `systemsettings`, `polkitd`, `biometric-auth` and the rest of that chain onto a machine with no desktop. Anyone provisioning a headless server should know that, and it is now the kind of thing the run itself shows rather than something a suppression hides.
+
+Two things worth keeping. The suppression was keyed on the image name `debian`, so it never applied to the `ubuntu` or `popos` images, which have been installing this package all along without anybody noticing the inconsistency. And a suppression written from one measurement needs re-measuring: this one outlived its reason by four days, and the only thing that found it was going back to check the claim rather than trusting the comment.

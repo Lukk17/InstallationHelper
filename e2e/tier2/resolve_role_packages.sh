@@ -139,6 +139,49 @@ check_in_container() {
 # can ask for a package name, a role task and a vars dictionary, so both are consulted here. The
 # other half of the staleness question, whether the name resolves without its repository after all,
 # is answered by probe_report_forgiveness once the container has spoken.
+
+# --- package names written into a shell command rather than a module ---------------------------
+#
+# The extractor above reads module `name:` lists. Three apt installs in the virtualization role are
+# not modules at all: they are shell tasks with the packages spelled into the command line, because
+# the batched apt path had to move off the native module to dodge the 2.19 deserialization bug. No
+# check has ever resolved those names, and one of them was `qemu-kvm`, which has no installation
+# candidate on Debian trixie or Ubuntu 26.04. Debian happens to resolve the virtual name to its one
+# provider and exit 0. Ubuntu 26.04 exits 100 with "Package 'qemu-kvm' has no installation
+# candidate", so every Ubuntu and Pop!_OS run had a failing task, and nothing said so because the
+# pipeline ended in tee with no pipefail above it. Two blind spots stacked on each other.
+#
+# This closes the first of the two. Names are taken from the command line and its backslash
+# continuations, and anything that is not a literal package name is dropped: flags, redirections,
+# the tee target, and Jinja expressions, because a name the playbook builds at run time cannot be
+# resolved from the source. The count is asserted, so a future rewrite that leaves this finding
+# nothing fails here rather than passing silently.
+extract_shell_names() {
+    awk '
+        # Start collecting at an apt-get install, and keep going while the line continues.
+        /apt-get install/ { collecting = 1 }
+        collecting {
+            line = $0
+            sub(/.*apt-get install/, "", line)
+            sub(/2>&1.*$/, "", line)
+            # Whole Jinja expressions, before splitting. Splitting first leaves the variable
+            # name behind as a word of its own, and apt_raw_flags is not a package.
+            gsub(/\{\{[^}]*\}\}/, "", line)
+            sub(/\|.*$/, "", line)
+            n = split(line, words, /[[:space:]]+/)
+            for (i = 1; i <= n; i++) {
+                w = words[i]
+                if (w == "" || w == "\\") { continue }
+                if (w ~ /^-/) { continue }                 # a flag
+                if (w ~ /[{}]/) { continue }               # a Jinja expression, unresolvable here
+                if (w ~ /^\// || w ~ /\.log$/) { continue } # a path or the tee target
+                print w
+            }
+            if ($0 !~ /\\[[:space:]]*$/) { collecting = 0 }
+        }
+    ' "$@" | sort -u
+}
+
 check_allowlist_orphans() {
     local apt_body="$1" dnf_body="$2" requested stale=() distro pkg rest
     requested="$(
@@ -149,6 +192,12 @@ check_allowlist_orphans() {
             package_names_for "${VARS_DIR}/Debian.yaml" apt | sed 's/^/debian /'
             package_names_for "${VARS_DIR}/Debian.yaml" apt | sed 's/^/ubuntu /'
             package_names_for "${VARS_DIR}/RedHat.yaml" dnf | sed 's/^/fedora /'
+            # The shell tasks count as asking for a package too. Leaving them out made this report
+            # every Docker CE forgiveness on the Debian side as an orphan, because the only thing
+            # naming those packages there is a shell command rather than a module list. The same
+            # blind spot in a second place, and the same fix.
+            extract_shell_names "${ROLES_DIR}"/*/tasks/*.yaml | sed 's/^/debian /'
+            extract_shell_names "${ROLES_DIR}"/*/tasks/*.yaml | sed 's/^/ubuntu /'
         } | sort -u
     )"
 
@@ -181,6 +230,47 @@ if docker info &>/dev/null; then
 else
     skip "apt and dnf role package names" "no reachable Docker daemon, so the package indexes cannot be queried"
 fi
+
+check_shell_embedded() {
+    local names=()
+    mapfile -t names < <(extract_shell_names "${ROLES_DIR}"/*/tasks/*.yaml)
+
+    if [[ ${#names[@]} -lt 5 ]]; then
+        fail "the shell-embedded package extractor found only ${#names[@]} names, which cannot be right" \
+             "it should find the virtualization role's apt lists. Either the extraction broke or those tasks moved."
+        return
+    fi
+    pass "found ${#names[@]} package names written into shell commands rather than module lists"
+
+    local image distro
+    for distro in debian ubuntu; do
+        case "${distro}" in
+            debian) image="debian:trixie" ;;
+            ubuntu) image="ubuntu:26.04" ;;
+        esac
+        local missing
+        missing="$(probe_missing_in_image "${image}" "$(printf '%s\n' "${names[@]}")")" || {
+            skip "${distro}: shell-embedded package names resolve" "the probe could not run"
+            continue
+        }
+        # The same forgiveness the module-list check uses, from the same one file, because a name the
+        # playbook can only resolve after it has added a repository is not a defect.
+        local real=()
+        while IFS= read -r pkg; do
+            [[ -z "${pkg}" ]] && continue
+            probe_is_forgiven "${distro}" "${pkg}" || real+=("${pkg}")
+        done <<<"${missing}"
+
+        if [[ ${#real[@]} -eq 0 ]]; then
+            pass "${distro} (${image}): all ${#names[@]} shell-embedded package names resolve"
+        else
+            fail "${distro} (${image}): ${#real[@]} shell-embedded package name(s) have no installation candidate" \
+                 "${real[*]}"
+        fi
+    done
+}
+
+check_shell_embedded
 
 probe_report_forgiveness "no role-task forgiveness in runtime_repo_packages.txt has become unnecessary"
 

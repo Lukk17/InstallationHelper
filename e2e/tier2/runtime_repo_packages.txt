@@ -16,6 +16,21 @@ fedora  docker-ce                 Docker CE repo, added by fedora_repos.yaml
 fedora  docker-ce-cli             Docker CE repo, added by fedora_repos.yaml
 fedora  containerd.io             Docker CE repo, added by fedora_repos.yaml
 fedora  docker-buildx-plugin      Docker CE repo, added by fedora_repos.yaml
+
+# The same five names on the Debian side, installed by the shell task in
+# virtualization_config/tasks/main.yaml from the repository debian_repos.yaml adds. They are here
+# because the shell-embedded name check now resolves that task, and it did not before, which is
+# how qemu-kvm survived in the same command line while having no installation candidate.
+debian  docker-ce                 Docker CE repo, added by debian_repos.yaml
+debian  docker-ce-cli             Docker CE repo, added by debian_repos.yaml
+debian  containerd.io             Docker CE repo, added by debian_repos.yaml
+debian  docker-buildx-plugin      Docker CE repo, added by debian_repos.yaml
+debian  docker-compose-plugin     Docker CE repo, added by debian_repos.yaml
+ubuntu  docker-ce                 Docker CE repo, added by debian_repos.yaml
+ubuntu  docker-ce-cli             Docker CE repo, added by debian_repos.yaml
+ubuntu  containerd.io             Docker CE repo, added by debian_repos.yaml
+ubuntu  docker-buildx-plugin      Docker CE repo, added by debian_repos.yaml
+ubuntu  docker-compose-plugin     Docker CE repo, added by debian_repos.yaml
 fedora  docker-compose-plugin     Docker CE repo, added by fedora_repos.yaml
 
 # Dart, from dl.google.com/linux/dart. Added by sdk_manager's dart.yaml before installing.

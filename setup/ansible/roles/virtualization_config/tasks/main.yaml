@@ -16,11 +16,23 @@
 # the shell reports the status of the last command in the pipeline, which is tee, and tee succeeds
 # whatever apt did, so failed_when below could never fire on a real apt failure.
 
+# qemu-system-x86, not qemu-kvm. qemu-kvm has no installation candidate on either Debian trixie or
+# Ubuntu 26.04, and the two then behave differently: on Debian apt resolves the virtual name to its
+# single provider and exits 0, while on Ubuntu 26.04 it exits 100 with "Package 'qemu-kvm' has no
+# installation candidate". Measured on both images on 2026-08-21 with apt-get install -s.
+#
+# So this task had been failing on every Ubuntu and Pop!_OS run and nobody could see it, because the
+# pipeline ends in tee and there was no set -o pipefail above it, so failed_when was reading tee's
+# status. Adding that pipefail earlier today is what made this visible, which is the argument for
+# that change in one sentence: the mask was hiding a real defect rather than a hypothetical one.
+#
+# qemu-system-x86 has a real candidate on both, 1:10.0.11 on Debian and 1:10.2.1 on Ubuntu, and it is
+# what qemu-kvm was the transitional name for.
 - name: Install QEMU/KVM and virt-manager packages (Debian) via apt-get → log file
   ansible.builtin.shell: |
     set -o pipefail
     apt-get install {{ apt_raw_flags }} \
-      qemu-kvm libvirt-daemon-system libvirt-clients virt-manager virtinst \
+      qemu-system-x86 libvirt-daemon-system libvirt-clients virt-manager virtinst \
       bridge-utils virtiofsd \
       2>&1 | tee -a /var/log/installation-virt-apt.log
   args:
