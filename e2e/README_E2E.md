@@ -135,8 +135,8 @@ green: what that run still does not tell you.
 | a tier 1 check, or anything under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then `./e2e/run.sh` from Git Bash and from WSL | that the check is testing the thing rather than its own implementation, which only the failure proof shows |
 | a distribution Dockerfile, or a new distribution | `--tier 3 --scenario defaults --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
 | anything that only affects macOS | `./e2e/run.sh` and `./e2e/run.sh --tier 2` | everything that executes, because a Darwin container cannot run on a Linux or Windows kernel and the only executing macOS test is the `macos` target of the dispatch workflow |
-| `.github/workflows/e2e-manual.yml` | dispatch it from the Actions tab, one target platform at a time | nothing locally, and note that as of 2026-08-20 no workflow run has ever happened, because the remote is behind |
-| `.github/workflows/e2e-matrix.yml` | dispatch it from the Actions tab, the full sweep or narrowed to one scenario or one distribution | nothing locally, and it has never run either, added the same day as this row |
+| `.github/workflows/e2e-manual.yaml`, named "E2E - single platform" in the Actions tab | dispatch it from the Actions tab, one target platform at a time | nothing locally |
+| `.github/workflows/e2e-matrix.yml`, named "E2E - test software install and configuration on every OS" in the Actions tab | dispatch it from the Actions tab, the full sweep or narrowed to one scenario or one distribution | nothing locally |
 | `homelab/` or `local-dev/` | nothing, and that is the honest answer | everything, no tier covers either directory today |
 
 Three rules that are easy to miss.
@@ -420,3 +420,4 @@ Then prove it. Copy the tree, reintroduce the defect, and confirm the check fail
 | [setup/README_SETUP.md](../setup/README_SETUP.md) | Running the playbook for real |
 | [setup/ansible/tags.md](../setup/ansible/tags.md) | Partial runs by tag, useful when triaging a scenario failure |
 | [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) | The full CI sweep, every scenario against every Linux distribution, dispatch-only |
+| [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) | "E2E - single platform", one target platform per dispatch, Linux distribution or macOS or Windows |
