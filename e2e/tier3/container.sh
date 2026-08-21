@@ -368,6 +368,23 @@ start_run() {
             docker exec "${CONTAINER}" bash -c 'stat -c "%n %A %U:%G" /etc/shadow /etc/sudoers /etc/sudoers.d 2>&1'
             echo "--- the rule that is supposed to make this passwordless ---"
             docker exec "${CONTAINER}" bash -c 'ls -l /etc/sudoers.d/ 2>&1; cat /etc/sudoers.d/00-e2e-runner 2>&1; grep -n includedir /etc/sudoers 2>&1'
+            echo "--- does a setuid binary actually elevate for this user ---"
+            # The one question every other capture has left standing. root's own sudo works and the
+            # unprivileged user's does not, the PAM stack and the account are identical to a machine
+            # where it works, so what is left is whether the setuid transition happens at all. id -u
+            # prints the EFFECTIVE uid, so a setuid-root copy of it answers this outright: 0 means the
+            # transition works and the fault is elsewhere, 1000 means it does not and everything else
+            # follows from that.
+            docker exec "${CONTAINER}" bash -c 'cp /usr/bin/id /usr/local/bin/e2e-idsuid && chown root:root /usr/local/bin/e2e-idsuid && chmod 4755 /usr/local/bin/e2e-idsuid' 2>&1
+            printf 'effective uid through a setuid-root binary: '
+            docker exec -u "${E2E_USER}" "${CONTAINER}" /usr/local/bin/e2e-idsuid -u 2>&1
+            docker exec "${CONTAINER}" rm -f /usr/local/bin/e2e-idsuid 2>&1 || true
+            echo "--- the capability sets this user's own processes get ---"
+            # A setuid-root binary is granted the bounding set. An empty bounding set here would mean
+            # sudo becomes uid 0 with no capabilities, and reading /etc/shadow at mode 000 needs
+            # CAP_DAC_OVERRIDE, which is exactly the shape of the PAM error above. Measured as
+            # 000001ffffffffff on a machine where this works.
+            docker exec -u "${E2E_USER}" "${CONTAINER}" bash -c 'grep -E "CapBnd|CapPrm|CapEff" /proc/self/status' 2>&1
             echo "--- does root itself get past PAM, which separates setuid from PAM entirely ---"
             docker exec "${CONTAINER}" sudo -n true 2>&1 && echo "root's own sudo works, so the setuid path is the difference"
             echo "--- what PAM logged about it, which is the only place the real reason is written ---"
