@@ -250,7 +250,11 @@ jobs:
   # e2e/README_E2E.md's stage 1 table in order.
   # ===========================================================================================
 
-  # 1. The whole static gate, every tier 1 check, from a clean checkout. Needs ansible-playbook
+  # 1. The whole static gate, every tier 1 check, from a clean checkout. That now includes the
+  # compose files and documentation links under local-dev/ and homelab/, which need a docker
+  # binary but no daemon, and the runner has one.
+  #
+  # The whole static gate, from a clean checkout. Needs ansible-playbook
   # on PATH, which this runner does not ship with, and the collections site.yaml's syntax check
   # walks through, so both are installed first. Neither step is part of the harness itself. They
   # are what e2e/README_E2E.md's own quick start assumes is already true on a developer machine.

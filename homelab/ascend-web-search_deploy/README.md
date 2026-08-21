@@ -112,7 +112,7 @@ Three secrets live in `.env` and nothing else should. Everything else is set dir
 | VNC_PASSWORD | Yes | Password for the NoVNC desktop. Turned into an encrypted x11vnc password file at container start. |
 | NGROK_AUTHTOKEN | Yes | Authenticates the ngrok tunnel. |
 
-The full list of tunable settings, timeouts, extraction thresholds, circuit-breaker values and so on, lives in [../docs/configuration.md](../docs/configuration.md). Every one of them can be added to the `environment:` block of the ascend-web-search service.
+The full list of tunable settings, timeouts, extraction thresholds, circuit-breaker values and so on, lives in the AscendAI project rather than here: only this deployment directory is vendored into this repository, so `docs/configuration.md` is not one of the files you have locally. Every one of those settings can be added to the `environment:` block of the ascend-web-search service.
 
 ---
 
@@ -253,7 +253,11 @@ The same applies to environment variables. Adding one to the scrapper stack mean
 
 ### Related documentation
 
-- [AscendWebSearch README](../README.md), what the service does and how it is built
-- [Configuration reference](../docs/configuration.md), every setting the service accepts
-- [Running locally](../docs/running.md), development without containers
-- [Platform deployment guide](../../docs/DEPLOYMENT.md), the full AscendAI stack
+Four documents belong with this one and are not in this repository, because what is vendored here is
+the deployment directory on its own. They live in the AscendAI project, at the paths given, and are
+named rather than linked so that nothing here points at a file that is not there:
+
+- `README.md` at the project root, what the service does and how it is built
+- `docs/configuration.md`, every setting the service accepts
+- `docs/running.md`, development without containers
+- `docs/DEPLOYMENT.md`, the full AscendAI stack
