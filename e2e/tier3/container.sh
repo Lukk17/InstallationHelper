@@ -403,6 +403,17 @@ start_run() {
             docker exec "${CONTAINER}" sudo -n true 2>&1 && echo "root's own sudo works, so the setuid path is the difference"
             echo "--- what PAM logged about it, which is the only place the real reason is written ---"
             docker exec "${CONTAINER}" bash -c 'journalctl -t sudo -n 25 --no-pager 2>&1 | tail -15'
+            echo "--- sudo's own debug trace around the approval call ---"
+            # sudo has a debug facility that traces every function it enters and the value it returns,
+            # including the uid switching it does around the PAM calls. sudo_pam_approval is the
+            # account phase, so the lines either side of it are the closest thing to a cause that can
+            # be read without a debugger. Written to /etc/sudo.conf in the container that is already
+            # being torn down, so nothing under test changes. Verified on a working image first, where
+            # it produces four thousand lines and sudo_pam_approval is in them.
+            docker exec "${CONTAINER}" bash -c 'printf "Debug sudo /var/log/sudo_debug all@debug\nDebug sudoers.so /var/log/sudo_debug all@debug\n" > /etc/sudo.conf' 2>&1
+            docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n true >/dev/null 2>&1 || true
+            docker exec "${CONTAINER}" bash -c 'grep -n "sudo_pam_approval" /var/log/sudo_debug | head -2; echo; grep -B12 -A12 "sudo_pam_approval" /var/log/sudo_debug | tail -30' 2>&1
+            docker exec "${CONTAINER}" bash -c 'grep -iE "set_perms|seteuid|setresuid|shadow|errno|EACCES|denied" /var/log/sudo_debug | tail -12' 2>&1
             echo "--- pam_unix's own debug output, which names the call that failed ---"
             # Everything cheaper has been asked and answered. pam_unix takes a debug option and logs
             # the reason it returns AUTHINFO_UNAVAIL, which is the one sentence nobody has read yet.
