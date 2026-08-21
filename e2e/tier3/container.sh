@@ -379,6 +379,19 @@ start_run() {
             printf 'effective uid through a setuid-root binary: '
             docker exec -u "${E2E_USER}" "${CONTAINER}" /usr/local/bin/e2e-idsuid -u 2>&1
             docker exec "${CONTAINER}" rm -f /usr/local/bin/e2e-idsuid 2>&1 || true
+            echo "--- what a setuid-root process is actually granted, and can it read the shadow file ---"
+            # sudo's own trace puts it at uid [1000, 0, 0] when the approval fails, so it is euid 0
+            # and still refused. /etc/shadow is mode 000 on Fedora, and reading it as euid 0 needs
+            # CAP_DAC_OVERRIDE, which a setuid binary receives from the bounding set. Everything so
+            # far measured the bounding set of an ordinary exec, never of the setuid process itself.
+            # A setuid copy of cat reads its own /proc/self/status, so this is that process reporting
+            # its own capabilities, and then it tries the file. Measured here as a80425fb with the
+            # file readable.
+            docker exec "${CONTAINER}" bash -c 'cp /usr/bin/cat /usr/local/bin/e2e-catsuid && chown root:root /usr/local/bin/e2e-catsuid && chmod 4755 /usr/local/bin/e2e-catsuid' 2>&1
+            docker exec -u "${E2E_USER}" "${CONTAINER}" bash -c '/usr/local/bin/e2e-catsuid /proc/self/status | grep -E "^(Uid|Gid|CapPrm|CapEff|CapBnd)"' 2>&1
+            printf 'the shadow file through that process: '
+            docker exec -u "${E2E_USER}" "${CONTAINER}" bash -c '/usr/local/bin/e2e-catsuid /etc/shadow >/dev/null 2>&1 && echo readable || echo "REFUSED, which is the whole failure"' 2>&1
+            docker exec "${CONTAINER}" rm -f /usr/local/bin/e2e-catsuid 2>&1 || true
             echo "--- can a setuid-root process with a non-root real uid read the shadow entry ---"
             # This is the exact situation sudo is in, and it is the only thing the captures above have
             # not reproduced. pam_unix answers AUTHINFO_UNAVAIL when getspnam returns nothing, and a
