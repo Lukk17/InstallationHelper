@@ -225,8 +225,13 @@
       register: apt_url_download
       async: 900
       poll: 5
-      retries: 3
-      delay: 10
+      # Five, not three, and fifteen seconds apart. Thirty seconds of patience was not enough for
+      # Launchpad, which carries VeraCrypt: Ubuntu's gnome-full cell lost the download on 2026-08-21
+      # after all three attempts, and the same URL answered 200 from a developer machine minutes
+      # later while a second Launchpad URL returned nothing at all. A vendor host that rate-limits
+      # needs a longer budget than a vendor host that is simply slow.
+      retries: 5
+      delay: 15
       until: apt_url_download is succeeded
       ignore_errors: true
       loop: "{{ apt_url_items | default([]) }}"
@@ -355,8 +360,13 @@
       ansible.builtin.debug:
         msg: >-
           [ERROR] These packages install from a vendor URL and the file never arrived, so they are not
-          installed: {{ apt_url_absent | join(', ') }}. The URLs come from setup/pinned_values/pinned_values.toml,
-          and a 404 there usually means the pinned version has been withdrawn.
+          installed: {{ apt_url_absent | join(', ') }}. The URLs come from the pinned values, and there
+          are two quite different reasons this happens, so check which one before changing anything.
+          A 404 means the pinned version has been withdrawn and the pin needs bumping. Anything else,
+          a timeout or a connection reset or no answer at all, means the vendor's host was unreachable
+          for the whole retry budget and the pin is probably fine. Launchpad, which carries VeraCrypt,
+          rate-limits and has been measured returning nothing at all to a request that succeeds
+          moments later.
       when: apt_url_absent | default([]) | length > 0
       tags: [apt_batch]
 

@@ -1,51 +1,16 @@
 ---
-- name: Add Google Chrome repository (Fedora)
-  become: yes
-  ansible.builtin.yum_repository:
-    name: google-chrome
-    description: Google Chrome
-    baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
-    gpgkey: https://dl.google.com/linux/linux_signing_key.pub
-    gpgcheck: yes
-    enabled: yes
-  when: install_chrome | default(false) | bool
+# The Chrome, Brave, Sublime Text and VS Code repositories live in one place now, and it is
+# software_installer/tasks/fedora_repos.yaml, next to the Kubernetes, Lens and Tailscale ones. They
+# were defined here as well, four repositories described twice, and two of the four descriptions
+# disagreed: this file called the Chrome repository "Google Chrome" and that one calls it
+# "google-chrome". So the two tasks overwrote each other's file on every run and both reported
+# changed, for ever, while Brave and VS Code happened to agree and were idempotent by luck.
+#
+# Found by the first Fedora idempotency run this repository has ever done, on 2026-08-21. The lesson
+# is not about descriptions: two definitions of one thing drift, and the only question is when.
+#
+# The remaining repository here, antigravity-rpm, is not duplicated anywhere.
 
-- name: Add Brave Browser repository (Fedora)
-  become: yes
-  ansible.builtin.yum_repository:
-    name: brave-browser
-    description: Brave Browser
-    baseurl: https://brave-browser-rpm-release.s3.brave.com/x86_64/
-    gpgkey: https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
-    gpgcheck: yes
-    enabled: yes
-  when: install_brave | default(false) | bool
-
-- name: Add Microsoft VS Code repository (Fedora)
-  become: yes
-  ansible.builtin.yum_repository:
-    name: vscode
-    description: Visual Studio Code
-    baseurl: https://packages.microsoft.com/yumrepos/vscode
-    gpgkey: https://packages.microsoft.com/keys/microsoft.asc
-    gpgcheck: yes
-    enabled: yes
-  when: install_vscode | default(false) | bool
-
-- name: Add Sublime Text repository (Fedora)
-  become: yes
-  ansible.builtin.yum_repository:
-    name: sublime-text
-    description: Sublime Text
-    baseurl: https://download.sublimetext.com/rpm/stable/x86_64/
-    gpgkey: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
-    gpgcheck: yes
-    enabled: yes
-  when: install_sublime | default(false) | bool
-
-# The yum_repository tasks above only write a .repo file, so they never touch the network
-# and get no retries. This one does reach a mirror, and site.yaml runs this role without a
-# rescue, so a transient failure here would abort the whole run before anything installs.
 - name: Ensure Snap plugin is installed
   become: yes
   ansible.builtin.dnf:

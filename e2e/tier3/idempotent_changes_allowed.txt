@@ -51,3 +51,15 @@ software_installer : Remove the staged GpuTest archive | it removes what this ru
 # previous run. The correction matters, because the fix for the second kind is a guard on the
 # task and the fix for this kind is a line here.
 software_installer : Download Antigravity Linux tarball | the tarball lives in the staging directory the post-tasks delete, so it is absent at the start of every run
+
+# The Dart SDK zip on Fedora, the same create-and-remove pair as the three above, found by the first
+# Fedora idempotency run on 2026-08-21.
+sdk_manager : Download Dart SDK zip (Fedora) | the zip is deleted after extraction, so it is absent at the start of every run
+sdk_manager : Remove the staged Dart SDK zip (Fedora) | it removes what this run downloaded, and there is always something to remove
+
+# The vendor .deb staging pair, the last of this family, found by the Ubuntu idempotency run on
+# 2026-08-21. Debian reported none of these because its first pass failed early and the second pass
+# never reached them, which is worth knowing: a clean second pass after a failed first pass is not
+# the same evidence as a clean second pass after a clean first one.
+software_installer : Download .deb files for apt_url installs | the files live in the staging directory the task below deletes, so they are absent at the start of every run
+software_installer : Remove the staged vendor .deb files | it removes what this run downloaded, and there is always something to remove
