@@ -52,10 +52,28 @@
 
 # Always do a full sync + upgrade. Partial upgrades on rolling-release Arch
 # are unsupported and cause download 404s when the local db is stale.
-- name: Sync package database and upgrade system (Arch)
+# Split in two, because the two halves answer differently about whether they changed anything.
+# Refreshing the package database is an act rather than a state: it downloads three repository indexes
+# every time and the module reports changed for it whether or not a single package needed upgrading.
+# Arch's idempotency scenario caught it on the first run this repository has ever done, on 2026-08-21,
+# with a second pass whose only output was "Synchronizing package databases" and no packages upgraded
+# at all. Upgrading is a state the machine converges on, so that half reports honestly.
+#
+# The same reasoning and the same split as Clean APT cache in site.yaml.
+#
+# -Sy then -Su in two invocations, which is not the partial upgrade the Arch wiki warns about: that
+# warning is against `-Sy <package>`, installing against a freshly refreshed database without
+# upgrading. Here the refresh is immediately followed by the full upgrade, so the database and the
+# installed set stay in step.
+- name: Sync the package database (Arch)
   become: yes
   community.general.pacman:
     update_cache: yes
+  changed_when: false
+
+- name: Upgrade the system (Arch)
+  become: yes
+  community.general.pacman:
     upgrade: yes
 
 - name: Install unzip and zip
