@@ -76,136 +76,21 @@
     - not toolbox_binary.stat.exists
     - ih_family != "Archlinux"
 
-- name: Probe Toolbox apps directory existence
-  ansible.builtin.stat:
-    path: "{{ non_root_home }}/.local/share/JetBrains/Toolbox/apps"
-  register: toolbox_apps_dir
-
-- name: Probe currently-installed Toolbox IDEs
-  ansible.builtin.find:
-    paths: "{{ non_root_home }}/.local/share/JetBrains/Toolbox/apps"
-    file_type: directory
-    depth: 1
-  register: toolbox_installed_ides
-  changed_when: false
-  when: toolbox_apps_dir.stat.exists and toolbox_apps_dir.stat.isdir
-
-- name: Build set of installed Toolbox IDE slugs
-  ansible.builtin.set_fact:
-    toolbox_installed_slugs: >-
-      {{ (toolbox_installed_ides.files | default([]))
-         | map(attribute='path')
-         | map('basename')
-         | map('lower')
-         | list }}
-
-# Each IDE install is a ~1 GB download. Fire-and-forget pattern (poll: 0)
-# lets multiple downloads run in parallel. `throttle: 2` caps concurrency
-# to mitigate Toolbox CLI state-file write contention while still saving
-# 5-8 min on the typical 5-IDE install.
-- name: Install JetBrains IDEs via Toolbox (parallel, fire-and-forget)
-  ansible.builtin.shell: |
-    set -o pipefail
-    {{ ih_timeout }} 1800 "{{ non_root_home }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox" install {{ item.cli }} </dev/null
-  args:
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  loop:
-    - { cli: 'idea',     match: 'intellij' }
-    - { cli: 'pycharm',  match: 'pycharm' }
-    - { cli: 'webstorm', match: 'webstorm' }
-    - { cli: 'datagrip', match: 'datagrip' }
-    - { cli: 'rider',    match: 'rider' }
-  loop_control:
-    label: "{{ item.cli }}"
-  register: toolbox_ide_jobs
-  async: 2100
-  poll: 0
-  throttle: 2
-  changed_when: false
-  when:
-    - install_jetbrains_toolbox | default(true) | bool
-    - toolbox_binary.stat.exists or (toolbox_download is defined and toolbox_download is changed)
-    - toolbox_installed_slugs is not search(item.match)
-
-- name: Wait for JetBrains IDE installs to finish
-  ansible.builtin.async_status:
-    jid: "{{ item.ansible_job_id }}"
-  register: toolbox_ide_results
-  loop: "{{ toolbox_ide_jobs.results | default([]) }}"
-  loop_control:
-    label: "{{ item.item.cli | default('skipped') }}"
-  until: toolbox_ide_results.finished
-  retries: 140
-  delay: 15
-  failed_when: false
-  when:
-    - install_jetbrains_toolbox | default(true) | bool
-    - item is not skipped
-    - item.ansible_job_id is defined
-
-# Nothing read toolbox_ide_results at all, so up to five IDE installs of roughly a gigabyte each
-# could every one of them fail and the run produced no console line, no summary entry and an exit
-# code of zero. The `failed_when: false` above is deliberate, a broken IntelliJ download must not
-# abandon the rest of the playbook, but tolerating a failure and pretending it did not happen are
-# different things.
+# Toolbox installs the IDEs, not this playbook, and that is deliberate rather than a gap.
 #
-# rc, never `failed`. The wait task's own failed_when rewrites `failed` to false on every item
-# whatever the job did, which is the defect that made the AUR failure collector in
-# roles/software_installer/tasks/dynamic_install.yaml dead code from the day it was written, and
-# e2e/tier1/failed_key_reads.sh now forbids the read outright. rc survives failed_when untouched.
+# What was here until 2026-08-21: a probe of the installed IDE slugs, then five fire-and-forget
+# `jetbrains-toolbox install <product>` jobs, a wait, and a reporting task. It never worked. The
+# first run on anything resembling a real desktop, the macOS runner in the first stage 3 sweep, had
+# all five fail, and the failure had been invisible before that only because no run ever reached it.
 #
-# `item.item.cli` because this loops over the async_status results, whose own `item` is the job
-# result from the fire-and-forget task, whose `item` is the IDE dictionary.
-- name: Collect JetBrains IDE installs whose job reported a failure
-  ansible.builtin.set_fact:
-    toolbox_failed_ide_builds: >-
-      {{ (toolbox_ide_results.results | default([]))
-         | selectattr('rc', 'defined')
-         | rejectattr('rc', 'equalto', 0)
-         | map(attribute='item.item.cli')
-         | list }}
-
-# A job still running when the retries expire comes back finished 0 and carries no rc at all, so the
-# collector above cannot see it. 140 retries at 15 seconds is 35 minutes, and each install is capped
-# at 1800 seconds by its own `timeout`, so this fires when the machine is oversubscribed rather than
-# when the download is broken. It needs saying separately because the response differs: raise the
-# budget rather than retry.
-- name: Collect JetBrains IDE installs still running when the wait expired
-  ansible.builtin.set_fact:
-    toolbox_timed_out_ides: >-
-      {{ (toolbox_ide_results.results | default([]))
-         | selectattr('finished', 'defined')
-         | rejectattr('finished', 'equalto', 1)
-         | map(attribute='item.item.cli')
-         | list }}
-
-- name: Combine every kind of JetBrains IDE install failure
-  ansible.builtin.set_fact:
-    toolbox_failed_ides: >-
-      {{ (toolbox_failed_ide_builds | default([])
-          + toolbox_timed_out_ides | default([])) | unique }}
-
-- name: Surface JetBrains IDE installs that failed
-  ansible.builtin.debug:
-    msg: >-
-      [ERROR] These JetBrains IDEs did not install: {{ toolbox_failed_ide_builds | join(', ') }}.
-      Toolbox writes its own log under
-      {{ non_root_home }}/.local/share/JetBrains/Toolbox/logs, and the usual causes are a full disk,
-      each IDE being roughly a gigabyte, and a Toolbox that needs to be logged in to a JetBrains
-      account for a licensed product.
-  when: toolbox_failed_ide_builds | default([]) | length > 0
-
-- name: Surface JetBrains IDE installs that ran out of time
-  ansible.builtin.debug:
-    msg: >-
-      [ERROR] These JetBrains IDEs were still installing when the wait expired, so they are NOT
-      installed: {{ toolbox_timed_out_ides | join(', ') }}. Rerunning picks up where Toolbox left
-      off, and on a slow connection the retries in this role's wait task are what to raise.
-  when: toolbox_timed_out_ides | default([]) | length > 0
-
-- name: Record missing JetBrains IDEs in the play summary
-  ansible.builtin.set_fact:
-    any_role_failed: true
-  when: toolbox_failed_ides | default([]) | length > 0
+# It cannot be made to work from a script either. JetBrains' own documentation calls the Toolbox
+# command-line interface "very much work-in-progress" and states no requirements for unattended use,
+# and four of the five products in that list, IntelliJ IDEA Ultimate, PyCharm Professional, DataGrip
+# and Rider, are commercial and need a signed-in JetBrains account before Toolbox will fetch them.
+# A provisioning run has no account to sign in with and nobody watching to sign in for it.
+#
+# So the scope is Toolbox itself, which is what install_jetbrains_toolbox now means: the tool is
+# there, logged in or not, and the user picks their IDEs from its window in ten seconds. Roughly five
+# gigabytes of downloads that could only fail are gone with it, along with the reporting they needed.
+#
+# https://www.jetbrains.com/help/toolbox-app/toolbox-app-cli.html
