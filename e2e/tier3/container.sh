@@ -368,6 +368,14 @@ start_run() {
             docker exec "${CONTAINER}" bash -c 'stat -c "%n %A %U:%G" /etc/shadow /etc/sudoers /etc/sudoers.d 2>&1'
             echo "--- the rule that is supposed to make this passwordless ---"
             docker exec "${CONTAINER}" bash -c 'ls -l /etc/sudoers.d/ 2>&1; cat /etc/sudoers.d/00-e2e-runner 2>&1; grep -n includedir /etc/sudoers 2>&1'
+            echo "--- does root itself get past PAM, which separates setuid from PAM entirely ---"
+            docker exec "${CONTAINER}" sudo -n true 2>&1 && echo "root's own sudo works, so the setuid path is the difference"
+            echo "--- what PAM logged about it, which is the only place the real reason is written ---"
+            docker exec "${CONTAINER}" bash -c 'journalctl -t sudo -n 25 --no-pager 2>&1 | tail -15'
+            echo "--- which PAM profile this image resolved, and whether sssd got pulled in ---"
+            docker exec "${CONTAINER}" bash -c 'authselect current 2>&1 | head -4; echo; grep -h "^account" /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null | sort -u; echo; rpm -q sssd sssd-client 2>&1 | head -2; echo; grep -E "^(passwd|shadow|group)" /etc/nsswitch.conf'
+            echo "--- the helper pam_unix falls back to, and the capability sets it inherits ---"
+            docker exec "${CONTAINER}" bash -c 'ls -l /usr/sbin/unix_chkpwd 2>&1; grep -E "CapBnd|CapEff" /proc/self/status'
             echo "--- what sudo itself thinks it may do ---"
             docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n -l 2>&1 | head -20
             echo "--- the daemon, because overlay copy-up and a nosuid docker root have both done this before ---"
