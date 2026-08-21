@@ -425,7 +425,11 @@ start_run() {
             # it produces four thousand lines and sudo_pam_approval is in them.
             docker exec "${CONTAINER}" bash -c 'printf "Debug sudo /var/log/sudo_debug all@debug\nDebug sudoers.so /var/log/sudo_debug all@debug\n" > /etc/sudo.conf' 2>&1
             docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n true >/dev/null 2>&1 || true
-            docker exec "${CONTAINER}" bash -c 'grep -n "sudo_pam_approval" /var/log/sudo_debug | head -2; echo; grep -B12 -A12 "sudo_pam_approval" /var/log/sudo_debug | tail -30' 2>&1
+            # The whole approval window rather than a fixed number of lines either side of it, filtered
+            # to the perms changes, the uid at each step and anything that names an error. What sudo
+            # was running as when it called pam_acct_mgmt is the number that would explain this, and a
+            # tail of the surrounding lines kept cutting it off.
+            docker exec "${CONTAINER}" bash -c 'awk "/-> sudo_pam_approval/,/<- sudo_pam_approval/" /var/log/sudo_debug | grep -iE "set_perms|PERM_|uid:|gid:|pam_|shadow|errno|denied|open" | head -40' 2>&1
             docker exec "${CONTAINER}" bash -c 'grep -iE "set_perms|seteuid|setresuid|shadow|errno|EACCES|denied" /var/log/sudo_debug | tail -12' 2>&1
             echo "--- pam_unix's own debug output, which names the call that failed ---"
             # Everything cheaper has been asked and answered. pam_unix takes a debug option and logs
