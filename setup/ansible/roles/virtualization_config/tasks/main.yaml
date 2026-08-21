@@ -102,10 +102,42 @@
   when: ih_family == 'RedHat' and ansible_virtualization_role == 'guest'
   tags: [libvirt]
 
-- name: Enable and start libvirtd service (Linux)
+# This used to be one task asking for libvirtd.service to be both enabled and started, and it
+# reported changed on every run that was more than about two minutes long. The reason is not a
+# reporting bug. libvirtd is socket-activated and the unit that ships with it carries
+# Environment=LIBVIRTD_ARGS="--timeout 120", so the daemon exits by itself two minutes after the last
+# client disconnects and systemd leaves libvirtd.socket listening in its place. Asking for the
+# service to be started is therefore asking for a state the system deliberately walks away from, and
+# a second pass really does start the daemon again. The change was honest, the request was wrong.
+#
+# Measured rather than reasoned about, in a Debian trixie container running systemd as PID 1. After
+# 150 idle seconds systemctl reported libvirtd.service inactive and libvirtd.socket active, and the
+# old task reported "changed": true at that point. In the same state the two tasks below both
+# reported "changed": false, and so did they while the daemon was still running. With the service
+# stopped and only the sockets listening, `virsh -c qemu:///system uri` answered and systemd brought
+# the service straight back up, so nothing is lost by not demanding it be running.
+#
+# The two halves are asked for separately because they are two different things. The socket is what
+# has to be listening now, and a socket unit does not exit when it is idle, so starting it is
+# genuinely repeatable. The service is what has to come up at boot, because that is the pass which
+# autostarts the guests marked for it, and enabling it without demanding it run leaves the idle exit
+# alone.
+#
+# libvirtd.socket ships on all three Linux families this playbook supports, checked by listing the
+# unit directory in a container of each rather than generalising from Debian, and all three carry the
+# same --timeout 120 in libvirtd.service.
+- name: Enable libvirtd at boot (Linux)
   become: true
   ansible.builtin.systemd:
-    name: libvirtd
+    name: libvirtd.service
+    enabled: true
+  when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+  tags: [libvirt]
+
+- name: Enable and start the libvirtd socket (Linux)
+  become: true
+  ansible.builtin.systemd:
+    name: libvirtd.socket
     state: started
     enabled: true
   when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool

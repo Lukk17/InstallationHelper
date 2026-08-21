@@ -205,10 +205,7 @@
   become: true
   register: gridcoin_bundle_install
   changed_when: gridcoin_bundle_install.rc == 0
-  failed_when: >-
-    gridcoin_bundle_install.rc != 0
-    and 'already installed' not in ((gridcoin_bundle_install.stdout | default(''))
-                                    ~ (gridcoin_bundle_install.stderr | default('')))
+  failed_when: "gridcoin_bundle_install.rc != 0 and 'already installed' not in ((gridcoin_bundle_install.stdout | default('')) ~ (gridcoin_bundle_install.stderr | default('')))"
   when:
     - ansible_facts['system'] == 'Linux'
     - install_gridcoin | default(false) | bool

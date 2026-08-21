@@ -200,7 +200,7 @@ On Linux the playbook enables and starts the `tailscaled` system service in `cus
 | App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
 |---|---|---|---|---|---|
 | BOINC | `sudo apt-get install -y boinc-client` | `sudo dnf install -y boinc-client` | `sudo pacman -S --needed boinc` | `brew install --cask boinc` | `winget install -e --id UCBerkeley.BOINC` |
-| Gridcoin | `sudo add-apt-repository -y ppa:gridcoin/gridcoin-stable && sudo apt-get install -y gridcoinresearch` | OpenSUSE build-service repo, see `custom_installs.yaml` | `curl -fsSLo /tmp/gridcoin.flatpak https://github.com/gridcoin-community/Gridcoin-Research/releases/download/5.5.0.0/gridcoin-5.5.0.0-x86_64.flatpak && sudo flatpak install --system --bundle --assumeyes /tmp/gridcoin.flatpak` | DMG from [GitHub releases](https://github.com/gridcoin-community/Gridcoin-Research/releases) | `.exe` from [GitHub releases](https://github.com/gridcoin-community/Gridcoin-Research/releases), silent flag `/S` |
+| Gridcoin | `sudo add-apt-repository -y ppa:gridcoin/gridcoin-stable && sudo apt-get install -y gridcoinresearch` | OpenSUSE build-service repo, see `custom_installs.yaml` | `curl -fsSLo /tmp/gridcoin.flatpak https://github.com/gridcoin-community/Gridcoin-Research/releases/download/5.5.0.0/gridcoin-5.5.0.0-x86_64.flatpak && sudo flatpak install --system --noninteractive --bundle --assumeyes /tmp/gridcoin.flatpak` | DMG from [GitHub releases](https://github.com/gridcoin-community/Gridcoin-Research/releases) | `.exe` from [GitHub releases](https://github.com/gridcoin-community/Gridcoin-Research/releases), silent flag `/S` |
 
 ## SDK and runtime managers
 

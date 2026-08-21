@@ -60,4 +60,4 @@
   # condition required rc to be defined before it could fail, so that shape passed silently. Same
   # reasoning as the async_status collector in fvm_unix.yaml.
   failed_when: nvm_install.rc is not defined or nvm_install.rc != 0
-  when: nvm_lts_installed.rc != 0
+  when: (nvm_lts_installed.rc | default(1)) != 0
