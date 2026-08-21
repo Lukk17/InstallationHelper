@@ -8,14 +8,24 @@
       export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
       export DOCKER_CONFIG="$HOME/apps_config/.docker"
       export M2_HOME="$HOME/apps_config/.m2"
-      export ANDROID_SDK_HOME="$HOME/apps_config/.android"
       export KUBECONFIG="$HOME/apps_config/.kube/config"
-      export ANDROID_SDK_ROOT="/opt/android"
+      # The SDK location, from the same android_home the installer writes to. ANDROID_HOME is the
+      # current name and ANDROID_SDK_ROOT is the deprecated one, and both are set to the same path
+      # because Android Studio and the Gradle plugin check the two for consistency when the old one
+      # is present. https://developer.android.com/tools/variables
+      export ANDROID_HOME="{{ android_home }}"
+      export ANDROID_SDK_ROOT="{{ android_home }}"
+      # The user preferences directory, which is a different thing from the SDK. ANDROID_USER_HOME
+      # names it outright; ANDROID_SDK_HOME is the legacy variable Android Studio 4.3 and earlier
+      # read, and it names the PARENT the .android directory is created under, so it gets
+      # apps_config rather than apps_config/.android.
+      export ANDROID_USER_HOME="$HOME/apps_config/.android"
+      export ANDROID_SDK_HOME="$HOME/apps_config"
       # Pub (Dart/Flutter) installs user-level executables here; pin it to PATH
       # so the "Pub installs executables into $HOME/.pub-cache/bin, which is
       # not on your path" warning never reappears.
       export PUB_CACHE="$HOME/.pub-cache"
-      export PATH="/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator:$HOME/.pub-cache/bin:$PATH"
+      export PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:$HOME/.pub-cache/bin:$PATH"
   become: yes
   become_user: "{{ non_root_user }}"
   when: ansible_facts['system'] == 'Linux'
@@ -29,14 +39,24 @@
       export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
       export DOCKER_CONFIG="$HOME/apps_config/.docker"
       export M2_HOME="$HOME/apps_config/.m2"
-      export ANDROID_SDK_HOME="$HOME/apps_config/.android"
       export KUBECONFIG="$HOME/apps_config/.kube/config"
-      export ANDROID_SDK_ROOT="/opt/android"
+      # The SDK location, from the same android_home the installer writes to. ANDROID_HOME is the
+      # current name and ANDROID_SDK_ROOT is the deprecated one, and both are set to the same path
+      # because Android Studio and the Gradle plugin check the two for consistency when the old one
+      # is present. https://developer.android.com/tools/variables
+      export ANDROID_HOME="{{ android_home }}"
+      export ANDROID_SDK_ROOT="{{ android_home }}"
+      # The user preferences directory, which is a different thing from the SDK. ANDROID_USER_HOME
+      # names it outright; ANDROID_SDK_HOME is the legacy variable Android Studio 4.3 and earlier
+      # read, and it names the PARENT the .android directory is created under, so it gets
+      # apps_config rather than apps_config/.android.
+      export ANDROID_USER_HOME="$HOME/apps_config/.android"
+      export ANDROID_SDK_HOME="$HOME/apps_config"
       # Pub (Dart/Flutter) installs user-level executables here; pin it to PATH
       # so the "Pub installs executables into $HOME/.pub-cache/bin, which is
       # not on your path" warning never reappears.
       export PUB_CACHE="$HOME/.pub-cache"
-      export PATH="/opt/android/cmdline-tools/latest/bin:/opt/android/platform-tools:/opt/android/emulator:$HOME/.pub-cache/bin:$PATH"
+      export PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:$HOME/.pub-cache/bin:$PATH"
   become: yes
   become_user: "{{ non_root_user }}"
   when: ih_family == 'Darwin'
