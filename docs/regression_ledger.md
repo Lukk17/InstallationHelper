@@ -720,3 +720,37 @@ Debian's `kde-configure-only` cell failed inside the batched apt install, and af
 Both apt transcripts, `installation-apt-batch.log` and `installation-virt-apt.log`, are now copied out of the container for every scenario next to `installation_errors.log`. Unconditionally, because a passing run's transcript is a few kilobytes and is the baseline you compare a failing one against.
 
 The general shape is worth keeping: a diagnostic that only runs when the run survives is not a diagnostic for the case that matters. Collect the evidence from outside the thing that is failing.
+
+#### The sweep that was meant to confirm a day of Windows work never ran a single Windows job
+
+Status: fixed in this change, in [e2e-matrix.yml](../.github/workflows/e2e-matrix.yml).
+
+Run 32513917159 finished 44 passed and 12 failed. Nine of the twelve were Linux container cells, and the other three were the gate plus two consequences of it: all seven stage 3 jobs, three macOS and four Windows, reported skipped. The sweep existed to prove the Windows Android SDK install, the seven user-scope environment variables, the Server SKU feature handling and the WSL registration, and it proved none of them, because six CachyOS cells failed over a repository whose index disagrees with its own content delivery network.
+
+The cause was the dependency graph, not the failures. Every stage 3 job read `needs: stage2_gate` with `needs.stage2_gate.outputs.ok == 'true'`, so a red Linux sweep switched off every other platform. A Debian mirror dropping a connection is not evidence about a Windows installer.
+
+Stage 3 now hangs off `stage1_gate`, the static gate over toggles, mappings, pinned values and both wizards, which is the one that genuinely protects it: if those are broken no platform is worth booting. The Linux node stays, renamed `stage2_verdict`, because turning thirty matrix cells into one red or green line is worth a job on its own, and its exit code is still what makes the run fail. It gates nothing now, and its unread `ok` output is gone rather than left to look load-bearing.
+
+One deliberate consequence: with `start_from_stage=stage-2` the Windows and macOS jobs run alongside the container sweep instead of after it, which is both faster and a truer statement of what depends on what.
+
+#### An async budget that could not fit the retry loop inside it
+
+Status: fixed in this change, in [pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml).
+
+Debian's all-software cell lost Python 3.12.13 to `curl: (35) TLS connect error: unexpected eof while reading` from python.org, and the fix for that was three attempts inside the async job, since Ansible's own `retries` cannot reach a task launched with `poll: 0`. The arithmetic was not carried through: three attempts at a 1500 second ceiling plus two 20 second waits is 4540 seconds, and the job still declared `async: 1800`, which is a hard kill rather than a target.
+
+So the loop could only ever help against a fast failure, which is what the observed one was. A build that ran slowly and timed out left 300 seconds for the two attempts behind it, and whichever one was running when 1800 passed was killed with nothing said about it. `async` is now 4800, and the collector's wait went from 80 retries to 170 at 30 seconds, 85 minutes, so it outlasts the ceiling rather than giving up on a job that is still working.
+
+The general shape: a retry loop and a timeout have to be sized against each other, and a number that was right for one attempt is wrong for three. The four builds run concurrently, so this is a worst-case ceiling and not a cost anybody pays.
+
+#### Thirty lines kept from the wrong end of a thousand
+
+Status: fixed in this change, in [dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py), asserted by [ansible_static.sh](../e2e/tier1/ansible_static.sh).
+
+Debian's kde-configure-only cell failed inside the batched apt install, and afterwards no log anywhere said why. The callback truncates a task's captured output to thirty lines, and it kept the first twenty-nine. apt prints what it is about to install first, one line per dependency, and says `E: Failed to fetch` at the very end, so of 1098 lines the run kept the dependency list and threw away the diagnosis. The playbook does have a task that tails `/var/log/installation-apt-batch.log` for exactly this, and it never ran, because the failure it exists to explain aborts the role before reaching it.
+
+Truncation now keeps a third of the budget from the head, where a command names what it is doing, and the rest from the tail, where it fails, with a marker naming how many lines went so the two halves are not read as contiguous. A tier 1 assertion imports the real function out of the plugin, feeds it 500 lines ending in `E: Failed to fetch` and requires that line to survive. Proven both ways before it was committed: against a copy of the tree carrying the head-only version it reports `dropped the tail, last line is '... [truncated, 471 more lines]'`, and against the fixed one it passes.
+
+Beside it, `installation-apt-batch.log` and `installation-virt-apt.log` are now copied out of every container scenario, so the package manager's own transcript survives the container even when the truncation was not the problem.
+
+Worth stating plainly: this had cost nothing visible, because a run that passes never truncates anything a reader wants. It only ever bites on the run you most need to read, which is why it lasted this long.

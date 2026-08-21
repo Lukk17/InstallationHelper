@@ -59,6 +59,53 @@ for f in "${E2E_ROOT}"/tier3/verify.yaml; do
     fi
 done
 
+# --- the callback keeps the tail of a long block -----------------------------
+# Asserted because losing it is silent. dual_logger truncates a task's stdout to
+# STDOUT_TRUNCATE_LINES, and while it kept the head alone, the reason a failed command gave was
+# thrown away before anything was written: apt prints its dependency list first and "E: Failed to
+# fetch" last, so 29 lines of 1098 kept the noise and dropped the diagnosis. One Debian cell was
+# unexplainable for exactly that reason.
+#
+# The real function is imported out of the plugin rather than reimplemented here, so this cannot
+# pass against a copy while the plugin regresses.
+trunc_probe="$("${PYTHON:-python3}" - "${ANSIBLE_DIR}/callback_plugins/dual_logger.py" <<'PYEOF'
+import importlib.util, sys
+
+spec = importlib.util.spec_from_file_location("dual_logger_probe", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(module)
+except Exception as exc:                      # ansible not importable here, for instance
+    print("SKIP {}".format(exc))
+    sys.exit(0)
+
+truncate = module.CallbackModule._truncate_lines
+limit = module.STDOUT_TRUNCATE_LINES
+lines = ["line {}".format(n) for n in range(500)]
+lines[-1] = "E: Failed to fetch"
+out = truncate(lines, limit)
+
+problems = []
+if len(out) > limit:
+    problems.append("returned {} lines for a limit of {}".format(len(out), limit))
+if out[0] != "line 0":
+    problems.append("dropped the head, first line is {!r}".format(out[0]))
+if out[-1] != "E: Failed to fetch":
+    problems.append("dropped the tail, last line is {!r}".format(out[-1]))
+if not any("truncated" in ln for ln in out):
+    problems.append("said nothing about the lines it removed")
+short = ["only", "two", "lines"]
+if truncate(short, limit) != short:
+    problems.append("mangled a block shorter than the limit")
+print("FAIL " + "; ".join(problems) if problems else "OK")
+PYEOF
+)"
+case "${trunc_probe}" in
+    OK) pass "the callback keeps both the head and the tail when it truncates a long block" ;;
+    SKIP*) skip "the callback keeps both ends when it truncates" "${trunc_probe#SKIP }" ;;
+    *) fail "the callback truncation loses the end of a long block, which is where failures explain themselves"             "${trunc_probe#FAIL }" ;;
+esac
+
 # --- optional linters --------------------------------------------------------
 # Reported, never required. Making the gate depend on a tool that may not be installed
 # would mean the gate silently stops running, which is its own failure mode.

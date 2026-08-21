@@ -112,7 +112,14 @@
     - "{{ python313_id }}"
   loop_control:
     label: "{{ item }}"
-  async: 1800
+  # 4800 rather than 1800 because of the retry loop above, whose arithmetic the old budget did not
+  # cover: three attempts at a 1500 second ceiling each, plus two 20 second waits, is 4540 seconds,
+  # and async is a hard kill. At 1800 an attempt that ran to its own timeout left 300 seconds for
+  # the two after it, so the loop could only ever help against a fast failure like a dropped TLS
+  # handshake, and a genuinely slow build was killed halfway through attempt two with no message
+  # saying so. The four builds run concurrently, so this is a ceiling on the worst case rather than
+  # a cost anybody pays.
+  async: 4800
   poll: 0
   register: pyenv_jobs
   changed_when: false
@@ -147,7 +154,11 @@
   become_user: "{{ non_root_user }}"
   register: pyenv_install
   until: pyenv_install.finished
-  retries: 80
+  # 170 at 30 seconds is 85 minutes, which has to outlast the async ceiling above rather than merely
+  # be a large number. The old 80 was 40 minutes against an async budget of 30, and raising the
+  # budget without raising this would have the collector give up on a job that was still running,
+  # reporting a failure the machine had not had.
+  retries: 170
   delay: 30
   changed_when: >-
     pyenv_install.finished and

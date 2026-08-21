@@ -358,9 +358,27 @@ class CallbackModule(CallbackBase):
 
     @staticmethod
     def _truncate_lines(lines: List[str], limit: int) -> List[str]:
+        """Keep the head and the tail of a long block, never the head alone.
+
+        A command that fails says why last. apt lists every dependency it is about to install and
+        then prints "E: Failed to fetch" at the very end, so keeping the first 29 lines of 1098 kept
+        the dependency list and threw away the only line that explained anything. That is not
+        hypothetical: the Debian kde-configure-only cell of 2026-08-21 failed inside the batched apt
+        install and the reason was unrecoverable from every log the run produced, because this
+        function had already dropped it before anything was written.
+
+        A third of the budget goes to the head, which is where a command names what it is doing, and
+        the rest to the tail, which is where it fails. The marker in between says how many lines are
+        gone so nobody reads the two halves as contiguous.
+        """
         if len(lines) <= limit:
             return lines
-        return lines[: limit - 1] + [f"... [truncated, {len(lines) - limit + 1} more lines]"]
+        head = max(1, limit // 3)
+        tail = max(1, limit - head - 1)
+        dropped = len(lines) - head - tail
+        return (lines[:head]
+                + [f"... [truncated, {dropped} lines omitted from the middle]"]
+                + lines[-tail:])
 
     def _extract_task_role(self, task_name: str) -> Optional[str]:
         if not task_name or not isinstance(task_name, str):

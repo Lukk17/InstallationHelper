@@ -42,9 +42,15 @@
 #   51. Windows from nothing    windows-latest  every toggle off, then a handful by name
 #   52. Windows settings only   windows-latest  the four native settings, no software
 #
-# Three more jobs exist outside that numbered list: stage1_gate and stage2_gate, which decide
-# whether the next stage is allowed to start, and stage2_plan, which turns the stage 2 dispatch
-# inputs into the matrix stage2_sweep runs. None of them install or verify anything themselves.
+# Three more jobs exist outside that numbered list: stage1_gate, which decides whether stages 2 and
+# 3 are allowed to start, stage2_verdict, which turns the whole Linux sweep into one red or green
+# node and gates nothing, and stage2_plan, which turns the stage 2 dispatch inputs into the matrix
+# stage2_sweep runs. None of them install or verify anything themselves.
+#
+# Stage 3 hangs off stage1_gate rather than off stage 2 on purpose, and the reason is in the comment
+# above stage2_verdict: Linux container results are not evidence about Windows or macOS, and letting
+# them gate these seven jobs once skipped every one of them over failures on a distribution none of
+# them run.
 #
 # ---------------------------------------------------------------------------------------------
 # max-parallel: 20 on the stage 2 matrix. This is not a readability choice, it is simply the
@@ -690,26 +696,31 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  # Decides whether stage 3 is allowed to start, the same shape as stage1_gate. ok=false
-  # propagates a real stage 1 or stage 2 failure forward without stage 3 needing to re-check
-  # stage 1 itself: stage2_gate depends on stage1_gate's own verdict as well as stage 2's jobs.
-  stage2_gate:
-    name: "Stage 2 gate: Linux installs passed, stage 3 may start"
+  # One red-or-green node for the whole Linux sweep, and nothing depends on it.
+  #
+  # It used to gate stage 3, and that was wrong in a way that cost real coverage. On 2026-08-21 six
+  # CachyOS cells and three others failed for reasons that had nothing to do with Windows or macOS,
+  # this node went red, and all seven stage 3 jobs were skipped, on the one sweep whose purpose was
+  # to confirm a day of Windows work. A Debian mirror dropping a connection is not evidence about a
+  # Windows installer, so it must not be allowed to hide one. Stage 3 now asks stage1_gate instead,
+  # which is the cheap static gate that genuinely does protect it: if the toggles, mappings, pinned
+  # values or either wizard are broken, no platform is worth booting.
+  #
+  # The exit code still matters, which is why this job stays. It is what turns a failed Linux cell
+  # into a failed run, in one place a reader can look at rather than thirty matrix cells.
+  stage2_verdict:
+    name: "Stage 2 verdict: did the Linux container installs pass"
     needs: [stage1_gate, stage2_plan, stage2_sweep]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions:
       contents: read
-    outputs:
-      ok: ${{ steps.gate.outputs.ok }}
     steps:
-      # The exit code matches the decision, deliberately. This job is a decision node rather than a
-      # verdict, and an earlier version always exited 0 and carried its answer only in an output, so
-      # the run showed a green "gate" tick beside a red stage 1 job. The overall run conclusion was
-      # correct, but a reader scanning the job list saw a green gate over a failed stage, which is
-      # exactly the shape of misreporting this repository keeps paying for. A bypassed stage still
-      # exits 0, because being told to skip it is not a failure.
+      # The exit code carries the whole answer now, and there is no output beside it. An earlier
+      # version always exited 0 and answered only through an output, so the run showed a green tick
+      # beside a red stage, which is exactly the shape of misreporting this repository keeps paying
+      # for. A bypassed stage still exits 0, because being told to skip it is not a failure.
       - id: gate
         env:
           START_FROM: ${{ inputs.start_from_stage }}
@@ -720,21 +731,17 @@ jobs:
           set -euo pipefail
           if [[ "${STAGE1_OK}" != "true" ]]; then
             echo "Stage 1 did not pass, so stage 2 could not run."
-            echo "ok=false" >> "${GITHUB_OUTPUT}"
             exit 1
           fi
           if [[ "${START_FROM}" == "stage-3" ]]; then
             echo "Stage 2 intentionally bypassed by start_from_stage=stage-3."
-            echo "ok=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
           if [[ "${PLAN_RESULT}" != "success" || "${SWEEP_RESULT}" != "success" ]]; then
             echo "Stage 2 did not pass cleanly, plan='${PLAN_RESULT}' sweep='${SWEEP_RESULT}'."
-            echo "ok=false" >> "${GITHUB_OUTPUT}"
             exit 1
           fi
           echo "Stage 2 passed."
-          echo "ok=true" >> "${GITHUB_OUTPUT}"
 
   # ===========================================================================================
   # STAGE 3 - the short real installs on the other two platforms. Seven jobs, each a real wizard
@@ -748,14 +755,18 @@ jobs:
   # group_vars/all.yaml or the platform's own group_vars file on macOS and Windows alike, are
   # fast, and are not gated behind anything that only makes sense on Linux.
   #
-  # Stage 3 always runs once stage2_gate says stage 1 and 2 passed or were legitimately
-  # bypassed: it is the last stage, so start_from_stage never skips past it, only into it.
+  # Stage 3 runs once stage1_gate says the static checks passed or were legitimately bypassed. It
+  # deliberately does not wait for the Linux container sweep: these are different operating systems,
+  # a Linux cell failing says nothing about a Windows installer, and gating them behind it once
+  # skipped all seven of these jobs over six CachyOS failures. It is the last stage, so
+  # start_from_stage never skips past it, only into it. With start_from_stage=stage-2 it now runs
+  # alongside stage 2 rather than after it, which is both honest and faster.
   # ===========================================================================================
 
   stage3_macos_defaults:
     name: "Stage 3 install on macOS: the software set as it ships"
-    needs: stage2_gate
-    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
+    needs: stage1_gate
+    if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: macos-14
     timeout-minutes: 120
     permissions:
@@ -801,8 +812,8 @@ jobs:
 
   stage3_macos_everything:
     name: "Stage 3 install on macOS: every application turned on"
-    needs: stage2_gate
-    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
+    needs: stage1_gate
+    if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: macos-14
     timeout-minutes: 120
     permissions:
@@ -848,8 +859,8 @@ jobs:
 
   stage3_macos_from_nothing:
     name: "Stage 3 install on macOS: nothing on, then a few by name"
-    needs: stage2_gate
-    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
+    needs: stage1_gate
+    if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: macos-14
     timeout-minutes: 120
     permissions:
@@ -895,8 +906,8 @@ jobs:
 
   stage3_windows_defaults:
     name: "Stage 3 install on Windows: the software set as it ships"
-    needs: stage2_gate
-    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
+    needs: stage1_gate
+    if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 150
     permissions:
@@ -963,8 +974,8 @@ jobs:
 
   stage3_windows_everything:
     name: "Stage 3 install on Windows: every application turned on"
-    needs: stage2_gate
-    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
+    needs: stage1_gate
+    if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 150
     permissions:
@@ -1026,8 +1037,8 @@ jobs:
 
   stage3_windows_from_nothing:
     name: "Stage 3 install on Windows: nothing on, then a few by name"
-    needs: stage2_gate
-    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
+    needs: stage1_gate
+    if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 150
     permissions:
@@ -1089,8 +1100,8 @@ jobs:
 
   stage3_windows_settings_only:
     name: "Stage 3 configure Windows: system settings, no software"
-    needs: stage2_gate
-    if: "!cancelled() && needs.stage2_gate.outputs.ok == 'true'"
+    needs: stage1_gate
+    if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 150
     permissions:
