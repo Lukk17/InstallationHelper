@@ -593,15 +593,21 @@ What is left is inside the sudo process on that host, and the two tools that wou
 
 The one thing worth stating plainly: nine rounds cost about ten minutes of runner time in total, because the preflight aborts before any install starts. Before the preflight existed, the same information cost twenty minutes a round and arrived attributed to Google Chrome's repository task, which had nothing to do with it. That is the whole argument for asking a cheap question early.
 
-#### balenaEtcher was suppressed on Debian for a dependency that is satisfiable again
+#### balenaEtcher, suppressed on Debian, and I removed the suppression for the wrong reason
 
-Status: suppression removed, coverage restored, [container_limits.debian.yaml](../e2e/tier3/) deleted.
+Status: suppression removed and coverage restored, but not by the reasoning below. Read the correction at the end of this entry before trusting any of it.
 
 On 2026-08-17 the vendor .deb refused to install on `debian:trixie` with `Dependency is not satisfiable: polkit-1-auth-agent|policykit-1-gnome|polkit-kde-1`, so the toggle was turned off for the Debian image with the reason recorded beside it. That file said the application "cannot be installed by any means" on a headless Debian or Ubuntu, and as of today that sentence is false.
 
 Measured on 2026-08-21 against the same package, version 2.1.6, whose control file still declares the same alternative dependency: `apt-get install ./balena-etcher_2.1.6_amd64.deb` exits 0 on both `debian:trixie` and `ubuntu:26.04`, and `dpkg -l` reports it installed. apt satisfies the virtual `polkit-1-auth-agent` by choosing `ukui-polkit`, which is a real cost rather than a free pass: it drags in `systemsettings`, `polkitd`, `biometric-auth` and the rest of that chain onto a machine with no desktop. Anyone provisioning a headless server should know that, and it is now the kind of thing the run itself shows rather than something a suppression hides.
 
-Two things worth keeping. The suppression was keyed on the image name `debian`, so it never applied to the `ubuntu` or `popos` images, which have been installing this package all along without anybody noticing the inconsistency. And a suppression written from one measurement needs re-measuring: this one outlived its reason by four days, and the only thing that found it was going back to check the claim rather than trusting the comment.
+The suppression was keyed on the image name `debian`, so it never applied to the `ubuntu` or `popos` images, which had been installing this package all along without anybody noticing the inconsistency.
+
+Correction, written the same day. Everything above measured the wrong command. The playbook does not run `apt-get install ./file.deb`. It uses `ansible.builtin.apt` with the `deb:` option, which drives dpkg and cannot choose between the four providers of the virtual `polkit-1-auth-agent`, so it answers "Dependency is not satisfiable" and leaves the package unpacked and unconfigured. Removing the suppression on the strength of a command the code does not use turned four Debian cells red in the next sweep, on `defaults`, `live-profile`, `idempotency` and `kde-configure-only`.
+
+The suppression was correct for the install method that existed. What was wrong was the install method. So the fix is not to put the suppression back: the deb install now runs `apt-get install <path>`, which hands the local file to the solver, and balenaEtcher installs on Debian and Ubuntu for real users as well as in the harness. The cost is stated where the task is rather than hidden: apt satisfies that dependency with `ukui-polkit` and pulls `systemsettings`, `polkitd` and the rest of a desktop authentication stack onto a machine that may have no desktop. That is the package's own requirement, and a run that shows it happening is more honest than a suppression that hides it.
+
+Two lessons out of one mistake, and the second is the expensive one. A suppression written from one measurement needs re-measuring, which is what found this. And a measurement is only worth what it measured: I ran the command a person would type instead of the one the code runs, on the same day I wrote three commit messages criticising exactly that. Reproduce what the code does, not what you would do.
 
 #### Every long-running task on macOS failed at once, because macOS has no timeout command
 
@@ -646,3 +652,39 @@ I said three of the twelve were genuine and that was wrong. Only one is.
 `Clean APT cache (Debian)` combined `autoremove` and `clean` in one call. Removing orphaned packages is a state the machine converges on, so a second run with nothing to remove honestly reports no change. Emptying the download cache is an act rather than a state and the apt module marks it changed every time. Split in two, with `changed_when: false` on the clean half, which is what its Arch and macOS siblings twenty lines away already carried, so this was an inconsistency rather than a judgement.
 
 `Download Antigravity Linux tarball` is not an offender at all. `get_url` does not re-download a file that is already there, and the reason it is not there is that the post-tasks delete the whole staging directory at the end of the previous run. Same kind as the Gridcoin and GpuTest archives, and it belongs in the allowlist with them. The correction matters because the fix for a task that cannot tell it already ran is a guard on the task, and the fix for work that genuinely cannot repeat is a line in that file, and confusing the two puts a defect behind an exemption.
+
+#### A regex that read past the end of its line, and the fourteen fixtures that did not notice
+
+Status: fixed in this change, in [derive_os_facts.yaml](../setup/ansible/tasks/derive_os_facts.yaml), and now compared per fixture by [os_family_derivation_case.yaml](../e2e/tier1/os_family_derivation_case.yaml).
+
+The os-release parsing captured `[^"]*`, which excludes the quote character and not the newline. Every value a distribution writes unquoted therefore swallowed the rest of the file up to the next quote. On CachyOS, `ID=cachyos` came back as `cachyos\nID_LIKE=arch\nBUILD_ID=rolling\nVERSION_ID=20260816.0.574111\nANSI_COLOR=`.
+
+It had been there since the file was written, in `ih_os_release_id_like` and `ih_os_release_ubuntu_codename`, and it never mattered. The family derivation asks whether `arch` is IN the value, and a substring test does not care what follows. So the wrong value produced the right answer on every distribution, for as long as anyone had been looking.
+
+It surfaced the moment a new consumer asked for equality instead. A CachyOS-only task gated on `ih_os_release_id == 'cachyos'` was compared against four lines of file and never ran, which cost six CachyOS cells in a sweep and an hour of looking at the wrong thing.
+
+Two things are worth taking from it. The first is mechanical: bound a character class to the line when you are parsing a line-oriented format. The second is about tests. All fourteen fixtures have an unquoted `ID` with content after it, which is exactly the triggering shape, and all fourteen passed, because nothing compared those two facts to anything. An assertion on a value nobody compares is not a test of that value. Both are compared now, per fixture, and the check was proven by reverting the three regexes in a copy of the tree and watching it fail on the first fixture with the newline named in the message.
+
+#### Four dnf repositories defined twice, two of them disagreeing, rewritten on every run
+
+Status: fixed in this change, in [fedora_core](../setup/ansible/roles/fedora_core/tasks/main.yaml).
+
+Fedora's idempotency scenario ran for the first time on 2026-08-21 and found something better than an idempotency defect. The Chrome, Brave, Sublime Text and VS Code dnf repositories were each defined in two places, `fedora_core/tasks/main.yaml` and `software_installer/tasks/fedora_repos.yaml`. Two of the four descriptions disagreed: one file called the Chrome repository `Google Chrome`, the other calls it `google-chrome`. So the two tasks overwrote each other's file on every run and both reported changed, permanently. Brave and VS Code happened to agree word for word and were idempotent by luck alone.
+
+The duplicates are gone from `fedora_core`, leaving `fedora_repos.yaml` as the single owner, next to the Kubernetes, Lens and Tailscale repositories that were only ever defined there. `antigravity-rpm` stays because nothing else defines it.
+
+The lesson is not about descriptions. Two definitions of one thing drift, and the only question is when. What made this visible was not a review of either file, it was running the playbook twice.
+
+#### Two package-database refreshes reported as system changes
+
+Status: fixed in this change, in [site.yaml](../setup/ansible/site.yaml) and [arch_core](../setup/ansible/roles/arch_core/tasks/main.yaml).
+
+The same defect in two package managers, found in the same scenario a few hours apart.
+
+`Clean APT cache (Debian)` asked apt for `autoremove` and `clean` in one call. Removing orphaned packages is a state the machine converges on, so a second run with nothing to remove honestly reports no change. Emptying the download cache is an act, and the apt module marks it changed every time.
+
+`Sync package database and upgrade system (Arch)` asked pacman for `update_cache` and `upgrade` in one call, with exactly the same split of meaning. Its second pass output was three repository indexes downloading and not one package upgraded, reported as changed.
+
+Both are now two tasks, with `changed_when: false` on the refresh half. In each case the same file already had siblings doing it correctly: the Arch and macOS cache cleans twenty lines from the apt one carried `changed_when: false` all along, so both were inconsistencies rather than judgements.
+
+Worth stating because it generalises: a task that refreshes an index, empties a cache or otherwise does something whose result is not a state cannot be idempotent, and the honest place to say so is `changed_when` on that task, not an entry in an allowlist. The allowlist is for work that must genuinely happen again, like a file the run deliberately deleted.
