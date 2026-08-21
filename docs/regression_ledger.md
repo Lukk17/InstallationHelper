@@ -700,3 +700,23 @@ That alignment cannot complete. The v3 database advertises `lib32-glibc 2.44+r24
 A correction on my own first instinct, which is the reason this entry exists at all. I saw the 404 and read it as a mirror lagging behind the index, committed `-Syy` with three retries as the fix, and said so. That is the wrong diagnosis: a refresh fetches a fresh index and the fresh index names the same missing builds. The `-Syy` is kept because a forced refresh costs one index download and does cover the case it was written for, but it was not the case in front of me, and a fix that reads as if it addressed the problem is worse than no fix.
 
 Two things this leaves. Suppressing one package is what lets the other thirty-four be tested at all, because a pacman batch is one call and the conflict takes all of them down together. And the suppression carries the two URLs precisely so that whoever reads it next can settle it in ten seconds rather than repeating the afternoon: if they answer 200, delete the file.
+
+#### A `creates` guard naming a path the package does not install, for the third time today
+
+Status: fixed in this change, in [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml).
+
+The Fedora idempotency scenario had a clean first pass and three not-allowed changes on the second, all AppImageLauncher: the download, the `rpm --install --upgrade --replacepkgs` and the removal of the staged file.
+
+The install task guarded itself with `creates: /usr/bin/appimagelauncher`. Nothing writes that path. Read out of the package rather than guessed, `rpm -qlp` on the pinned 2.2.0 RPM lists `/usr/bin/AppImageLauncher`, `/usr/bin/AppImageLauncherSettings`, `/usr/bin/ail-cli` and `/usr/bin/appimagelauncherd`, and no lowercase `appimagelauncher` at all. So the guard could never fire, `--replacepkgs` reinstalled the package on every run, and the task reported changed for ever. The download and the removal around it are honest: the run deletes the staged RPM, so it really is absent at the start of the next one, and those two are allowlisted with that reason.
+
+Third guard of this exact shape found in one day. FVM looked in `~/.fvm` while its installer writes `~/fvm`, LM Studio looked in `~/.local/bin` while it writes `~/.lmstudio/bin`, and this one had the right directory and the wrong capitals. The rule that falls out of all three: the path a guard checks has to be read out of the thing that creates it, and on Linux the case is part of the name. None of the three was visible in a diff, and all three were found by the same thing, running the configuration twice.
+
+#### The reason a failed apt batch gives is the one line that gets truncated
+
+Status: fixed in this change, in [container.sh](../e2e/tier3/container.sh).
+
+Debian's `kde-configure-only` cell failed inside the batched apt install, and afterwards nothing said why. apt prints the whole dependency list before its error, the callback truncates a task's output after roughly a thousand lines, and the error is at the end, so the single line a reader needs is exactly the line that gets cut. The playbook does have a task that tails `/var/log/installation-apt-batch.log` for this purpose, and it never ran, because the failure it exists to explain aborts the role before reaching it.
+
+Both apt transcripts, `installation-apt-batch.log` and `installation-virt-apt.log`, are now copied out of the container for every scenario next to `installation_errors.log`. Unconditionally, because a passing run's transcript is a few kilobytes and is the baseline you compare a failing one against.
+
+The general shape is worth keeping: a diagnostic that only runs when the run survives is not a diagnostic for the case that matters. Collect the evidence from outside the thing that is failing.

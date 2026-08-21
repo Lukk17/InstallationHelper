@@ -89,10 +89,20 @@
     - ih_family == 'RedHat'
     - install_appimagelauncher | default(false) | bool
 
+# creates names /usr/bin/AppImageLauncher, with the capitals, because that is what the package
+# actually installs. The lowercase spelling was never written by anything, so the guard could not fire
+# and rpm --replacepkgs reinstalled the package on every run, reporting changed for ever. Read out of
+# the package rather than guessed: rpm -qlp on the pinned 2.2.0 RPM lists /usr/bin/AppImageLauncher,
+# /usr/bin/AppImageLauncherSettings, /usr/bin/ail-cli and /usr/bin/appimagelauncherd, and no lowercase
+# appimagelauncher at all.
+#
+# Third guard of this exact shape found today, after FVM looking in ~/.fvm when the installer writes
+# ~/fvm, and LM Studio looking in ~/.local/bin when it writes ~/.lmstudio/bin. A path a guard checks
+# has to come from the thing that creates it, and on Linux the case matters.
 - name: Install AppImageLauncher via rpm with --nodigest (Fedora)
   ansible.builtin.command:
     cmd: rpm --install --upgrade --replacepkgs --nodigest {{ software_installer_stage_dir }}/appimagelauncher.rpm
-    creates: /usr/bin/appimagelauncher
+    creates: /usr/bin/AppImageLauncher
   become: true
   when:
     - ih_family == 'RedHat'

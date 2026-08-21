@@ -670,6 +670,23 @@ collect_and_verify() {
     docker cp "${CONTAINER}:/work/installation_errors.log" "$(host_path "${ERRORS_LOG}")" &>/dev/null \
         || echo "(no installation_errors.log was copied out of the container)" > "${ERRORS_LOG}"
 
+    # The package manager's own transcripts, which are where the reason for a failed batch actually
+    # lives. Both the batched apt install and the three virtualization apt calls tee to these, and
+    # both are lost when the container goes.
+    #
+    # Worth collecting because of how a batch failure reads without them. Debian's kde-configure-only
+    # cell failed on the apt batch, and the only thing recoverable afterwards was "non-zero return
+    # code": apt prints the whole dependency list before its error, the callback truncated the task
+    # output after the first thousand lines, and the error is at the end, so the one line a reader
+    # needs is exactly the line that got cut. There is a task that tails this log, and it never ran,
+    # because the failure it was written to explain aborts the role before reaching it.
+    #
+    # Every scenario, not just failing ones. On a clean run these are a few kilobytes of what apt
+    # installed, which is the same reason installation_errors.log is collected unconditionally above.
+    for remote_log in installation-apt-batch.log installation-virt-apt.log; do
+        docker cp "${CONTAINER}:/var/log/${remote_log}" "$(host_path "${RUN_DIR}/${remote_log}")" &>/dev/null || true
+    done
+
     # --- the second pass, for a scenario that asked for one ----------------------
     # Parsed here rather than inside the container, because the log is already on this side and the
     # allowlist lives in the working tree, which the container deliberately cannot see.
