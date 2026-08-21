@@ -393,14 +393,25 @@
 # steam 1.0.0.87-1 installs. Without it the same command exits 1 on the conflict.
 - name: Align the 32-bit graphics stack with the CachyOS repositories (CachyOS)
   become: yes
+  #
+  # -Syy, and the second y is the point. The first attempt at this failed with
+  # "failed retrieving file 'lib32-gcc-libs-...' from cdn77.cachyos.org : The requested URL returned
+  # error: 404", which is a mirror behind the database this machine already holds: pacman asked for
+  # exactly the file its index named and the CDN did not have that build yet. A plain -Sy leaves a
+  # database it considers current alone, so a retry would ask for the same missing file again. -Syy
+  # refreshes it unconditionally, which is pacman's own answer to a mirror out of step, and the
+  # retries then cover a CDN that is simply mid-sync.
   ansible.builtin.shell: |
     set -o pipefail
-    yes | pacman -S --needed mesa-git lib32-mesa-git
+    yes | pacman -Syy --needed mesa-git lib32-mesa-git
   args:
     executable: /bin/bash
   register: cachy_mesa_align
   changed_when: "'there is nothing to do' not in (cachy_mesa_align.stdout | default(''))"
   failed_when: cachy_mesa_align.rc != 0
+  retries: 3
+  delay: 20
+  until: cachy_mesa_align.rc == 0
   when:
     - ih_family == 'Archlinux'
     - ih_os_release_id == 'cachyos'
