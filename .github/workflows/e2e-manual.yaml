@@ -83,7 +83,7 @@
 # was not run, and that gap is stated rather than hidden. Nothing here has been executed: a
 # workflow_dispatch run needs an explicit, separate action from whoever runs it, and this
 # change does not take that action.
-name: E2E - manual wizard run
+name: Provisioning - one platform, on demand
 
 on:
   workflow_dispatch:
