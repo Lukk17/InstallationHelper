@@ -555,3 +555,30 @@ The first full sweep on GitHub ran 48 container cells and passed 18. Reading the
 One more defect came out of dispatching rather than of any cell. `start_from_stage` did nothing: asked to start at stage 2, the workflow skipped stage 2 as well and reported failure eight seconds in. A skipped ancestor suppresses its descendants even when the job between them succeeded, because an `if` carrying no status-check function gets an implicit `success()` over the whole ancestry rather than over the direct `needs` alone. Naming `cancelled()` replaces that implicit check and leaves the gate output deciding. Not `always()`, which would keep launching container jobs after someone pressed cancel.
 
 The lesson worth keeping is the ratio. Thirty red cells looked like a broken repository and were two real defects, one of which the gate now catches statically. Reading them apart took the artefacts, not the job list.
+
+#### Fedora refuses to escalate in CI and only in CI, and nine rounds of measurement did not find why
+
+Status: not fixed, cause not established, every environmental hypothesis eliminated by measurement. The harness now names it in twenty-five seconds instead of twenty minutes, in [container.sh](../e2e/tier3/container.sh).
+
+This entry exists so nobody repeats the nine rounds. Every Fedora cell in CI dies two seconds into the play, on the first task that escalates, with `sudo: PAM account management error: Authentication service cannot retrieve authentication info` followed by `sudo: a password is required`. The same image runs a full defaults scenario on a developer machine in 45 minutes at `ok=199 changed=94 failed=0` with verification passing, so the tree is not the problem and neither is the image.
+
+Measured in CI and eliminated, in the order they were asked:
+
+| Hypothesis | What was measured | Verdict |
+|---|---|---|
+| The setuid bit is missing | `---s--x--x root root`, and removing the bit deliberately produces a different message naming itself | not it |
+| The filesystem is nosuid | the overlay mount options, no nosuid | not it |
+| no-new-privileges is set | `NoNewPrivs: 0`, and setting it deliberately produces a different message naming itself | not it |
+| The account is missing or expired | present in passwd and in shadow, locked with `!` the way useradd leaves it, no expiry fields set | not it |
+| The sudoers rule is unreadable | present at mode 0440, and `/etc/sudoers` carries its `#includedir` line at line 120 | not it |
+| A different PAM profile or sssd | authselect profile `local`, a one-line account stanza of `pam_unix.so`, sssd not installed, nsswitch `files systemd`, all identical to a working machine | not it |
+| Different package versions | sudo 1.9.17-8.p2, pam 1.7.2-1, glibc 2.43-5, systemd 259.8-1, character for character the same as a working machine | not it |
+| The setuid transition does not happen | a setuid-root copy of `id` reports effective uid 0 | not it |
+| The setuid process has no capabilities | a setuid-root copy of `cat` reads its own status: `000001ffffffffff` permitted and effective, and it reads the mode 000 `/etc/shadow` outright | not it |
+| The name service cannot answer for a setuid process | a setuid-root copy of `getent` returns the shadow entry for the account | not it |
+| sudo drops to the invoking user around the PAM call | sudo's own debug trace, the whole window between the two `sudo_pam_approval` markers, shows uid `[1000, 0, 0]` throughout and no perms change inside it | not it |
+| pam_unix will explain itself if asked | the module's `debug` option produces no log line at all, because it returns AUTHINFO_UNAVAIL from `get_account_info` without logging | no answer |
+
+What is left is inside the sudo process on that host, and the two tools that would see it are both unusable for this exact failure. The kernel drops the setuid grant for a traced or preloaded binary, so `strace` and `LD_PRELOAD` both change the thing being measured into something that cannot reproduce the fault. Root's own sudo passes PAM, which is consistent with that and narrows nothing further.
+
+The one thing worth stating plainly: nine rounds cost about ten minutes of runner time in total, because the preflight aborts before any install starts. Before the preflight existed, the same information cost twenty minutes a round and arrived attributed to Google Chrome's repository task, which had nothing to do with it. That is the whole argument for asking a cheap question early.
