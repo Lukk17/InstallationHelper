@@ -379,6 +379,20 @@ start_run() {
             printf 'effective uid through a setuid-root binary: '
             docker exec -u "${E2E_USER}" "${CONTAINER}" /usr/local/bin/e2e-idsuid -u 2>&1
             docker exec "${CONTAINER}" rm -f /usr/local/bin/e2e-idsuid 2>&1 || true
+            echo "--- can a setuid-root process with a non-root real uid read the shadow entry ---"
+            # This is the exact situation sudo is in, and it is the only thing the captures above have
+            # not reproduced. pam_unix answers AUTHINFO_UNAVAIL when getspnam returns nothing, and a
+            # setuid copy of getent asks getspnam the same way from the same kind of process. If this
+            # answers and sudo still does not, then the fault is inside sudo or PAM rather than in the
+            # name service, and the package versions below are the next thing to compare.
+            docker exec "${CONTAINER}" bash -c 'cp /usr/bin/getent /usr/local/bin/e2e-getentsuid && chown root:root /usr/local/bin/e2e-getentsuid && chmod 4755 /usr/local/bin/e2e-getentsuid' 2>&1
+            printf 'setuid getent passwd: '
+            docker exec -u "${E2E_USER}" "${CONTAINER}" /usr/local/bin/e2e-getentsuid passwd "${E2E_USER}" 2>&1 || echo "(no answer)"
+            printf 'setuid getent shadow: '
+            docker exec -u "${E2E_USER}" "${CONTAINER}" bash -c "/usr/local/bin/e2e-getentsuid shadow ${E2E_USER} | cut -d: -f1" 2>&1 || echo "(no answer, which is the failure pam_unix reports)"
+            docker exec "${CONTAINER}" rm -f /usr/local/bin/e2e-getentsuid 2>&1 || true
+            echo "--- the versions of the three packages that decide this ---"
+            docker exec "${CONTAINER}" bash -c 'rpm -q sudo pam glibc systemd 2>&1 || dpkg-query -W sudo libpam-modules libc6 systemd 2>&1 || pacman -Q sudo pam glibc systemd 2>&1' 2>&1
             echo "--- the capability sets this user's own processes get ---"
             # A setuid-root binary is granted the bounding set. An empty bounding set here would mean
             # sudo becomes uid 0 with no capabilities, and reading /etc/shadow at mode 000 needs
