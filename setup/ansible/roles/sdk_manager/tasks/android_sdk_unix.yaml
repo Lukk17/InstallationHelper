@@ -18,6 +18,10 @@
   when:
     - ih_family not in ['Windows', 'Darwin']
     - not cmdline_tools_stat.stat.exists
+  register: cmdline_tools_linux_download
+  retries: 3
+  delay: 10
+  until: cmdline_tools_linux_download is succeeded
 
 - name: Download Android Command Line Tools (macOS)
   ansible.builtin.get_url:
@@ -27,6 +31,10 @@
   when:
     - ih_family == 'Darwin'
     - not cmdline_tools_stat.stat.exists
+  register: cmdline_tools_macos_download
+  retries: 3
+  delay: 10
+  until: cmdline_tools_macos_download is succeeded
 
 - name: Extract Android Command Line Tools
   ansible.builtin.unarchive:

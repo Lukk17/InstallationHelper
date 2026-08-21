@@ -35,7 +35,18 @@ Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'pinned_values\Pinne
 # it. Without that, an install_ toggle whose only consumer is an unreachable Windows Ansible task
 # counts as covered, which is how eleven toggles sat enabled and installing nothing while the gate
 # reported full coverage.
-$script:CustomInstallKeys = @('java', 'nodejs', 'flutter', 'gridcoin', 'razer_cortex')
+$script:CustomInstallKeys = @('java', 'nodejs', 'flutter', 'android_sdk', 'gridcoin', 'razer_cortex')
+
+# Where the Android SDK goes on Windows. Chosen by Lukk, and it works without elevation: the default
+# ACL on the root of C: grants Authenticated Users AppendData on the folder itself, so a standard
+# user can create a directory there and owns what it creates. Measured on this machine, where
+# C:\tools already exists with Modify for Authenticated Users because Chocolatey created it.
+#
+# Declared here rather than inside the installer because three things have to agree about it: the
+# installer that writes it, the proof table the verification reads, and the environment variables
+# pointed at it. That is the same drift that left ANDROID_SDK_ROOT on Linux pointing at /opt/android
+# while the installer wrote to ~/Android/Sdk for years.
+$script:AndroidSdkRoot = 'C:\tools\android'
 
 # The pins that name the four JDKs, in the order they are installed. Read twice, once to derive the
 # packages and once to derive the directories those packages have to leave behind, so the list is
@@ -135,6 +146,12 @@ function Get-WindowsCustomInstallProof {
             Path        = @(Join-Path $env:USERPROFILE "fvm\versions\$channel\bin\flutter.bat")
             Mode        = 'All'
             Description = "the Flutter $channel channel installed by FVM"
+        }
+        android_sdk = [PSCustomObject]@{
+            Path        = @((Join-Path $script:AndroidSdkRoot 'cmdline-tools\latest\bin\sdkmanager.bat'),
+                            (Join-Path $script:AndroidSdkRoot 'platform-tools\adb.exe'))
+            Mode        = 'All'
+            Description = "the Android command line tools and platform-tools under $script:AndroidSdkRoot"
         }
         gridcoin = [PSCustomObject]@{
             Path        = @(Join-Path $env:ProgramFiles 'Gridcoin')
@@ -578,6 +595,277 @@ function Resolve-PinnedInstallerUrl {
     return [PSCustomObject]@{ Url = $url; Reason = '' }
 }
 
+function Install-AndroidSdk {
+    <#
+    .SYNOPSIS
+        Installs the pinned Android command line tools, accepts the licences and installs the same
+        three SDK packages the Unix path installs.
+    .DESCRIPTION
+        install_android_sdk has been true in group_vars/all.yaml the whole time and nothing on the
+        Windows path installed anything, so the toggle was a silent no-op there. The Unix side does
+        this in roles/sdk_manager/tasks/android_sdk_unix.yaml and this follows it deliberately: the
+        same pinned build number, the same cmdline-tools/latest layout Google requires, and the same
+        three packages, so a Windows machine and a Linux machine end up with the same SDK.
+
+        Google ships the tools as a zip with a single cmdline-tools directory inside it, and
+        sdkmanager refuses to run unless that directory is named `latest` (or a version number) one
+        level under `cmdline-tools`. So the zip is expanded to a staging directory and the inner
+        directory is moved into place, which is exactly what the Unix task does with mv.
+
+        sdkmanager is a Java program and will not start without a JDK. JAVA_HOME is whatever the
+        Java install set, and if it is absent this reports that rather than running a batch file that
+        would print a Java error and exit non-zero with no explanation.
+
+        Every licence is accepted by feeding `y` on stdin, because sdkmanager --licenses asks once
+        per licence and there is nobody watching. That is the same thing the Unix path does with a
+        prepared answers file, and it is the only way this can run unattended.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)] [hashtable] $Versions
+    )
+
+    $results = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($pin in @('android_cmdline_tools_build', 'android_api_level', 'android_build_tools_version')) {
+        if (-not $Versions.ContainsKey($pin) -or [string]::IsNullOrWhiteSpace($Versions[$pin])) {
+            $results.Add([PSCustomObject]@{ Key = 'android_sdk'; Package = $pin; Status = 'failed'
+                                            Detail = "the pinned values carry no value for this name, so nothing could be installed. Ask Get-PinnedValueMap what it has." })
+            return $results
+        }
+    }
+
+    $root = $script:AndroidSdkRoot
+    $cmdlineRoot = Join-Path $root 'cmdline-tools'
+    $latest = Join-Path $cmdlineRoot 'latest'
+    $sdkmanager = Join-Path $latest 'bin\sdkmanager.bat'
+
+    if (Test-Path -LiteralPath $sdkmanager) {
+        $results.Add([PSCustomObject]@{ Key = 'android_sdk'; Package = 'command line tools'; Status = 'present'; Detail = $latest })
+    } else {
+        $url = "https://dl.google.com/android/repository/commandlinetools-win-$($Versions['android_cmdline_tools_build'])_latest.zip"
+
+        if (-not $PSCmdlet.ShouldProcess($url, 'download and expand the Android command line tools')) {
+            $results.Add([PSCustomObject]@{ Key = 'android_sdk'; Package = 'command line tools'; Status = 'skipped'
+                                            Detail = "WhatIf, would expand $url into $latest" })
+            return $results
+        }
+
+        $zip = Join-Path ([System.IO.Path]::GetTempPath()) "commandlinetools-win-$($Versions['android_cmdline_tools_build']).zip"
+        $staging = Join-Path ([System.IO.Path]::GetTempPath()) "android-cmdline-tools-$PID"
+        try {
+            New-Item -ItemType Directory -Path $cmdlineRoot -Force | Out-Null
+            # A bounded download, because a stalled socket here would hang the wizard with no signal.
+            Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 900 -UseBasicParsing -ErrorAction Stop
+            Expand-Archive -LiteralPath $zip -DestinationPath $staging -Force -ErrorAction Stop
+
+            $inner = Join-Path $staging 'cmdline-tools'
+            if (-not (Test-Path -LiteralPath $inner)) {
+                $results.Add([PSCustomObject]@{ Key = 'android_sdk'; Package = 'command line tools'; Status = 'failed'
+                                                Detail = "the zip did not contain a cmdline-tools directory, so the layout sdkmanager needs could not be built. Google may have changed the archive shape." })
+                return $results
+            }
+            Move-Item -LiteralPath $inner -Destination $latest -Force -ErrorAction Stop
+            $results.Add([PSCustomObject]@{ Key = 'android_sdk'; Package = 'command line tools'; Status = 'installed'; Detail = $latest })
+        } catch {
+            $results.Add([PSCustomObject]@{ Key = 'android_sdk'; Package = 'command line tools'; Status = 'failed'
+                                            Detail = $_.Exception.Message })
+            return $results
+        } finally {
+            Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $javaHome = [Environment]::GetEnvironmentVariable('JAVA_HOME', 'User')
+    if (-not $javaHome) { $javaHome = [Environment]::GetEnvironmentVariable('JAVA_HOME', 'Machine') }
+    if (-not $javaHome -or -not (Test-Path -LiteralPath $javaHome)) {
+        $results.Add([PSCustomObject]@{ Key = 'android_sdk'; Package = 'sdkmanager'; Status = 'failed'
+                                        Detail = "JAVA_HOME is not set to a directory that exists, and sdkmanager is a Java program. Turn install_java on, or set JAVA_HOME, then rerun with -OnlyKey android_sdk." })
+        return $results
+    }
+
+    # sdkmanager reads ANDROID_HOME to decide where to install. Setting it for these two calls means
+    # the SDK lands beside the tools rather than in whatever the ambient value happens to be.
+    $sdkEnv = @{ JAVA_HOME = $javaHome; ANDROID_HOME = $root; ANDROID_SDK_ROOT = $root }
+
+    $results.Add((Invoke-AndroidSdkManager -Arguments @('--licenses') -Environment $sdkEnv -TimeoutMinutes 10 -AnswerYes))
+    $results.Add((Invoke-AndroidSdkManager -Arguments @(
+        "platforms;android-$($Versions['android_api_level'])",
+        "build-tools;$($Versions['android_build_tools_version'])",
+        'platform-tools') -Environment $sdkEnv -TimeoutMinutes 30))
+
+    return $results
+}
+
+function Invoke-AndroidSdkManager {
+    <#
+    .SYNOPSIS
+        Runs sdkmanager.bat once, with a timeout and with stdin under control.
+    .DESCRIPTION
+        Not Invoke-ManagedTool, for one reason: sdkmanager --licenses asks a question per licence and
+        answers nothing but `y`, so it needs a stdin that says yes repeatedly rather than an empty
+        file that reads EOF. Everything else about the shape is the same, including that a run which
+        outlives its timeout is killed and reported as failed rather than left to hang the wizard.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [hashtable] $Environment = @{},
+        [ValidateRange(1, 120)] [int] $TimeoutMinutes = 30,
+        [switch] $AnswerYes
+    )
+
+    $sdkmanager = Join-Path $script:AndroidSdkRoot 'cmdline-tools\latest\bin\sdkmanager.bat'
+    $label = "sdkmanager $($Arguments -join ' ')"
+
+    if (-not (Test-Path -LiteralPath $sdkmanager)) {
+        return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'failed'
+                                  Detail = "$sdkmanager is not there, so the command line tools install did not leave what it should have" }
+    }
+    if (-not $PSCmdlet.ShouldProcess($label, 'run')) {
+        return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'skipped'; Detail = 'WhatIf' }
+    }
+
+    $restore = @{}
+    foreach ($name in $Environment.Keys) {
+        $restore[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        [Environment]::SetEnvironmentVariable($name, $Environment[$name], 'Process')
+    }
+
+    $stdin = New-TemporaryFile
+    $stdout = New-TemporaryFile
+    $stderr = New-TemporaryFile
+    try {
+        if ($AnswerYes) {
+            # One y per line, enough for far more licences than Android has ever shipped. sdkmanager
+            # stops reading when it has asked its last question, so a surplus costs nothing.
+            Set-Content -LiteralPath $stdin -Value ((1..50 | ForEach-Object { 'y' }) -join "`n") -NoNewline:$false
+        }
+        $p = Start-Process -FilePath $sdkmanager -ArgumentList $Arguments -NoNewWindow -PassThru `
+            -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        if (-not $p.WaitForExit($TimeoutMinutes * 60 * 1000)) {
+            try { $p.Kill($true) } catch { Write-Verbose "could not kill $($p.Id): $($_.Exception.Message)" }
+            return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'failed'
+                                      Detail = "still running after $TimeoutMinutes minutes and was killed, so the SDK is NOT complete." }
+        }
+        if ($p.ExitCode -eq 0) {
+            return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'installed'; Detail = '' }
+        }
+        $tail = @(Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
+                  Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue) |
+                Where-Object { $_ -and $_.Trim() } | Select-Object -Last 2
+        return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'failed'
+                                  Detail = "exit $($p.ExitCode). $($tail -join ' ')" }
+    } finally {
+        foreach ($name in $restore.Keys) { [Environment]::SetEnvironmentVariable($name, $restore[$name], 'Process') }
+        Remove-Item -LiteralPath $stdin, $stdout, $stderr -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Set-WindowsDevEnvironment {
+    <#
+    .SYNOPSIS
+        Writes the development environment variables at user scope, the Windows half of what
+        roles/env_variables does everywhere else.
+    .DESCRIPTION
+        The five apps_config variables plus the Android ones. env_windows.yaml held these and could
+        never run, because the playbook is invoked from inside WSL and reports os_family Debian, so
+        on Windows they were never written at all.
+
+        User scope, not machine scope, and that is not a compromise. A process inherits the merge of
+        HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment and HKCU\Environment, so
+        anything the logged-in account launches, IntelliJ and JetBrains Toolbox included, already
+        sees the user values. Machine scope would need administrator rights, and setup.ps1 refuses to
+        run elevated by design, which is the same reason the Java install writes JAVA_HOME at user
+        scope. Only a service or a process running as another account would miss these, and nothing
+        here runs that way.
+
+        PATH is handled separately from the rest, because it is the one variable Windows concatenates
+        rather than replaces, so it is read, extended with anything missing, and written back. Adding
+        an entry that is already there would grow the value on every run, which is the shape of a
+        PATH that eventually stops working because it exceeded its limit.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    $results = [System.Collections.Generic.List[object]]::new()
+    $appsConfig = Join-Path $env:USERPROFILE 'apps_config'
+    $sdk = $script:AndroidSdkRoot
+
+    # The same five names and the same layout the Unix shell block writes, so a machine configured
+    # by either one keeps its tool state in the same place.
+    $variables = [ordered]@{
+        GRADLE_USER_HOME = Join-Path $appsConfig '.gradle'
+        DOCKER_CONFIG    = Join-Path $appsConfig '.docker'
+        M2_HOME          = Join-Path $appsConfig '.m2'
+        KUBECONFIG       = Join-Path $appsConfig '.kube\config'
+        # ANDROID_USER_HOME names the preferences directory. ANDROID_SDK_HOME is the legacy variable
+        # Android Studio 4.3 and earlier read for the same purpose, and it names the PARENT the
+        # .android directory is created under, which is why the two differ by one level.
+        ANDROID_USER_HOME = Join-Path $appsConfig '.android'
+        ANDROID_SDK_HOME  = $appsConfig
+        # Both names for the SDK directory, set to the same path on purpose: ANDROID_SDK_ROOT is
+        # deprecated, and Android Studio and the Gradle plugin check the two agree when it is present.
+        ANDROID_HOME     = $sdk
+        ANDROID_SDK_ROOT = $sdk
+    }
+
+    if ($PSCmdlet.ShouldProcess($appsConfig, 'create the tool configuration directory')) {
+        try {
+            New-Item -ItemType Directory -Path $appsConfig -Force -ErrorAction Stop | Out-Null
+        } catch {
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'apps_config'; Status = 'failed'
+                                            Detail = $_.Exception.Message })
+        }
+    }
+
+    foreach ($name in $variables.Keys) {
+        $wanted = $variables[$name]
+        $current = [Environment]::GetEnvironmentVariable($name, 'User')
+        if ($current -eq $wanted) {
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = $name; Status = 'present'; Detail = $wanted })
+            continue
+        }
+        if (-not $PSCmdlet.ShouldProcess("$name=$wanted", 'set user environment variable')) {
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = $name; Status = 'skipped'; Detail = 'WhatIf' })
+            continue
+        }
+        try {
+            [Environment]::SetEnvironmentVariable($name, $wanted, 'User')
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = $name; Status = 'installed'; Detail = $wanted })
+        } catch {
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = $name; Status = 'failed'; Detail = $_.Exception.Message })
+        }
+    }
+
+    $wantedPath = @(
+        (Join-Path $sdk 'cmdline-tools\latest\bin')
+        (Join-Path $sdk 'platform-tools')
+        (Join-Path $sdk 'emulator')
+    )
+    $currentPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
+    $entries = @($currentPath -split ';' | Where-Object { $_ })
+    $missing = @($wantedPath | Where-Object { $_ -notin $entries })
+
+    if ($missing.Count -eq 0) {
+        $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'present'
+                                        Detail = 'the three Android tool directories are already there' })
+    } elseif ($PSCmdlet.ShouldProcess(($missing -join '; '), 'add to the user PATH')) {
+        try {
+            [Environment]::SetEnvironmentVariable('PATH', (($entries + $missing) -join ';'), 'User')
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'installed'
+                                            Detail = ($missing -join '; ') })
+        } catch {
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'failed'; Detail = $_.Exception.Message })
+        }
+    } else {
+        $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'skipped'; Detail = 'WhatIf' })
+    }
+
+    return $results
+}
+
 function Invoke-WindowsCustomInstall {
     <#
     .SYNOPSIS
@@ -624,6 +912,10 @@ function Invoke-WindowsCustomInstall {
     if (& $wanted 'java')   { $results.AddRange((Install-TemurinJdk   -Versions $versions)) }
     if (& $wanted 'nodejs') { $results.AddRange((Install-NodeViaNvm)) }
     if (& $wanted 'flutter'){ $results.AddRange((Install-FlutterViaFvm -Versions $versions)) }
+
+    # After java on purpose. sdkmanager is a Java program and reads the JAVA_HOME the Temurin
+    # install above writes, so running it first would fail on a machine with no other JDK.
+    if (& $wanted 'android_sdk') { $results.AddRange((Install-AndroidSdk -Versions $versions)) }
 
     # Gridcoin's installer is NSIS, confirmed by finding Nullsoft.NSIS.exehead in the downloaded
     # binary rather than by assuming it. NSIS takes /S.

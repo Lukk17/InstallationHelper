@@ -304,6 +304,41 @@ function Show-WindowsSoftwareResult {
     }
 }
 
+function Invoke-AndShowDevEnvironment {
+    <#
+    .SYNOPSIS
+        Writes the development environment variables and renders the outcome.
+    .DESCRIPTION
+        The Windows half of what roles/env_variables does on Linux and macOS. env_windows.yaml held
+        these and could never run, because the playbook is invoked from inside WSL and reports
+        os_family Debian, so on Windows they were never written at all. Not gated on a toggle, for
+        the same reason the Unix role is not: the paths are where this project keeps tool state, and
+        a machine configured by either side should agree about them.
+    #>
+    param()
+
+    $r = Set-WindowsDevEnvironment
+    $installed = @($r | Where-Object { $_.Status -eq 'installed' })
+    $present   = @($r | Where-Object { $_.Status -eq 'present' })
+    $failed    = @($r | Where-Object { $_.Status -eq 'failed' })
+
+    Write-Status "Environment variables: $($installed.Count) written, $($present.Count) already correct, $($failed.Count) failed"
+    foreach ($f in $failed) {
+        Write-Host "  [!] $($f.Package): $($f.Detail)" -ForegroundColor Red
+    }
+    if ($installed.Count -gt 0) {
+        Write-Hint '  A shell already open will not see these. Open a new one, and log out and back in for anything started by Explorer.'
+    }
+
+    return [PSCustomObject]@{
+        Results = $r
+        Installed = $installed
+        Present   = $present
+        Skipped   = @($r | Where-Object { $_.Status -eq 'skipped' })
+        Failed    = $failed
+    }
+}
+
 function Invoke-AndShowWindowsSettings {
     <#
     .SYNOPSIS
@@ -1023,6 +1058,10 @@ function Invoke-WindowsRun {
     $npmResult    = Invoke-AndShowNpmTools        -OnlyKeys $OnlyKeys -ToggleOverride $ToggleOverride
     $customResult = Invoke-AndShowCustomInstalls  -OnlyKeys $OnlyKeys -ToggleOverride $ToggleOverride
 
+    # After the installs, because the Android variables point at what the Android SDK install just
+    # wrote and JAVA_HOME is set by the Java install above.
+    $envResult    = Invoke-AndShowDevEnvironment
+
     # After the software, because enabling an optional feature can ask for a reboot and there is no
     # reason to make the packages wait behind that.
     Write-Section 'Applying Windows system settings'
@@ -1036,6 +1075,7 @@ function Invoke-WindowsRun {
     $phases['Windows packages']               = $windowsResult
     $phases['CLI tools']                      = $npmResult
     $phases['SDKs and standalone installers'] = $customResult
+    $phases['Environment variables']          = $envResult
     $phases['Windows system settings']        = $settingsResult
     $phases['Ansible inside WSL']             = $wslResult
     return $phases

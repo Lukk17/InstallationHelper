@@ -3,6 +3,7 @@
   ansible.builtin.include_tasks: env_unix.yaml
   when: ih_family != 'Windows'
 
-- name: Include Windows Environment Variables tasks
-  ansible.builtin.include_tasks: env_windows.yaml
-  when: ih_family == 'Windows'
+# There is no Windows branch here any more. The playbook is invoked from inside WSL on Windows and
+# reports os_family Debian, so a Windows-gated task could never run, and env_windows.yaml was the
+# last of that family still in the tree. Its work is done by Set-WindowsDevEnvironment in
+# setup/windows/WindowsCustomInstalls.ps1, which setup.ps1 calls as its own phase.
