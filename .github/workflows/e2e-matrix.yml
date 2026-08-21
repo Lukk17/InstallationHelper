@@ -636,6 +636,39 @@ jobs:
           echo "Disk space after cleanup:"
           df -h /
 
+      # Ubuntu's AppArmor profile for unix_chkpwd withholds a capability that PAM needs, and a
+      # container process is confined by it because AppArmor attaches profiles by binary path, so
+      # the host's profile follows the binary inside the container. pam_unix hands shadow lookups to
+      # /usr/sbin/unix_chkpwd when the caller's real uid is not root, that helper needs
+      # CAP_DAC_OVERRIDE to read a mode 000 /etc/shadow, and the shipped profile grants only
+      # capability audit_write. The kernel logs it as
+      # apparmor="DENIED" operation="capable" profile="unix-chkpwd" capname="dac_override".
+      #
+      # Only Fedora is hit, and the reason is the file mode rather than anything about Fedora's PAM.
+      # Fedora ships /etc/shadow at 000, so even root needs the capability to read it. Debian and
+      # Ubuntu ship 0640 root:shadow with a setgid-shadow helper, and Arch ships 0600 root:root, and
+      # in both cases the ordinary permission bits are enough. Every Fedora cell of the first sweep
+      # died on this, two seconds into the play, and nine rounds of measurement inside the container
+      # could not see it because the denial happens on the host.
+      #
+      # The fix is the one linux-pam and apparmor.d both document: give the profile the capability
+      # through its local include and reload it. It touches only this runner, which is discarded at
+      # the end of the job. If the profile is not there, this says so and changes nothing, because a
+      # runner image without it does not have the problem.
+      #
+      # https://github.com/roddhjav/apparmor.d/issues/958
+      # https://github.com/linux-pam/linux-pam/issues/876
+      - name: Let unix_chkpwd read the shadow file, which Ubuntu's AppArmor profile forbids
+        run: |
+          set -euo pipefail
+          if [[ ! -f /etc/apparmor.d/unix-chkpwd ]]; then
+            echo "No unix-chkpwd AppArmor profile on this runner, so there is nothing to relax."
+            exit 0
+          fi
+          echo 'capability dac_override,' | sudo tee /etc/apparmor.d/local/unix-chkpwd
+          sudo apparmor_parser -r /etc/apparmor.d/unix-chkpwd
+          echo "Reloaded the unix-chkpwd profile with dac_override allowed."
+
       - name: Run the tier-3 container harness
         run: |
           set -euo pipefail

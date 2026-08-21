@@ -21,6 +21,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/package_probe.sh"
+source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
 
 require_cmd curl
 
@@ -237,6 +238,79 @@ check_apt_and_dnf() {
     check_dictionary fedora dnf RedHat.yaml
 }
 
+# --- npm ---------------------------------------------------------------------
+# The other checks in this file ask "does this name exist". That is not the question that failed.
+# The OpenSpec mapping named the npm package `openspec`, which exists: it is a stub published once in
+# 2019 at version 0.0.0, with no executable in it and no relation to the project. Every other check
+# in this repository was happy, the install exited zero, and the tool was absent. What provides the
+# openspec command is @fission-ai/openspec.
+#
+# So this asks three things the registry can answer, and each one would have caught it on its own:
+# the package is not deprecated, it declares at least one executable, and its newest version is not
+# 0.0.0. The third is a blunt instrument on purpose, because a name squatted years ago and never
+# touched again is exactly the shape of the thing that got through.
+#
+# Read from the Ansible task files rather than from the PowerShell table, because tier 1 already
+# proves the two agree, so one side is enough and the other cannot drift unnoticed.
+check_npm() {
+    if ! PYTHON="$(pinned_values_python)"; then
+        skip "npm packages are live, undeprecated and each installs an executable"              "no Python 3.11 or newer on PATH, so the registry answers cannot be read"
+        return
+    fi
+    local pkgs=() bad=() n=0
+    mapfile -t pkgs < <(
+        for f in "${ANSIBLE_DIR}"/roles/ai_tools/tasks/*_unix.yaml; do
+            [[ "$(basename "${f}")" == "npm_install_unix.yaml" ]] && continue
+            grep -hE '^\s*npm_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_pkg:\s*//; s/"//g; s/\s+$//'
+        done | sort -u
+    )
+    [[ ${#pkgs[@]} -eq 0 ]] && { fail "npm: no packages found in the ai_tools task files, so this check proves nothing" "${ANSIBLE_DIR}/roles/ai_tools/tasks"; return; }
+
+    for pkg in "${pkgs[@]}"; do
+        n=$((n + 1))
+        # The scope separator has to be encoded or the registry reads it as a path segment.
+        local encoded="${pkg//\//%2f}"
+        local body
+        body="$(curl -s --max-time 25 "https://registry.npmjs.org/${encoded}" || true)"
+        if [[ -z "${body}" ]]; then
+            bad+=("${pkg}: the registry did not answer")
+            continue
+        fi
+        local verdict
+        verdict="$(
+            PKG="${pkg}" "${PYTHON}" -c '
+import json, os, sys
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+except ValueError:
+    print("the registry answer was not JSON"); raise SystemExit
+if "error" in d:
+    print("the registry says: " + str(d["error"])); raise SystemExit
+latest = d.get("dist-tags", {}).get("latest")
+if not latest:
+    print("no latest version"); raise SystemExit
+v = d.get("versions", {}).get(latest, {})
+problems = []
+if v.get("deprecated"):
+    problems.append("deprecated: " + str(v["deprecated"])[:60])
+if not (v.get("bin") or {}):
+    problems.append("declares no executable, so installing it globally leaves no command behind")
+if latest == "0.0.0":
+    problems.append("newest version is 0.0.0, which is what an abandoned name looks like")
+print("; ".join(problems))
+' <<<"${body}"
+        )"
+        [[ -n "${verdict}" ]] && bad+=("${pkg}: ${verdict}")
+    done
+
+    if [[ ${#bad[@]} -eq 0 ]]; then
+        pass "npm: all ${n} packages are live, undeprecated and each installs an executable"
+    else
+        fail "npm: ${#bad[@]} of ${n} packages are not what they claim" "$(printf '%s | ' "${bad[@]}")"
+    fi
+}
+
 check_pacman
 check_aur
 check_flatpak
@@ -244,6 +318,7 @@ check_brew brew formula
 check_brew brew_cask cask
 check_choco
 check_winget
+check_npm
 check_apt_and_dnf
 probe_report_forgiveness "no dictionary forgiveness in runtime_repo_packages.txt has become unnecessary"
 

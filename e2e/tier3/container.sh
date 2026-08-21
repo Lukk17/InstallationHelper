@@ -350,6 +350,13 @@ start_run() {
     if ! docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n true 2>"${RUN_DIR}/sudo-preflight.log"; then
         {
             echo "=== sudo -n true as ${E2E_USER} failed, so nothing this playbook does could work ==="
+            echo "The known cause on a host with AppArmor, Ubuntu 24.04 and every GitHub runner among them:"
+            echo "the unix-chkpwd profile grants only capability audit_write, pam_unix hands shadow lookups"
+            echo "to that helper when the caller is not root, and Fedora ships /etc/shadow at mode 000 so it"
+            echo "needs CAP_DAC_OVERRIDE to read it. AppArmor attaches profiles by binary path, so the host"
+            echo "profile confines the container too. Check the host with: journalctl -k | grep unix-chkpwd."
+            echo "Fix on the host: echo 'capability dac_override,' > /etc/apparmor.d/local/unix-chkpwd then"
+            echo "apparmor_parser -r /etc/apparmor.d/unix-chkpwd. See https://github.com/roddhjav/apparmor.d/issues/958"
             echo "--- the sudo binary, which must be setuid root ---"
             docker exec "${CONTAINER}" bash -c 'ls -l "$(command -v sudo)" 2>&1'
             echo "--- who the harness is running as ---"

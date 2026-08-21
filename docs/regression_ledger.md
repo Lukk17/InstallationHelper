@@ -556,9 +556,19 @@ One more defect came out of dispatching rather than of any cell. `start_from_sta
 
 The lesson worth keeping is the ratio. Thirty red cells looked like a broken repository and were two real defects, one of which the gate now catches statically. Reading them apart took the artefacts, not the job list.
 
-#### Fedora refuses to escalate in CI and only in CI, and nine rounds of measurement did not find why
+#### Fedora refuses to escalate in CI, and the cause was on the host all along
 
-Status: not fixed, cause not established, every environmental hypothesis eliminated by measurement. The harness now names it in twenty-five seconds instead of twenty minutes, in [container.sh](../e2e/tier3/container.sh).
+Status: cause found on the tenth attempt, in the host rather than in this repository, and fixed in [e2e-matrix.yml](../.github/workflows/e2e-matrix.yml). The harness names it in twenty-five seconds with the remedy attached, in [container.sh](../e2e/tier3/container.sh).
+
+The cause. Ubuntu's AppArmor profile for `unix_chkpwd` grants only `capability audit_write`, and AppArmor attaches profiles by binary path, so a container process running `/usr/sbin/unix_chkpwd` is confined by the host's profile. pam_unix hands shadow lookups to that helper when the caller's real uid is not root. Fedora ships `/etc/shadow` at mode 000, so even a root helper needs `CAP_DAC_OVERRIDE` to read it, and the profile withholds exactly that. The kernel records it as `apparmor="DENIED" operation="capable" profile="unix-chkpwd" capname="dac_override"`, on the host, which is why nine rounds of measurement inside the container could not see it.
+
+Why only Fedora, and it is the file mode rather than anything about Fedora's PAM. Debian and Ubuntu ship `/etc/shadow` at 0640 root:shadow with a setgid-shadow helper, and Arch ships 0600 root:root, so in both cases the ordinary permission bits are enough and the capability is never requested. Fedora's 000 gives nobody any bits at all.
+
+Why root's own sudo passed. With a real uid of 0, pam_unix reads the file itself and never invokes the confined helper.
+
+The fix is the one linux-pam and apparmor.d both document, applied to the runner before the harness starts: write `capability dac_override,` into `/etc/apparmor.d/local/unix-chkpwd` and reload the profile. It touches only the runner, which is discarded at the end of the job, and it skips itself with a message on a host that has no such profile. Found through [apparmor.d issue 958](https://github.com/roddhjav/apparmor.d/issues/958) and corroborated by [linux-pam issue 876](https://github.com/linux-pam/linux-pam/issues/876), where the reporter records the same thing this investigation did: identical images, fails on an Ubuntu 24.04 host, passes on Arch.
+
+The lesson is the one worth keeping. Twelve hypotheses were tested inside the container and every one was eliminated, correctly, because the answer was never in there. When every measurement of a system says it is healthy, the next question is what is measuring it from outside.
 
 This entry exists so nobody repeats the nine rounds. Every Fedora cell in CI dies two seconds into the play, on the first task that escalates, with `sudo: PAM account management error: Authentication service cannot retrieve authentication info` followed by `sudo: a password is required`. The same image runs a full defaults scenario on a developer machine in 45 minutes at `ok=199 changed=94 failed=0` with verification passing, so the tree is not the problem and neither is the image.
 
