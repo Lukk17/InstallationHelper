@@ -120,9 +120,39 @@
     group: sddm
     recurse: yes
 
+# Ask before enabling, because on Fedora the package has already done it under another name.
+#
+# Plasma 6.5 renamed SDDM to Plasma Login, and Fedora's sddm 0.21 ships plasmalogin.service beside
+# sddm.service with a scriptlet that points /etc/systemd/system/display-manager.service at it. So
+# enabling the unit called sddm afterwards fails outright: "File
+# '/etc/systemd/system/display-manager.service' already exists and is a symlink to
+# /usr/lib/systemd/system/plasmalogin.service". Measured on the Fedora kde-full run of 2026-08-21,
+# which is the first time this repository ran a desktop scenario outside Arch.
+#
+# A display manager that is already configured is the desired end state, so this reports it and moves
+# on rather than fighting the package's own decision. Arch installs sddm with no scriptlet of that
+# kind, so there the symlink is absent and the enable below does the work.
+- name: Ask whether a display manager is already configured (Fedora/Arch)
+  ansible.builtin.stat:
+    path: /etc/systemd/system/display-manager.service
+  register: display_manager_link
+  when: ih_family in ['RedHat', 'Archlinux']
+
+- name: Say which display manager the distribution already chose (Fedora/Arch)
+  ansible.builtin.debug:
+    msg: >-
+      display-manager.service already points at
+      {{ display_manager_link.stat.lnk_target | default('a unit systemd resolved itself') }},
+      so sddm is not enabled again. That is the end state this task wants.
+  when:
+    - ih_family in ['RedHat', 'Archlinux']
+    - display_manager_link.stat.exists | default(false)
+
 - name: Enable SDDM Service (Fedora/Arch)
   become: yes
   ansible.builtin.systemd:
     name: sddm
     enabled: yes
-  when: ih_family in ['RedHat', 'Archlinux']
+  when:
+    - ih_family in ['RedHat', 'Archlinux']
+    - not (display_manager_link.stat.exists | default(false))

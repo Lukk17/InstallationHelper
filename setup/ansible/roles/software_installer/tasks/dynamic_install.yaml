@@ -279,12 +279,37 @@
     # ignore_errors rather than failed_when, because failed_when rewrites the result's `failed` key and
     # e2e/tier1/failed_key_reads.sh forbids reading that key, so what actually happened is established
     # below from the package database instead of from this task's result.
+    # apt-get with a path, not the apt module's `deb:` option, and the difference is not cosmetic.
+    # `deb:` runs dpkg -i and then apt-get -f install, and dpkg cannot choose between the providers of
+    # a virtual dependency. balenaEtcher's .deb depends on
+    # polkit-1-auth-agent | policykit-1-gnome | polkit-kde-1, four packages provide the first of those
+    # on Debian trixie, and the module answers "Dependency is not satisfiable" and leaves the package
+    # unpacked and unconfigured. `apt-get install ./file.deb` hands the local file to the solver,
+    # which picks a provider and installs it. Measured on debian:trixie and ubuntu:26.04 on
+    # 2026-08-21: the module refuses, the command exits 0 and dpkg -l reports it installed.
+    #
+    # The cost is real and worth knowing: apt satisfies that dependency with ukui-polkit, which pulls
+    # systemsettings, polkitd and the rest of a desktop authentication stack onto a machine that may
+    # have no desktop. That is the package's own requirement rather than something this playbook
+    # invents, and a run that shows it is more honest than a suppression that hides it.
+    #
+    # The path is absolute, which is what makes apt read it as a file: the rule is that the argument
+    # must contain a slash, not that it must start with ./ . Confirmed with an absolute path on
+    # debian:trixie, rc 0 and dpkg -l reporting it installed.
     - name: Install APT from URL (deb, from local file)
-      ansible.builtin.apt:
-        deb: "{{ item.dest }}"
-        state: present
+      ansible.builtin.shell: |
+        set -o pipefail
+        apt-get install {{ apt_raw_flags }} "{{ item.dest }}"
+      args:
+        executable: /bin/bash
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+        LANG: C.UTF-8
+        LC_ALL: C.UTF-8
       become: true
       ignore_errors: true
+      changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (apt_url_deb_install.stdout | default(''))"
+      register: apt_url_deb_install
       loop: >-
         {{ apt_url_items | default([])
            | selectattr('key', 'in', apt_url_present | default([]))
