@@ -35,6 +35,15 @@
       - gettext
       - cmake
     state: present
+  # A mirror that resets one connection mid-download otherwise ends the run. Debian's
+  # kde-configure-only cell in the first GitHub sweep died on exactly that, one .deb into
+  # eighteen, with 'OpenSSL system call error ... Connection reset by peer' from
+  # deb.debian.org. Three attempts, not silence: a package that genuinely does not exist
+  # still fails, ten seconds later than before.
+  register: kde_debian_build_deps
+  retries: 3
+  delay: 10
+  until: kde_debian_build_deps is succeeded
   when: ih_family == 'Debian'
 
 - name: Install pipx and the widget build dependencies (Fedora)
@@ -59,6 +68,11 @@
       - gettext
       - cmake
     state: present
+  # Same reason as the Debian task above: one mirror reset must not end the run.
+  register: kde_fedora_build_deps
+  retries: 3
+  delay: 10
+  until: kde_fedora_build_deps is succeeded
   when: ih_family == 'RedHat'
 
 - name: Install pipx and the widget build dependencies (Arch)

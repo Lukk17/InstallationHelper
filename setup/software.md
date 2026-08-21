@@ -230,7 +230,7 @@ Installed by the `ai_tools` role. Each toggle gates its own `import_tasks` so di
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` | `npm install -g @anthropic-ai/claude-code` | `npm install -g @anthropic-ai/claude-code` |
 | Claude Desktop | Arch: `yay -S claude-desktop-bin`. Debian: unofficial APT repo. Fedora: `alien` conversion of the upstream `.deb` | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, not wired into the playbook |
 | OpenCode | `npm install -g opencode-ai` | `npm install -g opencode-ai` | `npm install -g opencode-ai` |
-| OpenSpec | `npm install -g openspec` | `npm install -g openspec` | `npm install -g openspec` |
+| OpenSpec | `npm install -g @fission-ai/openspec` | `npm install -g @fission-ai/openspec` | `npm install -g @fission-ai/openspec` |
 | Codex CLI | `npm install -g @openai/codex` | `npm install -g @openai/codex` | `npm install -g @openai/codex` |
 | Grok CLI | `npm install -g @xai-official/grok` | `npm install -g @xai-official/grok` | `npm install -g @xai-official/grok` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` | `curl -fsSL https://lmstudio.ai/install.sh \| bash` | manual from [lmstudio.ai](https://lmstudio.ai/) |

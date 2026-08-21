@@ -336,6 +336,37 @@ start_run() {
         exit 1
     }
 
+    # The playbook escalates with sudo for almost everything it does, so a container where sudo does
+    # not work is a container that can only fail, twenty minutes later, with a message about whatever
+    # task happened to be first. That is exactly what every Fedora cell in the first GitHub sweep
+    # produced: seven jobs, each dying two seconds into the play on
+    # "sudo: PAM account management error: Authentication service cannot retrieve authentication
+    # info" followed by "sudo: a password is required", reported as a failure of Google Chrome's
+    # repository task, which had nothing to do with it. The same image escalates cleanly on this
+    # developer machine, from the first second of boot, so whatever breaks it is a property of the
+    # host rather than of the image, and the only way to learn which property is to ask the machine
+    # that has the problem. Asking here costs one exec and turns that class of failure into a named
+    # one before any work starts.
+    if ! docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n true 2>"${RUN_DIR}/sudo-preflight.log"; then
+        {
+            echo "=== sudo -n true as ${E2E_USER} failed, so nothing this playbook does could work ==="
+            echo "--- the sudo binary, which must be setuid root ---"
+            docker exec "${CONTAINER}" bash -c 'ls -l "$(command -v sudo)" 2>&1'
+            echo "--- who the harness is running as ---"
+            docker exec -u "${E2E_USER}" "${CONTAINER}" id 2>&1
+            echo "--- the account, as the name service sees it ---"
+            docker exec "${CONTAINER}" bash -c "getent passwd ${E2E_USER}; getent shadow ${E2E_USER} | cut -d: -f1,3-" 2>&1
+            echo "--- the rule that is supposed to make this passwordless ---"
+            docker exec "${CONTAINER}" bash -c 'ls -l /etc/sudoers.d/ 2>&1; cat /etc/sudoers.d/00-e2e-runner 2>&1'
+            echo "--- what sudo itself thinks it may do ---"
+            docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n -l 2>&1 | head -20
+            echo "--- the storage driver, because overlay copy-up has lost a setuid bit before ---"
+            docker info --format 'driver={{.Driver}} kernel={{.KernelVersion}} server={{.ServerVersion}}' 2>&1
+        } >>"${RUN_DIR}/sudo-preflight.log" 2>&1
+        abort_before_playbook "sudo does not work in this container, so the playbook cannot escalate" "${RUN_DIR}/sudo-preflight.log"
+    fi
+
+
     # Copied in, not bind-mounted. A run must never be able to modify the working tree
     # it is testing.
     #

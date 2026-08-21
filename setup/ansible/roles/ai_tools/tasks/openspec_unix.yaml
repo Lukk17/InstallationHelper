@@ -2,5 +2,5 @@
 - name: Install OpenSpec CLI via npm helper
   ansible.builtin.include_tasks: npm_install_unix.yaml
   vars:
-    npm_pkg: "openspec"
+    npm_pkg: "@fission-ai/openspec"
     npm_display_name: "OpenSpec"

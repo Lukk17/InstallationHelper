@@ -4,10 +4,12 @@
     The four Windows system settings, applied natively instead of through Ansible.
 
 .DESCRIPTION
-    windows_core carries a task file for each of these and none of them can ever run: the playbook
-    is invoked from inside WSL against localhost, so ansible_os_family reports Debian and every
-    Windows-gated task is skipped. docs/regression_ledger.md recorded exactly these four as the
-    remainder after the software catalogue got a native path, and this file is that remainder.
+    windows_core used to carry a task file for each of these and none of them could ever run: the
+    playbook is invoked from inside WSL against localhost, so ansible_os_family reports Debian and
+    every Windows-gated task was skipped. Those files were deleted on 2026-08-20, so nothing under
+    setup/ansible/ describes this behaviour any more and this file is the only description of it.
+    docs/regression_ledger.md recorded exactly these four as the remainder after the software
+    catalogue got a native path, and this file is that remainder.
 
       enable_hyperv          nine optional features, including Hyper-V, WSL, .NET and Sandbox
       setup_wsl              WSL itself plus the Ubuntu distribution
@@ -22,18 +24,18 @@
     Four things deliberately differ from the dead Ansible, and each difference is a defect that
     would otherwise have shipped the moment the Windows path became reachable:
 
-      1. wsl_setup.yaml runs `wsl --install -d Ubuntu`, which registers the distribution and then
+      1. wsl_setup.yaml ran `wsl --install -d Ubuntu`, which registers the distribution and then
          launches it, and a first launch stops at a prompt for a username and password. In a wizard
          nobody is watching that is an unbounded hang. `--no-launch` registers it and stops.
-      2. wsl_setup.yaml imports the scheduled task from `{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml`
+      2. wsl_setup.yaml imported the scheduled task from `{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml`
          and there is no setup/tasks/ directory anywhere in this repository, which is why the toggle
          is off with that reason beside it. The task is built here instead of imported, so there is
          nothing to lose track of.
-      3. wallpaper_windows.yaml writes the registry value and then calls
+      3. wallpaper_windows.yaml wrote the registry value and then called
          `RUNDLL32 user32.dll,UpdatePerUserSystemParameters`, which is undocumented and resets other
          per-user parameters as a side effect. SPI_SETDESKWALLPAPER is the documented call for this
          one setting and it writes the value itself.
-      4. windows_features.yaml never mentions that eight of these nine features need a reboot before
+      4. windows_features.yaml never mentioned that eight of these nine features need a reboot before
          they do anything. A restart that is owed is carried out to the caller here and said out
          loud, because a feature reported as enabled and not yet active is the same lie as a package
          reported as installed and absent.

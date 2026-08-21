@@ -1,4 +1,13 @@
 ---
+# Every network task in this file retries three times with ten seconds between attempts. That is not
+# defensive decoration: a single TCP reset from one vendor's key host aborts the whole software
+# phase, and the first GitHub sweep lost two otherwise-clean scenarios to exactly that. Ubuntu's
+# kde-full run died on "Connection reset by peer" fetching the Tailscale keyring, and Debian's
+# kde-configure-only run died the same way fetching one .deb from deb.debian.org. Neither is a
+# defect in this repository and both cost a job of twenty minutes or more. The vendor downloads in
+# custom_installs.yaml already had this and the repository key downloads did not, which was an
+# inconsistency rather than a decision.
+
 # Set up official APT repositories before batched apt installs.
 # Uses /etc/apt/keyrings/ + signed-by= with DEARMORED binary keyrings (.gpg).
 #
@@ -25,6 +34,10 @@
     mode: '0644'
     force: true
   when: install_chrome | default(false) | bool
+  register: download_google_chrome_signing_key_fetch
+  retries: 3
+  delay: 10
+  until: download_google_chrome_signing_key_fetch is succeeded
 
 - name: Convert Google Chrome key to binary keyring
   ansible.builtin.shell: |
@@ -79,6 +92,10 @@
     mode: '0644'
   become: true
   when: install_brave | default(false) | bool
+  register: download_brave_signing_key_already_binary_fetch
+  retries: 3
+  delay: 10
+  until: download_brave_signing_key_already_binary_fetch is succeeded
 
 - name: Add Brave apt repository
   ansible.builtin.apt_repository:
@@ -97,6 +114,10 @@
     mode: '0644'
     force: true
   when: install_vscode | default(false) | bool
+  register: download_microsoft_signing_key_for_vs_code_fetch
+  retries: 3
+  delay: 10
+  until: download_microsoft_signing_key_for_vs_code_fetch is succeeded
 
 - name: Convert Microsoft key to binary keyring
   ansible.builtin.shell: |
@@ -126,6 +147,10 @@
     mode: '0644'
     force: true
   when: install_sublime | default(false) | bool
+  register: download_sublime_text_signing_key_ascii_despite_gpg_url_suffix_fetch
+  retries: 3
+  delay: 10
+  until: download_sublime_text_signing_key_ascii_despite_gpg_url_suffix_fetch is succeeded
 
 - name: Convert Sublime key to binary keyring
   ansible.builtin.shell: |
@@ -155,6 +180,10 @@
     mode: '0644'
     force: true
   when: install_kubectl | default(false) | bool
+  register: download_kubernetes_signing_key_fetch
+  retries: 3
+  delay: 10
+  until: download_kubernetes_signing_key_fetch is succeeded
 
 - name: Convert Kubernetes key to binary keyring
   ansible.builtin.shell: |
@@ -184,6 +213,10 @@
     mode: '0644'
     force: true
   when: install_helm | default(false) | bool
+  register: download_helm_signing_key_fetch
+  retries: 3
+  delay: 10
+  until: download_helm_signing_key_fetch is succeeded
 
 - name: Convert Helm key to binary keyring
   ansible.builtin.shell: |
@@ -213,6 +246,10 @@
     mode: '0644'
     force: true
   when: install_terraform | default(false) | bool
+  register: download_hashicorp_signing_key_fetch
+  retries: 3
+  delay: 10
+  until: download_hashicorp_signing_key_fetch is succeeded
 
 - name: Convert HashiCorp key to binary keyring
   ansible.builtin.shell: |
@@ -244,6 +281,10 @@
     force: true
   become: true
   when: install_gh | default(false) | bool
+  register: download_github_cli_binary_keyring_fetch
+  retries: 3
+  delay: 10
+  until: download_github_cli_binary_keyring_fetch is succeeded
 
 - name: Add GitHub CLI apt repository
   ansible.builtin.apt_repository:
@@ -262,6 +303,10 @@
     mode: '0644'
     force: true
   when: install_lens | default(false) | bool
+  register: download_lens_signing_key_fetch
+  retries: 3
+  delay: 10
+  until: download_lens_signing_key_fetch is succeeded
 
 - name: Convert Lens key to binary keyring
   ansible.builtin.shell: |
@@ -298,6 +343,10 @@
     mode: '0644'
     force: true
   when: install_docker | default(false) | bool
+  register: download_docker_signing_key_fetch
+  retries: 3
+  delay: 10
+  until: download_docker_signing_key_fetch is succeeded
 
 - name: Convert Docker key to binary keyring
   ansible.builtin.shell: |
@@ -388,6 +437,10 @@
     force: true
   become: true
   when: install_syncthing | default(false) | bool
+  register: download_syncthing_binary_keyring_fetch
+  retries: 3
+  delay: 10
+  until: download_syncthing_binary_keyring_fetch is succeeded
 
 - name: Add Syncthing apt repository
   ansible.builtin.apt_repository:
@@ -413,6 +466,10 @@
     force: true
   become: true
   when: install_tailscale | default(false) | bool
+  register: download_tailscale_binary_keyring_fetch
+  retries: 3
+  delay: 10
+  until: download_tailscale_binary_keyring_fetch is succeeded
 
 - name: Add Tailscale apt repository
   ansible.builtin.apt_repository:

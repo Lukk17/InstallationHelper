@@ -18,6 +18,9 @@ install_lens: false
 install_postman: false
 install_dbeaver: false
 install_filezilla: false
+# Bruno CLI has no native Linux package and installs only through npm under NVM, which
+# install_nodejs above turns off, so leaving it on makes every run of this profile fail.
+install_bruno_cli: false
 # keep: git, openssl
 
 # ---- IDEs / Editors (all off) ----

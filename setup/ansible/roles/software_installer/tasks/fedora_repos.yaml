@@ -1,4 +1,13 @@
 ---
+# Every network task in this file retries three times with ten seconds between attempts. That is not
+# defensive decoration: a single TCP reset from one vendor's key host aborts the whole software
+# phase, and the first GitHub sweep lost two otherwise-clean scenarios to exactly that. Ubuntu's
+# kde-full run died on "Connection reset by peer" fetching the Tailscale keyring, and Debian's
+# kde-configure-only run died the same way fetching one .deb from deb.debian.org. Neither is a
+# defect in this repository and both cost a job of twenty minutes or more. The vendor downloads in
+# custom_installs.yaml already had this and the repository key downloads did not, which was an
+# inconsistency rather than a decision.
+
 # Set up official DNF repositories before batched dnf installs.
 
 # --- Google Chrome ---
@@ -32,6 +41,10 @@
     state: present
   become: true
   when: install_vscode | default(false) | bool
+  register: import_microsoft_gpg_key_fetch
+  retries: 3
+  delay: 10
+  until: import_microsoft_gpg_key_fetch is succeeded
 
 - name: Add VS Code dnf repository
   ansible.builtin.yum_repository:
@@ -51,6 +64,10 @@
     state: present
   become: true
   when: install_sublime | default(false) | bool
+  register: import_sublime_text_gpg_key_fetch
+  retries: 3
+  delay: 10
+  until: import_sublime_text_gpg_key_fetch is succeeded
 
 - name: Add Sublime Text dnf repository
   ansible.builtin.yum_repository:
@@ -85,12 +102,20 @@
   when: install_terraform | default(false) | bool
 
 # --- Lens Desktop ---
+  register: add_hashicorp_dnf_repository_terraform_fetch
+  retries: 3
+  delay: 10
+  until: add_hashicorp_dnf_repository_terraform_fetch is succeeded
 - name: Import Lens GPG key
   ansible.builtin.rpm_key:
     key: https://downloads.k8slens.dev/keys/gpg
     state: present
   become: true
   when: install_lens | default(false) | bool
+  register: import_lens_gpg_key_fetch
+  retries: 3
+  delay: 10
+  until: import_lens_gpg_key_fetch is succeeded
 
 - name: Add Lens dnf repository
   ansible.builtin.yum_repository:
@@ -118,6 +143,10 @@
   when: install_docker | default(false) | bool
 
 # --- OpenRazer ---
+  register: add_docker_ce_dnf_repository_fetch
+  retries: 3
+  delay: 10
+  until: add_docker_ce_dnf_repository_fetch is succeeded
 - name: Add OpenRazer dnf repository
   ansible.builtin.get_url:
     url: "{{ openrazer_fedora_repo_url }}"
@@ -125,6 +154,10 @@
     mode: '0644'
   become: true
   when: install_openrazer | default(false) | bool
+  register: add_openrazer_dnf_repository_fetch
+  retries: 3
+  delay: 10
+  until: add_openrazer_dnf_repository_fetch is succeeded
 
 - name: Install kernel headers for the OpenRazer DKMS module
   ansible.builtin.dnf:

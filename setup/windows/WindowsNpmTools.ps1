@@ -20,12 +20,15 @@
 
 Set-StrictMode -Version Latest
 
-# Mirrors roles/ai_tools/tasks/*_windows.yaml. Keyed by the group_vars toggle name without its
-# install_ prefix, so it lines up with the software mapping keys.
+# The same npm packages roles/ai_tools/tasks/*_unix.yaml install everywhere else, and
+# e2e/tier1/windows_npm_parity.sh fails if the two lists ever disagree. The Windows task files this
+# once mirrored were deleted on 2026-08-20 because none of them could run, so the Unix files are the
+# reference now. Keyed by the group_vars toggle name without its install_ prefix, so it lines up
+# with the software mapping keys.
 $script:NpmToolPackages = [ordered]@{
     claude_code = @{ Package = '@anthropic-ai/claude-code'; Display = 'Claude Code' }
     opencode    = @{ Package = 'opencode-ai';               Display = 'OpenCode' }
-    openspec    = @{ Package = 'openspec';                  Display = 'OpenSpec' }
+    openspec    = @{ Package = '@fission-ai/openspec';      Display = 'OpenSpec' }
     codex       = @{ Package = '@openai/codex';             Display = 'Codex' }
     grok        = @{ Package = '@xai-official/grok';        Display = 'Grok' }
     bruno_cli   = @{ Package = '@usebruno/cli';             Display = 'Bruno CLI' }

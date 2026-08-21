@@ -408,7 +408,7 @@ function Install-FlutterViaFvm {
     .SYNOPSIS
         Installs FVM, then the pinned Flutter channel, then pins it globally.
     .DESCRIPTION
-        Mirrors fvm_windows.yaml, which had the shape right. Two things it noted are carried over:
+        Follows the shape of the deleted fvm_windows.yaml, which had that much right. Two things it noted are carried over:
         winget has no FVM manifest and no Flutter SDK manifest, so Chocolatey is the route, and
         `fvm global` creates a symlink under %USERPROFILE%\fvm\default, which needs Developer Mode
         enabled or an elevated run. That last one is reported rather than treated as fatal, because
