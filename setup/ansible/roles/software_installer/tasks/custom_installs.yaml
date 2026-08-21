@@ -176,28 +176,45 @@
     - ansible_facts['system'] == 'Linux'
     - install_gridcoin | default(false) | bool
 
-- name: Check if Gridcoin flatpak is already installed (Linux)
-  ansible.builtin.command: flatpak info org.gridcoin.Gridcoin
-  become: true
-  register: gridcoin_flatpak_check
-  changed_when: false
-  failed_when: false
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - install_gridcoin | default(false) | bool
-
+# There used to be a guard task here that ran `flatpak info org.gridcoin.Gridcoin` and only installed
+# when that came back non-zero. It never once guarded anything, because the bundle does not carry that
+# application id. Installing it in a debian:trixie container and then asking flatpak what it had got
+# named `us.gridcoin.GridcoinResearch/x86_64/master`, so the guard's `flatpak info` always answered
+# "error: org.gridcoin.Gridcoin/*unspecified*/*unspecified* not installed" at rc 1, the install always
+# ran, and the second time it ran it failed the play with:
+#
+#   error: Failed to install bundle us.gridcoin.GridcoinResearch: us.gridcoin.GridcoinResearch
+#   already installed
+#
+# Correcting the id in the guard would have hidden a second problem rather than fixed it: the bundle
+# is pinned by version in pinned_values.toml, the ref inside it is a single branch called master, and
+# a guard that skips whenever any version is present would never apply a pin that has been bumped. So
+# the install is attempted every time and the result is classified instead, which is the only form
+# that gets both cases right.
+#
+# rc 0 means flatpak installed the bundle, so the task is changed. rc non-zero carrying the
+# already-installed message means the machine is already at this bundle, so the task is neither
+# changed nor failed. Any other non-zero result still fails the play, which is the whole point: the
+# phrase matched is flatpak's own wording for this one outcome and nothing else, so a corrupt bundle,
+# a missing runtime or an out-of-space install stays as loud as it was before. Both spellings flatpak
+# uses contain it, the plain one being "This version of us.gridcoin.GridcoinResearch is already
+# installed" and the --noninteractive one being "us.gridcoin.GridcoinResearch already installed",
+# which was checked by running the bundle install twice rather than by reading about it.
 - name: Install Gridcoin flatpak bundle (Linux)
-  ansible.builtin.command: flatpak install --system --bundle --assumeyes {{ software_installer_stage_dir }}/gridcoin.flatpak
+  ansible.builtin.command: flatpak install --system --noninteractive --bundle --assumeyes {{ software_installer_stage_dir }}/gridcoin.flatpak
   become: true
+  register: gridcoin_bundle_install
+  changed_when: gridcoin_bundle_install.rc == 0
+  failed_when: >-
+    gridcoin_bundle_install.rc != 0
+    and 'already installed' not in ((gridcoin_bundle_install.stdout | default(''))
+                                    ~ (gridcoin_bundle_install.stderr | default('')))
   when:
     - ansible_facts['system'] == 'Linux'
     - install_gridcoin | default(false) | bool
-    - gridcoin_flatpak_check is defined
-    - gridcoin_flatpak_check.rc != 0
-  changed_when: true
 
-# Removed whether or not the install above ran, because the download runs whenever the toggle is on
-# and the install only when flatpak does not already have it.
+# Removed whether or not the install above changed anything, because the download runs whenever the
+# toggle is on.
 - name: Remove the staged Gridcoin flatpak bundle (Linux)
   ansible.builtin.file:
     path: "{{ software_installer_stage_dir }}/gridcoin.flatpak"

@@ -748,8 +748,16 @@
         2>&1 | tee -a /var/log/installation-flatpak-batch.log
       become: true
       register: flatpak_batch_result
-      # flatpak prints "Nothing to do." when every package is already installed.
-      changed_when: "'Nothing to do' not in (flatpak_batch_result.stdout | default(''))"
+      # What flatpak actually prints, established by running flatpak 1.16.6 in a debian:trixie
+      # container rather than read anywhere: a ref it installs produces a line beginning
+      # "Installing ", and a ref that is already present produces "Skipping: <ref> is already
+      # installed". Both come back at rc 0, and a batch where some refs are present and some are not
+      # prints one line of each kind. There is no "Nothing to do." line anywhere in any of the three
+      # cases, which is what this condition used to look for, so the task reported changed on every
+      # run including runs where flatpak installed nothing at all. Keying on an Installing line
+      # instead reports changed exactly when at least one ref was actually installed, and a mixed
+      # batch still counts as changed because it carries one.
+      changed_when: "'Installing ' in (flatpak_batch_result.stdout | default(''))"
       failed_when: flatpak_batch_result.rc | default(0) != 0
       when:
         - ih_family == 'Debian'

@@ -186,9 +186,9 @@
 # (same gap e2e-manual.yml's own header names), so it was not run. Nothing here has been
 # executed: a workflow_dispatch run needs an explicit, separate action by whoever runs it, and
 # writing this file does not take that action.
-name: Provisioning - install and verify on every OS
+name: E2E - test software install and configuration on every OS
 run-name: >-
-  Provisioning from ${{ inputs.start_from_stage }}:
+  E2E from ${{ inputs.start_from_stage }}:
   ${{ inputs.scenario }} on ${{ inputs.distro }}
 
 on:
@@ -255,7 +255,7 @@ jobs:
   # walks through, so both are installed first. Neither step is part of the harness itself. They
   # are what e2e/README_E2E.md's own quick start assumes is already true on a developer machine.
   stage1_tier1_gate:
-    name: "Check: toggles, mappings, pinned values and both wizards"
+    name: "Stage 1 check: toggles, mappings, pinned values and both wizards"
     if: inputs.start_from_stage == 'stage-1'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -286,7 +286,7 @@ jobs:
   # See the NEVER RUN IN CI note at the top of this file: this direct invocation, as opposed to
   # going through e2e/tier3/Invoke-WindowsE2E.ps1's own container, has never been exercised.
   stage1_windows_pester:
-    name: "Check: Windows installer unit tests"
+    name: "Stage 1 check: Windows installer unit tests"
     if: inputs.start_from_stage == 'stage-1'
     runs-on: windows-latest
     timeout-minutes: 15
@@ -332,7 +332,7 @@ jobs:
   # 3. setup.sh --print-command resolves a real selection into a real playbook command, and
   # exits without installing anything or asking for Ansible.
   stage1_linux_wizard_plan:
-    name: "Check: Linux wizard resolves a playbook command"
+    name: "Stage 1 check: Linux wizard resolves a playbook command"
     if: inputs.start_from_stage == 'stage-1'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -348,7 +348,7 @@ jobs:
 
   # 4. The same resolution on Darwin, where the toggle files and the OS dictionary differ.
   stage1_macos_wizard_plan:
-    name: "Check: macOS wizard resolves a playbook command"
+    name: "Stage 1 check: macOS wizard resolves a playbook command"
     if: inputs.start_from_stage == 'stage-1'
     runs-on: macos-14
     timeout-minutes: 5
@@ -379,7 +379,7 @@ jobs:
   # group with UAC disabled, which Assert-NotAdmin (called before -PrintPlan is even read) would
   # otherwise refuse. See e2e-manual.yml's own windows-wizard job for the longer citation.
   stage1_windows_wizard_plan:
-    name: "Check: Windows wizard resolves an install plan"
+    name: "Stage 1 check: Windows wizard resolves an install plan"
     if: inputs.start_from_stage == 'stage-1'
     runs-on: windows-latest
     timeout-minutes: 5
@@ -401,7 +401,7 @@ jobs:
   # every stage 1 job actually ran and succeeded. Any other combination, including a real stage
   # 1 failure, sets ok=false and stage 2 stays off.
   stage1_gate:
-    name: "Gate: every check passed, installs may start"
+    name: "Stage 1 gate: every check passed, stage 2 may start"
     needs: [stage1_tier1_gate, stage1_windows_pester, stage1_linux_wizard_plan, stage1_macos_wizard_plan, stage1_windows_wizard_plan]
     if: always()
     runs-on: ubuntu-latest
@@ -451,7 +451,7 @@ jobs:
   # ===========================================================================================
 
   stage2_plan:
-    name: "Plan: which distribution and scenario each install job gets"
+    name: "Stage 2 plan: which distribution and scenario each install job gets"
     needs: stage1_gate
     if: needs.stage1_gate.outputs.ok == 'true' && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
     runs-on: ubuntu-latest
@@ -586,7 +586,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
   stage2_sweep:
-    name: "Install on ${{ matrix.distro }}: ${{ matrix.scenario }}"
+    name: "Stage 2 install on ${{ matrix.distro }}: ${{ matrix.scenario }}"
     needs: [stage1_gate, stage2_plan]
     if: needs.stage1_gate.outputs.ok == 'true' && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage) && needs.stage2_plan.outputs.job_count != '0'
     runs-on: ubuntu-latest
@@ -645,7 +645,7 @@ jobs:
   # propagates a real stage 1 or stage 2 failure forward without stage 3 needing to re-check
   # stage 1 itself: stage2_gate depends on stage1_gate's own verdict as well as stage 2's jobs.
   stage2_gate:
-    name: "Gate: Linux installs passed, the other platforms may start"
+    name: "Stage 2 gate: Linux installs passed, stage 3 may start"
     needs: [stage1_gate, stage2_plan, stage2_sweep]
     if: always()
     runs-on: ubuntu-latest
@@ -704,7 +704,7 @@ jobs:
   # ===========================================================================================
 
   stage3_macos_defaults:
-    name: "Install on macOS: the software set as it ships"
+    name: "Stage 3 install on macOS: the software set as it ships"
     needs: stage2_gate
     if: needs.stage2_gate.outputs.ok == 'true'
     runs-on: macos-14
@@ -751,7 +751,7 @@ jobs:
           retention-days: 14
 
   stage3_macos_everything:
-    name: "Install on macOS: every application turned on"
+    name: "Stage 3 install on macOS: every application turned on"
     needs: stage2_gate
     if: needs.stage2_gate.outputs.ok == 'true'
     runs-on: macos-14
@@ -798,7 +798,7 @@ jobs:
           retention-days: 14
 
   stage3_macos_from_nothing:
-    name: "Install on macOS: nothing on, then a few by name"
+    name: "Stage 3 install on macOS: nothing on, then a few by name"
     needs: stage2_gate
     if: needs.stage2_gate.outputs.ok == 'true'
     runs-on: macos-14
@@ -845,7 +845,7 @@ jobs:
           retention-days: 14
 
   stage3_windows_defaults:
-    name: "Install on Windows: the software set as it ships"
+    name: "Stage 3 install on Windows: the software set as it ships"
     needs: stage2_gate
     if: needs.stage2_gate.outputs.ok == 'true'
     runs-on: windows-latest
@@ -891,7 +891,7 @@ jobs:
           retention-days: 14
 
   stage3_windows_everything:
-    name: "Install on Windows: every application turned on"
+    name: "Stage 3 install on Windows: every application turned on"
     needs: stage2_gate
     if: needs.stage2_gate.outputs.ok == 'true'
     runs-on: windows-latest
@@ -932,7 +932,7 @@ jobs:
           retention-days: 14
 
   stage3_windows_from_nothing:
-    name: "Install on Windows: nothing on, then a few by name"
+    name: "Stage 3 install on Windows: nothing on, then a few by name"
     needs: stage2_gate
     if: needs.stage2_gate.outputs.ok == 'true'
     runs-on: windows-latest
@@ -973,7 +973,7 @@ jobs:
           retention-days: 14
 
   stage3_windows_settings_only:
-    name: "Configure Windows: system settings, no software"
+    name: "Stage 3 configure Windows: system settings, no software"
     needs: stage2_gate
     if: needs.stage2_gate.outputs.ok == 'true'
     runs-on: windows-latest

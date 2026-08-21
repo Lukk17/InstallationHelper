@@ -8,10 +8,32 @@
     version: "{{ stable_diffusion_webui_version }}"
   when: ih_family != 'Windows' and install_stable_diffusion | bool
 
-- name: Check if LM Studio is already installed (Linux)
-  ansible.builtin.stat:
-    path: "{{ non_root_home }}/.local/bin/lms"
+# ~/.local/bin/lms is not a path the installer has ever written. It puts the CLI in
+# <lmstudio home>/bin/lms, where the home is ~/.lmstudio unless ~/.lmstudio-home-pointer names
+# another one, which is the indirection the installer itself reads before it reports where lms
+# landed. So the old stat could never be true and LM Studio was downloaded and unpacked again on
+# every run, a bundle of several hundred megabytes.
+#
+# That pointer is also why this is a probe rather than a `creates`: the artefact's path is a fact
+# about the machine, read at run time, not a constant this file can name. `test -x` rather than
+# `test -f` on purpose, so a half unpacked install with a non-executable lms is reinstalled instead
+# of being taken for a working one.
+- name: Ask where LM Studio put its CLI, if it is installed (Linux)
+  ansible.builtin.shell: |
+    set -o pipefail
+    lms_home="{{ non_root_home }}/.lmstudio"
+    pointer="{{ non_root_home }}/.lmstudio-home-pointer"
+    if [ -f "$pointer" ]; then
+      lms_home="$(cat "$pointer")"
+    fi
+    test -x "$lms_home/bin/lms"
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ non_root_user }}"
   register: lms_installed
+  changed_when: false
+  failed_when: false
   when: ansible_facts['system'] == 'Linux' and install_lm_studio | bool
 
 # `timeout 600` wraps the whole pipeline so the piped `bash` (which itself
@@ -33,4 +55,4 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_lm_studio | bool
-    - not (lms_installed.stat.exists | default(false))
+    - (lms_installed.rc | default(1)) != 0

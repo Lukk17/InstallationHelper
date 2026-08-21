@@ -16,7 +16,35 @@
 # `nvm` is a shell function, not a binary — `timeout nvm …` fails with
 # "No such file or directory" because timeout uses execve(). Wrap the
 # whole call in `bash -c` so the function is defined inside the timed
-# sub-shell.
+# sub-shell. That applies to the probe below just as much as to the install.
+#
+# `creates` cannot express this one. The artefact is
+# ~/.nvm/versions/node/<version>/bin/node and the version is whatever LTS resolves to on the day,
+# so the only shape `creates` could take is a glob over every installed version, which would skip
+# the install on a machine that has some other Node and not the LTS one.
+#
+# `nvm which "lts/*"` is NVM's own answer to the same question and needs no network: it resolves the
+# alias out of ~/.nvm/alias and checks the binary. Measured in a debian:trixie container against
+# NVM 0.40.4, it exits 0 and prints the node path once the LTS release is installed, and exits 1 in
+# one second on a machine that has NVM and no Node at all. It also exits 1 for every half-installed
+# shape tried: the node binary deleted, the node binary left non-executable, and the whole version
+# directory removed with the alias files still in place. Each of those reinstalls, which is correct.
+- name: Ask NVM whether the current LTS release is already installed (Linux/Mac)
+  ansible.builtin.shell: |
+    set -o pipefail
+    timeout 60 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm which "lts/*"'
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: nvm_lts_installed
+  changed_when: false
+  failed_when: false
+
+# The old changed_when read stdout for "is already installed", which NVM writes with nvm_err, so it
+# lands on stderr and the test was never true: every rerun reported a change it had not made. The
+# guard above now keeps the task from running at all in that case, so reaching it means the LTS
+# release really is absent and the default change report is the truthful one.
 - name: Install Node LTS via NVM (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
@@ -28,8 +56,8 @@
   register: nvm_install
   async: 1200
   poll: 30
-  changed_when: "'is already installed' not in (nvm_install.stdout | default(''))"
-  failed_when:
-    - nvm_install.rc is defined
-    - nvm_install.rc != 0
-    - "'is already installed' not in (nvm_install.stdout | default(''))"
+  # An async result carrying no rc at all is the shape a lost or killed job takes, and the previous
+  # condition required rc to be defined before it could fail, so that shape passed silently. Same
+  # reasoning as the async_status collector in fvm_unix.yaml.
+  failed_when: nvm_install.rc is not defined or nvm_install.rc != 0
+  when: nvm_lts_installed.rc != 0

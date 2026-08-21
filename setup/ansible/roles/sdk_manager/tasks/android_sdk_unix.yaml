@@ -70,22 +70,67 @@
     any_role_failed: true
   when: not sdkman_java_stat.stat.exists
 
+# sdkmanager records an accepted licence as a file under {{ android_home }}/licenses, one per
+# licence, and `creates` cannot express that: the set is not fixed. Google adds licence types over
+# time, this build of the command line tools asks for seven, and keying the guard on any one of them
+# would permanently skip a machine that has six of the seven, which is the state a killed run or a
+# newly added licence type leaves behind. Verified by deleting one of the seven files and asking
+# again, below.
+#
+# So ask sdkmanager instead. With stdin closed it prints the state and accepts nothing, proven in a
+# debian:trixie container with the pinned command line tools: on a machine with no licences at all
+# it printed "7 of 7 SDK package licenses not accepted." and left no licences directory behind, with
+# six of seven it printed "1 of 7 SDK package license not accepted." and again wrote nothing, and
+# with all seven accepted it printed "All SDK package licenses accepted." That last string is the
+# gate below.
+#
+# It costs a repository fetch, roughly a minute, which is the same fetch the accept run makes. That
+# is the price of an answer that is right in the half accepted case.
+- name: Ask sdkmanager which SDK licenses are already accepted
+  ansible.builtin.shell: |
+    set -o pipefail
+    export JAVA_HOME="{{ non_root_home }}/.sdkman/candidates/java/current"
+    export PATH="$JAVA_HOME/bin:$PATH"
+    timeout 300 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses </dev/null
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: sdk_license_state
+  changed_when: false
+  failed_when: false
+  when: sdkman_java_stat.stat.exists
+
+# The answers come from a file rather than from `yes |`. A pipe from `yes` is killed by SIGPIPE the
+# moment sdkmanager exits, and with `set -o pipefail` the pipeline then reports 141 whatever
+# sdkmanager did, which is what the trailing `|| true` on the old version of this task was there to
+# swallow. It swallowed sdkmanager's own status with it, so the failed_when beside it could never
+# fire. Reading from a file leaves rc meaning what it says. Seven licences plus the review prompt
+# need eight answers today, and 200 is the headroom for a build of the tools that asks for more.
 - name: Accept Android SDK licenses
   ansible.builtin.shell: |
     set -o pipefail
     export JAVA_HOME="{{ non_root_home }}/.sdkman/candidates/java/current"
     export PATH="$JAVA_HOME/bin:$PATH"
-    timeout 300 bash -c 'yes 2>/dev/null | {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses' || true
+    answers="$(mktemp)"
+    trap 'rm -f "$answers"' EXIT
+    for _ in $(seq 200); do echo y; done > "$answers"
+    timeout 300 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager --licenses < "$answers"
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
   register: sdk_licenses
-  changed_when: "'All SDK package licenses accepted' in (sdk_licenses.stdout | default(''))"
-  failed_when: >
-    'All SDK package licenses accepted' not in (sdk_licenses.stdout | default('')) and
-    sdk_licenses.rc | default(0) != 0
-  when: sdkman_java_stat.stat.exists
+  # Reaching this task means licences were missing, so the change report is the default one. The
+  # failure test is the post-condition: sdkmanager prints this line at the end of a run that
+  # accepted everything, and its absence means some licence is still outstanding and the platform
+  # install below will fail on it.
+  failed_when: >-
+    sdk_licenses.rc != 0 or
+    'All SDK package licenses accepted' not in (sdk_licenses.stdout | default(''))
+  when:
+    - sdkman_java_stat.stat.exists
+    - "'All SDK package licenses accepted' not in (sdk_license_state.stdout | default(''))"
 
 # sdkmanager downloads several hundred MB of platforms + build-tools.
 # async+poll dodges the 2.19 ansiballz race on the long-running call.

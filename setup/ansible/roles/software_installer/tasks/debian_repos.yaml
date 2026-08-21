@@ -37,6 +37,28 @@
   become: true
   when: install_chrome | default(false) | bool
 
+# google-chrome-stable owns this repository itself once it has been installed once, and the line
+# below only exists to bootstrap that first install.
+#
+# What the package does, read out of /var/lib/dpkg/info/google-chrome-stable.postinst inside a
+# debian:trixie container that had just installed Chrome from the repository this task adds: its
+# install_deb822_sources() runs on every install and upgrade, recognises the line below through its
+# own REPOCONFIGREGEX, rewrites it into /etc/apt/sources.list.d/google-chrome.sources in deb822 form
+# pointing at https://dl.google.com/linux/chrome-stable/deb/ and signed by
+# /usr/share/keyrings/google-chrome.gpg, and then deletes /etc/apt/sources.list.d/google-chrome.list
+# outright. The container showed the .list file present before the install and gone after it, with
+# the .sources file in its place.
+#
+# So on every later run apt_repository found its file missing, wrote it again and reported changed
+# forever, and left the machine carrying two definitions of the same repository. Skipping once the
+# package's own file exists is what stops it, and it is also the honest description of who owns the
+# repository at that point.
+- name: Check whether google-chrome-stable already owns its apt repository
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/google-chrome.sources
+  register: chrome_vendor_sources
+  when: install_chrome | default(false) | bool
+
 - name: Add Google Chrome apt repository
   ansible.builtin.apt_repository:
     repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main"
@@ -44,7 +66,9 @@
     state: present
     update_cache: false
   become: true
-  when: install_chrome | default(false) | bool
+  when:
+    - install_chrome | default(false) | bool
+    - not (chrome_vendor_sources.stat.exists | default(false))
 
 # --- Brave Browser ---
 # Brave publishes an already-binary keyring, so no dearmor needed.

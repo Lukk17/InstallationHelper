@@ -97,6 +97,26 @@
   register: pyenv_jobs
   changed_when: false
 
+# Waiting is not itself a change, so this task reports one only when the job it collected actually
+# built something. It needs no guard: `pyenv install --skip-existing` is already the guard, and the
+# fire task above is what would have to be gated if it were not.
+#
+# The old condition tested for "already installed" and "already exists" in stderr and could never be
+# true. Measured against pyenv 2.8.4 in a debian:trixie container: `pyenv install --skip-existing`
+# on a version whose prefix already carries a bin directory exits 0 having written nothing at all,
+# zero bytes on both streams, because pyenv-install `continue`s before python-build ever runs.
+# "already exists" is what pyenv prints without --skip-existing, which is not how this task runs. So
+# every rerun reported four changes it had not made.
+#
+# python-build writes "Installed Python-<version> to <prefix>" to stderr, and only after a build has
+# succeeded, so that string is the evidence a build really happened. A build that ran and failed
+# prints "Installing Python-<version>..." and never the past tense, and is reported by failed_when
+# rather than as a change, which is right: a failed build leaves nothing usable behind.
+#
+# The half-built case belongs to pyenv rather than to this file. --skip-existing skips on
+# ${PREFIX}/bin, not on the prefix itself, so an interrupted build that left ~/.pyenv/versions/X.Y.Z
+# with no bin directory is rebuilt from scratch and reports the change, confirmed in the same
+# container.
 - name: Wait for parallel Pyenv Python builds to finish
   ansible.builtin.async_status:
     jid: "{{ item.ansible_job_id }}"
@@ -111,12 +131,14 @@
   delay: 30
   changed_when: >-
     pyenv_install.finished and
-    'already installed' not in (pyenv_install.stderr | default('')) and
-    'already exists' not in (pyenv_install.stderr | default(''))
+    'Installed Python-' in (pyenv_install.stderr | default(''))
+  # An rc-less finished result is a lost or killed job, and `rc | default(0)` called that a pass,
+  # which is the one answer it could not afford to give. Same reasoning as the async_status
+  # collector in fvm_unix.yaml. The old third condition tolerated "already exists" in stderr, a
+  # string --skip-existing never produces, so it could only ever have masked a real failure.
   failed_when:
     - pyenv_install.finished
-    - pyenv_install.rc | default(0) != 0
-    - "'already exists' not in (pyenv_install.stderr | default(''))"
+    - pyenv_install.rc is not defined or pyenv_install.rc != 0
 
 - name: Read current pyenv global version
   ansible.builtin.shell: |

@@ -1,19 +1,15 @@
 ---
-- name: Check if FVM is already installed (Linux/Mac)
-  ansible.builtin.shell: |
-    set -o pipefail
-    export PATH="{{ non_root_home }}/.fvm/bin:{{ non_root_home }}/.pub-cache/bin:$PATH"
-    command -v fvm 2>/dev/null && exit 0
-    test -f "{{ non_root_home }}/.fvm/bin/fvm" && exit 0
-    test -f "{{ non_root_home }}/.pub-cache/bin/fvm" && exit 0
-    exit 1
-  args:
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  register: fvm_check
-  changed_when: false
-  failed_when: false
+# Each of the two installs below puts the binary in exactly one place, so each one is guarded by the
+# `creates` for its own place. The single probe that used to gate both of them looked in
+# ~/.fvm/bin and ~/.pub-cache/bin only, and installer 2.0.0 has installed into ~/fvm/bin since
+# 2025-12, so the probe could not see the script install's own result and FVM was downloaded and
+# unpacked again on every run. Verified in a debian:trixie container: the script leaves
+# ~/fvm/bin/fvm and nothing at all in ~/.fvm, ~/.pub-cache or /usr/local/bin.
+- name: Check whether FVM is already active in the Dart pub cache (Arch)
+  ansible.builtin.stat:
+    path: "{{ non_root_home }}/.pub-cache/bin/fvm"
+  register: fvm_pub_cache_binary
+  when: ih_family == 'Archlinux'
 
 # `dart pub global activate fvm` requires dart on PATH. The dart install
 # task is tagged `[dart]`, so under `--tags fvm` alone dart may be absent.
@@ -24,14 +20,15 @@
     name: dart
     state: present
   when:
-    - fvm_check.rc != 0
     - ih_family == 'Archlinux'
+    - not (fvm_pub_cache_binary.stat.exists | default(false))
 
 - name: Install FVM via dart pub global (Arch Linux)
   ansible.builtin.shell: |
     set -o pipefail
     dart pub global activate fvm
   args:
+    creates: "{{ non_root_home }}/.pub-cache/bin/fvm"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
@@ -39,9 +36,7 @@
   retries: 3
   delay: 10
   until: fvm_arch_install is succeeded
-  when:
-    - fvm_check.rc != 0
-    - ih_family == 'Archlinux'
+  when: ih_family == 'Archlinux'
 
 - name: Install FVM via install script (Linux/Mac non-Arch)
   ansible.builtin.shell: |
@@ -49,6 +44,7 @@
     export HOME="{{ non_root_home }}"
     curl -fsSL --max-time 120 https://fvm.app/install.sh | bash
   args:
+    creates: "{{ non_root_home }}/fvm/bin/fvm"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
@@ -56,9 +52,7 @@
   retries: 3
   delay: 10
   until: fvm_script_install is succeeded
-  when:
-    - fvm_check.rc != 0
-    - ih_family != 'Archlinux'
+  when: ih_family != 'Archlinux'
 
 - name: Locate FVM binary after install
   ansible.builtin.shell: |
