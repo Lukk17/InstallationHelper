@@ -20,6 +20,27 @@
 # Only the first kind belongs in this file, and the reason has to say which fact about the moment
 # makes it unrepeatable. "Always changes" is not a reason, it is the observation that needs one.
 
-# Empty on purpose until a real second pass names an offender. The scenario's own run record is
-# where the list of tasks that reported changed is written, so the honest starting point is no
-# exemptions at all: every offender then has to be looked at once rather than pre-excused.
+# The first real second pass ran on 2026-08-21 and named twelve. Eight of them are the first kind and
+# are below. The other four were the second and third kinds and were fixed instead.
+#
+# Four create-and-remove pairs, all deliberate. Each one exists because the run must not leave
+# something behind, so the second run necessarily recreates what the first one cleaned up. That is
+# the definition of unrepeatable work rather than a task that cannot tell.
+
+# The escalation the playbook grants itself and then takes away again. Leaving it in place would mean
+# every run ends with NOPASSWD: ALL still on the machine, which the ledger already has an entry for.
+debian_core : Configure passwordless sudo for non-root user (Debian/Ubuntu) | the entry is removed in the always block at the end of every run, so the next run has to write it again
+arch_core : Configure passwordless sudo for non-root user | the entry is removed in the always block at the end of every run, so the next run has to write it again
+Remove the temporary passwordless sudoers entry (Linux) | it removes what this run created, and there is always something to remove
+
+# The staging directory for downloaded installers, created at the start and deleted at the end so a
+# vendor archive is never left lying in a predictable path.
+system_core : Ensure temporary installation folder exists | it is deleted in the post-tasks of every run, so the next run has to create it again
+Remove temporary installation folder | it removes what this run created, and there is always something to remove
+
+# Two vendor archives that are downloaded, installed from, and then deleted on purpose, because a
+# kept copy becomes a cache that a version bump cannot invalidate.
+software_installer : Download Gridcoin flatpak bundle (Linux) | the bundle is deleted after installation, so it is absent at the start of every run
+software_installer : Remove the staged Gridcoin flatpak bundle (Linux) | it removes what this run downloaded, and there is always something to remove
+software_installer : Download GpuTest binary archive | the archive is deleted after extraction, so it is absent at the start of every run
+software_installer : Remove the staged GpuTest archive | it removes what this run downloaded, and there is always something to remove

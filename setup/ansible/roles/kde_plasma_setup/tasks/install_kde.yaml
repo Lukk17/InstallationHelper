@@ -70,10 +70,20 @@
   until: kde_apt_ubuntu is succeeded
   when: ih_base == 'ubuntu'
 
+# sddm is named explicitly, not left to the group. Fedora's "KDE Plasma Workspaces" group does not
+# contain it, checked with dnf group info on fedora:44, so every task after this one that touches
+# SDDM had nothing to touch: the ownership fix failed outright with "chown failed: failed to look up
+# user sddm", and the service enable and the config writes were working on a display manager that was
+# not installed. Found by the first Fedora KDE run this repository has ever done, on 2026-08-21, and
+# it is the same defect as the Arch OpenRazer group: a group is not a promise that a particular
+# package is inside it. Arch already names sddm explicitly three tasks below, which is what made the
+# difference visible.
 - name: Install KDE Plasma Wayland (Fedora)
   become: yes
   ansible.builtin.dnf:
-    name: "@KDE Plasma Workspaces"
+    name:
+      - "@KDE Plasma Workspaces"
+      - sddm
     state: present
   when: ih_family == 'RedHat'
 
