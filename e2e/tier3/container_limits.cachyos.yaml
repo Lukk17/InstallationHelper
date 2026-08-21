@@ -1,0 +1,33 @@
+---
+# CachyOS only. Applied on top of container_limits.yaml, which container.sh reads first.
+#
+# steam is off here because the CachyOS v3 repository is currently inconsistent with its own content
+# delivery network, and nothing this repository does can install it while that is true.
+#
+# The chain, traced on 2026-08-21. steam depends on the virtual lib32-vulkan-driver, whose first
+# provider in repository order is cachyos-v3/lib32-mesa-git, which depends on mesa-git, which
+# conflicts with the stable mesa that qemu-full installs earlier in the same run. So the run has to
+# align the whole graphics stack with the git builds up front, and that is what
+# arch_core's "Align the 32-bit graphics stack" task does.
+#
+# That alignment cannot complete. The v3 database advertises lib32-glibc 2.44+r24+g16be1518495f-1 and
+# lib32-gcc-libs 16.2.1+r23+gd564253eb6c8-1, and the CDN answers 404 for both of those exact files.
+# Measured directly against the URLs, not inferred from a log:
+#
+#   https://cdn77.cachyos.org/repo/x86_64_v3/cachyos-v3/lib32-glibc-2.44+r24+g16be1518495f-1-x86_64_v3.pkg.tar.zst
+#   -> 404, while `pacman -Si lib32-glibc` on a freshly refreshed database names that same version.
+#
+# So a database refresh does not help, which is worth stating plainly because it was my first
+# instinct: -Syy fetches a fresh index and the fresh index names the same missing build. This is not
+# a stale mirror, it is a repository whose index and whose files disagree.
+#
+# What this file does NOT claim. It is not a statement that steam cannot be installed on CachyOS. It
+# is a statement that it cannot be installed today, and the reason is upstream. Re-measure the two
+# URLs above before leaving this line here: if they answer 200, delete this file and the six CachyOS
+# cells should pass. Everything else in the software set installs on CachyOS perfectly well, and
+# suppressing one package is what lets the other thirty-four be tested at all, because a pacman batch
+# is one call and the conflict takes all of them down together.
+#
+# The alignment task itself stays in the playbook, and it stays fatal. A real CachyOS user who turns
+# steam on deserves to see the run stop and read why, rather than have the failure hidden from them.
+install_steam: false

@@ -688,3 +688,15 @@ The same defect in two package managers, found in the same scenario a few hours 
 Both are now two tasks, with `changed_when: false` on the refresh half. In each case the same file already had siblings doing it correctly: the Arch and macOS cache cleans twenty lines from the apt one carried `changed_when: false` all along, so both were inconsistencies rather than judgements.
 
 Worth stating because it generalises: a task that refreshes an index, empties a cache or otherwise does something whose result is not a state cannot be idempotent, and the honest place to say so is `changed_when` on that task, not an entry in an allowlist. The allowlist is for work that must genuinely happen again, like a file the run deliberately deleted.
+
+#### CachyOS cannot install steam today, because its v3 repository disagrees with its own CDN
+
+Status: not fixable here. steam is suppressed on the CachyOS image in [container_limits.cachyos.yaml](../e2e/tier3/container_limits.cachyos.yaml), with the two URLs to re-measure written beside it. The alignment task stays fatal for real users.
+
+The chain is ours and the breakage is not. steam depends on the virtual `lib32-vulkan-driver`, whose first provider in repository order is `cachyos-v3/lib32-mesa-git`, which depends on `mesa-git`, which conflicts with the stable `mesa` that `qemu-full` installs earlier in the same run. Naming the stable `lib32-mesa` explicitly does not win, tested: pacman drops it in favour of the git build, because that is what satisfies `lib32-opengl-driver` from the repository CachyOS puts first. So the only way to install steam there is to align the whole graphics stack with the git builds up front, which is what `arch_core` now does.
+
+That alignment cannot complete. The v3 database advertises `lib32-glibc 2.44+r24+g16be1518495f-1` and `lib32-gcc-libs 16.2.1+r23+gd564253eb6c8-1`, and the CDN answers 404 for both of those exact files. Measured against the URLs directly rather than inferred from a log, and confirmed against a freshly refreshed database naming the same versions.
+
+A correction on my own first instinct, which is the reason this entry exists at all. I saw the 404 and read it as a mirror lagging behind the index, committed `-Syy` with three retries as the fix, and said so. That is the wrong diagnosis: a refresh fetches a fresh index and the fresh index names the same missing builds. The `-Syy` is kept because a forced refresh costs one index download and does cover the case it was written for, but it was not the case in front of me, and a fix that reads as if it addressed the problem is worse than no fix.
+
+Two things this leaves. Suppressing one package is what lets the other thirty-four be tested at all, because a pacman batch is one call and the conflict takes all of them down together. And the suppression carries the two URLs precisely so that whoever reads it next can settle it in ten seconds rather than repeating the afternoon: if they answer 200, delete the file.
