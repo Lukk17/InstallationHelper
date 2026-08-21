@@ -44,6 +44,11 @@
     ih_supported_families: [Debian, RedHat, Archlinux, Darwin, Windows]
     ih_reported_family: "{{ ih_reported_family | default(ansible_facts['os_family'] | default(''), true) }}"
     ih_reported_distribution: "{{ ih_reported_distribution | default(ansible_facts['distribution'] | default(''), true) }}"
+    # The distribution's own id, which is the only thing that tells one Arch derivative from another.
+    # Ansible reports ansible_distribution as Archlinux on CachyOS, so ih_base is archlinux there too
+    # and cannot be the gate for a CachyOS-only fact. Measured on the CachyOS image: ID=cachyos,
+    # ID_LIKE=arch, NAME="CachyOS Linux".
+    ih_os_release_id: "{{ ih_os_release_text | regex_findall('^ID=\"?([^\"]*)', multiline=True) | first | default('', true) | lower | trim }}"
     ih_os_release_id_like: "{{ ih_os_release_text | regex_findall('^ID_LIKE=\"?([^\"]*)', multiline=True) | first | default('', true) | lower | trim }}"
     ih_os_release_ubuntu_codename: "{{ ih_os_release_text | regex_findall('^UBUNTU_CODENAME=\"?([^\"]*)', multiline=True) | first | default('', true) | lower | trim }}"
   vars:

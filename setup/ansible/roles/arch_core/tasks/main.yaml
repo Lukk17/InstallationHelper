@@ -345,3 +345,47 @@
     - install_snapd | default(false) | bool
     - snap_core_install.rc | default(0) != 0
     - "'already installed' not in (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))"
+
+# CachyOS resolves the 32-bit graphics stack to its own git builds, and the run has to agree with it
+# before anything asks for a multilib package, or the whole software batch dies.
+#
+# The chain, traced on the CachyOS image on 2026-08-21. steam depends on the virtual lib32-vulkan-driver
+# and on lib32-libgl. The first provider of lib32-vulkan-driver in repository order is
+# cachyos-v3/lib32-mesa-git, and lib32-libgl resolves to multilib/lib32-libglvnd which depends on
+# lib32-mesa, so both the git and the stable package end up in one transaction. pacman drops the
+# stable one, then finds lib32-mesa-git needs mesa, resolves that to mesa-git, and mesa-git conflicts
+# with the stable mesa that qemu-full installed earlier in this same run. It stops to ask
+# "Remove mesa?", --noconfirm answers no, and the entire batch of thirty-five packages fails.
+#
+# Naming the stable lib32-mesa as an explicit target does not win, measured: pacman still drops it in
+# favour of the git build, because the git build is what satisfies lib32-opengl-driver from the
+# repository CachyOS puts first. So there is no way to keep the stable stack and install steam.
+#
+# Which makes this the honest resolution rather than a workaround: align the graphics stack with what
+# the distribution's own repositories prefer, once, up front, and let everything after it resolve
+# normally. `yes` answers the conflict the way a CachyOS user answers it. That is deliberate and it is
+# the only prompt in reach: the two packages named here have no provider choice to make, so nothing
+# else can be answered by accident. --noconfirm is absent on purpose, because it is what makes the
+# question unanswerable.
+#
+# Gated on the distribution's own ID rather than on ih_base, because Ansible reports Archlinux for
+# ansible_distribution on CachyOS and ih_base is archlinux there too.
+#
+# Verified end to end on the image: with this, `pacman -S --needed --noconfirm steam ...` exits 0 and
+# steam 1.0.0.87-1 installs. Without it the same command exits 1 on the conflict.
+- name: Align the 32-bit graphics stack with the CachyOS repositories (CachyOS)
+  become: yes
+  ansible.builtin.shell: |
+    set -o pipefail
+    yes | pacman -S --needed mesa-git lib32-mesa-git
+  args:
+    executable: /bin/bash
+  register: cachy_mesa_align
+  changed_when: "'there is nothing to do' not in (cachy_mesa_align.stdout | default(''))"
+  failed_when: cachy_mesa_align.rc != 0
+  when:
+    - ih_family == 'Archlinux'
+    - ih_os_release_id == 'cachyos'
+    - install_steam | default(false) | bool
+  tags: [cachyos, steam]
+
