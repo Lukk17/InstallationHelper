@@ -26,6 +26,28 @@
           the wrong package manager.
       when: item.family == 'unsupported'
 
+    # The raw captures, asserted for equality, which is the whole point of them being here.
+    #
+    # These two facts existed for a long time and nothing ever compared them to anything: the family
+    # derivation asks whether 'arch' is IN the value, and a substring test does not care what follows
+    # it. So a regex of [^"]* , which excludes the quote and not the newline, over-captured every
+    # unquoted value by swallowing the rest of the file up to the next quote, and every one of these
+    # fixtures passed anyway. It surfaced only when a new consumer asked for equality, on 2026-08-21,
+    # and by then it had been wrong for as long as the file had existed.
+    #
+    # An assertion on a value nobody compares is not a test of that value. These two are compared now.
+    - name: "{{ item.fixture }} captures the raw os-release values without over-reading"
+      ansible.builtin.assert:
+        that:
+          - ih_os_release_id == item.id
+          - ih_os_release_id_like == item.id_like
+        fail_msg: >-
+          {{ item.fixture }}: expected ID='{{ item.id }}' and ID_LIKE='{{ item.id_like }}', got
+          ID='{{ ih_os_release_id }}' and ID_LIKE='{{ ih_os_release_id_like }}'. A value carrying a
+          newline means the capture ran past the end of its line.
+        success_msg: "{{ item.fixture }}: ID='{{ ih_os_release_id }}' ID_LIKE='{{ ih_os_release_id_like }}'"
+        quiet: true
+
     - name: "{{ item.fixture }} derives the expected family and base"
       ansible.builtin.assert:
         that:

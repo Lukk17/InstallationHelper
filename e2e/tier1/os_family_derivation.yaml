@@ -44,22 +44,22 @@
     # setup/ansible/tasks/derive_os_facts.yaml under REPO_ROOT, so the check can be aimed at a copy
     # of the tree carrying an old defect. E2E_REPO_ROOT in e2e/lib/common.sh is that mechanism.
     ih_cases:
-      - { fixture: ubuntu,      reported_family: Debian,      reported_distribution: Ubuntu,                      family: Debian,    base: ubuntu }
-      - { fixture: debian,      reported_family: Debian,      reported_distribution: Debian,                      family: Debian,    base: debian }
-      - { fixture: pop-os,      reported_family: Debian,      reported_distribution: "Pop!_OS",                   family: Debian,    base: ubuntu }
-      - { fixture: linux-mint,  reported_family: Debian,      reported_distribution: "Linux Mint",                family: Debian,    base: ubuntu }
-      - { fixture: lmde,        reported_family: Debian,      reported_distribution: "Linux Mint Debian Edition", family: Debian,    base: debian }
-      - { fixture: devuan,      reported_family: Debian,      reported_distribution: Devuan,                      family: Debian,    base: debian }
-      - { fixture: arch,        reported_family: Archlinux,   reported_distribution: Archlinux,                   family: Archlinux, base: archlinux }
-      - { fixture: endeavouros, reported_family: EndeavourOS, reported_distribution: EndeavourOS,                 family: Archlinux, base: endeavouros }
-      - { fixture: cachyos,     reported_family: CachyOS,     reported_distribution: CachyOS,                     family: Archlinux, base: cachyos }
-      - { fixture: manjaro,     reported_family: Archlinux,   reported_distribution: Manjaro,                     family: Archlinux, base: manjaro }
-      - { fixture: fedora,      reported_family: RedHat,      reported_distribution: Fedora,                      family: RedHat,    base: fedora }
-      - { fixture: nobara,      reported_family: Nobara,      reported_distribution: Nobara,                      family: RedHat,    base: nobara }
-      - { fixture: rocky,       reported_family: RedHat,      reported_distribution: Rocky,                       family: RedHat,    base: rocky }
+      - { fixture: ubuntu,      reported_family: Debian,      reported_distribution: Ubuntu,                      family: Debian,    base: ubuntu , id: "ubuntu", id_like: "debian" }
+      - { fixture: debian,      reported_family: Debian,      reported_distribution: Debian,                      family: Debian,    base: debian , id: "debian", id_like: "" }
+      - { fixture: pop-os,      reported_family: Debian,      reported_distribution: "Pop!_OS",                   family: Debian,    base: ubuntu , id: "pop", id_like: "ubuntu debian" }
+      - { fixture: linux-mint,  reported_family: Debian,      reported_distribution: "Linux Mint",                family: Debian,    base: ubuntu , id: "linuxmint", id_like: "ubuntu debian" }
+      - { fixture: lmde,        reported_family: Debian,      reported_distribution: "Linux Mint Debian Edition", family: Debian,    base: debian , id: "linuxmint", id_like: "debian" }
+      - { fixture: devuan,      reported_family: Debian,      reported_distribution: Devuan,                      family: Debian,    base: debian , id: "devuan", id_like: "debian" }
+      - { fixture: arch,        reported_family: Archlinux,   reported_distribution: Archlinux,                   family: Archlinux, base: archlinux , id: "arch", id_like: "" }
+      - { fixture: endeavouros, reported_family: EndeavourOS, reported_distribution: EndeavourOS,                 family: Archlinux, base: endeavouros , id: "endeavouros", id_like: "arch" }
+      - { fixture: cachyos,     reported_family: CachyOS,     reported_distribution: CachyOS,                     family: Archlinux, base: cachyos , id: "cachyos", id_like: "arch" }
+      - { fixture: manjaro,     reported_family: Archlinux,   reported_distribution: Manjaro,                     family: Archlinux, base: manjaro , id: "manjaro", id_like: "arch" }
+      - { fixture: fedora,      reported_family: RedHat,      reported_distribution: Fedora,                      family: RedHat,    base: fedora , id: "fedora", id_like: "" }
+      - { fixture: nobara,      reported_family: Nobara,      reported_distribution: Nobara,                      family: RedHat,    base: nobara , id: "nobara", id_like: "rhel centos fedora" }
+      - { fixture: rocky,       reported_family: RedHat,      reported_distribution: Rocky,                       family: RedHat,    base: rocky , id: "rocky", id_like: "rhel centos fedora" }
       # Must not resolve. family: unsupported means the case file expects the derivation's own
       # fail-fast to stop the run, and asserts it stopped for the right reason rather than by accident.
-      - { fixture: opensuse,    reported_family: Suse,        reported_distribution: "openSUSE Leap",             family: unsupported, base: "opensuse leap" }
+      - { fixture: opensuse,    reported_family: Suse,        reported_distribution: "openSUSE Leap",             family: unsupported, base: "opensuse leap" , id: "opensuse-leap", id_like: "suse opensuse" }
 
   tasks:
     # No fixture and no substitution: the same file, against this machine's own /etc/os-release. A
