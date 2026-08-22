@@ -54,7 +54,7 @@ What `setup.ps1` does on Windows: it never runs the Ansible playbook, because a 
 2. Installs `Microsoft.PowerShell.ConsoleGuiTools` if missing.
 3. Presents an interactive picker for software and the four Windows system settings together, or applies `group_vars` defaults non-interactively.
 4. Installs the selected software natively through winget, Chocolatey, and npm, plus the installs no single package can express (Java, Node.js, Flutter, Gridcoin, Razer Cortex), through [setup/windows/](windows/).
-5. Applies the four Windows system settings natively: the optional features, WSL registration, the desktop wallpaper, and the hibernate scheduled task.
+5. Applies the three Windows system settings natively: the optional features, WSL registration, and the desktop wallpaper.
 6. Installs Ansible inside WSL, because the toggle wants that tool available there. Nothing else in WSL is touched.
 7. Asks the machine what actually landed, per application, and exits 3 when something the run asked for is not there. It queries winget, Chocolatey, npm and the disk itself, installs and changes nothing, and writes the full per-application verdict to `installation_verify.log` in your user profile. There is no flag to turn it off, the same way there is none on the Linux side.
 

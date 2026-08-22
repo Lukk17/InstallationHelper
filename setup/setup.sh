@@ -135,7 +135,6 @@ declare -A LABEL_OVERRIDES=(
     [setup_finder_defaults]="System: Finder default settings (macOS)"
     [setup_wsl]="System: install WSL and Ubuntu (Windows)"
     [enable_hyperv]="System: enable Hyper-V, WSL, .NET and Sandbox features, needs a reboot (Windows)"
-    [import_hibernate_task]="System: scheduled task to hibernate at 2 AM (Windows)"
 )
 DE_KEYS=("install_kde_plasma" "configure_kde_plasma" "install_gnome" "configure_gnome")
 

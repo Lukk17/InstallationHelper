@@ -73,7 +73,7 @@ Windows is not provisioned by Ansible at all. `setup/setup.ps1` runs natively an
 
 | Task | Module | Description |
 |------|--------|-------------|
-| Optional features, WSL, wallpaper, hibernate task | `WindowsSettings.ps1` | The four Windows system settings |
+| Optional features, WSL, wallpaper | `WindowsSettings.ps1` | The three Windows system settings |
 | winget and Chocolatey catalogue | `WindowsSoftware.ps1` | Everything with a `vars/Windows.yaml` mapping, virtualization included |
 | Java, Node, Flutter, Gridcoin, Razer Cortex | `WindowsCustomInstalls.ps1` | The five no single package expresses |
 | Claude Code, OpenCode, OpenSpec, Codex, Grok, Bruno CLI | `WindowsNpmTools.ps1` | The npm-based command line tools |

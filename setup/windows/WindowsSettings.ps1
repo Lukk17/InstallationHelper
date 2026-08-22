@@ -14,7 +14,6 @@
       enable_hyperv          nine optional features, including Hyper-V, WSL, .NET and Sandbox
       setup_wsl              WSL itself plus the Ubuntu distribution
       set_custom_wallpaper   the desktop wallpaper named by default_wallpaper
-      import_hibernate_task  a scheduled task that hibernates the machine at 2 AM
 
     Whether a setting is wanted is read out of group_vars through Get-WindowsGroupVarToggle in
     WindowsSoftware.ps1, so the toggles stay one source of truth and it is the same pair of files
@@ -27,7 +26,6 @@
       1. wsl_setup.yaml ran `wsl --install -d Ubuntu`, which registers the distribution and then
          launches it, and a first launch stops at a prompt for a username and password. In a wizard
          nobody is watching that is an unbounded hang. `--no-launch` registers it and stops.
-      2. wsl_setup.yaml imported the scheduled task from `{{ playbook_dir }}\..\tasks\Hibernate@2AM.xml`
          and there is no setup/tasks/ directory anywhere in this repository, which is why the toggle
          is off with that reason beside it. The task is built here instead of imported, so there is
          nothing to lose track of.
@@ -49,7 +47,7 @@ Set-StrictMode -Version Latest
 # The toggles this file is responsible for. Declared as data rather than left implicit in the
 # dispatch below, for the same reason WindowsCustomInstalls.ps1 declares its own list: a checker can
 # then ask what is covered here instead of inferring it from the code.
-$script:SettingKeys = @('enable_hyperv', 'setup_wsl', 'set_custom_wallpaper', 'import_hibernate_task')
+$script:SettingKeys = @('enable_hyperv', 'setup_wsl', 'set_custom_wallpaper')
 
 # The nine features windows_features.yaml loops over, in its order. VirtualMachinePlatform and
 # Microsoft-Windows-Subsystem-Linux are what WSL 2 needs, so enable_hyperv is a prerequisite of
@@ -70,15 +68,17 @@ $script:OptionalFeatureNames = @(
 # it and why both wizards keep it off the checklist.
 $script:WallpaperLinePattern = '^default_wallpaper:\s*"?(?<name>[^"#\s]+)"?\s*(#.*)?$'
 
-# Two Win32 calls with no cmdlet equivalent. Guarded so dot-sourcing this file twice in one session
-# does not fail on a duplicate type, which is what a Pester run that imports it per Describe does.
+# One Win32 call with no cmdlet equivalent, for setting the desktop wallpaper. Guarded so
+# dot-sourcing this file twice in one session does not fail on a duplicate type, which is what a
+# Pester run that imports it per Describe does.
+#
+# IsPwrHibernateAllowed used to sit here too, for the nightly hibernate task. That feature was
+# removed on Lukk's instruction, so the declaration went with it rather than being left as a Win32
+# import nothing calls.
 if (-not ('InstallationHelper.NativeSetting' -as [type])) {
     Add-Type -Namespace 'InstallationHelper' -Name 'NativeSetting' -MemberDefinition @'
 [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
 public static extern bool SystemParametersInfoW(uint uiAction, uint uiParam, string pvParam, uint fWinIni);
-
-[DllImport("powrprof.dll")]
-public static extern bool IsPwrHibernateAllowed();
 '@
 }
 
@@ -516,63 +516,6 @@ function Set-WindowsWallpaper {
     return New-SettingResult -Key 'set_custom_wallpaper' -Package $name -Status 'installed' -Detail $destination
 }
 
-function Register-HibernateTask {
-    <#
-    .SYNOPSIS
-        Registers a daily scheduled task that hibernates the machine, and says whether it can work.
-    .DESCRIPTION
-        wsl_setup.yaml imported this from an XML file that does not exist in this repository, which
-        is why import_hibernate_task is off with that reason written beside it. It is built here
-        from its four parts instead, so there is no missing artefact to lose track of.
-
-        It registers under the account running the wizard, with no elevation, which is the only
-        thing setup.ps1 can do without demanding an elevated wizard. The consequence is stated in
-        the result: the task runs when that user is logged on.
-
-        Whether hibernation is available at all is asked separately, through
-        IsPwrHibernateAllowed, and reported as its own failure when it is not. A task that fires
-        every night and does nothing is the failure mode ledger rule 5 is about, and parsing
-        `powercfg /availablesleepstates` would have made that answer depend on the display language.
-    #>
-    [CmdletBinding(SupportsShouldProcess)]
-    param(
-        [ValidateNotNullOrEmpty()] [string] $TaskName = 'Hibernate@2AM',
-        [ValidateNotNullOrEmpty()] [string] $At = '02:00'
-    )
-
-    $results = [System.Collections.Generic.List[object]]::new()
-
-    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    if ($existing) {
-        $results.Add((New-SettingResult -Key 'import_hibernate_task' -Package $TaskName -Status 'present' `
-            -Detail "already registered under $($existing.TaskPath)"))
-    } elseif (-not $PSCmdlet.ShouldProcess($TaskName, 'register scheduled task')) {
-        $results.Add((New-SettingResult -Key 'import_hibernate_task' -Package $TaskName -Status 'skipped' `
-            -Detail "WhatIf, would register a daily $At task running 'shutdown.exe /h' as $env:USERNAME"))
-    } else {
-        try {
-            $action  = New-ScheduledTaskAction -Execute 'shutdown.exe' -Argument '/h'
-            $trigger = New-ScheduledTaskTrigger -Daily -At $At
-            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-            $null = Register-ScheduledTask -TaskName $TaskName -TaskPath '\' -Action $action -Trigger $trigger `
-                -Settings $settings -Description 'Hibernate this machine, from InstallationHelper.' -Force -ErrorAction Stop
-            $results.Add((New-SettingResult -Key 'import_hibernate_task' -Package $TaskName -Status 'installed' `
-                -Detail "runs 'shutdown.exe /h' daily at $At as $env:USERNAME, so it fires while that account is logged on"))
-        } catch {
-            $results.Add((New-SettingResult -Key 'import_hibernate_task' -Package $TaskName -Status 'failed' `
-                -Detail "could not register it: $($_.Exception.Message)"))
-            return $results
-        }
-    }
-
-    if (-not [InstallationHelper.NativeSetting]::IsPwrHibernateAllowed()) {
-        $results.Add((New-SettingResult -Key 'import_hibernate_task' -Package 'hibernation support' -Status 'failed' `
-            -Detail "the task exists but hibernation is not allowed on this machine, so it would do nothing every night. Turn it on with an elevated 'powercfg /hibernate on', or drop import_hibernate_task."))
-    }
-
-    return $results
-}
-
 function Invoke-WindowsSystemSetting {
     <#
     .SYNOPSIS
@@ -629,9 +572,6 @@ function Invoke-WindowsSystemSetting {
         }
     }
 
-    if (& $wanted 'import_hibernate_task') {
-        $results.AddRange([object[]]@(Register-HibernateTask))
-    }
 
     return [PSCustomObject]@{
         Results        = $results

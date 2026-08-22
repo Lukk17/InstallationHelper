@@ -40,7 +40,7 @@
 #   49. Windows defaults        windows-latest  toggles as shipped
 #   50. Windows everything      windows-latest  every selectable toggle on
 #   51. Windows from nothing    windows-latest  every toggle off, then a handful by name
-#   52. Windows settings only   windows-latest  the four native settings, no software
+#   52. Windows settings only   windows-latest  the three native settings, no software
 #
 # Three more jobs exist outside that numbered list: stage1_gate, which decides whether stages 2 and
 # 3 are allowed to start, stage2_verdict, which turns the whole Linux sweep into one red or green
@@ -170,7 +170,7 @@
 #      rather than failing this job outright, `if-no-files-found: warn` says so in the job log,
 #      and the transcript is still uploaded.
 #   7. Whether Assert-NotAdmin's -AllowAdministrator escape hatch and Assert-KnownSelectionKey's
-#      handling of enable_hyperv, setup_wsl and import_hibernate_task as ordinary selectable
+#      handling of enable_hyperv and setup_wsl as ordinary selectable
 #      keys behave as read here, since e2e-manual.yml's own equivalent job has never run either
 #      (its own header says so).
 #
@@ -1352,19 +1352,19 @@ jobs:
           wsl --list --verbose 2>&1 | Write-Host
 
       # -Software none turns every selectable toggle off, including the three settings keys
-      # below (setup_wsl, enable_hyperv, import_hibernate_task are ordinary entries in the same
+      # below (setup_wsl and enable_hyperv are ordinary entries in the same
       # selectable list -Software all/none sweeps, per setup.ps1's own Resolve-ToggleOverride),
       # so -EnableKey turns exactly those three back on. The fourth of the "four Windows system
       # settings" (the desktop wallpaper) is not selectable at all: setup.ps1 excludes it from
       # the checklist entirely and always applies it, the same as non_root_user and
       # non_root_home, so it needs no key here to run.
-      - name: Run the bootstrap wizard, no software, the four native system settings
+      - name: Run the bootstrap wizard, no software, the three native system settings
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path (Join-Path $env:RUNNER_TEMP 'wizard-run.log') -Force | Out-Null
           try {
-            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade -Software none -EnableKey setup_wsl,enable_hyperv,import_hibernate_task
+            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade -Software none -EnableKey setup_wsl,enable_hyperv
             if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
           } finally {
             Stop-Transcript | Out-Null

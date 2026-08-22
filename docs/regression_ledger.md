@@ -896,3 +896,15 @@ The runner ran out of space while writing its own diagnostic log, so the steps h
 Every Windows job now clears the preinstalled ones first, and each path was chosen because the image ships it and nothing here uses it: the image's own Android SDK, which is not the one `setup.ps1` installs at `C:\tools\android`, the hosted tool cache of Python, Node, Go and Java builds, and four language runtimes. Free space is printed before and after rather than asserted, because the number belongs to the image and changes without notice, and a figure in the log is what the next reader actually needs.
 
 Worth keeping in mind for reading any Windows cell: a full disk does not look like a failure, it looks like nothing. No step conclusion, no artefact, no message in the log, and the run summary simply says the job failed.
+
+#### The nightly hibernate task is gone, by owner decision
+
+Status: removed in this change, at Lukk's instruction, from [WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1), [windows.yaml](../setup/ansible/group_vars/windows.yaml), both wizards and every document that counted it.
+
+The Windows settings cell reported one failure: the scheduled task registered, but hibernation is not allowed on the machine, so it would fire every night and do nothing. That report was correct, and it is ledger rule 5 working as intended rather than a defect to soften.
+
+Lukk does not want the machine hibernating on a schedule, so the feature is deleted rather than suppressed in continuous integration. Gone with it: the `import_hibernate_task` toggle, `Register-HibernateTask`, its entry in the declared setting keys, its dispatch, its line in both wizard menus, and the `IsPwrHibernateAllowed` Win32 import that nothing else called. Windows now has three native system settings rather than four, and the documents that said four say three.
+
+Untouched on purpose: the Linux `setup_hibernate` toggle, which is a different thing. It grants permission to hibernate through a PolicyKit rule and records the swap UUID for resume, and it schedules nothing.
+
+One thing worth recording about the removal itself. Deleting the toggle took the two lines above it with it, `setup_wsl` and `enable_hyperv`, because the block boundary was found by searching backwards for a blank line. The tier 1 Windows check caught it immediately with "WindowsSettings.ps1 claims setting keys that no group_vars toggle defines", which is exactly the pair comparison it exists for.
