@@ -384,8 +384,18 @@ function Install-ChocolateyPackageBatch {
     # Quoted one by one so a package name can never be read as two arguments, the same shape
     # Enable-WindowsFeatureSet uses for its feature names.
     $packageLiterals = ($PackageId | ForEach-Object { "'$_'" }) -join ', '
+
+    # The child writes its own transcript, because none of its output reaches this process. It runs
+    # as a separate elevated process and, when the wizard is not already elevated, through -Verb
+    # RunAs, which forbids output redirection entirely. So on 2026-08-22 the parent could say
+    # "nodejs (nvm): choco exited -1" and nothing more: not which command, not what Chocolatey
+    # printed, not why. Start-Transcript inside the child is the one route that works in both the
+    # elevated and the RunAs case, and the tail of it is quoted in the failure below.
+    $childLog = Join-Path ([System.IO.Path]::GetTempPath()) ('installation-helper-choco-' + [guid]::NewGuid().ToString('N') + '.log')
+
     $inner = @"
 `$ErrorActionPreference = 'Stop'
+Start-Transcript -Path '$childLog' -Force | Out-Null
 if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
     Set-ExecutionPolicy Bypass -Scope Process -Force
     [System.Net.ServicePointManager]::SecurityProtocol = 3072
@@ -402,12 +412,15 @@ if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
 # 600 seconds each. A Chocolatey package that has not finished in ten minutes on a machine with a
 # fast link is waiting on something, and the default of 2700 is longer than the wizard's own patience
 # for the whole phase, which is how one package ate the other five.
+`$worst = 0
 foreach (`$package in @($packageLiterals)) {
     Write-Host "  ... choco install `$package"
     choco install `$package -y --no-progress --limit-output --execution-timeout=600
     Write-Host "      choco exited `$LASTEXITCODE for `$package"
+    if (`$LASTEXITCODE -ne 0) { `$worst = `$LASTEXITCODE }
 }
-exit `$LASTEXITCODE
+Stop-Transcript | Out-Null
+exit `$worst
 "@
 
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))
@@ -460,7 +473,19 @@ exit `$LASTEXITCODE
         if ($proc.ExitCode -eq 0) {
             return [PSCustomObject]@{ Status = 'installed'; Detail = "$($PackageId.Count) package(s)" }
         }
-        return [PSCustomObject]@{ Status = 'failed'; Detail = "choco exited $($proc.ExitCode)" }
+        # The last lines of the child's own transcript, because an exit code alone has never once
+        # been enough to act on. Chocolatey says what it could not do, and that sentence is what the
+        # reader needs, not the number.
+        $tail = ''
+        if (Test-Path -LiteralPath $childLog) {
+            $tail = ((Get-Content -LiteralPath $childLog -Tail 12 -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Trim() }) -join ' | ')
+            Remove-Item -LiteralPath $childLog -Force -ErrorAction SilentlyContinue
+        }
+        return [PSCustomObject]@{
+            Status = 'failed'
+            Detail = "choco exited $($proc.ExitCode)$(if ($tail) { ". It said: $tail" } else { '. Its transcript is missing, so there is nothing more to report.' })"
+        }
     } catch {
         # A refused consent prompt lands here, and is a user decision rather than a fault.
         return [PSCustomObject]@{ Status = 'failed'; Detail = "could not run choco: $($_.Exception.Message)" }

@@ -997,3 +997,30 @@ ansible.errors.AnsibleError: Unexpected Exception, this is probably a bug: 'resu
 ```
 
 Two changes. The install is retried three times, twenty seconds apart, because that is a network call like every other one this repository has had to learn about today. And a run that still cannot install its collections now stops there with that reason, instead of warning and letting the playbook fail five minutes later on something unrecognisable. A scenario whose prerequisites did not install has not started, and saying so is cheaper for the next reader than any amount of log archaeology.
+
+#### The wizard ran end to end on Windows, and what it found
+
+Status: the run is the finding. One reporting gap fixed in this change, in [WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1). Four decisions are open and belong to the owner.
+
+The Windows defaults cell of sweep 32585990680 is the first Windows run that reached its own summary. Every phase reported: 77 packages installed, 6 already present, 3 failed, 6 CLI tools, 8 SDK installs done and 4 failed, 9 environment variables written, the system settings applied, Ansible installed inside WSL, and the verification run. That is the whole wizard, on a real machine, for the first time.
+
+What it found, separated by who owns it.
+
+Facts about the environment, not defects here:
+
+| Package | What happened |
+|---|---|
+| glasswire | its own download answers 403 Forbidden |
+| partition_wizard | its installer exits 1 |
+| spotify | refuses to run from an administrator context, which the cell creates by passing `-AllowAdministrator` |
+
+Real findings that need a decision:
+
+| Item | What happened |
+|---|---|
+| gridcoin | `Authenticode status is NotSigned, signer 'none, the file carries no signature'`. The pinned release binary is unsigned, so the check refuses it. Either the toggle goes, or the binary needs a pinned checksum instead of a signature |
+| razer_cortex | exited 0 and installed nothing, so `/S` is not its silent switch |
+| nodejs via nvm | `choco exited -1` |
+| flutter via fvm | `choco exited 1` |
+
+The last two had no explanation at all, which is the gap this change closes. The Chocolatey work happens in a separate elevated process, and when the wizard is not already elevated that process runs through `-Verb RunAs`, which forbids output redirection outright. So the parent could say the exit code and nothing else. The child now keeps its own transcript with `Start-Transcript`, which works in both the elevated and the RunAs case, and the failure quotes the last twelve lines of it. It also returns the worst exit code across the loop rather than the last one, so a failure in the middle is not hidden by a success after it.
