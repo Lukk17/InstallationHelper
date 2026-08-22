@@ -239,14 +239,73 @@ function Test-WingetPackageInstalled {
         [Parameter(Mandatory)] [string] $PackageId
     )
 
-    # Native non-zero exits must not throw here: "not installed" is an answer, not a fault.
-    $previous = $PSNativeCommandUseErrorActionPreference
+    # Bounded like the install below it, and for the same reason. This runs once per package before
+    # anything is installed, it talks to a remote source, and an unbounded call here hangs the run
+    # just as thoroughly as an unbounded install does. A probe that runs out of time answers false,
+    # which is the safe direction: the worst case is that winget is asked to install something that
+    # is already there, and it says so and exits.
+    $run = Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds 180 -Arguments @(
+        'list', '--exact', '--id', $PackageId, '--accept-source-agreements')
+    if ($run.TimedOut) {
+        Write-Verbose "winget list for $PackageId ran out of time, treating it as not installed"
+        return $false
+    }
+    return ($run.ExitCode -eq 0)
+}
+
+function Invoke-BoundedWinget {
+    <#
+    .SYNOPSIS
+        Runs winget with a deadline and returns its output, its exit code and whether it timed out.
+
+    .DESCRIPTION
+        Two Windows cells of the sweep of 2026-08-22 were cancelled at their 150 minute ceiling, both
+        of them inside the software phase, having printed nothing since the phase header. Two and a
+        half hours, no output, no attribution: the transcript could not even say which package was
+        being installed when it stopped. A run that can hang for hours with nothing to show for it is
+        not one anybody can debug.
+
+        So every winget call is bounded. The process is started rather than invoked through the
+        pipeline, because a native command in a pipeline cannot be given a deadline: killing it needs
+        the process object. Both streams go to files under the temporary directory and are read back
+        after, which is also what makes the output complete rather than interleaved.
+
+        A package that runs out of time is a failure with the reason stated, not a hang and not a
+        silent pass. TimedOut is returned separately from the exit code so the caller can say which
+        of the two happened.
+
+    .PARAMETER TimeoutSeconds
+        The deadline. 900 by default, which is fifteen minutes for a single package: generous next to
+        the couple of minutes a large installer takes, and a fraction of the job ceiling.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $WingetPath,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string[]] $Arguments,
+        [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900
+    )
+
+    $stdout = [System.IO.Path]::GetTempFileName()
+    $stderr = [System.IO.Path]::GetTempFileName()
     try {
-        $PSNativeCommandUseErrorActionPreference = $false
-        & $WingetPath list --exact --id $PackageId --accept-source-agreements *> $null
-        return ($LASTEXITCODE -eq 0)
+        $process = Start-Process -FilePath $WingetPath -ArgumentList $Arguments -PassThru -NoNewWindow `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $process.Kill($true) } catch { Write-Verbose "could not kill winget: $($_.Exception.Message)" }
+            $null = $process.WaitForExit(30000)
+            return [PSCustomObject]@{
+                Output   = (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue)
+                ExitCode = -1
+                TimedOut = $true
+            }
+        }
+        $text = @(
+            (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue)
+            (Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue)
+        ) -join "`n"
+        return [PSCustomObject]@{ Output = $text; ExitCode = $process.ExitCode; TimedOut = $false }
     } finally {
-        $PSNativeCommandUseErrorActionPreference = $previous
+        Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -259,7 +318,8 @@ function Install-WingetPackage {
     param(
         [Parameter(Mandatory)] [string] $WingetPath,
         [Parameter(Mandatory)] [string] $PackageId,
-        [string] $Source = 'winget'
+        [string] $Source = 'winget',
+        [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900
     )
 
     if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) {
@@ -271,14 +331,18 @@ function Install-WingetPackage {
         return [PSCustomObject]@{ Package = $PackageId; Status = 'skipped'; Detail = 'WhatIf' }
     }
 
-    $previous = $PSNativeCommandUseErrorActionPreference
-    try {
-        $PSNativeCommandUseErrorActionPreference = $false
-        $output = & $WingetPath install --exact --id $PackageId --source $Source --silent `
-            --accept-source-agreements --accept-package-agreements --disable-interactivity 2>&1 | Out-String
-        $code = $LASTEXITCODE
-    } finally {
-        $PSNativeCommandUseErrorActionPreference = $previous
+    $run = Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds $TimeoutSeconds -Arguments @(
+        'install', '--exact', '--id', $PackageId, '--source', $Source, '--silent',
+        '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
+    $output = $run.Output
+    $code   = $run.ExitCode
+
+    if ($run.TimedOut) {
+        return [PSCustomObject]@{
+            Package = $PackageId
+            Status  = 'failed'
+            Detail  = "gave up after $TimeoutSeconds seconds and killed winget, so this package is not installed and the run was not left hanging on it"
+        }
     }
 
     # winget reports an already-installed package as a failure code with a specific
@@ -474,8 +538,19 @@ function Invoke-WindowsSoftwareInstall {
         }
 
         if ($winget) {
+            # One line per package, before and after, because this phase used to print nothing at all
+            # between its header and its summary. Two cells were cancelled at 150 minutes inside it on
+            # 2026-08-22 and the transcript could not say which package they were on. A phase that can
+            # run for an hour has to say what it is doing while it does it.
+            $index = 0
             foreach ($item in $wingetItems) {
+                $index++
+                Write-Host ("  ... [{0}/{1}] {2} ({3})" -f $index, $wingetItems.Count, $item.Key, $item.Package)
+                $started = [datetime]::UtcNow
                 $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source
+                $seconds = [int]([datetime]::UtcNow - $started).TotalSeconds
+                Write-Host ("      {0} after {1}s{2}" -f $r.Status, $seconds,
+                    $(if ($r.Detail) { ": $($r.Detail)" } else { '' }))
                 $results.Add([PSCustomObject]@{
                     Key = $item.Key; Manager = 'winget'; Package = $item.Package
                     Status = $r.Status; Detail = $r.Detail

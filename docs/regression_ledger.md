@@ -801,3 +801,26 @@ An audit of the whole playbook found 34 tasks that reach the network with no ret
 The tier 1 check that keeps it that way asks the same question the audit did and fails on any answer but zero, with one allowlist entry, the Gridcoin bundle, which installs a file already on disk. An allowlist entry whose task stops matching the network rule fails the check too, so the file cannot outlive what it excuses.
 
 Worth being blunt about the earlier version of this entry, which does not exist because I nearly wrote it: the first instinct was to call these four "runner flakiness" and re-run. Three of the four would have passed on a re-run, and the defect would have stayed.
+
+#### Two and a half hours of silence, then a cancelled job, and no way to tell which package did it
+
+Status: fixed in this change, in [WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1). The package that hung is still unidentified, and the change is what makes the next run name it.
+
+Both long Windows cells of the sweep of 2026-08-22 were cancelled at their 150 minute ceiling. Their transcripts are 1.7 kilobytes each and end like this:
+
+```text
+  >> Installing Windows software
+  -------------------------------
+
+PS>TerminatingError(): "The pipeline has been stopped."
+```
+
+That is the whole record of two and a half hours. The software phase printed its header, then nothing until the runner killed it, because the phase only ever printed one summary line and it printed it at the end. Nothing said which package was being installed, how many had already gone through, or how long any of them took. The same phase with four packages, in the from-nothing cell, finished in three and a half minutes, so the code path works and something in the larger set does not.
+
+Two changes, neither of which is a guess about the cause:
+
+Every winget call is now bounded, the install at fifteen minutes and the already-installed probe at three. The process is started rather than invoked through a pipeline, because a native command in a pipeline cannot be given a deadline: killing it needs the process object. A package that runs out of time is reported as failed with the reason, so one hung installer costs one package instead of the whole job. Proven on a real machine before committing, with a command told to sleep for ten minutes: it returned at exactly the deadline with TimedOut true, and a normal command still returned its exit code and its output.
+
+And the phase now prints a line per package as it starts one, with its index, its key, its package identifier and, when it finishes, its status and how many seconds it took. The next run will name the package that hangs, which no amount of reading this code could.
+
+The `Exception setting "CursorPosition"` line above the header is PSReadLine rendering into a runner console that has no real handle, not this repository's code, and it is harmless. Worth writing down so the next reader does not spend an hour on it, as I nearly did.
