@@ -951,6 +951,55 @@ jobs:
       # Failure here is reported and does not stop the job, because a runner image where WSL cannot
       # register is a fact about the runner, and the wizard's own message about it is the thing under
       # test either way.
+      # Every Windows job installs real software onto a runner whose C: drive is mostly full of
+      # toolchains none of this needs. The "every application turned on" cell died at 73 minutes on
+      # 2026-08-22 with "System.IO.IOException: There is not enough space on the disk", while writing
+      # the runner's own diagnostic log, which is what a full disk looks like from the outside: not a
+      # failed install, a dead runner.
+      #
+      # So the preinstalled toolchains go first. Every path here is something the image ships and
+      # nothing in this repository uses: the Android SDK the image carries, which is not the one
+      # setup.ps1 installs at C:\tools\android, the hosted tool cache of Python, Node, Go and Java
+      # builds, and four language runtimes. Free space is printed before and after rather than
+      # asserted, because the number is a property of the image and changes without notice, and a
+      # figure in a log is what the next reader needs.
+      #
+      # continue-on-error, because a path that has moved or a delete that is refused is not a reason
+      # to fail a cell that has not installed anything yet. The wizard reports the disk itself if it
+      # runs out anyway.
+      - name: Make room on the runner, which ships full of toolchains this does not use
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          function Show-Free([string] $When) {
+            $drive = Get-PSDrive -Name C
+            Write-Host ("{0}: {1:N1} GB free of {2:N1} GB on C:" -f $When,
+              ($drive.Free / 1GB), (($drive.Free + $drive.Used) / 1GB))
+          }
+          Show-Free 'before'
+          $targets = @(
+            'C:\Android',
+            'C:\Program Files (x86)\Android',
+            'C:\hostedtoolcache\windows',
+            'C:\Miniconda',
+            'C:\ghcup',
+            'C:\Julia',
+            'C:\Program Files\MongoDB',
+            'C:\Program Files\Microsoft SDKs\Azure'
+          )
+          foreach ($path in $targets) {
+            if (Test-Path -LiteralPath $path) {
+              $size = (Get-ChildItem -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue |
+                       Measure-Object -Property Length -Sum).Sum
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host ("  removed {0} ({1:N1} GB)" -f $path, ($size / 1GB))
+            } else {
+              Write-Host "  absent, nothing to remove: $path"
+            }
+          }
+          Show-Free 'after'
+
       - name: Register Ubuntu inside WSL, which a bare runner has none of
         shell: pwsh
         continue-on-error: true
@@ -1019,6 +1068,55 @@ jobs:
       # Failure here is reported and does not stop the job, because a runner image where WSL cannot
       # register is a fact about the runner, and the wizard's own message about it is the thing under
       # test either way.
+      # Every Windows job installs real software onto a runner whose C: drive is mostly full of
+      # toolchains none of this needs. The "every application turned on" cell died at 73 minutes on
+      # 2026-08-22 with "System.IO.IOException: There is not enough space on the disk", while writing
+      # the runner's own diagnostic log, which is what a full disk looks like from the outside: not a
+      # failed install, a dead runner.
+      #
+      # So the preinstalled toolchains go first. Every path here is something the image ships and
+      # nothing in this repository uses: the Android SDK the image carries, which is not the one
+      # setup.ps1 installs at C:\tools\android, the hosted tool cache of Python, Node, Go and Java
+      # builds, and four language runtimes. Free space is printed before and after rather than
+      # asserted, because the number is a property of the image and changes without notice, and a
+      # figure in a log is what the next reader needs.
+      #
+      # continue-on-error, because a path that has moved or a delete that is refused is not a reason
+      # to fail a cell that has not installed anything yet. The wizard reports the disk itself if it
+      # runs out anyway.
+      - name: Make room on the runner, which ships full of toolchains this does not use
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          function Show-Free([string] $When) {
+            $drive = Get-PSDrive -Name C
+            Write-Host ("{0}: {1:N1} GB free of {2:N1} GB on C:" -f $When,
+              ($drive.Free / 1GB), (($drive.Free + $drive.Used) / 1GB))
+          }
+          Show-Free 'before'
+          $targets = @(
+            'C:\Android',
+            'C:\Program Files (x86)\Android',
+            'C:\hostedtoolcache\windows',
+            'C:\Miniconda',
+            'C:\ghcup',
+            'C:\Julia',
+            'C:\Program Files\MongoDB',
+            'C:\Program Files\Microsoft SDKs\Azure'
+          )
+          foreach ($path in $targets) {
+            if (Test-Path -LiteralPath $path) {
+              $size = (Get-ChildItem -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue |
+                       Measure-Object -Property Length -Sum).Sum
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host ("  removed {0} ({1:N1} GB)" -f $path, ($size / 1GB))
+            } else {
+              Write-Host "  absent, nothing to remove: $path"
+            }
+          }
+          Show-Free 'after'
+
       - name: Register Ubuntu inside WSL, which a bare runner has none of
         shell: pwsh
         continue-on-error: true
@@ -1082,6 +1180,55 @@ jobs:
       # Failure here is reported and does not stop the job, because a runner image where WSL cannot
       # register is a fact about the runner, and the wizard's own message about it is the thing under
       # test either way.
+      # Every Windows job installs real software onto a runner whose C: drive is mostly full of
+      # toolchains none of this needs. The "every application turned on" cell died at 73 minutes on
+      # 2026-08-22 with "System.IO.IOException: There is not enough space on the disk", while writing
+      # the runner's own diagnostic log, which is what a full disk looks like from the outside: not a
+      # failed install, a dead runner.
+      #
+      # So the preinstalled toolchains go first. Every path here is something the image ships and
+      # nothing in this repository uses: the Android SDK the image carries, which is not the one
+      # setup.ps1 installs at C:\tools\android, the hosted tool cache of Python, Node, Go and Java
+      # builds, and four language runtimes. Free space is printed before and after rather than
+      # asserted, because the number is a property of the image and changes without notice, and a
+      # figure in a log is what the next reader needs.
+      #
+      # continue-on-error, because a path that has moved or a delete that is refused is not a reason
+      # to fail a cell that has not installed anything yet. The wizard reports the disk itself if it
+      # runs out anyway.
+      - name: Make room on the runner, which ships full of toolchains this does not use
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          function Show-Free([string] $When) {
+            $drive = Get-PSDrive -Name C
+            Write-Host ("{0}: {1:N1} GB free of {2:N1} GB on C:" -f $When,
+              ($drive.Free / 1GB), (($drive.Free + $drive.Used) / 1GB))
+          }
+          Show-Free 'before'
+          $targets = @(
+            'C:\Android',
+            'C:\Program Files (x86)\Android',
+            'C:\hostedtoolcache\windows',
+            'C:\Miniconda',
+            'C:\ghcup',
+            'C:\Julia',
+            'C:\Program Files\MongoDB',
+            'C:\Program Files\Microsoft SDKs\Azure'
+          )
+          foreach ($path in $targets) {
+            if (Test-Path -LiteralPath $path) {
+              $size = (Get-ChildItem -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue |
+                       Measure-Object -Property Length -Sum).Sum
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host ("  removed {0} ({1:N1} GB)" -f $path, ($size / 1GB))
+            } else {
+              Write-Host "  absent, nothing to remove: $path"
+            }
+          }
+          Show-Free 'after'
+
       - name: Register Ubuntu inside WSL, which a bare runner has none of
         shell: pwsh
         continue-on-error: true
@@ -1145,6 +1292,55 @@ jobs:
       # Failure here is reported and does not stop the job, because a runner image where WSL cannot
       # register is a fact about the runner, and the wizard's own message about it is the thing under
       # test either way.
+      # Every Windows job installs real software onto a runner whose C: drive is mostly full of
+      # toolchains none of this needs. The "every application turned on" cell died at 73 minutes on
+      # 2026-08-22 with "System.IO.IOException: There is not enough space on the disk", while writing
+      # the runner's own diagnostic log, which is what a full disk looks like from the outside: not a
+      # failed install, a dead runner.
+      #
+      # So the preinstalled toolchains go first. Every path here is something the image ships and
+      # nothing in this repository uses: the Android SDK the image carries, which is not the one
+      # setup.ps1 installs at C:\tools\android, the hosted tool cache of Python, Node, Go and Java
+      # builds, and four language runtimes. Free space is printed before and after rather than
+      # asserted, because the number is a property of the image and changes without notice, and a
+      # figure in a log is what the next reader needs.
+      #
+      # continue-on-error, because a path that has moved or a delete that is refused is not a reason
+      # to fail a cell that has not installed anything yet. The wizard reports the disk itself if it
+      # runs out anyway.
+      - name: Make room on the runner, which ships full of toolchains this does not use
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          function Show-Free([string] $When) {
+            $drive = Get-PSDrive -Name C
+            Write-Host ("{0}: {1:N1} GB free of {2:N1} GB on C:" -f $When,
+              ($drive.Free / 1GB), (($drive.Free + $drive.Used) / 1GB))
+          }
+          Show-Free 'before'
+          $targets = @(
+            'C:\Android',
+            'C:\Program Files (x86)\Android',
+            'C:\hostedtoolcache\windows',
+            'C:\Miniconda',
+            'C:\ghcup',
+            'C:\Julia',
+            'C:\Program Files\MongoDB',
+            'C:\Program Files\Microsoft SDKs\Azure'
+          )
+          foreach ($path in $targets) {
+            if (Test-Path -LiteralPath $path) {
+              $size = (Get-ChildItem -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue |
+                       Measure-Object -Property Length -Sum).Sum
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host ("  removed {0} ({1:N1} GB)" -f $path, ($size / 1GB))
+            } else {
+              Write-Host "  absent, nothing to remove: $path"
+            }
+          }
+          Show-Free 'after'
+
       - name: Register Ubuntu inside WSL, which a bare runner has none of
         shell: pwsh
         continue-on-error: true

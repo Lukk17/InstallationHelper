@@ -879,3 +879,20 @@ printf 'a\r\nb\n' > f && grep -c $'\r' f      prints 0 in Git Bash
 Git Bash strips the carriage return before matching, so a grep-based check passes on precisely the machine that creates the problem, while awk in the same shell keeps it. That inconsistency is what made the original failure so hard to read.
 
 The real risk was never the false failures. The container tiers copy this working tree into Linux, where a shebang ending in a carriage return means "no such file or directory".
+
+#### The Windows runner ran out of disk, and that reads as a dead runner rather than a failed install
+
+Status: fixed in this change, in [e2e-matrix.yml](../.github/workflows/e2e-matrix.yml).
+
+The "every application turned on" cell failed at 73 minutes with no failing step and no artefact. The job annotation was the only thing that said anything:
+
+```text
+System.IO.IOException: There is not enough space on the disk.
+  : 'C:\actions-runner\cached\2.336.0\_diag\Worker_...log'
+```
+
+The runner ran out of space while writing its own diagnostic log, so the steps have no conclusions at all and the wizard's transcript never got uploaded. Around a hundred Windows applications do not fit beside a hosted image that is already mostly toolchains.
+
+Every Windows job now clears the preinstalled ones first, and each path was chosen because the image ships it and nothing here uses it: the image's own Android SDK, which is not the one `setup.ps1` installs at `C:\tools\android`, the hosted tool cache of Python, Node, Go and Java builds, and four language runtimes. Free space is printed before and after rather than asserted, because the number belongs to the image and changes without notice, and a figure in the log is what the next reader actually needs.
+
+Worth keeping in mind for reading any Windows cell: a full disk does not look like a failure, it looks like nothing. No step conclusion, no artefact, no message in the log, and the run summary simply says the job failed.
