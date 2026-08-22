@@ -909,13 +909,21 @@ function Invoke-WindowsCustomInstall {
     # the proof the verification looks for after the run are the same paths.
     $proofs = Get-WindowsCustomInstallProof -Versions $versions
 
-    if (& $wanted 'java')   { $results.AddRange((Install-TemurinJdk   -Versions $versions)) }
-    if (& $wanted 'nodejs') { $results.AddRange((Install-NodeViaNvm)) }
-    if (& $wanted 'flutter'){ $results.AddRange((Install-FlutterViaFvm -Versions $versions)) }
+    # [object[]]@( ) around each call, the same wrapper WindowsSettings.ps1 uses, and for a measured
+    # reason. A function here returns a list of results normally and a single object when it gives
+    # up early, and AddRange refuses a lone PSCustomObject: "Cannot convert argument collection ...
+    # to type IEnumerable[Object]". The Windows defaults cell of 2026-08-22 died on exactly that
+    # after its Chocolatey batch was killed at the 30 minute mark, so the wizard crashed while
+    # reporting a failure it had handled correctly, and everything after this line, the Android SDK
+    # and Gridcoin included, never ran. The array subexpression makes one object and many behave the
+    # same way.
+    if (& $wanted 'java')   { $results.AddRange([object[]]@(Install-TemurinJdk   -Versions $versions)) }
+    if (& $wanted 'nodejs') { $results.AddRange([object[]]@(Install-NodeViaNvm)) }
+    if (& $wanted 'flutter'){ $results.AddRange([object[]]@(Install-FlutterViaFvm -Versions $versions)) }
 
     # After java on purpose. sdkmanager is a Java program and reads the JAVA_HOME the Temurin
     # install above writes, so running it first would fail on a machine with no other JDK.
-    if (& $wanted 'android_sdk') { $results.AddRange((Install-AndroidSdk -Versions $versions)) }
+    if (& $wanted 'android_sdk') { $results.AddRange([object[]]@(Install-AndroidSdk -Versions $versions)) }
 
     # Gridcoin's installer is NSIS, confirmed by finding Nullsoft.NSIS.exehead in the downloaded
     # binary rather than by assuming it. NSIS takes /S.

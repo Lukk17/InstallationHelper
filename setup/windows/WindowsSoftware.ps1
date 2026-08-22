@@ -381,6 +381,9 @@ function Install-ChocolateyPackageBatch {
 
     # Bootstraps Chocolatey when absent, then installs the batch. Runs in the child so the
     # bootstrap also gets the elevation it needs.
+    # Quoted one by one so a package name can never be read as two arguments, the same shape
+    # Enable-WindowsFeatureSet uses for its feature names.
+    $packageLiterals = ($PackageId | ForEach-Object { "'$_'" }) -join ', '
     $inner = @"
 `$ErrorActionPreference = 'Stop'
 if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
@@ -388,7 +391,22 @@ if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
     [System.Net.ServicePointManager]::SecurityProtocol = 3072
     Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 }
-choco install $($PackageId -join ' ') -y --no-progress --limit-output
+# One package per call, each with its own deadline, rather than one call for the batch.
+#
+# The batch hit the wizard's 30 minute kill on both Windows software cells of 2026-08-22 and took
+# every package in it down: nvm, geforce-experience and razer-synapse-4 were all reported as not
+# installed because something in the batch never returned, and nothing said which something. One
+# call per package with --execution-timeout means Chocolatey itself gives up on the package that
+# hangs, says so, and the ones after it still get their turn.
+#
+# 600 seconds each. A Chocolatey package that has not finished in ten minutes on a machine with a
+# fast link is waiting on something, and the default of 2700 is longer than the wizard's own patience
+# for the whole phase, which is how one package ate the other five.
+foreach (`$package in @($packageLiterals)) {
+    Write-Host "  ... choco install `$package"
+    choco install `$package -y --no-progress --limit-output --execution-timeout=600
+    Write-Host "      choco exited `$LASTEXITCODE for `$package"
+}
 exit `$LASTEXITCODE
 "@
 
@@ -406,7 +424,15 @@ exit `$LASTEXITCODE
     # install_nodejs and install_flutter as well as the mapped Chocolatey packages. Two ways it hangs:
     # choco prompting inside the elevated child despite -y, or a consent dialog nobody answers.
     # -Wait offers no timeout at all, which is why it had to go.
-    $timeoutMinutes = 30
+    # Sized against the loop inside the child rather than picked. Each package there gets
+    # --execution-timeout=600, ten minutes, so a child with n packages can legitimately take ten
+    # minutes times n plus Chocolatey's own start-up. 30 minutes covered three packages, and both
+    # Windows software cells of 2026-08-22 had more than that and were killed while still working:
+    # nvm, geforce-experience and razer-synapse-4 all reported as not installed because the clock ran
+    # out on the batch rather than because anything failed.
+    #
+    # Ten minutes per package plus ten for the bootstrap, and never less than 30.
+    $timeoutMinutes = [Math]::Max(30, ($PackageId.Count * 10) + 10)
     try {
         $startArgs = @{
             FilePath     = 'pwsh.exe'

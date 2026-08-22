@@ -959,8 +959,16 @@ jobs:
       #
       # So the preinstalled toolchains go first. Every path here is something the image ships and
       # nothing in this repository uses: the Android SDK the image carries, which is not the one
-      # setup.ps1 installs at C:\tools\android, the hosted tool cache of Python, Node, Go and Java
-      # builds, and four language runtimes. Free space is printed before and after rather than
+      # setup.ps1 installs at C:\tools\android, four language runtimes, and the parts of the
+      # hosted tool cache holding Go, Java, Ruby and PyPy builds.
+      #
+      # The tool cache is pruned rather than emptied, and what it keeps is deliberate. The first
+      # version removed all of C:\hostedtoolcache\windows, and the run then filled with
+      # "Python was not found" and "Unable to create process using
+      # C:\hostedtoolcache\windows\Python\3.14.7\x64\python.exe\", because the runner's PATH still
+      # pointed into a cache it no longer had. Node lives there too and npm needs it. Nothing
+      # failed over it, but a log full of noise about a deleted interpreter is how a real message
+      # gets missed. Free space is printed before and after rather than
       # asserted, because the number is a property of the image and changes without notice, and a
       # figure in a log is what the next reader needs.
       #
@@ -981,7 +989,10 @@ jobs:
           $targets = @(
             'C:\Android',
             'C:\Program Files (x86)\Android',
-            'C:\hostedtoolcache\windows',
+            'C:\hostedtoolcache\windows\Go',
+            'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk',
+            'C:\hostedtoolcache\windows\Ruby',
+            'C:\hostedtoolcache\windows\PyPy',
             'C:\Miniconda',
             'C:\ghcup',
             'C:\Julia',
@@ -1076,8 +1087,16 @@ jobs:
       #
       # So the preinstalled toolchains go first. Every path here is something the image ships and
       # nothing in this repository uses: the Android SDK the image carries, which is not the one
-      # setup.ps1 installs at C:\tools\android, the hosted tool cache of Python, Node, Go and Java
-      # builds, and four language runtimes. Free space is printed before and after rather than
+      # setup.ps1 installs at C:\tools\android, four language runtimes, and the parts of the
+      # hosted tool cache holding Go, Java, Ruby and PyPy builds.
+      #
+      # The tool cache is pruned rather than emptied, and what it keeps is deliberate. The first
+      # version removed all of C:\hostedtoolcache\windows, and the run then filled with
+      # "Python was not found" and "Unable to create process using
+      # C:\hostedtoolcache\windows\Python\3.14.7\x64\python.exe\", because the runner's PATH still
+      # pointed into a cache it no longer had. Node lives there too and npm needs it. Nothing
+      # failed over it, but a log full of noise about a deleted interpreter is how a real message
+      # gets missed. Free space is printed before and after rather than
       # asserted, because the number is a property of the image and changes without notice, and a
       # figure in a log is what the next reader needs.
       #
@@ -1098,7 +1117,10 @@ jobs:
           $targets = @(
             'C:\Android',
             'C:\Program Files (x86)\Android',
-            'C:\hostedtoolcache\windows',
+            'C:\hostedtoolcache\windows\Go',
+            'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk',
+            'C:\hostedtoolcache\windows\Ruby',
+            'C:\hostedtoolcache\windows\PyPy',
             'C:\Miniconda',
             'C:\ghcup',
             'C:\Julia',
@@ -1188,8 +1210,16 @@ jobs:
       #
       # So the preinstalled toolchains go first. Every path here is something the image ships and
       # nothing in this repository uses: the Android SDK the image carries, which is not the one
-      # setup.ps1 installs at C:\tools\android, the hosted tool cache of Python, Node, Go and Java
-      # builds, and four language runtimes. Free space is printed before and after rather than
+      # setup.ps1 installs at C:\tools\android, four language runtimes, and the parts of the
+      # hosted tool cache holding Go, Java, Ruby and PyPy builds.
+      #
+      # The tool cache is pruned rather than emptied, and what it keeps is deliberate. The first
+      # version removed all of C:\hostedtoolcache\windows, and the run then filled with
+      # "Python was not found" and "Unable to create process using
+      # C:\hostedtoolcache\windows\Python\3.14.7\x64\python.exe\", because the runner's PATH still
+      # pointed into a cache it no longer had. Node lives there too and npm needs it. Nothing
+      # failed over it, but a log full of noise about a deleted interpreter is how a real message
+      # gets missed. Free space is printed before and after rather than
       # asserted, because the number is a property of the image and changes without notice, and a
       # figure in a log is what the next reader needs.
       #
@@ -1210,7 +1240,10 @@ jobs:
           $targets = @(
             'C:\Android',
             'C:\Program Files (x86)\Android',
-            'C:\hostedtoolcache\windows',
+            'C:\hostedtoolcache\windows\Go',
+            'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk',
+            'C:\hostedtoolcache\windows\Ruby',
+            'C:\hostedtoolcache\windows\PyPy',
             'C:\Miniconda',
             'C:\ghcup',
             'C:\Julia',
@@ -1300,8 +1333,16 @@ jobs:
       #
       # So the preinstalled toolchains go first. Every path here is something the image ships and
       # nothing in this repository uses: the Android SDK the image carries, which is not the one
-      # setup.ps1 installs at C:\tools\android, the hosted tool cache of Python, Node, Go and Java
-      # builds, and four language runtimes. Free space is printed before and after rather than
+      # setup.ps1 installs at C:\tools\android, four language runtimes, and the parts of the
+      # hosted tool cache holding Go, Java, Ruby and PyPy builds.
+      #
+      # The tool cache is pruned rather than emptied, and what it keeps is deliberate. The first
+      # version removed all of C:\hostedtoolcache\windows, and the run then filled with
+      # "Python was not found" and "Unable to create process using
+      # C:\hostedtoolcache\windows\Python\3.14.7\x64\python.exe\", because the runner's PATH still
+      # pointed into a cache it no longer had. Node lives there too and npm needs it. Nothing
+      # failed over it, but a log full of noise about a deleted interpreter is how a real message
+      # gets missed. Free space is printed before and after rather than
       # asserted, because the number is a property of the image and changes without notice, and a
       # figure in a log is what the next reader needs.
       #
@@ -1322,7 +1363,10 @@ jobs:
           $targets = @(
             'C:\Android',
             'C:\Program Files (x86)\Android',
-            'C:\hostedtoolcache\windows',
+            'C:\hostedtoolcache\windows\Go',
+            'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk',
+            'C:\hostedtoolcache\windows\Ruby',
+            'C:\hostedtoolcache\windows\PyPy',
             'C:\Miniconda',
             'C:\ghcup',
             'C:\Julia',

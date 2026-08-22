@@ -925,3 +925,35 @@ The image build, not the playbook. Every tier 3 image installs packages from a d
 The build is now three attempts thirty seconds apart, and the output of the last one is printed when it gives up, because a genuine build error buried by a retry loop is worse than the flake the loop was hiding.
 
 That is the sixth network transient today across four different hosts. The pattern is now hard to miss: anything that reaches a network in a provisioning run needs a retry, and the ones that did not have one are what today's work has mostly been.
+
+#### The wizard crashed while correctly reporting a failure
+
+Status: fixed in this change, in [WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1).
+
+The Windows defaults cell reached the custom installs and died there:
+
+```text
+TerminatingError(Invoke-WindowsCustomInstall): "Cannot convert argument "collection", with value:
+"@{Key=nodejs; Package=nvm; Status=failed; Detail=the Chocolatey batch was still running after 30
+minutes and was killed ...}", for "AddRange" to type "IEnumerable`1[System.Object]""
+```
+
+The Chocolatey batch timed out, which the code handles: it returns one result saying so, with the command to run by hand. Then `AddRange` refused it, because a lone `PSCustomObject` is not a collection. So the wizard crashed while reporting a failure it had dealt with properly, and everything after that line, the Android SDK and Gridcoin included, never ran.
+
+All four calls now wrap the result in `[object[]]@( )`, the same wrapper `WindowsSettings.ps1` already uses, which makes one object and many behave alike. The shape to watch for: a function whose happy path returns a list and whose early exit returns a single object is a crash waiting for the day the early exit happens.
+
+The same run confirmed the per-package progress output works. The transcript now reads `... [74/80] tor (TorProject.TorBrowser)` followed by `installed after 36s`, and the phase summary was 76 installed, 6 already present, 4 failed, where before it printed one line after two and a half hours of silence.
+
+Three of those four failures are worth recording as facts about the environment rather than defects here. `glasswire` answered 403 Forbidden to its own download. `partition_wizard` ran its installer and got exit code 1. `spotify` refused with "The installer cannot be run from an administrator context", which is true and is caused by the cell passing `-AllowAdministrator`: a real user running the wizard unelevated does not hit it.
+
+#### One Chocolatey package that never returns costs every package in the batch
+
+Status: fixed in this change, in [WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1).
+
+Both Windows software cells of 2026-08-22 reported the same thing: `the Chocolatey batch was still running after 30 minutes and was killed, so those packages are NOT installed`. Between the two cells that cost nvm, geforce-experience and razer-synapse-4, and nothing in the log said which package was the one that hung.
+
+Two changes, and neither is a bigger number on its own.
+
+The child now installs one package per call, each with `--execution-timeout=600`, so Chocolatey itself gives up on the package that hangs, says which it was, and the packages behind it still get their turn. It prints the package before running it and the exit code after, like the winget phase does now.
+
+And the deadline the wizard applies to the child is sized against that loop instead of picked: ten minutes per package plus ten for the bootstrap, never less than thirty. The old flat thirty covered three packages, and both cells had more than that, so the batch was killed while it was still legitimately working. A timeout smaller than the work it bounds does not protect a run, it invents failures.
