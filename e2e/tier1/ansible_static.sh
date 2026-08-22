@@ -59,6 +59,83 @@ for f in "${E2E_ROOT}"/tier3/verify.yaml; do
     fi
 done
 
+# --- every free-form module body survives split_args -------------------------
+# The hole this closes cost every Linux run for eleven hours. ansible-playbook --syntax-check above
+# passed while setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml could not be loaded at all,
+# because --syntax-check follows import_tasks and does not follow include_tasks, and that file is
+# reached through the dynamic one. Every scenario died at parse time with "failed at splitting
+# arguments, either an unbalanced jinja2 block or quotes" while the gate said the tree was fine.
+#
+# The cause is worth knowing before reading the check. Ansible runs split_args over a free-form
+# module argument, the body of shell, command, raw and script, before anything executes, and it
+# counts quotes across the entire string, comment lines included. Three words ending in apostrophe s
+# inside a comment is an odd number of single quotes, and the file stops loading. Nothing about that
+# is visible in a diff or in YAML validity.
+#
+# So every task file is walked here, including the ones no static analysis reaches, and every
+# free-form body is handed to Ansible's own splitter rather than to a quote counter of my own.
+# block, rescue and always are descended into, because a task nested in a rescue parses the same way
+# and would otherwise be skipped by this.
+ansible_python="$(head -1 "$(command -v ansible-playbook)" 2>/dev/null | sed 's/^#!//; s/ .*//')"
+[[ -x "${ansible_python}" ]] || ansible_python="$(command -v python3 || command -v python)"
+split_probe="$("${ansible_python}" - "${ANSIBLE_DIR}" <<'PYEOF'
+import pathlib, sys, yaml
+
+try:
+    from ansible.parsing.splitter import split_args
+except Exception as exc:
+    print("SKIP ansible is not importable from this interpreter: {}".format(exc))
+    sys.exit(0)
+
+FREEFORM = ("ansible.builtin.shell", "shell", "ansible.builtin.command", "command",
+            "ansible.builtin.raw", "raw", "ansible.builtin.script", "script")
+
+def walk(node):
+    if isinstance(node, list):
+        for item in node:
+            for found in walk(item):
+                yield found
+    elif isinstance(node, dict):
+        yield node
+        for key in ("block", "rescue", "always"):
+            if key in node:
+                for found in walk(node[key]):
+                    yield found
+
+broken, bodies = [], 0
+for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.yaml")):
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        # Reported, not skipped. Saying the syntax check owns this would repeat the mistake that
+        # made this check necessary: it does not follow include_tasks, so an unparseable file
+        # reached only that way is invisible to it too, and skipping here would hide it twice.
+        broken.append("{}: will not parse as YAML at all ({})".format(
+            path.name, str(exc).splitlines()[0]))
+        continue
+    for task in walk(doc):
+        for key in FREEFORM:
+            body = task.get(key)
+            if isinstance(body, str):
+                bodies += 1
+                try:
+                    split_args(body)
+                except Exception as exc:
+                    broken.append("{}: {} ({})".format(
+                        path.name, task.get("name") or "unnamed task",
+                        str(exc).splitlines()[0]))
+if broken:
+    print("FAIL " + " | ".join(broken))
+else:
+    print("OK {}".format(bodies))
+PYEOF
+)"
+case "${split_probe}" in
+    OK*) pass "all ${split_probe#OK } free-form shell, command, raw and script bodies split cleanly, included files too" ;;
+    SKIP*) skip "every free-form module body survives split_args" "${split_probe#SKIP }" ;;
+    *) fail "a module body cannot be parsed, so the file it is in will not load at run time"             "${split_probe#FAIL }" ;;
+esac
+
 # --- the callback keeps the tail of a long block -----------------------------
 # Asserted because losing it is silent. dual_logger truncates a task's stdout to
 # STDOUT_TRUNCATE_LINES, and while it kept the head alone, the reason a failed command gave was

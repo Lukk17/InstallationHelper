@@ -81,18 +81,24 @@
 # Fire all 4 Python builds in parallel (poll: 0). Each compiles from source
 # in ~5–10 min — serial is 20–40 min, parallel is bound by CPU contention
 # on a 4-core box (≈15–20 min). async_status collects results afterwards.
+# Three attempts inside the job, because the retries keyword cannot reach an async task launched
+# with poll: 0: retrying that would mean relaunching it, and the collector below has no way to do
+# so. The all-software cell on Debian lost Python 3.12.13 to a TLS connect error from python.org on
+# 2026-08-21, reported by curl as code 35, unexpected eof while reading, and that was after
+# python-build had already retried once itself. One interrupted download failed a run that had
+# otherwise installed everything. --skip-existing makes a repeat attempt free when an earlier one
+# got there, so the only cost of this loop is on the path where the alternative was failing.
+#
+# This prose lives here, above the task, rather than inside the shell body, and that is not a style
+# preference. Ansible runs split_args over a free-form module argument before anything executes, it
+# counts quotes across the whole string including comment lines, and three apostrophes in three
+# words ending in s broke every Linux run at parse time with "failed at splitting arguments". A
+# comment inside a shell body is not inert.
 - name: Fire all Python builds via Pyenv (parallel)
   ansible.builtin.shell: |
     set -o pipefail
     export PYENV_ROOT="{{ non_root_home }}/.pyenv"
     export PATH="$PYENV_ROOT/bin:$PATH"
-    # Three attempts inside the job, because Ansible's own retries cannot reach an async task
-    # launched with poll: 0: retrying that would mean relaunching it, and the collector below has no
-    # way to do so. Debian's all-software cell lost Python 3.12.13 to
-    # "curl: (35) TLS connect error: unexpected eof while reading" from python.org on 2026-08-21,
-    # after python-build's own single retry, and one interrupted download failed a run that had
-    # otherwise installed everything. --skip-existing makes a repeat attempt free when an earlier one
-    # got there, so the only cost of this loop is on the path where the alternative was failing.
     for attempt in 1 2 3; do
         if {{ ih_timeout }} 1500 pyenv install --skip-existing {{ item }} </dev/null; then
             exit 0

@@ -754,3 +754,17 @@ Truncation now keeps a third of the budget from the head, where a command names 
 Beside it, `installation-apt-batch.log` and `installation-virt-apt.log` are now copied out of every container scenario, so the package manager's own transcript survives the container even when the truncation was not the problem.
 
 Worth stating plainly: this had cost nothing visible, because a run that passes never truncates anything a reader wants. It only ever bites on the run you most need to read, which is why it lasted this long.
+
+#### Three apostrophes in a comment stopped every Linux run from loading
+
+Status: fixed in this change, in [pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml), caught from now on by [ansible_static.sh](../e2e/tier1/ansible_static.sh).
+
+The pyenv retry loop added earlier the same day carried its reasoning as shell comments inside the task body, and that prose contained the words `Ansible's`, `Debian's` and `python-build's`. Three apostrophes is an odd number of single quotes, and Ansible runs `split_args` over a free-form module argument, the body of shell, command, raw and script, before anything executes, counting quotes across the whole string with no idea that some lines are comments. So the file stopped loading: every Linux scenario died at parse time with `failed at splitting arguments, either an unbalanced jinja2 block or quotes`, having installed nothing.
+
+Measured, not deduced. Three local container scenarios were started to prove three unrelated fixes, and all three failed identically at `Origin: /work/setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml:84:3`: debian kde-configure-only, fedora idempotency and cachyos defaults, exit code 4 in each. The same three quotes were then handed to `split_args` directly, which raised the same error.
+
+The worse half is that the gate said the tree was fine. `ansible-playbook --syntax-check site.yaml` passed with the file in that state, because it follows `import_tasks` and does not follow `include_tasks`, and this file is reached dynamically. A hundred and thirty-nine assertions passed over a tree that could not run a single Linux install.
+
+Two things changed. The prose moved above the task, where Ansible never reads it, which is where rationale belongs anyway. And tier 1 now walks every `*.yaml` under `setup/ansible`, descends into `block`, `rescue` and `always`, and hands all 123 free-form bodies to Ansible's own splitter, so a file no static analysis reaches is still checked. A file that will not parse as YAML at all is reported by the same check rather than skipped, because the syntax check does not own dynamically included files either and skipping would hide it twice. Proven in both directions before committing: reintroducing three apostrophes in that body makes the check name the file and the task, and removing them makes it pass.
+
+The lesson is narrow and worth remembering exactly: a comment inside a shell body is not inert. It is part of the string Ansible parses.
