@@ -908,3 +908,20 @@ Lukk does not want the machine hibernating on a schedule, so the feature is dele
 Untouched on purpose: the Linux `setup_hibernate` toggle, which is a different thing. It grants permission to hibernate through a PolicyKit rule and records the swap UUID for resume, and it schedules nothing.
 
 One thing worth recording about the removal itself. Deleting the toggle took the two lines above it with it, `setup_wsl` and `enable_hyperv`, because the block boundary was found by searching backwards for a blank line. The tier 1 Windows check caught it immediately with "WindowsSettings.ps1 claims setting keys that no group_vars toggle defines", which is exactly the pair comparison it exists for.
+
+#### A distribution mirror stumbled during an image build, and the scenario died before it started
+
+Status: fixed in this change, in [container.sh](../e2e/tier3/container.sh).
+
+The CachyOS idempotency cell of 2026-08-22 failed 30 seconds in, with the whole 300 minute scenario lost to this:
+
+```text
+ERROR: failed to build: failed to solve: process "... pacman -Syu --noconfirm --needed sudo
+ansible-core which ..." did not complete successfully: exit code: 1
+```
+
+The image build, not the playbook. Every tier 3 image installs packages from a distribution mirror while it builds, and a mirror that stumbles takes the cell with it before a single task runs. That it was a flake rather than a defect is measurable rather than assumed: the CachyOS defaults and kde-full cells built the same image from the same commit minutes earlier and passed.
+
+The build is now three attempts thirty seconds apart, and the output of the last one is printed when it gives up, because a genuine build error buried by a retry loop is worse than the flake the loop was hiding.
+
+That is the sixth network transient today across four different hosts. The pattern is now hard to miss: anything that reaches a network in a provisioning run needs a retry, and the ones that did not have one are what today's work has mostly been.

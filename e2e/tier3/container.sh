@@ -292,7 +292,30 @@ start_run() {
     # Both the Dockerfile and the build context name a location on this machine, so both go
     # through host_path. The mounts and working directories further down do not, because those
     # name locations inside the container.
-    docker build -q -f "$(host_path "${DOCKERFILE}")" -t "${IMAGE}" "$(host_path "${TIER3_DIR}")" >/dev/null
+    #
+    # Three attempts, because every one of these images installs packages from a distribution mirror
+    # while it builds, and a mirror that stumbles takes the whole scenario with it before a single
+    # task has run. The CachyOS idempotency cell of 2026-08-22 died that way, at
+    # "pacman -Syu did not complete successfully: exit code: 1", while the defaults and kde-full
+    # cells built the same image from the same commit minutes earlier and passed. A failure that two
+    # of three concurrent cells do not see is not a property of the Dockerfile.
+    #
+    # The output of the last attempt is kept and printed on the final failure, because a build error
+    # buried by a retry loop is worse than the flake it was hiding.
+    build_attempt=1
+    build_log="$(mktemp)"
+    until docker build -q -f "$(host_path "${DOCKERFILE}")" -t "${IMAGE}" "$(host_path "${TIER3_DIR}")" >"${build_log}" 2>&1; do
+        if [[ "${build_attempt}" -ge 3 ]]; then
+            warn "the ${OS} image failed to build three times, the last attempt said:"
+            tail -20 "${build_log}" | sed 's/^/       /'
+            rm -f "${build_log}"
+            return 1
+        fi
+        warn "the ${OS} image failed to build on attempt ${build_attempt}, retrying in 30 seconds"
+        build_attempt=$((build_attempt + 1))
+        sleep 30
+    done
+    rm -f "${build_log}"
 
     info "Starting the container with systemd as PID 1"
     docker run -d --name "${CONTAINER}" \
