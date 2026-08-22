@@ -957,3 +957,19 @@ Two changes, and neither is a bigger number on its own.
 The child now installs one package per call, each with `--execution-timeout=600`, so Chocolatey itself gives up on the package that hangs, says which it was, and the packages behind it still get their turn. It prints the package before running it and the exit code after, like the winget phase does now.
 
 And the deadline the wizard applies to the child is sized against that loop instead of picked: ten minutes per package plus ten for the bootstrap, never less than thirty. The old flat thirty covered three packages, and both cells had more than that, so the batch was killed while it was still legitimately working. A timeout smaller than the work it bounds does not protect a run, it invents failures.
+
+#### The signature check crashed on exactly the file it exists to reject
+
+Status: fixed in this change, in [WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1).
+
+`Install-DirectInstaller` downloads a vendor installer, checks its Authenticode signature, and refuses to run anything that is not validly signed. The rejection message named the signer:
+
+```powershell
+Detail = "refusing to run it: Authenticode status is $($sig.Status), signer '$($sig.SignerCertificate.Subject)'"
+```
+
+`SignerCertificate` is null when a file carries no signature at all, and `Set-StrictMode -Version Latest` makes reading `.Subject` off null a terminating error. So on an unsigned binary, which is the case the check exists to catch, the wizard crashed instead of reporting. The Windows defaults cell of 2026-08-22 died there, and the rest of the SDK phase and Gridcoin never ran.
+
+The signer is now resolved defensively and says "none, the file carries no signature" when there is none. Which vendor binary is unsigned is not yet known, because the crash prevented the message that would have said so, and the next run will name it.
+
+Third crash of this exact family today, after `AddRange` refusing a lone object and `$installationType` never being assigned. All three are the same mistake: a failure path written once, never executed, and wrong. Under strict mode an untested error branch is not a safety net, it is a second failure waiting behind the first.

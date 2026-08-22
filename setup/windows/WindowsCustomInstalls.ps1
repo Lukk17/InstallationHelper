@@ -540,8 +540,15 @@ function Install-DirectInstaller {
         # verified vendor binary and running whatever the URL returned.
         $sig = Get-AuthenticodeSignature -LiteralPath $target
         if ($sig.Status -ne 'Valid') {
+            # SignerCertificate is null on a file with no signature at all, and under
+            # Set-StrictMode -Version Latest reading .Subject off null is a terminating error. So the
+            # rejection path crashed instead of rejecting, which is the worst possible place for it:
+            # the Windows defaults cell of 2026-08-22 died here, and everything after this call, the
+            # rest of the SDKs and Gridcoin included, never ran. An unsigned binary is exactly the
+            # case this check exists to catch, and it was the one case it could not report.
+            $signer = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { 'none, the file carries no signature' }
             return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
-                                      Detail = "refusing to run it: Authenticode status is $($sig.Status), signer '$($sig.SignerCertificate.Subject)'" }
+                                      Detail = "refusing to run it: Authenticode status is $($sig.Status), signer '$signer'" }
         }
 
         $p = Start-Process -FilePath $target -ArgumentList $SilentArgument -PassThru -WindowStyle Hidden
