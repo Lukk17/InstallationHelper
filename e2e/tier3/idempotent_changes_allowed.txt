@@ -69,3 +69,14 @@ software_installer : Remove the staged vendor .deb files | it removes what this 
 # in the guard and was fixed rather than excused.
 software_installer : Download AppImageLauncher RPM (Fedora) | the RPM is deleted after installation, so it is absent at the start of every run
 software_installer : Remove the staged AppImageLauncher RPM (Fedora) | it removes what this run downloaded, and there is always something to remove
+
+# A full system upgrade on a rolling distribution, which is the one task here that is honestly
+# allowed to do work on a second pass. Arch and CachyOS publish packages continuously, and the two
+# passes of this scenario are separated by the length of a full install, so a newer build landing in
+# between is ordinary rather than exceptional. It reported changed on 2026-08-22 for exactly that
+# reason, having reported nothing on the same tree the day before.
+#
+# The alternative would be changed_when: false on the task, and that would be a lie: it really did
+# upgrade packages. The database refresh next to it is a different case and is already false, because
+# refreshing an index is an act rather than a state.
+arch_core : Upgrade the system (Arch) | Arch and CachyOS are rolling, so a newer package between the two passes is normal and upgrading it is real work rather than a repeated one
