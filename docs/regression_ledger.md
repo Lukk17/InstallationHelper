@@ -973,3 +973,27 @@ Detail = "refusing to run it: Authenticode status is $($sig.Status), signer '$($
 The signer is now resolved defensively and says "none, the file carries no signature" when there is none. Which vendor binary is unsigned is not yet known, because the crash prevented the message that would have said so, and the next run will name it.
 
 Third crash of this exact family today, after `AddRange` refusing a lone object and `$installationType` never being assigned. All three are the same mistake: a failure path written once, never executed, and wrong. Under strict mode an untested error branch is not a safety net, it is a second failure waiting behind the first.
+
+#### A missing collection breaks every distribution, and the error names a line that never runs
+
+Status: fixed in this change, in [container.sh](../e2e/tier3/container.sh).
+
+The Debian all-software cell of 2026-08-22 died before installing anything:
+
+```text
+[ERROR]: couldn't resolve module/action 'kewlfft.aur.aur'.
+Origin: /work/setup/ansible/roles/software_installer/tasks/dynamic_install.yaml:513:7
+```
+
+That task is guarded by `when: ih_family == 'Archlinux'` and could never have run in a Debian container. Ansible resolves module names at parse time, before any condition is evaluated, so one missing collection stops the file loading on every distribution and the message points at a line that is irrelevant to the failure.
+
+The collection was missing because galaxy.ansible.com answered with something its own client could not parse:
+
+```text
+File ".../ansible/galaxy/api.py", line 386, in _call_galaxy
+    res = path_cache['results']
+KeyError: 'results'
+ansible.errors.AnsibleError: Unexpected Exception, this is probably a bug: 'results'
+```
+
+Two changes. The install is retried three times, twenty seconds apart, because that is a network call like every other one this repository has had to learn about today. And a run that still cannot install its collections now stops there with that reason, instead of warning and letting the playbook fail five minutes later on something unrecognisable. A scenario whose prerequisites did not install has not started, and saying so is cheaper for the next reader than any amount of log archaeology.

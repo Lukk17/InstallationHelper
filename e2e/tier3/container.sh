@@ -581,10 +581,37 @@ start_run() {
         abort_before_playbook "${copy_failed}" "${RUN_DIR}/copy.log"
     fi
 
+    # Retried, and fatal when it still fails. Both halves are lessons from the same run.
+    #
+    # Retried because this talks to galaxy.ansible.com, which on 2026-08-22 answered the Debian
+    # all-software cell with a response its own client could not parse:
+    #
+    #   File ".../ansible/galaxy/api.py", line 386, in _call_galaxy
+    #       res = path_cache['results']
+    #   KeyError: 'results'
+    #   ansible.errors.AnsibleError: Unexpected Exception, this is probably a bug: 'results'
+    #
+    # Fatal because of what happened next. The old code warned and carried on, the playbook started
+    # without kewlfft.aur, and Ansible refused to load the file five minutes later with
+    # "couldn't resolve module/action 'kewlfft.aur.aur'" pointing at a task guarded by
+    # `when: ih_family == 'Archlinux'` in a Debian container. Module resolution happens at parse
+    # time regardless of any when, so a missing collection breaks every distribution, and the error
+    # it produces names a line that would never have run. A scenario that cannot install its
+    # collections has not started, and it should say so here rather than fail unrecognisably later.
     info "Installing Ansible collections"
-    docker exec -u "${E2E_USER}" -w /work/setup/ansible "${CONTAINER}" \
-        ansible-galaxy collection install -r requirements.yaml >"${RUN_DIR}/galaxy.log" 2>&1 \
-        || warn "collection install failed, see ${RUN_DIR}/galaxy.log"
+    local galaxy_attempt=1
+    until docker exec -u "${E2E_USER}" -w /work/setup/ansible "${CONTAINER}" \
+            ansible-galaxy collection install -r requirements.yaml >"${RUN_DIR}/galaxy.log" 2>&1; do
+        if [[ "${galaxy_attempt}" -ge 3 ]]; then
+            abort_before_playbook \
+                "the Ansible collections could not be installed after three attempts, so the playbook would fail on a missing module rather than on anything this scenario tests" \
+                "${RUN_DIR}/galaxy.log"
+            return 1
+        fi
+        warn "collection install failed on attempt ${galaxy_attempt}, retrying in 20 seconds"
+        galaxy_attempt=$((galaxy_attempt + 1))
+        sleep 20
+    done
 
     # --- launch, detached inside the container --------------------------------
     local profile_arg=""
