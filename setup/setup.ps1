@@ -621,57 +621,101 @@ function Install-AnsibleInWsl {
             return New-WslResult -Results $results
         }
 
-        # Named explicitly, and run as root, rather than letting wsl pick a default and a user.
-        # A distribution registered with --no-launch has never completed its first-run setup and
-        # therefore has no user besides root, and every command below only needs root anyway.
-        $distro = $distros[0]
+        # Every registered distribution is tried, in order, until one answers, and each is asked as
+        # root rather than as its default user.
+        #
+        # Both halves of that are measured rather than preferred. A runner has two distributions,
+        # the image's own Ubuntu and the Ubuntu-26.04 the workflow registers, and taking the first
+        # one picked the freshly registered one, which answered an empty string at exit code 0:
+        # registered with --no-launch, never initialised, no user but root, and nothing in
+        # /etc/os-release that a shell could read. The distribution that would have worked was
+        # second in the list. Asking one and giving up is how a machine with a working WSL still
+        # gets told it has none.
+        $distro     = $null
+        $distroId   = $null
+        $probeFails = [System.Collections.Generic.List[string]]::new()
 
-        $null = wsl --distribution $distro --user root -- bash -c 'command -v ansible-playbook' 2>&1
+        # /etc/os-release is read with cat and parsed on this side, and that is the whole point.
+        # `wsl -d X -- bash -c '<script>'` returns an empty string at exit code 0 from PowerShell,
+        # measured on 2026-08-22 against a working Ubuntu on a real machine: the argument reaches
+        # wsl.exe mangled by PowerShell's native argument passing, bash runs something harmless and
+        # prints nothing, and the caller cannot tell that from a distribution with no os-release.
+        # That, and not the freshly registered distribution, is why the wizard reported
+        # "cannot auto-install Ansible for distro family ''". cat with no shell in the way returns
+        # all 399 bytes of the file, and the same call shape is used for the install below.
+        foreach ($candidate in $distros) {
+            $osRelease = wsl --distribution $candidate --user root -- cat /etc/os-release 2>&1
+            $probeRc   = $LASTEXITCODE
+            $fields    = @{}
+            foreach ($line in @($osRelease)) {
+                if ("$line" -match '^\s*([A-Z_]+)=(.*)$') {
+                    $fields[$Matches[1]] = $Matches[2].Trim().Trim('"').Trim("'")
+                }
+            }
+            $answer = if ($fields['ID_LIKE']) { $fields['ID_LIKE'] } elseif ($fields['ID']) { $fields['ID'] } else { '' }
+            if ($probeRc -eq 0 -and $answer) {
+                $distro   = $candidate
+                $distroId = $answer
+                break
+            }
+            $probeFails.Add("$candidate exited $probeRc and gave no ID or ID_LIKE")
+        }
+
+        if (-not $distro) {
+            & $add 'failed' ("no registered WSL distribution could say what it is, so Ansible cannot " +
+                "be installed into one. Asked each of them for /etc/os-release: " +
+                ($probeFails -join '; ') + ". A distribution installed with --no-launch has never " +
+                "completed its first run, so launch it once by hand and try again.")
+            return New-WslResult -Results $results
+        }
+
+        $null = wsl --distribution $distro --user root -- which ansible-playbook 2>&1
         if ($LASTEXITCODE -eq 0) {
-            & $add 'present' 'ansible-playbook is already on PATH inside WSL'
+            & $add 'present' "ansible-playbook is already on PATH inside '$distro'"
             return New-WslResult -Results $results
         }
 
-        # Both streams and the exit code are kept, because the previous version kept none of them
-        # and reported "cannot auto-install Ansible for distro family ''" with nothing behind it.
-        # An empty family is the one answer that says nothing at all: it is what a failed probe, a
-        # distribution that will not start and an os-release without ID both look like.
-        $probe    = wsl --distribution $distro --user root -- bash -c 'source /etc/os-release 2>/dev/null; echo "${ID_LIKE:-$ID}"' 2>&1
-        $probeRc  = $LASTEXITCODE
-        $distroId = "$probe".Trim()
-
-        if ($probeRc -ne 0 -or -not $distroId) {
-            & $add 'failed' ("could not read /etc/os-release inside '$distro'. wsl exited $probeRc " +
-                "and said: " + ("$probe".Trim() -replace '\s+', ' ' | Select-Object -First 1) +
-                ". Registered distributions: " + ($distros -join ', '))
-            return New-WslResult -Results $results
-        }
-
-        # No sudo in any of these, because the line above runs them as root already. Asking for it
-        # anyway would fail on a distribution that does not ship sudo, which Arch does not, and on
-        # a fresh registration where no user exists to be in its sudoers.
-        $command = switch -Regex ($distroId) {
-            'debian|ubuntu'      { 'apt-get update -q && apt-get install -y software-properties-common && add-apt-repository --yes --update ppa:ansible/ansible && apt-get install -y ansible' }
-            'fedora|rhel|centos' { 'dnf install -y ansible' }
-            'arch'               { 'pacman -S --noconfirm ansible' }
+        # A list of argument lists rather than one shell string, and no sudo anywhere.
+        #
+        # No shell, because a command handed to `bash -c` through wsl.exe does not survive
+        # PowerShell's argument passing, which is what the probe above documents. Each step is its
+        # own wsl call with its arguments as an array, which needs no quoting at all and gives an
+        # exit code per step, so a failure names the step that failed instead of the whole chain.
+        #
+        # No sudo, because these run as root already. Asking for it would fail on a distribution
+        # that does not ship it, which Arch does not, and on a fresh registration where no user
+        # exists to be in its sudoers.
+        $steps = switch -Regex ($distroId) {
+            'debian|ubuntu'      { ,@(
+                                     @('apt-get', 'update', '-q'),
+                                     @('apt-get', 'install', '-y', 'software-properties-common'),
+                                     @('add-apt-repository', '--yes', '--update', 'ppa:ansible/ansible'),
+                                     @('apt-get', 'install', '-y', 'ansible')
+                                   ) }
+            'fedora|rhel|centos' { ,@( ,@('dnf', 'install', '-y', 'ansible') ) }
+            'arch'               { ,@( ,@('pacman', '-S', '--noconfirm', 'ansible') ) }
             default              { $null }
         }
-        if (-not $command) {
+        if (-not $steps) {
             & $add 'failed' ("no package manager is known for the distribution family '$distroId' " +
                 "reported by '$distro'. Install Ansible by hand inside WSL.")
             return New-WslResult -Results $results
         }
 
+        $rendered = ($steps | ForEach-Object { $_ -join ' ' }) -join ' && '
         if (-not $PSCmdlet.ShouldProcess("$distroId inside WSL", 'install ansible')) {
-            & $add 'skipped' "WhatIf, would run: $command"
+            & $add 'skipped' "WhatIf, would run in '$distro': $rendered"
             return New-WslResult -Results $results
         }
 
-        Write-Status "Installing Ansible inside WSL ($distroId)..."
-        wsl --distribution $distro --user root -- bash -c $command | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            & $add 'failed' "the package manager inside WSL exited $LASTEXITCODE, so Ansible is not installed in there. Run it by hand: $command"
-            return New-WslResult -Results $results
+        Write-Status "Installing Ansible inside WSL ($distro, family $distroId)..."
+        foreach ($step in $steps) {
+            wsl --distribution $distro --user root -- @step | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+                & $add 'failed' ("'$($step -join ' ')' exited $LASTEXITCODE inside '$distro', so Ansible " +
+                    "is not installed in there. The whole sequence is: $rendered")
+                return New-WslResult -Results $results
+            }
         }
         & $add 'installed' 'installed inside WSL'
         return New-WslResult -Results $results

@@ -824,3 +824,58 @@ Every winget call is now bounded, the install at fifteen minutes and the already
 And the phase now prints a line per package as it starts one, with its index, its key, its package identifier and, when it finishes, its status and how many seconds it took. The next run will name the package that hangs, which no amount of reading this code could.
 
 The `Exception setting "CursorPosition"` line above the header is PSReadLine rendering into a runner console that has no real handle, not this repository's code, and it is harmless. Worth writing down so the next reader does not spend an hour on it, as I nearly did.
+
+#### The Server SKU fix wrote a word the parser did not know
+
+Status: fixed in this change, in [WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1), asserted by [windows_settings.sh](../e2e/tier1/windows_settings.sh).
+
+The elevated child that enables optional features writes `<state>|<feature>|<detail>` into a result file, and the parent reads it back with a regular expression that names the states it accepts. When the Server SKU work taught the child to write `skipped`, the parent's expression was left listing present, installed, reboot and failed. Three lines were dropped in silence, and the wizard reported "the elevated child reported nothing for this feature, so its state is unknown" about features the child had answered perfectly well: NetFx4-AdvSrvs, Containers-DisposableClientVM and ServicesForNFS-ClientOnly, the three client-only features on a Server runner.
+
+One file, one line format, two halves that disagreed about its vocabulary. Tier 1 now reads both sets out of the file and compares them, so neither side can gain a word alone.
+
+#### wsl bash -c returns nothing, and it is not the distribution's fault
+
+Status: fixed in this change, in [setup.ps1](../setup/setup.ps1).
+
+The wizard reported `cannot auto-install Ansible for distro family ''` on every Windows runner. My first diagnosis was that the runner's freshly registered Ubuntu-26.04 had never completed its first run, and I fixed the wizard to try each registered distribution in turn. That was worth doing and it was not the cause.
+
+Measured on a real machine with a working Ubuntu:
+
+```text
+wsl -d Ubuntu --user root -- bash -c 'source /etc/os-release; echo "${ID_LIKE:-$ID}"'   rc=0, 0 bytes
+wsl -d Ubuntu --user root -- cat /etc/os-release                                        rc=0, 399 bytes
+```
+
+A command handed to `bash -c` through wsl.exe does not survive PowerShell's native argument passing. The shell runs something harmless, prints nothing, and exits zero, so the caller cannot tell that from a distribution with no os-release at all. Removing the double quotes does not help, which was checked rather than assumed.
+
+So no shell is involved any more. The family is read with `cat` and parsed on the PowerShell side, the presence check is `which ansible-playbook`, and the install is a list of argument arrays run one at a time, which needs no quoting and gives an exit code per step. All four shapes were exercised against this machine before committing.
+
+#### A group named after the user, which is a Linux idea
+
+Status: fixed in this change, in [derive_os_facts.yaml](../setup/ansible/tasks/derive_os_facts.yaml) and its two callers.
+
+`Ensure .dart-tool directory exists` failed on macOS with `chgrp failed: failed to look up group runner`, and took the whole SDK phase with it. Two tasks set `group: "{{ non_root_user }}"`, which is true on Debian, Fedora and Arch because useradd creates a group per user, and false on macOS where everyone is in staff.
+
+The group is now asked of the machine with `id -gn` and resolved once as `ih_non_root_group`, next to the timeout fact that exists for the same reason. Both tasks that guessed now read it.
+
+Ledger rule 1 again, in a new place: a per-machine fact belongs in a derivation, not in a task. This one had been wrong on every Mac since it was written, and only a real macOS run could show it.
+
+#### Nineteen files quietly became CRLF, and three checks failed pointing elsewhere
+
+Status: fixed in this change, guarded by [line_endings.sh](../e2e/tier1/line_endings.sh).
+
+The gate went from 142 passing assertions to three failures whose messages had nothing to do with the cause, the loudest being "8 tolerated tasks register a result nothing reads" about registers that are read all over the playbook.
+
+The cause was mine, from the same afternoon. Edits applied through a Python script that opened files for writing without specifying a newline, which on Windows rewrites every line ending as CRLF. Nineteen files converted whole, and two of them twice, leaving `\r\r\n` so that a first repair pass that replaced `\r\n` still left CRLF behind. Every diff read clean throughout, because `core.autocrlf=input` normalises on the way in.
+
+`.gitattributes` has said `* text=auto eol=lf` for a while and explains exactly this hazard. What it cannot do is stop a working tree from drifting after checkout, and nothing checked that. Now something does, over all 414 tracked text files.
+
+The check is written in Python rather than grep, which is not a style choice:
+
+```text
+printf 'a\r\nb\n' > f && grep -c $'\r' f      prints 0 in Git Bash
+```
+
+Git Bash strips the carriage return before matching, so a grep-based check passes on precisely the machine that creates the problem, while awk in the same shell keeps it. That inconsistency is what made the original failure so hard to read.
+
+The real risk was never the false failures. The container tiers copy this working tree into Linux, where a shebang ending in a carriage return means "no such file or directory".

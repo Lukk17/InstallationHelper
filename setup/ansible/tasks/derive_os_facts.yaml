@@ -108,3 +108,38 @@
   ansible.builtin.set_fact:
     ih_timeout: "{{ 'gtimeout' if ih_family == 'Darwin' else 'timeout' }}"
   tags: always
+
+# The primary group of the user this playbook installs for, asked of the machine rather than assumed
+# to be the user's own name.
+#
+# That assumption is a Linux one. useradd gives a new user a group of the same name, so on Debian,
+# Fedora and Arch `group: "{{ non_root_user }}"` happens to be right. macOS does not work that way:
+# the runner user's primary group is staff, and every user on a Mac is in staff. The macOS defaults
+# scenario of 2026-08-22 failed at "Ensure .dart-tool directory exists" with "chgrp failed: failed
+# to look up group runner", which took the whole SDK phase with it, and it would fail the same way
+# on any Mac for the same reason.
+#
+# id -gn is POSIX and answers on all four families. The fallback is the user's own name, which is
+# the correct answer everywhere the group really does match and a harmless one where id has already
+# succeeded.
+# Both tasks ask whether non_root_user exists first, because this file has a second caller. The
+# fixture play behind e2e/tier1/os_family_derivation.sh imports it with no group_vars at all, to
+# exercise the derivation against fourteen os-release files, and it has no install user to ask
+# about. Without the guard that play died on "'non_root_user' is undefined" and the whole check
+# reported "the fixture play did not finish", which says nothing about what broke.
+- name: Ask the machine which group the install user actually belongs to
+  ansible.builtin.command: id -gn {{ non_root_user }}
+  register: ih_non_root_group_probe
+  changed_when: false
+  failed_when: false
+  when: non_root_user is defined
+  tags: always
+
+- name: Resolve the install user's primary group
+  ansible.builtin.set_fact:
+    ih_non_root_group: >-
+      {{ (ih_non_root_group_probe.stdout | trim)
+         if (ih_non_root_group_probe.rc | default(1) == 0 and ih_non_root_group_probe.stdout | default('') | trim)
+         else non_root_user }}
+  when: non_root_user is defined
+  tags: always

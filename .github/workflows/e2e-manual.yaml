@@ -468,7 +468,13 @@ jobs:
   macos-wizard:
     needs: plan
     if: needs.plan.outputs.run_macos == 'true'
-    runs-on: macos-14
+    # macos-26 rather than macos-14, and this is a fact about Homebrew rather than a preference.
+    # Casks target current macOS: rawtherapee refuses to install on anything older than Tahoe, which
+    # is macOS 26, and it took the whole cask batch of the 2026-08-22 sweep down with it on a
+    # macos-14 runner. Homebrew supports the newest few releases and casks follow, so testing on a
+    # 2023 image guarantees more of this. macos-26 is a documented GitHub-hosted label.
+    # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+    runs-on: macos-26
     timeout-minutes: 120
     permissions:
       contents: read

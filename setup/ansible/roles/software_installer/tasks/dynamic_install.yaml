@@ -882,19 +882,84 @@
       retries: 3
       delay: 20
 
-    - name: Install Homebrew Cask packages (batched)
-      community.general.homebrew_cask:
-        name: "{{ brew_cask_packages }}"
-        state: present
+    # One cask at a time, and a failure does not stop the others.
+    #
+    # This was one batched call, and twice in two days a single cask took every other cask down with
+    # it: a Tor Browser build the vendor had deleted on 2026-08-21, and rawtherapee refusing to
+    # install on anything older than macOS Tahoe on 2026-08-22. Around thirty applications lost to
+    # one, each time. apt and pacman have to be batched because their solvers work on the whole set,
+    # and the ledger records what that costs. brew has no such excuse: a cask is an independent
+    # download and install, and looping costs only the seconds brew spends starting up.
+    #
+    # brew through the shell rather than community.general.homebrew_cask, which is the module for
+    # this and which this task used until now. The reason is the reporting, not the installing: the
+    # module reports a failure only through the result's `failed` key, and this repository forbids
+    # deciding from that key, because `failed_when` rewrites it and a collector that reads it has
+    # shipped here as dead code twice. See e2e/tier1/failed_key_reads.sh. A command returns rc, which
+    # nothing rewrites, and every sibling task in this file already reports from rc.
+    #
+    # What brew actually prints, which is what the conditions below key on: installing a cask that is
+    # already there exits 0 with "Warning: Cask '<name>' is already installed", and a real install
+    # exits 0 without that line. So rc separates worked from failed, and the text separates installed
+    # from already present.
+    - name: Install Homebrew Casks (one at a time, so one bad cask does not cost the rest)
+      ansible.builtin.shell: |
+        set -o pipefail
+        brew install --cask {{ item | quote }} 2>&1
+      args:
+        executable: /bin/bash
+      loop: "{{ brew_cask_packages }}"
+      loop_control:
+        label: "{{ item }}"
       vars:
         brew_cask_packages: >-
           {{ software_installer_packages
              | selectattr('value.manager', 'equalto', 'brew_cask')
              | map(attribute='value.package')
              | list }}
+      register: brew_cask_results
+      ignore_errors: true
+      changed_when:
+        - brew_cask_results.rc | default(1) == 0
+        - "'is already installed' not in (brew_cask_results.stdout | default(''))"
+      until: brew_cask_results.rc | default(1) == 0
+      retries: 3
+      delay: 20
       when:
         - ih_family == 'Darwin'
         - brew_cask_packages | length > 0
+      tags: [brew]
+
+    - name: Name every cask that would not install, and what brew said
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] {{ failed_casks | length }} Homebrew cask(s) did not install and are NOT present:
+          {{ failed_casks | map(attribute='item') | join(', ') }}.
+          Every other cask installed, because these are no longer one call.
+          {% for failure in failed_casks %}
+          {{ failure.item }}: {{ (failure.stdout | default('no output')) | trim | truncate(300) }}
+          {% endfor %}
+      vars:
+        failed_casks: >-
+          {{ brew_cask_results.results | default([]) | rejectattr('rc', 'defined') | list
+             + (brew_cask_results.results | default([]) | selectattr('rc', 'defined')
+                | selectattr('rc', 'ne', 0) | list) }}
+      when:
+        - ih_family == 'Darwin'
+        - failed_casks | length > 0
+      tags: [brew]
+
+    - name: Propagate the cask failures to the play summary
+      ansible.builtin.set_fact:
+        any_role_failed: true
+      vars:
+        failed_casks: >-
+          {{ brew_cask_results.results | default([]) | rejectattr('rc', 'defined') | list
+             + (brew_cask_results.results | default([]) | selectattr('rc', 'defined')
+                | selectattr('rc', 'ne', 0) | list) }}
+      when:
+        - ih_family == 'Darwin'
+        - failed_casks | length > 0
       tags: [brew]
 
     # ------------------ CUSTOM INSTALLS (flatpak bundles, AppImages, binaries) --

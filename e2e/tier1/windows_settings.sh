@@ -226,4 +226,28 @@ else
          "${undispatched[*]}"
 fi
 
+# --- the writer and the reader of the feature result format agree on its words ------------------
+# One file, one line format, two halves that disagreed about its vocabulary. The elevated child
+# writes "<state>|<feature>|<detail>" into a result file, and the parent reads it back with a
+# regular expression naming the states it accepts. When the Server SKU work taught the child to
+# write "skipped", the parent's expression was left listing present, installed, reboot and failed,
+# so three skipped lines were dropped in silence and the wizard reported "the elevated child
+# reported nothing for this feature" about features the child had answered perfectly well. On the
+# sweep of 2026-08-22 those were NetFx4-AdvSrvs, Containers-DisposableClientVM and
+# ServicesForNFS-ClientOnly, the three client-only features on a Server runner.
+#
+# Both sets are read out of the file rather than listed here, so neither side can drift alone.
+written="$(grep -oE 'lines\.Add\("[a-z]+\|' "${PS_FILE}" | sed -E 's/.*\("([a-z]+)\|/\1/' | sort -u)"
+accepted="$(grep -oE '\(\?<state>[a-z|]+\)' "${PS_FILE}" | head -1 | sed -E 's/.*<state>//; s/\)$//' | tr '|' '\n' | sort -u)"
+
+if [[ -z "${written}" || -z "${accepted}" ]]; then
+    fail "could not find the feature result format in WindowsSettings.ps1, so this check proves nothing" \
+         "writer states: '$(tr '\n' ' ' <<<"${written}")' reader states: '$(tr '\n' ' ' <<<"${accepted}")'"
+elif [[ "${written}" == "${accepted}" ]]; then
+    pass "the elevated child and the parser agree on all $(grep -c . <<<"${accepted}") feature result states"
+else
+    fail "the elevated child writes a result state the parser drops, so a feature it answered about is reported as unknown" \
+         "child writes: $(tr '\n' ' ' <<<"${written}")| parser accepts: $(tr '\n' ' ' <<<"${accepted}")"
+fi
+
 finish "Windows system settings"

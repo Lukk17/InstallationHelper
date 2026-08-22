@@ -5,7 +5,7 @@
     state: directory
     mode: '0755'
     owner: "{{ non_root_user }}"
-    group: "{{ non_root_user }}"
+    group: "{{ ih_non_root_group }}"
   become: yes
 
 # --- Flatpak: Required for flatpak applications ---

@@ -16,7 +16,7 @@
 #   1. stage1_tier1_gate          ubuntu-latest   the whole static gate, every check
 #   2. stage1_windows_pester      windows-latest  the Pester suite over the Windows installer logic
 #   3. stage1_linux_wizard_plan   ubuntu-latest   setup.sh --print-command
-#   4. stage1_macos_wizard_plan   macos-14        setup.sh --print-command, Darwin toggles
+#   4. stage1_macos_wizard_plan   macos-26        setup.sh --print-command, Darwin toggles
 #   5. stage1_windows_wizard_plan windows-latest  setup.ps1 -PrintPlan
 #
 # Stage 2, the container sweep, forty jobs, twenty at a time, defaults first on all five
@@ -34,9 +34,9 @@
 #
 # Stage 3, the short real installs on the other two platforms, seven jobs, each a real wizard run
 # ending in the wizard's own verification:
-#   46. macOS defaults          macos-14        toggles as shipped
-#   47. macOS everything        macos-14        every selectable toggle on
-#   48. macOS from nothing      macos-14        every toggle off, then a handful by name
+#   46. macOS defaults          macos-26        toggles as shipped
+#   47. macOS everything        macos-26        every selectable toggle on
+#   48. macOS from nothing      macos-26        every toggle off, then a handful by name
 #   49. Windows defaults        windows-latest  toggles as shipped
 #   50. Windows everything      windows-latest  every selectable toggle on
 #   51. Windows from nothing    windows-latest  every toggle off, then a handful by name
@@ -360,7 +360,13 @@ jobs:
   stage1_macos_wizard_plan:
     name: "Stage 1 check: macOS wizard resolves a playbook command"
     if: inputs.start_from_stage == 'stage-1'
-    runs-on: macos-14
+    # macos-26 rather than macos-14, and this is a fact about Homebrew rather than a preference.
+    # Casks target current macOS: rawtherapee refuses to install on anything older than Tahoe, which
+    # is macOS 26, and it took the whole cask batch of the 2026-08-22 sweep down with it on a
+    # macos-14 runner. Homebrew supports the newest few releases and casks follow, so testing on a
+    # 2023 image guarantees more of this. macos-26 is a documented GitHub-hosted label.
+    # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+    runs-on: macos-26
     timeout-minutes: 5
     permissions:
       contents: read
@@ -767,7 +773,13 @@ jobs:
     name: "Stage 3 install on macOS: the software set as it ships"
     needs: stage1_gate
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
-    runs-on: macos-14
+    # macos-26 rather than macos-14, and this is a fact about Homebrew rather than a preference.
+    # Casks target current macOS: rawtherapee refuses to install on anything older than Tahoe, which
+    # is macOS 26, and it took the whole cask batch of the 2026-08-22 sweep down with it on a
+    # macos-14 runner. Homebrew supports the newest few releases and casks follow, so testing on a
+    # 2023 image guarantees more of this. macos-26 is a documented GitHub-hosted label.
+    # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+    runs-on: macos-26
     timeout-minutes: 120
     permissions:
       contents: read
@@ -814,7 +826,13 @@ jobs:
     name: "Stage 3 install on macOS: every application turned on"
     needs: stage1_gate
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
-    runs-on: macos-14
+    # macos-26 rather than macos-14, and this is a fact about Homebrew rather than a preference.
+    # Casks target current macOS: rawtherapee refuses to install on anything older than Tahoe, which
+    # is macOS 26, and it took the whole cask batch of the 2026-08-22 sweep down with it on a
+    # macos-14 runner. Homebrew supports the newest few releases and casks follow, so testing on a
+    # 2023 image guarantees more of this. macos-26 is a documented GitHub-hosted label.
+    # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+    runs-on: macos-26
     timeout-minutes: 120
     permissions:
       contents: read
@@ -861,7 +879,13 @@ jobs:
     name: "Stage 3 install on macOS: nothing on, then a few by name"
     needs: stage1_gate
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
-    runs-on: macos-14
+    # macos-26 rather than macos-14, and this is a fact about Homebrew rather than a preference.
+    # Casks target current macOS: rawtherapee refuses to install on anything older than Tahoe, which
+    # is macOS 26, and it took the whole cask batch of the 2026-08-22 sweep down with it on a
+    # macos-14 runner. Homebrew supports the newest few releases and casks follow, so testing on a
+    # 2023 image guarantees more of this. macos-26 is a documented GitHub-hosted label.
+    # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+    runs-on: macos-26
     timeout-minutes: 120
     permissions:
       contents: read

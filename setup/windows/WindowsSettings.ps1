@@ -291,9 +291,16 @@ Set-Content -LiteralPath '$resultFile' -Value `$lines -Encoding utf8
             return $results
         }
 
+        # skipped is in this list because the child writes it. It was not, and that cost the whole
+        # Server SKU change: the child correctly wrote "skipped|NetFx4-AdvSrvs|not offered on this
+        # Windows edition (Server)" for three features, this regex did not match the word, the lines
+        # were dropped, and the wizard reported "the elevated child reported nothing for this
+        # feature" for all three. A writer and a reader of the same format, in the same file, that
+        # disagree about its vocabulary. The tier 1 check now compares the two sets so this cannot
+        # drift again.
         $reported = @{}
         foreach ($line in (Get-Content -LiteralPath $resultFile)) {
-            if ($line -notmatch '^(?<state>present|installed|reboot|failed)\|(?<name>[^|]+)\|(?<detail>.*)$') { continue }
+            if ($line -notmatch '^(?<state>present|installed|reboot|skipped|failed)\|(?<name>[^|]+)\|(?<detail>.*)$') { continue }
             $reported[$Matches['name']] = [PSCustomObject]@{ State = $Matches['state']; Detail = $Matches['detail'] }
         }
 
