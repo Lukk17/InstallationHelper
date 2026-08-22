@@ -14,6 +14,13 @@
   args:
     creates: /opt/homebrew/bin/brew
   when: brew_check.rc != 0
+  # Retried for the reason written above the batched apt install: this fetches over the network,
+  # and one dropped connection during a provisioning run must not be the end of it. The creates
+  # guard above means a second attempt does nothing when the first one actually got there.
+  register: brew_bootstrap
+  until: brew_bootstrap is succeeded
+  retries: 3
+  delay: 15
 
 - name: Add Homebrew to PATH for current play (Apple Silicon)
   ansible.builtin.set_fact:
@@ -35,16 +42,43 @@
 # not found", which is exactly what the first macOS run in CI did. Installed here rather than through
 # the software dictionary because it is a prerequisite of the playbook itself rather than an
 # application the user chose, and it has to be present before sdk_manager runs.
+# update_homebrew here and nowhere else. This is the first brew task of the run, so one refresh
+# covers every brew and cask task after it, and paying for it once is the whole reason it lives on
+# this task rather than on the batches in software_installer.
+#
+# Without it a cask install downloads whatever version the local metadata names, and vendors delete
+# old files. The macOS run of 2026-08-22 failed on "Download failed on Cask 'tor-browser'" for
+# https://www.torproject.org/dist/torbrowser/15.0.16/tor-browser-macos-15.0.16.dmg, which answers
+# 404 today, while the current cask is 15.0.20 and downloads fine. Nothing about that was specific
+# to a runner: a laptop that has not run brew update in a month has the same stale metadata and
+# fails the same way.
 - name: Install coreutils, which is where macOS gets a timeout command
   community.general.homebrew:
     name: coreutils
     state: present
+    update_homebrew: true
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  register: coreutils_brew
+  until: coreutils_brew is succeeded
+  retries: 3
+  delay: 15
 
 - name: Install Karabiner-Elements
   community.general.homebrew_cask:
     name: karabiner-elements
     state: present
   when: setup_karabiner | bool
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  register: karabiner_cask
+  until: karabiner_cask is succeeded
+  retries: 3
+  delay: 15
 
 - name: Set macOS Finder Defaults
   ansible.builtin.shell: |

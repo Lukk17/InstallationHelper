@@ -66,7 +66,7 @@ done
 
 run_tier1() {
     local rc=0
-    for check in wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation pinned_values pinned_values_reader manifests compose_and_docs ansible_static; do
+    for check in wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings powershell_variables verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation pinned_values pinned_values_reader manifests compose_and_docs network_retries ansible_static; do
         bash "${E2E_ROOT}/tier1/${check}.sh" || rc=1
         echo
     done

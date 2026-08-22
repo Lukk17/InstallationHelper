@@ -50,6 +50,12 @@
   # line means nothing changed. Any other output means real work happened.
   changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (virt_apt_result.stdout | default(''))"
   failed_when: virt_apt_result.rc | default(0) != 0
+  # Retried as a whole for the reason on the apt batch above: this fetches from the network,
+  # and one dropped connection must not cost the run every application in the batch. What has
+  # already installed is skipped on the second attempt, so a retry costs only what was lost.
+  until: virt_apt_result.rc | default(1) == 0
+  retries: 3
+  delay: 20
   when: ih_family == 'Debian' and install_virt_manager | default(false) | bool
   tags: [libvirt]
 
@@ -95,6 +101,12 @@
   register: spice_apt_result
   changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (spice_apt_result.stdout | default(''))"
   failed_when: spice_apt_result.rc | default(0) != 0
+  # Retried as a whole for the reason on the apt batch above: this fetches from the network,
+  # and one dropped connection must not cost the run every application in the batch. What has
+  # already installed is skipped on the second attempt, so a retry costs only what was lost.
+  until: spice_apt_result.rc | default(1) == 0
+  retries: 3
+  delay: 20
   when: ih_family == 'Debian' and ansible_virtualization_role == 'guest'
   tags: [libvirt]
 
@@ -202,6 +214,12 @@
   register: docker_apt_result
   changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (docker_apt_result.stdout | default(''))"
   failed_when: docker_apt_result.rc | default(0) != 0
+  # Retried as a whole for the reason on the apt batch above: this fetches from the network,
+  # and one dropped connection must not cost the run every application in the batch. What has
+  # already installed is skipped on the second attempt, so a retry costs only what was lost.
+  until: docker_apt_result.rc | default(1) == 0
+  retries: 3
+  delay: 20
   when: ih_family == 'Debian' and install_docker | default(false) | bool
   tags: [docker]
 

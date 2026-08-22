@@ -109,12 +109,27 @@
     export CI=true
     export FLUTTER_SUPPRESS_ANALYTICS=true
     export PUB_CACHE="{{ non_root_home }}/.pub-cache"
-    {{ ih_timeout }} 1500 fvm install {{ flutter_channel }} </dev/null
+    # Three attempts inside the job, the same shape and for the same reason as the pyenv builds
+    # next door: the retries keyword cannot reach a task launched with poll: 0, and this one
+    # downloads a Flutter SDK, which is exactly the kind of fetch that a dropped connection ends.
+    # fvm install on a channel that is already there exits 0 without downloading, so a repeat
+    # attempt costs nothing on the path where the first one worked.
+    for attempt in 1 2 3; do
+        if {{ ih_timeout }} 1500 fvm install {{ flutter_channel }} </dev/null; then
+            exit 0
+        fi
+        echo "fvm install {{ flutter_channel }} attempt ${attempt} of 3 failed" >&2
+        sleep 20
+    done
+    exit 1
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  async: 1800
+  # 4800 covers three attempts at the 1500 second ceiling above plus the waits between them, the
+  # same arithmetic the pyenv job carries. A budget that cannot fit its own retry loop kills the
+  # later attempts silently.
+  async: 4800
   poll: 0
   register: fvm_install_job
   changed_when: false
@@ -129,7 +144,10 @@
   become_user: "{{ non_root_user }}"
   register: fvm_install_result
   until: fvm_install_result.finished
-  retries: 80
+  # 170 at 30 seconds is 85 minutes, which has to outlast the 4800 second async ceiling on the job
+  # above rather than merely look generous. At 80 it was 40 minutes against a ceiling of 80, so the
+  # collector would have given up on a job that was still running and called it a failure.
+  retries: 170
   delay: 30
   changed_when: fvm_install_result.finished and fvm_install_result.rc | default(1) == 0
   # `rc | default(0) != 0` counted a finished result carrying no rc at all as a pass, which is the one

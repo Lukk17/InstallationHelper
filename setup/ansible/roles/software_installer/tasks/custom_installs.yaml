@@ -168,6 +168,14 @@
 # and add-apt-repository fails on plain Debian. The OpenSUSE Fedora_Rawhide
 # repo is also fragile across Fedora releases. Using the upstream-published
 # flatpak bundle gives us a single install path that works everywhere.
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  register: docker_repo_fedora
+  until: docker_repo_fedora is succeeded
+  retries: 3
+  delay: 10
 
 - name: Download Gridcoin flatpak bundle (Linux)
   ansible.builtin.get_url:

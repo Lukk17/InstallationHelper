@@ -9,6 +9,13 @@
   become: yes
   register: ledger_rules
   when: install_ledger_live | bool
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  until: ledger_rules is succeeded
+  retries: 3
+  delay: 10
 
 - name: Add Trezor udev rules (Debian)
   ansible.builtin.apt:
@@ -31,6 +38,13 @@
   when:
     - install_trezor_suite | bool
     - ih_family == 'RedHat'
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  until: trezor_rules_redhat is succeeded
+  retries: 3
+  delay: 10
 
 - name: Add Trezor udev rules (Archlinux)
   ansible.builtin.get_url:
@@ -57,6 +71,13 @@
 # with no running daemon there is nothing to reload and nothing is lost. On a machine with one, a
 # failure to reload means the device rules do not take effect until the next boot, which is worth
 # saying out loud rather than swallowing, so it is reported and it marks the run failed.
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  until: trezor_rules_arch is succeeded
+  retries: 3
+  delay: 10
 - name: Reload udev rules
   ansible.builtin.command: udevadm control --reload-rules
   become: yes

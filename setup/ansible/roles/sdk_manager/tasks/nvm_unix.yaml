@@ -60,4 +60,10 @@
   # condition required rc to be defined before it could fail, so that shape passed silently. Same
   # reasoning as the async_status collector in fvm_unix.yaml.
   failed_when: nvm_install.rc is not defined or nvm_install.rc != 0
+  # Retried as a whole for the reason on the apt batch above: this fetches from the network,
+  # and one dropped connection must not cost the run every application in the batch. What has
+  # already installed is skipped on the second attempt, so a retry costs only what was lost.
+  until: nvm_install.rc | default(1) == 0
+  retries: 2
+  delay: 20
   when: (nvm_lts_installed.rc | default(1)) != 0

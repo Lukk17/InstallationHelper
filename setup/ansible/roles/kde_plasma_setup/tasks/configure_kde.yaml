@@ -212,6 +212,14 @@
 # -std=gnu++20 to CMAKE_CXX_FLAGS cannot either, because CMake emits its own -std flag after
 # the user flags and the last one on a GCC command line wins. Raising it at the source is the
 # only lever that works. Upstream is on C++14 as of v0.14.0.
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  register: applet_window_buttons_clone
+  until: applet_window_buttons_clone is succeeded
+  retries: 3
+  delay: 10
 - name: Raise the widget C++ standard to 20 for the KDecoration3 headers
   become: yes
   become_user: "{{ non_root_user }}"

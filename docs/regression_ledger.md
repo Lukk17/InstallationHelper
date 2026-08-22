@@ -768,3 +768,36 @@ The worse half is that the gate said the tree was fine. `ansible-playbook --synt
 Two things changed. The prose moved above the task, where Ansible never reads it, which is where rationale belongs anyway. And tier 1 now walks every `*.yaml` under `setup/ansible`, descends into `block`, `rescue` and `always`, and hands all 123 free-form bodies to Ansible's own splitter, so a file no static analysis reaches is still checked. A file that will not parse as YAML at all is reported by the same check rather than skipped, because the syntax check does not own dynamically included files either and skipping would hide it twice. Proven in both directions before committing: reintroducing three apostrophes in that body makes the check name the file and the task, and removing them makes it pass.
 
 The lesson is narrow and worth remembering exactly: a comment inside a shell body is not inert. It is part of the string Ansible parses.
+
+#### A variable that nothing ever set, and the Server SKU change that read it
+
+Status: fixed in this change, in [WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1), caught from now on by [powershell_variables.sh](../e2e/tier1/powershell_variables.sh).
+
+The Windows settings phase failed on every run of the sweep of 2026-08-22 with `The variable '$installationType' cannot be retrieved because it has not been set`. The Server SKU change of the day before interpolated that name into the elevated child script it builds, so that the child could tell "this edition does not offer that feature" from "this list has drifted", and nothing anywhere assigned it. `Set-StrictMode -Version Latest`, which every PowerShell file here sets deliberately, makes reading an unset variable a terminating error, so the wizard stopped before enabling a single feature.
+
+It is now read from the registry by `Get-WindowsInstallationType`, which returns Client when the value cannot be read, on purpose: not knowing the edition must not turn a real failure into a skip.
+
+The interesting half is why nothing caught it. The file parses. PSScriptAnalyzer has no rule for reading an undefined variable. The Pester unit tests never reach that function, because it shells out to an elevated child. The two existing Windows checks read the mapping and the toggles rather than this code path. Only a real Windows runner could find it, and only after stage 3 was allowed to run at all, which it had not been for the whole life of the sweep before this one.
+
+So tier 1 now parses every `setup/**/*.ps1` to an abstract syntax tree, collects every variable read, and reports any name that no assignment, parameter, `foreach`, `data` statement or `[ref]` argument in the same file binds. It names `WindowsSettings.ps1:232` and `:233` against the tree that shipped, and passes on the fix.
+
+#### Four network transients in one sweep, and a playbook that gave up on all four
+
+Status: fixed in this change, across [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml), [fonts_theme.yaml](../setup/ansible/roles/shell_zsh/tasks/fonts_theme.yaml), [fvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/fvm_unix.yaml), [virtualization_config](../setup/ansible/roles/virtualization_config/tasks/main.yaml) and eight other files, held in place by [network_retries.sh](../e2e/tier1/network_retries.sh).
+
+One sweep lost four cells to four unrelated upstream hiccups, none of them a fault of this repository and none of them survivable as the playbook then stood:
+
+| Where | What it said |
+|---|---|
+| deb.debian.org | `OpenSSL system call error: Broken pipe`, at file 440 of 440 in a 1.15 GB apt batch |
+| github.com | `Connection reset by peer`, downloading one of four Nerd Font files |
+| github.com | `[35] SSL connect error`, fetching an AppImage inside a flatpak batch |
+| python.org | `curl (35) TLS connect error: unexpected eof`, downloading a Python tarball |
+
+Two of those are batched calls, and a batch is one call, so a single lost file meant thirty-four applications never installed and the scenario failed. A provisioning run that gives up on the first dropped packet is not fit for the job it exists to do, on a laptop any more than on a runner.
+
+An audit of the whole playbook found 34 tasks that reach the network with no retry at all: the font downloads, three git clones, the udev rule downloads, every Homebrew task, both flatpak batches, the Docker and QEMU installs, the Homebrew bootstrap script, the Dart signing key and the Waydroid repository. All of them now retry. The two that cannot use the keyword, because Ansible's `retries` cannot reach a task launched with `poll: 0`, carry a three-attempt loop inside their own body instead, and FVM's async budget was raised from 1800 to 4800 to fit it, with its collector raised from 40 minutes of waiting to 85 so it outlasts the ceiling rather than giving up on a job that is still running.
+
+The tier 1 check that keeps it that way asks the same question the audit did and fails on any answer but zero, with one allowlist entry, the Gridcoin bundle, which installs a file already on disk. An allowlist entry whose task stops matching the network rule fails the check too, so the file cannot outlive what it excuses.
+
+Worth being blunt about the earlier version of this entry, which does not exist because I nearly wrote it: the first instinct was to call these four "runner flakiness" and re-run. Three of the four would have passed on a re-run, and the defect would have stayed.

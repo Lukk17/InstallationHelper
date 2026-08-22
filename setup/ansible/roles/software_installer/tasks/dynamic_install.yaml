@@ -122,6 +122,21 @@
       # Detect "no work" via apt's own output to avoid always-changed reports.
       changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (apt_batch_result.stdout | default(''))"
       failed_when: apt_batch_result.rc | default(0) != 0
+      # Retried as a whole, because one dropped connection out of several hundred downloads must not
+      # cost the run every package in the batch. This batch fetches over a gigabyte, and the Debian
+      # gnome-full cell of 2026-08-22 died on exactly that, at file 440 of 440:
+      #
+      #   E: Failed to fetch .../libplexus-cipher-java_2.0-1_all.deb
+      #      OpenSSL system call error: Broken pipe [IP: 140.248.146.132 443]
+      #   E: Unable to fetch some archives
+      #
+      # apt already retries an item three times by itself, which was read out of its source rather
+      # than assumed, and it did not save this one. Repeating the whole call is safe and cheap: what
+      # downloaded stays in /var/cache/apt/archives, what installed is skipped, so a second attempt
+      # fetches only the file that was lost.
+      until: apt_batch_result.rc | default(1) == 0
+      retries: 3
+      delay: 20
       when:
         - ih_family == 'Debian'
         - software_installer_batches.apt | length > 0
@@ -315,6 +330,13 @@
       ignore_errors: true
       changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (apt_url_deb_install.stdout | default(''))"
       register: apt_url_deb_install
+      # Retried per item, for the reason on the apt batch above. apt-get resolves this .deb's
+      # dependencies from the network even though the file itself is already on disk, so this is a
+      # network task despite reading like a local one. ignore_errors below still has the last word,
+      # and the reporting that follows still names whatever never installed.
+      until: apt_url_deb_install.rc | default(1) == 0
+      retries: 3
+      delay: 20
       loop: >-
         {{ apt_url_items | default([])
            | selectattr('key', 'in', apt_url_present | default([]))
@@ -794,6 +816,12 @@
       # batch still counts as changed because it carries one.
       changed_when: "'Installing ' in (flatpak_batch_result.stdout | default(''))"
       failed_when: flatpak_batch_result.rc | default(0) != 0
+      # Retried as a whole for the reason on the apt batch above: this fetches from the network,
+      # and one dropped connection must not cost the run every application in the batch. What has
+      # already installed is skipped on the second attempt, so a retry costs only what was lost.
+      until: flatpak_batch_result.rc | default(1) == 0
+      retries: 3
+      delay: 20
       when:
         - ih_family == 'Debian'
         - software_installer_batches.flatpak | length > 0
@@ -823,6 +851,14 @@
 
     # ------------------ MACOS MANAGERS ------------------
     # Kept on the native homebrew modules — never failed; untested in our runs.
+      # Retried, because this reaches the network and a single dropped connection must not cost the
+      # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+      # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+      # eof from python.org.
+      register: flatpak_batch_module_result
+      until: flatpak_batch_module_result is succeeded
+      retries: 3
+      delay: 20
     - name: Install Homebrew packages (batched)
       community.general.homebrew:
         name: "{{ brew_packages }}"
@@ -837,6 +873,14 @@
         - ih_family == 'Darwin'
         - brew_packages | length > 0
       tags: [brew]
+      # Retried, because this reaches the network and a single dropped connection must not cost the
+      # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+      # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+      # eof from python.org.
+      register: brew_batch_result
+      until: brew_batch_result is succeeded
+      retries: 3
+      delay: 20
 
     - name: Install Homebrew Cask packages (batched)
       community.general.homebrew_cask:
@@ -854,6 +898,14 @@
       tags: [brew]
 
     # ------------------ CUSTOM INSTALLS (flatpak bundles, AppImages, binaries) --
+      # Retried, because this reaches the network and a single dropped connection must not cost the
+      # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+      # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+      # eof from python.org.
+      register: brew_cask_batch_result
+      until: brew_cask_batch_result is succeeded
+      retries: 3
+      delay: 20
     - name: Include Linux custom install tasks
       ansible.builtin.include_tasks: custom_installs.yaml
       when: ansible_facts['system'] == 'Linux'

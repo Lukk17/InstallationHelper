@@ -8,6 +8,13 @@
     executable: /bin/bash
   become: yes
   when: ih_family == 'Debian'
+  # Retried for the reason written above the batched apt install: this fetches over the network,
+  # and one dropped connection during a provisioning run must not be the end of it. The creates
+  # guard above means a second attempt does nothing when the first one actually got there.
+  register: waydroid_repo
+  until: waydroid_repo is succeeded
+  retries: 3
+  delay: 10
 
 - name: Install Waydroid (Debian)
   ansible.builtin.apt:

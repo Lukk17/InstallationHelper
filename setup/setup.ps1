@@ -621,21 +621,44 @@ function Install-AnsibleInWsl {
             return New-WslResult -Results $results
         }
 
-        $null = wsl bash -c 'command -v ansible-playbook' 2>&1
+        # Named explicitly, and run as root, rather than letting wsl pick a default and a user.
+        # A distribution registered with --no-launch has never completed its first-run setup and
+        # therefore has no user besides root, and every command below only needs root anyway.
+        $distro = $distros[0]
+
+        $null = wsl --distribution $distro --user root -- bash -c 'command -v ansible-playbook' 2>&1
         if ($LASTEXITCODE -eq 0) {
             & $add 'present' 'ansible-playbook is already on PATH inside WSL'
             return New-WslResult -Results $results
         }
 
-        $distroId = "$(wsl bash -c 'source /etc/os-release 2>/dev/null; echo "${ID_LIKE:-$ID}"')".Trim()
+        # Both streams and the exit code are kept, because the previous version kept none of them
+        # and reported "cannot auto-install Ansible for distro family ''" with nothing behind it.
+        # An empty family is the one answer that says nothing at all: it is what a failed probe, a
+        # distribution that will not start and an os-release without ID both look like.
+        $probe    = wsl --distribution $distro --user root -- bash -c 'source /etc/os-release 2>/dev/null; echo "${ID_LIKE:-$ID}"' 2>&1
+        $probeRc  = $LASTEXITCODE
+        $distroId = "$probe".Trim()
+
+        if ($probeRc -ne 0 -or -not $distroId) {
+            & $add 'failed' ("could not read /etc/os-release inside '$distro'. wsl exited $probeRc " +
+                "and said: " + ("$probe".Trim() -replace '\s+', ' ' | Select-Object -First 1) +
+                ". Registered distributions: " + ($distros -join ', '))
+            return New-WslResult -Results $results
+        }
+
+        # No sudo in any of these, because the line above runs them as root already. Asking for it
+        # anyway would fail on a distribution that does not ship sudo, which Arch does not, and on
+        # a fresh registration where no user exists to be in its sudoers.
         $command = switch -Regex ($distroId) {
-            'debian|ubuntu'      { 'sudo apt-get update -q && sudo apt-get install -y software-properties-common && sudo add-apt-repository --yes --update ppa:ansible/ansible && sudo apt-get install -y ansible' }
-            'fedora|rhel|centos' { 'sudo dnf install -y ansible' }
-            'arch'               { 'sudo pacman -S --noconfirm ansible' }
+            'debian|ubuntu'      { 'apt-get update -q && apt-get install -y software-properties-common && add-apt-repository --yes --update ppa:ansible/ansible && apt-get install -y ansible' }
+            'fedora|rhel|centos' { 'dnf install -y ansible' }
+            'arch'               { 'pacman -S --noconfirm ansible' }
             default              { $null }
         }
         if (-not $command) {
-            & $add 'failed' "cannot auto-install Ansible for distro family '$distroId'. Install it by hand inside WSL."
+            & $add 'failed' ("no package manager is known for the distribution family '$distroId' " +
+                "reported by '$distro'. Install Ansible by hand inside WSL.")
             return New-WslResult -Results $results
         }
 
@@ -645,7 +668,7 @@ function Install-AnsibleInWsl {
         }
 
         Write-Status "Installing Ansible inside WSL ($distroId)..."
-        wsl bash -c $command | Out-Host
+        wsl --distribution $distro --user root -- bash -c $command | Out-Host
         if ($LASTEXITCODE -ne 0) {
             & $add 'failed' "the package manager inside WSL exited $LASTEXITCODE, so Ansible is not installed in there. Run it by hand: $command"
             return New-WslResult -Results $results

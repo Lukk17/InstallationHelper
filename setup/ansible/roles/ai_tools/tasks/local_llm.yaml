@@ -18,6 +18,14 @@
 # about the machine, read at run time, not a constant this file can name. `test -x` rather than
 # `test -f` on purpose, so a half unpacked install with a non-executable lms is reinstalled instead
 # of being taken for a working one.
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  register: sd_webui_clone
+  until: sd_webui_clone is succeeded
+  retries: 3
+  delay: 10
 - name: Ask where LM Studio put its CLI, if it is installed (Linux)
   ansible.builtin.shell: |
     set -o pipefail

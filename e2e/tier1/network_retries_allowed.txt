@@ -1,0 +1,10 @@
+# Tasks that look like they reach the network but do not have to retry, each with the reason.
+#
+# Read by e2e/tier1/network_retries.sh. One entry per line, the task name exactly as written in the
+# playbook, then a pipe, then why. An entry whose task no longer matches the network rule fails the
+# check as well, so this file cannot quietly outlive what it excuses.
+#
+# It is short on purpose. Everything that genuinely fetches something now retries, because a sweep
+# on 2026-08-22 lost four cells to four unrelated transient network errors.
+
+Install Gridcoin flatpak bundle (Linux) | it installs a .flatpak bundle already on disk, so the only thing it reads is a local file and a retry could not change the outcome

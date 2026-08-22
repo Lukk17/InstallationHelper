@@ -15,6 +15,13 @@
     creates: /usr/share/keyrings/dart.gpg
     executable: /bin/bash
   when: ih_family == 'Debian' and install_dart | bool
+  # Retried for the reason written above the batched apt install: this fetches over the network,
+  # and one dropped connection during a provisioning run must not be the end of it. The creates
+  # guard above means a second attempt does nothing when the first one actually got there.
+  register: dart_apt_key
+  until: dart_apt_key is succeeded
+  retries: 3
+  delay: 10
 
 - name: Add Dart apt repository (Debian)
   ansible.builtin.apt_repository:
@@ -120,8 +127,53 @@
     state: present
   when: ih_family == 'Darwin' and install_dart | bool
 
+# Homebrew 6.0.0 made tap trust mandatory: a non-official tap is not loaded at all until it is
+# trusted, because loading one runs Ruby code from it. https://docs.brew.sh/Tap-Trust
+#
+# The whole tap, not the one formula, and that is measured rather than preferred. The macOS run of
+# 2026-08-22 shows brew trusting `dart-lang/dart/dart` by itself and then refusing anyway with
+# "Refusing to load formula dart-lang/dart/dart-beta from untrusted tap dart-lang/dart", so an
+# install of one formula still loads its siblings. Homebrew's own advice is to trust the narrowest
+# thing that works, and for this tap that is the tap.
+#
+# Asked before it is granted, so a second run reports no change. brew trust --json v1 prints what is
+# already trusted, and it exits non-zero on a Homebrew old enough not to have the command, which is
+# exactly the version that does not need any of this.
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  register: dart_tap
+  until: dart_tap is succeeded
+  retries: 3
+  delay: 15
+- name: Ask which taps Homebrew already trusts (macOS)
+  ansible.builtin.command: brew trust --json v1
+  register: brew_trust_state
+  changed_when: false
+  failed_when: false
+  when: ih_family == 'Darwin' and install_dart | bool
+
+- name: Trust the dart-lang/dart tap, which Homebrew 6 requires before it will load it (macOS)
+  ansible.builtin.command: brew trust --tap dart-lang/dart
+  register: dart_tap_trust
+  changed_when: dart_tap_trust.rc == 0
+  when:
+    - ih_family == 'Darwin'
+    - install_dart | bool
+    - brew_trust_state.rc | default(1) == 0
+    - "'dart-lang/dart' not in (brew_trust_state.stdout | default(''))"
+
 - name: Install Dart SDK (macOS)
   community.general.homebrew:
     name: dart-lang/dart/dart
     state: present
   when: ih_family == 'Darwin' and install_dart | bool
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  register: dart_brew
+  until: dart_brew is succeeded
+  retries: 3
+  delay: 15

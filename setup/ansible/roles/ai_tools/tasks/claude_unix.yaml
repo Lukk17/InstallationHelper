@@ -44,3 +44,11 @@
   when:
     - install_claude_desktop | default(false) | bool
     - ih_family == 'Darwin'
+  # Retried, because this reaches the network and a single dropped connection must not cost the
+  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
+  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
+  # eof from python.org.
+  register: claude_desktop_cask
+  until: claude_desktop_cask is succeeded
+  retries: 3
+  delay: 15

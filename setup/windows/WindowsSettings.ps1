@@ -133,6 +133,34 @@ function New-SettingResult {
     }
 }
 
+function Get-WindowsInstallationType {
+    <#
+    .SYNOPSIS
+        Says whether this Windows is a client edition, a server, or something else.
+
+    .DESCRIPTION
+        Windows records the edition family in the registry as InstallationType, and the value is
+        'Client' on Home, Pro and Enterprise, 'Server' on a full server, and 'Server Core' on one
+        without the desktop. Three of the nine optional features this file enables exist only on a
+        client edition, and DISM reports the rest as "Feature name <x> is unknown", which is a true
+        statement about the edition rather than a fault.
+
+        Client is the answer when the value cannot be read, on purpose. Not knowing the edition must
+        not turn a real failure into a skip, and only a non-Client answer is allowed to soften one.
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        $key = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' `
+            -Name 'InstallationType' -ErrorAction Stop
+        if ($key.InstallationType) { return [string]$key.InstallationType }
+    } catch {
+        Write-Verbose "InstallationType is unreadable, so this assumes Client: $($_.Exception.Message)"
+    }
+    return 'Client'
+}
+
 function Enable-WindowsFeatureSet {
     <#
     .SYNOPSIS
@@ -174,6 +202,14 @@ function Enable-WindowsFeatureSet {
     $resultFile = Join-Path $stage 'features.txt'
 
     $featureLiterals = ($FeatureName | ForEach-Object { "'$_'" }) -join ', '
+
+    # Resolved here and interpolated into the child script below, rather than read inside it,
+    # because that child runs in a separate elevated process which does not inherit this scope.
+    # It has to exist before the here-string is built, since the string reads it at build time.
+    # Nothing defined it, and Set-StrictMode Latest turned that into a terminating error, so
+    # every Windows settings run died on "The variable '$installationType' cannot be retrieved
+    # because it has not been set" before enabling a single feature.
+    $installationType = Get-WindowsInstallationType
     $inner = @"
 `$ErrorActionPreference = 'Stop'
 `$lines = [System.Collections.Generic.List[string]]::new()
