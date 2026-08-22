@@ -63,7 +63,6 @@ gputest_version = "0.7.0"
 gputest_url = "https://ozone3d.net/gputest/dl/GpuTest_Linux_x64_{{ gputest_version }}.zip"
 # Razer ships evergreen installer URLs with no version in the path, both reached
 # from razer.com via the rzr.to short links (cortex-download, synapse-4-mac-download).
-razer_cortex_win_installer_url = "https://dl.razerzone.com/drivers/GameBooster/RazerCortexInstaller.exe"
 razer_synapse_macos_pkg_url = "https://dl.razerzone.com/drivers/Synapse4/mac/RazerSynapseInstaller.pkg"
 # Fedora has no OpenRazer package; upstream ships it from the openSUSE Build Service.
 openrazer_fedora_repo_url = "https://openrazer.github.io/hardware:razer.repo"
@@ -182,6 +181,17 @@ minikube_rpm_url = "https://github.com/kubernetes/minikube/releases/download/{{ 
 # antigravity_linux = "sha256:..."
 # antigravity_macos = "sha256:..."
 # gridcoin_flatpak = "sha256:..."
+#
+# Gridcoin's Windows installer is not signed, and the project publishes no checksum file with its
+# releases, so this hash was computed from the release asset itself on 2026-08-22:
+#   gridcoin-5.5.0.0-win64-setup.exe, 18912349 bytes, from the 5.5.0.0 tag on
+#   github.com/gridcoin-community/Gridcoin-Research
+# It is pinned at Lukk's decision after the Authenticode check refused the unsigned binary. What it
+# buys is the thing the signature would have given: the bytes that run are the bytes that were
+# checked. What it cannot buy is provenance, since nobody but the release itself vouches for them.
+# Re-measure it when the version moves, because a stale hash here fails the install rather than
+# waving it through.
+gridcoin_win_installer = "sha256:98425b52c688e9538bd23dec02698ecb08407cfec9ef67c072f6f73aee189cab"
 # gridcoin_macos = "sha256:..."
 # gputest = "sha256:..."
 # razer_synapse_macos = "sha256:..."

@@ -25,7 +25,12 @@ The playbook runs in this order. Each phase must succeed before the next can sta
 3. SDK / runtime managers: JVM, Pyenv, NVM, SDKMAN (Java, Gradle), FVM.
 4. Snapd and Flatpak with the Flathub remote (Linux).
 5. Batched package installs: one call per manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`) so dependency resolution happens once per OS.
-6. Custom installs: `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`), `macos_install.yaml` (Antigravity DMG when published, Gridcoin DMG). Windows takes none of this path. `setup/windows/WindowsSoftware.ps1` runs the Chocolatey and winget batches natively and `setup/windows/WindowsCustomInstalls.ps1` runs the Gridcoin and Razer Cortex silent installs.
+Razer Cortex was removed on 2026-08-22 at the owner's request. It is a game launcher rather than
+device software, its installer exited 0 without installing anything under `/S`, and Razer ships
+no switch it will admit to. Razer Synapse 4 stays and is what configures the devices, through the
+Chocolatey `razer-synapse-4` package on Windows.
+
+6. Custom installs: `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`), `macos_install.yaml` (Antigravity DMG when published, Gridcoin DMG). Windows takes none of this path. `setup/windows/WindowsSoftware.ps1` runs the Chocolatey and winget batches natively and `setup/windows/WindowsCustomInstalls.ps1` runs the Gridcoin silent install.
 
 Gradle is managed via SDKMAN on every Linux distro, not the system package manager. The `pinned_values.toml` pin drives `sdk install gradle`.
 
@@ -134,12 +139,9 @@ The desktop app is the former Codex desktop app renamed, its bundle identifier i
 | Epic Games Launcher | no official Linux client | `brew install --cask epic-games` | `winget install -e --id EpicGames.EpicGamesLauncher` |
 | EA app | no official Linux client | `brew install --cask ea` | `winget install -e --id ElectronicArts.EADesktop` |
 | CurseForge | no official Linux client | `brew install --cask curseforge` | `winget install -e --id Overwolf.CurseForge` |
-| Razer Cortex | not available | not available | `curl.exe -fsSLo "$env:TEMP\RazerCortexInstaller.exe" https://rzr.to/cortex-download && & "$env:TEMP\RazerCortexInstaller.exe" /S` |
 | WoW Logs Companion / TSM | not available | not available | manual, from Overwolf or tradeskillmaster.com |
 
-Razer Cortex has no package on any manager, so `setup/windows/WindowsCustomInstalls.ps1` installs it from Razer's own installer, the same shape as Gridcoin. The Store product id `9PK9W5QV2PKX` was the Razer Cortex Game Bar widget, which Razer discontinued on 1 July 2026, and it now resolves on neither the winget nor the msstore source. winget-pkgs carries no Cortex manifest under any Razer publisher folder, and Chocolatey has only the Synapse packages. The `/S` switch is the one Razer's own installer family takes, evidenced by the Chocolatey `razer-synapse-4` package driving all five Razer component installers with `silentArgs '/S'` and `validExitCodes 0, 3010, 1641`.
 
-Cortex is the only entry here whose idempotency comes from the uninstall registry rather than a file path. The bootstrapper is a downloader stub that leaves no predictable path to test for, so the installer queries both the 64-bit and the WOW6432Node uninstall hives for a `Razer Cortex*` display name and skips when it finds one.
 
 Every Microsoft Store entry carries `source: "msstore"` in `vars/Windows.yaml`. A bare Store product id does not resolve on the default winget source, and an id that resolves on neither source is reported as that package's own failure by `setup/windows/WindowsSoftware.ps1` rather than taking the rest of the catalogue with it.
 

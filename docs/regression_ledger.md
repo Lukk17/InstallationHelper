@@ -1024,3 +1024,19 @@ Real findings that need a decision:
 | flutter via fvm | `choco exited 1` |
 
 The last two had no explanation at all, which is the gap this change closes. The Chocolatey work happens in a separate elevated process, and when the wizard is not already elevated that process runs through `-Verb RunAs`, which forbids output redirection outright. So the parent could say the exit code and nothing else. The child now keeps its own transcript with `Start-Transcript`, which works in both the elevated and the RunAs case, and the failure quotes the last twelve lines of it. It also returns the worst exit code across the loop rather than the last one, so a failure in the middle is not hidden by a success after it.
+
+#### Gridcoin is pinned by checksum, and Razer Cortex is gone
+
+Status: both are owner decisions, taken on 2026-08-22 and implemented in this change.
+
+Gridcoin's Windows installer carries no Authenticode signature, and the project publishes no checksum with its releases, so `Install-DirectInstaller` refused to run it. Lukk's decision was to pin the hash instead: the bytes were downloaded, measured and pinned as `gridcoin_win_installer` in the `[checksums]` table, and the installer now verifies against it. Where a checksum is pinned the signature is not consulted at all, which lets one unsigned vendor binary through deliberately rather than weakening the rule for every other download. Where none is pinned, an invalid or missing signature is still a refusal.
+
+That needed a small amount of plumbing, because nothing on the Windows side could read the checksum table: the reader learned `--checksum <name>`, and the PowerShell adapter learned `Get-PinnedChecksum`, both with the same three-way answer the pins already had, which is value, absent, or a broken file.
+
+Razer Cortex is removed entirely. It exited 0 and installed nothing under `/S`, Razer publishes no switch it will admit to, and it is a game launcher rather than device software. Razer Synapse 4 stays and installs cleanly through Chocolatey, which is what actually configures the devices. Gone with Cortex: the toggle, the pinned URL, the proof-table entry, the custom install block, its line in the software table and every comment that explained its silent switch.
+
+Two things the gate caught during this work, both worth recording.
+
+The pinned-value check reported `gridcoin_win_installer reads like a pin in the gridcoin family and nothing pins it`. It was right by its own rules: `[checksums]` is a second namespace, and PowerShell reads a checksum by quoted name exactly as it reads a pin, so the first checksum key ever referenced from PowerShell looked like a typo. The check now loads the checksum table and exempts it.
+
+And that fix did not work at first, for a reason that has now cost this repository twice in one day. The probe reads the table through Python, Python on Windows writes CRLF to a pipe, and `mapfile` keeps the carriage return inside the value. The name matched nothing, the guard silently answered no, and the trace showed the list being filled correctly the whole time. Stripping the carriage return fixed it. A guard that answers no by accident is indistinguishable from a guard that is working.

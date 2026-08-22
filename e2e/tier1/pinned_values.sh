@@ -492,10 +492,39 @@ mapfile -t ps_literals < <(text_of '[.](ps1|psm1|psd1)$' \
     | { grep -oE "'[a-z][a-z0-9]*(_[a-z0-9]+)+'" || true; } \
     | tr -d "'" | LC_ALL=C sort -u)
 
+# The [checksums] table is a second namespace with the same naming style, and a name from it is not
+# a pin and never will be. PowerShell reads one by quoted name through Get-PinnedChecksum, exactly
+# like it reads a pin, so without this the first checksum key ever referenced from PowerShell reads
+# as a dangling pin: gridcoin_win_installer did, the moment it was added on 2026-08-22.
+mapfile -t checksum_names < <("${PYTHON:-python}" - "$(host_path "${REPO_ROOT}/setup/pinned_values/pinned_values.py")" <<'PYEOF'
+import importlib.util, sys
+
+spec = importlib.util.spec_from_file_location("pinned_values_probe", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(module)
+    for key in sorted(module.checksums()):
+        print(key)
+except Exception:
+    pass
+PYEOF
+)
+# Carriage returns stripped, because Python on Windows writes CRLF to a pipe and mapfile keeps
+# the CR as part of the value. The name then matches nothing and the guard below silently
+# answers no, which is exactly how this looked when it was first written: the list was filled,
+# the trace said so, and the lookup still came back empty. The same invisible byte that cost an
+# afternoon earlier on 2026-08-22, in a new place.
+mapfile -t checksum_names < <(printf '%s\n' "${checksum_names[@]-}" | tr -d '\r')
+# A plain string rather than an associative array. The array form read back empty here even after
+# the trace showed it being filled, and a guard that silently answers no is worse than a slower one
+# that answers correctly, so this is the shape that could be proven to work.
+checksum_list=" $(printf '%s ' "${checksum_names[@]-}")"
+
 for name in "${bare_refs[@]-}" "${ps_literals[@]-}"; do
     [[ -z "${name}" ]] && continue
     [[ "${name}" == ansible* ]] && continue
     is_pin "${name}" && continue
+    [[ "${checksum_list}" == *" ${name} "* ]] && continue
     [[ -n "${defined_set["${name}"]-}" ]] && continue
     for family in "${families[@]}"; do
         if [[ "${name}" == "${family}_"* ]]; then

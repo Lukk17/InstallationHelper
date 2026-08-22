@@ -13,7 +13,6 @@
       install_nodejs        a version manager, then a Node version inside it
       install_flutter       a version manager, then a channel inside it, then a global pin
       install_gridcoin      a direct installer download, no package anywhere
-      install_razer_cortex  the same, and Razer ships no unattended switch it will admit to
 
     Every version comes from the pinned values, read through setup/pinned_values, so the pins
     stay a single source of truth with the Unix path. Nothing here writes to the console: the
@@ -35,7 +34,7 @@ Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'pinned_values\Pinne
 # it. Without that, an install_ toggle whose only consumer is an unreachable Windows Ansible task
 # counts as covered, which is how eleven toggles sat enabled and installing nothing while the gate
 # reported full coverage.
-$script:CustomInstallKeys = @('java', 'nodejs', 'flutter', 'android_sdk', 'gridcoin', 'razer_cortex')
+$script:CustomInstallKeys = @('java', 'nodejs', 'flutter', 'android_sdk', 'gridcoin')
 
 # Where the Android SDK goes on Windows. Chosen by Lukk, and it works without elevation: the default
 # ACL on the root of C: grants Authenticated Users AppendData on the folder itself, so a standard
@@ -158,11 +157,6 @@ function Get-WindowsCustomInstallProof {
             Mode        = 'All'
             Description = 'the Gridcoin installation directory'
         }
-        razer_cortex = [PSCustomObject]@{
-            Path        = @(Join-Path ${env:ProgramFiles(x86)} 'Razer\Razer Cortex')
-            Mode        = 'All'
-            Description = 'the Razer Cortex installation directory'
-        }
     }
 }
 
@@ -213,7 +207,7 @@ function Install-TemurinJdk {
     # with a major version and this function's contract is that one bad item never takes the others
     # down. That contract was broken: an unthrown exception here propagated out of
     # Invoke-WindowsCustomInstall, which setup.ps1 does not wrap, so a malformed java pin killed
-    # nodejs, flutter, gridcoin and razer_cortex with it and stopped the wizard before the WSL
+    # nodejs, flutter and gridcoin with it and stopped the wizard before the WSL
     # playbook ran. The reader now refuses to hand out an unresolved reference, so that exact shape
     # cannot arrive any more, but a pin bumped to anything a major version cannot be read out of
     # still lands here, and it must not take the other four items down with it.
@@ -235,7 +229,7 @@ function Install-TemurinJdk {
     # eleven lines above, is that one bad item never takes the others down. It was broken here in
     # the same way it was broken for the java pins: setup.ps1 runs with $ErrorActionPreference
     # 'Stop' and does not wrap this call, so a machine without winget lost nodejs, flutter,
-    # gridcoin, razer_cortex and every summary line along with the four JDKs. One failed result per
+    # gridcoin and every summary line along with the four JDKs. One failed result per
     # JDK instead, then JAVA_HOME is still attempted, because a JDK installed by some earlier means
     # is worth pointing at and finding none is already reported below.
     $winget = $null
@@ -493,9 +487,13 @@ function Install-DirectInstaller {
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Url,
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string[]] $SilentArgument,
 
+        # Names an entry in the [checksums] table of the pinned values, not a toggle. When it is
+        # given and something is pinned under it, the hash decides and the signature is not read.
+        [string] $ChecksumName = '',
+
         # A path that must exist afterwards for the install to count. Ledger rule 5: an install that
-        # exits zero and leaves nothing behind is still a bug. Razer Cortex matters most here, since
-        # its /S switch is corroborated by the Chocolatey Synapse package and not documented anywhere.
+        # exits zero and leaves nothing behind is still a bug. Gridcoin is the case that proves the
+        # point: its NSIS installer takes /S and says nothing about whether it worked.
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ProofPath,
 
         [ValidateRange(1, 60)] [int] $TimeoutMinutes = 15,
@@ -534,12 +532,37 @@ function Install-DirectInstaller {
     }
 
     try {
-        # An Authenticode check is the only integrity evidence available here, since neither vendor
-        # publishes a hash for these evergreen URLs. Both do sign their installers, so this is
-        # enforceable today rather than aspirational, and it is the difference between running a
-        # verified vendor binary and running whatever the URL returned.
+        # Two ways to be sure of the bytes, and one of them has to hold.
+        #
+        # A pinned checksum comes first, because it is the stronger statement about this exact file:
+        # these bytes and no others. Where one is pinned the Authenticode result is not consulted at
+        # all, which is what lets an unsigned vendor binary through deliberately rather than by
+        # weakening the rule for everything. Gridcoin is the case that forced the question: its
+        # release installer carries no signature and the project publishes no checksum, so the hash
+        # in [checksums] was measured from the release asset and pinned at the owner's decision.
+        #
+        # Without a pinned checksum the signature is the only evidence there is, and an invalid or
+        # missing one is still a refusal.
+        $expected = ''
+        if ($ChecksumName) {
+            try { $expected = Get-PinnedChecksum -Name $ChecksumName } catch {
+                return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
+                                          Detail = "could not read the pinned checksum '$ChecksumName': $($_.Exception.Message)" }
+            }
+        }
+
+        if ($expected) {
+            $algorithm, $wanted = ($expected -split ':', 2)
+            $actual = (Get-FileHash -LiteralPath $target -Algorithm $algorithm).Hash
+            if ($actual -ne $wanted.Trim()) {
+                return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
+                                          Detail = "refusing to run it: the download does not match the pinned $algorithm. Pinned $($wanted.Trim()), got $actual. Either the vendor replaced the file at this URL or the download was corrupted, and both need a person to look." }
+            }
+            Write-Verbose "$Key matches its pinned $algorithm, so its missing signature is not consulted"
+        }
+
         $sig = Get-AuthenticodeSignature -LiteralPath $target
-        if ($sig.Status -ne 'Valid') {
+        if (-not $expected -and $sig.Status -ne 'Valid') {
             # SignerCertificate is null on a file with no signature at all, and under
             # Set-StrictMode -Version Latest reading .Subject off null is a terminating error. So the
             # rejection path crashed instead of rejecting, which is the worst possible place for it:
@@ -562,7 +585,7 @@ function Install-DirectInstaller {
         }
         if (-not (Test-Path -LiteralPath $ProofPath)) {
             return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
-                                      Detail = "the installer exited 0 and $ProofPath does not exist, so it did not install. For Razer Cortex this most likely means /S is not its silent switch." }
+                                      Detail = "the installer exited 0 and $ProofPath does not exist, so it did not install, which usually means the silent switch it was given is not the one it takes." }
         }
         return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'installed'; Detail = $ProofPath }
     } finally {
@@ -939,7 +962,12 @@ function Invoke-WindowsCustomInstall {
         if ($pin.Url) {
             # NSIS installs to Program Files by default and the package name is Gridcoin, confirmed
             # from the installer's own version resources when its framework was identified.
+            # ChecksumName rather than a signature, because Gridcoin's release installer carries
+            # none and the project publishes no hash. The one in [checksums] was measured from
+            # the release asset and pinned at the owner's decision, so these exact bytes are what
+            # is allowed to run and nothing else is.
             $results.Add((Install-DirectInstaller -Key 'gridcoin' -Url $pin.Url -SilentArgument @('/S') `
+                -ChecksumName 'gridcoin_win_installer' `
                 -ProofPath @($proofs['gridcoin'].Path)[0]))
         } else {
             $results.Add([PSCustomObject]@{ Key = 'gridcoin'; Package = 'gridcoin_win_installer_url'; Status = 'failed'
@@ -947,33 +975,4 @@ function Invoke-WindowsCustomInstall {
         }
     }
 
-    # Razer Cortex has no package on winget, no package on Chocolatey, and its installer carries no
-    # framework signature: the metadata says only "Razer Installer". /S is the switch the Chocolatey
-    # razer-synapse-4 package uses against the same installer family, which is corroboration and not
-    # proof, so the timeout matters more here than anywhere else in this file. If Cortex ignores it,
-    # the run is not lost, the user is told to install it by hand.
-    if (& $wanted 'razer_cortex') {
-        $pin = Resolve-PinnedInstallerUrl -Versions $versions -Name 'razer_cortex_win_installer_url'
-        if ($pin.Url) {
-            # The proof path is a guess and is labelled as one in the table it now comes from. Razer
-            # Cortex is a 32-bit installer so Program Files (x86) is the right root, but the exact
-            # directory has not been verified on a real install because nothing here has ever run it.
-            # If this reports a failure while Cortex is visibly installed, the path is wrong rather
-            # than the install, and the message says so. That direction is the safe one: a false
-            # failure gets investigated, a false success does not.
-            $results.Add((Install-DirectInstaller -Key 'razer_cortex' -Url $pin.Url -SilentArgument @('/S') `
-                -TimeoutMinutes 10 `
-                -ProofPath @($proofs['razer_cortex'].Path)[0]))
-        } else {
-            $results.Add([PSCustomObject]@{ Key = 'razer_cortex'; Package = 'razer_cortex_win_installer_url'; Status = 'failed'
-                                            Detail = $pin.Reason })
-        }
-    }
-
-    return [PSCustomObject]@{
-        Results   = $results
-        Installed = @($results | Where-Object { $_.Status -eq 'installed' })
-        Present   = @($results | Where-Object { $_.Status -eq 'present' })
-        Failed    = @($results | Where-Object { $_.Status -eq 'failed' })
-    }
 }

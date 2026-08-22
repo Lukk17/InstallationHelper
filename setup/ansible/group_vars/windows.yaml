@@ -18,7 +18,6 @@ install_itunes: true
 
 # Windows Only Hardware & OEM
 install_geforce_experience: false
-install_razer_cortex: true
 install_galaxy_buds: true
 
 # Windows Only Utilities & Networks

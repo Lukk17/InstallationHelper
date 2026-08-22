@@ -72,7 +72,7 @@
 .EXAMPLE
     .\setup.ps1 -Software none -EnableKey install_k3d -PrintPlan
 .EXAMPLE
-    .\setup.ps1 -Software all -DisableKey install_razer_cortex,enable_hyperv
+    .\setup.ps1 -Software all -DisableKey install_gridcoin,enable_hyperv
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -252,7 +252,7 @@ function Invoke-AndShowCustomInstalls {
     .SYNOPSIS
         Runs the installs a package mapping cannot express and renders the outcome.
     .DESCRIPTION
-        Java, Node, Flutter, Gridcoin and Razer Cortex. Separate from the mapping pass because each
+        Java, Node, Flutter and Gridcoin. Separate from the mapping pass because each
         needs more than one package, or no package exists at all. See
         setup/windows/WindowsCustomInstalls.ps1 for what each one does and why.
     #>
