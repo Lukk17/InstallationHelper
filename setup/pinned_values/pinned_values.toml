@@ -114,12 +114,6 @@ dart_version = "3.12.0"
 
 # Flutter via FVM
 flutter_channel = "stable"
-# FVM on Windows comes from the project's own release archive rather than Chocolatey, because the
-# Chocolatey package declares an exact dart-sdk dependency and pulls a whole pinned SDK in ahead of
-# itself. The file is 4.1 MB and contains a single fvm.exe. Version and URL pinned separately so the
-# URL reads as the template it is.
-fvm_version = "4.1.5"
-fvm_win_zip_url = "https://github.com/leoafarias/fvm/releases/download/{{ fvm_version }}/fvm-{{ fvm_version }}-windows-x64.zip"
 
 # Android SDK (update build number from https://developer.android.com/studio#command-line-tools-only)
 android_cmdline_tools_build = "14742923"

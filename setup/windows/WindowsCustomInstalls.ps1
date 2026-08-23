@@ -455,72 +455,61 @@ function Add-ToUserPath {
     }
 }
 
-function Install-FvmFromRelease {
+function Install-FvmFromPub {
     <#
     .SYNOPSIS
-        Installs the FVM binary from the project's own release archive.
+        Installs the FVM command line tool from pub.dev, through the Dart SDK.
 
     .DESCRIPTION
-        A zip with one executable in it, extracted to a fixed directory and put on PATH. There is no
-        installer to run, no dependency to resolve and nothing to elevate for, which is the whole
-        reason this exists rather than a Chocolatey call: that package declares `dart-sdk:[3.9.0]`
-        as an exact dependency, so a 4 MB version manager arrived behind a whole pinned Dart SDK,
-        and it exited 1 on both Windows cells of 2026-08-22.
+        pub.dev is Dart's package registry, run by Google, and it lists fvm under the verified
+        publisher leoafarias.com. `dart pub global activate fvm` is what FVM's own documentation
+        gives for a machine that already has Dart, and this repository installs the Dart SDK on
+        Windows through Chocolatey in the software phase that runs before this one.
 
-        Idempotent by the same rule the rest of this file follows: the executable it must produce is
-        the thing it checks for, and a present binary is reported as present rather than reinstalled.
+        Two things this deliberately avoids. A zip downloaded from a GitHub account, which is what
+        an earlier version of this function did. And Chocolatey's `fvm` package, which declares
+        `dart-sdk:[3.9.0]` as an exact dependency, so installing a 4 MB version manager pulled a
+        whole second pinned Dart SDK in ahead of it and exited 1 on both Windows cells of
+        2026-08-22.
+
+        pub global activate puts the executable in the pub cache's bin directory, which is not on
+        PATH by default, so that directory is added here.
     #>
     [CmdletBinding(SupportsShouldProcess)]
-    param(
-        [Parameter(Mandatory)] [hashtable] $Versions
-    )
+    param()
 
-    $target = Join-Path $env:LOCALAPPDATA 'fvm\bin'
-    $exe    = Join-Path $target 'fvm.exe'
+    $pubBin = Join-Path $env:LOCALAPPDATA 'Pub\Cache\bin'
+    $exe    = Join-Path $pubBin 'fvm.bat'
 
     if (Test-Path -LiteralPath $exe) {
-        Add-ToUserPath -Directory $target
+        Add-ToUserPath -Directory $pubBin
         return [PSCustomObject]@{ Status = 'present'; Detail = $exe }
     }
 
-    if (-not $PSCmdlet.ShouldProcess('fvm', 'download and extract the release archive')) {
+    if (-not (Get-Command dart -ErrorAction SilentlyContinue)) {
+        Update-ProcessPath
+    }
+    if (-not (Get-Command dart -ErrorAction SilentlyContinue)) {
+        return [PSCustomObject]@{ Status = 'failed'
+                                  Detail = 'dart is not on PATH, so fvm cannot be activated from pub.dev. install_dart is what puts it there, and it runs in the software phase before this one.' }
+    }
+
+    if (-not $PSCmdlet.ShouldProcess('fvm', 'dart pub global activate')) {
         return [PSCustomObject]@{ Status = 'skipped'; Detail = 'WhatIf' }
     }
 
-    $pin = Resolve-PinnedInstallerUrl -Versions $Versions -Name 'fvm_win_zip_url'
-    if (-not $pin.Url) {
-        return [PSCustomObject]@{ Status = 'failed'; Detail = "no URL is pinned for fvm_win_zip_url: $($pin.Detail)" }
+    $activate = Invoke-ManagedTool -Key 'flutter' -FilePath 'dart' `
+        -ArgumentList @('pub', 'global', 'activate', 'fvm') -TimeoutMinutes 10
+    if ($activate.Status -eq 'failed') {
+        return [PSCustomObject]@{ Status = 'failed'; Detail = $activate.Detail }
     }
 
-    $stage = Join-Path ([System.IO.Path]::GetTempPath()) ('installation-helper-fvm-' + [guid]::NewGuid().ToString('N'))
-    $null  = New-Item -ItemType Directory -Path $stage -Force
-    $zip   = Join-Path $stage 'fvm.zip'
-    try {
-        # TimeoutSec for the same reason every other download here carries one: PowerShell 7 maps
-        # the default of 0 to no timeout at all, and a server that stalls mid-body would hang the
-        # wizard with nothing watching it.
-        Invoke-WebRequest -Uri $pin.Url -OutFile $zip -UseBasicParsing -TimeoutSec 300 -MaximumRedirection 5 -ErrorAction Stop
-        Expand-Archive -LiteralPath $zip -DestinationPath $stage -Force
-
-        $found = Get-ChildItem -LiteralPath $stage -Filter 'fvm.exe' -Recurse -File | Select-Object -First 1
-        if (-not $found) {
-            return [PSCustomObject]@{ Status = 'failed'
-                                      Detail = "the archive at $($pin.Url) contains no fvm.exe, so the release layout has changed and this needs a person to look" }
-        }
-
-        $null = New-Item -ItemType Directory -Path $target -Force
-        Copy-Item -LiteralPath $found.FullName -Destination $exe -Force
-        Add-ToUserPath -Directory $target
-
-        if (-not (Test-Path -LiteralPath $exe)) {
-            return [PSCustomObject]@{ Status = 'failed'; Detail = "extracted without error and $exe is still absent" }
-        }
-        return [PSCustomObject]@{ Status = 'installed'; Detail = $exe }
-    } catch {
-        return [PSCustomObject]@{ Status = 'failed'; Detail = "could not install fvm from $($pin.Url): $($_.Exception.Message)" }
-    } finally {
-        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    Add-ToUserPath -Directory $pubBin
+    if (-not (Test-Path -LiteralPath $exe)) {
+        return [PSCustomObject]@{ Status = 'failed'
+                                  Detail = "dart pub global activate fvm reported success and $exe is absent, so nothing usable was installed" }
     }
+    return [PSCustomObject]@{ Status = 'installed'; Detail = $exe }
 }
 
 function Install-FlutterViaFvm {
@@ -528,12 +517,13 @@ function Install-FlutterViaFvm {
     .SYNOPSIS
         Installs FVM, then the pinned Flutter channel, then pins it globally.
     .DESCRIPTION
-        FVM's own release archive rather than Chocolatey, and that is measured. Chocolatey's `fvm`
-        4.1.5 declares `dart-sdk:[3.9.0]` as an exact dependency, so installing a Flutter version
-        manager first drags in a pinned Dart SDK of its own, and the wizard's install exited 1 on
-        both Windows cells of 2026-08-22. FVM publishes fvm-4.1.5-windows-x64.zip at 4.1 MB, which
-        is the same binary with none of that in front of it. winget has no FVM manifest at all,
-        checked again on 2026-08-23.
+        pub.dev through the Dart SDK, rather than Chocolatey or a downloaded archive. pub.dev is
+        Google's registry for Dart packages and lists fvm under the verified publisher
+        leoafarias.com, and the Dart SDK is already installed on Windows by install_dart in the
+        software phase before this one. Chocolatey's `fvm` 4.1.5 was the previous route and it
+        declares `dart-sdk:[3.9.0]` as an exact dependency, so a 4 MB version manager arrived behind
+        a second pinned SDK and exited 1 on both Windows cells of 2026-08-22. winget has no FVM
+        manifest at all, checked again on 2026-08-23.
 
         `fvm global` creates a symlink under %USERPROFILE%\fvm\default, which needs Developer Mode
         enabled or an elevated run. That is reported rather than treated as fatal, because the
@@ -547,7 +537,7 @@ function Install-FlutterViaFvm {
     $channel = Get-FlutterChannel -Versions $Versions
     $results = [System.Collections.Generic.List[object]]::new()
 
-    $manager = Install-FvmFromRelease -Versions $Versions
+    $manager = Install-FvmFromPub
     $results.Add([PSCustomObject]@{ Key = 'flutter'; Package = 'fvm'; Status = $manager.Status; Detail = $manager.Detail })
     if ($manager.Status -eq 'failed') { return $results }
 

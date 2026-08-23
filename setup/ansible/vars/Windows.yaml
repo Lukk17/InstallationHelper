@@ -71,7 +71,12 @@ software_mapping:
 
   # Media / Design
   vlc: { manager: "winget", package: "VideoLAN.VLC" }
-  spotify: { manager: "winget", package: "Spotify.Spotify" }
+  # user_context, because Spotify's own installer refuses with "The installer cannot be run from an
+  # administrator context". That is true and deliberate on their side, and it only bites when the
+  # wizard itself was started elevated, which -AllowAdministrator does in the e2e cells. Reported as
+  # skipped there with that reason, and installed normally on a machine where the wizard runs as the
+  # user, which is how it is meant to run.
+  spotify: { manager: "winget", package: "Spotify.Spotify", user_context: true }
   gimp: { manager: "winget", package: "GIMP.GIMP.3" }
   krita: { manager: "winget", package: "KDE.Krita" }
   handbrake: { manager: "winget", package: "HandBrake.HandBrake" }
@@ -131,6 +136,12 @@ software_mapping:
   # Chocolatey package was updated 2026-08-16 and carries 3.9.1102, the same version the dead
   # winget manifest names.
   glasswire: { manager: "choco", package: "glasswire" }
+  # Chocolatey because winget has nothing. Measured on 2026-08-23 against the live source:
+  # `winget search "nvidia app"` returns no results, there is no Nvidia.NVIDIAApp id, and
+  # winget-pkgs rejected the submissions in #140696, #179043 and #253660. Chocolatey carries
+  # nvidia-app 11.0.8.299, published 2026-07-14. This replaces geforce_experience, which NVIDIA
+  # discontinued in favour of this application.
+  nvidia_app: { manager: "choco", package: "nvidia-app" }
   tcpview: { manager: "winget", package: "Microsoft.Sysinternals.TCPView" }
   autoruns: { manager: "winget", package: "Microsoft.Sysinternals.Autoruns" }
   rufus: { manager: "winget", package: "Rufus.Rufus" }
@@ -141,7 +152,14 @@ software_mapping:
   galaxy_buds: { manager: "winget", package: "Samsung.GalaxyBudsManager" }
 
   # Partition / Disk Utilities
-  partition_wizard: { manager: "winget", package: "MiniTool.PartitionWizard.Free" }
+  # client_only, because MiniTool say so themselves. The Free edition supports Windows 11, 10,
+  # 8.1/8 and 7, and Server needs their separate paid Server Edition:
+  # https://www.partitionwizard.com/free-partition-manager.html
+  # Its Inno Setup 6.1.0 installer, identified from the downloaded bytes, refuses on a Server SKU
+  # before it starts, which is exit code 1, "Setup failed to initialize". No switch changes that,
+  # the URL is fine and the manifest's switches are right, so the wizard reports it skipped there
+  # rather than failing a run over a machine the vendor does not support.
+  partition_wizard: { manager: "winget", package: "MiniTool.PartitionWizard.Free", client_only: true }
 
   # Virtualization
   docker: { manager: "winget", package: "Docker.DockerDesktop" }

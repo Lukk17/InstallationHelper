@@ -33,7 +33,7 @@ $script:ToggleLinePattern = '^(?<key>[a-z0-9_]+):\s*(?<value>true|false)\s*(#.*)
 # installers for one package and the client picks by scope: Bruno ships a per-user nullsoft
 # installer and a machine-scope MSI, and the per-user one dies with an access violation when the
 # wizard runs elevated, which is how every Windows cell of 2026-08-22 lost it.
-$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?\}'
+$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?(,\s*client_only:\s*(?<clientonly>true|false)\s*)?(,\s*user_context:\s*(?<usercontext>true|false)\s*)?\}'
 
 function Get-WindowsGroupVarToggle {
     <#
@@ -164,6 +164,11 @@ function Get-WindowsSoftwareMapping {
             Package = $Matches['package']
             Source  = if ($Matches['source']) { $Matches['source'] } else { 'winget' }
             Scope   = if ($Matches['scope'])  { $Matches['scope'] }  else { '' }
+            # Two facts about where a package can install, rather than about what it is. Both are
+            # read here so the dispatch can report "skipped, and why" instead of a failure that is
+            # true of the machine rather than of the run.
+            ClientOnly  = ($Matches['clientonly'] -eq 'true')
+            UserContext = ($Matches['usercontext'] -eq 'true')
         }
     }
     Write-Verbose "Read $($mappings.Count) Windows package mappings"
@@ -202,6 +207,8 @@ function Resolve-WindowsSoftwarePlan {
                 Package = $m.Package
                 Source  = $m.Source
                 Scope   = $m.Scope
+                ClientOnly  = $m.ClientOnly
+                UserContext = $m.UserContext
             })
         } else {
             $unmapped.Add($key)
@@ -313,6 +320,30 @@ function Invoke-BoundedWinget {
     } finally {
         Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Get-WindowsInstallationTypeForSoftware {
+    <#
+    .SYNOPSIS
+        Client, Server, or Server Core, read from the registry.
+
+    .DESCRIPTION
+        The same question WindowsSettings.ps1 asks, asked here too. It is not shared because these
+        two files are dot-sourced independently and neither may assume the other is loaded, and the
+        answer is three lines of registry read. Client when it cannot be read, so an unknown edition
+        never turns a real failure into a skip.
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        $key = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' `
+            -Name 'InstallationType' -ErrorAction Stop
+        if ($key.InstallationType) { return [string]$key.InstallationType }
+    } catch {
+        Write-Verbose "InstallationType is unreadable, assuming Client: $($_.Exception.Message)"
+    }
+    return 'Client'
 }
 
 function Install-WingetPackage {
@@ -604,9 +635,36 @@ function Invoke-WindowsSoftwareInstall {
             # between its header and its summary. Two cells were cancelled at 150 minutes inside it on
             # 2026-08-22 and the transcript could not say which package they were on. A phase that can
             # run for an hour has to say what it is doing while it does it.
+            # Asked once rather than per package. Both answers are properties of this machine and
+            # this process, and neither changes between packages.
+            $installationType = Get-WindowsInstallationTypeForSoftware
+            $identity   = [Security.Principal.WindowsIdentity]::GetCurrent()
+            $isElevated = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
+                [Security.Principal.WindowsBuiltInRole]::Administrator)
+
             $index = 0
             foreach ($item in $wingetItems) {
                 $index++
+
+                # A package the vendor does not ship for this edition, or an installer that refuses
+                # to run elevated, is skipped with the reason rather than attempted and failed. Both
+                # are true statements about the machine, and a run should not go red over either.
+                if ($item.ClientOnly -and $installationType -ne 'Client') {
+                    Write-Host ("  ... [{0}/{1}] {2} skipped" -f $index, $wingetItems.Count, $item.Key)
+                    $results.Add([PSCustomObject]@{
+                        Key = $item.Key; Manager = 'winget'; Package = $item.Package; Status = 'skipped'
+                        Detail = "the vendor ships this for client editions of Windows only, and this is $installationType, so its installer refuses before it starts"
+                    })
+                    continue
+                }
+                if ($item.UserContext -and $isElevated) {
+                    Write-Host ("  ... [{0}/{1}] {2} skipped" -f $index, $wingetItems.Count, $item.Key)
+                    $results.Add([PSCustomObject]@{
+                        Key = $item.Key; Manager = 'winget'; Package = $item.Package; Status = 'skipped'
+                        Detail = 'its installer refuses to run from an administrator context, and this wizard was started elevated. Run the wizard as your normal user and it installs.'
+                    })
+                    continue
+                }
                 Write-Host ("  ... [{0}/{1}] {2} ({3})" -f $index, $wingetItems.Count, $item.Key, $item.Package)
                 $started = [datetime]::UtcNow
                 $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source `

@@ -41,7 +41,7 @@ info "Tier 1: Windows mapping parse"
 yaml_mappings="$(
     sed -E 's/[[:space:]]+$//' "${MAPPING_YAML}" \
         | grep -E '^  [a-z0-9_]+: \{' \
-        | sed -E 's/^  ([a-z0-9_]+): \{[[:space:]]*manager:[[:space:]]*"([a-z_]+)"[[:space:]]*,[[:space:]]*package:[[:space:]]*"([^"]*)"[[:space:]]*(,[[:space:]]*source:[[:space:]]*"([a-z]+)"[[:space:]]*)?(,[[:space:]]*scope:[[:space:]]*"([a-z]+)"[[:space:]]*)?\}.*/\1 \2 \3 \5/' \
+        | sed -E 's/^  ([a-z0-9_]+): \{[[:space:]]*manager:[[:space:]]*"([a-z_]+)"[[:space:]]*,[[:space:]]*package:[[:space:]]*"([^"]*)"[[:space:]]*(,[[:space:]]*source:[[:space:]]*"([a-z]+)"[[:space:]]*)?(,[[:space:]]*scope:[[:space:]]*"([a-z]+)"[[:space:]]*)?(,[[:space:]]*client_only:[[:space:]]*(true|false)[[:space:]]*)?(,[[:space:]]*user_context:[[:space:]]*(true|false)[[:space:]]*)?\}.*/\1 \2 \3 \5/' \
         | awk '{ if ($4 == "") $4 = "winget"; print $1, $2, $3, $4 }' \
         | sort
 )"

@@ -1059,3 +1059,39 @@ The rest were diagnosed against the live sources rather than guessed at:
 GeForce Experience is gone entirely at the owner's request. The NVIDIA App that replaced it has no winget manifest, and that is measurable rather than remembered: `winget search "nvidia app"` returns nothing, no `Nvidia.NVIDIAApp` id exists, and winget-pkgs rejected the submissions in #140696, #179043 and #253660. Chocolatey does carry `nvidia-app` 11.0.8.299, which the documentation said did not exist, so that claim was corrected.
 
 Left as it stands, and deliberately: `partition_wizard`. Its winget URL answers 200 with a 77 MB Inno installer, the manifest declares the right silent switches, and it exits 1 anyway. Nothing in the data explains that, and the installer's own log is the only thing that can, so the guessing stops here until a run collects it.
+
+#### Partition Wizard, the answer that was there all along
+
+Status: fixed in this change. The earlier entry saying only the installer's own log could explain it was giving up too early, and the owner said so.
+
+The exit code was read and nothing else was. Three cheap checks settle it:
+
+1. The downloaded installer identifies itself in its own bytes as `Inno Setup Setup Data (6.1.0)`. Inno's exit code 1 means "Setup failed to initialize", which is a refusal before installation starts, not a wrong switch.
+2. The manifest's URL answers 200 with 77 MB and declares the correct silent switches, so neither is at fault.
+3. MiniTool's own page says the Free edition supports "Windows 11, Windows 10, Windows 8.1/8, Windows 7", and Server needs their separate paid Server Edition: https://www.partitionwizard.com/free-partition-manager.html
+
+A GitHub `windows-latest` runner is Windows Server, which this repository already detects and prints, since that is why three optional features report "not offered on this Windows edition (Server)". So the package installs on a normal machine and can never install on the runner.
+
+The mapping now carries `client_only: true`, and on a non-Client edition the wizard reports it skipped with that reason. Spotify gained `user_context: true` for the same shape of problem: its installer refuses to run from an administrator context, which is true and deliberate on their side and only bites because the e2e cells start the wizard with `-AllowAdministrator`.
+
+Both are facts about where the software can install rather than about whether the run worked, which is what a skip is for. The alternative, leaving them as permanent red, teaches a reader to ignore red.
+
+#### nvm and fvm, and where those packages actually come from
+
+Status: fixed in this change. Both moved again after the owner objected to the sources, and the objection was worth answering with evidence rather than assertion.
+
+The Chocolatey packages were the third-party ones. `nvm` on Chocolatey is a wrapper maintained by a packager called asheroto that only depends on `nvm.install`, and it exited -1 with nothing in the log. `fvm` on Chocolatey declares `dart-sdk:[3.9.0]` as an exact dependency, so a 4 MB tool arrived behind a second pinned SDK and exited 1.
+
+Where each now comes from, and the evidence for who publishes it:
+
+nvm-windows. The upstream nvm project, nvm-sh/nvm, is Unix only, and its own README sends Windows users to `nvm-windows`, listing it under "for Windows, a few alternatives exist". That project is `coreybutler/nvm-windows`, 47443 stars, and it is what every Windows Node version manager instruction on the internet means by nvm. winget's `CoreyButler.NVMforWindows` manifest downloads `nvm-setup.exe` from that project's own releases with the SHA256 pinned in the manifest, and the manifest itself is reviewed in microsoft/winget-pkgs. That is the shortest chain available: the project's own binary, hash-pinned, through Microsoft's own manager.
+
+To be exact about a phrase used carelessly earlier: coreybutler is the author of nvm-windows, not of nvm. They are different projects.
+
+FVM. Installed with `dart pub global activate fvm`, from pub.dev, which is Google's package registry for Dart. pub.dev lists fvm under the verified publisher `leoafarias.com`, and the Dart SDK is already installed on Windows by `install_dart` in the software phase that runs before the SDK phase. That removes the downloaded archive entirely and keeps FVM on the registry its own documentation points at.
+
+#### GeForce Experience out, NVIDIA App in, through the only manager that has it
+
+Status: done in this change, at the owner's request.
+
+`winget search "nvidia app"` returns nothing against the live source, there is no `Nvidia.NVIDIAApp` identifier, and winget-pkgs rejected the submissions in #140696, #179043 and #253660. Chocolatey carries `nvidia-app` 11.0.8.299, published 2026-07-14. So `install_nvidia_app` is mapped to Chocolatey, and `geforce_experience`, which NVIDIA discontinued, is gone.

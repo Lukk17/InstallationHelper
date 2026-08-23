@@ -7,6 +7,10 @@
 setup_wsl: true
 enable_hyperv: true
 
+# NVIDIA App, the replacement for GeForce Experience. Chocolatey is the only packaged route: winget
+# has no manifest for it, checked against the live source on 2026-08-23.
+install_nvidia_app: true
+
 # Windows Only Dev Tools
 install_powershell: true
 
