@@ -1040,3 +1040,22 @@ Two things the gate caught during this work, both worth recording.
 The pinned-value check reported `gridcoin_win_installer reads like a pin in the gridcoin family and nothing pins it`. It was right by its own rules: `[checksums]` is a second namespace, and PowerShell reads a checksum by quoted name exactly as it reads a pin, so the first checksum key ever referenced from PowerShell looked like a typo. The check now loads the checksum table and exempts it.
 
 And that fix did not work at first, for a reason that has now cost this repository twice in one day. The probe reads the table through Python, Python on Windows writes CRLF to a pipe, and `mapfile` keeps the carriage return inside the value. The name matched nothing, the guard silently answered no, and the trace showed the list being filled correctly the whole time. Stripping the carriage return fixed it. A guard that answers no by accident is indistinguishable from a guard that is working.
+
+#### Four Windows packages, four different reasons, all measured before anything was changed
+
+Status: fixed in this change. Gridcoin's checksum was reverted at the owner's instruction the day after it was added.
+
+The Gridcoin checksum went in and came straight back out. The reasoning against it is the owner's and it holds: the download is an HTTPS URL to the project's own GitHub release, a hash buys nothing he wants from it, and it fails the install every time the version moves and nobody remembers to re-measure. So the signature requirement is waived for that one installer by name, through `-AllowUnsigned` at the callsite, and every other download still needs a valid signature. The checksum reader flag and the PowerShell accessor built for it were removed with it rather than left as machinery nothing calls.
+
+The rest were diagnosed against the live sources rather than guessed at:
+
+| Package | What was measured | What changed |
+|---|---|---|
+| glasswire | the winget manifest's installer URL answers 403 from any machine, not only a runner: the S3 object behind it is gone | moved to Chocolatey, whose `glasswire` carries the same 3.9.1102 and was updated 2026-08-16 |
+| bruno | the 4.1.0 manifest carries three installers, and winget picks the per-user nullsoft one, which exits 3221225477, an access violation, when the wizard runs elevated. The MSI beside it is declared `Scope: machine` | the mapping gained an optional `scope` field and Bruno asks for machine |
+| nvm | Chocolatey's `nvm` is a meta-package in front of `nvm.install`, and it exited -1 with nothing in the log | moved to winget, `CoreyButler.NVMforWindows`, the vendor's own installer with no dependency chain |
+| fvm | Chocolatey's `fvm` 4.1.5 declares `dart-sdk:[3.9.0]` as an exact dependency, so a 4 MB version manager arrived behind a whole pinned Dart SDK and exited 1 | installed from FVM's own release archive, `fvm-4.1.5-windows-x64.zip`, extracted to `%LOCALAPPDATA%\fvm\bin` |
+
+GeForce Experience is gone entirely at the owner's request. The NVIDIA App that replaced it has no winget manifest, and that is measurable rather than remembered: `winget search "nvidia app"` returns nothing, no `Nvidia.NVIDIAApp` id exists, and winget-pkgs rejected the submissions in #140696, #179043 and #253660. Chocolatey does carry `nvidia-app` 11.0.8.299, which the documentation said did not exist, so that claim was corrected.
+
+Left as it stands, and deliberately: `partition_wizard`. Its winget URL answers 200 with a 77 MB Inno installer, the manifest declares the right silent switches, and it exits 1 anyway. Nothing in the data explains that, and the installer's own log is the only thing that can, so the guessing stops here until a run collects it.

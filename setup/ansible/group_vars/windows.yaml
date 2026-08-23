@@ -17,7 +17,6 @@ install_prime_video: true
 install_itunes: true
 
 # Windows Only Hardware & OEM
-install_geforce_experience: false
 install_galaxy_buds: true
 
 # Windows Only Utilities & Networks

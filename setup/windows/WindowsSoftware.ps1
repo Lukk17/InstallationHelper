@@ -29,7 +29,11 @@ $script:ToggleLinePattern = '^(?<key>[a-z0-9_]+):\s*(?<value>true|false)\s*(#.*)
 
 # Reading one mapping entry out of vars/Windows.yaml. All 83 entries are single-line and
 # uniform, verified by checking that no line matching the key pattern fails this one.
-$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?\}'
+# scope is optional and only winget reads it. It exists because a winget manifest can carry several
+# installers for one package and the client picks by scope: Bruno ships a per-user nullsoft
+# installer and a machine-scope MSI, and the per-user one dies with an access violation when the
+# wizard runs elevated, which is how every Windows cell of 2026-08-22 lost it.
+$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?\}'
 
 function Get-WindowsGroupVarToggle {
     <#
@@ -159,6 +163,7 @@ function Get-WindowsSoftwareMapping {
             Manager = $Matches['manager']
             Package = $Matches['package']
             Source  = if ($Matches['source']) { $Matches['source'] } else { 'winget' }
+            Scope   = if ($Matches['scope'])  { $Matches['scope'] }  else { '' }
         }
     }
     Write-Verbose "Read $($mappings.Count) Windows package mappings"
@@ -196,6 +201,7 @@ function Resolve-WindowsSoftwarePlan {
                 Manager = $m.Manager
                 Package = $m.Package
                 Source  = $m.Source
+                Scope   = $m.Scope
             })
         } else {
             $unmapped.Add($key)
@@ -319,6 +325,9 @@ function Install-WingetPackage {
         [Parameter(Mandatory)] [string] $WingetPath,
         [Parameter(Mandatory)] [string] $PackageId,
         [string] $Source = 'winget',
+        # Passed through to winget when the mapping names one. Empty means winget chooses, which is
+        # what every package but Bruno wants.
+        [ValidateSet('', 'machine', 'user')] [string] $Scope = '',
         [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900
     )
 
@@ -331,9 +340,11 @@ function Install-WingetPackage {
         return [PSCustomObject]@{ Package = $PackageId; Status = 'skipped'; Detail = 'WhatIf' }
     }
 
-    $run = Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds $TimeoutSeconds -Arguments @(
+    $arguments = @(
         'install', '--exact', '--id', $PackageId, '--source', $Source, '--silent',
         '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
+    if ($Scope) { $arguments += @('--scope', $Scope) }
+    $run = Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds $TimeoutSeconds -Arguments $arguments
     $output = $run.Output
     $code   = $run.ExitCode
 
@@ -598,7 +609,8 @@ function Invoke-WindowsSoftwareInstall {
                 $index++
                 Write-Host ("  ... [{0}/{1}] {2} ({3})" -f $index, $wingetItems.Count, $item.Key, $item.Package)
                 $started = [datetime]::UtcNow
-                $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source
+                $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source `
+                    -Scope $item.Scope
                 $seconds = [int]([datetime]::UtcNow - $started).TotalSeconds
                 Write-Host ("      {0} after {1}s{2}" -f $r.Status, $seconds,
                     $(if ($r.Detail) { ": $($r.Detail)" } else { '' }))

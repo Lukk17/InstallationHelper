@@ -32,10 +32,16 @@ info "Tier 1: Windows mapping parse"
 
 # Independent extraction. Deliberately a different expression from the PowerShell one, so a
 # mistake in one is not reproduced by the other.
+# scope is matched and then dropped, deliberately. This check compares what the two parsers
+# agree a package is: its key, manager, package id and source. Scope changes how winget is
+# invoked rather than what is installed, and Bruno is the only entry carrying one, so folding it
+# into the comparison would mean teaching the PowerShell side to print a fifth column for one
+# row. What matters here is that a line carrying a scope still parses, which the assertion below
+# about every mapping-shaped line already covers.
 yaml_mappings="$(
     sed -E 's/[[:space:]]+$//' "${MAPPING_YAML}" \
         | grep -E '^  [a-z0-9_]+: \{' \
-        | sed -E 's/^  ([a-z0-9_]+): \{[[:space:]]*manager:[[:space:]]*"([a-z_]+)"[[:space:]]*,[[:space:]]*package:[[:space:]]*"([^"]*)"[[:space:]]*(,[[:space:]]*source:[[:space:]]*"([a-z]+)"[[:space:]]*)?\}.*/\1 \2 \3 \5/' \
+        | sed -E 's/^  ([a-z0-9_]+): \{[[:space:]]*manager:[[:space:]]*"([a-z_]+)"[[:space:]]*,[[:space:]]*package:[[:space:]]*"([^"]*)"[[:space:]]*(,[[:space:]]*source:[[:space:]]*"([a-z]+)"[[:space:]]*)?(,[[:space:]]*scope:[[:space:]]*"([a-z]+)"[[:space:]]*)?\}.*/\1 \2 \3 \5/' \
         | awk '{ if ($4 == "") $4 = "winget"; print $1, $2, $3, $4 }' \
         | sort
 )"

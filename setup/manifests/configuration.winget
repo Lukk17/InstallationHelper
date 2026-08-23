@@ -15,7 +15,7 @@
 # the shell is already elevated. No flag suppresses that dialog, so an already-elevated
 # session is the only unattended route.
 #
-# 73 packages from the winget community repository and 7 from the
+# 72 packages from the winget community repository and 7 from the
 # Microsoft Store. The Store entries are product identifiers rather than manifests, they need
 # the Store present and its agreement accepted, and they are the least portable thing here.
 #
@@ -239,14 +239,6 @@ properties:
         allowPrerelease: false
       settings:
         id: Git.Git
-        source: winget
-    - resource: Microsoft.WinGet.DSC/WinGetPackage
-      id: glasswire
-      directives:
-        description: Install glasswire (GlassWire.GlassWire)
-        allowPrerelease: false
-      settings:
-        id: GlassWire.GlassWire
         source: winget
     - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: gog

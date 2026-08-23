@@ -13,7 +13,6 @@ parse TOML or resolve a reference:
     pinned_values.py --json          the whole set as JSON
     pinned_values.py --get <name>    one value, exit 3 when the name is not pinned
     pinned_values.py --sh            PIN_<NAME>='<value>' lines for eval
-    pinned_values.py --checksum <n>  one checksum, exit 3 when the name has none
 
 The file is found beside this module, so no caller carries a copy of its path. Point
 INSTALLATION_HELPER_PINS_FILE at another file to override that, which is what the tests do.
@@ -239,16 +238,6 @@ def main(argv: list[str]) -> int:
                 sys.stderr.write(f"nothing pinned '{rest[0]}' in {pins_file()}\n")
                 return EXIT_ABSENT
             sys.stdout.write(values[rest[0]] + "\n")
-            return 0
-        if mode == "--checksum" and len(rest) == 1:
-            # The same shape as --get, and exit 3 keeps the same one meaning: nothing pins this
-            # name. A caller that cannot tell an absent checksum from an unreadable file would have
-            # to treat both as "no verification", which is the answer that silently drops integrity.
-            table = checksums()
-            if rest[0] not in table:
-                sys.stderr.write(f"nothing pins a checksum for '{rest[0]}' in {pins_file()}\n")
-                return EXIT_ABSENT
-            sys.stdout.write(table[rest[0]] + "\n")
             return 0
         if mode == "--sh" and not rest:
             for name, value in sorted(pins().items()):

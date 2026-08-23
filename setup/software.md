@@ -405,7 +405,6 @@ These ship as Microsoft Store packages or have no maintained winget manifest. Th
 | Disney+ | `winget install -e --id 9NXQXXLFST89` |
 | Prime Video | `winget install -e --id 9P6RC76MSMMJ` |
 | iTunes | `winget install -e --id 9PB2MZ1ZMB1S` |
-| GeForce Experience | `choco install geforce-experience -y`, disabled by default. NVIDIA discontinued it in favour of the NVIDIA App, which has no winget or Chocolatey manifest |
 | VMware Workstation Player | `choco install vmware-workstation-player -y`, no winget manifest post-Broadcom |
 
 ## Per-OS install caveats
@@ -417,7 +416,7 @@ These ship as Microsoft Store packages or have no maintained winget manifest. Th
 - **FileZilla on Windows**: FileZilla blocks third-party installers, so winget removed the manifest. Falls back to Chocolatey (`filezilla`, verified).
 - **FileZilla on macOS**: no Homebrew cask exists. The `install_filezilla` toggle maps to Cyberduck (cask `cyberduck`), the standard free macOS FTP/SFTP/S3 client. To install FileZilla specifically, set `install_filezilla: false` and download from `filezilla-project.org`.
 - **Lens on Linux**: installed from the official `downloads.k8slens.dev` apt/dnf repo, package name `lens`. Lens Desktop is free for personal use.
-- **GeForce Experience on Windows**: discontinued by NVIDIA, replaced by the NVIDIA App (which has no winget or Chocolatey manifest). The `install_geforce_experience` toggle defaults to `false` in `group_vars/windows.yaml`, install the NVIDIA App manually from nvidia.com.
+- **NVIDIA software on Windows**: neither GeForce Experience nor the NVIDIA App is installed by this repository. GeForce Experience was discontinued by NVIDIA and its toggle was removed on 2026-08-23 at the owner's request. The NVIDIA App has no winget manifest, which is measurable rather than remembered: `winget search "nvidia app"` returns nothing and no `Nvidia.NVIDIAApp` id exists, and winget-pkgs rejected the submissions in #140696, #179043 and #253660. Chocolatey does carry `nvidia-app`, 11.0.8.299 published 2026-07-14, so that route exists if it is ever wanted. Until then, install it from nvidia.com.
 - **Gridcoin macOS DMG**: pinned to `5.5.0.0`. Apple Silicon users may want the `-macos-arm64.dmg` variant, today the playbook installs the `x86_64` build via Rosetta. Switching is a one-line change in `pinned_values.toml`.
 
 ## Download integrity

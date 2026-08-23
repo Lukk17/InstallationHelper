@@ -386,21 +386,34 @@ function Install-NodeViaNvm {
         the equivalent. nvm-windows spells it `nvm install lts` with no dashes.
 
         The nvm_version pin is for nvm.sh and does not apply here: nvm-windows is a separate
-        project with its own versioning, and Chocolatey carries it as `nvm`.
+        project with its own versioning.
+
+        winget rather than Chocolatey, and that is measured. Chocolatey's `nvm` is a meta-package
+        that only depends on `nvm.install`, and installing it exited -1 on both Windows cells of
+        2026-08-22 with nothing in the log to say why. winget carries CoreyButler.NVMforWindows,
+        which is the vendor's own installer with no dependency chain in front of it, and it is what
+        winstall and the project's own README point people at.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
 
     $results = [System.Collections.Generic.List[object]]::new()
 
-    $choco = Install-ChocolateyPackageBatch -PackageId @('nvm')
-    $results.Add([PSCustomObject]@{ Key = 'nodejs'; Package = 'nvm'; Status = $choco.Status; Detail = $choco.Detail })
-    if ($choco.Status -eq 'failed') { return $results }
+    $winget = $null
+    try { $winget = Get-WingetPath } catch {
+        $results.Add([PSCustomObject]@{ Key = 'nodejs'; Package = 'nvm'; Status = 'failed'
+                                        Detail = "winget is not on this machine, so nvm-windows cannot be installed: $($_.Exception.Message)" })
+        return $results
+    }
+
+    $manager = Install-WingetPackage -WingetPath $winget -PackageId 'CoreyButler.NVMforWindows'
+    $results.Add([PSCustomObject]@{ Key = 'nodejs'; Package = 'nvm'; Status = $manager.Status; Detail = $manager.Detail })
+    if ($manager.Status -eq 'failed') { return $results }
 
     # Skipped rather than attempted when the manager itself was skipped. Under -WhatIf nvm was never
     # installed, so running the next two steps for real reported two failures for a plan that had not
     # done anything yet, which is a lie about the plan.
-    if ($choco.Status -eq 'skipped') {
+    if ($manager.Status -eq 'skipped') {
         foreach ($step in @('install lts', 'use lts')) {
             $results.Add([PSCustomObject]@{ Key = 'nodejs'; Package = "nvm $step"; Status = 'skipped'
                                             Detail = 'not attempted because nvm itself was skipped' })
@@ -414,16 +427,117 @@ function Install-NodeViaNvm {
     return $results
 }
 
+function Add-ToUserPath {
+    <#
+    .SYNOPSIS
+        Puts one directory on the user PATH, once, and on this process's PATH straight away.
+
+    .DESCRIPTION
+        The same read, compare and write the Android SDK environment step does, factored out because
+        a second install needed it. A directory already there is left alone, so a rerun writes
+        nothing, and the process PATH is updated too, because the wizard runs `fvm` a moment later
+        and a variable written to the registry does not reach a process that is already running.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Directory
+    )
+
+    $current = [Environment]::GetEnvironmentVariable('PATH', 'User')
+    $entries = @($current -split ';' | Where-Object { $_ })
+    if ($Directory -notin $entries) {
+        if ($PSCmdlet.ShouldProcess($Directory, 'add to the user PATH')) {
+            [Environment]::SetEnvironmentVariable('PATH', (($entries + $Directory) -join ';'), 'User')
+        }
+    }
+    if (($env:PATH -split ';') -notcontains $Directory) {
+        $env:PATH = "$Directory;$env:PATH"
+    }
+}
+
+function Install-FvmFromRelease {
+    <#
+    .SYNOPSIS
+        Installs the FVM binary from the project's own release archive.
+
+    .DESCRIPTION
+        A zip with one executable in it, extracted to a fixed directory and put on PATH. There is no
+        installer to run, no dependency to resolve and nothing to elevate for, which is the whole
+        reason this exists rather than a Chocolatey call: that package declares `dart-sdk:[3.9.0]`
+        as an exact dependency, so a 4 MB version manager arrived behind a whole pinned Dart SDK,
+        and it exited 1 on both Windows cells of 2026-08-22.
+
+        Idempotent by the same rule the rest of this file follows: the executable it must produce is
+        the thing it checks for, and a present binary is reported as present rather than reinstalled.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)] [hashtable] $Versions
+    )
+
+    $target = Join-Path $env:LOCALAPPDATA 'fvm\bin'
+    $exe    = Join-Path $target 'fvm.exe'
+
+    if (Test-Path -LiteralPath $exe) {
+        Add-ToUserPath -Directory $target
+        return [PSCustomObject]@{ Status = 'present'; Detail = $exe }
+    }
+
+    if (-not $PSCmdlet.ShouldProcess('fvm', 'download and extract the release archive')) {
+        return [PSCustomObject]@{ Status = 'skipped'; Detail = 'WhatIf' }
+    }
+
+    $pin = Resolve-PinnedInstallerUrl -Versions $Versions -Name 'fvm_win_zip_url'
+    if (-not $pin.Url) {
+        return [PSCustomObject]@{ Status = 'failed'; Detail = "no URL is pinned for fvm_win_zip_url: $($pin.Detail)" }
+    }
+
+    $stage = Join-Path ([System.IO.Path]::GetTempPath()) ('installation-helper-fvm-' + [guid]::NewGuid().ToString('N'))
+    $null  = New-Item -ItemType Directory -Path $stage -Force
+    $zip   = Join-Path $stage 'fvm.zip'
+    try {
+        # TimeoutSec for the same reason every other download here carries one: PowerShell 7 maps
+        # the default of 0 to no timeout at all, and a server that stalls mid-body would hang the
+        # wizard with nothing watching it.
+        Invoke-WebRequest -Uri $pin.Url -OutFile $zip -UseBasicParsing -TimeoutSec 300 -MaximumRedirection 5 -ErrorAction Stop
+        Expand-Archive -LiteralPath $zip -DestinationPath $stage -Force
+
+        $found = Get-ChildItem -LiteralPath $stage -Filter 'fvm.exe' -Recurse -File | Select-Object -First 1
+        if (-not $found) {
+            return [PSCustomObject]@{ Status = 'failed'
+                                      Detail = "the archive at $($pin.Url) contains no fvm.exe, so the release layout has changed and this needs a person to look" }
+        }
+
+        $null = New-Item -ItemType Directory -Path $target -Force
+        Copy-Item -LiteralPath $found.FullName -Destination $exe -Force
+        Add-ToUserPath -Directory $target
+
+        if (-not (Test-Path -LiteralPath $exe)) {
+            return [PSCustomObject]@{ Status = 'failed'; Detail = "extracted without error and $exe is still absent" }
+        }
+        return [PSCustomObject]@{ Status = 'installed'; Detail = $exe }
+    } catch {
+        return [PSCustomObject]@{ Status = 'failed'; Detail = "could not install fvm from $($pin.Url): $($_.Exception.Message)" }
+    } finally {
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Install-FlutterViaFvm {
     <#
     .SYNOPSIS
         Installs FVM, then the pinned Flutter channel, then pins it globally.
     .DESCRIPTION
-        Follows the shape of the deleted fvm_windows.yaml, which had that much right. Two things it noted are carried over:
-        winget has no FVM manifest and no Flutter SDK manifest, so Chocolatey is the route, and
+        FVM's own release archive rather than Chocolatey, and that is measured. Chocolatey's `fvm`
+        4.1.5 declares `dart-sdk:[3.9.0]` as an exact dependency, so installing a Flutter version
+        manager first drags in a pinned Dart SDK of its own, and the wizard's install exited 1 on
+        both Windows cells of 2026-08-22. FVM publishes fvm-4.1.5-windows-x64.zip at 4.1 MB, which
+        is the same binary with none of that in front of it. winget has no FVM manifest at all,
+        checked again on 2026-08-23.
+
         `fvm global` creates a symlink under %USERPROFILE%\fvm\default, which needs Developer Mode
-        enabled or an elevated run. That last one is reported rather than treated as fatal, because
-        the channel is installed and usable through `fvm use` either way.
+        enabled or an elevated run. That is reported rather than treated as fatal, because the
+        channel is installed and usable through `fvm use` either way.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -433,11 +547,11 @@ function Install-FlutterViaFvm {
     $channel = Get-FlutterChannel -Versions $Versions
     $results = [System.Collections.Generic.List[object]]::new()
 
-    $choco = Install-ChocolateyPackageBatch -PackageId @('fvm')
-    $results.Add([PSCustomObject]@{ Key = 'flutter'; Package = 'fvm'; Status = $choco.Status; Detail = $choco.Detail })
-    if ($choco.Status -eq 'failed') { return $results }
+    $manager = Install-FvmFromRelease -Versions $Versions
+    $results.Add([PSCustomObject]@{ Key = 'flutter'; Package = 'fvm'; Status = $manager.Status; Detail = $manager.Detail })
+    if ($manager.Status -eq 'failed') { return $results }
 
-    if ($choco.Status -eq 'skipped') {
+    if ($manager.Status -eq 'skipped') {
         foreach ($step in @("install $channel", "global $channel")) {
             $results.Add([PSCustomObject]@{ Key = 'flutter'; Package = "fvm $step"; Status = 'skipped'
                                             Detail = 'not attempted because fvm itself was skipped' })
@@ -487,9 +601,11 @@ function Install-DirectInstaller {
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Url,
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string[]] $SilentArgument,
 
-        # Names an entry in the [checksums] table of the pinned values, not a toggle. When it is
-        # given and something is pinned under it, the hash decides and the signature is not read.
-        [string] $ChecksumName = '',
+        # Waives the Authenticode requirement for one installer, by the caller naming it rather than
+        # by the rule bending for everybody. Gridcoin is the only user: its release binary is
+        # unsigned, the project publishes no hash, and the download is an HTTPS URL to the project's
+        # own GitHub release, which is the integrity this switch accepts in place of a signature.
+        [switch] $AllowUnsigned,
 
         # A path that must exist afterwards for the install to count. Ledger rule 5: an install that
         # exits zero and leaves nothing behind is still a bug. Gridcoin is the case that proves the
@@ -532,37 +648,20 @@ function Install-DirectInstaller {
     }
 
     try {
-        # Two ways to be sure of the bytes, and one of them has to hold.
+        # An Authenticode check on everything except what the caller has explicitly waived.
         #
-        # A pinned checksum comes first, because it is the stronger statement about this exact file:
-        # these bytes and no others. Where one is pinned the Authenticode result is not consulted at
-        # all, which is what lets an unsigned vendor binary through deliberately rather than by
-        # weakening the rule for everything. Gridcoin is the case that forced the question: its
-        # release installer carries no signature and the project publishes no checksum, so the hash
-        # in [checksums] was measured from the release asset and pinned at the owner's decision.
+        # A signature is the only integrity evidence available for these evergreen URLs, since no
+        # vendor here publishes a hash, and where the vendor does sign, refusing an invalid signature
+        # is the difference between running a verified binary and running whatever the URL returned.
         #
-        # Without a pinned checksum the signature is the only evidence there is, and an invalid or
-        # missing one is still a refusal.
-        $expected = ''
-        if ($ChecksumName) {
-            try { $expected = Get-PinnedChecksum -Name $ChecksumName } catch {
-                return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
-                                          Detail = "could not read the pinned checksum '$ChecksumName': $($_.Exception.Message)" }
-            }
-        }
-
-        if ($expected) {
-            $algorithm, $wanted = ($expected -split ':', 2)
-            $actual = (Get-FileHash -LiteralPath $target -Algorithm $algorithm).Hash
-            if ($actual -ne $wanted.Trim()) {
-                return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
-                                          Detail = "refusing to run it: the download does not match the pinned $algorithm. Pinned $($wanted.Trim()), got $actual. Either the vendor replaced the file at this URL or the download was corrupted, and both need a person to look." }
-            }
-            Write-Verbose "$Key matches its pinned $algorithm, so its missing signature is not consulted"
-        }
-
+        # -AllowUnsigned exists for the one vendor that signs nothing. It is per callsite on purpose:
+        # the rule stays intact for every other download, and a reader can see exactly which binary
+        # is trusted on the strength of its HTTPS source alone.
         $sig = Get-AuthenticodeSignature -LiteralPath $target
-        if (-not $expected -and $sig.Status -ne 'Valid') {
+        if ($AllowUnsigned -and $sig.Status -ne 'Valid') {
+            Write-Verbose "$Key is allowed to be unsigned, and its signature status is $($sig.Status)"
+        }
+        elseif ($sig.Status -ne 'Valid') {
             # SignerCertificate is null on a file with no signature at all, and under
             # Set-StrictMode -Version Latest reading .Subject off null is a terminating error. So the
             # rejection path crashed instead of rejecting, which is the worst possible place for it:
@@ -962,12 +1061,12 @@ function Invoke-WindowsCustomInstall {
         if ($pin.Url) {
             # NSIS installs to Program Files by default and the package name is Gridcoin, confirmed
             # from the installer's own version resources when its framework was identified.
-            # ChecksumName rather than a signature, because Gridcoin's release installer carries
-            # none and the project publishes no hash. The one in [checksums] was measured from
-            # the release asset and pinned at the owner's decision, so these exact bytes are what
-            # is allowed to run and nothing else is.
+            # AllowUnsigned, because Gridcoin signs nothing and publishes no hash. What is left is
+            # the HTTPS release URL itself, and at the owner's decision that is enough here: a
+            # checksum would only have to be re-measured on every version bump, and it would fail
+            # the install rather than protect it when nobody remembered.
             $results.Add((Install-DirectInstaller -Key 'gridcoin' -Url $pin.Url -SilentArgument @('/S') `
-                -ChecksumName 'gridcoin_win_installer' `
+                -AllowUnsigned `
                 -ProofPath @($proofs['gridcoin'].Path)[0]))
         } else {
             $results.Add([PSCustomObject]@{ Key = 'gridcoin'; Package = 'gridcoin_win_installer_url'; Status = 'failed'

@@ -329,33 +329,4 @@ function Get-PinnedValue {
     return [string] $result.Text
 }
 
-function Get-PinnedChecksum {
-    <#
-    .SYNOPSIS
-        The pinned checksum for one artefact, or nothing when none is pinned.
-
-    .DESCRIPTION
-        The same reader, the same single source, and the same distinction the pins themselves make:
-        a name with no checksum is a legal answer and comes back as an empty string, while a broken
-        or unreadable pinned values file throws. A caller that could not tell those apart would treat
-        a corrupt file as "no verification wanted" and install whatever the URL returned.
-
-        Returns the raw pinned string, which is `sha256:<hex>`. The caller splits it, because the
-        algorithm is part of what was pinned rather than an assumption to make here.
-
-    .PARAMETER Name
-        The artefact name in the [checksums] table, which is the artefact rather than the toggle.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Name
-    )
-
-    $result = Invoke-PinnedValuesCore -Argument @('--checksum', $Name)
-    if ($result.ExitCode -eq 0) { return $result.Text.Trim() }
-    if ($result.ExitCode -eq 3) { return '' }
-    throw "reading the pinned checksum for '$Name' failed with exit $($result.ExitCode): $($result.Text)"
-}
-
-Export-ModuleMember -Function Get-PinnedValueMap, Get-PinnedValue, Get-PinnedChecksum
+Export-ModuleMember -Function Get-PinnedValueMap, Get-PinnedValue

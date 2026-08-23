@@ -43,7 +43,11 @@ software_mapping:
   sublime: { manager: "winget", package: "SublimeHQ.SublimeText.4" }
   arduino: { manager: "winget", package: "ArduinoSA.IDE.stable" }
   antigravity: { manager: "winget", package: "Google.AntigravityIDE" }
-  bruno: { manager: "winget", package: "Bruno.Bruno" }
+  # Machine scope on purpose. The manifest carries three installers and winget picks the
+  # per-user nullsoft one by default, which exits 3221225477, an access violation, when the
+  # wizard runs elevated. The MSI in the same manifest is declared Scope: machine and is the
+  # one that installs. Verified against the 4.1.0 manifest in winget-pkgs on 2026-08-23.
+  bruno: { manager: "winget", package: "Bruno.Bruno", scope: "machine" }
   jetbrains_toolbox: { manager: "winget", package: "JetBrains.Toolbox" }       # Publisher JetBrains, verified with winget show. The sdk_manager role installs this on Linux and macOS, and this mapping is the whole Windows path.
 
   # Communication
@@ -121,7 +125,12 @@ software_mapping:
   wiztree: { manager: "winget", package: "AntibodySoftware.WizTree" }
   angry_ip_scanner: { manager: "winget", package: "angryziber.AngryIPScanner" }
   advanced_ip_scanner: { manager: "winget", package: "Famatech.AdvancedIPScanner" }
-  glasswire: { manager: "winget", package: "GlassWire.GlassWire" }
+  # Chocolatey rather than winget, because the winget manifest points at an S3 object that is
+  # gone: https://s3.us-east-1.amazonaws.com/s3.glasswire.com/download/.../GlassWireSetup.exe
+  # answers 403 from any machine, measured on 2026-08-23, not only from a runner. The
+  # Chocolatey package was updated 2026-08-16 and carries 3.9.1102, the same version the dead
+  # winget manifest names.
+  glasswire: { manager: "choco", package: "glasswire" }
   tcpview: { manager: "winget", package: "Microsoft.Sysinternals.TCPView" }
   autoruns: { manager: "winget", package: "Microsoft.Sysinternals.Autoruns" }
   rufus: { manager: "winget", package: "Rufus.Rufus" }
@@ -130,7 +139,6 @@ software_mapping:
 
   # Hardware / OEM companion apps
   galaxy_buds: { manager: "winget", package: "Samsung.GalaxyBudsManager" }
-  geforce_experience: { manager: "choco", package: "geforce-experience" }   # No winget manifest (NVIDIA App also rejected — winget-pkgs #140696/#179043/#253660). Chocolatey package `geforce-experience` is approved/trusted (verified).
 
   # Partition / Disk Utilities
   partition_wizard: { manager: "winget", package: "MiniTool.PartitionWizard.Free" }
