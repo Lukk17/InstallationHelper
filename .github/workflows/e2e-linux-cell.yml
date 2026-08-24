@@ -1,0 +1,111 @@
+# One Linux container cell: one distribution, one scenario, one real Ansible run.
+#
+# This file exists so the sweep can be 48 separate jobs instead of one matrix. GitHub's run graph
+# collapses a matrix into a single node reading "Matrix: stage2_sweep, 1/48 job completed", which
+# tells a reader nothing about which distribution or scenario is where. A job that calls a reusable
+# workflow gets its own node with its own name, so the graph shows 48 named tiles and a failure is
+# visible without opening anything.
+#
+# The steps are here rather than duplicated 48 times for the obvious reason: one copy, one place to
+# fix. e2e-matrix.yml passes the distribution, the scenario and the ceiling.
+
+name: E2E Linux cell
+
+on:
+  workflow_call:
+    inputs:
+      distro:
+        description: "Which distribution, matching a e2e/tier3/<name>.Dockerfile"
+        required: true
+        type: string
+      scenario:
+        description: "Which tier 3 scenario, matching a e2e/tier3/scenarios/*.yaml"
+        required: true
+        type: string
+      timeout_minutes:
+        description: "Job ceiling, the scenario's own declared timeout plus room for the image build"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: install
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space before building any image
+        run: |
+          set -euo pipefail
+
+          echo "Disk space before cleanup:"
+          df -h /
+
+          # ubuntu-latest ships tens of gigabytes of preinstalled toolchains this repository
+          # never touches: the harness only needs Docker itself. A plain rm rather than a
+          # third-party disk-cleanup action, so the exact list removed is visible here and
+          # nowhere else. Each path is removed independently so one missing path (a runner
+          # image change) does not stop the rest from being freed.
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/.ghcup || true
+          sudo rm -rf /opt/hostedtoolcache || true
+          sudo rm -rf /usr/share/swift || true
+          sudo docker image prune -af >/dev/null || true
+
+          echo "Disk space after cleanup:"
+          df -h /
+
+      # Ubuntu's AppArmor profile for unix_chkpwd withholds a capability that PAM needs, and a
+      # container process is confined by it because AppArmor attaches profiles by binary path, so
+      # the host's profile follows the binary inside the container. pam_unix hands shadow lookups to
+      # /usr/sbin/unix_chkpwd when the caller's real uid is not root, that helper needs
+      # CAP_DAC_OVERRIDE to read a mode 000 /etc/shadow, and the shipped profile grants only
+      # capability audit_write. The kernel logs it as
+      # apparmor="DENIED" operation="capable" profile="unix-chkpwd" capname="dac_override".
+      #
+      # Only Fedora is hit, and the reason is the file mode rather than anything about Fedora's PAM.
+      # Fedora ships /etc/shadow at 000, so even root needs the capability to read it. Debian and
+      # Ubuntu ship 0640 root:shadow with a setgid-shadow helper, and Arch ships 0600 root:root, and
+      # in both cases the ordinary permission bits are enough. Every Fedora cell of the first sweep
+      # died on this, two seconds into the play, and nine rounds of measurement inside the container
+      # could not see it because the denial happens on the host.
+      #
+      # The fix is the one linux-pam and apparmor.d both document: give the profile the capability
+      # through its local include and reload it. It touches only this runner, which is discarded at
+      # the end of the job. If the profile is not there, this says so and changes nothing, because a
+      # runner image without it does not have the problem.
+      #
+      # https://github.com/roddhjav/apparmor.d/issues/958
+      # https://github.com/linux-pam/linux-pam/issues/876
+      - name: Let unix_chkpwd read the shadow file, which Ubuntu's AppArmor profile forbids
+        run: |
+          set -euo pipefail
+          if [[ ! -f /etc/apparmor.d/unix-chkpwd ]]; then
+            echo "No unix-chkpwd AppArmor profile on this runner, so there is nothing to relax."
+            exit 0
+          fi
+          echo 'capability dac_override,' | sudo tee /etc/apparmor.d/local/unix-chkpwd
+          sudo apparmor_parser -r /etc/apparmor.d/unix-chkpwd
+          echo "Reloaded the unix-chkpwd profile with dac_override allowed."
+
+      - name: Run the tier-3 container harness
+        run: |
+          set -euo pipefail
+          bash e2e/run.sh --tier 3 --scenario "${{ inputs.scenario }}" --os "${{ inputs.distro }}"
+
+      - name: Upload e2e run artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-stage2-${{ inputs.scenario }}-${{ inputs.distro }}-${{ github.run_id }}
+          # e2e/run.sh writes one directory per run under e2e/runs/, each holding
+          # playbook.log, verify.log, result.txt and effective-vars.yaml.
+          path: e2e/runs/
+          if-no-files-found: warn
+          retention-days: 14

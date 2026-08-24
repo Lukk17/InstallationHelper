@@ -7,55 +7,53 @@
 # the expensive one, so an accidental automatic trigger would be the worst place for it.
 #
 # ---------------------------------------------------------------------------------------------
-# The three stages, exactly as e2e/README_E2E.md's "The exact order every pipeline runs in"
-# section specifies. Nothing in a later stage starts until every job in the stage before it has
-# passed. A stage that is bypassed with start_from_stage counts as passed for this purpose, so
-# jumping straight to stage 3 does not need stage 1 or 2 to have run in the same workflow run.
+# The three stages, in that order. Stage 2 waits for stage 1 to pass, and stage 3 waits for stage 2
+# to finish. A stage bypassed with start_from_stage counts as passed, so jumping straight to stage 3
+# does not need the earlier ones to have run in the same workflow run.
+#
+# Every job is its own node in the run graph, with a short name that says what it is. That is why
+# stage 2 is forty-eight jobs calling e2e-linux-cell.yml rather than one matrix: GitHub collapses a
+# matrix into a single node reading "Matrix: stage2_sweep, 1/48 job completed", which names neither
+# the distribution nor the scenario, so nobody can see what failed without opening the run.
 #
 # Stage 1, static and parse only, five jobs, nothing installed anywhere:
-#   1. stage1_tier1_gate          ubuntu-latest   the whole static gate, every check
-#   2. stage1_windows_pester      windows-latest  the Pester suite over the Windows installer logic
-#   3. stage1_linux_wizard_plan   ubuntu-latest   setup.sh --print-command
-#   4. stage1_macos_wizard_plan   macos-26        setup.sh --print-command, Darwin toggles
-#   5. stage1_windows_wizard_plan windows-latest  setup.ps1 -PrintPlan
+#   Tier 1 checks          ubuntu-latest   the whole static gate, every check
+#   Windows unit tests     windows-latest  the Pester suite over the Windows installer logic
+#   Linux wizard plan      ubuntu-latest   setup.sh --print-command
+#   macOS wizard plan      macos-26        setup.sh --print-command, Darwin toggles
+#   Windows wizard plan    windows-latest  setup.ps1 -PrintPlan
 #
-# Stage 2, the container sweep, forty jobs, twenty at a time, defaults first on all five
-# distributions, then the rest longest-first, matching e2e/README_E2E.md's own table exactly:
-#   6-10 defaults, 11-15 all-software, 16-20 kde-full, 21-25 gnome-full, 26-30 idempotency,
-#   31-35 live-profile, 36-40 kde-configure-only, 41-45 forced-failure, each across arch, debian,
-#   ubuntu, fedora, cachyos in that order.
+# Stage 2, the container sweep, forty-eight jobs on ubuntu-latest, one per distribution and scenario:
+#   distributions   Debian, Ubuntu, Pop!_OS, Fedora, Arch, CachyOS
+#   scenarios       defaults, all software, KDE full, GNOME full, KDE configure, idempotency,
+#                   live profile, forced failure
 #
 # Two of those scenarios are not wizard paths. idempotency applies the defaults configuration twice
 # in one container and asserts the second pass changes nothing, and forced-failure breaks the run on
 # purpose and asserts the failure is reported in all four places a person or a script would look.
-# Both share a declared ceiling with an existing scenario, 300 and 90 respectively, and each was
-# appended to the end of its own tie group rather than inserted into it, so adding them moved no job
-# that was already numbered.
 #
 # Stage 3, the short real installs on the other two platforms, seven jobs, each a real wizard run
 # ending in the wizard's own verification:
-#   46. macOS defaults          macos-26        toggles as shipped
-#   47. macOS everything        macos-26        every selectable toggle on
-#   48. macOS from nothing      macos-26        every toggle off, then a handful by name
-#   49. Windows defaults        windows-latest  toggles as shipped
-#   50. Windows everything      windows-latest  every selectable toggle on
-#   51. Windows from nothing    windows-latest  every toggle off, then a handful by name
-#   52. Windows settings only   windows-latest  the three native settings, no software
+#   macOS default apps       macos-26        toggles as shipped
+#   macOS all apps           macos-26        every selectable toggle on
+#   macOS four apps only     macos-26        every toggle off, then four by name
+#   Windows default apps     windows-latest  toggles as shipped
+#   Windows all apps         windows-latest  every selectable toggle on
+#   Windows four apps only   windows-latest  every toggle off, then four by name
+#   Windows settings only    windows-latest  the three native settings, no software
 #
-# Three more jobs exist outside that numbered list: stage1_gate, which decides whether stages 2 and
-# 3 are allowed to start, stage2_verdict, which turns the whole Linux sweep into one red or green
-# node and gates nothing, and stage2_plan, which turns the stage 2 dispatch inputs into the matrix
-# stage2_sweep runs. None of them install or verify anything themselves.
-#
-# Stage 3 hangs off stage1_gate rather than off stage 2 on purpose, and the reason is in the comment
-# above stage2_verdict: Linux container results are not evidence about Windows or macOS, and letting
-# them gate these seven jobs once skipped every one of them over failures on a distribution none of
-# them run.
+# Two jobs sit outside those lists. "Gate: checks passed" decides whether stage 2 and stage 3 may
+# start, and "Verdict: Linux installs" turns forty-eight cells into one red or green line. Stage 3
+# depends on the verdict rather than on its result, so the graph runs in order while a failed Linux
+# cell still cannot hide a Windows or macOS regression, which is what happened when it was gated on
+# the result: six CachyOS failures skipped all seven stage 3 jobs on the sweep meant to prove a day
+# of Windows work.
 #
 # ---------------------------------------------------------------------------------------------
-# max-parallel: 20 on the stage 2 matrix. This is not a readability choice, it is simply the
-# ceiling: 20 is every concurrent job the GitHub Free plan allows account-wide, and the owner
-# wants the maximum. https://docs.github.com/en/actions/reference/limits
+# Concurrency is the account's own limit rather than a setting here. The GitHub Free plan allows 20
+# concurrent jobs account-wide, which is what bounded the old matrix's max-parallel in practice too,
+# so removing the matrix changed nothing about how many cells run at once.
+# https://docs.github.com/en/actions/reference/limits
 #
 # The separate 5-concurrent-macOS cap is unaffected: stage 2 runs entirely on ubuntu-latest, and
 # stage 3, where the macOS jobs live, only ever has 3 running at once, under that cap on its own.
@@ -182,8 +180,8 @@
 # has not been exercised in this repository's own CI as of this writing, so the first real run
 # of this workflow is still the first actual proof.
 #
-# Reproducing one cell of stage 2 locally, without GitHub Actions, is exactly what stage2_plan
-# tells the harness to do:
+# Reproducing one cell of stage 2 locally, without GitHub Actions, is the same command each of the
+# forty-eight jobs runs:
 #
 #   bash e2e/run.sh --tier 3 --scenario defaults --os debian
 #
@@ -265,7 +263,7 @@ jobs:
   # walks through, so both are installed first. Neither step is part of the harness itself. They
   # are what e2e/README_E2E.md's own quick start assumes is already true on a developer machine.
   stage1_tier1_gate:
-    name: "Stage 1 check: toggles, mappings, pinned values and both wizards"
+    name: "Tier 1 checks"
     if: inputs.start_from_stage == 'stage-1'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -296,7 +294,7 @@ jobs:
   # See the NEVER RUN IN CI note at the top of this file: this direct invocation, as opposed to
   # going through e2e/tier3/Invoke-WindowsE2E.ps1's own container, has never been exercised.
   stage1_windows_pester:
-    name: "Stage 1 check: Windows installer unit tests"
+    name: "Windows unit tests"
     if: inputs.start_from_stage == 'stage-1'
     runs-on: windows-latest
     timeout-minutes: 15
@@ -342,7 +340,7 @@ jobs:
   # 3. setup.sh --print-command resolves a real selection into a real playbook command, and
   # exits without installing anything or asking for Ansible.
   stage1_linux_wizard_plan:
-    name: "Stage 1 check: Linux wizard resolves a playbook command"
+    name: "Linux wizard plan"
     if: inputs.start_from_stage == 'stage-1'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -358,7 +356,7 @@ jobs:
 
   # 4. The same resolution on Darwin, where the toggle files and the OS dictionary differ.
   stage1_macos_wizard_plan:
-    name: "Stage 1 check: macOS wizard resolves a playbook command"
+    name: "macOS wizard plan"
     if: inputs.start_from_stage == 'stage-1'
     # macos-26 rather than macos-14, and this is a fact about Homebrew rather than a preference.
     # Casks target current macOS: rawtherapee refuses to install on anything older than Tahoe, which
@@ -395,7 +393,7 @@ jobs:
   # group with UAC disabled, which Assert-NotAdmin (called before -PrintPlan is even read) would
   # otherwise refuse. See e2e-manual.yml's own windows-wizard job for the longer citation.
   stage1_windows_wizard_plan:
-    name: "Stage 1 check: Windows wizard resolves an install plan"
+    name: "Windows wizard plan"
     if: inputs.start_from_stage == 'stage-1'
     runs-on: windows-latest
     timeout-minutes: 5
@@ -417,7 +415,7 @@ jobs:
   # every stage 1 job actually ran and succeeded. Any other combination, including a real stage
   # 1 failure, sets ok=false and stage 2 stays off.
   stage1_gate:
-    name: "Stage 1 gate: every check passed, stage 2 may start"
+    name: "Gate: checks passed"
     needs: [stage1_tier1_gate, stage1_windows_pester, stage1_linux_wizard_plan, stage1_macos_wizard_plan, stage1_windows_wizard_plan]
     if: always()
     runs-on: ubuntu-latest
@@ -459,264 +457,700 @@ jobs:
           echo "ok=true" >> "${GITHUB_OUTPUT}"
 
   # ===========================================================================================
-  # STAGE 2 - the container sweep. Turns the dispatch inputs into a matrix, then runs it,
-  # scenario-major in the deliberate order e2e/README_E2E.md documents: defaults across every
-  # distribution first, then the rest longest-first. Every cell is one call to
-  # `e2e/run.sh --tier 3 --scenario <name> --os <distro>`, the same command a developer runs by
-  # hand, and nothing in e2e/, setup/ or AGENTS.md is touched by this file.
+  # STAGE 2 - the container sweep. Forty-eight jobs, one per distribution and scenario, each a real
+  # Ansible run inside a systemd container ending in the playbook's own verification. Every cell is
+  # one call to `e2e/run.sh --tier 3 --scenario <name> --os <distro>`, the same command a developer
+  # runs by hand, through the reusable workflow in e2e-linux-cell.yml.
+  #
+  # Forty-eight jobs rather than one matrix, deliberately. GitHub's run graph collapses a matrix into
+  # a single node reading "Matrix: stage2_sweep, 1/48 job completed", which names neither the
+  # distribution nor the scenario, so a reader cannot see what failed without opening the run and
+  # expanding it. A job that calls a reusable workflow gets its own named node. The cost is this
+  # list, which is generated rather than hand-written, and the loss of `max-parallel`: the account's
+  # own concurrency limit does that job instead, which is what bounded the matrix in practice anyway.
+  #
+  # The `if` on each job is what the deleted stage2_plan used to compute. Each cell asks whether the
+  # dispatch selected it, so `scenario: defaults` with `distro: all` runs six jobs and skips
+  # forty-two, exactly as the plan's matrix used to.
   # ===========================================================================================
 
-  # The `!cancelled()` prefix on this and every job below it is what makes start_from_stage
-  # actually work, and it is here because the first dispatch that used it did nothing at all.
-  # Measured in run 32455901182: start_from_stage was stage-2, all five stage 1 jobs skipped by
-  # their own `if`, the stage 1 gate ran under always() and set ok=true, and this job was skipped
-  # anyway. A skipped ancestor suppresses its descendants even when the job in between succeeded,
-  # because an `if` with no status-check function in it carries an implicit success() over the
-  # whole ancestry rather than over the direct `needs` alone. Naming cancelled() replaces that
-  # implicit check, so the gate output is the only thing that decides. Not always(): a cancelled
-  # run must still stop, and always() would keep launching container jobs after someone pressed
-  # cancel. The sweep below asks for the plan's own result as well, because with the implicit
-  # check gone a skipped plan would otherwise hand it an empty job_count, which is not '0' and
-  # would start a matrix with nothing in it.
-  stage2_plan:
-    name: "Stage 2 plan: which distribution and scenario each install job gets"
+  stage2_debian_defaults:
+    name: "Debian defaults"
     needs: stage1_gate
-    if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true' && contains(fromJSON('[\"stage-1\",\"stage-2\"]'), inputs.start_from_stage)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-      job_count: ${{ steps.plan.outputs.job_count }}
-    steps:
-      - uses: actions/checkout@v4
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'defaults')
+      && (inputs.distro == 'all' || inputs.distro == 'debian')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: debian
+      scenario: defaults
+      timeout_minutes: 205
+  stage2_ubuntu_defaults:
+    name: "Ubuntu defaults"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'defaults')
+      && (inputs.distro == 'all' || inputs.distro == 'ubuntu')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: ubuntu
+      scenario: defaults
+      timeout_minutes: 205
+  stage2_popos_defaults:
+    name: "Pop!_OS defaults"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'defaults')
+      && (inputs.distro == 'all' || inputs.distro == 'popos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: popos
+      scenario: defaults
+      timeout_minutes: 205
+  stage2_fedora_defaults:
+    name: "Fedora defaults"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'defaults')
+      && (inputs.distro == 'all' || inputs.distro == 'fedora')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: fedora
+      scenario: defaults
+      timeout_minutes: 205
+  stage2_arch_defaults:
+    name: "Arch defaults"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'defaults')
+      && (inputs.distro == 'all' || inputs.distro == 'arch')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: arch
+      scenario: defaults
+      timeout_minutes: 205
+  stage2_cachyos_defaults:
+    name: "CachyOS defaults"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'defaults')
+      && (inputs.distro == 'all' || inputs.distro == 'cachyos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: cachyos
+      scenario: defaults
+      timeout_minutes: 205
+  stage2_debian_all_software:
+    name: "Debian all software"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'all-software')
+      && (inputs.distro == 'all' || inputs.distro == 'debian')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: debian
+      scenario: all-software
+      timeout_minutes: 325
+  stage2_ubuntu_all_software:
+    name: "Ubuntu all software"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'all-software')
+      && (inputs.distro == 'all' || inputs.distro == 'ubuntu')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: ubuntu
+      scenario: all-software
+      timeout_minutes: 325
+  stage2_popos_all_software:
+    name: "Pop!_OS all software"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'all-software')
+      && (inputs.distro == 'all' || inputs.distro == 'popos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: popos
+      scenario: all-software
+      timeout_minutes: 325
+  stage2_fedora_all_software:
+    name: "Fedora all software"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'all-software')
+      && (inputs.distro == 'all' || inputs.distro == 'fedora')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: fedora
+      scenario: all-software
+      timeout_minutes: 325
+  stage2_arch_all_software:
+    name: "Arch all software"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'all-software')
+      && (inputs.distro == 'all' || inputs.distro == 'arch')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: arch
+      scenario: all-software
+      timeout_minutes: 325
+  stage2_cachyos_all_software:
+    name: "CachyOS all software"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'all-software')
+      && (inputs.distro == 'all' || inputs.distro == 'cachyos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: cachyos
+      scenario: all-software
+      timeout_minutes: 325
+  stage2_debian_kde_full:
+    name: "Debian KDE full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-full')
+      && (inputs.distro == 'all' || inputs.distro == 'debian')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: debian
+      scenario: kde-full
+      timeout_minutes: 325
+  stage2_ubuntu_kde_full:
+    name: "Ubuntu KDE full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-full')
+      && (inputs.distro == 'all' || inputs.distro == 'ubuntu')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: ubuntu
+      scenario: kde-full
+      timeout_minutes: 325
+  stage2_popos_kde_full:
+    name: "Pop!_OS KDE full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-full')
+      && (inputs.distro == 'all' || inputs.distro == 'popos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: popos
+      scenario: kde-full
+      timeout_minutes: 325
+  stage2_fedora_kde_full:
+    name: "Fedora KDE full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-full')
+      && (inputs.distro == 'all' || inputs.distro == 'fedora')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: fedora
+      scenario: kde-full
+      timeout_minutes: 325
+  stage2_arch_kde_full:
+    name: "Arch KDE full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-full')
+      && (inputs.distro == 'all' || inputs.distro == 'arch')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: arch
+      scenario: kde-full
+      timeout_minutes: 325
+  stage2_cachyos_kde_full:
+    name: "CachyOS KDE full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-full')
+      && (inputs.distro == 'all' || inputs.distro == 'cachyos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: cachyos
+      scenario: kde-full
+      timeout_minutes: 325
+  stage2_debian_gnome_full:
+    name: "Debian GNOME full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'gnome-full')
+      && (inputs.distro == 'all' || inputs.distro == 'debian')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: debian
+      scenario: gnome-full
+      timeout_minutes: 325
+  stage2_ubuntu_gnome_full:
+    name: "Ubuntu GNOME full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'gnome-full')
+      && (inputs.distro == 'all' || inputs.distro == 'ubuntu')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: ubuntu
+      scenario: gnome-full
+      timeout_minutes: 325
+  stage2_popos_gnome_full:
+    name: "Pop!_OS GNOME full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'gnome-full')
+      && (inputs.distro == 'all' || inputs.distro == 'popos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: popos
+      scenario: gnome-full
+      timeout_minutes: 325
+  stage2_fedora_gnome_full:
+    name: "Fedora GNOME full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'gnome-full')
+      && (inputs.distro == 'all' || inputs.distro == 'fedora')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: fedora
+      scenario: gnome-full
+      timeout_minutes: 325
+  stage2_arch_gnome_full:
+    name: "Arch GNOME full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'gnome-full')
+      && (inputs.distro == 'all' || inputs.distro == 'arch')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: arch
+      scenario: gnome-full
+      timeout_minutes: 325
+  stage2_cachyos_gnome_full:
+    name: "CachyOS GNOME full"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'gnome-full')
+      && (inputs.distro == 'all' || inputs.distro == 'cachyos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: cachyos
+      scenario: gnome-full
+      timeout_minutes: 325
+  stage2_debian_kde_configure_only:
+    name: "Debian KDE configure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-configure-only')
+      && (inputs.distro == 'all' || inputs.distro == 'debian')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: debian
+      scenario: kde-configure-only
+      timeout_minutes: 115
+  stage2_ubuntu_kde_configure_only:
+    name: "Ubuntu KDE configure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-configure-only')
+      && (inputs.distro == 'all' || inputs.distro == 'ubuntu')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: ubuntu
+      scenario: kde-configure-only
+      timeout_minutes: 115
+  stage2_popos_kde_configure_only:
+    name: "Pop!_OS KDE configure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-configure-only')
+      && (inputs.distro == 'all' || inputs.distro == 'popos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: popos
+      scenario: kde-configure-only
+      timeout_minutes: 115
+  stage2_fedora_kde_configure_only:
+    name: "Fedora KDE configure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-configure-only')
+      && (inputs.distro == 'all' || inputs.distro == 'fedora')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: fedora
+      scenario: kde-configure-only
+      timeout_minutes: 115
+  stage2_arch_kde_configure_only:
+    name: "Arch KDE configure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-configure-only')
+      && (inputs.distro == 'all' || inputs.distro == 'arch')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: arch
+      scenario: kde-configure-only
+      timeout_minutes: 115
+  stage2_cachyos_kde_configure_only:
+    name: "CachyOS KDE configure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'kde-configure-only')
+      && (inputs.distro == 'all' || inputs.distro == 'cachyos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: cachyos
+      scenario: kde-configure-only
+      timeout_minutes: 115
+  stage2_debian_idempotency:
+    name: "Debian idempotency"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'idempotency')
+      && (inputs.distro == 'all' || inputs.distro == 'debian')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: debian
+      scenario: idempotency
+      timeout_minutes: 325
+  stage2_ubuntu_idempotency:
+    name: "Ubuntu idempotency"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'idempotency')
+      && (inputs.distro == 'all' || inputs.distro == 'ubuntu')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: ubuntu
+      scenario: idempotency
+      timeout_minutes: 325
+  stage2_popos_idempotency:
+    name: "Pop!_OS idempotency"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'idempotency')
+      && (inputs.distro == 'all' || inputs.distro == 'popos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: popos
+      scenario: idempotency
+      timeout_minutes: 325
+  stage2_fedora_idempotency:
+    name: "Fedora idempotency"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'idempotency')
+      && (inputs.distro == 'all' || inputs.distro == 'fedora')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: fedora
+      scenario: idempotency
+      timeout_minutes: 325
+  stage2_arch_idempotency:
+    name: "Arch idempotency"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'idempotency')
+      && (inputs.distro == 'all' || inputs.distro == 'arch')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: arch
+      scenario: idempotency
+      timeout_minutes: 325
+  stage2_cachyos_idempotency:
+    name: "CachyOS idempotency"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'idempotency')
+      && (inputs.distro == 'all' || inputs.distro == 'cachyos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: cachyos
+      scenario: idempotency
+      timeout_minutes: 325
+  stage2_debian_live_profile:
+    name: "Debian live profile"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'live-profile')
+      && (inputs.distro == 'all' || inputs.distro == 'debian')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: debian
+      scenario: live-profile
+      timeout_minutes: 145
+  stage2_ubuntu_live_profile:
+    name: "Ubuntu live profile"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'live-profile')
+      && (inputs.distro == 'all' || inputs.distro == 'ubuntu')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: ubuntu
+      scenario: live-profile
+      timeout_minutes: 145
+  stage2_popos_live_profile:
+    name: "Pop!_OS live profile"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'live-profile')
+      && (inputs.distro == 'all' || inputs.distro == 'popos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: popos
+      scenario: live-profile
+      timeout_minutes: 145
+  stage2_fedora_live_profile:
+    name: "Fedora live profile"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'live-profile')
+      && (inputs.distro == 'all' || inputs.distro == 'fedora')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: fedora
+      scenario: live-profile
+      timeout_minutes: 145
+  stage2_arch_live_profile:
+    name: "Arch live profile"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'live-profile')
+      && (inputs.distro == 'all' || inputs.distro == 'arch')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: arch
+      scenario: live-profile
+      timeout_minutes: 145
+  stage2_cachyos_live_profile:
+    name: "CachyOS live profile"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'live-profile')
+      && (inputs.distro == 'all' || inputs.distro == 'cachyos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: cachyos
+      scenario: live-profile
+      timeout_minutes: 145
+  stage2_debian_forced_failure:
+    name: "Debian forced failure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'forced-failure')
+      && (inputs.distro == 'all' || inputs.distro == 'debian')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: debian
+      scenario: forced-failure
+      timeout_minutes: 115
+  stage2_ubuntu_forced_failure:
+    name: "Ubuntu forced failure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'forced-failure')
+      && (inputs.distro == 'all' || inputs.distro == 'ubuntu')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: ubuntu
+      scenario: forced-failure
+      timeout_minutes: 115
+  stage2_popos_forced_failure:
+    name: "Pop!_OS forced failure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'forced-failure')
+      && (inputs.distro == 'all' || inputs.distro == 'popos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: popos
+      scenario: forced-failure
+      timeout_minutes: 115
+  stage2_fedora_forced_failure:
+    name: "Fedora forced failure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'forced-failure')
+      && (inputs.distro == 'all' || inputs.distro == 'fedora')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: fedora
+      scenario: forced-failure
+      timeout_minutes: 115
+  stage2_arch_forced_failure:
+    name: "Arch forced failure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'forced-failure')
+      && (inputs.distro == 'all' || inputs.distro == 'arch')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: arch
+      scenario: forced-failure
+      timeout_minutes: 115
+  stage2_cachyos_forced_failure:
+    name: "CachyOS forced failure"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'forced-failure')
+      && (inputs.distro == 'all' || inputs.distro == 'cachyos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: cachyos
+      scenario: forced-failure
+      timeout_minutes: 115
 
-      - name: Resolve the matrix from the dispatch inputs, in the documented order
-        id: plan
-        env:
-          IN_SCENARIO: ${{ inputs.scenario }}
-          IN_DISTRO: ${{ inputs.distro }}
-        run: |
-          set -euo pipefail
-
-          fail() {
-            echo "::error::$1" >&2
-            exit 1
-          }
-
-          # The deliberate order e2e/README_E2E.md's "exact order every pipeline runs in"
-          # section documents: distributions left to right as arch, debian, ubuntu, fedora,
-          # cachyos, and scenarios defaults first, then the rest longest declared timeout first.
-          # This is not the same order `ls | sort` or a scenario file's own numeric prefix
-          # would give, so it is stated here rather than derived, and checked against what
-          # actually exists on disk so an added or removed distribution or scenario fails loudly
-          # instead of silently falling out of the sweep.
-          DISTRO_ORDER=(arch debian ubuntu fedora cachyos popos)
-          SCENARIO_ORDER=(defaults all-software kde-full gnome-full idempotency live-profile kde-configure-only forced-failure)
-
-          mapfile -t DISCOVERED_DISTROS < <(
-            ls -1 e2e/tier3/*.Dockerfile \
-              | xargs -n1 basename \
-              | sed 's/\.Dockerfile$//' \
-              | grep -vE '^(windows|queue)$' \
-              | sort
-          )
-          mapfile -t SORTED_DISTRO_ORDER < <(printf '%s\n' "${DISTRO_ORDER[@]}" | sort)
-          if [[ "$(printf '%s\n' "${DISCOVERED_DISTROS[@]}")" != "$(printf '%s\n' "${SORTED_DISTRO_ORDER[@]}")" ]]; then
-            fail "DISTRO_ORDER in this file (${DISTRO_ORDER[*]}) no longer matches the Dockerfiles under e2e/tier3/ (${DISCOVERED_DISTROS[*]}). Update DISTRO_ORDER."
-          fi
-
-          # declare -A, not a bare assignment. A bare SCENARIO_TIMEOUT=() is an indexed array,
-          # and a string subscript on an indexed array is evaluated as arithmetic, so
-          # SCENARIO_TIMEOUT[defaults] reads a variable called defaults, which under set -u ends
-          # the job with "defaults: unbound variable" and no hint that an array is the problem.
-          # Same defect class as the macOS wizard failure found earlier today, in a different file.
-          declare -A SCENARIO_TIMEOUT=()
-          for f in e2e/tier3/scenarios/*.yaml; do
-            name="$(grep -E '^e2e_scenario_name:' "${f}" | sed -E 's/^[^:]+:[[:space:]]*//' | tr -d '"')"
-            timeout="$(grep -E '^e2e_timeout_minutes:' "${f}" | sed -E 's/^[^:]+:[[:space:]]*//')"
-            : "${timeout:=180}"
-            SCENARIO_TIMEOUT["${name}"]="${timeout}"
-          done
-          mapfile -t DISCOVERED_SCENARIOS < <(printf '%s\n' "${!SCENARIO_TIMEOUT[@]}" | sort)
-          mapfile -t SORTED_SCENARIO_ORDER < <(printf '%s\n' "${SCENARIO_ORDER[@]}" | sort)
-          if [[ "$(printf '%s\n' "${DISCOVERED_SCENARIOS[@]}")" != "$(printf '%s\n' "${SORTED_SCENARIO_ORDER[@]}")" ]]; then
-            fail "SCENARIO_ORDER in this file (${SCENARIO_ORDER[*]}) no longer matches e2e_scenario_name in e2e/tier3/scenarios/ (${DISCOVERED_SCENARIOS[*]}). Update SCENARIO_ORDER."
-          fi
-
-          # Narrow to one distro/scenario if the dispatch form asked for it, validated against
-          # the sets just derived rather than trusted blindly: a choice input's option list can
-          # still drift from these files if one is renamed without the other being updated, the
-          # same risk e2e-manual.yml's own target_platform list carries.
-          if [[ "${IN_DISTRO}" != "all" ]]; then
-            printf '%s\n' "${DISTRO_ORDER[@]}" | grep -qx -- "${IN_DISTRO}" \
-              || fail "distro '${IN_DISTRO}' has no e2e/tier3/${IN_DISTRO}.Dockerfile"
-            DISTROS=("${IN_DISTRO}")
-          else
-            DISTROS=("${DISTRO_ORDER[@]}")
-          fi
-
-          if [[ "${IN_SCENARIO}" != "all" ]]; then
-            printf '%s\n' "${SCENARIO_ORDER[@]}" | grep -qx -- "${IN_SCENARIO}" \
-              || fail "scenario '${IN_SCENARIO}' not found under e2e/tier3/scenarios/"
-            SCENARIOS=("${IN_SCENARIO}")
-          else
-            SCENARIOS=("${SCENARIO_ORDER[@]}")
-          fi
-
-          # 40 minute buffer above each scenario's own declared timeout, same margin as
-          # e2e-manual.yml's 300 -> 340, capped at GitHub's 360 minute hard ceiling per job.
-          BUFFER=40
-          CEILING=360
-
-          # Scenario-major, distro-minor: defaults on every distribution before all-software
-          # starts on any of them, matching e2e/README_E2E.md's own reasoning that the
-          # configuration people actually get is the one whose breakage matters most.
-          MATRIX="["
-          first=true
-          for scenario in "${SCENARIOS[@]}"; do
-            base_timeout="${SCENARIO_TIMEOUT[${scenario}]}"
-            job_timeout=$(( base_timeout + BUFFER ))
-            [[ ${job_timeout} -gt ${CEILING} ]] && job_timeout=${CEILING}
-            for distro in "${DISTROS[@]}"; do
-              [[ "${first}" == true ]] || MATRIX+=","
-              MATRIX+="{\"distro\":\"${distro}\",\"scenario\":\"${scenario}\",\"timeout\":${job_timeout}}"
-              first=false
-            done
-          done
-          MATRIX+="]"
-
-          JOB_COUNT=$(( ${#DISTROS[@]} * ${#SCENARIOS[@]} ))
-
-          {
-            echo "matrix=${MATRIX}"
-            echo "job_count=${JOB_COUNT}"
-          } >> "${GITHUB_OUTPUT}"
-
-          {
-            echo "### E2E stage 2 plan"
-            echo
-            echo "${#SCENARIOS[@]} scenario(s) x ${#DISTROS[@]} distribution(s) = ${JOB_COUNT} job(s), scenario-major."
-            echo
-            echo "| order | scenario | distro | job timeout (minutes) |"
-            echo "|---|---|---|---|"
-            n=0
-            for scenario in "${SCENARIOS[@]}"; do
-              base_timeout="${SCENARIO_TIMEOUT[${scenario}]}"
-              job_timeout=$(( base_timeout + BUFFER ))
-              [[ ${job_timeout} -gt ${CEILING} ]] && job_timeout=${CEILING}
-              for distro in "${DISTROS[@]}"; do
-                n=$((n+1))
-                echo "| ${n} | ${scenario} | ${distro} | ${job_timeout} |"
-              done
-            done
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-  stage2_sweep:
-    name: "Stage 2 install on ${{ matrix.distro }}: ${{ matrix.scenario }}"
-    needs: [stage1_gate, stage2_plan]
-    if: "!cancelled() && needs.stage2_plan.result == 'success' && needs.stage2_plan.outputs.job_count != '0'"
-    runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.timeout }}
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      max-parallel: 20
-      matrix:
-        include: ${{ fromJSON(needs.stage2_plan.outputs.matrix) }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Free disk space before building any image
-        run: |
-          set -euo pipefail
-
-          echo "Disk space before cleanup:"
-          df -h /
-
-          # ubuntu-latest ships tens of gigabytes of preinstalled toolchains this repository
-          # never touches: the harness only needs Docker itself. A plain rm rather than a
-          # third-party disk-cleanup action, so the exact list removed is visible here and
-          # nowhere else. Each path is removed independently so one missing path (a runner
-          # image change) does not stop the rest from being freed.
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /usr/local/.ghcup || true
-          sudo rm -rf /opt/hostedtoolcache || true
-          sudo rm -rf /usr/share/swift || true
-          sudo docker image prune -af >/dev/null || true
-
-          echo "Disk space after cleanup:"
-          df -h /
-
-      # Ubuntu's AppArmor profile for unix_chkpwd withholds a capability that PAM needs, and a
-      # container process is confined by it because AppArmor attaches profiles by binary path, so
-      # the host's profile follows the binary inside the container. pam_unix hands shadow lookups to
-      # /usr/sbin/unix_chkpwd when the caller's real uid is not root, that helper needs
-      # CAP_DAC_OVERRIDE to read a mode 000 /etc/shadow, and the shipped profile grants only
-      # capability audit_write. The kernel logs it as
-      # apparmor="DENIED" operation="capable" profile="unix-chkpwd" capname="dac_override".
-      #
-      # Only Fedora is hit, and the reason is the file mode rather than anything about Fedora's PAM.
-      # Fedora ships /etc/shadow at 000, so even root needs the capability to read it. Debian and
-      # Ubuntu ship 0640 root:shadow with a setgid-shadow helper, and Arch ships 0600 root:root, and
-      # in both cases the ordinary permission bits are enough. Every Fedora cell of the first sweep
-      # died on this, two seconds into the play, and nine rounds of measurement inside the container
-      # could not see it because the denial happens on the host.
-      #
-      # The fix is the one linux-pam and apparmor.d both document: give the profile the capability
-      # through its local include and reload it. It touches only this runner, which is discarded at
-      # the end of the job. If the profile is not there, this says so and changes nothing, because a
-      # runner image without it does not have the problem.
-      #
-      # https://github.com/roddhjav/apparmor.d/issues/958
-      # https://github.com/linux-pam/linux-pam/issues/876
-      - name: Let unix_chkpwd read the shadow file, which Ubuntu's AppArmor profile forbids
-        run: |
-          set -euo pipefail
-          if [[ ! -f /etc/apparmor.d/unix-chkpwd ]]; then
-            echo "No unix-chkpwd AppArmor profile on this runner, so there is nothing to relax."
-            exit 0
-          fi
-          echo 'capability dac_override,' | sudo tee /etc/apparmor.d/local/unix-chkpwd
-          sudo apparmor_parser -r /etc/apparmor.d/unix-chkpwd
-          echo "Reloaded the unix-chkpwd profile with dac_override allowed."
-
-      - name: Run the tier-3 container harness
-        run: |
-          set -euo pipefail
-          bash e2e/run.sh --tier 3 --scenario "${{ matrix.scenario }}" --os "${{ matrix.distro }}"
-
-      - name: Upload e2e run artefacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-stage2-${{ matrix.scenario }}-${{ matrix.distro }}-${{ github.run_id }}
-          # e2e/run.sh writes one directory per run under e2e/runs/, each holding
-          # playbook.log, verify.log, result.txt and effective-vars.yaml, exactly as
-          # e2e-manual.yml's own artifact upload documents.
-          path: e2e/runs/
-          if-no-files-found: warn
-          retention-days: 14
-
-  # One red-or-green node for the whole Linux sweep, and nothing depends on it.
-  #
-  # It used to gate stage 3, and that was wrong in a way that cost real coverage. On 2026-08-21 six
-  # CachyOS cells and three others failed for reasons that had nothing to do with Windows or macOS,
-  # this node went red, and all seven stage 3 jobs were skipped, on the one sweep whose purpose was
-  # to confirm a day of Windows work. A Debian mirror dropping a connection is not evidence about a
-  # Windows installer, so it must not be allowed to hide one. Stage 3 now asks stage1_gate instead,
-  # which is the cheap static gate that genuinely does protect it: if the toggles, mappings, pinned
-  # values or either wizard are broken, no platform is worth booting.
-  #
-  # The exit code still matters, which is why this job stays. It is what turns a failed Linux cell
-  # into a failed run, in one place a reader can look at rather than thirty matrix cells.
   stage2_verdict:
-    name: "Stage 2 verdict: did the Linux container installs pass"
-    needs: [stage1_gate, stage2_plan, stage2_sweep]
+    name: "Verdict: Linux installs"
+    needs:
+      - stage1_gate
+      - stage2_debian_defaults
+      - stage2_ubuntu_defaults
+      - stage2_popos_defaults
+      - stage2_fedora_defaults
+      - stage2_arch_defaults
+      - stage2_cachyos_defaults
+      - stage2_debian_all_software
+      - stage2_ubuntu_all_software
+      - stage2_popos_all_software
+      - stage2_fedora_all_software
+      - stage2_arch_all_software
+      - stage2_cachyos_all_software
+      - stage2_debian_kde_full
+      - stage2_ubuntu_kde_full
+      - stage2_popos_kde_full
+      - stage2_fedora_kde_full
+      - stage2_arch_kde_full
+      - stage2_cachyos_kde_full
+      - stage2_debian_gnome_full
+      - stage2_ubuntu_gnome_full
+      - stage2_popos_gnome_full
+      - stage2_fedora_gnome_full
+      - stage2_arch_gnome_full
+      - stage2_cachyos_gnome_full
+      - stage2_debian_kde_configure_only
+      - stage2_ubuntu_kde_configure_only
+      - stage2_popos_kde_configure_only
+      - stage2_fedora_kde_configure_only
+      - stage2_arch_kde_configure_only
+      - stage2_cachyos_kde_configure_only
+      - stage2_debian_idempotency
+      - stage2_ubuntu_idempotency
+      - stage2_popos_idempotency
+      - stage2_fedora_idempotency
+      - stage2_arch_idempotency
+      - stage2_cachyos_idempotency
+      - stage2_debian_live_profile
+      - stage2_ubuntu_live_profile
+      - stage2_popos_live_profile
+      - stage2_fedora_live_profile
+      - stage2_arch_live_profile
+      - stage2_cachyos_live_profile
+      - stage2_debian_forced_failure
+      - stage2_ubuntu_forced_failure
+      - stage2_popos_forced_failure
+      - stage2_fedora_forced_failure
+      - stage2_arch_forced_failure
+      - stage2_cachyos_forced_failure
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -731,8 +1165,10 @@ jobs:
         env:
           START_FROM: ${{ inputs.start_from_stage }}
           STAGE1_OK: ${{ needs.stage1_gate.outputs.ok }}
-          PLAN_RESULT: ${{ needs.stage2_plan.result }}
-          SWEEP_RESULT: ${{ needs.stage2_sweep.result }}
+          # One string holding every cell's result, so the verdict does not need to name
+          # forty-eight variables. A cell that was skipped by the dispatch filter contributes
+          # 'skipped', which is not a failure.
+          CELL_RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
           set -euo pipefail
           if [[ "${STAGE1_OK}" != "true" ]]; then
@@ -743,11 +1179,20 @@ jobs:
             echo "Stage 2 intentionally bypassed by start_from_stage=stage-3."
             exit 0
           fi
-          if [[ "${PLAN_RESULT}" != "success" || "${SWEEP_RESULT}" != "success" ]]; then
-            echo "Stage 2 did not pass cleanly, plan='${PLAN_RESULT}' sweep='${SWEEP_RESULT}'."
+          # failure and cancelled are the only two that count. success is a cell that ran and
+          # passed, skipped is a cell the dispatch did not select, and neither is a problem.
+          bad=0
+          for r in ${CELL_RESULTS}; do
+            case "${r}" in
+              failure|cancelled) bad=$((bad + 1)) ;;
+            esac
+          done
+          if [[ "${bad}" -gt 0 ]]; then
+            echo "Stage 2 did not pass cleanly: ${bad} cell(s) failed or were cancelled."
+            echo "Results were: ${CELL_RESULTS}"
             exit 1
           fi
-          echo "Stage 2 passed."
+          echo "Stage 2 passed. Results were: ${CELL_RESULTS}"
 
   # ===========================================================================================
   # STAGE 3 - the short real installs on the other two platforms. Seven jobs, each a real wizard
@@ -770,8 +1215,8 @@ jobs:
   # ===========================================================================================
 
   stage3_macos_defaults:
-    name: "Stage 3 install on macOS: the software set as it ships"
-    needs: stage1_gate
+    name: "macOS default apps"
+    needs: [stage1_gate, stage2_verdict]
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     # macos-26 rather than macos-14, and this is a fact about Homebrew rather than a preference.
     # Casks target current macOS: rawtherapee refuses to install on anything older than Tahoe, which
@@ -823,8 +1268,8 @@ jobs:
           retention-days: 14
 
   stage3_macos_everything:
-    name: "Stage 3 install on macOS: every application turned on"
-    needs: stage1_gate
+    name: "macOS all apps"
+    needs: [stage1_gate, stage2_verdict]
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     # macos-26 rather than macos-14, and this is a fact about Homebrew rather than a preference.
     # Casks target current macOS: rawtherapee refuses to install on anything older than Tahoe, which
@@ -876,8 +1321,8 @@ jobs:
           retention-days: 14
 
   stage3_macos_from_nothing:
-    name: "Stage 3 install on macOS: nothing on, then a few by name"
-    needs: stage1_gate
+    name: "macOS four apps only"
+    needs: [stage1_gate, stage2_verdict]
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     # macos-26 rather than macos-14, and this is a fact about Homebrew rather than a preference.
     # Casks target current macOS: rawtherapee refuses to install on anything older than Tahoe, which
@@ -929,8 +1374,8 @@ jobs:
           retention-days: 14
 
   stage3_windows_defaults:
-    name: "Stage 3 install on Windows: the software set as it ships"
-    needs: stage1_gate
+    name: "Windows default apps"
+    needs: [stage1_gate, stage2_verdict]
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 150
@@ -1057,8 +1502,8 @@ jobs:
           retention-days: 14
 
   stage3_windows_everything:
-    name: "Stage 3 install on Windows: every application turned on"
-    needs: stage1_gate
+    name: "Windows all apps"
+    needs: [stage1_gate, stage2_verdict]
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 150
@@ -1180,8 +1625,8 @@ jobs:
           retention-days: 14
 
   stage3_windows_from_nothing:
-    name: "Stage 3 install on Windows: nothing on, then a few by name"
-    needs: stage1_gate
+    name: "Windows four apps only"
+    needs: [stage1_gate, stage2_verdict]
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 150
@@ -1303,8 +1748,8 @@ jobs:
           retention-days: 14
 
   stage3_windows_settings_only:
-    name: "Stage 3 configure Windows: system settings, no software"
-    needs: stage1_gate
+    name: "Windows settings only"
+    needs: [stage1_gate, stage2_verdict]
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: windows-latest
     timeout-minutes: 150

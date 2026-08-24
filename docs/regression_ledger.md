@@ -1112,3 +1112,17 @@ The plan builder had started reading three optional mapping properties, `Scope`,
 That is the fourth crash of this family in three days, after `$installationType` never being assigned, `AddRange` refusing a lone object, and `.Subject` read off a null certificate. Strict mode does not forgive an optional read, and every one of these was on a path nothing had executed.
 
 The gate hole is the more useful half. The Pester suite existed only as a CI job, so a local run of the full tier 1 gate could pass 145 assertions over a tree that CI would refuse in twenty seconds. It now runs here too, the same file with the same tag exclusions, and it was proven both ways before being committed: against the tree that broke CI it reports the failure, and against the fix it passes 27 of 30 with one skip. The CI job stays, because it runs on a clean Windows runner and this machine cannot reproduce that.
+
+#### A run graph nobody could read
+
+Status: fixed in this change, in [e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) and the new [e2e-linux-cell.yml](../.github/workflows/e2e-linux-cell.yml).
+
+Three complaints from the owner about the Actions graph, all fair.
+
+The whole Linux sweep rendered as one node reading "Matrix: stage2_sweep, 1/48 job completed". That is what GitHub does with a `strategy.matrix`: the cells are separate jobs in the sidebar but a single tile in the graph, so the picture of a run showed six stage 3 tiles by name and one anonymous box hiding forty-eight cells. Stage 2 is now forty-eight jobs, each calling a reusable workflow, so each gets its own named tile. The cost is a longer file, which is generated rather than hand-written, and the loss of `max-parallel`, which never bound anything: the account's own 20-job concurrency limit is what actually paced the matrix.
+
+Stage 3 ran alongside stage 2 rather than after it. That was deliberate and it was explained badly. It was decoupled on 2026-08-21 because gating it on stage 2's result meant six CachyOS failures skipped all seven Windows and macOS jobs on the one sweep meant to prove a day of Windows work. The fix keeps both properties: stage 3 now depends on `stage2_verdict` without reading its result, so the graph runs in order and a red Linux cell still cannot hide a Windows regression.
+
+The names were long and said little. "Stage 3 install on Windows: nothing on, then a few by name" is now "Windows four apps only", and the same treatment went through every job: "Tier 1 checks", "Windows unit tests", "Debian defaults", "CachyOS forced failure", "Verdict: Linux installs".
+
+The `if` on each cell is what the deleted `stage2_plan` job used to compute. A dispatch of `scenario: defaults` with `distro: all` runs six jobs and skips forty-two, exactly as the plan's generated matrix did.
