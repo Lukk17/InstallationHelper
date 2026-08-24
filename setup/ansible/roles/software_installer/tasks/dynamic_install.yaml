@@ -802,61 +802,140 @@
         - software_installer_batches.flatpak | length > 0
       tags: [flatpak]
 
-    # Debian flatpak batch is large enough (15–20 min) to trip the 2.19 race
-    # even with file redirect; raw bypasses the module. Arch/Fedora batches
-    # are short and stay on community.general.flatpak.
-    # set -o pipefail for the same reason as the apt batch above: without it the pipeline's status
-    # is tee's, so failed_when could never fire on a flatpak failure either.
-    - name: Install Flatpak packages (Debian, batched via raw to bypass 2.19 bug)
+    # One application at a time, and one failure does not stop the others.
+    #
+    # This was two batched tasks, one per family, and the batch was wrong for the same reason the
+    # Homebrew cask batch below was wrong. A flatpak application is an independent download of an
+    # independent bundle from Flathub. Nothing about the set is resolved together, so batching bought
+    # only the seconds flatpak spends starting up, and it cost the whole set whenever any part of the
+    # fetch failed.
+    #
+    # What it cost, measured: on 2026-08-24 twenty of the forty-eight container cells failed, every
+    # one of them on the same single URL, the Flathub summaries file, timing out inside the batch.
+    # Twenty-two applications reported missing per cell for one timeout, the software installer
+    # abandoned every task after it, and the verification refused the run. That same URL answered 200
+    # with 1.6 MB in 0.29 seconds when measured by hand at the time, so Flathub was up and what
+    # failed was one fetch from one runner. The batch turned that into a total loss.
+    #
+    # apt, dnf and pacman genuinely have to be batched, because their solvers work on the whole set
+    # and a per-package loop asks them to solve the same graph N times. flatpak has no such excuse
+    # and neither does brew, which is why the casks below are already looped.
+    #
+    # raw rather than a module, for the reason the batch used raw: a single large application can
+    # still run long enough to meet the ansible-core 2.19 deserialization race, and raw bypasses the
+    # module subsystem entirely. See the workaround section of AGENTS.md.
+    #
+    # set -o pipefail because the status of a pipeline is its last command and tee always succeeds.
+    # Without it no condition below could ever see a failure.
+    - name: Install Flatpak applications, one at a time
       ansible.builtin.raw: >-
         set -o pipefail;
-        flatpak install --system --noninteractive --assumeyes flathub
-        {{ software_installer_batches.flatpak | join(' ') }}
-        2>&1 | tee -a /var/log/installation-flatpak-batch.log
+        flatpak install --system --noninteractive --assumeyes flathub {{ item | quote }}
+        2>&1 | tee -a /var/log/installation-flatpak.log
       become: true
-      register: flatpak_batch_result
+      loop: "{{ software_installer_batches.flatpak }}"
+      loop_control:
+        label: "{{ item }}"
+      register: flatpak_install_results
       # What flatpak actually prints, established by running flatpak 1.16.6 in a debian:trixie
       # container rather than read anywhere: a ref it installs produces a line beginning
       # "Installing ", and a ref that is already present produces "Skipping: <ref> is already
-      # installed". Both come back at rc 0, and a batch where some refs are present and some are not
-      # prints one line of each kind. There is no "Nothing to do." line anywhere in any of the three
-      # cases, which is what this condition used to look for, so the task reported changed on every
-      # run including runs where flatpak installed nothing at all. Keying on an Installing line
-      # instead reports changed exactly when at least one ref was actually installed, and a mixed
-      # batch still counts as changed because it carries one.
-      changed_when: "'Installing ' in (flatpak_batch_result.stdout | default(''))"
-      failed_when: flatpak_batch_result.rc | default(0) != 0
-      # Retried as a whole for the reason on the apt batch above: this fetches from the network,
-      # and one dropped connection must not cost the run every application in the batch. What has
-      # already installed is skipped on the second attempt, so a retry costs only what was lost.
-      until: flatpak_batch_result.rc | default(1) == 0
+      # installed". Both come back at rc 0. There is no "Nothing to do." line in either case, which
+      # is what this condition used to look for, so the task reported changed on every run including
+      # runs where flatpak installed nothing at all.
+      changed_when: "'Installing ' in (flatpak_install_results.stdout | default(''))"
+      # Never fatal, so one unavailable application cannot abandon the twenty-one behind it or the
+      # rest of the installer. The collectors below turn the losses into a named failure, which is
+      # the shape the ledger asks for: tolerating the item and reporting it are two separate pieces
+      # of work and both are needed.
+      failed_when: false
+      # Per application rather than per batch, which is the whole point. Each one now has its own
+      # retry budget instead of twenty-two sharing one, so a transient fetch costs one application a
+      # minute rather than costing the set everything.
+      #
+      # until reads rc, not the result key named failed, because failed_when above rewrites that key
+      # and a succeeded test would then be true on the first attempt and no retry would ever happen.
+      until: (flatpak_install_results.rc | default(1)) == 0
       retries: 3
       delay: 20
       when:
-        - ih_family == 'Debian'
+        - ansible_facts['system'] == 'Linux'
         - software_installer_batches.flatpak | length > 0
       tags: [flatpak]
 
-    - name: Show last 30 lines of flatpak batch install log (Debian, debug)
-      ansible.builtin.command: tail -30 /var/log/installation-flatpak-batch.log
+    - name: Collect Flatpak applications whose install reported a failure
+      ansible.builtin.set_fact:
+        flatpak_reported_failures: >-
+          {{ (flatpak_install_results.results | default([]))
+             | selectattr('rc', 'defined')
+             | rejectattr('rc', 'equalto', 0)
+             | map(attribute='item')
+             | list }}
+      tags: [flatpak]
+
+    # Asked rather than assumed, the same question the AUR collector asks pacman. An install that
+    # exits zero and leaves nothing behind is a shape this repository has been bitten by three times
+    # on the AUR side, and there is no reason flatpak is immune to it.
+    - name: Ask flatpak which requested applications are actually installed
+      ansible.builtin.command:
+        cmd: flatpak list --system --app --columns=application
       become: true
+      register: flatpak_installed_query
       changed_when: false
       failed_when: false
       when:
-        - ih_family == 'Debian'
+        - ansible_facts['system'] == 'Linux'
         - software_installer_batches.flatpak | length > 0
       tags: [flatpak]
 
-    - name: Install Flatpak packages (Arch/Fedora, batched via community.general.flatpak)
-      community.general.flatpak:
-        name: "{{ software_installer_batches.flatpak }}"
-        remote: flathub
-        state: present
-      become: true
+    - name: Collect Flatpak applications that are absent after the install
+      ansible.builtin.set_fact:
+        flatpak_absent_after_install: >-
+          {{ software_installer_batches.flatpak
+             | difference(flatpak_installed_query.stdout_lines | default([]))
+             | list }}
       when:
         - ansible_facts['system'] == 'Linux'
-        - ih_family != 'Debian'
         - software_installer_batches.flatpak | length > 0
+      tags: [flatpak]
+
+    - name: Combine every kind of Flatpak failure
+      ansible.builtin.set_fact:
+        failed_flatpak_applications: >-
+          {{ (flatpak_reported_failures | default([])
+              + flatpak_absent_after_install | default([])) | unique }}
+      tags: [flatpak]
+
+    # debug rather than a command, and it renders because the callback prints a debug message on a
+    # task that has something to say. The three AUR warnings above were invisible for three runs
+    # because they were attached to tasks the callback rendered as ok with no output.
+    - name: Surface Flatpak applications that failed to install
+      ansible.builtin.debug:
+        msg: "[WARN] Flatpak applications failed to install: {{ flatpak_reported_failures | join(', ') }}. Each one is its own download, so the others in the set are unaffected and did install."
+      when: flatpak_reported_failures | default([]) | length > 0
+      tags: [flatpak]
+
+    - name: Surface Flatpak applications that reported success and are absent
+      ansible.builtin.debug:
+        msg: "[WARN] Flatpak reported success and does not list these applications: {{ flatpak_absent_after_install | join(', ') }}. Either the install exited zero without installing, or the application id in the OS dictionary is not the id Flathub publishes, in which case fix the mapping."
+      when: flatpak_absent_after_install | default([]) | length > 0
+      tags: [flatpak]
+
+    - name: Show the tail of the flatpak install log when something is missing
+      ansible.builtin.command: tail -40 /var/log/installation-flatpak.log
+      become: true
+      changed_when: false
+      failed_when: false
+      when: failed_flatpak_applications | default([]) | length > 0
+      tags: [flatpak]
+
+    # An application the user asked for and did not get means the run did not succeed, so the exit
+    # code has to say so. Recorded rather than raised, so the rest of the installer still runs and
+    # the summary names every loss at the end instead of stopping at the first one.
+    - name: Record missing Flatpak applications in the play summary
+      ansible.builtin.set_fact:
+        any_role_failed: true
+      when: failed_flatpak_applications | default([]) | length > 0
       tags: [flatpak]
 
     # ------------------ MACOS MANAGERS ------------------

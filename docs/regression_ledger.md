@@ -534,6 +534,30 @@ A defect found while measuring rather than by reasoning, and worth its own line:
 
 ---
 
+#### One flatpak fetch timing out cost twenty container cells everything
+
+Status: fixed, 2026-08-24, in [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml).
+
+Cause: the flatpak installs were two batched tasks, one for Debian through `raw` and one for Arch and Fedora through `community.general.flatpak`. A batch is a single call, so a single failure anywhere in it fails all of it.
+
+Effect: on sweep 32723213808, twenty of the forty-eight container cells failed, and every one of them failed on the same line:
+
+```text
+error: While fetching https://dl.flathub.org/repo/summaries/34abf2ee91b7a0b429589ec611bf1bd6fe9836088b12fb7717ce149b143494bd.gz: [28] Timeout was reached
+```
+
+curl error 28 is a timeout. One fetch of one 1.6 MB file. It cost twenty-two applications per cell, abandoned every task after it in the software installer, and made the verification refuse the run. The same URL, measured by hand while the sweep was still running, answered 200 with 1,644,604 bytes in 0.29 seconds, so Flathub was up and what failed was one fetch from one runner.
+
+Worth recording that the first diagnosis was wrong and how. `https://dl.flathub.org/repo/summary` answered 503 from the development machine, which looked like confirmation that Flathub was down. It was not: that path is not what the client fetches any more, Flathub having moved to `summary.idx` plus `summaries/<digest>.gz`, and a 503 on a path nobody serves says nothing at all. Reading the URL out of the failing log and fetching that exact URL is what settled it. Measure the thing the failure names, not something adjacent to it.
+
+Fix: one application at a time, with per-application retries, per-application reporting, and no failure that abandons the set. The batch had no justification in the first place. apt, dnf and pacman have to be batched because their solvers work on the whole set, and a per-package loop asks them to solve the same graph N times. A flatpak application is an independent download of an independent bundle, so batching bought only the seconds flatpak spends starting up.
+
+The identical argument had already been written into this same file two days earlier, for Homebrew casks: "a cask is an independent download and install, and looping costs only the seconds brew spends starting up". It was not carried across to flatpak, which is the whole reason this entry exists. When you find that a batch was the wrong shape for one manager, check every other manager in the same file before closing the change.
+
+Two collectors came with it, mirroring what the AUR path already does: the rc of every item is read, and flatpak is then asked with `flatpak list --system --app --columns=application` which applications are actually present. An install that exits zero and leaves nothing behind has happened three times on the AUR side, and there was no reason to assume flatpak was immune.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race
