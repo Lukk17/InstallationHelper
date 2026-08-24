@@ -155,6 +155,8 @@ A non-zero exit means the work is not done. Do not report success, do not commit
 
 That table is the short version. The complete map, including what each run still cannot prove, is the "What to run when you change something" section of [`e2e/README_E2E.md`](e2e/README_E2E.md).
 
+What none of it can prove, on any platform, is [`e2e/manual_test_matrix.md`](e2e/manual_test_matrix.md). Read it before telling the owner that something is verified: bootloaders, hibernation, Snapper, Waydroid, VirtualBox and VMware are suppressed in every container, client-edition and hardware-dependent packages are skipped on the hosted Windows runner, and macOS has no container tier at all. The page says for each one whether a virtual machine is enough or real hardware is required, and gives a command that answers the question.
+
 **For a run that must survive you closing the terminal**, drive it from the queue container rather than a shell. A queue tied to a shell is not a queue: one previously started two scenarios of three, exited, and nobody noticed for four hours.
 
 ```bash

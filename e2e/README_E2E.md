@@ -332,6 +332,8 @@ Both scenarios explain their own reasoning in full at the top of their scenario 
 
 [tier3/container_limits.yaml](tier3/container_limits.yaml) turns off the toggles a container provably cannot satisfy, and the runner prints that list on every run so no scenario is mistaken for full coverage. The list is short on purpose: hibernation, bootloader installation, Waydroid, VirtualBox, VMware and Snapper, all of which need hardware or a kernel facility that belongs to the host.
 
+What to do about them instead of nothing is [manual_test_matrix.md](manual_test_matrix.md), which covers every platform rather than only Linux: it names each untested thing, why the automation cannot reach it, whether a virtual machine is enough or real hardware is required, and a command whose output answers the question.
+
 Everything merely slow or awkward stays enabled. Pre-suppressing something because it might fail is how a real defect becomes a silent gap, which is the failure this whole directory exists to stop.
 
 Two consequences worth knowing before reading a failure as a bug. Kernel modules never build, because `/usr/lib/modules` belongs to the host, so anything using DKMS reports missing headers. And there is no login session, so tasks that need a live user D-Bus take their documented fallback path instead.
@@ -415,6 +417,7 @@ Then prove it. Copy the tree, reintroduce the defect, and confirm the check fail
 
 | Doc | What's in it |
 |---|---|
+| [manual_test_matrix.md](manual_test_matrix.md) | What no pipeline here can prove, where to prove it by hand, and how to tell it worked, for every platform and distribution |
 | [docs/regression_ledger.md](../docs/regression_ledger.md) | Every regression this project has suffered, and the prevention checklist this harness mechanises |
 | [AGENTS.md](../AGENTS.md) | The mandatory gate, and the rest of the agent contract |
 | [setup/README_SETUP.md](../setup/README_SETUP.md) | Running the playbook for real |
