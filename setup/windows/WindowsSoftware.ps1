@@ -206,9 +206,15 @@ function Resolve-WindowsSoftwarePlan {
                 Manager = $m.Manager
                 Package = $m.Package
                 Source  = $m.Source
-                Scope   = $m.Scope
-                ClientOnly  = $m.ClientOnly
-                UserContext = $m.UserContext
+                # Read defensively, because these three are optional and a caller can hand over a
+                # mapping object that predates them. The Pester suite does exactly that: it builds
+                # mappings by hand, and under Set-StrictMode -Version Latest reading a property that
+                # is not there is a terminating error, so the plan blew up on
+                # "The property 'Scope' cannot be found on this object". Third time this session
+                # that an untested read of something optional has broken a run.
+                Scope       = if ($m.PSObject.Properties['Scope'])       { $m.Scope }       else { '' }
+                ClientOnly  = if ($m.PSObject.Properties['ClientOnly'])  { $m.ClientOnly }  else { $false }
+                UserContext = if ($m.PSObject.Properties['UserContext']) { $m.UserContext } else { $false }
             })
         } else {
             $unmapped.Add($key)

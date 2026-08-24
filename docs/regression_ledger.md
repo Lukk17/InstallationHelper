@@ -1095,3 +1095,20 @@ FVM. Installed with `dart pub global activate fvm`, from pub.dev, which is Googl
 Status: done in this change, at the owner's request.
 
 `winget search "nvidia app"` returns nothing against the live source, there is no `Nvidia.NVIDIAApp` identifier, and winget-pkgs rejected the submissions in #140696, #179043 and #253660. Chocolatey carries `nvidia-app` 11.0.8.299, published 2026-07-14. So `install_nvidia_app` is mapped to Chocolatey, and `geforce_experience`, which NVIDIA discontinued, is gone.
+
+#### The gate passed 145 assertions and the sweep died at stage 1
+
+Status: fixed in this change, in [WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1), and the hole closed by [windows_pester.sh](../e2e/tier1/windows_pester.sh).
+
+Sweep 32697182413 stopped before it started. Stage 1's Pester job failed, the stage 1 gate said no, and stages 2 and 3 never ran:
+
+```text
+PropertyNotFoundException: The property 'Scope' cannot be found on this object.
+at Resolve-WindowsSoftwarePlan, setup\windows\WindowsSoftware.ps1:204
+```
+
+The plan builder had started reading three optional mapping properties, `Scope`, `ClientOnly` and `UserContext`. The Pester suite builds mappings by hand with none of them, and under `Set-StrictMode -Version Latest` reading a property that is not there is a terminating error. All three are read defensively now, through `$m.PSObject.Properties['Scope']`, so a mapping that predates them plans exactly as it did before.
+
+That is the fourth crash of this family in three days, after `$installationType` never being assigned, `AddRange` refusing a lone object, and `.Subject` read off a null certificate. Strict mode does not forgive an optional read, and every one of these was on a path nothing had executed.
+
+The gate hole is the more useful half. The Pester suite existed only as a CI job, so a local run of the full tier 1 gate could pass 145 assertions over a tree that CI would refuse in twenty seconds. It now runs here too, the same file with the same tag exclusions, and it was proven both ways before being committed: against the tree that broke CI it reports the failure, and against the fix it passes 27 of 30 with one skip. The CI job stays, because it runs on a clean Windows runner and this machine cannot reproduce that.
