@@ -619,6 +619,35 @@ The general shape, which is the third instance of it today: an entry point nothi
 
 ---
 
+#### The runner filled, and only the last line of the job said so
+
+Status: fixed, 2026-08-24, in [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml), guarded by [e2e/tier1/workflow_parity.sh](../e2e/tier1/workflow_parity.sh).
+
+Cause: a `windows-latest` runner ships roughly 20 GB of preinstalled toolchains this project never touches. Every Windows cell in the sweep deletes them before installing anything. The single-platform workflow never had that step.
+
+Effect: run 32770609386 filled the disk 65 minutes in with 81 packages to install. From that point winget failed every remaining package with the same line:
+
+```text
+failed after 1s: exit -2147009284. An unexpected error occurred while executing the command:
+ 0x80073cfc : The application cannot be started. Try reinstalling the application to fix the problem.
+```
+
+Six packages in a row reported that, and the real cause appeared exactly once, in the last line of the job:
+
+```text
+##[error]There is not enough space on the disk. : 'C:ctions-runner\cached.336.0\_diaglocks\...'
+```
+
+A reader who stopped at the first error would have gone hunting for a broken package or a bad MSIX. `0x80073cfc` is an APPX activation failure, which reads like the package's fault and is not.
+
+Fix: the sweep's cleanup step, taken verbatim rather than retyped so the two cannot drift in what they delete, plus the artefact upload the job also lacked. That second omission is why reading this failure took four attempts through three API routes: `gh run view --log-failed` returned nothing, `gh run view --log` stopped before the wizard step, and the jobs logs endpoint refused to print until told the output contains terminal escape sequences.
+
+This is the third defect of the same shape in one evening, and the reason the guard is a parity check rather than a third one-off fix. All three were in the single-platform workflow, all three were things the sweep already did correctly, and all three were found within two hours of the first time anybody dispatched that workflow at its Windows target. The lesson is not about disk space: it is that a second entry point to the same work drifts silently until somebody uses it, and the only defence is a check that compares the two rather than trust that whoever edited one edited both.
+
+The check compares capability rather than text, since the two files may word a step however they like. Every action the sweep's install jobs use must be used by the single-platform job, and if the sweep frees disk space so must the single-platform job, detected by the paths a step deletes rather than by its name so a renamed step still counts and a step renamed to look like a cleanup while deleting nothing does not.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race

@@ -556,6 +556,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Make room on the runner, which ships full of toolchains this does not use
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          function Show-Free([string] $When) {
+            $drive = Get-PSDrive -Name C
+            Write-Host ("{0}: {1:N1} GB free of {2:N1} GB on C:" -f $When,
+              ($drive.Free / 1GB), (($drive.Free + $drive.Used) / 1GB))
+          }
+          Show-Free 'before'
+          $targets = @(
+            'C:\Android',
+            'C:\Program Files (x86)\Android',
+            'C:\hostedtoolcache\windows\Go',
+            'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk',
+            'C:\hostedtoolcache\windows\Ruby',
+            'C:\hostedtoolcache\windows\PyPy',
+            'C:\Miniconda',
+            'C:\ghcup',
+            'C:\Julia',
+            'C:\Program Files\MongoDB',
+            'C:\Program Files\Microsoft SDKs\Azure'
+          )
+          foreach ($path in $targets) {
+            if (Test-Path -LiteralPath $path) {
+              $size = (Get-ChildItem -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue |
+                       Measure-Object -Property Length -Sum).Sum
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host ("  removed {0} ({1:N1} GB)" -f $path, ($size / 1GB))
+            } else {
+              Write-Host "  absent, nothing to remove: $path"
+            }
+          }
+          Show-Free 'after'
+
       - name: Best-effort winget bootstrap
         shell: pwsh
         # Best effort and non-fatal on purpose: windows-latest's runner-images inventory does
@@ -649,3 +685,39 @@ jobs:
           # keeps the step's failure the wizard's own, not a step's approximation of it.
           & ./setup/setup.ps1 @psArgs
           if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
+
+      # if: always(), because the log matters most when the run failed. Without this the only way to
+      # read what the wizard said is the job log through the API, and on the run that prompted this
+      # step that took four attempts through three routes: `gh run view --log-failed` returned
+      # nothing, `gh run view --log` stopped before the wizard step, and the jobs logs endpoint
+      # refused to print until it was told the output contains terminal escape sequences. The sweep
+      # has had this step all along.
+      - name: Collect wizard log artefacts
+        if: always()
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $dest = Join-Path $env:RUNNER_TEMP 'wizard-logs'
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          # The two the wizard writes into the profile of whoever ran it, named here rather than
+          # globbed, so a file that stopped being written is visible as an absence.
+          foreach ($name in @('installation_verify.log', 'installation_errors.log')) {
+            $path = Join-Path $env:USERPROFILE $name
+            if (Test-Path -LiteralPath $path) {
+              Copy-Item -LiteralPath $path -Destination $dest -Force
+              Write-Host "collected $name"
+            } else {
+              Write-Host "absent, nothing to collect: $name"
+            }
+          }
+
+      - name: Upload wizard log artefacts
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-manual-windows-${{ github.run_id }}
+          path: ${{ runner.temp }}/wizard-logs/
+          if-no-files-found: warn
+          retention-days: 14
