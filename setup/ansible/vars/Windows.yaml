@@ -141,7 +141,11 @@ software_mapping:
   # winget-pkgs rejected the submissions in #140696, #179043 and #253660. Chocolatey carries
   # nvidia-app 11.0.8.299, published 2026-07-14. This replaces geforce_experience, which NVIDIA
   # discontinued in favour of this application.
-  nvidia_app: { manager: "choco", package: "nvidia-app" }
+  # requires_nvidia_gpu, because this is the driver and GPU control centre rather than an
+  # ordinary application. Its installer refuses a machine with no NVIDIA adapter, which is
+  # what a hosted Windows runner is, and the wizard reports that as a skip with the adapter
+  # query behind it rather than as a failure of the tree.
+  nvidia_app: { manager: "choco", package: "nvidia-app", requires_nvidia_gpu: true }
   tcpview: { manager: "winget", package: "Microsoft.Sysinternals.TCPView" }
   autoruns: { manager: "winget", package: "Microsoft.Sysinternals.Autoruns" }
   rufus: { manager: "winget", package: "Rufus.Rufus" }

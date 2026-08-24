@@ -58,6 +58,14 @@ $script:VerdictMissing      = 'MISSING'
 $script:VerdictNotRequested = 'not requested'
 $script:VerdictUnverifiable = 'UNVERIFIABLE'
 $script:VerdictNotMapped    = 'not mapped'
+# Requested, mapped, and correctly not installed, because the machine cannot run it. The three
+# conditions behind it are the same three the install phase skips on, and they are properties of the
+# machine rather than of the run: a client-only package on Windows Server, an installer that refuses
+# an administrator context, and graphics software with no NVIDIA adapter to drive. Before this
+# existed the wizard skipped them for good reason and then failed its own verification for the
+# absence it had just explained, which is the two-sources-of-truth shape this repository keeps
+# paying for.
+$script:VerdictNotApplicable = 'not applicable'
 
 function Get-NpmGlobalPackage {
     <#
@@ -167,7 +175,8 @@ function Format-WindowsVerificationReport {
         $lines.Add(('{0,-30} {1,-14} {2}' -f $entry.Key, $entry.Verdict, "$($entry.Source): $($entry.Package)"))
     }
 
-    $requested = @($Row | Where-Object { $_.Verdict -notin @($script:VerdictNotRequested, $script:VerdictNotMapped) })
+    $requested = @($Row | Where-Object { $_.Verdict -notin @($script:VerdictNotRequested, $script:VerdictNotMapped, $script:VerdictNotApplicable) })
+    $notHere   = @($Row | Where-Object { $_.Verdict -eq $script:VerdictNotApplicable })
     $missing   = @($Row | Where-Object { $_.Verdict -eq $script:VerdictMissing })
     $unknown   = @($Row | Where-Object { $_.Verdict -eq $script:VerdictUnverifiable })
     $unmapped  = @($Row | Where-Object { $_.Verdict -eq $script:VerdictNotMapped })
@@ -176,6 +185,11 @@ function Format-WindowsVerificationReport {
     $lines.Add("requested $($requested.Count) of $($Row.Count) known items: $($requested.Count - $missing.Count - $unknown.Count) installed, $($missing.Count) missing, $($unknown.Count) unverifiable")
     $lines.Add("missing: $(if ($missing.Count) { ($missing.Key | Sort-Object) -join ', ' } else { 'none' })")
     $lines.Add("unverifiable: $(if ($unknown.Count) { ($unknown.Key | Sort-Object) -join ', ' } else { 'none' })")
+
+    # Named rather than counted away. Each one is a package the user asked for and will not get on
+    # this machine, and the row above carries the reason, so a reader who wants to know why looks up
+    # one line rather than at a number.
+    $lines.Add("requested and not applicable to this machine: $(if ($notHere.Count) { ($notHere.Key | Sort-Object) -join ', ' } else { 'none' })")
 
     # Enabled, and nothing anywhere in this wizard installs it. Reported because the user asked for
     # it and will not get it, and not counted as a failure because most of these are Linux-only
@@ -315,12 +329,43 @@ function Invoke-WindowsVerification {
         Write-Verbose "Chocolatey reports $($chocoIds.Count) installed package(s)"
     }
 
+    # The three machine facts the install phase decided its skips on, asked once here so the two
+    # phases cannot disagree. The helpers live in WindowsSoftware.ps1, which setup.ps1 dot-sources
+    # before this file precisely because the others read the mappings through it.
+    $installationType = Get-WindowsInstallationTypeForSoftware
+    $isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    $nvidiaAdapters = @(Get-NvidiaGraphicsAdapter)
+
     foreach ($key in $mappedKeys) {
         $mapping = $mappings[$key]
         $label   = "$($mapping.Manager): $($mapping.Package)"
 
         if (-not (& $wanted $key)) {
             & $add $key $mapping.Manager $mapping.Package $script:VerdictNotRequested ''
+            continue
+        }
+
+        # Read defensively for the same reason the install phase does: the Pester suite hands this
+        # code mappings built by hand without the optional keys, and under Set-StrictMode -Version
+        # Latest an absent property is a terminating error rather than $false.
+        $clientOnly  = if ($mapping.PSObject.Properties['ClientOnly'])  { $mapping.ClientOnly }  else { $false }
+        $userContext = if ($mapping.PSObject.Properties['UserContext']) { $mapping.UserContext } else { $false }
+        $needsNvidia = if ($mapping.PSObject.Properties['RequiresNvidiaGpu']) { $mapping.RequiresNvidiaGpu } else { $false }
+
+        if ($clientOnly -and $installationType -ne 'Client') {
+            & $add $key $mapping.Manager $mapping.Package $script:VerdictNotApplicable `
+                "the vendor ships this for client editions of Windows only and this is $installationType, so the install phase skipped it"
+            continue
+        }
+        if ($userContext -and $isElevated) {
+            & $add $key $mapping.Manager $mapping.Package $script:VerdictNotApplicable `
+                'its installer refuses an administrator context and this run was elevated, so the install phase skipped it'
+            continue
+        }
+        if ($needsNvidia -and $nvidiaAdapters.Count -eq 0) {
+            & $add $key $mapping.Manager $mapping.Package $script:VerdictNotApplicable `
+                'this is NVIDIA graphics software and Win32_VideoController reports no NVIDIA display adapter, so the install phase skipped it'
             continue
         }
 
@@ -471,6 +516,7 @@ function Invoke-WindowsVerification {
         Missing      = $missing
         Unverifiable = $unknown
         NotRequested = @($all | Where-Object { $_.Verdict -eq $script:VerdictNotRequested })
+        NotApplicable = @($all | Where-Object { $_.Verdict -eq $script:VerdictNotApplicable })
         Unmapped     = @($all | Where-Object { $_.Verdict -eq $script:VerdictNotMapped })
         Failed       = $failed
         Report       = $report

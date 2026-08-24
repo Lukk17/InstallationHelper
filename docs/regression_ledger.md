@@ -518,6 +518,22 @@ The general lesson, which is item 17 of the checklist above in spirit: when you 
 
 ---
 
+#### Verification failed packages the installer had correctly refused to install
+
+Status: fixed, 2026-08-24, in [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) and [setup/windows/WindowsVerify.ps1](../setup/windows/WindowsVerify.ps1).
+
+Cause: three mapping keys say a package cannot install on some machines. `client_only` for a vendor who ships client editions of Windows only, `user_context` for an installer that refuses an administrator context, and now `requires_nvidia_gpu` for graphics software with no adapter to drive. The install phase honoured the first two and skipped with the reason. The verification knew about none of them, asked the package manager whether the package was installed, was told no, and reported it MISSING.
+
+Effect: the wizard would have exited non-zero on a machine where it had behaved correctly, and blamed itself for an absence it had just explained. It went unseen because no Windows cell had reached the verification phase since those two keys were added: the sweep before this one failed in the software phase, and this one crashed between phases on the missing return above.
+
+The third key came from `nvidia_app`, which failed the `all apps` and `default apps` cells with `choco exited -436207616`. The NVIDIA App is the driver and GPU control centre, and a hosted Windows runner is an Azure virtual machine with no NVIDIA adapter. The skip is conditioned on the measured answer rather than on the runner being CI: `Win32_VideoController` is asked for adapters whose name matches NVIDIA, and only an empty answer skips. On the development machine that query returns `NVIDIA GeForce RTX 2080`, so nothing is skipped there and the package installs as before.
+
+Fix: one verdict, `not applicable`, decided from the same three machine facts in both phases, excluded from the requested count and named on its own line in the report so a reader sees which packages were refused and why. The three facts are asked once per run through helpers in `WindowsSoftware.ps1`, which `setup.ps1` dot-sources before the others precisely so they can share it.
+
+A defect found while measuring rather than by reasoning, and worth its own line: `return @($list)` does not survive assignment. PowerShell unrolls a one-element array on output, so `$a = Get-NvidiaGraphicsAdapter` binds a bare string on a machine with exactly one adapter, and `.Count` on a string is a terminating error under `Set-StrictMode -Version Latest`. The first run of the new probe on a real machine failed exactly that way. Every call site now wraps the call in `@( )` rather than trusting the function's own.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race

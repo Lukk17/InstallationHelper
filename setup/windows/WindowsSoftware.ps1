@@ -33,7 +33,7 @@ $script:ToggleLinePattern = '^(?<key>[a-z0-9_]+):\s*(?<value>true|false)\s*(#.*)
 # installers for one package and the client picks by scope: Bruno ships a per-user nullsoft
 # installer and a machine-scope MSI, and the per-user one dies with an access violation when the
 # wizard runs elevated, which is how every Windows cell of 2026-08-22 lost it.
-$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?(,\s*client_only:\s*(?<clientonly>true|false)\s*)?(,\s*user_context:\s*(?<usercontext>true|false)\s*)?\}'
+$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?(,\s*client_only:\s*(?<clientonly>true|false)\s*)?(,\s*user_context:\s*(?<usercontext>true|false)\s*)?(,\s*requires_nvidia_gpu:\s*(?<nvidia>true|false)\s*)?\}'
 
 function Get-WindowsGroupVarToggle {
     <#
@@ -169,6 +169,7 @@ function Get-WindowsSoftwareMapping {
             # true of the machine rather than of the run.
             ClientOnly  = ($Matches['clientonly'] -eq 'true')
             UserContext = ($Matches['usercontext'] -eq 'true')
+            RequiresNvidiaGpu = ($Matches['nvidia'] -eq 'true')
         }
     }
     Write-Verbose "Read $($mappings.Count) Windows package mappings"
@@ -215,6 +216,7 @@ function Resolve-WindowsSoftwarePlan {
                 Scope       = if ($m.PSObject.Properties['Scope'])       { $m.Scope }       else { '' }
                 ClientOnly  = if ($m.PSObject.Properties['ClientOnly'])  { $m.ClientOnly }  else { $false }
                 UserContext = if ($m.PSObject.Properties['UserContext']) { $m.UserContext } else { $false }
+                RequiresNvidiaGpu = if ($m.PSObject.Properties['RequiresNvidiaGpu']) { $m.RequiresNvidiaGpu } else { $false }
             })
         } else {
             $unmapped.Add($key)
@@ -325,6 +327,34 @@ function Invoke-BoundedWinget {
         return [PSCustomObject]@{ Output = $text; ExitCode = $process.ExitCode; TimedOut = $false }
     } finally {
         Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-NvidiaGraphicsAdapter {
+    <#
+    .SYNOPSIS
+        The names of the NVIDIA display adapters this machine has, or an empty array.
+
+    .DESCRIPTION
+        Asked of the machine rather than assumed, and the answer is reported in the skip detail so a
+        log says what was measured rather than what was believed. Win32_VideoController lists every
+        display adapter Windows has a driver entry for, including the Microsoft Basic Display Adapter
+        a virtual machine gets, so matching on the vendor name is the question that matters.
+
+        An empty array when the query fails, which is the same answer as "no NVIDIA adapter". That is
+        the safe direction: it can only turn an install into a reported skip, never a failure into a
+        silent pass, and the reason travels with it.
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        return @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction Stop |
+                 Where-Object { $_.Name -match 'NVIDIA' } |
+                 ForEach-Object { $_.Name })
+    } catch {
+        Write-Verbose "Win32_VideoController is unreadable: $($_.Exception.Message)"
+        return @()
     }
 }
 
@@ -647,6 +677,7 @@ function Invoke-WindowsSoftwareInstall {
             $identity   = [Security.Principal.WindowsIdentity]::GetCurrent()
             $isElevated = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
                 [Security.Principal.WindowsBuiltInRole]::Administrator)
+            $nvidiaAdapters = @(Get-NvidiaGraphicsAdapter)
 
             $index = 0
             foreach ($item in $wingetItems) {
@@ -671,6 +702,14 @@ function Invoke-WindowsSoftwareInstall {
                     })
                     continue
                 }
+                if ($item.RequiresNvidiaGpu -and $nvidiaAdapters.Count -eq 0) {
+                    Write-Host ("  ... [{0}/{1}] {2} skipped" -f $index, $wingetItems.Count, $item.Key)
+                    $results.Add([PSCustomObject]@{
+                        Key = $item.Key; Manager = 'winget'; Package = $item.Package; Status = 'skipped'
+                        Detail = 'this is NVIDIA graphics software and Win32_VideoController reports no NVIDIA display adapter on this machine, so there is nothing for it to drive'
+                    })
+                    continue
+                }
                 Write-Host ("  ... [{0}/{1}] {2} ({3})" -f $index, $wingetItems.Count, $item.Key, $item.Package)
                 $started = [datetime]::UtcNow
                 $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source `
@@ -687,6 +726,27 @@ function Invoke-WindowsSoftwareInstall {
     }
 
     $chocoItems = @($plan.Planned | Where-Object { $_.Manager -eq 'choco' })
+
+    # Hardware the machine does not have is decided before the batch rather than inside it, because
+    # Chocolatey installs these in one child process and a package that cannot run here would take
+    # its exit code back to the parent as a batch failure. nvidia_app is the case: the NVIDIA App is
+    # the driver and GPU control centre, its installer refuses a machine with no NVIDIA adapter, and
+    # a hosted Windows runner has none. Skipped with the measured reason, never quietly dropped.
+    $chocoNvidiaSkips = @($chocoItems | Where-Object { $_.RequiresNvidiaGpu })
+    if ($chocoNvidiaSkips.Count -gt 0) {
+        $adapters = @(Get-NvidiaGraphicsAdapter)
+        if ($adapters.Count -eq 0) {
+            foreach ($item in $chocoNvidiaSkips) {
+                $results.Add([PSCustomObject]@{
+                    Key = $item.Key; Manager = 'choco'; Package = $item.Package; Status = 'skipped'
+                    Detail = 'this is NVIDIA graphics software and Win32_VideoController reports no NVIDIA display adapter on this machine, so there is nothing for it to drive'
+                })
+            }
+            $skipKeys   = @($chocoNvidiaSkips | ForEach-Object { $_.Key })
+            $chocoItems = @($chocoItems | Where-Object { $_.Key -notin $skipKeys })
+        }
+    }
+
     if ($chocoItems.Count -gt 0) {
         # Asked before and after, so present, installed and failed can be told apart per package.
         # The batch's single status used to be stamped onto all of them, which meant one bad package

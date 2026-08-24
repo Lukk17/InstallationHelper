@@ -135,6 +135,37 @@ Describe 'Get-WindowsSoftwareMapping' {
         $m['storeapp'].Package | Should -Be '9NKSQGP7F2NH'
     }
 
+    # The three optional keys that say a package cannot install on some machines. Each one is a
+    # property of the machine rather than of the run, and the install phase and the verification both
+    # read them, so a parser that dropped one would make the wizard attempt an install that refuses
+    # and then fail its own verification for the absence.
+    It 'reads client_only, user_context and requires_nvidia_gpu, and defaults all three to false' {
+        $tmp = Join-Path $TestDrive 'flags.yaml'
+        @(
+            '---'
+            'software_mapping:'
+            '  plain: { manager: "winget", package: "Vendor.Plain" }'
+            '  desktoponly: { manager: "winget", package: "Vendor.Desktop", client_only: true }'
+            '  asuser: { manager: "winget", package: "Vendor.User", user_context: true }'
+            '  graphics: { manager: "choco", package: "vendor-gpu", requires_nvidia_gpu: true }'
+        ) | Set-Content -LiteralPath $tmp
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath $tmp
+
+        $m['plain'].ClientOnly        | Should -BeFalse
+        $m['plain'].UserContext       | Should -BeFalse
+        $m['plain'].RequiresNvidiaGpu | Should -BeFalse
+
+        $m['desktoponly'].ClientOnly  | Should -BeTrue
+        $m['asuser'].UserContext      | Should -BeTrue
+        $m['graphics'].RequiresNvidiaGpu | Should -BeTrue
+    }
+
+    It 'carries requires_nvidia_gpu through on the real mapping file' {
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
+        $m['nvidia_app'].RequiresNvidiaGpu | Should -BeTrue
+        $m['chrome'].RequiresNvidiaGpu     | Should -BeFalse
+    }
+
     # A silently skipped mapping is a package the user asked for and did not get, which is the
     # failure this whole file exists to end, so it has to be loud.
     It 'throws on a mapping-shaped line it cannot parse, rather than skipping it' {
