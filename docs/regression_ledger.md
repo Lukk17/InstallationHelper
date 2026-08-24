@@ -578,6 +578,31 @@ The quoting rule in that quote is a real hazard, since the chosen path contains 
 
 ---
 
+#### An array splat made the manual Windows dispatch impossible to use
+
+Status: fixed, 2026-08-24, in [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml), guarded by [e2e/tier1/powershell_splat.sh](../e2e/tier1/powershell_splat.sh).
+
+Cause: PowerShell has two splat forms that read identically and behave differently. A hashtable splat binds by name. An array splat supplies positional arguments, with the leading dashes still attached to the strings, handed to the parameters in declaration order. The step built an array.
+
+Effect: run 32762695978 died sixteen seconds in, before the wizard did anything, with an error naming a parameter nobody had passed:
+
+```text
+Cannot validate argument on parameter 'Software'. The argument "-AllowAdministrator" does not belong
+to the set "defaults,all,none" specified by the ValidateSet attribute.
+```
+
+"-NonInteractive" went to `$Profile` and "-AllowAdministrator" went to `$Software`, which carries a ValidateSet, so the message pointed at neither of the two switches actually involved.
+
+Reproduced in one command rather than reasoned about, against a scriptblock with the same parameter block: the array form raises that exact error and the hashtable form binds correctly.
+
+Why it survived: this is the manual single-platform workflow, and 2026-08-24 was the first time anybody dispatched it at its Windows target. `e2e-matrix.yml` passes its arguments inline, so every Windows cell of every sweep stayed green over a dispatch path that could never work. A defect in a path nothing exercises is invisible until the day you need that path, which was the day four Windows fixes needed verifying without a three hour sweep.
+
+Fix: a hashtable, plus one thing the array form had also been getting wrong silently. `EnableKey` and `DisableKey` are `[string[]]` in the wizard and comma separated in the workflow input, so the value is split now: passing "a,b" as one element would have reached the wizard as a single key named "a,b", matching no toggle.
+
+The check that now guards it reads the workflow YAML as well as the PowerShell files, because a workflow step is where this one lived and an abstract syntax tree cannot reach into a YAML string.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race

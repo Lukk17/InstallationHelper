@@ -605,15 +605,38 @@ jobs:
           # real console this runner does not have.
           # -AllowAdministrator: see the note above this step. Without it the wizard rejects
           # the run on its first line, before -ListSoftware or -PrintPlan could answer.
-          $psArgs = @('-NonInteractive', '-AllowAdministrator')
-          if ($env:SEL_SKIP_UPGRADE -eq 'true') { $psArgs += '-SkipSystemUpgrade' }
+          #
+          # A hashtable, not an array, and that distinction is the whole reason this step used to
+          # fail sixteen seconds in. Splatting an array supplies POSITIONAL arguments: the strings
+          # keep their leading dashes and are handed to the parameters in declaration order, so
+          # `@('-NonInteractive', '-AllowAdministrator', ...)` bound "-NonInteractive" to $Profile
+          # and "-AllowAdministrator" to $Software, and $Software has a ValidateSet, which is why
+          # the error named a set that has nothing to do with either switch:
+          #
+          #   Cannot validate argument on parameter 'Software'. The argument "-AllowAdministrator"
+          #   does not belong to the set "defaults,all,none" specified by the ValidateSet attribute.
+          #
+          # Reproduced in one command against a scriptblock with the same parameter block, so this
+          # is the mechanism rather than a theory about it. Splatting a hashtable binds by NAME and
+          # is the only correct form here. e2e-matrix.yml never hit this because it passes its
+          # arguments inline instead.
+          $psArgs = @{
+            NonInteractive     = $true
+            AllowAdministrator = $true
+          }
+          if ($env:SEL_SKIP_UPGRADE -eq 'true') { $psArgs['SkipSystemUpgrade'] = $true }
 
-          if ($env:SEL_PROFILE) { $psArgs += @('-Profile', $env:SEL_PROFILE) }
-          if ($env:SEL_SOFTWARE -and -not $env:SEL_PROFILE) { $psArgs += @('-Software', $env:SEL_SOFTWARE) }
-          if ($env:SEL_ENABLE)  { $psArgs += @('-EnableKey', $env:SEL_ENABLE) }
-          if ($env:SEL_DISABLE) { $psArgs += @('-DisableKey', $env:SEL_DISABLE) }
+          if ($env:SEL_PROFILE) { $psArgs['Profile'] = $env:SEL_PROFILE }
+          if ($env:SEL_SOFTWARE -and -not $env:SEL_PROFILE) { $psArgs['Software'] = $env:SEL_SOFTWARE }
+          # Comma separated in the workflow input and [string[]] in the wizard, so it is split here.
+          # An array element carrying "a,b" would reach the wizard as one key named "a,b", which
+          # matches no toggle and would be reported as an unknown key rather than as two keys.
+          if ($env:SEL_ENABLE)  { $psArgs['EnableKey']  = @($env:SEL_ENABLE  -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+          if ($env:SEL_DISABLE) { $psArgs['DisableKey'] = @($env:SEL_DISABLE -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
-          Write-Host "Running: setup/setup.ps1 $($psArgs -join ' ')"
+          Write-Host ("Running: setup/setup.ps1 " + (($psArgs.GetEnumerator() | Sort-Object Key | ForEach-Object {
+            if ($_.Value -is [bool]) { "-$($_.Key)" } else { "-$($_.Key) $($_.Value -join ',')" }
+          }) -join ' '))
           # No pipeline stage between this call and the step's own result: $LASTEXITCODE is
           # setup.ps1's exit code, and re-throwing it (rather than a fixed number) is what
           # keeps the step's failure the wizard's own, not a step's approximation of it.
