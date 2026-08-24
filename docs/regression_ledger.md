@@ -502,6 +502,22 @@ Measured rather than assumed, because the log timestamps could not distinguish a
 
 ---
 
+#### A deletion at the end of a function took the function's return with it
+
+Status: fixed, 2026-08-24, in [setup/windows/WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1), guarded by [e2e/tier1/windows_phase_contract.sh](../e2e/tier1/windows_phase_contract.sh).
+
+Cause: commit `fef5e56` removed the Razer Cortex block from the end of `Invoke-WindowsCustomInstall`, and the function's own `return [PSCustomObject]@{ Results = ...; Installed = ...; Present = ...; Failed = ... }` sat immediately after it. Both went. The function then fell off its own end and handed the caller nothing.
+
+Effect: `setup.ps1` reads `$r.Results.Count` off that return, and every PowerShell file here sets `Set-StrictMode -Version Latest`, where reading a property an object does not carry is a terminating error rather than an empty value. So the wizard died with "The property 'Results' cannot be found on this object", after the software phase had installed everything correctly and before the settings phase ran at all. Every Windows cell of sweep 32703419920 failed that way, and the message points at the reporting code rather than at the deletion two files away.
+
+Why nothing caught it: the file still parses, PSScriptAnalyzer has no rule for a function that returns nothing, the Pester suite never calls that function because it shells out to real installers, `powershell_variables` asks about variables rather than return values, and the tier 1 gate passed 146 assertions over the broken tree twice.
+
+Fix: the return is back, and a tier 1 check now asserts for every Windows phase function that it ends on an explicit return with nothing but blanks and comments after it, and that the union of properties across its return paths covers every property `setup.ps1` reads off the variable it is assigned to. The required list is read out of the caller rather than written into the check, so it cannot fall behind. Proven against the defect before being trusted: it fails on the tree without the return and passes with it.
+
+The general lesson, which is item 17 of the checklist above in spirit: when you delete a block at the end of a function, look at what was underneath it. An editor selection that ends at a closing brace is one line away from ending at the wrong closing brace.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race
