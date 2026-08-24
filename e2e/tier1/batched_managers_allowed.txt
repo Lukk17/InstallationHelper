@@ -1,0 +1,22 @@
+# Package managers whose install task is allowed to pass the whole set in one call, with the reason.
+# Format: <manager> <reason>
+#
+# Every manager NOT listed here must install one package at a time, and the check fails if one of
+# them passes a list instead. That is the wrong way round on purpose: batching is the exception that
+# needs justifying, because a batch is a single call and a single failure anywhere in it loses the
+# whole set.
+#
+# What that costs, from the ledger. A flatpak batch of twenty-two applications lost all twenty-two to
+# one fetch timing out, on twenty of forty-eight container cells in one sweep, and abandoned every
+# task after it. A Homebrew cask batch lost roughly thirty casks to one deleted Tor Browser build,
+# and then lost them again the next day to rawtherapee refusing an older macOS. A Chocolatey batch
+# stamped one package's failure onto every package in it.
+#
+# The test for admission is narrow: does this manager's solver work on the whole set, so that a loop
+# would ask it to solve the same dependency graph N times. If the answer is no, and the packages are
+# independent downloads, it does not belong here however convenient the batch is.
+
+apt     one dependency graph for the whole set, and a loop would make dpkg solve it again per package
+dnf     one RPM transaction for the whole set, and a loop would make libsolv resolve it again per package
+pacman  one dependency graph for the whole set, and a loop would make alpm resolve it again per package
+brew    formulae share dependencies that brew resolves across the set, unlike casks, which are looped
