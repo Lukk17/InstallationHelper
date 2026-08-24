@@ -1064,4 +1064,10 @@ function Invoke-WindowsCustomInstall {
         }
     }
 
+    return [PSCustomObject]@{
+        Results   = $results
+        Installed = @($results | Where-Object { $_.Status -eq 'installed' })
+        Present   = @($results | Where-Object { $_.Status -eq 'present' })
+        Failed    = @($results | Where-Object { $_.Status -eq 'failed' })
+    }
 }
