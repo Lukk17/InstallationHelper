@@ -150,8 +150,13 @@ for index, var, callee in calls:
     for first, final, _ in returns:
         if first == last_return:
             end = final
+    # Closing braces are not statements. A function whose last return sits inside an `if` closes
+    # one or more blocks after it, and counting those as code would report a false tail on a shape
+    # that is perfectly ordinary. The deletion this check exists for leaves real statements behind,
+    # seventeen of them in the case it was written against, so nothing is lost by ignoring closers.
     tail = [line.strip() for line in body[end + 1:-1]]
-    trailing = [line for line in tail if line and not line.startswith('#')]
+    trailing = [line for line in tail
+                if line and not line.startswith('#') and line.strip('}) 	') != '']
     if trailing:
         lines.append('FAIL %s (%s) does not end on a return, and %d statement(s) run after the last one'
                      % (callee, source, len(trailing)))
