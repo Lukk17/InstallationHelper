@@ -524,17 +524,27 @@
       async: "{{ aur_build_timeout | default(5400) | int }}"
       poll: 15
       failed_when: false
-      # One retry, because these builds are network-heavy and the observed failures are downloads
+      # Retried, because these builds are network-heavy and the observed failures are transfers
       # rather than compilation. lens-bin fetches a 230 MB AppImage, and it failed twice in the harness
       # while the identical build with the identical helper flags succeeded when run by hand in the same
       # image, which is the signature of a transient transfer rather than a broken package.
       #
+      # Five attempts across four minutes rather than three across one. The budget was raised after
+      # a kde-full run on Arch lost google-chrome to
+      # `error sending request for url (https://aur.archlinux.org/rpc): channel closed`, which is the
+      # metadata query paru makes before it builds anything, while the nine other AUR packages in the
+      # same loop built fine seconds later. aur.archlinux.org rate-limits that endpoint per source
+      # address, and a hosted runner shares its address with everything else on that cloud range, so
+      # the failure window can outlast a one-minute budget. Four minutes is still cheap: the delay is
+      # only ever paid by a package that has already failed.
+      #
       # `until` reads rc, not the result's `failed` key, and that is the only reason this works at all:
       # `failed_when: false` above rewrites `failed` to false, so `until: aur_results is succeeded`
       # would be true on the first attempt and the retry would never happen. That exact mistake is
-      # recorded in docs/regression_ledger.md against a different task in this file.
-      retries: 2
-      delay: 30
+      # recorded in docs/regression_ledger.md against a different task in this file. Measured rather
+      # than assumed: the same task shape run against /bin/false retries the full count per item.
+      retries: 4
+      delay: 60
       until: (aur_results.rc | default(1)) == 0
       loop_control:
         label: "{{ item.value.package }}"

@@ -486,6 +486,22 @@ A Flatpak batch install once hung silently for roughly an hour, the synchronous 
 
 ---
 
+#### The AUR metadata endpoint refused one package and took the whole run with it
+
+Status: fixed, 2026-08-24, in [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml).
+
+Cause: the AUR install loop asked paru for google-chrome and got `error sending request for url (https://aur.archlinux.org/rpc): channel closed`, which is the metadata query paru makes before it builds anything, so nothing was ever compiled. aur.archlinux.org rate-limits that endpoint per source address, and a hosted CI runner shares its address with every other tenant on that cloud range, so the window in which it refuses can outlast a short retry budget. The task did retry, three attempts thirty seconds apart, and ran out.
+
+Effect: the `kde-full` cell on Arch went red in sweep 32703419920 while the other forty-seven cells passed, including `defaults` on the same distribution in the same sweep. The nine other AUR packages in the same loop, brave, lens, vscode, sublime, antigravity, teamviewer, appimagelauncher, chkrootkit and gputest, all built within the next six minutes.
+
+What was not wrong: the reporting. The play refused to exit zero, the missing package was named in the terminal summary and in the error log, and `verify_install.yaml` caught it independently with `FAIL native packages missing: google-chrome`. Nothing was swallowed, which is why this entry exists at all rather than a silent green run.
+
+Fix: the retry budget rose from three attempts across one minute to five across four. The delay is only ever paid by a package that has already failed, so a clean run costs nothing extra. Nothing about `failed_when` changed, because a package that genuinely will not build still has to fail the run.
+
+Measured rather than assumed, because the log timestamps could not distinguish a retry that fired from one that never did: a task with the same shape, a loop plus `async` plus `failed_when: false` plus `until` on rc, run against `/bin/false`, emits `FAILED - RETRYING` the full count for every item. So `until` reading rc does survive `failed_when: false`, which is what the comment beside the task claims.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race
