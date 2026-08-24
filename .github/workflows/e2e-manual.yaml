@@ -543,7 +543,14 @@ jobs:
     needs: plan
     if: needs.plan.outputs.run_windows == 'true'
     runs-on: windows-latest
-    timeout-minutes: 60
+    # 150 rather than 60, from measurement. Run 32763779284 was killed at 60 minutes and 32 seconds
+    # while still installing, and the run list called it "cancelled", which reads like somebody
+    # pressed a button rather than like a ceiling that was never large enough. Every Windows cell in
+    # e2e-matrix.yml carries 150 for the identical run, and on 2026-08-24 those took 94 minutes for
+    # `Windows all apps` and 100 for `Windows default apps`, so 60 could never have been enough for
+    # the software mode this workflow defaults to. Matching the sweep at 150 is what
+    # e2e/tier1/workflow_timeouts.sh now enforces, because the same work needs the same time.
+    timeout-minutes: 150
     permissions:
       contents: read
     steps:

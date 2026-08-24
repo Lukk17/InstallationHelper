@@ -603,6 +603,22 @@ The check that now guards it reads the workflow YAML as well as the PowerShell f
 
 ---
 
+#### A sixty minute ceiling on a hundred minute install, reported as a cancellation
+
+Status: fixed, 2026-08-24, in [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml), guarded by [e2e/tier1/workflow_timeouts.sh](../e2e/tier1/workflow_timeouts.sh).
+
+Cause: the Windows job in the single-platform workflow carried `timeout-minutes: 60`. Every Windows cell in the sweep carries 150 for the identical run, and on the same day that identical run took 94 minutes for `Windows all apps` and 100 for `Windows default apps`. Sixty could never have been enough for the software mode that workflow defaults to.
+
+Effect: run 32763779284 was killed at 60 minutes and 32 seconds while still installing, and GitHub reported the run as `cancelled`.
+
+That reporting is the reason this gets its own entry rather than a one line fix. A cancelled run carries no error, no failing step and no log tail to read, so it looks exactly like somebody pressing a button. The only tell is a duration sitting suspiciously close to a round number, and the way to confirm it is to compare the job's start and end timestamps against its declared ceiling. Both of the two failures in a row on this workflow, the array splat before it and this, produced messages that pointed away from the cause.
+
+Fix: 150, matching the sweep, with the reason and the measured durations written beside it. The check now compares the largest ceiling among the sweep's install jobs for a platform against the smallest in the single-platform workflow and fails when the latter is lower. Install jobs are told from plan jobs by their runner and a ceiling of at least thirty minutes rather than by name, so a job added to either workflow is covered without anybody remembering to list it.
+
+The general shape, which is the third instance of it today: an entry point nothing exercises rots quietly. The sweep stayed green over a manual dispatch path whose argument binding could never work and whose timeout could never fit, and both were found within an hour of the first time anybody used it.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race
