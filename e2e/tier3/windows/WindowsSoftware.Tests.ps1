@@ -160,6 +160,33 @@ Describe 'Get-WindowsSoftwareMapping' {
         $m['graphics'].RequiresNvidiaGpu | Should -BeTrue
     }
 
+    It 'reads verify_path, and leaves it empty when the entry does not carry one' {
+        $tmp = Join-Path $TestDrive 'verify.yaml'
+        @(
+            '---'
+            'software_mapping:'
+            '  plain: { manager: "winget", package: "Vendor.Plain" }'
+            '  folderdrop: { manager: "winget", package: "Vendor.Drop", verify_path: "%USERPROFILE%/Desktop/Vendor Drop" }'
+        ) | Set-Content -LiteralPath $tmp
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath $tmp
+
+        $m['plain'].VerifyPath      | Should -BeNullOrEmpty
+        $m['folderdrop'].VerifyPath | Should -Be '%USERPROFILE%/Desktop/Vendor Drop'
+    }
+
+    # Forward slashes, and the test says why: this file is read by Ansible, which unescapes a
+    # double-quoted YAML scalar, and by the PowerShell reader, which takes the raw text. A backslash
+    # arrives as one character in one and two in the other, so a path with backslashes silently fails
+    # every Test-Path against it.
+    It 'carries a verify_path with no backslash in it, so both parsers agree' {
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
+        $withPaths = @($m.Keys | Where-Object { $m[$_].VerifyPath })
+        $withPaths.Count | Should -BeGreaterThan 0
+        foreach ($key in $withPaths) {
+            $m[$key].VerifyPath | Should -Not -Match ([regex]::Escape("\"))
+        }
+    }
+
     It 'carries requires_nvidia_gpu through on the real mapping file' {
         $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
         $m['nvidia_app'].RequiresNvidiaGpu | Should -BeTrue

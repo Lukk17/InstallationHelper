@@ -376,8 +376,25 @@ function Invoke-WindowsVerification {
                 } elseif (Test-WingetPackageInstalled -WingetPath $winget -PackageId $mapping.Package) {
                     & $add $key 'winget' $mapping.Package $script:VerdictInstalled ''
                 } else {
-                    & $add $key 'winget' $mapping.Package $script:VerdictMissing `
-                        "winget list --exact --id $($mapping.Package) found nothing, so it is not installed"
+                    # winget could not list it. For most packages that settles it, but a package that
+                    # registers nothing in Programs and Features cannot be listed however well it
+                    # installed, and Tor Browser is one: its manifest is Scope: user with a
+                    # DefaultInstallLocation and no AppsAndFeaturesEntries, so winget has nothing to
+                    # correlate. Those carry verify_path in the mapping, and the path is the second
+                    # question rather than a softer verdict.
+                    $probe = if ($mapping.PSObject.Properties['VerifyPath']) { $mapping.VerifyPath } else { '' }
+                    if ($probe) {
+                        $expanded = [Environment]::ExpandEnvironmentVariables($probe)
+                        if (Test-Path -LiteralPath $expanded) {
+                            & $add $key 'winget' $mapping.Package $script:VerdictInstalled ''
+                        } else {
+                            & $add $key 'winget' $mapping.Package $script:VerdictMissing `
+                                ("winget list --exact --id $($mapping.Package) found nothing and $expanded does not exist either, so it is not installed")
+                        }
+                    } else {
+                        & $add $key 'winget' $mapping.Package $script:VerdictMissing `
+                            "winget list --exact --id $($mapping.Package) found nothing, so it is not installed"
+                    }
                 }
             }
             'choco' {

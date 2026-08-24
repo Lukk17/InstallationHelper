@@ -376,6 +376,69 @@ function Invoke-ManagedTool {
     }
 }
 
+function Update-ProcessEnvironment {
+    <#
+    .SYNOPSIS
+        Copies every machine and user environment variable into this process, then rebuilds PATH.
+
+    .DESCRIPTION
+        Update-ProcessPath rebuilt PATH alone, and that is not enough for an installer that puts a
+        reference to one of its own variables into PATH. nvm-windows does exactly that: it writes
+        NVM_HOME and NVM_SYMLINK, and adds them to PATH by name rather than by value. Expanding that
+        PATH inside a process that has never heard of NVM_HOME yields nothing, so the wizard installed
+        nvm, refreshed PATH, and still could not find nvm, then told the owner to rerun the wizard.
+        Measured from the all-apps Windows cell of sweep 32739529615, which reported exactly that for
+        both `nvm install lts` and `nvm use lts`.
+
+        Every variable is copied rather than a chosen few, because the next installer to do this will
+        not be nvm and a list of names would go stale. This is what Chocolatey's refreshenv does.
+        PATH is rebuilt last, after the others exist, so a reference inside it can resolve.
+    #>
+    [CmdletBinding()]
+    param()
+
+    foreach ($scope in @('Machine', 'User')) {
+        $values = [Environment]::GetEnvironmentVariables($scope)
+        foreach ($name in $values.Keys) {
+            # PATH is the union of the two scopes rather than the last one written, so it is rebuilt
+            # separately below instead of being overwritten here.
+            if ($name -eq 'PATH') { continue }
+            [Environment]::SetEnvironmentVariable($name, $values[$name], 'Process')
+        }
+    }
+
+    Update-ProcessPath
+}
+
+function Resolve-NvmExecutable {
+    <#
+    .SYNOPSIS
+        The full path to nvm.exe, or an empty string with the places that were looked in.
+
+    .DESCRIPTION
+        PATH is asked first, because on a machine where the environment is already right that is the
+        answer. When it is not, the install locations are asked directly, which is what makes this
+        survive an installer whose environment changes have not reached this process. NVM_HOME is the
+        variable nvm-windows writes and %APPDATA%\nvm is where its own installer defaults to.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $onPath = Get-Command nvm -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+
+    $candidates = @(
+        $(if ($env:NVM_HOME) { Join-Path $env:NVM_HOME 'nvm.exe' } else { $null })
+        $(if ($env:APPDATA) { Join-Path $env:APPDATA 'nvm\nvm.exe' } else { $null })
+        $(if ($env:ProgramData) { Join-Path $env:ProgramData 'nvm\nvm.exe' } else { $null })
+    ) | Where-Object { $_ }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return ''
+}
+
 function Install-NodeViaNvm {
     <#
     .SYNOPSIS
@@ -421,9 +484,24 @@ function Install-NodeViaNvm {
         return $results
     }
 
-    Update-ProcessPath
-    $results.Add((Invoke-ManagedTool -Key 'nodejs' -FilePath 'nvm' -ArgumentList @('install', 'lts') -TimeoutMinutes 15))
-    $results.Add((Invoke-ManagedTool -Key 'nodejs' -FilePath 'nvm' -ArgumentList @('use', 'lts') -TimeoutMinutes 5))
+    # The whole environment, not just PATH. nvm-windows puts NVM_HOME into PATH by name, so a PATH
+    # refresh on its own leaves an entry this process cannot expand.
+    Update-ProcessEnvironment
+
+    $nvm = Resolve-NvmExecutable
+    if (-not $nvm) {
+        $looked = @('PATH', '$env:NVM_HOME\nvm.exe', '%APPDATA%\nvm\nvm.exe', '%ProgramData%\nvm\nvm.exe') -join ', '
+        foreach ($step in @('install lts', 'use lts')) {
+            $results.Add([PSCustomObject]@{ Key = 'nodejs'; Package = "nvm $step"; Status = 'failed'
+                                            Detail = "nvm-windows reported that it installed and nvm.exe is in none of the places it puts itself, so Node was not installed. Looked in: $looked" })
+        }
+        return $results
+    }
+
+    # By absolute path rather than by name. The environment has been refreshed above, and calling the
+    # resolved path as well means a PATH entry that still has not landed cannot cost the install.
+    $results.Add((Invoke-ManagedTool -Key 'nodejs' -FilePath $nvm -ArgumentList @('install', 'lts') -TimeoutMinutes 15))
+    $results.Add((Invoke-ManagedTool -Key 'nodejs' -FilePath $nvm -ArgumentList @('use', 'lts') -TimeoutMinutes 5))
     return $results
 }
 
@@ -1055,9 +1133,30 @@ function Invoke-WindowsCustomInstall {
             # the HTTPS release URL itself, and at the owner's decision that is enough here: a
             # checksum would only have to be re-measured on every version bump, and it would fail
             # the install rather than protect it when nobody remembered.
-            $results.Add((Install-DirectInstaller -Key 'gridcoin' -Url $pin.Url -SilentArgument @('/S') `
+            # /D= chooses the directory rather than trusting the vendor default, and the directory
+            # chosen is the one the proof then checks, so the two cannot disagree. They did: the
+            # all-apps Windows cell of sweep 32739529615 reported the installer exiting 0 with
+            # C:\Program Files\Gridcoin absent, and the default could not be read out of the binary
+            # because the NSIS script block is compressed and there is no unpacker to hand.
+            #
+            # The NSIS documentation, chapter 3, on the switch this passes: "/D sets the default
+            # installation directory ($INSTDIR), overriding InstallDir and InstallDirRegKey. It must
+            # be the last parameter used in the command line and must not contain any quotes, even if
+            # the path contains spaces. Only absolute paths are supported." So it goes last, unquoted,
+            # and PowerShell must not be allowed to quote it either, which is why it is one argument
+            # string with the path appended rather than two.
+            #
+            # That last point was measured rather than trusted, because a path with a space in it is
+            # exactly what an argument builder likes to wrap in quotes. On pwsh 7.6.5, Start-Process
+            # -ArgumentList @('/S', '/D=C:\Program Files\Gridcoin') reaches the child as
+            # `/S /D=C:\Program Files\Gridcoin` with no quotes at all, identical to building the
+            # command line by hand through ProcessStartInfo.Arguments. So the array form is safe here
+            # and no raw-string escape hatch is needed.
+            $gridcoinDir = @($proofs['gridcoin'].Path)[0]
+            $results.Add((Install-DirectInstaller -Key 'gridcoin' -Url $pin.Url `
+                -SilentArgument @('/S', "/D=$gridcoinDir") `
                 -AllowUnsigned `
-                -ProofPath @($proofs['gridcoin'].Path)[0]))
+                -ProofPath $gridcoinDir))
         } else {
             $results.Add([PSCustomObject]@{ Key = 'gridcoin'; Package = 'gridcoin_win_installer_url'; Status = 'failed'
                                             Detail = $pin.Reason })

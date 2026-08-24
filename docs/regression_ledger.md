@@ -558,6 +558,26 @@ Two collectors came with it, mirroring what the AUR path already does: the rc of
 
 ---
 
+#### The four the Windows all-apps cell named once it could run to the end
+
+Status: all four fixed, 2026-08-24. Found by sweep 32739529615, which is the first sweep where the Windows wizard reached its own verification instead of dying between phases.
+
+Worth stating why they appeared together. The two sweeps before this one failed in the software phase and then on a deleted function return, so nothing downstream of the software phase had run since those defects were introduced. A run that cannot finish cannot tell you what else is wrong, which is why "the wizard now reports every phase" was worth more than it looked.
+
+Razer Synapse exited -1 through Chocolatey while maven and vmware-workstation-player either side of it in the same batch exited 0, so the batch was not the problem. razer.com/synapse-4 states its operating system support as "Windows 11 x86-64, Windows 10" and names no Server edition, which is the same evidence that settled MiniTool Partition Wizard, so the mapping carries `client_only: true` and the wizard reports it skipped on a Server runner with that reason.
+
+Tor Browser was reported installed after 36 seconds and then reported MISSING by the verification eight minutes later. Both were right. Its winget manifest is `Scope: user` with `DefaultInstallLocation: Desktop\Tor Browser` and declares no `AppsAndFeaturesEntries`, so it registers nothing in Programs and Features and `winget list --exact --id` has nothing to correlate against, however well it installed. A verdict of MISSING for a package that cannot be listed is a false negative, and softening it to unverifiable would have been worse: it would hide a genuine absence too. So the mapping gained `verify_path`, an optional second question asked only when winget cannot answer, and for this package the path is the one the vendor's own manifest documents.
+
+That key came with a trap worth recording. Two parsers read `vars/Windows.yaml`: Ansible, which unescapes a double-quoted YAML scalar, and the PowerShell reader, which takes the raw text between the quotes. A path written with backslashes therefore arrives as one character in one and two in the other, measured, with `Test-Path` answering false against `C:\Users\Lukk\\Desktop\\Tor Browser`. A single backslash cannot be written either, being an invalid YAML escape. Forward slashes are what both parsers agree on, and Windows accepts them in a path, so the value carries no backslash at all and a Pester test now fails if one appears.
+
+nvm-windows installed and was invisible to the process that had just installed it, so the wizard reported "nvm is not on PATH, rerun the wizard once" for both `nvm install lts` and `nvm use lts`. Telling the operator to run it again is the wizard giving up. The cause is that nvm-windows writes NVM_HOME and NVM_SYMLINK and then puts them into PATH by name, so refreshing PATH alone leaves an entry the process cannot expand, and `Update-ProcessPath` refreshed PATH alone. Two belts now: the whole machine and user environment is copied into the process before PATH is rebuilt, so a reference inside PATH can resolve, and nvm.exe is located explicitly under NVM_HOME, %APPDATA%\nvm and %ProgramData%\nvm and invoked by absolute path. If it is in none of them, that is now a named failure listing where it looked, not advice to try again.
+
+Gridcoin exited 0 and left nothing at the directory the proof checked. The default install directory could not be read out of the binary: the installer is NSIS, confirmed by finding `Nullsoft.NSIS.exehead` in the file, and its script block is compressed in a form neither deflate nor LZMA would open here with no unpacker available. Rather than guess the vendor default, the installer is now told where to install, which makes the directory the proof checks the directory that was chosen. From the NSIS documentation, chapter 3: "/D sets the default installation directory ($INSTDIR), overriding InstallDir and InstallDirRegKey. It must be the last parameter used in the command line and must not contain any quotes, even if the path contains spaces. Only absolute paths are supported."
+
+The quoting rule in that quote is a real hazard, since the chosen path contains a space and argument builders like to quote those. Measured on pwsh 7.6.5 rather than assumed: `Start-Process -ArgumentList @('/S', '/D=C:\Program Files\Gridcoin')` reaches the child as `/S /D=C:\Program Files\Gridcoin` with no quotes, byte for byte identical to building the command line by hand through `ProcessStartInfo.Arguments`. So the array form is safe and no raw-string escape hatch was needed.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race

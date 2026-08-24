@@ -3,7 +3,20 @@ software_mapping:
   # Browsers
   chrome: { manager: "winget", package: "Google.Chrome" }
   brave: { manager: "winget", package: "Brave.Brave" }
-  tor: { manager: "winget", package: "TorProject.TorBrowser" }
+  # verify_path, because winget installs this and then cannot list it back. Its manifest says
+  # Scope: user with DefaultInstallLocation "Desktop\Tor Browser" and declares no
+  # AppsAndFeaturesEntries, so there is nothing in Programs and Features for
+  # `winget list --exact --id` to correlate, and the install reported installed after 36s while
+  # the verification called it MISSING. The path is the second question, and it is the vendor
+  # location the manifest itself documents rather than a guess.
+  #
+  # Forward slashes deliberately. Two parsers read this file: Ansible, which unescapes a
+  # double-quoted YAML scalar, and the PowerShell reader, which takes the raw text between the
+  # quotes. Measured rather than reasoned about: with backslashes the PowerShell reader handed
+  # back "%USERPROFILE%\Desktop\Tor Browser" and Test-Path answered false against it, while a
+  # single backslash cannot be written at all because it is an invalid YAML escape. Windows
+  # accepts forward slashes in a path, so both parsers agree and neither needs an escape rule.
+  tor: { manager: "winget", package: "TorProject.TorBrowser", verify_path: "%USERPROFILE%/Desktop/Tor Browser" }
 
   # Dev Tools
   git: { manager: "winget", package: "Git.Git" }
@@ -104,7 +117,11 @@ software_mapping:
   # to pass and the graphical installer blocks an unattended run. The Chocolatey package installs all
   # five Razer components with `/S` and pinned checksums. Synapse 3 is excluded, Razer ended its cloud
   # services on 2026-02-03.
-  synapse: { manager: "choco", package: "razer-synapse-4" }
+  # client_only, on the vendor's own evidence. razer.com/synapse-4 lists its operating system
+  # support as "Windows 11 x86-64, Windows 10" and names no Server edition, and the package
+  # exited -1 on a Windows Server runner while maven and vmware-workstation-player either side
+  # of it in the same Chocolatey batch exited 0. Same shape as partition_wizard.
+  synapse: { manager: "choco", package: "razer-synapse-4", client_only: true }
 
   # CAD / 3D
   freecad: { manager: "winget", package: "FreeCAD.FreeCAD" }

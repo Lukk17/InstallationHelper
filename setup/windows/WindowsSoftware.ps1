@@ -33,7 +33,7 @@ $script:ToggleLinePattern = '^(?<key>[a-z0-9_]+):\s*(?<value>true|false)\s*(#.*)
 # installers for one package and the client picks by scope: Bruno ships a per-user nullsoft
 # installer and a machine-scope MSI, and the per-user one dies with an access violation when the
 # wizard runs elevated, which is how every Windows cell of 2026-08-22 lost it.
-$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?(,\s*client_only:\s*(?<clientonly>true|false)\s*)?(,\s*user_context:\s*(?<usercontext>true|false)\s*)?(,\s*requires_nvidia_gpu:\s*(?<nvidia>true|false)\s*)?\}'
+$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?(,\s*client_only:\s*(?<clientonly>true|false)\s*)?(,\s*user_context:\s*(?<usercontext>true|false)\s*)?(,\s*requires_nvidia_gpu:\s*(?<nvidia>true|false)\s*)?(,\s*verify_path:\s*"(?<verifypath>[^"]*)"\s*)?\}'
 
 function Get-WindowsGroupVarToggle {
     <#
@@ -170,6 +170,10 @@ function Get-WindowsSoftwareMapping {
             ClientOnly  = ($Matches['clientonly'] -eq 'true')
             UserContext = ($Matches['usercontext'] -eq 'true')
             RequiresNvidiaGpu = ($Matches['nvidia'] -eq 'true')
+            # A path that proves the package is installed when the package manager cannot say so.
+            # Empty for almost everything, because asking the manager is the better question when
+            # the manager can answer.
+            VerifyPath = if ($Matches['verifypath']) { $Matches['verifypath'] } else { '' }
         }
     }
     Write-Verbose "Read $($mappings.Count) Windows package mappings"
@@ -217,6 +221,7 @@ function Resolve-WindowsSoftwarePlan {
                 ClientOnly  = if ($m.PSObject.Properties['ClientOnly'])  { $m.ClientOnly }  else { $false }
                 UserContext = if ($m.PSObject.Properties['UserContext']) { $m.UserContext } else { $false }
                 RequiresNvidiaGpu = if ($m.PSObject.Properties['RequiresNvidiaGpu']) { $m.RequiresNvidiaGpu } else { $false }
+                VerifyPath  = if ($m.PSObject.Properties['VerifyPath'])  { $m.VerifyPath }  else { '' }
             })
         } else {
             $unmapped.Add($key)
