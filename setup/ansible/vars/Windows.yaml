@@ -118,7 +118,17 @@ software_mapping:
   gog: { manager: "winget", package: "GOG.Galaxy" }
   epic: { manager: "winget", package: "EpicGames.EpicGamesLauncher" }
   ea_app: { manager: "winget", package: "ElectronicArts.EADesktop" }
-  curseforge: { manager: "winget", package: "Overwolf.CurseForge" }
+  # scope machine, because the manifest offers two installers that differ only in scope and
+  # winget picked the wrong one. Measured on 2026-08-25 after the Windows all-apps run failed
+  # with exit -1978335226 after eleven seconds, which is 0x8A150006,
+  # APPINSTALLER_CLI_ERROR_SHELLEXEC_INSTALL_FAILED, documented as "Running ShellExecute
+  # failed", so winget could not launch the installer at all rather than the installer refusing.
+  #
+  # Manifest 0.220.1-9343 carries the same curseforge-latest-win64.exe twice: scope machine with
+  # /ALLUSERS and scope user with /CURRENTUSER. Without a scope in the mapping winget chooses,
+  # and the wizard runs elevated, where a user-scope install is the one that fails. Same shape
+  # as bruno above.
+  curseforge: { manager: "winget", package: "Overwolf.CurseForge", scope: "machine" }
   # The MS Store id 9PK9W5QV2PKX was the Game Bar widget Razer discontinued on 2026-07-01 and resolves on
   # no winget source, and winget-pkgs carries no Cortex manifest under any Razer publisher.
 
