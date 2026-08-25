@@ -776,6 +776,24 @@ concurrent jobs the account allows and both would crawl.
 
 ---
 
+#### A winget manifest whose download is gone, and four network steps with no retry
+
+Status: both fixed, 2026-08-25. Found by the Windows defaults cell of the final sweep 32839893770, which reported exactly two failures and named both.
+
+The first is upstream rot that no check here could have predicted. `hwinfo` was mapped to winget as `REALiX.HWiNFO`, and the install failed with `0x80190194 : Not found (404)`. Measured afterwards: the newest manifest, version 8.50, names `https://www.sac.sk/download/utildiag/hwi_850x.exe`, and that URL answers 404, as does `hwi_848x.exe` from the version before it. The vendor's own download page answers 403 to a plain fetch, so there was no URL to substitute either.
+
+Worth noting what this defeats. Tier 2 resolves winget package identifiers, and that identifier resolves perfectly: the manifest exists and is current. What is dead is the file the manifest points at, one level below what the check can see. A winget install can therefore fail on a package that every static check calls healthy.
+
+Fixed by moving to Chocolatey, and the reason it is the right answer rather than merely a different one was measured. The `hwinfo.install` nupkg was fetched and unpacked: `tools/hwi64.exe` is inside it at 18,669,136 bytes and `chocolateyinstall.ps1` installs that local file with `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`. It downloads nothing at install time, so it has no mirror to rot. The cost is version, 8.30.0 against the dead manifest's 8.50, and a working 8.30 beats a 404 on 8.50.
+
+The second is ours. Installing Ansible inside WSL on a Debian family distribution ran four steps in sequence, every one of which reaches the network, with no retry on any of them and no check afterwards that anything had landed. `add-apt-repository --yes --update ppa:ansible/ansible` exited 1 after printing "Adding repository." and took the phase with it.
+
+The PPA was not the cause, which is worth stating because it was the obvious suspect. It publishes for this suite: `https://ppa.launchpadcontent.net/ansible/ansible/ubuntu/dists/resolute/Release` answers 200, and the distribution's own `ansible` exists for resolute too. What failed was the apt update that `--update` performs, and nothing retried it.
+
+Three changes. Every step retries three times with a pause, since apt keeps what it already fetched so a retry costs only what was lost. The PPA step is now the only optional one, so a PPA outage costs a newer ansible-core rather than costing Ansible, and the summary line names the step that was skipped. And the phase now asks `which ansible-playbook` before reporting success, because it used to report installed on the strength of the last step exiting zero, which is the shape this repository has been burnt by repeatedly.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race

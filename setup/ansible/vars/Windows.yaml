@@ -143,7 +143,21 @@ software_mapping:
 
   # Windows Only Native Apps
   hwmonitor: { manager: "winget", package: "CPUID.HWMonitor" }
-  hwinfo: { manager: "winget", package: "REALiX.HWiNFO" }
+  # Chocolatey rather than winget, because the winget manifest downloads from a mirror that is
+  # gone. Measured on 2026-08-25 after the Windows defaults cell of sweep 32839893770 failed
+  # with "0x80190194 : Not found (404)": the newest manifest, version 8.50, and the one before
+  # it both name https://www.sac.sk/download/utildiag/hwi_850x.exe and hwi_848x.exe, and both
+  # answer 404. hwinfo.com itself answers 403 to a plain fetch, so there is no vendor URL to
+  # substitute either.
+  #
+  # The Chocolatey package does not download anything at install time, which is what makes it
+  # the right answer rather than merely a different one. Its nupkg was fetched and unpacked to
+  # check: tools/hwi64.exe is inside it at 18,669,136 bytes and chocolateyinstall.ps1 installs
+  # that local file with /VERYSILENT /SUPPRESSMSGBOXES /NORESTART. No mirror to rot.
+  #
+  # The cost is version: Chocolatey carries 8.30.0 against the dead manifest's 8.50. A working
+  # 8.30 beats a 404 on 8.50.
+  hwinfo: { manager: "choco", package: "hwinfo.install" }
   crystaldiskinfo: { manager: "winget", package: "CrystalDewWorld.CrystalDiskInfo" }
   crystaldiskmark: { manager: "winget", package: "CrystalDewWorld.CrystalDiskMark" }
   msiafterburner: { manager: "winget", package: "Guru3D.Afterburner" }

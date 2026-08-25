@@ -684,15 +684,27 @@ function Install-AnsibleInWsl {
         # No sudo, because these run as root already. Asking for it would fail on a distribution
         # that does not ship it, which Arch does not, and on a fresh registration where no user
         # exists to be in its sudoers.
+        # Each step carries whether it may fail. Every one of these reaches the network, and on
+        # 2026-08-25 the Windows defaults cell of sweep 32839893770 lost the whole phase to one of
+        # them: `add-apt-repository --yes --update ppa:ansible/ansible` exited 1 after printing
+        # "Adding repository." The PPA was not the problem, measured the same day, it publishes for
+        # this suite and https://ppa.launchpadcontent.net/ansible/ansible/ubuntu/dists/resolute/Release
+        # answers 200. What failed was the apt update that `--update` performs, and there was no retry
+        # anywhere in this sequence.
+        #
+        # Optional means a failure is reported and the sequence continues. Only the PPA is optional,
+        # and only because the distribution's own ansible is inside the version range setup.sh
+        # accepts, so losing the PPA costs a newer ansible-core rather than costing Ansible. Every
+        # other step is required, because without it nothing is installed at all.
         $steps = switch -Regex ($distroId) {
             'debian|ubuntu'      { ,@(
-                                     @('apt-get', 'update', '-q'),
-                                     @('apt-get', 'install', '-y', 'software-properties-common'),
-                                     @('add-apt-repository', '--yes', '--update', 'ppa:ansible/ansible'),
-                                     @('apt-get', 'install', '-y', 'ansible')
+                                     @{ Args = @('apt-get', 'update', '-q'); Optional = $false },
+                                     @{ Args = @('apt-get', 'install', '-y', 'software-properties-common'); Optional = $false },
+                                     @{ Args = @('add-apt-repository', '--yes', '--update', 'ppa:ansible/ansible'); Optional = $true },
+                                     @{ Args = @('apt-get', 'install', '-y', 'ansible'); Optional = $false }
                                    ) }
-            'fedora|rhel|centos' { ,@( ,@('dnf', 'install', '-y', 'ansible') ) }
-            'arch'               { ,@( ,@('pacman', '-S', '--noconfirm', 'ansible') ) }
+            'fedora|rhel|centos' { ,@( @{ Args = @('dnf', 'install', '-y', 'ansible'); Optional = $false } ) }
+            'arch'               { ,@( @{ Args = @('pacman', '-S', '--noconfirm', 'ansible'); Optional = $false } ) }
             default              { $null }
         }
         if (-not $steps) {
@@ -701,22 +713,59 @@ function Install-AnsibleInWsl {
             return New-WslResult -Results $results
         }
 
-        $rendered = ($steps | ForEach-Object { $_ -join ' ' }) -join ' && '
+        $rendered = ($steps | ForEach-Object { $_.Args -join ' ' }) -join ' && '
         if (-not $PSCmdlet.ShouldProcess("$distroId inside WSL", 'install ansible')) {
             & $add 'skipped' "WhatIf, would run in '$distro': $rendered"
             return New-WslResult -Results $results
         }
 
         Write-Status "Installing Ansible inside WSL ($distro, family $distroId)..."
+        $skippedSteps = [System.Collections.Generic.List[string]]::new()
         foreach ($step in $steps) {
-            wsl --distribution $distro --user root -- @step | Out-Host
-            if ($LASTEXITCODE -ne 0) {
-                & $add 'failed' ("'$($step -join ' ')' exited $LASTEXITCODE inside '$distro', so Ansible " +
-                    "is not installed in there. The whole sequence is: $rendered")
+            $label = $step.Args -join ' '
+            $lastCode = 0
+            # Three attempts with a pause between them, because these are network operations and a
+            # single dropped connection must not cost the phase. The pause is short: apt keeps what it
+            # already fetched, so a retry costs only what was lost.
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+                if ($attempt -gt 1) {
+                    Write-Hint "  retrying '$label' inside '$distro', attempt $attempt of 3"
+                    Start-Sleep -Seconds 15
+                }
+                wsl --distribution $distro --user root -- @($step.Args) | Out-Host
+                $lastCode = $LASTEXITCODE
+                if ($lastCode -eq 0) { break }
+            }
+            if ($lastCode -ne 0) {
+                if ($step.Optional) {
+                    $skippedSteps.Add($label)
+                    Write-Hint ("  '$label' exited $lastCode after three attempts and is not required, " +
+                        "so the sequence continues with the distribution's own package instead")
+                    continue
+                }
+                & $add 'failed' ("'$label' exited $lastCode inside '$distro' after three attempts, so " +
+                    "Ansible is not installed in there. The whole sequence is: $rendered")
                 return New-WslResult -Results $results
             }
         }
-        & $add 'installed' 'installed inside WSL'
+
+        # Asked rather than assumed. This phase used to report installed on the strength of the last
+        # step exiting zero, which is the shape this repository has been burnt by repeatedly: a
+        # command that succeeds and leaves nothing behind. `which` is the same question the early-exit
+        # probe above asks, so a present run and an installed run are decided the same way.
+        $null = wsl --distribution $distro --user root -- which ansible-playbook 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            & $add 'failed' ("every install step exited zero inside '$distro' and ansible-playbook is " +
+                "still not on PATH there, so nothing usable was installed. The sequence was: $rendered")
+            return New-WslResult -Results $results
+        }
+
+        $note = if ($skippedSteps.Count -gt 0) {
+            "installed inside WSL, without $($skippedSteps -join ', '), which failed and is not required"
+        } else {
+            'installed inside WSL'
+        }
+        & $add 'installed' $note
         return New-WslResult -Results $results
     } finally {
         $PSNativeCommandUseErrorActionPreference = $previousNative

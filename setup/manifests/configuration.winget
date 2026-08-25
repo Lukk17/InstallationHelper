@@ -15,7 +15,7 @@
 # the shell is already elevated. No flag suppresses that dialog, so an already-elevated
 # session is the only unattended route.
 #
-# 72 packages from the winget community repository and 7 from the
+# 71 packages from the winget community repository and 7 from the
 # Microsoft Store. The Store entries are product identifiers rather than manifests, they need
 # the Store present and its agreement accepted, and they are the least portable thing here.
 #
@@ -263,14 +263,6 @@ properties:
         allowPrerelease: false
       settings:
         id: Helm.Helm
-        source: winget
-    - resource: Microsoft.WinGet.DSC/WinGetPackage
-      id: hwinfo
-      directives:
-        description: Install hwinfo (REALiX.HWiNFO)
-        allowPrerelease: false
-      settings:
-        id: REALiX.HWiNFO
         source: winget
     - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: hwmonitor
