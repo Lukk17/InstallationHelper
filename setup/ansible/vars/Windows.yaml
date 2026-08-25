@@ -35,7 +35,18 @@ software_mapping:
   # Ansible Windows task also chose (verified Google.AndroidStudio with winget show).
   android_sdk: { manager: "winget", package: "Google.AndroidStudio" }
   postman: { manager: "winget", package: "Postman.Postman" }
-  openssl: { manager: "winget", package: "ShiningLight.OpenSSL.Light" }
+  # FireDaemon rather than Shining Light, because Shining Light's download is gone. Measured on
+  # 2026-08-25 after the Windows all-apps run failed with 0x80190194, not found: the winget
+  # manifest for ShiningLight.OpenSSL.Light 4.0.1 names
+  # https://slproweb.com/download/Win64OpenSSL_Light-4_0_1.msi and that answers 404, as does the
+  # version before it, and as does the .exe the Chocolatey openssl package fetches from the same
+  # host. The vendor page itself answers 200 but builds its download links in the browser, so
+  # the current filename cannot be read from a script and there was nothing to substitute.
+  #
+  # FireDaemon publishes the same OpenSSL 4.0.1 from its own host and it answers 200 with
+  # 17,528,856 bytes, measured. Different vendor, different host, same version, and it is in
+  # winget-pkgs so Microsoft's review accepted it.
+  openssl: { manager: "winget", package: "FireDaemon.OpenSSL" }
   dbeaver: { manager: "winget", package: "DBeaver.DBeaver.Community" }
   kubectl: { manager: "winget", package: "Kubernetes.kubectl" }
   minikube: { manager: "winget", package: "Kubernetes.minikube" }

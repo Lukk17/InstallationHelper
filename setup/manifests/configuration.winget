@@ -363,10 +363,10 @@ properties:
     - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: openssl
       directives:
-        description: Install openssl (ShiningLight.OpenSSL.Light)
+        description: Install openssl (FireDaemon.OpenSSL)
         allowPrerelease: false
       settings:
-        id: ShiningLight.OpenSSL.Light
+        id: FireDaemon.OpenSSL
         source: winget
     - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: partition_wizard
