@@ -142,6 +142,26 @@
       changed_when: true
       when: razer_synapse_receipt.rc != 0
 
+    # This installer disrupts the connection, and the task after it paid for that. From the macOS
+    # defaults cell of run 32864564543, the install reported success at 15:53:26 and the very next
+    # task came back `unreachable` at 15:53:42, with `failed=0` in the recap. On a local connection
+    # unreachable does not mean a task decided it failed, it means Ansible could not deliver the
+    # module to a host it was already running on. Sixty-five packages had installed by then.
+    #
+    # Intermittent, which is why it took until now to see: the same cell passed in run 32839893770
+    # an hour earlier. It depends on how long Razer's postinstall work keeps the session busy.
+    #
+    # wait_for_connection is the mechanism Ansible provides for this, and it is the honest one. Not a
+    # rescue and not ignore_errors, because both of those would hide a genuine failure of the install
+    # itself, and not merging this into the install task either, because a disruption long enough to
+    # kill the next task would kill whatever came after it too. This waits for the transport to
+    # answer and then carries on, and if it never answers the play still fails.
+    - name: Wait for the connection to come back after the Synapse installer
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 180
+      when: razer_synapse_receipt.rc != 0
+
     - name: Remove the staged Razer Synapse pkg
       ansible.builtin.file:
         path: "{{ software_installer_stage_dir }}/RazerSynapseInstaller.pkg"

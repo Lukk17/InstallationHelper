@@ -794,6 +794,28 @@ Three changes. Every step retries three times with a pause, since apt keeps what
 
 ---
 
+#### The Razer Synapse installer on macOS drops the connection under Ansible
+
+Status: fixed, 2026-08-25, in [macos_install.yaml](../setup/ansible/roles/software_installer/tasks/macos_install.yaml).
+
+Cause: `installer -pkg RazerSynapseInstaller.pkg -target /` disrupts the local transport, and the task immediately after it could not be reached. From the macOS defaults cell of run 32864564543:
+
+```text
+[15:53:26] [+15.2s] CHANGED: [localhost]   installer: The install was successful.
+[15:53:42] [+15.2s] unreachable: [localhost] TASK: Remove the staged Razer Synapse pkg
+RECAP: localhost: ok=128 changed=49 unreachable=1 failed=0 skipped=281
+```
+
+Read the recap carefully, because it is the interesting part. `failed=0` and `unreachable=1`. Nothing evaluated itself as failing. On a local connection unreachable means Ansible could not deliver the module to a host it was already running on, which is a transport problem rather than a task problem. Sixty-five packages had installed by then and this was the last thing the software installer did.
+
+Intermittent, which is why it took this long to see. The same cell passed in run 32839893770 an hour earlier and in every macOS cell before that. Whether it bites depends on how long Razer's postinstall work keeps the session busy, and the window here was sixteen seconds.
+
+Fix: `wait_for_connection` between the install and the cleanup, with a 180 second ceiling. That is the mechanism Ansible provides for exactly this, something you just installed disrupted the transport, so wait for it to answer again.
+
+Three things it deliberately is not. Not a `rescue`, and not `ignore_errors`, because both would hide a genuine failure of the install itself. Not a merge of the two tasks into one either, which was my first instinct: a disruption long enough to kill the next task would kill whatever came after it too, so dodging the exposure at that one seam only moves the problem. And if the connection never returns inside the ceiling, the play still fails.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race
