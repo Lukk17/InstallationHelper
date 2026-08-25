@@ -35,6 +35,14 @@
 #   - if the sweep's job frees disk space, the single-platform job must free disk space
 #   - every setup tool the sweep invokes before the wizard must be invoked by the single-platform job
 #
+# Linux was invisible to this check until 2026-08-25, and that is worth recording because it is the
+# same failure one level up. The sweep's Linux work lives in a reusable workflow, e2e-linux-cell.yml,
+# whose single job takes its ceiling from an input rather than a literal number. This check selected
+# install jobs by runner prefix plus a thirty minute ceiling, so a templated ceiling excluded it and
+# Linux was never compared. Meanwhile the manual Linux job was missing both of the sweep's
+# preparation steps, including the AppArmor relaxation without which every Fedora dispatch dies two
+# seconds into the play. A check with a blind spot is worse than no check, because it reports PASS.
+#
 # What it deliberately does not do is compare step lists. The sweep runs four Windows cells with
 # different toggles and the manual job runs one parameterised by dispatch input, so their steps
 # legitimately differ. Only the preparation the runner needs has to match.
@@ -53,19 +61,27 @@ import yaml
 
 MATRIX = pathlib.Path('.github/workflows/e2e-matrix.yml')
 MANUAL = pathlib.Path('.github/workflows/e2e-manual.yaml')
+# The sweep's Linux cells are this reusable workflow, called forty-eight times.
+CELL = pathlib.Path('.github/workflows/e2e-linux-cell.yml')
 
-for path in (MATRIX, MANUAL):
+for path in (MATRIX, MANUAL, CELL):
     if not path.exists():
         print('FAIL %s is missing, so this check proves nothing' % path.as_posix())
         raise SystemExit(0)
 
 matrix = yaml.safe_load(MATRIX.read_text(encoding='utf-8'))
 manual = yaml.safe_load(MANUAL.read_text(encoding='utf-8'))
+cell = yaml.safe_load(CELL.read_text(encoding='utf-8'))
 
 # The names of the paths the sweep deletes are what "frees disk space" means concretely. Matching on
 # any of them rather than on a step name means a step that was renamed still counts, and a step that
 # was renamed to look like a cleanup while deleting nothing does not.
 FREES_DISK = re.compile(r'hostedtoolcache|/usr/share/dotnet|Miniconda|ghcup', re.IGNORECASE)
+
+# The AppArmor relaxation, matched on what it does rather than on the step name. Without it every
+# Fedora container run dies about two seconds in, because Fedora ships /etc/shadow at mode 000 and
+# the host's unix-chkpwd profile withholds the capability that lets the PAM helper read it.
+RELAXES_APPARMOR = re.compile(r'apparmor_parser|unix-chkpwd')
 
 
 def install_jobs(doc, prefix):
@@ -78,7 +94,12 @@ def install_jobs(doc, prefix):
         ceiling = job.get('timeout-minutes')
         if not isinstance(runs_on, str) or not runs_on.startswith(prefix):
             continue
-        if not isinstance(ceiling, int) or ceiling < 30:
+        # A templated ceiling means a reusable workflow taking it from an input, which is an
+        # install job by construction. Excluding it is what hid Linux from this check entirely.
+        if not isinstance(ceiling, int):
+            if not (isinstance(ceiling, str) and '${{' in ceiling):
+                continue
+        elif ceiling < 30:
             continue
         found[name] = job
     return found
@@ -105,6 +126,8 @@ def capabilities(job):
             continue
         if FREES_DISK.search(body):
             frees = True
+        if RELAXES_APPARMOR.search(body):
+            tools.add('the AppArmor relaxation for unix-chkpwd')
         # The wizard step itself is excluded: it is the work, not the preparation, and the two
         # workflows legitimately invoke it with different arguments.
         if 'setup.sh' in body or 'setup.ps1' in body:
@@ -116,8 +139,10 @@ def capabilities(job):
 
 
 lines = []
-for label, prefix in (('Windows', 'windows-'), ('macOS', 'macos-')):
-    sweep = install_jobs(matrix, prefix)
+for label, prefix in (('Windows', 'windows-'), ('macOS', 'macos-'), ('Linux', 'ubuntu-')):
+    # Linux compares against the reusable cell rather than the matrix, because that is where the
+    # sweep's Linux steps actually live. The matrix only calls it.
+    sweep = install_jobs(cell if label == 'Linux' else matrix, prefix)
     single = install_jobs(manual, prefix)
 
     if not sweep or not single:
