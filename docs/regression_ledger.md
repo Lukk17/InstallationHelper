@@ -169,7 +169,11 @@ Effect: run the normal way from the repository, the suite reported 31 tests disc
 
 ---
 
-### Open findings, not yet fixed
+### Findings that were open when this page was written, and what became of them
+
+The title used to read "Open findings, not yet fixed", which stopped being true and then
+misled every reader who trusted it. Each entry below carries its own status line, and those
+are the authority. Nothing on this page is open as of 2026-08-25.
 
 Five entries follow, and three of them are closed rather than open, kept anyway because each still carries something worth keeping. The AUR finding is kept in this section, with its status line saying plainly that it is fixed and confirmed, because the reasoning that got from "one package in eleven, at random" to three named causes is worth more than tidy filing and moving it would scatter it. The Windows toggles with no native install path are closed because reading the dead Ansible first shaped the native replacements that took over. `import_hibernate_task`'s missing scheduled-task file is closed because the native settings script that replaced the import is worth pointing readers at directly. The entire Windows path entry is addressed rather than closed, since the Ansible side of it is dead permanently rather than fixed, and it still records what remains true about that. The correction to an earlier entry is kept because a wrong cause left on the page is worse than no entry at all. What remains:
 

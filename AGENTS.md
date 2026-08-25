@@ -94,6 +94,84 @@ For multi-step work, state the plan first:
 
 Then loop until each check passes. Do not claim a task is done without running the verification.
 
+## MANDATORY: record every defect you introduce or find
+
+[`docs/regression_ledger.md`](docs/regression_ledger.md) is the record of every defect this project
+has suffered. Adding to it is not optional and not a nicety, it is part of finishing the work:
+
+1. A defect you find gets an entry before you call the fix done. Not after the sweep, not in the
+   commit message alone, in the ledger.
+2. A defect you introduce yourself gets an entry too, and says so. Those are the most valuable
+   entries on the page, because they are the ones a future agent is most likely to repeat.
+3. Every entry states four things: the cause in one sentence, the effect with the actual error text
+   or the actual numbers, how it was proven rather than reasoned about, and where the fix lives.
+4. If a hypothesis along the way was wrong, keep it and say it was wrong. Two entries on that page
+   are worth more for the wrong turn they record than for the fix.
+5. If the defect could have been caught mechanically, add the check as well, prove it fails against
+   the defect before trusting it, and name the check in the entry.
+
+Do not copy ledger entries into this file. One record, one place. What lives here is the list below,
+which is the shape of the mistakes rather than the instances.
+
+### Defect classes already introduced in this repository
+
+Every one of these was written by an agent working on this project, shipped, and then found by a
+pipeline or by the owner. They are listed by shape because the shape is what recurs. Instances,
+dates, error text and fixes are in the ledger.
+
+1. Deleting a block at the end of a function took the next statement with it. Removing one product's
+   install block took the whole function's `return` with it, so the function handed its caller
+   nothing and the wizard died in the reporting code two files away from the deletion. When you
+   delete a trailing block, read what is underneath it.
+2. The same rule implemented in two places, which then disagreed. Three machine conditions decided
+   whether a package can install, and the winget path, the Chocolatey path and the verification each
+   decided separately. One phase installed a package the other phase reported as not applicable, in
+   the same run, and the run passed. If two phases must agree, they call one function.
+3. A vendor's support matrix treated as the installer's behaviour. Razer lists Windows 10 and 11 and
+   no Server edition, so the package was marked client-only. It installs on Server and exits 0. A
+   support matrix says what the vendor will support, not what the installer refuses to do. Measure
+   the installer.
+4. `return @($list)` does not survive assignment in PowerShell. A one-element array unrolls to a
+   bare string, and `.Count` on a string is a terminating error under `Set-StrictMode -Version
+   Latest`. Wrap at the call site, `@(Get-Thing)`, never trust the function's own `@( )`.
+5. Two parsers reading the same file with different escaping rules. `vars/Windows.yaml` is read by
+   Ansible, which unescapes a double-quoted YAML scalar, and by a PowerShell regex that takes the raw
+   text. A path with backslashes arrived as one character in one and two in the other, and every
+   `Test-Path` against it answered false. Use a separator that needs no escape.
+6. Splatting an array instead of a hashtable in PowerShell. An array splat supplies positional
+   arguments with the dashes still attached, so `-NonInteractive` bound to the first positional
+   parameter and the error named a parameter nobody had passed. Guarded now by
+   `e2e/tier1/powershell_splat.sh`.
+7. A second entry point drifting from the primary one. The single-platform workflow could not bind
+   its arguments, allowed 60 minutes for work the sweep gives 150, and never freed disk space. All
+   three were things the sweep already did correctly, and all three were found within two hours of
+   the first time anybody dispatched that workflow. Guarded now by `e2e/tier1/workflow_timeouts.sh`
+   and `e2e/tier1/workflow_parity.sh`.
+8. A `changed_when` reading stdout for a message the tool writes to stderr. This one has five
+   instances. pacman prints ` there is nothing to do` on stdout and `warning: <pkg> is up to date --
+   skipping` on stderr, and the condition read the wrong stream, so the task reported a change on
+   every rerun. Run the tool twice and look at which stream each line comes out on.
+9. Batching independent downloads. A batch is one call with one exit code, so one failure loses the
+   whole set and nothing can name the package that broke. It cost twenty-two flatpak applications on
+   twenty of forty-eight cells, roughly thirty Homebrew casks twice in two days, and every package in
+   a Chocolatey batch. Nothing in this project batches now, and
+   `e2e/tier1/batched_managers.sh` fails on any manager that tries.
+10. A watcher that could go quiet. A background monitor wrote its state with a bash redirect to
+    `/tmp` and read it back from Python, where that path resolves elsewhere, so it caught the
+    exception and exited silently. An hour of ten-minute reports never happened and it looked
+    identical to a run with nothing to report. Every branch of a watcher must emit, including its own
+    failure.
+11. Measuring something adjacent to the failure instead of the exact thing it named. A log said one
+    URL had timed out. A different Flathub path was fetched instead, answered 503, and that became
+    "Flathub is down". The URL the error named answered 200 with 1.6 MB in 0.29 seconds. Take the
+    identifier out of the failure and test that.
+12. Asserting a benefit without measuring it. Batching apt, dnf and pacman was defended on the
+    grounds that the solver and the trigger phase run once instead of N times. Measured, it was worth
+    at most about two per cent of a container scenario, inside run-to-run noise of the same size, and
+    on one of the two sets looping was faster.
+
+---
+
 ## MANDATORY: run the e2e gate before calling playbook work done
 
 This is not optional and it is not advisory. Every regression recorded in [`docs/regression_ledger.md`](docs/regression_ledger.md) reached a real machine because nothing ran the playbook before it shipped. Reading a diff cannot tell you that a group name does not exist on Arch, or that a toggle installs nothing, and both of those have happened here.
