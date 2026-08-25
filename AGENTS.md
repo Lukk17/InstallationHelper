@@ -318,7 +318,7 @@ Two parts of this playbook bypass the standard Ansible module mechanism. They lo
 
 **Mitigations in this repo**
 
-1. **`ansible.builtin.raw` for APT and Flatpak batched installs on Debian/Ubuntu** (`roles/software_installer/tasks/dynamic_install.yaml`). `raw` bypasses the entire Python module subsystem — no ansiballz, no JSON round-trip — so the bug class can't trigger. Gated to Debian-only because Arch/Fedora batches are small enough that they never crossed the duration threshold in past runs and the native modules stayed clean for them.
+1. **`ansible.builtin.raw` for the APT and Flatpak installs on Debian/Ubuntu** (`roles/software_installer/tasks/dynamic_install.yaml`). `raw` bypasses the entire Python module subsystem, no ansiballz and no JSON round-trip, so the bug class cannot trigger. Note that nothing in that file batches any longer: as of 2026-08-25 every manager installs one package per call, so each `raw` invocation is now short. It stays `raw` because a single large package can still run long enough to meet the race, and because switching mechanism is a change worth making deliberately rather than as a side effect. Arch and Fedora install through a `command` for the reporting rather than through their native modules, which report failure only through the result's `failed` key that this repository forbids reading.
 
 2. **Ansible tmp dirs moved out of `/tmp`** (`ansible.cfg`): `local_tmp`, `remote_tmp`, and `fact_caching_connection` all point to `~/.ansible/...` instead of `/tmp/ansible-*`. The ansiballz zip lives in `local_tmp`; moving it away from `/tmp` removes the path contention with dpkg and systemd-tmpfiles. Works on live USB too since Ubuntu Live's `$HOME` is writable.
 
@@ -335,7 +335,7 @@ Before recommending changes to the `raw` callsites or claiming the workaround is
 1. Check the current ansible-core release that this repo's target hosts will use. The version is in `ansible --version` on the dev machine, and the accepted range is the one `setup/setup.sh` enforces.
 2. Confirm PR #86739 status: https://github.com/ansible/ansible/pull/86739 — merged or still open?
 3. If merged, find the first release tag containing it: https://github.com/ansible/ansible/releases. Every branch this project accepts needs a patched point release before the workaround can go, which today means `stable-2.19`, `stable-2.20` and `stable-2.21`.
-4. If the target ansible-core version is on a release that includes the fix, schedule the revert: replace the 3 `raw` tasks (apt-batch, flatpak-batch, apt-full-upgrade) with the native modules in one change, drop `apt_raw_env` / `apt_raw_flags` from `group_vars/linux.yaml`, and update this section.
+4. If the target ansible-core version is on a release that includes the fix, schedule the revert: replace the `raw` tasks (the per-package apt install, the per-application flatpak install, and apt-full-upgrade) with the native modules in one change, drop `apt_raw_env` / `apt_raw_flags` from `group_vars/linux.yaml`, and update this section. Reverting must not reintroduce a batch: `e2e/tier1/batched_managers.sh` fails on any manager that hands its whole set to one call, and the reasoning is in that file.
 5. If still unmerged, leave the workaround in place and note the upstream status in the commit message of any related change.
 
 The check is cheap (one `gh pr view 86739` or a `WebFetch` of the PR URL) and prevents the workaround from outliving its reason.

@@ -704,6 +704,32 @@ The three package managers stay batched for that reason alone, written down as s
 
 ---
 
+#### Nothing batches any more, and the guard moved to where the risk actually is
+
+Status: done, 2026-08-25, at the owner's decision. apt, dnf and pacman were the last three and they now install one package per call, like every other manager in [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml).
+
+Why the last three went. Two arguments had kept them, and neither survived contact with the owner's question, which was simply how much time batching actually saves.
+
+The speed argument was measured the same day and is recorded in the entry above this one. At best about two per cent of a container scenario, inside run-to-run noise of the same size.
+
+The correctness argument was real and is the interesting half. A single solve cannot pick a library version, or a provider for a virtual package, that a later package then rejects. A loop can. The owner's answer was that this is a job for a guard rather than for a batch, and that is right for a reason worth writing down: a batch does not detect a contradiction, it prevents you from ever asking. When one did occur, all it produced was one failure with no way to tell which package caused it, which is exactly how one bad package name silently dropped every pacman package from a run while the play stayed green.
+
+So each family now asks its own package manager, after the installs, whether the set it produced is coherent, and names what is broken when it is not:
+
+```text
+apt-get check
+dnf check --dependencies
+pacman -Dk
+```
+
+All three are read-only and take about a second. Each is followed by a task that records the failure in the play summary so the exit code reports it, and by a message that says what the state means and what to do about it. For pacman that message names the specific fix, which is to name the provider you want in the OS dictionary rather than the virtual package, because the CachyOS `lib32-vulkan-driver` chain in [container_limits.cachyos.yaml](../e2e/tier3/container_limits.cachyos.yaml) is exactly that shape.
+
+What else came out with the batches. Every per-manager install now reports per package: which ones failed, what the manager said about each, and a play summary entry marking the run failed. dnf and pacman moved off their native modules onto `command` in the process, not for the installing but for the reporting, since those modules report failure only through the result's `failed` key that this repository forbids reading. And the collector that used to work out which batch had failed, by matching the word "batched" in a task name, was deleted: nothing carries that word now and a dead collector is a shape already shipped twice here.
+
+The tier 1 check lost its allowlist along with its last entry. There is no longer a file listing managers permitted to batch, because a file of exceptions is an invitation to add the next one.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race

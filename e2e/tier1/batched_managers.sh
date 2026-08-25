@@ -1,41 +1,47 @@
 #!/usr/bin/env bash
 #
-# Tier 1: only a manager whose solver works on the whole set may install in one batched call.
+# Tier 1: no package manager installs its whole set in one call.
 #
-# A batch is a single call, so one failure anywhere in it loses every package in it. That is worth
-# paying only when the manager genuinely resolves the set together, which apt, dnf and pacman do and
-# which flatpak, snap, the AUR helper, winget, Chocolatey and Homebrew casks do not.
+# A batch is a single call with a single exit code. So when one package in it is unavailable, the call
+# fails, and everything upstream hears that the install failed with no way to know which package
+# broke, how many installed before it, or how many were never attempted.
 #
-# The bill for getting this wrong, three times in four days, all in the ledger. A flatpak batch of
-# twenty-two applications lost all twenty-two to one fetch timing out, on twenty of the forty-eight
-# container cells of sweep 32723213808, and abandoned every task after it in the software installer.
-# A Homebrew cask batch lost roughly thirty casks to one deleted Tor Browser build, then lost them
-# again the next day to rawtherapee refusing an older macOS. A Chocolatey batch stamped one package's
-# failure onto every package in it.
+# That cost this repository the entire set three times in four days:
 #
-# The flatpak case is the reason this check exists rather than a comment. The argument against
-# batching independent downloads was already written in this repository, for casks, two days before
-# flatpak lost twenty cells to exactly it. A reason living only in a comment beside one manager does
-# not travel to the manager three hundred lines below it. A check does.
+#   a flatpak fetch timing out          twenty-two applications lost, on twenty of forty-eight cells
+#   a deleted Tor Browser build         roughly thirty Homebrew casks lost, twice in two days
+#   one Chocolatey package failing      every package in the batch reported failed
 #
-# How it decides. [batched_managers_allowed.txt](batched_managers_allowed.txt) lists the managers
-# allowed to batch, with the reason. For every other manager, the task that installs it must loop:
-# either `loop:` over the batch list, or a loop over the package list the dispatcher builds. Passing
-# `software_installer_batches.<manager>` straight into a module's `name:`, or joining it into a
-# command line, is what this fails on.
+# For a while apt, dnf and pacman were allowed to batch, on the argument that their solvers work on
+# the whole set. Both halves of that argument were tested and neither survived.
 #
-# Deliberately narrow. It reads the one file that dispatches installs and asks one question about
-# each manager. It does not try to judge whether a loop is correct, only that the set is not handed
-# over in one call.
+# The speed half was measured on 2026-08-25 in debian:trixie, twenty-two packages taken from the real
+# Debian mapping, two samples each way, with apt-get update run in both and not timed:
+#
+#   no recommends       batched 250s and 199s        looped 278s and 244s
+#   with recommends     batched 274s                 looped 264s
+#
+# Both shapes ended with identical package counts. Looping cost eleven and twenty-three per cent on
+# the first set and saved four per cent on the second, while two identical batched runs of the first
+# set differed from each other by twenty per cent. The noise is the same size as the effect, and the
+# absolute figure is tens of seconds inside a scenario that runs thirty to a hundred minutes.
+#
+# The correctness half was real: a single solve cannot pick a library version or a virtual-package
+# provider that a later package rejects, and a loop can. That is now answered where it belongs, by a
+# guard. Each family asks its own package manager after the installs whether the set it produced is
+# consistent, `apt-get check`, `dnf check --dependencies` and `pacman -Dk`, and names what is broken.
+# A batch hid that question. A guard answers it.
+#
+# So there is no allowlist any more. There used to be a file of exceptions with reasons, and a file of
+# exceptions is an invitation to add the next one.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-info "Tier 1: only managers that resolve the whole set may batch"
+info "Tier 1: no manager installs its whole set in one call"
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "batched managers"; }
 
 DISPATCH="setup/ansible/roles/software_installer/tasks/dynamic_install.yaml"
-ALLOWED="e2e/tier1/batched_managers_allowed.txt"
 
 if [[ ! -f "${DISPATCH}" ]]; then
     fail "the software installer dispatcher is missing, so this check proves nothing" "${DISPATCH}"
@@ -43,7 +49,7 @@ if [[ ! -f "${DISPATCH}" ]]; then
     return 0 2>/dev/null || exit 0
 fi
 
-report="$("${PYTHON:-python}" - "${DISPATCH}" "${ALLOWED}" <<'PYEOF'
+report="$("${PYTHON:-python}" - "${DISPATCH}" <<'PYEOF'
 import json
 import pathlib
 import re
@@ -52,23 +58,11 @@ import sys
 import yaml
 
 dispatch = pathlib.Path(sys.argv[1])
-allowed_path = pathlib.Path(sys.argv[2])
-
-allowed = {}
-if allowed_path.exists():
-    for line in allowed_path.read_text(encoding='utf-8').splitlines():
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        parts = line.split(None, 1)
-        allowed[parts[0]] = parts[1] if len(parts) > 1 else ''
-
 text = dispatch.read_text(encoding='utf-8')
 
 # Managers are read out of the file rather than listed here, so one added tomorrow is covered without
-# anybody remembering to add it. Two shapes exist today: a prebuilt batch list, and a list filtered
-# inline out of the package set. Homebrew formulae use the second, which is why the first version of
-# this check could not see them.
+# anybody remembering to add it. Three shapes exist: a prebuilt list, a list filtered inline out of
+# the package set, and a list an earlier set_fact derived and named after the manager.
 managers = set(re.findall(r'software_installer_batches\.([a-z_]+)', text))
 managers |= set(re.findall(r"selectattr\(\s*'value\.manager'\s*,\s*'equalto'\s*,\s*'([a-z_]+)'", text))
 managers = sorted(managers)
@@ -79,11 +73,7 @@ if not managers:
 
 
 def leaf_tasks(node):
-    """Every task mapping that is not a block, at any depth.
-
-    A block mapping contains every task inside it, so counting one would match every manager in the
-    file and name the block instead of the install. Blocks are walked into, never reported.
-    """
+    """Every task mapping that is not a block. A block contains every task inside it."""
     if isinstance(node, dict):
         if any(k in node for k in ('block', 'rescue', 'always')):
             for value in node.values():
@@ -106,31 +96,22 @@ except yaml.YAMLError as exc:
 lines = []
 for manager in managers:
     needles = ['software_installer_batches.%s' % manager,
-               "'equalto', '%s'" % manager,
-               "'equalto',\n%s'" % manager]
+               "'equalto', '%s'" % manager]
 
     installers = []
     for task in tasks:
         if not isinstance(task.get('name'), str):
             continue
-        # A set_fact derives one list from another and installs nothing.
         if any(k == 'set_fact' or k.endswith('.set_fact') for k in task):
             continue
-        # changed_when: false is this repository declaring a task read-only. Asking pacman what is
-        # installed, or tailing a log, is not an install and must not be judged as one.
+        # changed_when: false is this repository declaring a task read-only. A query is not an
+        # install and must not be judged as one, which is what keeps the new consistency guards out
+        # of this comparison.
         if task.get('changed_when') is False:
             continue
-        # json rather than yaml.safe_dump, measured: safe_dump doubles every single quote, so
-        # "'equalto', 'aur'" could never match the dumped form ''equalto'', ''aur''. Four managers
-        # reported SKIP for exactly that, which read as "nothing installs this" when the loop was
-        # right there.
         body = json.dumps({k: v for k, v in task.items()
                            if k not in ('when', 'name', 'tags', 'loop_control')}, default=str)
         body = re.sub(r'\s+', ' ', body)
-        # A third shape: the task loops over a list some earlier set_fact derived, named after the
-        # manager. apt_url and dnf_url install that way, over apt_url_items and dnf_url_items, so
-        # neither the batch-list needle nor the selectattr needle can see them and both reported
-        # SKIP, which reads as "nothing installs this" beside a loop that plainly does.
         loop_text = json.dumps(task.get('loop', ''), default=str)
         if any(re.sub(r'\s+', ' ', n) in body for n in needles) or manager in loop_text:
             installers.append(task)
@@ -139,24 +120,12 @@ for manager in managers:
         lines.append('SKIP %s is named in the dispatcher and no task installs from it' % manager)
         continue
 
-    looped = [t for t in installers if 'loop' in t or 'with_items' in t]
-    handed_over = [t for t in installers if t not in looped]
-
-    if manager in allowed:
-        if handed_over:
-            lines.append('OK %s batches %d task(s), allowed: %s'
-                         % (manager, len(handed_over), allowed[manager]))
-        else:
-            lines.append('OK %s is allowed to batch and loops anyway, which is stricter than required'
-                         % manager)
-        continue
-
+    handed_over = [t for t in installers if 'loop' not in t and 'with_items' not in t]
     if handed_over:
         names = ', '.join(t['name'] for t in handed_over)
-        lines.append('FAIL %s hands its whole set to one call and is not in %s. One failure there '
-                     'loses every package in the set. Loop it, or add it to that file with the '
-                     'reason its solver needs the whole set. Task(s): %s'
-                     % (manager, allowed_path.as_posix(), names))
+        lines.append('FAIL %s hands its whole set to one call. One failure there loses every package '
+                     'in the set and nothing can say which one broke. Loop it. Task(s): %s'
+                     % (manager, names))
     else:
         lines.append('OK %s installs one package at a time' % manager)
 
@@ -167,8 +136,8 @@ PYEOF
 while IFS= read -r line; do
     case "${line}" in
         OK*)   pass "${line#OK }" ;;
-        SKIP*) skip "every manager that cannot resolve a set together installs one at a time" "${line#SKIP }" ;;
-        FAIL*) fail "a manager that cannot resolve a set together is installing it in one call" "${line#FAIL }" ;;
+        SKIP*) skip "every manager installs one package at a time" "${line#SKIP }" ;;
+        FAIL*) fail "a manager installs its whole set in one call" "${line#FAIL }" ;;
         *)     [[ -n "${line}" ]] && fail "the batched manager check printed something unexpected" "${line}" ;;
     esac
 done <<<"${report}"
