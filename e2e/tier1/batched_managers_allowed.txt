@@ -12,11 +12,28 @@
 # and then lost them again the next day to rawtherapee refusing an older macOS. A Chocolatey batch
 # stamped one package's failure onto every package in it.
 #
-# The test for admission is narrow: does this manager's solver work on the whole set, so that a loop
-# would ask it to solve the same dependency graph N times. If the answer is no, and the packages are
+# The test for admission is narrow, and it is about correctness rather than speed. Does this manager
+# have to see the whole set to resolve it correctly, such that installing one at a time can produce a
+# different answer or fail where the set succeeds. If the answer is no, and the packages are
 # independent downloads, it does not belong here however convenient the batch is.
+#
+# Speed is explicitly not the test, because it was measured on 2026-08-25 and it is not worth having.
+# Twenty-two packages from the real Debian mapping in debian:trixie, two samples each way:
+#
+#   no recommends    batched 250s and 199s     looped 278s and 244s
+#   with recommends  batched 274s              looped 264s   (7 desktop-heavy packages)
+#
+# Looping cost 11 and 23 per cent on the first set and saved 4 per cent on the second, while two
+# identical batched runs of the first set differed from each other by 20 per cent. The noise is the
+# same size as the effect, and the absolute number is tens of seconds inside a scenario that takes
+# thirty to a hundred minutes. Anyone reaching for a batch to save time should read that as a no.
 
-apt     one dependency graph for the whole set, and a loop would make dpkg solve it again per package
-dnf     one RPM transaction for the whole set, and a loop would make libsolv resolve it again per package
-pacman  one dependency graph for the whole set, and a loop would make alpm resolve it again per package
-brew    formulae share dependencies that brew resolves across the set, unlike casks, which are looped
+apt     one solve for the whole set, so a loop can pick a library version for one package that the next cannot accept
+dnf     one RPM transaction, so a loop can commit a version libsolv would have rejected had it seen the whole request
+pacman  one solve, and provider choices are made once. A loop picks a provider per package and they can conflict, which is the shape container_limits.cachyos.yaml records for lib32-vulkan-driver
+
+# brew was here until 2026-08-25 and was removed at the owner's decision. It had the weaker
+# half of the argument: brew does resolve a set together, but it has no shared package database
+# to lock and no trigger phase to run once, which is the half that makes batching worth real
+# minutes for the three above. A formula installed alone still pulls its own dependencies, so a
+# loop cost only process startup, against a batch that reports one exit code for the whole set.

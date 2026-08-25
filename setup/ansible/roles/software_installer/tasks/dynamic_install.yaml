@@ -948,28 +948,90 @@
       until: flatpak_batch_module_result is succeeded
       retries: 3
       delay: 20
-    - name: Install Homebrew packages (batched)
-      community.general.homebrew:
-        name: "{{ brew_packages }}"
-        state: present
+    # One formula at a time, the same shape as the casks below, and at the owner's decision on
+    # 2026-08-25. The argument for batching brew was always the weakest of the four: brew does
+    # resolve dependencies across a set, which apt, dnf and pacman also do and which is why those
+    # three still batch, but brew has none of the second reason those three have. There is no shared
+    # package database to lock and no trigger phase to run once, so a formula installed alone still
+    # pulls its own dependencies correctly and the only thing a loop costs is the seconds brew spends
+    # starting up.
+    #
+    # Against that: a batch is one call with one exit code, so one unavailable formula reports the
+    # whole set as failed and nothing can say which one broke. That has cost this repository three
+    # times in four days, on casks twice and on flatpak once, and the casks beside this task carry
+    # the full account of it.
+    #
+    # brew through the shell rather than community.general.homebrew for the same reason the casks
+    # are: the module reports a failure only through the result's `failed` key, and this repository
+    # forbids deciding from that key. See e2e/tier1/failed_key_reads.sh. A command returns rc, which
+    # nothing rewrites.
+    #
+    # What brew prints, which the conditions key on, and the same vocabulary as the cask task: a
+    # formula that is already installed exits 0 with a line containing "is already installed", and a
+    # real install exits 0 without it.
+    - name: Install Homebrew formulae (one at a time, so one bad formula does not cost the rest)
+      ansible.builtin.shell: |
+        set -o pipefail
+        brew install {{ item | quote }} 2>&1
+      args:
+        executable: /bin/bash
+      loop: "{{ brew_packages }}"
+      loop_control:
+        label: "{{ item }}"
       vars:
         brew_packages: >-
           {{ software_installer_packages
              | selectattr('value.manager', 'equalto', 'brew')
              | map(attribute='value.package')
              | list }}
+      register: brew_results
+      # Never fatal, so one unavailable formula cannot abandon the rest of the installer. The two
+      # tasks below turn the losses into a named failure and mark the run failed.
+      ignore_errors: true
+      changed_when:
+        - brew_results.rc | default(1) == 0
+        - "'is already installed' not in (brew_results.stdout | default(''))"
+      # Per formula rather than per batch, so each has its own retry budget for a dropped connection
+      # instead of every formula sharing one.
+      until: brew_results.rc | default(1) == 0
+      retries: 3
+      delay: 20
       when:
         - ih_family == 'Darwin'
         - brew_packages | length > 0
       tags: [brew]
-      # Retried, because this reaches the network and a single dropped connection must not cost the
-      # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
-      # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
-      # eof from python.org.
-      register: brew_batch_result
-      until: brew_batch_result is succeeded
-      retries: 3
-      delay: 20
+
+    - name: Name every formula that would not install, and what brew said
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] {{ failed_formulae | length }} Homebrew formula(e) did not install and are NOT
+          present: {{ failed_formulae | map(attribute='item') | join(', ') }}.
+          Every other formula installed, because these are no longer one call.
+          {% for failure in failed_formulae %}
+          {{ failure.item }}: {{ (failure.stdout | default('no output')) | trim | truncate(300) }}
+          {% endfor %}
+      vars:
+        failed_formulae: >-
+          {{ brew_results.results | default([]) | rejectattr('rc', 'defined') | list
+             + (brew_results.results | default([]) | selectattr('rc', 'defined')
+                | selectattr('rc', 'ne', 0) | list) }}
+      when:
+        - ih_family == 'Darwin'
+        - failed_formulae | length > 0
+      tags: [brew]
+
+    - name: Propagate the formula failures to the play summary
+      ansible.builtin.set_fact:
+        any_role_failed: true
+      vars:
+        failed_formulae: >-
+          {{ brew_results.results | default([]) | rejectattr('rc', 'defined') | list
+             + (brew_results.results | default([]) | selectattr('rc', 'defined')
+                | selectattr('rc', 'ne', 0) | list) }}
+      when:
+        - ih_family == 'Darwin'
+        - failed_formulae | length > 0
+      tags: [brew]
 
     # One cask at a time, and a failure does not stop the others.
     #

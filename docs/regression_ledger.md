@@ -679,6 +679,31 @@ Six Pester tests cover it, including a mapping carrying none of the optional pro
 
 ---
 
+#### Batching to save time does not survive measurement
+
+Status: measured 2026-08-25. Homebrew formulae now loop, and the reasons in [e2e/tier1/batched_managers_allowed.txt](../e2e/tier1/batched_managers_allowed.txt) were rewritten because the ones written a day earlier claimed a benefit that is not there.
+
+The claim under test was mine: that apt, dnf and pacman earn their batch because the solver runs once instead of N times and because the trigger phase, rebuilding the manual page index and the desktop and icon caches, runs once per transaction rather than once per package.
+
+Measured in `debian:trixie`, twenty-two packages taken from the real Debian mapping, `apt-get update` run in both and not timed, two samples each way, plus one pair with recommends on a desktop-heavy subset where the trigger phase does the most work:
+
+```text
+set A, 22 packages, no recommends       batched 250s and 199s      looped 278s and 244s
+set B, 7 desktop packages, recommends   batched 274s               looped 264s
+```
+
+Both shapes of set A ended with the same 701 packages installed, and both shapes of set B with the same 952, so the end state is identical and only the route differs.
+
+Looping cost 11 and 23 per cent on set A and saved 4 per cent on set B. Two identical batched runs of set A differed from each other by 20 per cent, which is the same size as the effect being measured. In absolute terms the largest difference was 45 seconds inside a container scenario that runs for thirty to a hundred minutes, so at the most favourable reading batching is worth about two per cent of a cell.
+
+The trigger argument in particular did not show up. Set B is where it should have been largest and it was the set where looping was faster.
+
+So the time argument is dead and the allowed file no longer makes it. What remains, and what the measurement deliberately does not test, is correctness: every package in that set had a satisfiable dependency closure, so the solver was never asked to choose between conflicting constraints. That is the case where a loop genuinely differs from a batch, by picking a library version for one package that the next cannot accept, or by choosing a provider per package where the providers conflict. The CachyOS `lib32-vulkan-driver` chain recorded in [container_limits.cachyos.yaml](../e2e/tier3/container_limits.cachyos.yaml) is exactly that shape.
+
+The three package managers stay batched for that reason alone, written down as such. Anyone reaching for a batch to save time should read this entry as a no.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race
