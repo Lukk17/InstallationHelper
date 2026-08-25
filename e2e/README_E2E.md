@@ -418,6 +418,7 @@ Then prove it. Copy the tree, reintroduce the defect, and confirm the check fail
 | Doc | What's in it |
 |---|---|
 | [manual_test_matrix.md](manual_test_matrix.md) | What no pipeline here can prove, where to prove it by hand, and how to tell it worked, for every platform and distribution |
+| [run_durations.md](run_durations.md) | How long every cell of the sweep actually takes on a hosted runner, measured, and what a fraction of the sweep costs |
 | [docs/regression_ledger.md](../docs/regression_ledger.md) | Every regression this project has suffered, and the prevention checklist this harness mechanises |
 | [AGENTS.md](../AGENTS.md) | The mandatory gate, and the rest of the agent contract |
 | [setup/README_SETUP.md](../setup/README_SETUP.md) | Running the playbook for real |

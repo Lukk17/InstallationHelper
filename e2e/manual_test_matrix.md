@@ -166,6 +166,7 @@ Record what you ran and what happened in [docs/regression_ledger.md](../docs/reg
 | Doc | What's in it |
 |---|---|
 | [README_E2E.md](README_E2E.md) | The harness itself, the three tiers, and what to run when you change something |
+| [run_durations.md](run_durations.md) | How long every cell of the sweep actually takes on a hosted runner, measured |
 | [testing/README.md](testing/README.md) | The per-scenario specifications the harness checks itself against |
 | [../docs/regression_ledger.md](../docs/regression_ledger.md) | Every regression this project has suffered, and the prevention checklist |
 | [../AGENTS.md](../AGENTS.md) | The mandatory gate, and the rest of the agent contract |
