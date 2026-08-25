@@ -169,6 +169,10 @@ dates, error text and fixes are in the ledger.
     grounds that the solver and the trigger phase run once instead of N times. Measured, it was worth
     at most about two per cent of a container scenario, inside run-to-run noise of the same size, and
     on one of the two sets looping was faster.
+13. Reading a queue state as progress when it was a block. A dispatched sweep sat at `pending` with
+    no jobs, which is indistinguishable from a slow start, because `e2e-matrix.yml` has a concurrency
+    group and another run of the same workflow was still open. Before dispatching a sweep, check
+    whether one is already open and decide deliberately whether it still has anything to prove.
 
 ---
 

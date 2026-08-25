@@ -734,6 +734,48 @@ The tier 1 check lost its allowlist along with its last entry. There is no longe
 
 ---
 
+#### A queued sweep that was not waiting for runners, and said nothing about it
+
+Status: understood and worked around, 2026-08-25. Not a defect in the tree, a trap in how the sweep is
+dispatched, and it cost about twenty minutes before anybody asked the right question.
+
+The final sweep was dispatched while an earlier idempotency run still had two Windows install cells
+open. It sat at `pending` with no jobs at all, and the watcher reported the only thing it could see:
+
+```text
+CHECK: 0 passed, 0 failed, 0 running, 0 queued
+```
+
+That reads exactly like a slow start. It was not. [e2e-matrix.yml](../.github/workflows/e2e-matrix.yml)
+carries a concurrency group:
+
+```text
+concurrency:
+  group: e2e-matrix-sweep
+  cancel-in-progress: false
+```
+
+Both runs are the same workflow, so they share that group, and `cancel-in-progress: false` means a
+second run waits for the first to finish entirely rather than replacing it or competing for runners.
+The blocking cells had a 150 minute ceiling, so the new sweep would have waited up to two and a half
+hours before starting its own three.
+
+What makes this worth an entry rather than a shrug is that nothing in the run's own state says so. A
+run blocked by a concurrency group and a run waiting for a busy runner pool look identical from the
+jobs API: no jobs, no queue, `pending`. The only way to tell is to read the workflow for a
+`concurrency:` key and then look at what else is open in that group.
+
+What to do about it, in order. Before dispatching a sweep, check whether another run of the same
+workflow is open. If one is, decide deliberately whether it still has anything to prove, and cancel it
+if it does not. Here it did not: its container tier was already 7 of 7 green, which was the entire
+reason it had been dispatched, and its remaining Windows cells were a repeat of work the previous
+sweep had passed on a tree differing only by a `changed_when` string and documentation.
+
+The group itself is correct and should stay. Two sweeps running at once would fight over the twenty
+concurrent jobs the account allows and both would crawl.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race
