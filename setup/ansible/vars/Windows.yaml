@@ -117,11 +117,14 @@ software_mapping:
   # to pass and the graphical installer blocks an unattended run. The Chocolatey package installs all
   # five Razer components with `/S` and pinned checksums. Synapse 3 is excluded, Razer ended its cloud
   # services on 2026-02-03.
-  # client_only, on the vendor's own evidence. razer.com/synapse-4 lists its operating system
-  # support as "Windows 11 x86-64, Windows 10" and names no Server edition, and the package
-  # exited -1 on a Windows Server runner while maven and vmware-workstation-player either side
-  # of it in the same Chocolatey batch exited 0. Same shape as partition_wizard.
-  synapse: { manager: "choco", package: "razer-synapse-4", client_only: true }
+  # Not client_only, and the flag was here for a day on 2026-08-24 before measurement removed it.
+  # razer.com/synapse-4 lists its operating system support as "Windows 11 x86-64, Windows 10" and
+  # names no Server edition, which looked like the same case as partition_wizard. It is not: on run
+  # 32778481303 the Chocolatey package installed on a Windows Server runner and exited 0, pulling
+  # RazerAppEngine, Synapse 4, Chroma, Central and GameManager. The earlier exit -1 came from the
+  # run whose disk filled, which is a different fault entirely. A vendor support matrix says what
+  # the vendor will support, not what the installer refuses to do.
+  synapse: { manager: "choco", package: "razer-synapse-4" }
 
   # CAD / 3D
   freecad: { manager: "winget", package: "FreeCAD.FreeCAD" }

@@ -221,6 +221,58 @@ Describe 'Get-WindowsSoftwareMapping' {
     }
 }
 
+# One function decides whether a package can run on this machine, and the winget path, the Chocolatey
+# path and the verification all ask it. They used to decide separately, and on run 32778401303 the
+# Chocolatey path installed razer-synapse-4 while the verification called it not applicable in the
+# same run, because client_only was honoured in one and not the other.
+Describe 'Test-WindowsPackageSkip' {
+
+    BeforeAll {
+        $script:Client = [PSCustomObject]@{ InstallationType = 'Client'; IsElevated = $false; NvidiaAdapters = @('NVIDIA GeForce RTX 2080') }
+        $script:Server = [PSCustomObject]@{ InstallationType = 'Server'; IsElevated = $true;  NvidiaAdapters = @() }
+    }
+
+    It 'says nothing about a package carrying none of the three keys' {
+        $item = [PSCustomObject]@{ Key = 'plain'; Manager = 'winget'; Package = 'Vendor.Plain' }
+        Test-WindowsPackageSkip -Item $item -Fact $script:Server | Should -BeNullOrEmpty
+    }
+
+    It 'skips a client-only package on Server and installs it on Client' {
+        $item = [PSCustomObject]@{ Key = 'd'; Manager = 'winget'; Package = 'V.D'; ClientOnly = $true }
+        Test-WindowsPackageSkip -Item $item -Fact $script:Server | Should -Match 'client editions'
+        Test-WindowsPackageSkip -Item $item -Fact $script:Client | Should -BeNullOrEmpty
+    }
+
+    It 'skips a user-context package when elevated and installs it when not' {
+        $item = [PSCustomObject]@{ Key = 'u'; Manager = 'winget'; Package = 'V.U'; UserContext = $true }
+        Test-WindowsPackageSkip -Item $item -Fact $script:Server | Should -Match 'administrator context'
+        Test-WindowsPackageSkip -Item $item -Fact $script:Client | Should -BeNullOrEmpty
+    }
+
+    It 'skips NVIDIA software with no adapter and installs it with one' {
+        $item = [PSCustomObject]@{ Key = 'g'; Manager = 'choco'; Package = 'v-gpu'; RequiresNvidiaGpu = $true }
+        Test-WindowsPackageSkip -Item $item -Fact $script:Server | Should -Match 'NVIDIA display adapter'
+        Test-WindowsPackageSkip -Item $item -Fact $script:Client | Should -BeNullOrEmpty
+    }
+
+    # The Pester suite is the caller that hands it mappings built by hand, so this is the shape that
+    # crashes under Set-StrictMode -Version Latest if a property is read without a guard.
+    It 'does not crash on a mapping that carries none of the optional properties' {
+        $item = [PSCustomObject]@{ Key = 'bare'; Manager = 'winget'; Package = 'V.Bare' }
+        { Test-WindowsPackageSkip -Item $item -Fact $script:Client } | Should -Not -Throw
+    }
+
+    It 'decides the real mapping file the way a Server runner with no NVIDIA adapter would' {
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
+        Test-WindowsPackageSkip -Item $m['partition_wizard'] -Fact $script:Server | Should -Not -BeNullOrEmpty
+        Test-WindowsPackageSkip -Item $m['spotify']          -Fact $script:Server | Should -Not -BeNullOrEmpty
+        Test-WindowsPackageSkip -Item $m['nvidia_app']       -Fact $script:Server | Should -Not -BeNullOrEmpty
+        # Measured on run 32778481303: it installs on a Server runner and exits 0.
+        Test-WindowsPackageSkip -Item $m['synapse']          -Fact $script:Server | Should -BeNullOrEmpty
+        Test-WindowsPackageSkip -Item $m['chrome']           -Fact $script:Server | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'Resolve-WindowsSoftwarePlan' {
 
     BeforeAll {

@@ -648,6 +648,37 @@ The check compares capability rather than text, since the two files may word a s
 
 ---
 
+#### The install phase installed what the verification called not applicable
+
+Status: fixed, 2026-08-25, in [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1), [setup/windows/WindowsVerify.ps1](../setup/windows/WindowsVerify.ps1) and [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml).
+
+Two defects, found together on run 32778481303, the first Windows run of the day that got all the way to its own verification.
+
+The first is the shape this repository keeps paying for. Three mapping keys say a package cannot run on a machine, and each phase decided from them separately. The winget loop honoured all three. The Chocolatey path honoured only `requires_nvidia_gpu`, added a day earlier and never extended to the other two. The verification honoured all three. So a Chocolatey package carrying `client_only` was installed by one phase and declared not applicable by the other, in the same run, and the run passed:
+
+```text
+choco exited 0 for razer-synapse-4
+synapse                        not applicable choco: razer-synapse-4
+```
+
+The second is that the flag was wrong anyway. razer.com/synapse-4 lists its operating system support as "Windows 11 x86-64, Windows 10" and names no Server edition, which looked like the same case as MiniTool Partition Wizard. It is not. On this run the Chocolatey package installed on a Windows Server runner and exited 0, pulling RazerAppEngine, Synapse 4, Chroma, Central and GameManager. The exit -1 that prompted the flag came from the run whose disk filled, which is a different fault entirely.
+
+That is worth stating as a rule: a vendor support matrix says what the vendor will support, not what the installer refuses to do. Partition Wizard was right because its installer returns Inno Setup exit 1 before it starts. Synapse was wrong because nothing was ever measured refusing.
+
+Fix: one function, `Test-WindowsPackageSkip`, decides from one set of machine facts, and all three callers ask it. The verification now reads none of the three keys itself. Exercised on both machine shapes rather than reasoned about. On this development machine, which is Client, not elevated, with one NVIDIA GeForce RTX 2080, every package installs. Against the runner's shape, Server, elevated, no adapter:
+
+```text
+synapse            installs on a Server runner
+nvidia_app         SKIP: this is NVIDIA graphics software and Win32_VideoController...
+partition_wizard   SKIP: the vendor ships this for client editions of Windows only...
+spotify            SKIP: its installer refuses to run from an administrator context...
+chrome             installs on a Server runner
+```
+
+Six Pester tests cover it, including a mapping carrying none of the optional properties, which is the shape that crashes under `Set-StrictMode -Version Latest` when a property is read without a guard.
+
+---
+
 ### Upstream tooling bugs
 
 #### The ansible-core 2.19 and 2.20 result-deserialization race

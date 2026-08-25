@@ -387,6 +387,66 @@ function Get-WindowsInstallationTypeForSoftware {
     return 'Client'
 }
 
+function Get-WindowsMachineFact {
+    <#
+    .SYNOPSIS
+        The three facts about this machine that decide whether a package can run on it.
+
+    .DESCRIPTION
+        Asked once per run and handed to Test-WindowsPackageSkip, so every caller decides from the
+        same answers. None of the three changes between packages.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    return [PSCustomObject]@{
+        InstallationType = Get-WindowsInstallationTypeForSoftware
+        IsElevated       = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
+                               [Security.Principal.WindowsBuiltInRole]::Administrator)
+        NvidiaAdapters   = @(Get-NvidiaGraphicsAdapter)
+    }
+}
+
+function Test-WindowsPackageSkip {
+    <#
+    .SYNOPSIS
+        The reason this package cannot run on this machine, or an empty string when it can.
+
+    .DESCRIPTION
+        One function, three callers: the winget loop, the Chocolatey batch and the verification. It
+        exists because they disagreed. client_only and user_context were honoured in the winget loop
+        only, so a Chocolatey package carrying client_only was installed anyway while the
+        verification, which read the same key, reported it as not applicable. Run 32778481303 shows
+        exactly that: razer-synapse-4 installed and exited 0, and the verification called it not
+        applicable in the same run.
+
+        Read defensively for the reason the rest of this file does: the Pester suite hands these
+        functions mappings built by hand without the optional keys, and under
+        Set-StrictMode -Version Latest an absent property is a terminating error rather than $false.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Item,
+        [Parameter(Mandatory)] $Fact
+    )
+
+    $clientOnly  = if ($Item.PSObject.Properties['ClientOnly'])  { $Item.ClientOnly }  else { $false }
+    $userContext = if ($Item.PSObject.Properties['UserContext']) { $Item.UserContext } else { $false }
+    $needsNvidia = if ($Item.PSObject.Properties['RequiresNvidiaGpu']) { $Item.RequiresNvidiaGpu } else { $false }
+
+    if ($clientOnly -and $Fact.InstallationType -ne 'Client') {
+        return "the vendor ships this for client editions of Windows only, and this is $($Fact.InstallationType), so its installer refuses before it starts"
+    }
+    if ($userContext -and $Fact.IsElevated) {
+        return 'its installer refuses to run from an administrator context, and this wizard was started elevated. Run the wizard as your normal user and it installs.'
+    }
+    if ($needsNvidia -and @($Fact.NvidiaAdapters).Count -eq 0) {
+        return 'this is NVIDIA graphics software and Win32_VideoController reports no NVIDIA display adapter on this machine, so there is nothing for it to drive'
+    }
+    return ''
+}
+
 function Install-WingetPackage {
     <#
     .SYNOPSIS
@@ -678,40 +738,21 @@ function Invoke-WindowsSoftwareInstall {
             # run for an hour has to say what it is doing while it does it.
             # Asked once rather than per package. Both answers are properties of this machine and
             # this process, and neither changes between packages.
-            $installationType = Get-WindowsInstallationTypeForSoftware
-            $identity   = [Security.Principal.WindowsIdentity]::GetCurrent()
-            $isElevated = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
-                [Security.Principal.WindowsBuiltInRole]::Administrator)
-            $nvidiaAdapters = @(Get-NvidiaGraphicsAdapter)
+            $machineFact = Get-WindowsMachineFact
 
             $index = 0
             foreach ($item in $wingetItems) {
                 $index++
 
-                # A package the vendor does not ship for this edition, or an installer that refuses
-                # to run elevated, is skipped with the reason rather than attempted and failed. Both
-                # are true statements about the machine, and a run should not go red over either.
-                if ($item.ClientOnly -and $installationType -ne 'Client') {
+                # A package this machine cannot run is skipped with the reason rather than
+                # attempted and failed. The reason comes from Test-WindowsPackageSkip, which the
+                # Chocolatey path and the verification also ask, so the three cannot disagree.
+                $skipReason = Test-WindowsPackageSkip -Item $item -Fact $machineFact
+                if ($skipReason) {
                     Write-Host ("  ... [{0}/{1}] {2} skipped" -f $index, $wingetItems.Count, $item.Key)
                     $results.Add([PSCustomObject]@{
                         Key = $item.Key; Manager = 'winget'; Package = $item.Package; Status = 'skipped'
-                        Detail = "the vendor ships this for client editions of Windows only, and this is $installationType, so its installer refuses before it starts"
-                    })
-                    continue
-                }
-                if ($item.UserContext -and $isElevated) {
-                    Write-Host ("  ... [{0}/{1}] {2} skipped" -f $index, $wingetItems.Count, $item.Key)
-                    $results.Add([PSCustomObject]@{
-                        Key = $item.Key; Manager = 'winget'; Package = $item.Package; Status = 'skipped'
-                        Detail = 'its installer refuses to run from an administrator context, and this wizard was started elevated. Run the wizard as your normal user and it installs.'
-                    })
-                    continue
-                }
-                if ($item.RequiresNvidiaGpu -and $nvidiaAdapters.Count -eq 0) {
-                    Write-Host ("  ... [{0}/{1}] {2} skipped" -f $index, $wingetItems.Count, $item.Key)
-                    $results.Add([PSCustomObject]@{
-                        Key = $item.Key; Manager = 'winget'; Package = $item.Package; Status = 'skipped'
-                        Detail = 'this is NVIDIA graphics software and Win32_VideoController reports no NVIDIA display adapter on this machine, so there is nothing for it to drive'
+                        Detail = $skipReason
                     })
                     continue
                 }
@@ -732,23 +773,30 @@ function Invoke-WindowsSoftwareInstall {
 
     $chocoItems = @($plan.Planned | Where-Object { $_.Manager -eq 'choco' })
 
-    # Hardware the machine does not have is decided before the batch rather than inside it, because
-    # Chocolatey installs these in one child process and a package that cannot run here would take
-    # its exit code back to the parent as a batch failure. nvidia_app is the case: the NVIDIA App is
-    # the driver and GPU control centre, its installer refuses a machine with no NVIDIA adapter, and
-    # a hosted Windows runner has none. Skipped with the measured reason, never quietly dropped.
-    $chocoNvidiaSkips = @($chocoItems | Where-Object { $_.RequiresNvidiaGpu })
-    if ($chocoNvidiaSkips.Count -gt 0) {
-        $adapters = @(Get-NvidiaGraphicsAdapter)
-        if ($adapters.Count -eq 0) {
-            foreach ($item in $chocoNvidiaSkips) {
+    # Decided before the batch rather than inside it, because Chocolatey installs these in one child
+    # process and a package that cannot run here would take its exit code back to the parent as a
+    # batch failure.
+    #
+    # All three conditions, not just the hardware one. This block used to ask about
+    # RequiresNvidiaGpu alone, so a Chocolatey package carrying client_only was installed anyway
+    # while the verification, reading the same key, reported it as not applicable. Run 32778481303
+    # shows both halves of that: razer-synapse-4 installed and exited 0, and the verification called
+    # it not applicable in the same run.
+    if ($chocoItems.Count -gt 0) {
+        $chocoFact = Get-WindowsMachineFact
+        $chocoSkipped = @()
+        foreach ($item in $chocoItems) {
+            $reason = Test-WindowsPackageSkip -Item $item -Fact $chocoFact
+            if ($reason) {
+                $chocoSkipped += $item.Key
                 $results.Add([PSCustomObject]@{
                     Key = $item.Key; Manager = 'choco'; Package = $item.Package; Status = 'skipped'
-                    Detail = 'this is NVIDIA graphics software and Win32_VideoController reports no NVIDIA display adapter on this machine, so there is nothing for it to drive'
+                    Detail = $reason
                 })
             }
-            $skipKeys   = @($chocoNvidiaSkips | ForEach-Object { $_.Key })
-            $chocoItems = @($chocoItems | Where-Object { $_.Key -notin $skipKeys })
+        }
+        if ($chocoSkipped.Count -gt 0) {
+            $chocoItems = @($chocoItems | Where-Object { $_.Key -notin $chocoSkipped })
         }
     }
 

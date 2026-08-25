@@ -329,13 +329,12 @@ function Invoke-WindowsVerification {
         Write-Verbose "Chocolatey reports $($chocoIds.Count) installed package(s)"
     }
 
-    # The three machine facts the install phase decided its skips on, asked once here so the two
-    # phases cannot disagree. The helpers live in WindowsSoftware.ps1, which setup.ps1 dot-sources
-    # before this file precisely because the others read the mappings through it.
-    $installationType = Get-WindowsInstallationTypeForSoftware
-    $isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator)
-    $nvidiaAdapters = @(Get-NvidiaGraphicsAdapter)
+    # The same facts the install phase decided its skips on, and below, the same function deciding
+    # from them. Not a copy of the rule: a second copy is what made the install phase install a
+    # package this phase then called not applicable. Both live in WindowsSoftware.ps1, which
+    # setup.ps1 dot-sources before this file precisely because the others read the mappings
+    # through it.
+    $machineFact = Get-WindowsMachineFact
 
     foreach ($key in $mappedKeys) {
         $mapping = $mappings[$key]
@@ -346,26 +345,10 @@ function Invoke-WindowsVerification {
             continue
         }
 
-        # Read defensively for the same reason the install phase does: the Pester suite hands this
-        # code mappings built by hand without the optional keys, and under Set-StrictMode -Version
-        # Latest an absent property is a terminating error rather than $false.
-        $clientOnly  = if ($mapping.PSObject.Properties['ClientOnly'])  { $mapping.ClientOnly }  else { $false }
-        $userContext = if ($mapping.PSObject.Properties['UserContext']) { $mapping.UserContext } else { $false }
-        $needsNvidia = if ($mapping.PSObject.Properties['RequiresNvidiaGpu']) { $mapping.RequiresNvidiaGpu } else { $false }
-
-        if ($clientOnly -and $installationType -ne 'Client') {
+        $skipReason = Test-WindowsPackageSkip -Item $mapping -Fact $machineFact
+        if ($skipReason) {
             & $add $key $mapping.Manager $mapping.Package $script:VerdictNotApplicable `
-                "the vendor ships this for client editions of Windows only and this is $installationType, so the install phase skipped it"
-            continue
-        }
-        if ($userContext -and $isElevated) {
-            & $add $key $mapping.Manager $mapping.Package $script:VerdictNotApplicable `
-                'its installer refuses an administrator context and this run was elevated, so the install phase skipped it'
-            continue
-        }
-        if ($needsNvidia -and $nvidiaAdapters.Count -eq 0) {
-            & $add $key $mapping.Manager $mapping.Package $script:VerdictNotApplicable `
-                'this is NVIDIA graphics software and Win32_VideoController reports no NVIDIA display adapter, so the install phase skipped it'
+                "$skipReason, so the install phase skipped it"
             continue
         }
 
