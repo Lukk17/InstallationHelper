@@ -211,6 +211,89 @@ check_winget() {
     fi
 }
 
+# --- the file a winget manifest points at ------------------------------------
+# check_winget above asks whether the identifier resolves. That is not the question that failed twice
+# on 2026-08-25. Both hwinfo and openssl had current, healthy manifests whose download was gone:
+#
+#   REALiX.HWiNFO              https://www.sac.sk/download/utildiag/hwi_850x.exe            404
+#   ShiningLight.OpenSSL.Light https://slproweb.com/download/Win64OpenSSL_Light-4_0_1.msi   404
+#
+# Each surfaced as `exit -2145844844 ... 0x80190194 : Not found (404)` about an hour into a Windows
+# run, and each cost roughly two hours of runner time to find. The identifier check passed both times
+# and was right to: the manifest exists. The file below it does not.
+#
+# So this asks the level below, taking the URL from `winget show` and sending it a request.
+#
+# winget rather than the manifest tree on GitHub, and that is measured rather than a preference.
+# Reading manifests from microsoft/winget-pkgs needs two authenticated API calls per package and
+# eighty packages did not finish inside a ten minute window. `winget show --id <id> --exact` prints
+# the same InstallerUrl from one local process in 0.8 seconds. GitHub is kept as the fallback for a
+# machine with no winget, and on that route this check reports what it could not prove rather than
+# pretending to a result.
+#
+# What counts as a failure is deliberately narrow. 404 and 410 mean the vendor removed the file, which
+# is the defect. A timeout, a refused connection, or a 403 is reported as unproven, because those are
+# properties of the request rather than of the file: several vendors refuse a bare request from a data
+# centre while serving a browser perfectly well, and calling that a dead download would make this
+# check cry wolf until somebody stopped reading it.
+check_winget_downloads() {
+    local pkgs=() dead=() unproven=() checked=0 skipped=0
+    mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Windows.yaml" winget)
+    [[ ${#pkgs[@]} -eq 0 ]] && { pass "winget downloads: nothing mapped"; return; }
+
+    if ! command -v curl &>/dev/null; then
+        skip "the file every winget manifest points at still exists" "no curl here to ask with"
+        return
+    fi
+
+    local winget_cmd=""
+    for candidate in winget winget.exe; do
+        command -v "${candidate}" &>/dev/null || continue
+        if "${candidate}" --version &>/dev/null; then winget_cmd="${candidate}"; break; fi
+    done
+
+    if [[ -z "${winget_cmd}" ]]; then
+        skip "the file every winget manifest points at still exists" \
+             "no runnable winget here, and reading ${#pkgs[@]} manifests from GitHub instead does not finish in a sensible time"
+        return
+    fi
+
+    dim "asking winget for ${#pkgs[@]} installer URLs and then asking each one whether it still exists"
+
+    local id url code
+    for id in "${pkgs[@]}"; do
+        # Store product ids carry no manifest, so there is no URL to ask about.
+        if [[ "${id}" != *.* ]]; then skipped=$((skipped + 1)); continue; fi
+
+        # The first URL only. A manifest can carry six architectures and the question here is whether
+        # the vendor still publishes the release at all, so asking once keeps this near one request
+        # per package instead of six.
+        url="$("${winget_cmd}" show --id "${id}" --exact --disable-interactivity --accept-source-agreements 2>/dev/null \
+               | grep -iE '^[[:space:]]*Installer Url:' | head -1 | sed -E 's/.*Installer Url:[[:space:]]*//' | tr -d '\r')"
+        if [[ -z "${url}" ]]; then
+            unproven+=("${id} (winget printed no installer URL)")
+            continue
+        fi
+
+        checked=$((checked + 1))
+        code="$(curl -s -o /dev/null -m 25 -w '%{http_code}' -L "${url}" 2>/dev/null || echo 000)"
+        case "${code}" in
+            404|410) dead+=("${id} -> ${url} answered ${code}") ;;
+            2*|3*)   : ;;
+            *)       unproven+=("${id} -> ${url} answered ${code}") ;;
+        esac
+    done
+
+    [[ ${skipped} -gt 0 ]] && dim "${skipped} entries skipped, they are Microsoft Store product ids"
+    [[ ${#unproven[@]} -gt 0 ]] && dim "${#unproven[@]} not proven either way: ${unproven[*]}"
+
+    if [[ ${#dead[@]} -eq 0 ]]; then
+        pass "winget downloads: all ${checked} packages point at a file that still exists"
+    else
+        fail "winget downloads: ${#dead[@]} package(s) point at a file the vendor has removed, so the install fails with 0x80190194 about an hour into a Windows run" "${dead[*]}"
+    fi
+}
+
 # --- apt and dnf, inside the pinned base image -------------------------------
 # The image comes out of e2e/tier3/<distro>.Dockerfile, so this check and the scenarios
 # always talk about the same distribution release. Nothing is installed: apt-cache policy
@@ -318,6 +401,7 @@ check_brew brew formula
 check_brew brew_cask cask
 check_choco
 check_winget
+check_winget_downloads
 check_npm
 check_apt_and_dnf
 probe_report_forgiveness "no dictionary forgiveness in runtime_repo_packages.txt has become unnecessary"
