@@ -156,7 +156,9 @@
       loop_control:
         label: "{{ item }}"
       register: apt_results
-      # apt's own words for "nothing to do", so a rerun does not report a change it did not make.
+      # apt's own words for having nothing to do, on stdout, measured in a debian:trixie container
+      # on 2026-08-25 for a single package rather than assumed to carry over from the batch: the
+      # marker is absent on a real install and present on a rerun.
       changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (apt_results.stdout | default(''))"
       # Never fatal, so one unavailable package cannot abandon the rest of the installer. The
       # collectors below turn the losses into a named failure and mark the run failed.
@@ -529,7 +531,10 @@
       loop_control:
         label: "{{ item }}"
       register: dnf_results
-      # dnf's own words for a package that is already there, so a rerun reports no change.
+      # dnf's own words for having nothing to do, on stdout, measured in a fedora container on
+      # 2026-08-25: absent on a real install, present on a rerun. dnf writes its repository progress
+      # to stderr and this line to stdout, which is the distinction that caught the pacman condition
+      # below out.
       changed_when:
         - dnf_results.rc | default(1) == 0
         - "'Nothing to do' not in (dnf_results.stdout | default(''))"
@@ -669,10 +674,18 @@
       loop_control:
         label: "{{ item }}"
       register: pacman_results
-      # pacman's own words for a package --needed skipped, so a rerun reports no change.
+      # pacman's own words for having nothing to do, measured rather than guessed, because the first
+      # attempt at this condition guessed and the Arch idempotency cell of sweep 32816442922 caught
+      # it. Run in an archlinux container: installing a package that is already present exits 0 and
+      # prints " there is nothing to do" on STDOUT, while the line naming the package,
+      # "warning: jq-1.8.2-1 is up to date -- skipping", goes to STDERR. The first version of this
+      # condition looked for that warning in stdout, where it never appears, so the task reported a
+      # change on every rerun. That is the same defect the idempotency section of
+      # docs/regression_ledger.md already records against other tasks: a changed_when reading stdout
+      # for a message the tool writes to stderr.
       changed_when:
         - pacman_results.rc | default(1) == 0
-        - "'is up to date -- skipping' not in (pacman_results.stdout | default(''))"
+        - "'there is nothing to do' not in (pacman_results.stdout | default(''))"
       failed_when: false
       until: pacman_results.rc | default(1) == 0
       retries: 3

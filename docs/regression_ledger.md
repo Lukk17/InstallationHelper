@@ -744,6 +744,21 @@ The fix belongs upstream in pull request #86739 against `ansible/ansible`. Check
 
 ### Idempotency
 
+#### The pacman no-op marker is on stderr, and the condition read stdout
+
+Status: fixed, 2026-08-25, in [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml).
+
+Introduced the same day, by the change that removed the last batches. The new per-package pacman task needed a `changed_when`, and I guessed it instead of measuring it: it looked for `is up to date -- skipping` in stdout.
+
+Caught within the hour by the Arch idempotency cell of sweep 32816442922, which applies the defaults configuration twice and fails on any task reporting a change on the second pass. It reported exactly one offender, `software_installer : Install Pacman packages, one at a time`.
+
+Measured in an `archlinux` container afterwards. Installing a package that is already present exits 0 and prints ` there is nothing to do` on stdout, while the line that names the package, `warning: jq-1.8.2-1 is up to date -- skipping`, goes to stderr. So the condition looked for a string on a stream it never appears on, and the task therefore reported a change on every rerun.
+
+This is the fifth instance in this section of the same defect: a `changed_when` reading stdout for something the tool writes to stderr. The lesson has been written down here before and I did it again, which is worth recording plainly.
+
+The other two new conditions were measured at the same time rather than assumed, and both were already right. apt prints `0 upgraded, 0 newly installed, 0 to remove` on stdout for a no-op, absent on a real install, confirmed for a single package rather than trusted to carry over from the batch. dnf prints `Nothing to do` on stdout, with its repository progress on stderr. All three now carry the measurement in a comment beside them.
+
+
 #### Five tasks in the SDK and AI tool roles reported a change on every rerun
 
 Status: fixed in this change, in [nvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/nvm_unix.yaml), [fvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/fvm_unix.yaml), [android_sdk_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/android_sdk_unix.yaml), [pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml) and [local_llm.yaml](../setup/ansible/roles/ai_tools/tasks/local_llm.yaml).
