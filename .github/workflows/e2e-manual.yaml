@@ -481,6 +481,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # macOS ships bash 3.2, because bash 4 went GPLv3 and Apple stopped shipping it. setup/setup.sh
+      # needs bash 4 and refuses on its first line without it, which is how run 32872500799 failed in
+      # seventeen seconds with "this wizard needs bash 4 or newer and found 3.2.57(1)-release". Every
+      # macOS cell in e2e-matrix.yml has run this since the day macOS was added, and this job never
+      # did, which is the fourth thing this workflow was missing that the sweep already had.
+      - name: Install bash 4, which macOS does not ship
+        run: brew install bash
+
       - name: Run the bootstrap wizard
         env:
           SEL_DE: ${{ needs.plan.outputs.desktop_environment }}
@@ -591,6 +599,21 @@ jobs:
             }
           }
           Show-Free 'after'
+
+      # Taken verbatim from every Windows cell in e2e-matrix.yml. Not strictly required today,
+      # because the windows-latest image happens to ship a registered distribution called Ubuntu and
+      # the passing manual run of 2026-08-24 used it. That is a dependency on an image detail rather
+      # than on anything this repository controls, and the sweep does not have it. Registering the
+      # distribution here makes the two jobs equivalent and removes the dependency.
+      - name: Register Ubuntu inside WSL, which a bare runner has none of
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          wsl --set-default-version 2 2>&1 | Write-Host
+          wsl --install --distribution Ubuntu-26.04 --no-launch 2>&1 | Write-Host
+          Write-Host "wsl --install exited $LASTEXITCODE"
+          wsl --list --verbose 2>&1 | Write-Host
 
       - name: Best-effort winget bootstrap
         shell: pwsh
