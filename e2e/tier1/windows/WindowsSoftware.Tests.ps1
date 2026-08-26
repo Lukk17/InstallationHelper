@@ -1,27 +1,28 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-    Pester tests for the native Windows installer, run inside a clean Windows container.
+    Pester tests for the native Windows installer.
 
 .DESCRIPTION
-    These assert behaviour on a machine with nothing installed, which is the state a real user
-    starts from and the one a developer machine can never reproduce. They deliberately do not
-    install any winget package, because winget cannot run on Server Core at all: it ships as
-    an MSIX and needs the AppX subsystem. See e2e/tier3/windows.Dockerfile.
+    These assert the parts of the wizard that can be answered without installing anything: the
+    reading of the toggle and mapping files, the plan that comes out of them, the machine-condition
+    skips, the pinned values adapters and the cache reclaim.
 
-    Run through e2e/tier3/Invoke-WindowsE2E.ps1 rather than directly, so the repository is in
-    the expected place and Docker is in the right mode.
+    Two callers, and they run the same file rather than a copy of it. The windows_pester check in
+    tier 1 runs it on a developer machine, and the stage 1 job of .github/workflows/e2e-matrix.yml
+    runs it on a hosted Windows runner. It lived under tier3/windows until 2026-08-26, driven by a
+    Server Core container that was retired for being unable to install a single winget package.
+
+    Installing anything for real is a different job, and it belongs to the hosted runner cells or
+    to Windows Sandbox, see e2e/manual_test_matrix.md.
 #>
 
 BeforeAll {
-    # The repository root is found by walking up from this file rather than assumed, because this
-    # suite runs from two places that put it at a different depth: a real checkout, where it sits
-    # three levels under the root at e2e\tier3\windows, and the tier 3 container, where
-    # Invoke-WindowsE2E.ps1 copies just this one file straight to C:\work with none of that nesting.
-    # E2E_REPO_ROOT stays as an explicit override, which is how the container script already pins
-    # it to C:\work, but nothing here hardcodes C:\work or any other path as the only place this can
-    # find the repository, so a developer running this straight from a checkout gets a real answer
-    # instead of a path that only exists inside a container.
+    # The repository root is found by walking up from this file rather than assumed, so the suite
+    # works from a checkout at any path and from a copy at any depth. E2E_REPO_ROOT stays as an
+    # explicit override for a caller that has moved the file away from its tree, which is what the
+    # retired container harness did when it copied this one file to C:\work. Nothing here hardcodes
+    # a path, so a developer running it straight from a checkout gets a real answer.
     function Find-RepositoryRoot {
         [OutputType([string])]
         param([Parameter(Mandatory)] [string] $StartPath)

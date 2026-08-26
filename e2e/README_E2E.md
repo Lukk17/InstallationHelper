@@ -123,14 +123,14 @@ green: what that run still does not tell you.
 | a mapping in `setup/ansible/vars/*.yaml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the package installs cleanly, only that the name resolves in that distribution's index |
 | a package name written directly into a role task | `./e2e/run.sh --tier 2` | the same, and nothing at all for a name built at run time from a variable |
 | a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the pinned version is the right version, only that it resolves and that its download location answers |
-| the pinned values reader or any of its adapters | `./e2e/run.sh`, then `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, then `--tier 3 --scenario defaults` | nothing about macOS, which has no container tier |
+| the pinned values reader or any of its adapters | `./e2e/run.sh`, whose `windows_pester` check runs the adapter tests, then `--tier 3 --scenario defaults` | nothing about macOS, which has no container tier |
 | anything in `roles/` touching groups, systemd units or per-distribution behaviour | `./e2e/run.sh --tier 3 --scenario defaults` on arch, debian, ubuntu and fedora | anything needing a graphical session, a real kernel module, or hardware |
 | a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `./e2e/run.sh --tier 3 --scenario idempotency` | whether the task is idempotent on any distribution other than the one you ran, because a guard that is right on apt can be missing entirely on pacman |
 | a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, the callback plugin's failure rendering, or `verify_install.yaml`'s assertions | `./e2e/run.sh --tier 3 --scenario forced-failure` | that a real defect would be caught, only that a failure which does happen is reported in all four places, and it is the cheapest container scenario so there is no excuse for skipping it |
 | the desktop environment roles | `--scenario kde-full` and `--scenario gnome-full` | that the desktop actually starts, since no container has a display |
 | `profiles/linux_live.yaml` | `--scenario live-profile` | that a real live USB behaves the same, since the container has a writable root |
 | `setup/setup.sh` | `./e2e/run.sh`, then any one `--tier 3` scenario end to end | the interactive screens, which need a terminal no test has |
-| `setup/setup.ps1` or anything in `setup/windows/` | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1` | 80 of the 89 Windows mappings, because winget ships as an MSIX package and Server Core has no AppX subsystem |
+| `setup/setup.ps1` or anything in `setup/windows/` | `./e2e/run.sh` for the logic, then `pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1` for a real install | anything needing a reboot, WSL, or a hypervisor, none of which a sandbox has |
 | `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then `--tier 3 --scenario forced-failure`, then any one passing scenario | nothing, if the gate and both scenarios pass, this is the best covered file in the repository. The forced-failure scenario is the half that matters: it proves the play refuses over a broken machine, which no passing scenario can show |
 | a tier 1 check, or anything under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then `./e2e/run.sh` from Git Bash and from WSL | that the check is testing the thing rather than its own implementation, which only the failure proof shows |
 | a distribution Dockerfile, or a new distribution | `--tier 3 --scenario defaults --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
@@ -362,25 +362,27 @@ Base image tags are pinned rather than tracking `latest`, because a moving base 
 
 ### Windows
 
-Windows has its own entry point, driven from Windows rather than from WSL.
+Windows has no container tier. It had one until 2026-08-26 and it was retired, so if you find a reference to a Windows Dockerfile or to `Invoke-WindowsE2E.ps1` anywhere, it is stale.
 
-```powershell
-pwsh e2e/tier3/Invoke-WindowsE2E.ps1
+The reason is worth stating once, because it is not obvious. A Windows container is always Windows Server: Microsoft publishes container base images only from Windows Server, the newest being Server 2025 at build 26100, and there has never been a Windows 10 or Windows 11 client image. Server Core has no AppX deployment subsystem, and winget ships as an MSIX package that needs it, so winget cannot install anything inside any Windows container. That is 80 of the 89 Windows mappings. What was left was the YAML parsing, the plan, and the Chocolatey path, all of which the tier 1 gate proves on a developer machine in seconds, so the container was a multi-gigabyte image and an isolation argument in exchange for almost nothing.
+
+Windows coverage now lives in three places, and between them they cover more than the container ever did.
+
+The logic, in seconds, on any machine with PowerShell 7 and Pester 5. This is the `windows_pester` check inside the tier 1 gate, and it runs [tier1/windows/WindowsSoftware.Tests.ps1](tier1/windows/WindowsSoftware.Tests.ps1), the same file the sweep's stage 1 job runs on a hosted runner.
+
+```bash
+bash e2e/run.sh
 ```
 
-Skip the Chocolatey bootstrap for a quick logic-only pass.
+A real install on your own Windows, in Windows Sandbox. This is the local route for anything that actually installs software, and it is documented in [manual_test_matrix.md](manual_test_matrix.md).
 
 ```powershell
-pwsh e2e/tier3/Invoke-WindowsE2E.ps1 -SkipSlow
+pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1
 ```
 
-It is separate because a Docker daemon serves one container platform at a time. It runs only where a Windows daemon is already answering, and it never changes the platform of the daemon it finds: the one on this project's machine serves the Linux containers every other tier depends on, and that stays as it is. Where no Windows daemon answers, the same suite still runs without a container at all, through the `windows_pester` check in tier 1 and through the stage 1 job of the sweep on a hosted Windows runner. What that leaves unproven is the handful of cases that need a machine with nothing installed. `run.sh --os windows` says the same rather than failing on a missing Dockerfile.
+A real install on a hosted Windows Server 2025 runner, which is the automated one. Dispatch [../.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) at its `windows` target, or run the full sweep, whose four Windows cells install the whole set for real. Measured at 87 minutes for the defaults set and 122 with every toggle on, in [run_durations.md](run_durations.md).
 
-What it tests: the logic in [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) on a clean Windows with nothing installed, which is the state a real user starts from and the one a developer machine can never reproduce. That is the YAML parsing, the resulting install plan, the winget resolution failure path, and the Chocolatey bootstrap. The suite is [tier3/windows/WindowsSoftware.Tests.ps1](tier3/windows/WindowsSoftware.Tests.ps1), driven by Pester 5, which the image installs at build time so a run needs no network of its own.
-
-What it cannot test, and does not claim to: any winget installation. winget ships as an MSIX package and needs the AppX deployment subsystem, which Server Core and Nano Server do not have. That is 80 of the 89 Windows mappings, seven of those being Microsoft Store product ids that need the Store itself and are further out of reach again. Chocolatey works because it is only PowerShell and NuGet, which covers the remaining 9. There is no way around this in a container, so winget installation needs a real Windows machine or a hosted runner. It also cannot test the wizard's own interface, because `Out-ConsoleGridView` needs a real console.
-
-The base image is `mcr.microsoft.com/windows/servercore:ltsc2025`, which is build 26100 and the closest published Server Core to this project's Windows 11 host at 26200. The driver asks for Hyper-V isolation rather than process isolation, because process isolation wants the container and host builds to match closely and these do not.
+What none of the three can do is in [manual_test_matrix.md](manual_test_matrix.md), and the short version is that the runner is Server rather than client, and a sandbox can neither reboot nor run a hypervisor. Between them that leaves the client-edition packages, the seven Microsoft Store ids, `enable_hyperv`, WSL end to end and every hardware row for a real machine.
 
 ---
 

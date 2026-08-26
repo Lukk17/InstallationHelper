@@ -46,8 +46,7 @@ RUN dnf5 install -y \
 # escaping that bug.
 #
 # Checked at build time on purpose. An image outside the range is a broken image, and this fails the
-# build in seconds rather than a scenario twenty-five minutes in, the same reasoning as the tomllib
-# assertion in windows.Dockerfile.
+# build in seconds rather than a scenario twenty-five minutes in.
 ARG ANSIBLE_CORE_MIN_VERSION=2.19.0
 ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=2.22.0
 RUN CORE="$(ansible-playbook --version | head -1)" python3 -c 'import os, re, sys; found = re.search("core ([0-9.]+)", os.environ["CORE"]); version = lambda s: tuple(int(n) for n in (re.findall("[0-9]+", s) + ["0", "0"])[:3]); low, high = os.environ["ANSIBLE_CORE_MIN_VERSION"], os.environ["ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE"]; core = found.group(1) if found else ""; sys.exit(0 if found and version(low) <= version(core) < version(high) else "this image has ansible-core " + (core or "an unreadable version") + ", outside the range " + low + " <= version < " + high + " that setup/setup.sh accepts")'

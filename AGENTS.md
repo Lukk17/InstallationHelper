@@ -233,12 +233,12 @@ A non-zero exit means the work is not done. Do not report success, do not commit
 | a package mapping in `setup/ansible/vars/*.yaml` | `./e2e/run.sh --tier 2` |
 | **any package name written directly into a role task** | `./e2e/run.sh --tier 2`, which resolves them per distribution. Five shipped defects came from here, including two that were themselves earlier fixes that had rotted |
 | a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh --tier 2`, which asks every download location whether it still exists |
-| the pinned values reader or any of its adapters | tier 1, then `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, then `--tier 3 --scenario defaults` |
+| the pinned values reader or any of its adapters | tier 1, which runs the Windows Pester suite, then `--tier 3 --scenario defaults` |
 | anything in `roles/` that touches groups, systemd units, or per-distro behaviour | `./e2e/run.sh --tier 3 --scenario defaults`, on all four Linux distributions and not just one |
 | the desktop environment roles | `./e2e/run.sh --tier 3 --scenario kde-full` and `--scenario gnome-full` |
 | `profiles/linux_live.yaml` | `./e2e/run.sh --tier 3 --scenario live-profile` |
 | `setup/setup.sh` | tier 1, then any one tier 3 scenario end to end |
-| the Windows installer (`setup/setup.ps1` or `setup/windows/`) | `pwsh e2e/tier3/Invoke-WindowsE2E.ps1`, and note it cannot exercise winget at all, see `e2e/README_E2E.md` |
+| the Windows installer (`setup/setup.ps1` or `setup/windows/`) | tier 1, which runs the Windows Pester suite, then a real install in Windows Sandbox via `pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1`, see `e2e/manual_test_matrix.md`. There is no Windows container tier: it could not install one winget package |
 | `setup/ansible/verify_install.yaml` | tier 1, then `--tier 3 --scenario forced-failure`, which is the only scenario that proves the play refuses over a broken machine, then any one passing scenario |
 | a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `./e2e/run.sh --tier 3 --scenario idempotency`, which applies the defaults configuration twice and fails on any task that reports changed on the second pass without a reason in `e2e/tier3/idempotent_changes_allowed.txt` |
 | a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, or the callback plugin's failure rendering | `./e2e/run.sh --tier 3 --scenario forced-failure`, which breaks the run on purpose and asserts the failure reaches the exit code, the terminal summary, the error log and the verification |

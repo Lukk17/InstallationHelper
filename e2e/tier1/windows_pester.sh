@@ -21,7 +21,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/pwsh_probe.sh"
 
 info "Tier 1: the Windows installer unit tests"
 
-SUITE="${E2E_ROOT}/tier3/windows/WindowsSoftware.Tests.ps1"
+SUITE="${E2E_ROOT}/tier1/windows/WindowsSoftware.Tests.ps1"
 
 if [[ ! -f "${SUITE}" ]]; then
     fail "the Pester suite is missing, so this check proves nothing" "${SUITE}"

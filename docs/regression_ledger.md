@@ -153,7 +153,7 @@ Effect: [setup/ansible/tags.md](../setup/ansible/tags.md) documents `apt_batch` 
 
 #### The Windows gate could not fail
 
-Status: fixed in [e2e/tier3/Invoke-WindowsE2E.ps1](../e2e/tier3/Invoke-WindowsE2E.ps1).
+Status: fixed at the time in `e2e/tier3/Invoke-WindowsE2E.ps1`, a file since deleted with the rest of the Windows container tier on 2026-08-26.
 
 Cause: two defects in the command generated for the container. `Invoke-Pester` was called without `PassThru`, so it returned nothing, and the script then ran `exit $r.FailedCount` on a null. Separately, the `-SkipSlow` branch interpolated the string `-ExcludeTagFilter @('Slow','Network')` onto a line of its own inside the generated script, where a leading hyphen is an operator PowerShell does not have.
 
@@ -161,7 +161,7 @@ Effect: with `-SkipSlow` the generated script was a parse error and the run fail
 
 #### A test suite that only passed with an environment variable nobody sets
 
-Status: fixed in [e2e/tier3/windows/WindowsSoftware.Tests.ps1](../e2e/tier3/windows/WindowsSoftware.Tests.ps1).
+Status: fixed in [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1), which lived under `tier3/windows` when this happened.
 
 Cause: the suite located the repository through `$env:E2E_REPO_ROOT` with a fallback to `C:\work`, the path inside the Windows container. The variable is set by the container entry point and by nothing else.
 
@@ -1241,6 +1241,26 @@ The runner ran out of space while writing its own diagnostic log, so the steps h
 Every Windows job now clears the preinstalled ones first, and each path was chosen because the image ships it and nothing here uses it: the image's own Android SDK, which is not the one `setup.ps1` installs at `C:\tools\android`, the hosted tool cache of Python, Node, Go and Java builds, and four language runtimes. Free space is printed before and after rather than asserted, because the number belongs to the image and changes without notice, and a figure in the log is what the next reader actually needs.
 
 Worth keeping in mind for reading any Windows cell: a full disk does not look like a failure, it looks like nothing. No step conclusion, no artefact, no message in the log, and the run summary simply says the job failed.
+
+#### The Windows container tier could never have tested a Windows install
+
+Status: removed on 2026-08-26, at the owner's instruction. `e2e/tier3/Invoke-WindowsE2E.ps1` and `e2e/tier3/windows.Dockerfile` are deleted, the Pester suite moved to [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) where the check that runs it lives, and local Windows verification is Windows Sandbox, documented in [e2e/manual_test_matrix.md](../e2e/manual_test_matrix.md).
+
+Not a defect that broke a run. A tier that was built, documented at length, wired into the mandatory instruction table in [AGENTS.md](../AGENTS.md), and could not do the one thing its name promised.
+
+A Windows container is always Windows Server. Microsoft publishes container base images only from Windows Server, the newest being Server 2025 at build 26100, and there has never been a Windows 10 or 11 client image, which was read off Microsoft's own base image servicing page rather than remembered. Server Core has no AppX deployment subsystem, winget ships as an MSIX that needs it, so no winget package can install in any Windows container. Counted out of `setup/ansible/vars/Windows.yaml` on the day: 80 of the 89 mappings. What was left was the YAML parsing, the plan and the Chocolatey bootstrap, and the tier 1 gate proves all three on a developer machine in seconds.
+
+Three things should have ended it earlier, and each was visible from the start.
+
+No workflow ever called it. The two references in `e2e-matrix.yml` were comments, one of which said in as many words that going through it had never been exercised. A tier no pipeline runs and no human runs is not a tier.
+
+Its own documentation carried the refutation. The Dockerfile's header said winget cannot work in it and named the number, and that paragraph was updated more than once without anybody asking what was left.
+
+And it cost more than it returned every time it came up: a multi-gigabyte Server Core image, an isolation argument, and finally an instruction to switch the Docker daemon away from the Linux containers every other tier needs, which is the thing that made the owner ask why it existed at all.
+
+The isolation argument is worth keeping, because it is the part that is easy to get backwards, and I did get it backwards in conversation before checking. Process isolation runs the image's system files on the host's kernel and needs the two builds to match. This project's machine is build 26200 and the newest published image is 26100, so process isolation could never work here and Hyper-V isolation was the only local option. A hosted Windows runner is 26100, the same as the image, so there process isolation is the mode that fits. The machine that looked capable was the one that could not, and the runner nobody had tried was the one that could.
+
+What replaced it covers more, not less. The suite still runs in tier 1 in seconds and in stage 1 of the sweep on a hosted runner. Real installs happen on the hosted Windows cells, all 89 mappings, and locally in Windows Sandbox, which is client Windows at the host's own build, so it can do the winget path and the client-edition packages the Server runner has to skip. What no arrangement covers is unchanged and still listed on the manual page: a reboot, a hypervisor, the Store ids, and hardware.
 
 #### Two wrong answers about the Windows download caches, and what the tools actually do with them
 

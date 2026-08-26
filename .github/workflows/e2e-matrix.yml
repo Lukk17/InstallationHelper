@@ -137,13 +137,14 @@
 #      toggle, because e2e-manual.yml's own exclusion is stated as a deliberate deviation from a
 #      literal `--software all`, and stage 3 exists to run the wizard exactly as documented.
 #   4. stage1_windows_pester runs Invoke-Pester directly against
-#      e2e/tier3/windows/WindowsSoftware.Tests.ps1 on windows-latest itself, excluding the
+#      e2e/tier1/windows/WindowsSoftware.Tests.ps1 on windows-latest itself, excluding the
 #      Slow and Network tagged Describe block (the Chocolatey bootstrap, which installs
-#      something and so does not belong in a stage that installs nothing). This is different
-#      from e2e/tier3/Invoke-WindowsE2E.ps1, which runs the same suite inside a Windows Server
-#      Core container. Running it directly on windows-latest has never been tried: whether
-#      Pester 5 ships preinstalled on that runner image is assumed rather than confirmed, so a
-#      defensive install step is included.
+#      something and so does not belong in a stage that installs nothing). This is the only
+#      place that suite runs in CI. It used to have a second home, a Server Core container
+#      driven from a developer machine, and that was retired on 2026-08-26: it could not
+#      install a single winget package, which is 80 of the 89 Windows mappings, and no workflow
+#      ever ran it. Local Windows verification is Windows Sandbox now, see
+#      e2e/manual_test_matrix.md.
 #   5. The Windows-settings-only job in stage 3 enables enable_hyperv, which turns on the
 #      Hyper-V Windows optional feature and asks for a reboot. Whether that succeeds inside a
 #      GitHub-hosted Windows runner's own virtualised environment (nested virtualisation) has
@@ -292,7 +293,7 @@ jobs:
   # excluding the one Describe block tagged Slow and Network (the Chocolatey bootstrap, which
   # actually installs something), so this job keeps stage 1's "nothing is installed" property.
   # See the NEVER RUN IN CI note at the top of this file: this direct invocation, as opposed to
-  # going through e2e/tier3/Invoke-WindowsE2E.ps1's own container, has never been exercised.
+  # rather than through a container, which this repository no longer has for Windows.
   stage1_windows_pester:
     name: "Windows unit tests"
     if: inputs.start_from_stage == 'stage-1'
@@ -321,7 +322,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Import-Module Pester -MinimumVersion 5.0
           $cfg = New-PesterConfiguration
-          $cfg.Run.Path = 'e2e/tier3/windows/WindowsSoftware.Tests.ps1'
+          $cfg.Run.Path = 'e2e/tier1/windows/WindowsSoftware.Tests.ps1'
           $cfg.Run.PassThru = $true
           $cfg.Output.Verbosity = 'Detailed'
           $cfg.Filter.ExcludeTag = @('Slow', 'Network')

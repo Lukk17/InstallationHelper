@@ -106,21 +106,25 @@ check_memory_headroom() {
 }
 
 run_tier3() {
-    # Windows is not a scenario on this path. A Docker daemon serves one container platform at a
-    # time and this one serves Linux, which is what every scenario here needs. Say where the
-    # Windows suite lives instead of failing obscurely on a missing Dockerfile.
+    # Windows is not a scenario here and there is no container tier for it any more. Say where
+    # the Windows coverage actually lives instead of failing obscurely on a missing Dockerfile.
     if [[ "${OS}" == "windows" ]]; then
         cat >&2 <<'EOF'
-Windows tier 3 has its own entry point, driven from Windows rather than from WSL.
+Windows has no container tier. It had one until 2026-08-26 and it was retired, because a Windows
+container is always Windows Server and Server Core has no AppX subsystem, so winget cannot install
+anything in it. That is 80 of the 89 Windows mappings, which left the container proving little more
+than the tier 1 checks already prove in seconds.
 
-  pwsh e2e/tier3/Invoke-WindowsE2E.ps1
+Windows coverage is in three places now:
 
-Why it is separate: a Docker daemon serves one container platform at a time, and the one this
-script talks to serves the Linux containers every scenario here needs, so the Windows suite only
-runs where a Windows daemon is already answering. It also covers less than the Linux scenarios
-do, because winget ships as an MSIX package and Server Core has no AppX subsystem, so 80 of the
-89 Windows mappings cannot be installed in any container. It tests the parsing and planning
-logic on a clean machine, plus the Chocolatey path.
+  bash e2e/run.sh                                  the windows_pester check, here, in seconds
+  pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1       a real install on this machine's own Windows
+  .github/workflows/e2e-manual.yaml                a real install on a hosted Windows runner
+
+The sandbox route is the local one. It is a throwaway desktop built from this machine's own Windows,
+so it is client Windows at this exact build and winget works in it. What it cannot do is reboot or
+run a hypervisor, so the optional features and WSL still need a virtual machine or real hardware.
+See e2e/manual_test_matrix.md.
 EOF
         exit 2
     fi

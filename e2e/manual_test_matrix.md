@@ -105,20 +105,86 @@ The `kde-full`, `gnome-full` and `kde-configure-only` scenarios run in container
 
 ### Windows
 
-The four Windows cells run on `windows-latest`, which is Windows Server 2025 on an Azure virtual machine. Two consequences, and both are large.
+The four Windows cells run on `windows-latest`, which is Windows Server 2025 on an Azure virtual machine. Two consequences, and both are large: it is Server rather than client, and it has no hardware of its own. Most of what follows is one of those two.
+
+The local answer to the first is Windows Sandbox, which is client Windows at this machine's own build. How to run it is at the end of this section.
 
 | What is untested | Why | Where | How to tell it worked |
 |---|---|---|---|
 | Every client-edition package | The runner is Windows Server. `partition_wizard` carries `client_only: true` because MiniTool ships the Free edition for client Windows only and its installer refuses Server before it starts, so the wizard skips it with that reason | Real Windows 11 machine | The wizard reports it installed rather than skipped, and the application opens |
 | Anything that refuses an administrator context | The cells pass `-AllowAdministrator` so they can run unattended. `spotify` carries `user_context: true` for exactly this | Real Windows 11 machine, wizard started as your normal user | It installs rather than being skipped |
 | `nvidia_app` | The NVIDIA App is the driver and GPU control centre. No hosted runner of any kind has an NVIDIA adapter, so the wizard asks `Win32_VideoController` and skips when the answer is empty | Machine with an NVIDIA card | The wizard installs it, and the NVIDIA App opens and sees the card |
-| The whole winget path, in a container | winget ships as an MSIX package and needs the AppX deployment subsystem, which Server Core and Nano Server do not have. That is most of the Windows mappings. The hosted runner does cover winget, so this row is about the container tier only | Hosted runner covers it, or any real machine | The cells already prove it. Nothing to do by hand unless the runner is unavailable |
 | The seven Microsoft Store product identifiers | The Store itself is needed, and it needs a signed-in account | Real Windows machine, signed in | Each application appears in the Start menu and launches |
 | `enable_hyperv` | A hosted runner is already a virtual machine, so enabling a hypervisor inside it is a nested-virtualisation question rather than the feature | Real Windows 11 Pro machine | `Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V` reports enabled, and a guest boots after the reboot it asks for |
 | `setup_wsl` end to end | The cells register a distribution to have one, which is not the same as the wizard bootstrapping WSL on a machine that has none | Real Windows machine with no WSL at all | `wsl --list --verbose` shows the distribution, and `ansible-playbook --version` answers inside it |
 | `set_custom_wallpaper` | Needs a desktop session to change | Real machine | Look at the desktop |
 | Everything hardware | `install_hwmonitor`, `install_hwinfo`, `install_crystaldiskinfo`, `install_crystaldiskmark`, `install_msiafterburner`, `install_galaxy_buds`, `synapse` | Real machine with the hardware | Each application opens and reports your actual devices |
 | The reboot the run asks for | No automated run reboots | Real machine | Reboot when asked, then rerun the wizard and confirm it reports everything already present rather than redoing work |
+
+---
+
+#### Windows Sandbox is the local route, and there is no local container
+
+Every Windows install you test by hand on this machine goes through Windows Sandbox. There is no Windows container tier any more: one existed until 2026-08-26 and it was retired, because a Windows container is always Windows Server, Server Core has no AppX subsystem, and winget needs it, so 80 of the 89 Windows mappings could not install in it at all.
+
+Windows Sandbox is a throwaway desktop built from the files of the Windows already running on this machine. Same build, same edition, nothing to download, and the whole thing is destroyed when the window closes. That makes it strictly better than the container for this: it is client Windows, so the packages a Server runner has to skip install properly, winget works because the AppX subsystem is there, and it has a desktop, so the interactive checklist can be clicked through.
+
+It needs Windows 10 or 11, Pro or Enterprise, and the feature turned on once. This asks for a reboot, and it is the one command here that changes the machine, so run it yourself from an elevated PowerShell.
+
+```powershell
+Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All
+```
+
+Then start a sandbox for this repository. The launcher writes the configuration from where it sits, so the paths are right on any checkout, and it starts nothing else.
+
+```powershell
+pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1
+```
+
+Write the configuration and look at it without starting a sandbox.
+
+```powershell
+pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1 -ConfigOnly
+```
+
+Give it more memory and prepare the command for the whole software set rather than the defaults.
+
+```powershell
+pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1 -Software all -MemoryInMB 12288
+```
+
+The repository is mapped read only at `C:\repo` inside the sandbox, so a run cannot change the tree it is testing. A second folder is mapped read write at `C:\out`, which is `e2e/runs/sandbox` out here, and that is the only way anything survives the sandbox closing.
+
+At logon the sandbox runs [sandbox/Initialize-Sandbox.ps1](sandbox/Initialize-Sandbox.ps1), which does the two things a fresh sandbox needs and nothing more. It installs winget from the winget-cli release assets, because a sandbox has no Microsoft Store to get it from, and then PowerShell 7 through winget, because `setup.ps1` requires 7 and a sandbox ships 5.1. Then it prints the wizard command and stops. Nothing from the software set installs on its own: that is an hour of downloading and it should be a decision.
+
+The command it prints is this one, and `-AllowAdministrator` is not optional in there, because the sandbox user is an administrator and the wizard refuses an elevated run without it.
+
+```powershell
+& 'C:\Program Files\PowerShell\7\pwsh.exe' C:\repo\setup\setup.ps1 -NonInteractive -AllowAdministrator -Software defaults
+```
+
+Drive the checklist by hand instead, which is the one thing no automated run anywhere exercises.
+
+```powershell
+& 'C:\Program Files\PowerShell\7\pwsh.exe' C:\repo\setup\setup.ps1 -AllowAdministrator
+```
+
+Keep the evidence before you close the window, because the machine and everything on it is gone the moment you do.
+
+```powershell
+Copy-Item $env:USERPROFILE\installation_verify.log C:\out\
+```
+
+| What a sandbox answers | What it cannot |
+|---|---|
+| The whole winget path, all 80 mappings, on client Windows | The seven Microsoft Store product ids, which need the Store and a signed-in account |
+| The client-edition packages the Server runner skips, `partition_wizard` among them | Anything wanting a reboot. Restarting a sandbox destroys it, so the optional features cannot be carried to the end |
+| The Chocolatey path and the custom installers, Java, Node, Flutter, the Android SDK, Gridcoin, Razer Cortex | `setup_wsl` and the Ansible-inside-WSL phase. WSL2 needs a hypervisor and a sandbox has no nested virtualisation |
+| The interactive checklist, on a real desktop | `enable_hyperv`, for the same reason |
+| The verification phase, and the cache reclaim between the packages and the SDKs | Every hardware row. A sandbox has no devices of its own |
+| Repeated clean runs, because every start is a fresh machine | Anything about your real machine's state, which is the point of it |
+
+One honest caveat: this route has not yet been run end to end. The steps come from the documented behaviour of Windows Sandbox, of the winget-cli release assets and of the wizard's own flags, each of which was checked rather than remembered, but nobody has watched the whole thing install yet. The first person to run it should say what actually happened, and anything surprising belongs in [../docs/regression_ledger.md](../docs/regression_ledger.md).
 
 ---
 

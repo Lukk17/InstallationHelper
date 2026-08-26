@@ -437,10 +437,10 @@ pwsh -NoProfile -Command "Import-Module ./setup/pinned_values/PinnedValues.psm1;
 - [x] 11.1 Replace the resolver tests with adapter tests, keeping the absent-versus-empty case and the real-file case.
 - [x] 11.2 Add a pinned Python from the embeddable zip to the Windows Dockerfile.
 
-Files: `e2e/tier3/windows/WindowsSoftware.Tests.ps1`, `e2e/tier3/windows.Dockerfile`.
+Files: `e2e/tier1/windows/WindowsSoftware.Tests.ps1`. The Windows Dockerfile this task also touched was retired on 2026-08-26 along with the whole Windows container tier.
 
 ```powershell
-pwsh e2e/tier3/Invoke-WindowsE2E.ps1
+bash e2e/run.sh
 ```
 
 ---
