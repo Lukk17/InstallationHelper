@@ -1242,6 +1242,46 @@ Every Windows job now clears the preinstalled ones first, and each path was chos
 
 Worth keeping in mind for reading any Windows cell: a full disk does not look like a failure, it looks like nothing. No step conclusion, no artefact, no message in the log, and the run summary simply says the job failed.
 
+#### Two wrong answers about the Windows download caches, and what the tools actually do with them
+
+Status: the wizard now empties both caches mid-run, in [WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) and [setup.ps1](../setup/setup.ps1), guarded by [windows_cache_cleanup.sh](../e2e/tier1/windows_cache_cleanup.sh).
+
+This follows the disk exhaustion above, and it is here for the two wrong answers on the way rather than for the fix.
+
+The first wrong answer was mine, offered without measuring: that clearing the winget and Chocolatey download caches would free meaningful space, said in the same conversation as the rule about never claiming anything without measuring it first.
+
+The second was the measurement that appeared to refute it. Both caches on a real machine that has installed the whole set repeatedly:
+
+```text
+%TEMP%\chocolatey   728 directories, 0 files
+%TEMP%\WinGet     1,326 directories, 201 files, largest 17,378 bytes
+```
+
+Nothing to free, apparently. That reading was also wrong, and the thing that settled it was Chocolatey's own log rather than the directory:
+
+```text
+Downloading virtualbox 64 bit
+  from 'https://download.virtualbox.org/virtualbox/7.2.14/VirtualBox-7.2.14-174565-Win.exe'
+Downloading ... to C:\Users\<user>\AppData\Local\Temp\chocolatey\virtualbox\7.2.14\VirtualBox-7.2.14-174565-Win.exe
+Download of VirtualBox-7.2.14-174565-Win.exe (169.81 MB) completed.
+Elevating permissions and running ["C:\Users\<user>\AppData\Local\Temp\chocolatey\virtualbox\7.2.14\VirtualBox-7.2.14-174565-Win.exe" ...]
+```
+
+Chocolatey downloads into the cache, installs from the cache, and leaves the file there. The directory was empty 19 days later because Windows cleans its own temporary directory, which a one hour continuous integration job never gets. So a directory listing taken 19 days after the fact says nothing at all about what the disk holds during a run, and that is what made the second answer wrong.
+
+Two more things measured rather than assumed, both of which change what the fix can be:
+
+1. `choco cache` is not the command for this. Asked directly, `choco cache --help` on 2.7.3 answers that it works on the User HTTP Cache and, when elevated, the System HTTP Cache. That is the NuGet metadata. The installer payload is not part of it and has to be removed as files.
+2. `<temp>\WinGet\cache` is not a download cache at all. It holds the source index, the manifests and version data winget resolves package ids against, and the verification phase queries winget after the cleanup runs, so it is kept and only its per-package siblings go.
+
+The cleanup runs between the packages and the SDK installers, which is where run 32864564543 ran out: `wsl --install` failed with `Wsl/InstallDistro/0x80070070`, and the two failures either side of it were the same cause in disguise, an access violation from the Arduino installer and the Android SDK dying at 85 per cent while unzipping. It reports free space before and after rather than claiming a saving, so the number comes from the run.
+
+Proven rather than reasoned about: against a fabricated cache tree, the step removed 4,194,304 bytes and free space on the volume rose by exactly 4,194,304 bytes, it left the winget source index in place, it reported `nothing cached here` for an absent directory, and with an installer held open by another process it named that path as a failure and carried on. Thirteen Pester cases cover those, and five mutations of the tree, the call deleted, the call moved after the SDK installers, its result not discarded, the source index no longer kept, and a `throw` added to the remover, each fail the tier 1 check.
+
+Nothing was needed on Linux or macOS, and that is also measured. [site.yaml](../setup/ansible/site.yaml) already ends every successful run with `apt clean` and `apt autoremove`, `pacman -Sc`, `dnf clean all` and `dnf autoremove`, `brew cleanup --prune=all`, the Snap download cache and disabled revisions, and the unused Flatpak runtimes. Inside the tier 3 containers there is less than that to clean: the Debian and Ubuntu images ship `/etc/apt/apt.conf.d/docker-clean`, whose `DPkg::Post-Invoke` deletes every `.deb` the moment it is installed, and Fedora's dnf5 keeps no `keepcache` setting so its default of false applies, measured as zero `.rpm` files under `/var/cache/libdnf5` after an image build. Arch is the one that does accumulate everywhere, 85 packages and 53 MB sitting in `/var/cache/pacman/pkg` straight after an image build with no cleanup hook, which is what the `pacman -Sc` at the end of the run is for.
+
+One asymmetry left on purpose. The Linux and macOS cleanups are gated on `playbook_succeeded`, so a failed run keeps its caches for the retry, while the Windows one runs regardless because it runs before the outcome is known and because headroom matters most on a run that is going badly.
+
 #### The nightly hibernate task is gone, by owner decision
 
 Status: removed in this change, at Lukk's instruction, from [WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1), [windows.yaml](../setup/ansible/group_vars/windows.yaml), both wizards and every document that counted it.

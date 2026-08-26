@@ -403,6 +403,178 @@ Describe 'PinnedValues module' {
     }
 }
 
+Describe 'Get-ChocolateyCachePath' {
+
+    BeforeAll {
+        $script:CacheProbe = Join-Path ([System.IO.Path]::GetTempPath()) ('chococfg-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:CacheProbe -Force | Out-Null
+    }
+
+    AfterAll {
+        if (Test-Path -LiteralPath $script:CacheProbe) {
+            Remove-Item -LiteralPath $script:CacheProbe -Recurse -Force
+        }
+    }
+
+    It 'falls back to the temporary directory when there is no configuration file' {
+        $missing = Join-Path $script:CacheProbe 'no-such.config'
+        Get-ChocolateyCachePath -ConfigPath $missing |
+            Should -Be (Join-Path ([System.IO.Path]::GetTempPath()) 'chocolatey')
+    }
+
+    It 'falls back to the temporary directory when cacheLocation is empty, which is the shipped default' {
+        $path = Join-Path $script:CacheProbe 'empty.config'
+        @'
+<?xml version="1.0" encoding="utf-8"?>
+<chocolateyConfig>
+  <config>
+    <add key="cacheLocation" value="" description="Cache location if not TEMP folder." />
+  </config>
+</chocolateyConfig>
+'@ | Set-Content -LiteralPath $path -Encoding utf8
+
+        Get-ChocolateyCachePath -ConfigPath $path |
+            Should -Be (Join-Path ([System.IO.Path]::GetTempPath()) 'chocolatey')
+    }
+
+    It 'reads a configured cacheLocation and still joins chocolatey onto it' {
+        # The key replaces $env:TEMP for the choco process rather than replacing the whole path, so
+        # the payload still lands in a chocolatey folder underneath whatever is configured.
+        $path = Join-Path $script:CacheProbe 'set.config'
+        @'
+<?xml version="1.0" encoding="utf-8"?>
+<chocolateyConfig>
+  <config>
+    <add key="cacheLocation" value="D:\choco-cache" />
+    <add key="commandExecutionTimeoutSeconds" value="2700" />
+  </config>
+</chocolateyConfig>
+'@ | Set-Content -LiteralPath $path -Encoding utf8
+
+        Get-ChocolateyCachePath -ConfigPath $path | Should -Be 'D:\choco-cache\chocolatey'
+    }
+
+    It 'falls back rather than throwing on a configuration file it cannot parse' {
+        $path = Join-Path $script:CacheProbe 'broken.config'
+        'this is not xml at all <<<' | Set-Content -LiteralPath $path -Encoding utf8
+
+        Get-ChocolateyCachePath -ConfigPath $path |
+            Should -Be (Join-Path ([System.IO.Path]::GetTempPath()) 'chocolatey')
+    }
+}
+
+Describe 'Clear-WindowsPackageCache' {
+
+    BeforeEach {
+        $script:CacheRoot   = Join-Path ([System.IO.Path]::GetTempPath()) ('cacheclear-' + [guid]::NewGuid().ToString('N'))
+        $script:ChocoCache  = Join-Path $script:CacheRoot 'chocolatey'
+        $script:WingetCache = Join-Path $script:CacheRoot 'WinGet'
+
+        New-Item -ItemType Directory -Path (Join-Path $script:ChocoCache 'virtualbox\7.2.14') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:WingetCache 'Foo.Bar.1.0') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:WingetCache 'cache\V2_M') -Force | Out-Null
+
+        # Sized rather than empty, because the point of the step is the bytes.
+        [System.IO.File]::WriteAllBytes((Join-Path $script:ChocoCache 'virtualbox\7.2.14\vb.exe'), (New-Object byte[] 3145728))
+        [System.IO.File]::WriteAllBytes((Join-Path $script:WingetCache 'Foo.Bar.1.0\foo.exe'), (New-Object byte[] 1048576))
+        [System.IO.File]::WriteAllBytes((Join-Path $script:WingetCache 'cache\V2_M\index.msix'), (New-Object byte[] 4096))
+    }
+
+    AfterEach {
+        if (Test-Path -LiteralPath $script:CacheRoot) {
+            Remove-Item -LiteralPath $script:CacheRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'removes the payload from both caches and reports the bytes per cache' {
+        $r = Clear-WindowsPackageCache -ChocolateyCachePath $script:ChocoCache -WingetCachePath $script:WingetCache
+
+        $r.Items | Should -Be 2
+        $r.Bytes | Should -Be 4194304
+        ($r.Locations | Where-Object { $_.Name -eq 'Chocolatey' }).Bytes | Should -Be 3145728
+        ($r.Locations | Where-Object { $_.Name -eq 'winget' }).Bytes     | Should -Be 1048576
+        Test-Path -LiteralPath (Join-Path $script:ChocoCache 'virtualbox')  | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:WingetCache 'Foo.Bar.1.0') | Should -BeFalse
+    }
+
+    It 'keeps the winget source index, because the verification phase queries winget after this runs' {
+        Clear-WindowsPackageCache -ChocolateyCachePath $script:ChocoCache -WingetCachePath $script:WingetCache | Out-Null
+
+        Test-Path -LiteralPath (Join-Path $script:WingetCache 'cache\V2_M\index.msix') | Should -BeTrue
+    }
+
+    It 'leaves both caches alone under -WhatIf and reports nothing removed' {
+        $r = Clear-WindowsPackageCache -ChocolateyCachePath $script:ChocoCache -WingetCachePath $script:WingetCache -WhatIf
+
+        $r.Items | Should -Be 0
+        $r.Bytes | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $script:ChocoCache 'virtualbox\7.2.14\vb.exe') | Should -BeTrue
+    }
+
+    It 'says a cache holds nothing rather than failing when the directory does not exist' {
+        $r = Clear-WindowsPackageCache `
+            -ChocolateyCachePath (Join-Path $script:CacheRoot 'absent-choco') `
+            -WingetCachePath     (Join-Path $script:CacheRoot 'absent-winget')
+
+        $r.Items  | Should -Be 0
+        $r.Failed | Should -HaveCount 0
+        @($r.Locations | Where-Object { $_.Detail -eq 'nothing cached here' }) | Should -HaveCount 2
+    }
+
+    It 'names a file it could not remove and still returns, because the run must not die over a cache' {
+        # A real cause rather than a mocked one: an installer another process still holds open cannot
+        # be deleted, and the wizard has to carry on with the disk it already had.
+        $held = Join-Path $script:ChocoCache 'locked\held.exe'
+        New-Item -ItemType Directory -Path (Split-Path $held -Parent) -Force | Out-Null
+        [System.IO.File]::WriteAllBytes($held, (New-Object byte[] 1024))
+        $stream = [System.IO.File]::Open($held, 'Open', 'Read', 'None')
+        try {
+            $r = Clear-WindowsPackageCache -ChocolateyCachePath $script:ChocoCache -WingetCachePath $script:WingetCache
+
+            $r.Failed | Should -HaveCount 1
+            $r.Failed[0].Path   | Should -BeLike '*locked*'
+            $r.Failed[0].Detail | Should -Not -BeNullOrEmpty
+            # The rest of the cache still went, which is the whole point of not stopping.
+            Test-Path -LiteralPath (Join-Path $script:ChocoCache 'virtualbox') | Should -BeFalse
+        } finally {
+            $stream.Dispose()
+        }
+    }
+
+    It 'reports free space on the measured volume as a real number' {
+        $r = Clear-WindowsPackageCache `
+            -ChocolateyCachePath $script:ChocoCache -WingetCachePath $script:WingetCache `
+            -MeasuredPath ([System.IO.Path]::GetTempPath())
+
+        $r.FreeBefore | Should -BeGreaterThan 0
+        $r.FreeAfter  | Should -BeGreaterThan 0
+    }
+}
+
+Describe 'Get-FreeDiskByte' {
+
+    It 'answers a positive number for the temporary directory' {
+        Get-FreeDiskByte -Path ([System.IO.Path]::GetTempPath()) | Should -BeGreaterThan 0
+    }
+
+    It 'answers -1 rather than throwing when the path is not a volume at all' {
+        # -1 is the "could not measure" answer, and a caller has to be able to tell it apart from a
+        # full disk. A UNC path is never a volume root, so DriveInfo refuses it on every machine.
+        Get-FreeDiskByte -Path '\\no-such-host\no-such-share' | Should -Be -1
+    }
+
+    It 'answers -1 for a drive letter that is not mounted, which reports nothing instead of throwing' {
+        # The letter is found at run time rather than written down, because any letter can be in use
+        # on somebody's machine and a test that assumes otherwise fails for the wrong reason. An
+        # unmounted drive is the case that made the null check necessary: DriveInfo constructs
+        # happily, and AvailableFreeSpace then hands back nothing at all.
+        $unmounted = 90..67 | ForEach-Object { [char]$_ } | Where-Object { -not (Test-Path -LiteralPath ($_ + ':\')) } | Select-Object -First 1
+        $unmounted | Should -Not -BeNullOrEmpty -Because 'a machine with all 24 drive letters mounted cannot prove this'
+
+        Get-FreeDiskByte -Path ($unmounted + ':\nowhere') | Should -Be -1
+    }
+}
+
 Describe 'Get-TemurinMajor' {
 
     It 'extracts the major version out of an SDKMAN identifier' {

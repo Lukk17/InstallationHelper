@@ -684,6 +684,215 @@ function Get-ChocolateyInstalledPackage {
     return $ids.ToArray()
 }
 
+function Get-FreeDiskByte {
+    <#
+    .SYNOPSIS
+        Free bytes on the volume that holds a path, or -1 when the volume cannot be asked.
+    .DESCRIPTION
+        DriveInfo rather than Get-PSDrive, because this is called before and after a deletion and
+        the two answers have to come from the same place to be worth subtracting. -1 rather than 0
+        for the failure, so a caller can tell "could not measure" from "nothing free".
+    #>
+    [CmdletBinding()]
+    [OutputType([long])]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string] $Path
+    )
+
+    try {
+        $free = [System.IO.DriveInfo]::new($Path).AvailableFreeSpace
+        # Two different failures, and only one of them throws. An unmounted drive letter constructs a
+        # DriveInfo perfectly well and then hands back nothing at all when asked how much is free,
+        # measured on 2026-08-26 against Q: on a machine with no Q: drive. Casting that would answer
+        # zero, which reads as a full disk rather than as a question that could not be answered.
+        if ($null -eq $free) { throw "the volume behind $Path did not report its free space" }
+        return [long]$free
+    } catch {
+        Write-Verbose "Could not read the free space on $Path ($($_.Exception.Message))"
+        return [long]-1
+    }
+}
+
+function Get-ChocolateyCachePath {
+    <#
+    .SYNOPSIS
+        The directory Chocolatey downloads its installers into.
+    .DESCRIPTION
+        Read out of Chocolatey's own configuration file rather than assumed, and rather than asked
+        through `choco config get cacheLocation`, which needs the process and prompts: asked that
+        way on 2026-08-26 it answered "Do you want to continue?([Y]es/[N]o)" and then timed out on
+        the empty selection. The file is the same source of truth with none of that.
+
+        An empty cacheLocation means the default, and the key's own description in that file says
+        what the default is: it "Replaces `$env:TEMP value for choco.exe process". So the payload
+        lands under <temp>\chocolatey\<package>\<version>, and a real run's log confirms that rather
+        than inferring it:
+
+            Downloading https://download.virtualbox.org/virtualbox/7.2.14/VirtualBox-7.2.14-174565-Win.exe
+              to C:\Users\<user>\AppData\Local\Temp\chocolatey\virtualbox\7.2.14\VirtualBox-7.2.14-174565-Win.exe
+
+        Chocolatey installs from that path and leaves the file where it is, so 170 MB of that one
+        installer stays on the disk for the rest of the run. Joining chocolatey onto the root is
+        right in both cases: a configured cacheLocation replaces the temporary directory, not the
+        chocolatey folder inside it.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string] $ConfigPath
+    )
+
+    if (-not $ConfigPath) {
+        $installRoot = if ($env:ChocolateyInstall) { $env:ChocolateyInstall } else { Join-Path $env:ProgramData 'chocolatey' }
+        $ConfigPath = Join-Path $installRoot 'config\chocolatey.config'
+    }
+
+    $configured = ''
+    if (Test-Path -LiteralPath $ConfigPath) {
+        try {
+            $xml = [xml](Get-Content -LiteralPath $ConfigPath -Raw)
+            $entry = @($xml.SelectNodes('/chocolateyConfig/config/add')) |
+                Where-Object { $_.GetAttribute('key') -eq 'cacheLocation' } |
+                Select-Object -First 1
+            if ($entry) { $configured = [string]$entry.GetAttribute('value') }
+        } catch {
+            # Not fatal, and not silent either. A configuration file this cannot read means the
+            # default location is in use, which is where Chocolatey puts its downloads on any
+            # machine that has never set the key, so the fallback is the common case.
+            Write-Verbose "Could not read $ConfigPath ($($_.Exception.Message)), using the temporary directory"
+        }
+    }
+
+    $root = if ($configured) { $configured } else { [System.IO.Path]::GetTempPath() }
+    return (Join-Path $root 'chocolatey')
+}
+
+function Clear-WindowsPackageCache {
+    <#
+    .SYNOPSIS
+        Deletes the installer payloads winget and Chocolatey leave behind, and reports what that
+        freed.
+    .DESCRIPTION
+        Runs between the package phases and the phases that need room: the SDK installers, which
+        unzip the Android command line tools, and `wsl --install`, which needs a distribution image.
+
+        It exists because of one measured failure. In the all-apps Windows cell of run 32864564543
+        the pre-run cleanup freed 17 GB, taking the runner from 29.2 to 46.1 GB free, and the
+        software set still exhausted the disk:
+
+            setup_wsl (Ubuntu): wsl --install exited -1. There is not enough space on the disk.
+                                Error code: Wsl/InstallDistro/0x80070070
+
+        The two failures either side of it were the same cause wearing different clothes, an access
+        violation out of the Arduino installer and the Android SDK dying at 85 per cent while
+        unzipping, and neither message mentions disk. Widening the pre-run cleanup fixed that run,
+        which then finished with 91.6 GB free, so this is headroom rather than the fix, and it is
+        deliberately the kind that cannot fail the run: every failure is named in the result and
+        nothing throws.
+
+        It does not estimate how much there is to free. It reads the volume before and after and
+        reports both, so the number comes from the run rather than from anybody's idea of how big an
+        installer set is.
+
+        Two things are deliberately left alone.
+
+        `choco cache` is not the command for this, and that is measured rather than assumed. Asked
+        on 2.7.3, it answers that it works on the User HTTP Cache and, when elevated, the System
+        HTTP Cache. That is the NuGet metadata, kilobytes of it, and not the installer payload, so
+        the payload is removed as files.
+
+        winget's own <temp>\WinGet\cache holds the source index, the manifests and the version data
+        it resolves package ids against. The verification phase runs `winget list` after this, and
+        deleting the index only makes it fetch another one. Every sibling of that directory is a
+        per-package download folder and goes.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([PSCustomObject])]
+    param(
+        [string] $ChocolateyCachePath = (Get-ChocolateyCachePath),
+        [string] $WingetCachePath     = (Join-Path ([System.IO.Path]::GetTempPath()) 'WinGet'),
+        [string] $MeasuredPath        = ($env:SystemDrive + '\'),
+        [string[]] $KeepInWingetCache = @('cache')
+    )
+
+    $freeBefore = Get-FreeDiskByte -Path $MeasuredPath
+
+    $locations = [System.Collections.Generic.List[object]]::new()
+    $failures  = [System.Collections.Generic.List[object]]::new()
+
+    $targets = @(
+        [PSCustomObject]@{ Name = 'Chocolatey'; Path = $ChocolateyCachePath; Keep = @() }
+        [PSCustomObject]@{ Name = 'winget';     Path = $WingetCachePath;     Keep = @($KeepInWingetCache) }
+    )
+
+    foreach ($target in $targets) {
+        if (-not $target.Path -or -not (Test-Path -LiteralPath $target.Path)) {
+            $locations.Add([PSCustomObject]@{
+                    Name   = $target.Name
+                    Path   = $target.Path
+                    Bytes  = [long]0
+                    Items  = 0
+                    Detail = 'nothing cached here'
+                })
+            continue
+        }
+
+        $entries = @(Get-ChildItem -LiteralPath $target.Path -Force -ErrorAction SilentlyContinue |
+            Where-Object { $target.Keep -notcontains $_.Name })
+
+        $bytes = [long]0
+        $items = 0
+        foreach ($entry in $entries) {
+            # Sized before it is deleted, because afterwards there is nothing left to ask. The free
+            # space either side is the honest total; this is the attribution, which cache held it.
+            $size = [long]0
+            try {
+                if ($entry.PSIsContainer) {
+                    $size = [long]((Get-ChildItem -LiteralPath $entry.FullName -Recurse -File -Force -ErrorAction SilentlyContinue |
+                            Measure-Object -Property Length -Sum).Sum)
+                } else {
+                    $size = [long]$entry.Length
+                }
+            } catch {
+                Write-Verbose "Could not size $($entry.FullName) ($($_.Exception.Message))"
+            }
+
+            if (-not $PSCmdlet.ShouldProcess($entry.FullName, 'remove cached download')) { continue }
+
+            try {
+                Remove-Item -LiteralPath $entry.FullName -Recurse -Force -ErrorAction Stop
+                $bytes += $size
+                $items++
+            } catch {
+                # A file another process still holds open, or one written by an account this session
+                # is not, cannot be removed. Named rather than swallowed, and never fatal: the run
+                # carries on with exactly the disk it had a moment ago, which is the state this step
+                # is insurance against needing.
+                $failures.Add([PSCustomObject]@{ Path = $entry.FullName; Detail = $_.Exception.Message })
+            }
+        }
+
+        $locations.Add([PSCustomObject]@{
+                Name   = $target.Name
+                Path   = $target.Path
+                Bytes  = $bytes
+                Items  = $items
+                Detail = ''
+            })
+    }
+
+    return [PSCustomObject]@{
+        Locations  = $locations.ToArray()
+        Bytes      = [long]($locations | Measure-Object -Property Bytes -Sum).Sum
+        Items      = [int]($locations | Measure-Object -Property Items -Sum).Sum
+        FreeBefore = $freeBefore
+        FreeAfter  = (Get-FreeDiskByte -Path $MeasuredPath)
+        Failed     = $failures.ToArray()
+    }
+}
+
 function Invoke-WindowsSoftwareInstall {
     <#
     .SYNOPSIS

@@ -173,6 +173,17 @@ dates, error text and fixes are in the ledger.
     no jobs, which is indistinguishable from a slow start, because `e2e-matrix.yml` has a concurrency
     group and another run of the same workflow was still open. Before dispatching a sweep, check
     whether one is already open and decide deliberately whether it still has anything to prove.
+14. Measuring the right thing at the wrong time. Both Windows download caches were listed on a
+    developer machine and held 728 and 1,326 directories with no installer in either, which read as
+    "nothing to free here". Chocolatey's own log said otherwise: it downloads to
+    `%TEMP%\chocolatey\<package>\<version>`, installs from there and leaves the file, and the
+    directory was empty only because Windows had cleaned its temporary directory over the following
+    nineteen days, which a one hour job never gets. A listing taken days after the run says nothing
+    about what the disk held during it.
+15. Trusting a subcommand to do what its name suggests. `choco cache remove` sounds like the command
+    that empties the download cache and is not: asked directly, `choco cache --help` on 2.7.3 says it
+    works on the User HTTP Cache and, when elevated, the System HTTP Cache, which is the NuGet
+    metadata. Ask the tool what its own command does before building on the name.
 
 ---
 

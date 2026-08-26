@@ -247,6 +247,65 @@ function Invoke-AndShowNpmTools {
     return $r
 }
 
+function Format-DiskSize {
+    <#
+    .SYNOPSIS
+        A byte count in the largest unit that keeps it readable.
+    #>
+    [OutputType([string])]
+    param([Parameter(Mandatory)] [long] $Byte)
+
+    if ($Byte -ge 1GB) { return ('{0:N2} GB' -f ($Byte / 1GB)) }
+    if ($Byte -ge 1MB) { return ('{0:N1} MB' -f ($Byte / 1MB)) }
+    return ('{0:N0} KB' -f ($Byte / 1KB))
+}
+
+function Clear-WindowsCacheAndShow {
+    <#
+    .SYNOPSIS
+        Frees the installer downloads the package phases left behind, and prints what that freed.
+    .DESCRIPTION
+        Placed between the packages and the phases that need room, because that is where the disk
+        ran out: the Android SDK unzips into it and `wsl --install` needs a distribution image, and
+        in run 32864564543 both failed with messages that never said disk. See
+        Clear-WindowsPackageCache in setup/windows/WindowsSoftware.ps1 for what is removed and what
+        is kept.
+
+        The free space either side is printed in the same shape the workflow's own cleanup step
+        prints, so the two numbers can be read against each other in one log.
+
+        Nothing here can fail the run. A cache that could not be emptied is named and the run
+        continues, because the disk is then exactly as it was before this step was reached.
+    #>
+    param()
+
+    Write-Section 'Reclaiming disk from the package caches'
+    $r = Clear-WindowsPackageCache
+
+    foreach ($location in $r.Locations) {
+        if ($location.Detail) {
+            Write-Status ("{0}: {1}" -f $location.Name, $location.Detail)
+        } else {
+            Write-Status ("{0}: removed {1} item(s), {2}" -f $location.Name, $location.Items, (Format-DiskSize -Byte $location.Bytes))
+        }
+    }
+
+    # -1 is what Get-FreeDiskByte answers when the volume could not be read, and printing that as a
+    # size would be a lie dressed as a measurement.
+    if ($r.FreeBefore -ge 0 -and $r.FreeAfter -ge 0) {
+        Write-Status ("free on {0}: {1} before, {2} after" -f $env:SystemDrive,
+            (Format-DiskSize -Byte $r.FreeBefore), (Format-DiskSize -Byte $r.FreeAfter))
+    } else {
+        Write-Status ("free space on {0} could not be read, so only the removed sizes above are measured" -f $env:SystemDrive)
+    }
+
+    foreach ($failure in $r.Failed) {
+        Write-Host "  [!] could not remove $($failure.Path): $($failure.Detail)" -ForegroundColor Red
+    }
+
+    return $r
+}
+
 function Invoke-AndShowCustomInstalls {
     <#
     .SYNOPSIS
@@ -1171,6 +1230,18 @@ function Invoke-WindowsRun {
     $windowsResult = Invoke-WindowsSoftwareInstall -AnsibleDir $AnsibleDir -OnlyKeys $OnlyKeys -ToggleOverride $ToggleOverride
     Show-WindowsSoftwareResult -Result $windowsResult
     $npmResult    = Invoke-AndShowNpmTools        -OnlyKeys $OnlyKeys -ToggleOverride $ToggleOverride
+
+    # Between the packages and the phases that need room. The installers winget and Chocolatey
+    # downloaded are still on the disk at this point, and what comes next is the Android SDK
+    # unzipping and `wsl --install` fetching a distribution image, which is exactly where run
+    # 32864564543 ran out of space.
+    #
+    # Discarded into $null on purpose, for two reasons. It is not a phase: a cache that could not be
+    # emptied leaves the disk as it was and must not fail the run, and Write-RunSummary drives the
+    # exit code off the phases it is given. And an unassigned call would put its return object into
+    # this function's output stream, so the caller's $phases would come back as an array of two
+    # things instead of the ordered hashtable it reads.
+    $null = Clear-WindowsCacheAndShow
     $customResult = Invoke-AndShowCustomInstalls  -OnlyKeys $OnlyKeys -ToggleOverride $ToggleOverride
 
     # After the installs, because the Android variables point at what the Android SDK install just

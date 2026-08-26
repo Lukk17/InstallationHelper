@@ -52,11 +52,13 @@ What `setup.ps1` does on Windows: it never runs the Ansible playbook, because a 
 
 1. Upgrades already-installed winget and Chocolatey packages, unless `-SkipSystemUpgrade` is given.
 2. Installs `Microsoft.PowerShell.ConsoleGuiTools` if missing.
-3. Presents an interactive picker for software and the four Windows system settings together, or applies `group_vars` defaults non-interactively.
-4. Installs the selected software natively through winget, Chocolatey, and npm, plus the installs no single package can express (Java, Node.js, Flutter, Gridcoin, Razer Cortex), through [setup/windows/](windows/).
-5. Applies the three Windows system settings natively: the optional features, WSL registration, and the desktop wallpaper.
-6. Installs Ansible inside WSL, because the toggle wants that tool available there. Nothing else in WSL is touched.
-7. Asks the machine what actually landed, per application, and exits 3 when something the run asked for is not there. It queries winget, Chocolatey, npm and the disk itself, installs and changes nothing, and writes the full per-application verdict to `installation_verify.log` in your user profile. There is no flag to turn it off, the same way there is none on the Linux side.
+3. Presents an interactive picker for software and the three Windows system settings together, or applies `group_vars` defaults non-interactively.
+4. Installs the selected software natively through winget, Chocolatey and npm, from [setup/windows/](windows/).
+5. Empties the winget and Chocolatey download caches, printing what that freed and how much is left on the system drive. Here rather than at the end, because the two steps after it are the ones that need the room: the Android SDK unzips into the temporary directory and `wsl --install` fetches a distribution image, and both have failed for want of disk. Chocolatey is what fills it, since it installs from its own download directory and leaves the file there.
+6. Runs the installs no single package can express (Java, Node.js, Flutter, the Android SDK, Gridcoin, Razer Cortex), then writes the development environment variables that point at what they just installed.
+7. Applies the three Windows system settings natively: the optional features, WSL registration, and the desktop wallpaper.
+8. Installs Ansible inside WSL, because the toggle wants that tool available there. Nothing else in WSL is touched.
+9. Asks the machine what actually landed, per application, and exits 3 when something the run asked for is not there. It queries winget, Chocolatey, npm and the disk itself, installs and changes nothing, and writes the full per-application verdict to `installation_verify.log` in your user profile. There is no flag to turn it off, the same way there is none on the Linux side.
 
 #### Script options
 
