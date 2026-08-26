@@ -460,7 +460,11 @@ function Install-WingetPackage {
         # Passed through to winget when the mapping names one. Empty means winget chooses, which is
         # what every package but Bruno wants.
         [ValidateSet('', 'machine', 'user')] [string] $Scope = '',
-        [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900
+        [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900,
+
+        # Two attempts, not three, and both are parameters so a test can run them with no pause.
+        [ValidateRange(1, 3)] [int] $Attempts = 2,
+        [ValidateRange(0, 300)] [int] $RetryPauseSeconds = 15
     )
 
     if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) {
@@ -476,27 +480,52 @@ function Install-WingetPackage {
         'install', '--exact', '--id', $PackageId, '--source', $Source, '--silent',
         '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
     if ($Scope) { $arguments += @('--scope', $Scope) }
-    $run = Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds $TimeoutSeconds -Arguments $arguments
-    $output = $run.Output
-    $code   = $run.ExitCode
+    # One retry, measured rather than precautionary. On 2026-08-26 the LM Studio installer exited
+    # 3221225477, an access violation, 42 seconds into package 42 of 78, on a runner with 53 GB free.
+    # The same package at the same version installed cleanly on the same runner image the day before,
+    # and its winget manifest had not moved since 2026-08-12, so nothing about the package, the disk
+    # or this repository was different between the two runs. That one crash took the run's exit code
+    # with it, and AGENTS.md already requires a retry on anything that reaches a network, which an
+    # install that downloads an installer does.
+    #
+    # A timeout is never retried. The deadline exists to stop a hang, and spending it twice on one
+    # package is the opposite of what it is for.
+    $attempt = 0
+    $earlier = ''
+    while ($true) {
+        $attempt++
+        $run = Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds $TimeoutSeconds -Arguments $arguments
 
-    if ($run.TimedOut) {
-        return [PSCustomObject]@{
-            Package = $PackageId
-            Status  = 'failed'
-            Detail  = "gave up after $TimeoutSeconds seconds and killed winget, so this package is not installed and the run was not left hanging on it"
+        if ($run.TimedOut) {
+            return [PSCustomObject]@{
+                Package = $PackageId
+                Status  = 'failed'
+                Detail  = "gave up after $TimeoutSeconds seconds and killed winget, so this package is not installed and the run was not left hanging on it"
+            }
         }
-    }
 
-    # winget reports an already-installed package as a failure code with a specific
-    # message, so treat that text as success rather than reporting a false failure.
-    if ($code -eq 0 -or $output -match 'already installed') {
-        return [PSCustomObject]@{ Package = $PackageId; Status = 'installed'; Detail = '' }
-    }
-    return [PSCustomObject]@{
-        Package = $PackageId
-        Status  = 'failed'
-        Detail  = "exit $code. $(($output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')"
+        # winget reports an already-installed package as a failure code with a specific
+        # message, so treat that text as success rather than reporting a false failure.
+        if ($run.ExitCode -eq 0 -or $run.Output -match 'already installed') {
+            $detail = ''
+            if ($earlier) { $detail = "installed on attempt $attempt, after $earlier" }
+            return [PSCustomObject]@{ Package = $PackageId; Status = 'installed'; Detail = $detail }
+        }
+
+        $tail = (($run.Output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
+        $failure = "exit $($run.ExitCode). $tail"
+
+        if ($attempt -ge $Attempts) {
+            $detail = $failure
+            if ($earlier) { $detail = "$failure (attempt $attempt of $Attempts; the first said $earlier)" }
+            return [PSCustomObject]@{ Package = $PackageId; Status = 'failed'; Detail = $detail }
+        }
+
+        # Said out loud as it happens rather than only in the summary, so a reader watching the log
+        # can tell a retry from a hang.
+        Write-Host ("      attempt {0} of {1} failed, retrying in {2}s: {3}" -f $attempt, $Attempts, $RetryPauseSeconds, $failure)
+        $earlier = $failure
+        if ($RetryPauseSeconds -gt 0) { Start-Sleep -Seconds $RetryPauseSeconds }
     }
 }
 

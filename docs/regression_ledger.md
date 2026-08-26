@@ -1242,6 +1242,43 @@ Every Windows job now clears the preinstalled ones first, and each path was chos
 
 Worth keeping in mind for reading any Windows cell: a full disk does not look like a failure, it looks like nothing. No step conclusion, no artefact, no message in the log, and the run summary simply says the job failed.
 
+#### One installer crashed once, and took the run's exit code with it
+
+Status: mitigated in [WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1), with five Pester cases in [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1).
+
+Run 32949705703, the single-platform Windows dispatch of the defaults set on 2026-08-26, failed after 101 minutes with exactly one bad package out of 78:
+
+```text
+  ... [42/78] lm_studio (ElementLabs.LMStudio)
+      failed after 42s: exit -1978335226. Starting package install...
+Installer failed with exit code: 3221225477
+  [*] Windows packages: 77 installed, 6 already present, 3 not attempted, 1 failed
+```
+
+`-1978335226` is `0x8A150006`, winget saying the installer it launched failed. `3221225477` is `0xC0000005`, an access violation inside the installer itself. Every other phase reported zero failures, and the verification agreed with the run: one item requested and not present.
+
+Four things were measured before calling it transient, because an access violation from an installer has meant a full disk in this repository before.
+
+The disk was not full. The run had 53.30 GB free half an hour later, and the cleanup step that reports that figure runs after the software phase, so there was at least that much when LM Studio ran. The earlier disk exhaustion happened at 46 GB with far more still to install.
+
+The package was not new or broken. `gh api` on the winget-pkgs commit history for `manifests/e/ElementLabs/LMStudio` puts the newest manifest, version 0.4.21+2, at 2026-08-12, two weeks before either run.
+
+The same package installed cleanly the day before. In run 32896085273 the line reads `[43/80] lm_studio (ElementLabs.LMStudio)` and the verification records it as installed.
+
+And nothing in that day's changes touches installs. The cache reclaim added the same day runs after the whole software phase, so it cannot reach a package that installed thirty minutes earlier.
+
+Same package, same version, same runner image, opposite outcomes, no disk pressure. So the mitigation is a retry rather than a fix, and it is the repository's own standing rule rather than a new idea: anything that reaches a network in a provisioning run gets a retry, and an install that downloads an installer does. `Install-WingetPackage` now makes two attempts, pausing fifteen seconds between them, and says so in the log as it happens rather than only in the summary. A package that lands on the second attempt is reported as installed with the first failure still named in its detail, so a retry can never be mistaken for a clean first pass.
+
+A timeout is deliberately never retried. The deadline exists to stop a hang, and spending it twice on one package is the opposite of what it is for.
+
+Two defects of my own on the way in, both caught by the tests failing rather than by review, and both worth recording because the next person writing a stub will meet them.
+
+A `.cmd` stub counting its own invocations with `find /c /v "" < file` hangs. `Start-Process` does not redirect standard input, so `find` waits on the console rather than reading the file, and the first run of these tests sat there until the harness killed it at 300 seconds. Counted with one marker file per attempt instead, which needs no external command at all.
+
+And a generated path lost its separator to an escape sequence. The stub was written by a script whose string contained `$Directory\a1`, where `\a` is the BELL character, so the batch file said `$Directory` followed by an invisible control character and wrote its marker nowhere. It looked like `$Directory1` on screen. Every path in generated content now goes in without a backslash escape in the generator.
+
+The value the retry is worth is unproven until a Windows run passes with it, which is one dispatch away rather than something to assert here.
+
 #### The Windows container tier could never have tested a Windows install
 
 Status: removed on 2026-08-26, at the owner's instruction. `e2e/tier3/Invoke-WindowsE2E.ps1` and `e2e/tier3/windows.Dockerfile` are deleted, the Pester suite moved to [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) where the check that runs it lives, and local Windows verification is Windows Sandbox, documented in [e2e/manual_test_matrix.md](../e2e/manual_test_matrix.md).

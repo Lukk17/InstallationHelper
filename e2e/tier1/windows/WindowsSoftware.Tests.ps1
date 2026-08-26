@@ -404,6 +404,149 @@ Describe 'PinnedValues module' {
     }
 }
 
+Describe 'Install-WingetPackage retries a failed install once' {
+
+    # A stub winget rather than a Pester mock, because the code under test never calls winget through
+    # PowerShell: Invoke-BoundedWinget starts a process and reads two redirected files, so a mock
+    # would prove nothing about the path that actually runs. The stub answers the `list` probe as
+    # "not installed" and appends a line per install attempt, so the line count is the attempt count,
+    # which is the only state that survives between two separate processes.
+    #
+    # Defined as a global function in BeforeAll, and every It owns its own directory. Pester 5 runs
+    # the Describe body at discovery and each It at run time, so a plain function in the body does not
+    # exist when the test runs, and `$script:` variables set in one block are not reliably visible in
+    # another. Both of those were hit while writing this.
+    BeforeAll {
+        function global:New-WingetStub {
+            param(
+                [Parameter(Mandatory)] [string] $Directory,
+                [Parameter(Mandatory)] [int] $FailFirstN,
+                [switch] $Hang
+            )
+
+            $stub = Join-Path $Directory 'winget.cmd'
+
+            if ($Hang) {
+                $body = @"
+@echo off
+if "%1"=="list" exit /b 1
+echo x>"$Directory\a1"
+ping -n 300 127.0.0.1 >nul
+exit /b 0
+"@
+            } else {
+                $body = @"
+@echo off
+if "%1"=="list" exit /b 1
+if not exist "$Directory\a1" (
+  echo x>"$Directory\a1"
+  set ATTEMPT=1
+) else if not exist "$Directory\a2" (
+  echo x>"$Directory\a2"
+  set ATTEMPT=2
+) else (
+  echo x>"$Directory\a3"
+  set ATTEMPT=3
+)
+if %ATTEMPT% LEQ $FailFirstN (
+  echo Installer failed with exit code: 3221225477
+  exit /b 1
+)
+echo Successfully installed
+exit /b 0
+"@
+            }
+
+            Set-Content -LiteralPath $stub -Value $body -Encoding ascii
+            return [PSCustomObject]@{ Path = $stub }
+        }
+
+        function global:New-StubDirectory {
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('wingetstub-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            return $dir
+        }
+
+        # One marker file per attempt, counted here. @() around Get-ChildItem on purpose: a single
+        # file comes back as one object rather than an array, and .Count on that is a terminating
+        # error under Set-StrictMode -Version Latest, which is defect class 4 in AGENTS.md and was
+        # hit by the first draft of these very tests.
+        function global:Get-StubAttemptCount {
+            param([Parameter(Mandatory)] [string] $Directory)
+            return @(Get-ChildItem -LiteralPath $Directory -Filter 'a?' -File -ErrorAction SilentlyContinue).Count
+        }
+    }
+
+    It 'reports installed when the first attempt fails and the second succeeds' {
+        $dir = New-StubDirectory
+        try {
+            $stub = New-WingetStub -Directory $dir -FailFirstN 1
+
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -RetryPauseSeconds 0
+
+            $r.Status | Should -Be 'installed'
+            $r.Detail | Should -BeLike '*attempt 2*'
+            $r.Detail | Should -BeLike '*3221225477*' -Because 'the first failure stays visible even though the package landed'
+            Get-StubAttemptCount -Directory $dir | Should -Be 2
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'stops at two attempts and names both when neither works' {
+        $dir = New-StubDirectory
+        try {
+            $stub = New-WingetStub -Directory $dir -FailFirstN 9
+
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -RetryPauseSeconds 0
+
+            $r.Status | Should -Be 'failed'
+            $r.Detail | Should -BeLike '*attempt 2 of 2*'
+            Get-StubAttemptCount -Directory $dir | Should -Be 2 -Because 'two attempts, never three'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'does not retry a package that installs first time' {
+        $dir = New-StubDirectory
+        try {
+            $stub = New-WingetStub -Directory $dir -FailFirstN 0
+
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -RetryPauseSeconds 0
+
+            $r.Status | Should -Be 'installed'
+            $r.Detail | Should -BeNullOrEmpty
+            Get-StubAttemptCount -Directory $dir | Should -Be 1
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'honours -Attempts 1, which is the no-retry behaviour this replaced' {
+        $dir = New-StubDirectory
+        try {
+            $stub = New-WingetStub -Directory $dir -FailFirstN 9
+
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -Attempts 1 -RetryPauseSeconds 0
+
+            $r.Status | Should -Be 'failed'
+            $r.Detail | Should -Not -BeLike '*the first said*'
+            Get-StubAttemptCount -Directory $dir | Should -Be 1
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'never retries a timeout, because the deadline exists to stop a hang' -Tag 'Slow' {
+        $dir = New-StubDirectory
+        try {
+            $stub = New-WingetStub -Directory $dir -FailFirstN 0 -Hang
+
+            # 30 is the smallest deadline the parameter accepts. Two attempts would cost twice that,
+            # which is exactly what a deadline is meant to prevent.
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -TimeoutSeconds 30 -RetryPauseSeconds 0
+
+            $r.Status | Should -Be 'failed'
+            $r.Detail | Should -BeLike '*gave up after 30 seconds*'
+            Get-StubAttemptCount -Directory $dir | Should -Be 1
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+
 Describe 'Get-ChocolateyCachePath' {
 
     BeforeAll {
