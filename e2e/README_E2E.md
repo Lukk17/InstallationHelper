@@ -374,7 +374,7 @@ Skip the Chocolatey bootstrap for a quick logic-only pass.
 pwsh e2e/tier3/Invoke-WindowsE2E.ps1 -SkipSlow
 ```
 
-It is separate because Docker Desktop serves one container platform at a time, and switching to Windows containers turns the Linux daemon off. Every Arch, Debian, Ubuntu and Fedora scenario stops working until you switch back, so finish or stop those first. `run.sh --os windows` says all of this rather than failing on a missing Dockerfile.
+It is separate because a Docker daemon serves one container platform at a time. It runs only where a Windows daemon is already answering, and it never changes the platform of the daemon it finds: the one on this project's machine serves the Linux containers every other tier depends on, and that stays as it is. Where no Windows daemon answers, the same suite still runs without a container at all, through the `windows_pester` check in tier 1 and through the stage 1 job of the sweep on a hosted Windows runner. What that leaves unproven is the handful of cases that need a machine with nothing installed. `run.sh --os windows` says the same rather than failing on a missing Dockerfile.
 
 What it tests: the logic in [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) on a clean Windows with nothing installed, which is the state a real user starts from and the one a developer machine can never reproduce. That is the YAML parsing, the resulting install plan, the winget resolution failure path, and the Chocolatey bootstrap. The suite is [tier3/windows/WindowsSoftware.Tests.ps1](tier3/windows/WindowsSoftware.Tests.ps1), driven by Pester 5, which the image installs at build time so a run needs no network of its own.
 
