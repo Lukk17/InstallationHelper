@@ -118,7 +118,7 @@ Windows tier 3 has its own entry point, driven from Windows rather than from WSL
 Why it is separate: a Docker daemon serves one container platform at a time, and the one this
 script talks to serves the Linux containers every scenario here needs, so the Windows suite only
 runs where a Windows daemon is already answering. It also covers less than the Linux scenarios
-do, because winget ships as an MSIX package and Server Core has no AppX subsystem, so 82 of the
+do, because winget ships as an MSIX package and Server Core has no AppX subsystem, so 80 of the
 89 Windows mappings cannot be installed in any container. It tests the parsing and planning
 logic on a clean machine, plus the Chocolatey path.
 EOF

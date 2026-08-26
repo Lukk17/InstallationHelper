@@ -10,9 +10,9 @@
 #
 # What it cannot test: any winget install. winget ships as an MSIX package and depends on the
 # AppX deployment subsystem, which Server Core and Nano Server do not have. As of 2026-08-16
-# that is 82 of the 89 Windows mappings, 7 of those 82 being Microsoft Store product ids which
+# that is 80 of the 89 Windows mappings, 7 of those 80 being Microsoft Store product ids which
 # need the Store itself and are even further out of reach. Chocolatey works because it is only
-# PowerShell and NuGet, which covers the remaining 7 mappings. There is no way around this in a
+# PowerShell and NuGet, which covers the remaining 9 mappings. There is no way around this in a
 # container, so winget installation needs a real Windows machine or a hosted runner.
 #
 # Nor can it test setup/windows/WindowsCustomInstalls.ps1 beyond its planning. Java is four
