@@ -23,10 +23,10 @@
 # It also cannot test the wizard's own interface. setup.ps1 uses Out-ConsoleGridView from
 # ConsoleGuiTools, which needs a real console.
 #
-# Running it requires Docker Desktop switched to Windows containers, and that switch turns
-# OFF the Linux daemon, so no Arch, Debian, Ubuntu or Fedora scenario can run at the same
-# time. Use e2e/tier3/Invoke-WindowsE2E.ps1, which checks for the right mode and says so
-# rather than failing obscurely.
+# It needs a Docker daemon that already serves Windows containers, which the machine this
+# project is developed on is not and will not be, because that daemon serves the Linux
+# containers the other four tier 3 images run in. Use e2e/tier3/Invoke-WindowsE2E.ps1, which
+# checks what the daemon serves, refuses on anything else, and changes nothing.
 #
 # ltsc2025 is build 26100, the closest published Server Core to this project's Windows 11
 # host at build 26200. Prefer Hyper-V isolation over process isolation, because process
