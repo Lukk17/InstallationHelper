@@ -138,24 +138,24 @@ Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM
 Then start a sandbox for this repository. The launcher writes the configuration from where it sits, so the paths are right on any checkout, and it starts nothing else.
 
 ```powershell
-pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1
+pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1
 ```
 
 Write the configuration and look at it without starting a sandbox.
 
 ```powershell
-pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1 -ConfigOnly
+pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1 -ConfigOnly
 ```
 
 Give it more memory and prepare the command for the whole software set rather than the defaults.
 
 ```powershell
-pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1 -Software all -MemoryInMB 12288
+pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1 -Software all -MemoryInMB 12288
 ```
 
-The repository is mapped read only at `C:\repo` inside the sandbox, so a run cannot change the tree it is testing. A second folder is mapped read write at `C:\out`, which is `e2e/runs/sandbox` out here, and that is the only way anything survives the sandbox closing.
+The repository is mapped read only at `C:\repo` inside the sandbox, so a run cannot change the tree it is testing. A second folder is mapped read write at `C:\out`, which is `e2e/runs/windows-sandbox` out here, and that is the only way anything survives the sandbox closing.
 
-At logon the sandbox runs [sandbox/Initialize-Sandbox.ps1](sandbox/Initialize-Sandbox.ps1), which does the two things a fresh sandbox needs and nothing more. It installs winget from the winget-cli release assets, because a sandbox has no Microsoft Store to get it from, and then PowerShell 7 through winget, because `setup.ps1` requires 7 and a sandbox ships 5.1. Then it prints the wizard command and stops. Nothing from the software set installs on its own: that is an hour of downloading and it should be a decision.
+At logon the sandbox runs [windows-sandbox/Initialize-Sandbox.ps1](windows-sandbox/Initialize-Sandbox.ps1), which does the two things a fresh sandbox needs and nothing more. It installs winget from the winget-cli release assets, because a sandbox has no Microsoft Store to get it from, and then PowerShell 7 through winget, because `setup.ps1` requires 7 and a sandbox ships 5.1. Then it prints the wizard command and stops. Nothing from the software set installs on its own: that is an hour of downloading and it should be a decision.
 
 The command it prints is this one, and `-AllowAdministrator` is not optional in there, because the sandbox user is an administrator and the wizard refuses an elevated run without it.
 

@@ -118,7 +118,7 @@ than the tier 1 checks already prove in seconds.
 Windows coverage is in three places now:
 
   bash e2e/run.sh                                  the windows_pester check, here, in seconds
-  pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1       a real install on this machine's own Windows
+  pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1       a real install on this machine's own Windows
   .github/workflows/e2e-manual.yaml                a real install on a hosted Windows runner
 
 The sandbox route is the local one. It is a throwaway desktop built from this machine's own Windows,

@@ -130,7 +130,7 @@ green: what that run still does not tell you.
 | the desktop environment roles | `--scenario kde-full` and `--scenario gnome-full` | that the desktop actually starts, since no container has a display |
 | `profiles/linux_live.yaml` | `--scenario live-profile` | that a real live USB behaves the same, since the container has a writable root |
 | `setup/setup.sh` | `./e2e/run.sh`, then any one `--tier 3` scenario end to end | the interactive screens, which need a terminal no test has |
-| `setup/setup.ps1` or anything in `setup/windows/` | `./e2e/run.sh` for the logic, then `pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1` for a real install | anything needing a reboot, WSL, or a hypervisor, none of which a sandbox has |
+| `setup/setup.ps1` or anything in `setup/windows/` | `./e2e/run.sh` for the logic, then `pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1` for a real install | anything needing a reboot, WSL, or a hypervisor, none of which a sandbox has |
 | `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then `--tier 3 --scenario forced-failure`, then any one passing scenario | nothing, if the gate and both scenarios pass, this is the best covered file in the repository. The forced-failure scenario is the half that matters: it proves the play refuses over a broken machine, which no passing scenario can show |
 | a tier 1 check, or anything under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then `./e2e/run.sh` from Git Bash and from WSL | that the check is testing the thing rather than its own implementation, which only the failure proof shows |
 | a distribution Dockerfile, or a new distribution | `--tier 3 --scenario defaults --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
@@ -235,7 +235,7 @@ own cap of five concurrent macOS jobs.
 | 49 | Windows defaults | windows-latest | the toggles as they ship |
 | 50 | Windows everything | windows-latest | every selectable toggle on |
 | 51 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
-| 52 | Windows settings only | windows-latest | the four native system settings, no software |
+| 52 | Windows settings only | windows-latest | the three native system settings, no software |
 
 Fifty-two jobs in total. Those ceilings are timeouts rather than measurements, and no scenario has
 ever run on a GitHub runner, so the real numbers will only exist after the first sweep.
@@ -270,7 +270,10 @@ them.
 | [tier1/verify_spec_parity.sh](tier1/verify_spec_parity.sh) | A capability spec understating what its run proves. Every container scenario shares one `verify.yaml`, so an assertion added there belongs in all five container specs, and two had already gone unrecorded |
 | [tier1/failed_key_reads.sh](tier1/failed_key_reads.sh) | Any task deciding something from a result's `failed` key, which `failed_when` rewrites. A collector selecting on `failed == true` was dead code from the day it was written and counted three AUR builds that exited rc 1 as successes |
 | [tier1/os_family_derivation.sh](tier1/os_family_derivation.sh) | A task branching on Ansible's own `os_family` instead of the derived `ih_family`, and the derivation itself misreading a distribution. Ansible resolves the family through one fixed table and falls back to the distribution's own name for anything absent from it, so on Nobara every family condition here was false and the run stopped with nothing installed. The derivation is now the single point of failure for every distribution, so it is run against one real `/etc/os-release` per distribution in [tier1/os_release_fixtures/](tier1/os_release_fixtures/), openSUSE included, which must resolve to none of the five families rather than be rounded up to RedHat |
+| [tier1/windows_cache_cleanup.sh](tier1/windows_cache_cleanup.sh) | The Windows wizard losing the step that empties the winget and Chocolatey download caches, or having it moved out of the window between the packages and the SDK installers, which is where a hosted runner ran out of disk with `wsl --install` failing at `Wsl/InstallDistro/0x80070070` |
 | [tier1/ansible_static.sh](tier1/ansible_static.sh) | The playbook failing to parse, and warning noise growing to the point where a real warning cannot be seen |
+
+That table is a selection, not the gate. The complete list, one paragraph per check with the defect it was written against, is [testing/10-wizard-toggle-parse-test.md](testing/10-wizard-toggle-parse-test.md), and the gate prints its own tally when it runs.
 
 Each of these was written against a defect that had already shipped, and each was verified to fail on the code from before its fix. A check that has never been seen to fail is not a check, it is decoration.
 
@@ -374,10 +377,18 @@ The logic, in seconds, on any machine with PowerShell 7 and Pester 5. This is th
 bash e2e/run.sh
 ```
 
-A real install on your own Windows, in Windows Sandbox. This is the local route for anything that actually installs software, and it is documented in [manual_test_matrix.md](manual_test_matrix.md).
+A real install on your own Windows, in Windows Sandbox. This is the local route for anything that actually installs software, and the whole of it is on [manual_test_matrix.md](manual_test_matrix.md).
+
+It needs the feature turned on once, from an elevated PowerShell, and it asks for a reboot. Nothing in this repository will do that for you: [windows-sandbox/Invoke-WindowsSandbox.ps1](windows-sandbox/Invoke-WindowsSandbox.ps1) prints this line and stops rather than changing your machine.
 
 ```powershell
-pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1
+Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -All
+```
+
+After that, one command per run. It writes the sandbox configuration from where the script sits, maps the repository in read only, and starts a throwaway desktop that bootstraps winget and PowerShell 7 and then waits for you.
+
+```powershell
+pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1
 ```
 
 A real install on a hosted Windows Server 2025 runner, which is the automated one. Dispatch [../.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) at its `windows` target, or run the full sweep, whose four Windows cells install the whole set for real. Measured at 87 minutes for the defaults set and 122 with every toggle on, in [run_durations.md](run_durations.md).
@@ -421,6 +432,7 @@ Then prove it. Copy the tree, reintroduce the defect, and confirm the check fail
 |---|---|
 | [manual_test_matrix.md](manual_test_matrix.md) | What no pipeline here can prove, where to prove it by hand, and how to tell it worked, for every platform and distribution |
 | [run_durations.md](run_durations.md) | How long every cell of the sweep actually takes on a hosted runner, measured, and what a fraction of the sweep costs |
+| [windows-sandbox/](windows-sandbox/) | The local Windows route: a launcher that writes the sandbox configuration and starts it, and the bootstrap that runs inside at logon. Windows only, which is why the directory says so |
 | [docs/regression_ledger.md](../docs/regression_ledger.md) | Every regression this project has suffered, and the prevention checklist this harness mechanises |
 | [AGENTS.md](../AGENTS.md) | The mandatory gate, and the rest of the agent contract |
 | [setup/README_SETUP.md](../setup/README_SETUP.md) | Running the playbook for real |

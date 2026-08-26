@@ -400,7 +400,7 @@ function Invoke-AndShowDevEnvironment {
 function Invoke-AndShowWindowsSettings {
     <#
     .SYNOPSIS
-        Applies the four Windows system settings and renders the outcome.
+        Applies the three Windows system settings and renders the outcome.
     .DESCRIPTION
         The optional features, the WSL distribution, the wallpaper and the hibernate task. Each one
         had a windows_core task file that can never run, and until now nothing else applied them, so
@@ -1413,7 +1413,7 @@ function Invoke-Main {
 
         Write-Section 'Step 2/2 — Confirm and Run'
         Write-Hint '  Windows software is installed natively with winget and Chocolatey.'
-        Write-Hint '  Then the four Windows system settings, and Ansible inside WSL.'
+        Write-Hint '  Then the three Windows system settings, and Ansible inside WSL.'
         $confirmed = Show-YesNo `
             -Title  'Confirm' `
             -Prompt 'Configure Windows now. Proceed?' `

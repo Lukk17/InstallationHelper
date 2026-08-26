@@ -34,10 +34,10 @@
     Write the .wsb and print where it is, without starting anything.
 
 .EXAMPLE
-    pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1
+    pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1
 
 .EXAMPLE
-    pwsh e2e/sandbox/Invoke-WindowsSandbox.ps1 -Software all -MemoryInMB 12288
+    pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1 -Software all -MemoryInMB 12288
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -55,7 +55,7 @@ $ErrorActionPreference = 'Stop'
 
 $SandboxDir = Split-Path -Parent $PSCommandPath
 $RepoRoot   = Split-Path -Parent (Split-Path -Parent $SandboxDir)
-$OutDir     = Join-Path $RepoRoot 'e2e\runs\sandbox'
+$OutDir     = Join-Path $RepoRoot 'e2e\runs\windows-sandbox'
 $ConfigPath = Join-Path $OutDir 'installation_helper.wsb'
 
 function Write-Step { param([string]$Text) Write-Host ">> $Text" -ForegroundColor Cyan }
@@ -90,7 +90,7 @@ $config = @"
     </MappedFolder>
   </MappedFolders>
   <LogonCommand>
-    <Command>C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File C:\repo\e2e\sandbox\Initialize-Sandbox.ps1 -Software $Software</Command>
+    <Command>C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File C:\repo\e2e\windows-sandbox\Initialize-Sandbox.ps1 -Software $Software</Command>
   </LogonCommand>
 </Configuration>
 "@

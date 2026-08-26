@@ -37,7 +37,7 @@
     reports a working install as missing, and a false failure that nobody can reproduce is how a
     verification stops being read.
 
-    Not covered, and not claimed to be: the four Windows system settings, the optional features, the
+    Not covered, and not claimed to be: the three Windows system settings, the optional features, the
     WSL distribution and the Ansible install inside it. Those are applied by WindowsSettings.ps1 and
     reported by it, and several of them are only true after a reboot, so a verdict taken in the same
     run would be wrong as often as right.

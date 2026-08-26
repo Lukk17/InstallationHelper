@@ -1,7 +1,7 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-    The four Windows system settings, applied natively instead of through Ansible.
+    The three Windows system settings, applied natively instead of through Ansible.
 
 .DESCRIPTION
     windows_core used to carry a task file for each of these and none of them could ever run: the
