@@ -53,10 +53,14 @@ git commit -m "Import central agent-standards"
 
 What this pulls:
 
-- `.agents/skills/` — 73 canonical skill files.
-- `.claude/CLAUDE.md`, `.claude/skills/` (symlink), `.claude/agents/` — Claude Code wiring + 26 subagent files.
-- `.opencode/skills/` (symlink), `.opencode/agents/` — OpenCode subagent files, also read natively by Kilo Code.
-- `.codex/skills/` (symlink) — Codex skill discovery path.
+- `.agents/skills/` — the canonical skill files, 27 of them in this project today.
+- `.agents/agents/` — the canonical subagent definitions, 18 of them today, one markdown file each.
+- `.agents/hooks/` — `preflight_gate.py` and `no_ai_markers_check.py`, wired into every surface. See the Hooks section of `AGENTS.md`.
+- `.agents/plugin/hooks.js` — the runner that carries those two hooks into OpenCode and Kilo Code.
+- `.claude/CLAUDE.md`, `.claude/settings.json`, `.claude/skills` (symlink), `.claude/agents/` — Claude Code wiring and its generated copy of the subagents.
+- `.opencode/agents`, `.kilo/agents` — symlinks to the canonical set.
+- `.codex/config.toml`, `.codex/agents/` — Codex wiring, subagents carried as `*.toml`.
+- `.github/agents/`, `.github/hooks/preflight.json` — the GitHub Copilot surface.
 - `docs/AGENT_TOOLING.md` — this document, kept in sync with the central repo.
 - `docs/MCP_SETUP.md` — human-side MCP setup guide (env vars, keys, OS-specific commands).
 - `AGENTS.md.example`, `kilo.jsonc.example`, `opencode.json.example`, `.mcp.json.example` — templates you rename and
@@ -124,9 +128,10 @@ These files are **generated artifacts**. Do not hand-edit them — your changes 
 modify a subagent permanently, change its canonical source in the agent-standards repo (`subagents/<name>.md`), run
 `python tools/gen-subagents.py` there, and re-import via Step 2.
 
-The 26 subagents cover code review, architecture, debugging, stack experts (Java, Python, Flutter, Angular,
-React/Next.js), DevOps, databases, APIs, security, design, accessibility, docs, content, and legal. List them with
-`ls .claude/agents/` or browse them in the agent-standards repo.
+The subagents cover code review, architecture, debugging, Python, DevOps, observability, performance,
+security, design, docs, Home Assistant, end-to-end test running, and legal. List them with
+`ls .agents/agents/` rather than trusting a count written here, because a number in prose goes stale the
+first time somebody adds one, and this sentence said 26 for a while after the set had become 18.
 
 ---
 

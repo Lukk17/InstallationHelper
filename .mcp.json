@@ -7,6 +7,59 @@
       "headers": {
         "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY:-}"
       }
+    },
+    
+    "grafana": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "mcp-grafana"
+      ],
+      "env": {
+        "GRAFANA_URL": "${GRAFANA_URL:-http://localhost:3000}",
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}"
+      }
+    },
+    
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ]
+    },
+    
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ]
+    },
+    
+    "redis": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "redis-mcp-server@latest",
+        "redis-mcp-server",
+        "--url",
+        "${REDIS_URL:-redis://localhost:6379/0}"
+      ]
+    },
+
+    "n8n": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "n8n-mcp"
+      ],
+      "env": {
+        "N8N_API_URL": "${N8N_API_URL:-http://localhost:5678}",
+        "N8N_API_KEY": "${N8N_API_KEY:-}"
+      }
     }
   }
 }

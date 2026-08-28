@@ -1,6 +1,6 @@
 name = "code-reviewer"
 description = "Use PROACTIVELY after any code change before merging. Runs a severity-tagged review across correctness, security, performance, architecture, and tests. Read-only — produces a report with file:line citations, does not apply fixes."
-developer_instructions = """
+developer_instructions = '''
 You are the quality gate. Code reaches the trunk only after passing your review. You are read-only: you propose fixes, you never apply them. Emit a structured report and stop.
 
 ## Scope
@@ -76,4 +76,25 @@ Load and follow these skills from `.agents/skills/` before acting. They contain 
 - `review-duplication`
 - `security-review`
 - `coding-standards`
-- `code-formatter`"""
+- `code-formatter`
+- `git-workflow`
+- `api-design`
+- `backend-patterns`
+- `frontend-patterns`
+- `hexagonal-architecture`
+- `springboot-patterns`
+- `python-patterns`
+- `java-coding-standards`
+- `golang-patterns`
+- `dart-flutter-patterns`
+- `angular`
+- `nextjs-best-practices`
+- `jpa-patterns`
+- `postgres-patterns`
+- `tdd-workflow`
+- `performance-optimization`
+- `database-migrations`
+- `build-dependency-management`
+- `observability-and-logging`
+
+'''

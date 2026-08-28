@@ -3,13 +3,69 @@
   "instructions": [
     "AGENTS.md"
   ],
+  "plugin": [
+    "./.agents/plugin/hooks.js"
+  ],
   "mcp": {
     
     "context7": {
       "type": "remote",
       "url": "https://mcp.context7.com/mcp",
-      "headers": {
-        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
+      "enabled": true
+    },
+    
+    "grafana": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "mcp-grafana"
+      ],
+      "environment": {
+        "GRAFANA_URL": "http://localhost:3000"
+      },
+      "enabled": true
+    },
+    
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "@playwright/mcp@latest"
+      ],
+      "enabled": true
+    },
+    
+    "chrome-devtools": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "enabled": true
+    },
+    
+    "redis": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "--from",
+        "redis-mcp-server@latest",
+        "redis-mcp-server",
+        "--url",
+        "redis://localhost:6379/0"
+      ],
+      "enabled": true
+    },
+    
+    "n8n": {
+      "type": "local",
+      "command": [
+        "npx",
+        "n8n-mcp"
+      ],
+      "environment": {
+        "N8N_API_URL": "http://localhost:5678"
       },
       "enabled": true
     }

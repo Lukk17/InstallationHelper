@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides shared instructions to all AI coding agents working in this repository (Claude Code, Kilo Code, OpenCode, Codex CLI). Standards and skills are imported from [agent-standards](https://github.com/Lukk17/agent-standards).
+This file provides shared instructions to all AI coding agents working in this repository (Claude Code, Kilo Code, OpenCode, Codex CLI, GitHub Copilot). Standards and skills are imported from [agent-standards](https://github.com/Lukk17/agent-standards).
 
 ## Skills
 
@@ -9,13 +9,17 @@ This project includes agent skills in `.agents/skills/`. Invoke relevant skills 
 - `/code-reviewer` before reviewing code
 - `/security-review` before auditing for vulnerabilities
 - `/coding-standards` before writing new code
-- `/tdd-workflow` before adding features or fixing bugs
+- `/python-testing` or `/ai-regression-testing` before adding features or fixing bugs
 
-Slash commands may appear as `/name` or `/name.md` in your agent's autocomplete — use whichever your agent shows.
+Slash commands may appear as `/name` or `/name.md` in your agent's autocomplete, use whichever your agent shows.
+
+`.agents/skills/` is the canonical location and `.claude/skills` is a symlink into it, so a skill added once is visible to every agent. Do not add a second copy anywhere.
 
 ## Subagents
 
-This project ships 26 specialised subagents — narrow-scope agents the main session delegates to. Claude Code reads `.claude/agents/`; OpenCode and Kilo Code both read `.opencode/agents/`; Codex CLI reads `.codex/agents/`, where the same definitions are carried as `*.toml` with a `developer_instructions` block instead of markdown.
+This project ships 18 specialised subagents, narrow-scope agents the main session delegates to. The canonical definitions live in `.agents/agents/`, one markdown file each, and every agent surface reaches the same set from there. `.opencode/agents` and `.kilo/agents` are symlinks into it. `.claude/agents/`, `.github/agents/` and `.codex/agents/` carry generated copies in each tool's own format, the Codex ones as `*.toml` with a `developer_instructions` block instead of markdown.
+
+Count them rather than trusting this number if it matters to you: `ls .agents/agents/*.md`. A number written in prose goes stale the first time somebody adds an agent, and this one said 26 for a while after the set had become 18.
 
 These files are generated artifacts pulled from agent-standards. Do **not** hand-edit them — changes will be overwritten on the next pull. To modify a subagent permanently, edit its canonical source in the agent-standards repo (`subagents/<name>.md`), regenerate there, and re-import.
 
@@ -24,25 +28,49 @@ A few of the most-used:
 - `code-reviewer` — security-aware diff review before merge
 - `test-automator` — write missing tests and fix failures without weakening assertions
 - `security-auditor` — threat modelling, secure-coding review, compliance gap analysis
-- `backend-architect` — contract-first service and API design
-- `database-expert` — schema design and query / index optimisation
+- `e2e-runner` — runs one end-to-end capability test against a live stack and reports its verdict
+- `error-detective` — pattern hunting across logs and traces rather than a single bug
 - `debugger` — root-cause analysis for a single failing test or runtime error
 - `devops-troubleshooter` — live incident response with postmortem
 
-Full catalogue: see the agent-standards README's "Subagents catalog" section, or list `.claude/agents/*.md` (or `.opencode/agents/*.md`) in this project.
+Full catalogue: list `.agents/agents/*.md` in this project, which is the canonical set, or see the agent-standards README's "Subagents catalog" section.
 
 ## MCP servers
 
-This project exposes one MCP server: **Context7** (up-to-date library / framework / SDK / API docs). Use it whenever the user asks about a library or its API — even well-known ones — instead of relying on your training data. Don't use it for refactoring, business-logic debugging, or general programming concepts. Human-side setup lives in [`docs/MCP_SETUP.md`](docs/MCP_SETUP.md).
+This project declares six MCP servers in [`.mcp.json`](.mcp.json). Human-side setup lives in [`docs/MCP_SETUP.md`](docs/MCP_SETUP.md).
+
+| Server | What it is for |
+|---|---|
+| `context7` | Up-to-date library, framework, SDK and API documentation |
+| `grafana` | Dashboards, metrics and alert rules on a Grafana instance |
+| `playwright` | Driving a browser for end-to-end web testing |
+| `chrome-devtools` | Reading console output, network requests and the page from Chrome |
+| `redis` | Querying a Redis instance |
+| `n8n` | Reading and building n8n automation workflows |
+
+Use `context7` whenever the user asks about a library or its API, even a well-known one, instead of relying on your training data. Do not use it for refactoring, business-logic debugging, or general programming concepts.
+
+Every server except `playwright` and `chrome-devtools` reads its endpoint or credential from an environment variable with an empty default, so an unset variable gives you a server that starts and then cannot authenticate rather than an error at startup. If a server answers nothing, check the variable before assuming the service is down: `CONTEXT7_API_KEY`, `GRAFANA_URL` and `GRAFANA_SERVICE_ACCOUNT_TOKEN`, `REDIS_URL`, `N8N_API_URL` and `N8N_API_KEY`.
 
 ## Working With Agents
 
 All supported agents read this `AGENTS.md` from the project root and auto-discover skills from `.agents/skills/`. Start your agent from the project root:
 
-- **Claude Code** — run `claude`. Reads `.claude/CLAUDE.md`, which imports this file.
-- **Kilo Code** — reads `AGENTS.md` automatically. Optional `kilo.jsonc` for extra config.
-- **OpenCode** — reads `AGENTS.md` automatically. Optional `opencode.json` at project root.
-- **Codex CLI** — run `codex`. Reads `AGENTS.md` automatically, plus project-level `.codex/config.toml`, `.codex/hooks.json` and `.codex/agents/`. Global settings stay in `~/.codex/config.toml`.
+- **Claude Code** — run `claude`. Reads `.claude/CLAUDE.md`, which imports this file, plus `.claude/settings.json` for hooks, `.claude/agents/` and the `.claude/skills` symlink.
+- **Kilo Code** — reads `AGENTS.md` automatically, plus `.kilo/agents`, which is a symlink to the canonical set. Hooks arrive through the OpenCode plugin below.
+- **OpenCode** — reads `AGENTS.md` automatically, plus `opencode.json` at the project root, which loads `.agents/plugin/hooks.js`.
+- **Codex CLI** — run `codex`. Reads `AGENTS.md` automatically, plus `.codex/config.toml`, which carries both the MCP servers and the hooks, and `.codex/agents/`. Global settings stay in `~/.codex/config.toml`.
+- **GitHub Copilot** — reads `AGENTS.md`, `.github/agents/` and `.github/hooks/preflight.json`.
+
+## Hooks
+
+Two Python scripts under `.agents/hooks/` are wired into every surface above. They are not advisory. Read them before wondering why a tool call was refused.
+
+`preflight_gate.py` runs before a tool call and enforces three rules. The main thread may not write any file, and must delegate the change to a subagent that owns the area. This covers the edit tools and the shell alike, because the gate lexes the command, so a redirection, `sed` or `patch` is not a way around it. A subagent whose own definition declares no skills may not act. And the main thread may not run a web fetch or web search directly, it spawns a subagent to research and report back. Any parse error or unexpected payload allows the call, because a broken gate must never break a session.
+
+`no_ai_markers_check.py` runs when a reply is about to be delivered and blocks prose containing an em dash, an en dash, a semicolon or a bold marker, after stripping fenced code, inline code and link targets. Code is exempt. Prose is not.
+
+Both are generated artifacts from agent-standards, like the subagents. Change them there, not here.
 
 ## Working Principles
 
@@ -341,7 +369,7 @@ A cross-platform Ansible-based system setup and local development toolkit. It ha
 Markdown filenames are lowercase with underscores: `setup/software.md`, `homelab/adguard_dns.md`, `docs/linux/virt_manager_setup.md`. Two exceptions keep their capitals:
 
 1. Any filename starting with `README` — `README.md`, `setup/README_SETUP.md`, `homelab/README_HOMELAB.md`, `local-dev/README_LOCAL_DEV.md`.
-2. The agent tooling docs, which follow upstream agent-standards naming — `AGENTS.md`, `.claude/CLAUDE.md`, `.agents/skills/*/SKILL.md`, `.claude/agents/*.md`, `.opencode/agents/*.md`, `docs/AGENT_TOOLING.md`, `docs/MCP_SETUP.md`, `docs/AI_TOOLS_ADDING.md`.
+2. The agent tooling docs, which follow upstream agent-standards naming — `AGENTS.md`, `.claude/CLAUDE.md`, `.agents/skills/*/SKILL.md`, `.agents/agents/*.md`, `.agents/hooks/*.py`, `docs/AGENT_TOOLING.md`, `docs/MCP_SETUP.md`, `docs/AI_TOOLS_ADDING.md`.
 
 Do not rename anything in the first two categories to match the lowercase rule. Renaming a doc means updating every markdown link that points at it in the same change.
 
