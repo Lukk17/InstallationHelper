@@ -432,7 +432,46 @@ interactive path was WSL, which needs a sudo password itself and has no terminal
 the change was known to be unproven when it shipped rather than untested by accident.
 
 Fix: reverted the same day in [setup/setup.sh](../setup/setup.sh), back to two separate `-K` prompts,
-one per ansible-playbook invocation.
+one per ansible-playbook invocation, and then replaced properly on 2026-08-28 by a
+`prepare_become_password` function in the same file. It asks once before anything needs root,
+validates the answer against `sudo -S -k` on the spot, writes it under `umask 077` into a file inside
+a `mktemp -d` directory, and hands both playbooks `--become-password-file` through the single
+`BECOME_ARGS` assignment that `build_playbook_args` bakes into `PLAYBOOK_ARGS` and slices `VERIFY_ARGS`
+off. An EXIT trap removes the directory. That mechanism carries none of the assumption that killed the
+first attempt: a file is read by whichever process opens it, so it does not care that Ansible's sudo
+child has no controlling terminal and it never consults a credential timestamp at all. A machine whose
+sudo needs no password is detected with `sudo -n true` first and never asked. `--print-command` still
+prints `-K`, because a command copied out of the script and run by hand has no password file to read.
+Check added: [e2e/tier1/become_password_file.sh](../e2e/tier1/become_password_file.sh), which asserts
+the six properties that make the file safe and is proven to fail against a copy of the tree with the
+`umask 077` removed. It is text analysis, so the coverage hole above is unchanged: nothing here proves
+ansible-playbook authenticates from the file.
+
+That last sentence stopped being true on 2026-08-28, when the link was measured instead of assumed.
+Real sudo could not be used, because proving it that way needs a machine whose sudo demands a password
+and the password itself, and WSL demands one that the agent does not have. So a stub named `sudo` was
+put first on PATH in WSL Ubuntu against ansible-core 2.19.9. It parses its own argument list, writes
+back the prompt string Ansible passed with `-p`, reads one line from standard input, records that line,
+and then executes the remaining command with no privilege change at all. Both behaviours it relies on
+were read out of the installed source first rather than taken on trust: `plugins/become/sudo.py` sets
+the prompt to `[sudo via ansible, key=<id>] password:` and strips `-n` out of the default `-H -S -n`
+flags whenever a become password exists, and `plugins/connection/local.py` waits for that exact prompt
+in the child's output before writing the password followed by a newline. Run against `-i localhost, -c
+local` with one task carrying `become: true`, the stub recorded exactly the sentinel string that the
+password file held, and the play reached `ok=2 changed=0 failed=0` with the become task reported ok, so
+Ansible was not left waiting on a prompt it never saw. A second file holding a different sentinel
+delivered that different sentinel, and rewriting the first file in place with a third delivered the
+third, which rules out anything cached by path or by process. The negative control, the same playbook
+and stub with no `--become-password-file` and no `-K`, produced `-H -S -n` with no `-p` at all and
+nothing whatsoever on standard input within three seconds, which is what the failure at the top of this
+entry looked like from sudo's own side.
+
+What that proves is that the contents of the file named by `--become-password-file` are read and
+written to the standard input of whatever program named sudo is first on PATH, at the moment the become
+plugin asks for it. What it does not prove is that real sudo then accepts the password and grants root,
+because the stub never authenticates anything. That last step still needs a machine whose sudo requires
+a password that somebody knows, so the honest status is that the plumbing is proven and the
+authentication itself remains covered only by a real installation run.
 
 ---
 

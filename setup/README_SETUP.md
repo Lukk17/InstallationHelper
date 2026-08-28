@@ -24,12 +24,19 @@ filter-as-you-type pickers. Both are installed automatically on first run.
 
 Run it as your regular user. Do not use `sudo`.
 
-The run asks for your sudo password twice, once when the install playbook starts and once when the
-verification playbook starts at the end. Ansible's `-K` prompt lives inside a single ansible-playbook
-process, and this script runs two of them. The second prompt arrives on an otherwise silent screen,
-because the verification's own output goes to a log file rather than the terminal, so it is easy to
-miss, and a run was lost that way on 2026-08-28. Reducing that to one prompt needs the password handed
-to both playbooks rather than a shared credential cache, which has not been done yet.
+The run asks for your sudo password once, at the start, before anything that needs root. It is asked
+by this script rather than by Ansible, checked against `sudo` on the spot so a typo is caught in the
+first second instead of twenty seconds into the playbook, and then written into a file that both
+ansible-playbook processes read through `--become-password-file`. That file is mode 0600, inside a
+private mode 0700 directory made by `mktemp -d`, it exists only while the run does, and a trap
+removes the whole directory when the script stops, whether it finished or was interrupted. A machine
+whose sudo needs no password is detected with `sudo -n true` and is never asked at all, so a NOPASSWD
+workstation behaves the same as a container without anyone passing a flag.
+
+It used to ask twice, once for the install playbook and once for the verification playbook, because
+Ansible's `-K` prompt lives inside a single ansible-playbook process and this script runs two of them.
+The second prompt arrived on an otherwise silent screen, since the verification's own output goes to a
+log file rather than the terminal, and a run was lost that way on 2026-08-28.
 
 It never changes your screen lock, idle or session-restore settings, on any platform. That is a rule
 rather than a default, and [e2e/tier1/desktop_settings.sh](../e2e/tier1/desktop_settings.sh) fails the

@@ -891,12 +891,22 @@ run_verification() {
     local rc=0
     echo
     say "Verifying what actually landed (this installs and changes nothing)..."
-    # Said out loud because Ansible's own "BECOME password:" prompt goes to the terminal device
-    # while everything else here goes to the log, so an unannounced prompt on a silent screen reads
-    # as a wizard that stopped for no reason. It stopped a real run that way on 2026-08-28, and the
-    # verification log was zero bytes afterwards. -K is here for two reads that need root:
-    # /etc/sudoers.d is mode 0750 on Debian and Arch, and the Flathub remote is a system-wide setting.
-    if [[ "${OPT_PASSWORDLESS_SUDO}" != true ]]; then
+    # Said out loud only when Ansible is going to stop and ask, because an unannounced prompt on a
+    # silent screen reads as a wizard that died for no reason. It stopped a real run that way on
+    # 2026-08-28, and the verification log was zero bytes afterwards. The condition asks BECOME_ARGS
+    # whether -K is still in it rather than asking which options were passed, because -K is the only
+    # thing here that prompts: prepare_become_password leaves either nothing, on a machine whose
+    # sudo wants no password, or a file for Ansible to read, and neither of those says a word. -K
+    # survives only on a path that never reached that function. Two of the checks need root either
+    # way: /etc/sudoers.d is mode 0750 on Debian and Arch, and the Flathub remote is a system-wide
+    # setting.
+    local become_arg prompts_for_password=false
+    for become_arg in "${BECOME_ARGS[@]+"${BECOME_ARGS[@]}"}"; do
+        if [[ "${become_arg}" == "-K" ]]; then
+            prompts_for_password=true
+        fi
+    done
+    if ${prompts_for_password}; then
         say "It asks for your sudo password once more: two of the checks read root-owned settings."
     fi
 
@@ -1244,29 +1254,115 @@ run_non_interactive() {
 }
 
 # ---------------------------------------------------------------------------
+# The sudo password, asked once and handed to both playbooks
+# ---------------------------------------------------------------------------
+
+# The private directory holding the password for the length of the run, and the trap that removes
+# it. Both live out here rather than inside the function below, because the trap has to be able to
+# name the directory whether or not the function ever got as far as creating one.
+BECOME_PASSWORD_DIR=""
+
+remove_become_password_dir() {
+    if [[ -n "${BECOME_PASSWORD_DIR}" && -d "${BECOME_PASSWORD_DIR}" ]]; then
+        rm -rf "${BECOME_PASSWORD_DIR}"
+    fi
+    BECOME_PASSWORD_DIR=""
+}
+
+# EXIT is the trap that covers every way this script stops, which is why the cleanup hangs off it
+# rather than off the signals. A normal finish, a failure under set -e, and the exit 130 that
+# check_int_or_die raises after an interrupt all run it. The two traps this script already installs
+# are left exactly as they are: on_err only prints a diagnosis and returns, and the INT, QUIT, TERM
+# and HUP handler only raises a flag so a gum picker can finish drawing, so neither of them ends the
+# script by itself and neither is a place this cleanup could safely live.
+trap remove_become_password_dir EXIT
+
+# Asks for the sudo password once, proves it is the right one, and leaves it somewhere both
+# ansible-playbook processes can read it. Sets BECOME_ARGS and nothing else.
+#
+# Ansible's own -K prompt asks once per ansible-playbook process, and this script runs two of them,
+# so -K asks the same person the same question twice about a quarter of an hour apart. The second
+# one arrives on an otherwise silent screen, because the verification's output goes to a log file
+# while Ansible's prompt goes to the terminal device, and on 2026-08-28 it went unanswered and cost
+# a run. Ansible's become password file option takes the password from a file instead, once per
+# process and with no terminal involved, so one answer covers both playbooks.
+#
+# It is deliberately not a shared sudo credential. That was tried on 2026-08-28 and reverted the
+# same day: sudo keys its credential timestamp to the controlling terminal, timestamp_type=tty in
+# sudo 1.9, and Ansible's -c local connection runs sudo in a child process that has no controlling
+# terminal, so a ticket warmed in this shell is invisible to the sudo the playbook actually invokes.
+# A file carries no such assumption. The password sitting in a mode 0600 file inside a mode 0700
+# directory for the length of the run is a tradeoff the owner has accepted.
+prepare_become_password() {
+    if [[ "${OPT_PASSWORDLESS_SUDO}" == true ]]; then
+        BECOME_ARGS=()
+        return 0
+    fi
+
+    # A machine whose sudo needs no password answers this immediately and is never asked for one.
+    # Every hosted runner and every container is such a machine, and so is a workstation whose owner
+    # configured NOPASSWD and did not think to pass the flag.
+    if sudo -n true >/dev/null 2>&1; then
+        BECOME_ARGS=()
+        say "Sudo needs no password on this machine, so you will not be asked for one."
+        return 0
+    fi
+
+    echo
+    say "Your sudo password is asked once, here, for the whole run. Nothing asks again later."
+
+    local attempt password=""
+    for attempt in 1 2 3; do
+        if ! IFS= read -r -s -p "  [sudo] password for $(id -un): " password; then
+            echo >&2
+            echo "ERROR: there is no terminal here to read the sudo password from." >&2
+            echo "       Pass --passwordless-sudo on a machine whose sudo needs no password." >&2
+            exit 1
+        fi
+        echo
+
+        # Proved now rather than by the playbook. A wrong password handed to Ansible surfaces about
+        # twenty seconds into the run, as a become failure on whichever task happens to need root
+        # first, which reads as a broken playbook rather than as a typo. sudo -k makes this ask the
+        # password itself instead of accepting a credential that some other command warmed.
+        if printf '%s\n' "${password}" | sudo -S -k -p '' true >/dev/null 2>&1; then
+            local password_dir password_file
+            password_dir="$(mktemp -d)"
+            password_file="${password_dir}/become-password"
+            # mktemp -d already gives a directory nobody else can enter, and umask 077 makes the
+            # file inside it mode 0600 as well, so the password is unreadable by both routes.
+            # printf rather than echo, because echo mangles a password that starts with -n or
+            # contains a backslash on the shells where it interprets escapes.
+            ( umask 077; printf '%s\n' "${password}" >"${password_file}" )
+            password=""
+            BECOME_PASSWORD_DIR="${password_dir}"
+            BECOME_ARGS=(--become-password-file "${password_file}")
+            return 0
+        fi
+
+        password=""
+        echo "  That password was refused by sudo." >&2
+    done
+
+    echo "ERROR: three sudo passwords were refused, so nothing was run." >&2
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
 
 parse_args "$@"
 
-# Built once, here, so the interactive path and the non-interactive path cannot disagree about
-# whether Ansible asks for a sudo password. Two literal -K flags in two places is how they would
-# drift, and the whole point of the flag is that the answer is the same wherever the run starts.
+# The starting value, built once so the interactive path and the non-interactive path cannot
+# disagree about how Ansible is told to become root. prepare_become_password replaces it further
+# down, once the machine has been asked whether it even wants a password, and the two entrypoints
+# both read whatever it leaves behind.
 #
-# -K asks once per ansible-playbook process, and this script runs two of them, the install play and
-# then the verification, so a normal run asks twice: once at the start and once at the very end,
-# roughly a quarter of an hour later. On 2026-08-28 the second prompt went unanswered on an otherwise
-# silent screen, because Ansible's own "BECOME password:" prompt goes to the terminal device while
-# everything else here goes to the log, and the verification log was left zero bytes.
-#
-# Warming the credential with sudo -v and dropping -K from both playbooks was tried that same day and
-# reverted that same day. sudo keys its credential timestamp to the controlling terminal by default,
-# and Ansible's -c local connection runs sudo in a child process with no controlling tty, so every
-# become failed with "sudo: a password is required" about twenty seconds into the run, on the first
-# become task.
-#
-# A single prompt therefore needs the password handed to both playbooks rather than a shared
-# credential cache, which is a separate change.
+# -K survives here for one caller. --print-command answers before prepare_become_password runs, and
+# what it prints is meant to be copied out of this script and run by hand in a terminal. A command
+# run that way has no password file to read, so -K, which asks the person at the keyboard, is the
+# only flag that works there. A real run never keeps this value.
 BECOME_ARGS=(-K)
 if [[ "${OPT_PASSWORDLESS_SUDO}" == true ]]; then
     BECOME_ARGS=()
@@ -1311,6 +1407,13 @@ if [[ "${OPT_PRINT_COMMAND}" == true ]]; then
     printf '\n'
     exit 0
 fi
+
+# The one point where a password is asked for, placed here on purpose. Everything above it answers a
+# question and changes nothing, so --list-software and --print-command still finish without ever
+# asking, and everything below it can need root. What it leaves in BECOME_ARGS is what
+# build_playbook_args bakes into PLAYBOOK_ARGS, and VERIFY_ARGS is sliced off that same list, so the
+# install play and the verification are handed the same answer with no second assignment anywhere.
+prepare_become_password
 
 # Pre-create Ansible tmp + fact-cache dirs (ansible.cfg uses ~/.ansible/...).
 # jsonfile fact cache fails on first run if its dir doesn't exist.
