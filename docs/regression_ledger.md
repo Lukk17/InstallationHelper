@@ -1,6 +1,6 @@
 # Regression ledger
 
-Current as of 2026-08-21. Every entry below is written against the tree at that date, and the one still-open finding says so in its own status line.
+Current as of 2026-08-28. Every entry below is written against the tree at that date, and the one still-open finding says so in its own status line.
 
 This is the list of defects the Ansible playbook and its wizard scripts have actually suffered, mined from the project's git history and from a container audit run the same day this page was written. Every entry states the cause, what it broke, and where the fix lives, or says plainly that it is still open. The point is prevention. Read the checklist below before touching anything under [setup/](../setup/), then use the grouped entries as a reference for the failure mode you are about to repeat.
 
@@ -13,7 +13,7 @@ The older, pre-Ansible bash-script era of this repository (2022 to early 2024, t
 1. If you touched anything that names a Linux group, a package name, or a service name, check whether that name is the same string on Debian, Fedora and Arch. If it is not, the mapping belongs in the per-distribution `vars/{OS}.yaml` dictionary, never hardcoded in a shared task file. This is the exact mistake in the Arch OpenRazer device group entry below.
 2. Do not assume a package exists in a distribution's official repository just because it exists in Debian's. Check the actual repository for every OS family the toggle claims to support. This is the mistake behind the Arch OpenRazer kernel module entry, the Arch Arduino removal, and the toggle plumbing entries for `install_putty` and `install_gradle`.
 3. Never let `failed_when` or a block's `rescue` turn a real failure into a passing play. If you write a `failed_when` with more than one condition, work out by hand whether Ansible ANDs or ORs them, then write a test that proves it. If a `rescue` block exists, make it name the task that failed, not just print a generic warning. See the pacman batch entry and the install-block rescue entry.
-3a. A `failed_when` on `rc` is only as good as the `rc` it reads, and with `raw`, `shell` or `command` that is the shell's status, not your program's. A pipeline reports its last command, so `apt-get ... | tee log` reports tee and tee always succeeds. A command list reports the last one, so anything ending `&& echo A || echo B` reports an echo and can never be non-zero. Both were live in this repository and both had a `failed_when: rc != 0` sitting uselessly beside them. Prepend `set -o pipefail` to any pipeline whose status you intend to check, never end such a command with an echo, and prove it by making the inner command exit non-zero and watching the task fail. See the raw pipeline entry.
+3a. A `failed_when` on `rc` is only as good as the `rc` it reads, and with `raw`, `shell` or `command` that is the shell's status, not your program's. A pipeline reports its last command, so `apt-get ... | tee log` reports tee and tee always succeeds. A command list reports the last one, so anything ending `&& echo A || echo B` reports an echo and can never be non-zero. Both were live in this repository and both had a `failed_when: rc != 0` sitting uselessly beside them. Prepend `set -o pipefail` to any pipeline whose status you intend to check, never end such a command with an echo, and prove it by making the inner command exit non-zero and watching the task fail. See the raw pipeline entry. One exception, and it is the reason this sentence has been amended: pipefail also reports a producer the kernel killed, so a pipeline whose left side never terminates on its own must not use it. `yes | anything` under pipefail always reports 141, because `yes` is still writing when the reader exits and SIGPIPE kills it. Feed the answers from a temporary file instead. Following this item literally is how that defect was written twice, in `Accept Android SDK licenses` and then in the CachyOS graphics alignment task, and `e2e/tier1/sigpipe_pipelines.sh` now fails on it.
 4. A toggle in `group_vars/all.yaml` or `group_vars/linux.yaml` is not implemented until you can point at the line in a `vars/{OS}.yaml` file, or a task file, that consumes it on every OS the toggle claims to support. A code comment that says another role handles it is not verification, run it and watch the software actually appear. See the toggle plumbing entries and the dead-toggle cleanup entry.
 5. If the same parsing or matching logic exists in more than one place, for example a bash wizard and a PowerShell wizard reading the same YAML, test both independently with the same fixture line. They will drift the moment one gets fixed and the other does not. This is exactly what happened in the wizard toggle parse desync entry.
 6. An install that completes with exit code zero but leaves the feature non-functional is still a bug. A daemon that starts and immediately dies because its kernel module never built is not a success just because Ansible reported `ok`. See the Arch OpenRazer kernel module entry.
@@ -277,6 +277,162 @@ One process note worth keeping. While the cause was open, this entry carried an 
 `roles/windows_core/tasks/wsl_setup.yaml` ran `schtasks` against a `Hibernate@2AM.xml` under `{{ playbook_dir }}\..\tasks\`, and there is no `setup/tasks/` directory anywhere in this repository. The toggle defaulted to true, so it would have failed on every Windows run had the Windows path been reachable at all. That task never ran, per the entry above, and on 2026-08-20 the file was deleted along with the rest of the unreachable Windows Ansible.
 
 [setup/windows/WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1)'s `Register-HibernateTask` is the native replacement, and it builds the scheduled task from its action, trigger and settings directly instead of importing anything, so there is no artefact to commit before the toggle can be turned on. `import_hibernate_task` is still `false` in [group_vars/windows.yaml](../setup/ansible/group_vars/windows.yaml), which is now an owner decision rather than a hazard being avoided, and the comment beside it says so.
+
+---
+
+### Found on a real CachyOS machine on 2026-08-28
+
+Four entries from one run, three of them defects this repository wrote and one a diagnosis it got
+wrong. The run reached fourteen minutes, installed none of the software set, and the owner spent the
+afternoon on it. Every one of the four was invisible to the gate for a different reason, which is why
+three new tier 1 checks came out of it rather than one.
+
+#### `yes |` under `set -o pipefail`, written a second time after being fixed the first time
+
+Cause: the CachyOS graphics alignment task ran `yes | pacman -Syy --needed mesa-git lib32-mesa-git`
+with `set -o pipefail` above it. `yes` never stops on its own, so the kernel kills it with SIGPIPE the
+moment pacman exits, and a process killed by a signal reports 128 plus the signal number. Under
+pipefail that 141 is the pipeline's answer whatever pacman did.
+
+Effect: on a machine where both packages were already installed, pacman printed
+`warning: mesa-git-26.3.0_devel.228049.0b1b8798d81-1 is up to date -- skipping` for each and then
+` there is nothing to do`, with no `error:` line anywhere in it, and the task reported
+`The command exited with a non-zero return code.` It retried three times over 1m 25s, failed all
+three, and the play's `any_role_failed` handling then skipped every role after `arch_core`. Recap:
+`ok=45 changed=14 failed=1 skipped=26 rescued=1`. Nothing the owner asked for was installed.
+
+How it was proven rather than reasoned about: `set -o pipefail; yes | sleep 1` in a script file
+answers `rc=141 pipestatus=141 0`, so the reader exited 0 and the pipeline still reported failure. An
+earlier attempt at the same measurement, typed inline through `wsl bash -c`, answered 0 and was wrong:
+`${PIPESTATUS[*]}` came back empty in that run, which is the tell that the shell never saw a pipeline
+at all. Take the measurement from a file when the thing being measured is multi-line.
+
+Worth stating plainly: this exact mechanism was found, fixed and written down in this repository
+already, in `Accept Android SDK licenses`, and the note explaining it sits at the top of
+[android_sdk_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/android_sdk_unix.yaml). It was then
+written again, in a different role, five days later. A note that lives next to one instance does not
+protect the next one.
+
+Checklist item 3a of this page is part of the cause and has been amended. It said to prepend
+`set -o pipefail` to any pipeline whose status you intend to check, which is right for `| tee` and
+produces exactly this defect on `yes |`.
+
+Fix: the answers come from a temporary file redirected into pacman's stdin, matching the Android SDK
+task, in [arch_core/tasks/main.yaml](../setup/ansible/roles/arch_core/tasks/main.yaml).
+
+Check added: [e2e/tier1/sigpipe_pipelines.sh](../e2e/tier1/sigpipe_pipelines.sh), which reads every
+Ansible shell body and every shell script under `setup/` and `e2e/`. Proven to fail against both
+instances before being trusted: against `HEAD` for the CachyOS task, and against `ac770e9` for the
+Android SDK one. Also proven to fail when it reads nothing.
+
+#### A task the whole suite could never execute, and nothing said so
+
+Cause: the alignment task is gated on `ih_os_release_id == 'cachyos'` and `install_steam`. The only
+image that satisfies the first was the only image where `container_limits.cachyos.yaml` set
+`install_steam: false`. Tier 1 executes nothing, tier 2 only resolves names, and tier 3 skipped the
+task by construction, so that shell had never been run by the harness at all.
+
+Effect: the defect above shipped, and the thing that found it was a person installing a real machine.
+
+How it was proven: restoring `container_limits.cachyos.yaml` and running the new reachability check
+names the task and the single image, and removing the file makes it pass.
+
+Fix: the suppression file is deleted, so steam installs and is verified on CachyOS like everywhere
+else.
+
+Check added: [e2e/tier1/unreachable_tasks.sh](../e2e/tier1/unreachable_tasks.sh). Deliberate cases are
+listed with what they cost in [uncovered_toggles_allowed.txt](../e2e/tier1/uncovered_toggles_allowed.txt),
+and a line there that is no longer suppressed fails too, so the file cannot outlive its reasons.
+
+#### The 404 was one incomplete mirror, not a repository disagreeing with itself
+
+Cause of the wrong call: two package files the v3 index named answered 404 on `cdn77.cachyos.org`, and
+that was written up as an index and a set of files that disagree, with the conclusion that steam
+cannot be installed on CachyOS at all. Only one host was ever asked.
+
+Effect: a whole package was suppressed in the harness on the strength of it, which is what hid the
+SIGPIPE defect above. The suppression was the expensive part, not the misreading.
+
+How it was proven wrong: `lib32-glibc-2.44+r24+g16be1518495f-1-x86_64_v3.pkg.tar.zst` and
+`lib32-gcc-libs-16.2.1+r23+gd564253eb6c8-1-x86_64_v3.pkg.tar.zst`, the exact builds the index names,
+answer 404 on `cdn77.cachyos.org` and 200 on `mirror.cachyos.org`. A ranged fetch of the first returns
+`content-range: bytes 0-1023/4110126` and the zstd magic `28 b5 2f fd`, so it is the real package and
+not a redirect to an error page. The index is right and one mirror is incomplete, which is what a
+mirrorlist with more than one entry exists for.
+
+The lesson is checklist item 8's, one level further in. Measuring the exact URL out of the failure was
+right and it was still not enough, because a 404 from one host answers a question about that host. Ask
+a second one before calling it upstream.
+
+#### The konsave profile silently reverted the user's screen lock and session settings
+
+Cause: `configure_kde.yaml` applies a konsave profile, and konsave copies each file in its manifest
+over the live one. The shipped [lukk_desktop_profile.knsv](../setup/config/lukk_desktop_profile.knsv)
+carried `save/configs/kscreenlockerrc` containing nothing but a version stanza, and
+`save/configs/ksmserverrc` in the same state.
+
+Effect: a machine deliberately configured with Lock screen automatically set to Never goes back to
+Plasma's default, which is autolock on with a five minute timeout, and the Session Restore choice goes
+with it. Nothing reports it. The run says success and the setting is gone.
+
+How it was proven: reading the two members straight out of the archive, and the manifest at
+`conf.yaml:53` and `conf.yaml:54` that lists them.
+
+What this entry does not claim. It is not established that this is what locked the owner's screen on
+2026-08-28. The role only runs when `configure_kde_plasma` is true, that toggle is false in
+[group_vars/linux.yaml](../setup/ansible/group_vars/linux.yaml), and the run in question died in
+`arch_core` long before any desktop role. Every task in that log was read and none of them touches the
+display, the compositor or the locker. So this is a live hazard found while looking for that cause,
+and the cause itself is still open pending the machine's own journal.
+
+Fix: both files and both manifest lines are removed from the archive, which now holds 4617 entries
+against 4619, and the rule is written down: this project does not change lock, idle or session
+settings on any platform.
+
+Check added: [e2e/tier1/desktop_settings.sh](../e2e/tier1/desktop_settings.sh), which reads inside the
+`.knsv` as well as over the tree, because a grep would never have found this one. Proven to fail
+against the archive as it was.
+
+#### A sudo keepalive that could not survive Ansible's local connection
+
+Cause: setup.sh was changed to call `sudo -v` once with a background keepalive and drop Ansible's `-K`
+from both playbook invocations, so the run would rely on the warmed credential instead of prompting
+itself. sudo keys its credential timestamp to the controlling terminal by default, which is
+`timestamp_type=tty` in sudo 1.9, and Ansible's `-c local` connection runs sudo in a child process with
+no controlling tty, so the ticket the keepalive refreshed on the parent shell was never visible to the
+sudo the playbook actually invoked.
+
+Effect: the change reached a real installation run and failed twenty seconds in, with `sudo -H -S -n`
+finding no valid ticket.
+
+```
+FAILED: [localhost] => TASK: arch_core : Configure passwordless sudo for non-root user
+Error: Task failed: Premature end of stream waiting for become success.
+>>> Standard Error
+sudo: a password is required
+```
+
+Recap: `ok=12 changed=0 failed=1 skipped=11 rescued=1`. Nothing was installed.
+
+How it was proven rather than reasoned about: the failure text above is what the real run produced,
+not a prediction read out of the diff. The revert was checked the same way, by confirming the
+behaviour is back to what it was before the change, one `-K` prompt per ansible-playbook process, two
+prompts in a normal run.
+
+This defect was introduced by the agent working on this repository that same day, not found in code
+anyone else wrote. It is recorded as such on purpose, because this page's own rule says a defect an
+agent writes and ships itself is the one most likely to be repeated by the next agent that touches
+this file.
+
+Coverage hole: nothing in this repository's automated gate ever exercises the interactive sudo path
+this change touched. Every continuous-integration call to setup.sh passes `--passwordless-sudo`, which
+routes around the changed code entirely, and the tier 3 container scenarios call `ansible-playbook`
+directly rather than going through setup.sh at all. The only local machine available to try the
+interactive path was WSL, which needs a sudo password itself and has no terminal to type one into, so
+the change was known to be unproven when it shipped rather than untested by accident.
+
+Fix: reverted the same day in [setup/setup.sh](../setup/setup.sh), back to two separate `-K` prompts,
+one per ansible-playbook invocation.
 
 ---
 
@@ -702,7 +858,7 @@ Looping cost 11 and 23 per cent on set A and saved 4 per cent on set B. Two iden
 
 The trigger argument in particular did not show up. Set B is where it should have been largest and it was the set where looping was faster.
 
-So the time argument is dead and the allowed file no longer makes it. What remains, and what the measurement deliberately does not test, is correctness: every package in that set had a satisfiable dependency closure, so the solver was never asked to choose between conflicting constraints. That is the case where a loop genuinely differs from a batch, by picking a library version for one package that the next cannot accept, or by choosing a provider per package where the providers conflict. The CachyOS `lib32-vulkan-driver` chain recorded in [container_limits.cachyos.yaml](../e2e/tier3/container_limits.cachyos.yaml) is exactly that shape.
+So the time argument is dead and the allowed file no longer makes it. What remains, and what the measurement deliberately does not test, is correctness: every package in that set had a satisfiable dependency closure, so the solver was never asked to choose between conflicting constraints. That is the case where a loop genuinely differs from a batch, by picking a library version for one package that the next cannot accept, or by choosing a provider per package where the providers conflict. The CachyOS `lib32-vulkan-driver` chain recorded in [the arch_core alignment task](../setup/ansible/roles/arch_core/tasks/main.yaml) is exactly that shape.
 
 The three package managers stay batched for that reason alone, written down as such. Anyone reaching for a batch to save time should read this entry as a no.
 
@@ -726,7 +882,7 @@ dnf check --dependencies
 pacman -Dk
 ```
 
-All three are read-only and take about a second. Each is followed by a task that records the failure in the play summary so the exit code reports it, and by a message that says what the state means and what to do about it. For pacman that message names the specific fix, which is to name the provider you want in the OS dictionary rather than the virtual package, because the CachyOS `lib32-vulkan-driver` chain in [container_limits.cachyos.yaml](../e2e/tier3/container_limits.cachyos.yaml) is exactly that shape.
+All three are read-only and take about a second. Each is followed by a task that records the failure in the play summary so the exit code reports it, and by a message that says what the state means and what to do about it. For pacman that message names the specific fix, which is to name the provider you want in the OS dictionary rather than the virtual package, because the CachyOS `lib32-vulkan-driver` chain in [the arch_core alignment task](../setup/ansible/roles/arch_core/tasks/main.yaml) is exactly that shape.
 
 What else came out with the batches. Every per-manager install now reports per package: which ones failed, what the manager said about each, and a play summary entry marking the run failed. dnf and pacman moved off their native modules onto `command` in the process, not for the installing but for the reporting, since those modules report failure only through the result's `failed` key that this repository forbids reading. And the collector that used to work out which batch had failed, by matching the word "batched" in a task name, was deleted: nothing carries that word now and a dead collector is a shape already shipped twice here.
 
@@ -1036,7 +1192,7 @@ Worth stating because it generalises: a task that refreshes an index, empties a 
 
 #### CachyOS cannot install steam today, because its v3 repository disagrees with its own CDN
 
-Status: not fixable here. steam is suppressed on the CachyOS image in [container_limits.cachyos.yaml](../e2e/tier3/container_limits.cachyos.yaml), with the two URLs to re-measure written beside it. The alignment task stays fatal for real users.
+Status: superseded on 2026-08-28, and the heading above is wrong. It is kept rather than rewritten because the wrong turn is the useful part. Both files answer 200 on `mirror.cachyos.org` and 404 only on `cdn77.cachyos.org`, so the repository does not disagree with itself and steam installs on CachyOS. The suppression file is deleted and the correction is in the 2026-08-28 section above. The alignment task stays fatal for real users.
 
 The chain is ours and the breakage is not. steam depends on the virtual `lib32-vulkan-driver`, whose first provider in repository order is `cachyos-v3/lib32-mesa-git`, which depends on `mesa-git`, which conflicts with the stable `mesa` that `qemu-full` installs earlier in the same run. Naming the stable `lib32-mesa` explicitly does not win, tested: pacman drops it in favour of the git build, because that is what satisfies `lib32-opengl-driver` from the repository CachyOS puts first. So the only way to install steam there is to align the whole graphics stack with the git builds up front, which is what `arch_core` now does.
 

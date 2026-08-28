@@ -651,7 +651,8 @@
     # This is the path with the most to lose from losing its single solve, and it is worth naming
     # exactly what that was. pacman picks a provider for a virtual dependency once when it sees the
     # whole request. Installing one package at a time picks a provider per package, and two choices
-    # can contradict each other: container_limits.cachyos.yaml records that chain, where steam wants
+    # can contradict each other: the CachyOS alignment task in roles/arch_core/tasks/main.yaml records
+    # that chain in full, where steam wants
     # lib32-vulkan-driver, whose first provider drags in mesa-git, which conflicts with the stable
     # mesa that qemu-full installed earlier in the same run.
     #

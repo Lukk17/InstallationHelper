@@ -11,7 +11,7 @@ Each OS folder has two files:
 |---|---|---|
 | Debian / Ubuntu | [debian_ubuntu_manual_install.md](debian-ubuntu/debian_ubuntu_manual_install.md) | [`install.sh`](debian-ubuntu/install.sh) |
 | Fedora | [fedora_manual_install.md](fedora/fedora_manual_install.md) | [`install.sh`](fedora/install.sh) |
-| Arch Linux | [arch_manual_install.md](arch/arch_manual_install.md) | [`install.sh`](arch/install.sh) |
+| Arch Linux and CachyOS | [arch_manual_install.md](arch/arch_manual_install.md) | [`install.sh`](arch/install.sh) |
 | macOS | [macos_manual_install.md](macos/macos_manual_install.md) | [`install.sh`](macos/install.sh) |
 | Windows | [windows_manual_install.md](windows/windows_manual_install.md) | [`install.ps1`](windows/install.ps1) |
 

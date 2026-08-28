@@ -892,9 +892,10 @@ run_verification() {
     echo
     say "Verifying what actually landed (this installs and changes nothing)..."
     # Said out loud because Ansible's own "BECOME password:" prompt goes to the terminal device
-    # while everything else goes to the log, so without this line a second prompt looks like a
-    # wizard that stopped for no reason. -K is here for two reads that need root: /etc/sudoers.d is
-    # mode 0750 on Debian and Arch, and the Flathub remote is a system-wide setting.
+    # while everything else here goes to the log, so an unannounced prompt on a silent screen reads
+    # as a wizard that stopped for no reason. It stopped a real run that way on 2026-08-28, and the
+    # verification log was zero bytes afterwards. -K is here for two reads that need root:
+    # /etc/sudoers.d is mode 0750 on Debian and Arch, and the Flathub remote is a system-wide setting.
     if [[ "${OPT_PASSWORDLESS_SUDO}" != true ]]; then
         say "It asks for your sudo password once more: two of the checks read root-owned settings."
     fi
@@ -1252,7 +1253,20 @@ parse_args "$@"
 # whether Ansible asks for a sudo password. Two literal -K flags in two places is how they would
 # drift, and the whole point of the flag is that the answer is the same wherever the run starts.
 #
-# Empty by default, which means -K is present and the prompt appears exactly as it always has.
+# -K asks once per ansible-playbook process, and this script runs two of them, the install play and
+# then the verification, so a normal run asks twice: once at the start and once at the very end,
+# roughly a quarter of an hour later. On 2026-08-28 the second prompt went unanswered on an otherwise
+# silent screen, because Ansible's own "BECOME password:" prompt goes to the terminal device while
+# everything else here goes to the log, and the verification log was left zero bytes.
+#
+# Warming the credential with sudo -v and dropping -K from both playbooks was tried that same day and
+# reverted that same day. sudo keys its credential timestamp to the controlling terminal by default,
+# and Ansible's -c local connection runs sudo in a child process with no controlling tty, so every
+# become failed with "sudo: a password is required" about twenty seconds into the run, on the first
+# become task.
+#
+# A single prompt therefore needs the password handed to both playbooks rather than a shared
+# credential cache, which is a separate change.
 BECOME_ARGS=(-K)
 if [[ "${OPT_PASSWORDLESS_SUDO}" == true ]]; then
     BECOME_ARGS=()

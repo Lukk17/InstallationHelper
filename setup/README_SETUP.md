@@ -1,6 +1,6 @@
 # Setup
 
-> Cross-platform, data-driven setup for Ubuntu, Debian, Fedora, Arch, and macOS through Ansible, and for Windows natively through PowerShell.
+> Cross-platform, data-driven setup for Ubuntu, Debian, Fedora, Arch, CachyOS, and macOS through Ansible, and for Windows natively through PowerShell.
 
 ---
 
@@ -23,6 +23,17 @@ The wizard uses `gum` (charm.sh) on Linux and macOS and `Microsoft.PowerShell.Co
 filter-as-you-type pickers. Both are installed automatically on first run.
 
 Run it as your regular user. Do not use `sudo`.
+
+The run asks for your sudo password twice, once when the install playbook starts and once when the
+verification playbook starts at the end. Ansible's `-K` prompt lives inside a single ansible-playbook
+process, and this script runs two of them. The second prompt arrives on an otherwise silent screen,
+because the verification's own output goes to a log file rather than the terminal, so it is easy to
+miss, and a run was lost that way on 2026-08-28. Reducing that to one prompt needs the password handed
+to both playbooks rather than a shared credential cache, which has not been done yet.
+
+It never changes your screen lock, idle or session-restore settings, on any platform. That is a rule
+rather than a default, and [e2e/tier1/desktop_settings.sh](../e2e/tier1/desktop_settings.sh) fails the
+build if anything here starts doing it, including a setting smuggled in inside the konsave archive.
 
 Linux / macOS:
 
@@ -111,7 +122,7 @@ pwsh setup/setup.ps1 -SkipSystemUpgrade
 
 Requirements:
 
-- Linux (Ubuntu / Debian, Fedora, Arch) or macOS, with an internet connection and `sudo`.
+- Linux (Ubuntu / Debian, Fedora, Arch, CachyOS) or macOS, with an internet connection and `sudo`.
 - On macOS, bash 4 or newer, which macOS does not ship. Apple froze `/bin/bash` at 3.2, the last
   version under the older licence, and the wizard uses two bash 4 constructs. Install one with
   `brew install bash` and the wizard finds it by itself, re-executing into Homebrew's copy. Without
@@ -382,6 +393,13 @@ Apply it:
 ```bash
 konsave -a lukk_desktop_profile
 ```
+
+Applying a profile replaces the config files in its manifest, it does not merge them. Anything you had
+set in one of those files is gone afterwards, with no warning and no backup, which is how a machine
+configured never to lock its screen quietly went back to Plasma's five minute default. The screen
+locker and session manager settings were removed from the shipped profile on 2026-08-28 for exactly
+that reason. If you re-export your own profile, check what `conf.yaml` inside the `.knsv` lists before
+committing it.
 
 ### Complex roles
 

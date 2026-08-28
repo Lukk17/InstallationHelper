@@ -18,7 +18,7 @@
 
 ---
 
-Setting up a fresh dev machine should not take a weekend of copy-pasting install commands. This repository treats workstation provisioning as infrastructure: declarative, idempotent, version-controlled. One command produces the same environment on Ubuntu, Fedora, Arch, and macOS through an Ansible playbook, and on Windows through a native PowerShell installer reading the same toggle files.
+Setting up a fresh dev machine should not take a weekend of copy-pasting install commands. This repository treats workstation provisioning as infrastructure: declarative, idempotent, version-controlled. One command produces the same environment on Ubuntu, Fedora, Arch, CachyOS, and macOS through an Ansible playbook, and on Windows through a native PowerShell installer reading the same toggle files.
 
 The trick is a small dispatch layer. [group_vars/all.yaml](setup/ansible/group_vars/all.yaml) declares intent
 (`install_chrome: true`); per-OS dictionaries under [vars/](setup/ansible/vars/) map that intent to the correct
@@ -53,7 +53,7 @@ Ansible, Bash, PowerShell, Docker Compose, WSL, Keycloak, KDE Plasma, GNOME, sys
 flowchart TD
     accTitle: Two execution paths sharing one toggle source
     accDescr: setup.sh drives the Ansible playbook on the five Unix-like families. setup.ps1 drives native PowerShell installers on Windows and only touches WSL to install Ansible there for later use. Both read the same group_vars and vars/OS.yaml files.
-    A[setup.sh<br/>Ubuntu, Debian, Fedora, Arch, macOS] --> E[Ansible playbook<br/>site.yaml]
+    A[setup.sh<br/>Ubuntu, Debian, Fedora, Arch, CachyOS, macOS] --> E[Ansible playbook<br/>site.yaml]
     T[group_vars + vars/&#123;OS&#125;.yaml<br/>single source of truth for what to install] --> E
     T --> W
     E --> G[OS core roles, repo provisioning,<br/>SDK managers, software_installer<br/>apt, dnf, pacman, AUR, brew, flatpak, snap]
@@ -142,7 +142,7 @@ For manual instructions, logging notes, and per-OS caveats, see
 
 ---
 
-Ubuntu, Debian, Fedora, Arch, Manjaro, macOS through Ansible, Windows natively through PowerShell (WSL is used only to host Ansible for later use, not to run the playbook against Windows).
+Ubuntu, Debian, Fedora, Arch, CachyOS, Manjaro, macOS through Ansible, Windows natively through PowerShell (WSL is used only to host Ansible for later use, not to run the playbook against Windows).
 
 ### Repo structure
 

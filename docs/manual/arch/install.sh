@@ -47,6 +47,19 @@ sudo pacman -Syu --needed --noconfirm flatpak
 log "Enabling Flathub"
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 
+# CachyOS puts its own repositories in front of Arch's, and its first provider of the virtual
+# lib32-vulkan-driver that Steam needs is lib32-mesa-git, which drags in mesa-git, which conflicts with
+# the stable mesa on the machine. pacman stops to ask whether to remove mesa, --noconfirm answers no,
+# and the whole batch below fails. Aligning the graphics stack first is what a CachyOS machine is set
+# up to use. See the "Steam on CachyOS" section of arch_manual_install.md.
+if [ "$(. /etc/os-release && echo "${ID}")" = "cachyos" ]; then
+  log "Aligning the 32-bit graphics stack with the CachyOS repositories"
+  yes_answers="$(mktemp)"
+  trap 'rm -f "${yes_answers}"' EXIT
+  for _ in $(seq 20); do echo y; done > "${yes_answers}"
+  sudo pacman -Syy --needed mesa-git lib32-mesa-git < "${yes_answers}"
+fi
+
 log "Installing pacman packages (enable [multilib] in /etc/pacman.conf for Steam)"
 sudo pacman -S --needed --noconfirm "${PACMAN_PACKAGES[@]}"
 

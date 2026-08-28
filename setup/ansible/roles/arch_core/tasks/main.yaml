@@ -381,10 +381,10 @@
 #
 # Which makes this the honest resolution rather than a workaround: align the graphics stack with what
 # the distribution's own repositories prefer, once, up front, and let everything after it resolve
-# normally. `yes` answers the conflict the way a CachyOS user answers it. That is deliberate and it is
-# the only prompt in reach: the two packages named here have no provider choice to make, so nothing
-# else can be answered by accident. --noconfirm is absent on purpose, because it is what makes the
-# question unanswerable.
+# normally. The y answers below answer the conflict the way a CachyOS user answers it. That is
+# deliberate and it is the only prompt in reach: the two packages named here have no provider choice
+# to make, so nothing else can be answered by accident. --noconfirm is absent on purpose, because it
+# is what makes the question unanswerable.
 #
 # Gated on the distribution's own ID rather than on ih_base, because Ansible reports Archlinux for
 # ansible_distribution on CachyOS and ih_base is archlinux there too.
@@ -394,22 +394,30 @@
 - name: Align the 32-bit graphics stack with the CachyOS repositories (CachyOS)
   become: yes
   #
-  # -Syy and three retries, and neither is the answer to the failure that is happening today. Kept
-  # because a forced refresh costs one index download and covers the case they DO fix, a mirror behind
-  # the database, but the record needs to be straight about which case this is.
+  # The answers come from a file rather than from `yes |`, for the same reason the Android SDK licence
+  # task in roles/sdk_manager/tasks/android_sdk_unix.yaml does it that way. A pipe from `yes` is killed
+  # by SIGPIPE the moment pacman exits, and under `set -o pipefail` the pipeline then reports 141
+  # whatever pacman did. That is not theoretical here: on 2026-08-28 this task failed three times in a
+  # row on a real CachyOS machine where pacman had printed "there is nothing to do" and exited
+  # cleanly, and it took the whole run down with it. Reading from a file leaves rc meaning what it
+  # says. Two packages need at most a handful of answers, and 20 is the headroom.
   #
-  # What is actually wrong, measured against the URLs rather than inferred from the log: the v3
-  # database advertises lib32-glibc 2.44+r24+g16be1518495f-1 and lib32-gcc-libs
-  # 16.2.1+r23+gd564253eb6c8-1, and the CDN answers 404 for both of those exact files. A refresh
-  # fetches a fresh index and the fresh index names the same missing builds, so -Syy cannot help. This
-  # is not a stale mirror, it is a repository whose index and whose files disagree.
+  # -Syy and three retries cover a mirror that is behind the database it serves. The failure recorded
+  # in the container on 2026-08-21 was a different thing and the record was wrong about it: it said
+  # the v3 index and the v3 files disagree. Re-measured on 2026-08-28, they do not. Both
+  # lib32-glibc-2.44+r24+g16be1518495f-1 and lib32-gcc-libs-16.2.1+r23+gd564253eb6c8-1, the exact
+  # builds the index names, answer 200 on mirror.cachyos.org and 404 on cdn77.cachyos.org. The index
+  # is right and one mirror is missing files, which is what a mirrorlist with more than one entry is
+  # for.
   #
   # This task stays fatal on purpose. A CachyOS user who asked for steam should see the run stop and
-  # read why, rather than have it hidden. The harness suppresses steam on the CachyOS image instead,
-  # in e2e/tier3/container_limits.cachyos.yaml, with the two URLs to re-measure written beside it.
+  # read why, rather than have it hidden.
   ansible.builtin.shell: |
     set -o pipefail
-    yes | pacman -Syy --needed mesa-git lib32-mesa-git
+    answers="$(mktemp)"
+    trap 'rm -f "$answers"' EXIT
+    for _ in $(seq 20); do echo y; done > "$answers"
+    pacman -Syy --needed mesa-git lib32-mesa-git < "$answers"
   args:
     executable: /bin/bash
   register: cachy_mesa_align

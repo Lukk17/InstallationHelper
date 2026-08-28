@@ -1,0 +1,21 @@
+# Toggles the container tier switches off on every image that could run the tasks gated on them, so
+# no automated run in this repository ever executes those tasks. Format: <toggle> <what that costs>
+#
+# Every line is an admission, not a permission. It says a feature is proven by hand or not at all, and
+# e2e/manual_test_matrix.md is where the by-hand procedure lives. unreachable_tasks.sh fails on any
+# suppressed toggle that is not listed here, and equally on any line here whose toggle is no longer
+# suppressed, so the file cannot quietly outlive its reasons.
+#
+# The entry this file exists because of is not in it. install_steam was suppressed on the CachyOS
+# image alone, which made the one task pinned to that image unreachable in the entire suite, and the
+# defect that hid there took down a real installation on 2026-08-28. The suppression was removed
+# rather than written down, which is what should happen to most of these.
+
+setup_hibernate needs a real swap device and a resume= parameter on the running kernel. VM with swap, per e2e/manual_test_matrix.md
+setup_systemd_boot needs an EFI system partition and a block device to install onto. VM with UEFI firmware, per e2e/manual_test_matrix.md
+remove_distro_grub same, it removes a bootloader from a real EFI system partition. VM with UEFI firmware, per e2e/manual_test_matrix.md
+install_waydroid needs the binder and ashmem kernel modules, which belong to the host kernel. Real machine, per e2e/manual_test_matrix.md
+install_virtualbox builds a kernel module against the running kernel, which in a container is the host's. Real machine, per e2e/manual_test_matrix.md
+install_vmware same kernel module problem, and the installer wants a desktop session. Real machine, per e2e/manual_test_matrix.md
+install_snapper needs a btrfs filesystem to snapshot, and the container's overlayfs is not one. VM with btrfs, per e2e/manual_test_matrix.md
+install_jetbrains_toolbox five IDEs at roughly a gigabyte each, a background service that expects a desktop session, and a licensed product that wants an account logged in. Real machine, per e2e/manual_test_matrix.md

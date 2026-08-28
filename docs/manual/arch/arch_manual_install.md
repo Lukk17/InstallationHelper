@@ -4,6 +4,8 @@ Install commands for every app the playbook manages on Arch. To install the offi
 
 > **AUR packages are not in `install.sh`** — they need an AUR helper. They're listed in [AUR packages](#aur-packages) with `yay -S` commands and a one-time `yay` bootstrap.
 
+> **This page covers CachyOS too.** CachyOS reports `ID=cachyos` with `ID_LIKE=arch` and resolves through the same `vars/Archlinux.yaml` mapping, so every package name below is the right name there. One command differs, and it is Steam: see [Steam on CachyOS](#steam-on-cachyos).
+
 ## Prerequisites
 
 ```bash
@@ -98,6 +100,38 @@ sudo pacman -Sy
 | Steam | `sudo pacman -S --needed steam` *(multilib required)* |
 
 > GOG Galaxy, Epic, EA app and CurseForge have no official Linux client.
+
+### Steam on CachyOS
+
+On CachyOS the command above fails, and it fails in a way that reads like a broken mirror rather than
+what it is. Steam depends on the virtual package `lib32-vulkan-driver`, and the first provider of that
+in CachyOS repository order is its own `cachyos-v3/lib32-mesa-git`, which needs `mesa-git`, which
+conflicts with the stable `mesa` almost every desktop already has. pacman stops to ask whether to
+remove `mesa`, and under `--noconfirm` that question is answered no, so the whole transaction fails.
+
+Align the graphics stack with what the distribution's own repositories prefer, once, and then install
+Steam normally:
+
+```bash
+sudo pacman -Syy --needed mesa-git lib32-mesa-git
+```
+
+```bash
+sudo pacman -S --needed steam
+```
+
+Answer yes when it offers to replace `mesa` and `lib32-mesa`. That is what a CachyOS machine is set up
+to use.
+
+If the first command fails while retrieving a `lib32-` file with a 404, the repository is not broken,
+one mirror is incomplete. Measured on 2026-08-28, `lib32-glibc-2.44+r24+g16be1518495f-1` and
+`lib32-gcc-libs-16.2.1+r23+gd564253eb6c8-1`, the exact builds the index names, answer 200 on
+`mirror.cachyos.org` and 404 on `cdn77.cachyos.org`. Check that `/etc/pacman.d/cachyos-mirrorlist` has
+more than one entry before blaming anything upstream:
+
+```bash
+grep -c '^Server' /etc/pacman.d/cachyos-mirrorlist
+```
 
 ## CAD and 3D
 
