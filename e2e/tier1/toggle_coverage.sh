@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Tier 1: every enabled toggle must resolve to something that installs it.
+# Tier 1: every enabled toggle must resolve to something that installs it, and every declared
+# toggle must resolve to something that acts on it.
 #
 # A toggle set to true with no mapping in vars/<OS>.yaml and no task consuming it is
 # the worst kind of bug this project produces: the user asks for software, the run
@@ -13,6 +14,11 @@
 #
 # Intended no-ops live in documented_no_ops.txt with a reason. Anything not listed
 # there is treated as a defect.
+#
+# Both directions used to read the install_ prefix and nothing else, which is why a dead toggle
+# could sit in group_vars for as long as this project has existed while every assertion here
+# passed. The prefixes are taken from the data now instead: whatever group_vars declares as a
+# boolean is a toggle, and there are eight spellings of one today.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 # The download locations checked at the bottom of this file are pinned values, and the shell end
@@ -25,11 +31,19 @@ GV_DIR="${ANSIBLE_DIR}/group_vars"
 
 info "Tier 1: toggle coverage"
 
-# Every install_ toggle referenced by any task file or by site.yaml, comments removed.
+# Every toggle name any Ansible task file or site.yaml mentions, comments removed.
+#
+# The pattern used to be install_[a-z0-9_]+, and that single prefix was a blind spot rather than a
+# filter. group_vars declares toggles under eight prefixes today, and toggle_wayland_nvidia has been
+# declared, labelled on both wizards' checklists and consumed by nothing for as long as it has
+# existed, while this check reported full coverage on every family. So every identifier is collected
+# here and the declared set below decides which of them are toggle names. Nothing in this file names
+# a prefix: a toggle written tomorrow under a prefix nobody has used yet is covered on the day it is
+# written, which a hardcoded list of eight would not be.
 consumers="$(
     { find "${ANSIBLE_DIR}/roles" -name '*.yaml' -o -name '*.yml'; echo "${ANSIBLE_DIR}/site.yaml"; } \
         | xargs -r sed -E 's/#.*$//' \
-        | grep -ohE 'install_[a-z0-9_]+' \
+        | grep -ohE '[a-z0-9_]+' \
         | sort -u || true
 )"
 
@@ -40,15 +54,22 @@ consumers="$(
 # invoke the playbook from inside WSL as `-i localhost, -c local`, so ansible_os_family reports
 # Debian and every Windows-gated task is skipped. Counting those files as consumers is what let
 # eleven toggles sit enabled, installing nothing, while this check reported full coverage. For
-# Windows the consumers are the three native installers instead: the mapping dictionary, the npm
-# table in WindowsNpmTools.ps1, and the key list in WindowsCustomInstalls.ps1.
+# Windows the consumers are the native installers instead: the mapping dictionary, the npm table
+# in WindowsNpmTools.ps1, the key list in WindowsCustomInstalls.ps1, and the settings list in
+# WindowsSettings.ps1, which is where the toggles that carry no install_ prefix are applied.
 WINDOWS_DIR="${REPO_ROOT}/setup/windows"
 
+# Emits whole toggle names, prefix included, because the settings keys do not carry one.
 windows_native_consumers() {
     sed -n '/NpmToolPackages = \[ordered\]@{/,/^}/p' "${WINDOWS_DIR}/WindowsNpmTools.ps1" 2>/dev/null \
-        | grep -oE '^\s{4}[a-z0-9_]+' | tr -d ' '
+        | grep -oE '^\s{4}[a-z0-9_]+' | tr -d ' ' | sed 's/^/install_/'
     # Read out of the declared array rather than the dispatch, so the two cannot drift.
-    sed -n "s/^\\\$script:CustomInstallKeys = @(\(.*\))$/\1/p" "${WINDOWS_DIR}/WindowsCustomInstalls.ps1" 2>/dev/null \
+    sed -n 's/^\$script:CustomInstallKeys = @(\(.*\))$/\1/p' "${WINDOWS_DIR}/WindowsCustomInstalls.ps1" 2>/dev/null \
+        | tr -d "' " | tr ',' '\n' | sed 's/^/install_/'
+    # The system settings the native installer applies, read out of their declared list for the same
+    # reason. These are enable_hyperv, setup_wsl and set_custom_wallpaper, and nothing above would
+    # ever find them, because none of them carries the install_ prefix.
+    sed -n 's/^\$script:SettingKeys = @(\(.*\))$/\1/p' "${WINDOWS_DIR}/WindowsSettings.ps1" 2>/dev/null \
         | tr -d "' " | tr ',' '\n'
 }
 
@@ -62,7 +83,7 @@ check_family() {
     mapped="$(grep -E '^  [a-z0-9_]+: \{' "${vars_file}" | sed -E 's/^  ([a-z0-9_]+):.*/\1/' | sort -u)"
 
     if [[ "${family}" == Windows ]]; then
-        family_consumers="$(windows_native_consumers | sed 's/^/install_/' | sort -u)"
+        family_consumers="$(windows_native_consumers | sort -u)"
         if [[ -z "$(tr -d '[:space:]' <<<"${family_consumers}")" ]]; then
             fail "Windows: neither native installer yielded any consumer keys, so this check cannot mean anything" \
                  "looked in ${WINDOWS_DIR}/WindowsNpmTools.ps1 and WindowsCustomInstalls.ps1"
@@ -73,23 +94,29 @@ check_family() {
     fi
 
     # Toggle values, OS-specific file layered over the cross-platform one, which is
-    # the same precedence the playbook and both wizards use.
+    # the same precedence the playbook and both wizards use. Every prefix rather than install_
+    # alone, because a toggle that does nothing does nothing whatever it is called, and the eight
+    # prefixes in use are read off the data rather than written down here.
     enabled="$(
         {
             sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${GV_DIR}/${os_gv}"
             sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${GV_DIR}/all.yaml"
-        } | grep -E '^install_[a-z0-9_]+: (true|false)$' \
-          | awk -F': ' '!seen[$1]++ { if ($2 == "true") print substr($1, 9) }' \
+        } | grep -E '^[a-z0-9_]+: (true|false)$' \
+          | awk -F': ' '!seen[$1]++ { if ($2 == "true") print $1 }' \
           | sort -u
     )"
 
-    local n_enabled=0
+    local n_enabled=0 key bare
     while IFS= read -r key; do
         [[ -z "${key}" ]] && continue
         n_enabled=$((n_enabled + 1))
-        grep -qx "${key}" <<<"${mapped}" && continue
-        grep -qx "install_${key}" <<<"${family_consumers}" && continue
-        grep -qE "^${family}[[:space:]]+${key}([[:space:]]|$)" "${NO_OPS_FILE}" && continue
+        # The mapping route belongs to the install_ prefix alone. os_dict is keyed on the name with
+        # that prefix removed, so testing any other toggle against it would let setup_zsh be
+        # answered by a mapping that happened to be called setup_zsh, which is a different claim.
+        bare="${key#install_}"
+        [[ "${key}" == install_* ]] && grep -qx "${bare}" <<<"${mapped}" && continue
+        grep -qx "${key}" <<<"${family_consumers}" && continue
+        grep -qE "^${family}[[:space:]]+${bare}([[:space:]]|$)" "${NO_OPS_FILE}" && continue
         unresolved+=("${key}")
     done <<<"${enabled}"
 
@@ -145,6 +172,79 @@ check_family RedHat    linux.yaml
 check_family Archlinux linux.yaml
 check_family Darwin    macos.yaml
 check_family Windows   windows.yaml
+
+# --- every declared toggle must be consumed by something that acts on it -------------------------
+#
+# The direction above asks about enabled toggles, and on its own that is not enough. A toggle set to
+# false with nothing behind it looks exactly like a toggle set to false with an implementation
+# waiting for it, and the user finds out which by ticking it and getting nothing. toggle_wayland_nvidia
+# is on both wizards' checklists with a label promising to force Wayland on NVIDIA, has been declared
+# and unimplemented for as long as it has existed, and every assertion above passed on every family
+# throughout.
+#
+# Asked once over the union of the group_vars files rather than once per family, because these
+# toggles have exactly one route each and the thing at the end of it differs by platform: an Ansible
+# task for Linux and macOS, WindowsSettings.ps1 for Windows, the callback plugin for
+# allow_callback_failure. Asking per family would demand a per-family answer for a toggle only one
+# platform was ever meant to honour.
+#
+# install_ toggles are left out of this direction and only this one, because their route is the OS
+# mapping dictionary, and a family that maps nothing for one of them is making a decision that the
+# direction above and documented_no_ops.txt already cover between them.
+#
+# Neither wizard counts as a consumer. setup.sh and setup.ps1 each name every toggle twice over, in
+# a label table and in an exclusion list, and both of those are display. Counting them is what made
+# setup_grub and remove_distro_systemd_boot look implemented while this was being written. The
+# callback plugin's role-to-toggle table is left out for the same reason: it decides how a skipped
+# role is described in the summary, and describing is not acting.
+implementation_tokens="$(
+    {
+        { find "${ANSIBLE_DIR}/roles" "${ANSIBLE_DIR}/tasks" -name '*.yaml' -o -name '*.yml' 2>/dev/null
+          echo "${ANSIBLE_DIR}/site.yaml"; } | xargs -r sed -E 's/#.*$//'
+        sed -E '/^ROLE_TOGGLE_MAPPING/,/^\}/d; s/#.*$//' "${ANSIBLE_DIR}/callback_plugins/dual_logger.py"
+        find "${WINDOWS_DIR}" -name '*.ps1' -exec sed -E '/<#/,/#>/d; s/#.*$//' {} +
+    } | grep -ohE '[a-z0-9_]+' | sort -u || true
+)"
+
+declared_toggles="$(
+    sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${GV_DIR}"/*.yaml \
+        | grep -E '^[a-z0-9_]+: (true|false)$' \
+        | sed -E 's/:.*//' \
+        | sort -u || true
+)"
+declared_prefixes="$(sed -E 's/^([a-z0-9]+_).*/\1/' <<<"${declared_toggles}" | sort -u | tr '\n' ' ')"
+n_declared="$(grep -c . <<<"${declared_toggles}" || true)"
+n_prefixes="$(wc -w <<<"${declared_prefixes}" | tr -d ' ')"
+
+# A reader that had narrowed back to one prefix would report full coverage over a fraction of the
+# toggles, which is exactly the state this whole section was written to end. So the shape of what
+# was read is asserted before anything is concluded from it.
+if [[ "${n_declared}" -lt 100 || "${n_prefixes}" -lt 2 ]]; then
+    fail "the toggle reader found ${n_declared} toggles under ${n_prefixes} prefix(es), so nothing below can mean anything" \
+         "expected well over a hundred under several prefixes in ${GV_DIR}, the pattern has stopped matching"
+else
+    pass "read ${n_declared} declared toggles under ${n_prefixes} prefixes: ${declared_prefixes}"
+fi
+
+dead=()
+while IFS= read -r toggle; do
+    [[ -z "${toggle}" || "${toggle}" == install_* ]] && continue
+    grep -qx "${toggle}" <<<"${implementation_tokens}" && continue
+    grep -qE "^[A-Za-z]+[[:space:]]+${toggle}([[:space:]]|$)" "${NO_OPS_FILE}" && continue
+    dead+=("${toggle}")
+done <<<"${declared_toggles}"
+
+if [[ ${#dead[@]} -eq 0 ]]; then
+    pass "every declared toggle outside the install_ prefix is consumed by something that acts on it"
+else
+    # Reported rather than failed, deliberately and temporarily. Deleting a toggle and implementing
+    # one are both the owner's call and not this check's, and the three below were found the day
+    # this direction was written. Turn this skip into a fail once they are resolved: that is the
+    # whole change, and until it is made this line is the only thing standing between a dead toggle
+    # and a green gate.
+    skip "every declared toggle outside the install_ prefix is consumed by something that acts on it" \
+         "${#dead[@]} are consumed by nothing, so ticking one does nothing at all: ${dead[*]}"
+fi
 
 # A mapping resolving to a package manager is not the end of it for apt_url and dnf_url, which
 # install a vendor file instead of a repository package. Both dispatch tasks in dynamic_install.yaml

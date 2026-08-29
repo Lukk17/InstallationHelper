@@ -36,6 +36,8 @@ find_runnable_pwsh() {
 
 # The reason a check reports when find_runnable_pwsh comes back empty. Shared so both checks say the
 # same true thing about this machine rather than one of them going stale.
+# Read by the five checks that source this file, never inside it.
+# shellcheck disable=SC2034
 PWSH_ABSENT_REASON="No runnable PowerShell 7 found from here. Every candidate was tried by running it, not by finding it on PATH. On this machine pwsh is installed only as a Microsoft Store app, and its WindowsApps alias does run from WSL when Windows lets it, so this message means it did not this time: run this check from Windows with pwsh directly, or install PowerShell 7 inside WSL."
 
 # to_windows_path <posix path>

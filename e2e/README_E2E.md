@@ -12,7 +12,7 @@ The harness answers one question per tier, cheapest first.
 
 | Tier | Question | Cost | Needs |
 |---|---|---|---|
-| 1 | Does the working tree contradict itself? | seconds | bash and ansible-playbook |
+| 1 | Does the working tree contradict itself? | 6 minutes 28 seconds, measured from Git Bash on Windows on 2026-08-29 | bash and ansible-playbook |
 | 2 | Do the package names still exist upstream? | about a minute | curl, and gh for winget |
 | 3 | Does the playbook actually produce the right machine? | 90 minutes to 5 hours by declared ceiling | Docker, and a shell that can reach its daemon |
 

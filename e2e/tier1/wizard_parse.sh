@@ -151,6 +151,9 @@ else
             continue
         fi
 
+        # Both are read by preload_toggles, which was eval'd out of setup.sh above, and the
+        # linter cannot see into an eval.
+        # shellcheck disable=SC2034
         ALL_VARS="${GROUP_VARS_DIR}/all.yaml" OS_VARS_FILE="${GROUP_VARS_DIR}/${os_file}.yaml"
         PRELOADED_ITEMS=(); PRELOADED_KEYS=()
         preload_toggles

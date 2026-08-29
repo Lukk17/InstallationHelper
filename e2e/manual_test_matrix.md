@@ -4,7 +4,7 @@ What no pipeline in this repository can prove, where to prove it instead, and ho
 
 Everything here is something the automated gates deliberately do not cover, with the reason stated. Nothing on this page is a wish list. Each row exists because a container, a hosted runner, or both, physically cannot answer the question, and the alternative to testing it by hand is not testing it at all.
 
-The pipelines cover a great deal: tier 1 is a static gate that runs in seconds, tier 2 resolves package names against live repositories, and tier 3 runs the real playbook inside a systemd container on six Linux distributions across eight scenarios, plus real installs on hosted macOS and Windows runners. Read [README_E2E.md](README_E2E.md) for what those do. This page is the complement: the residue.
+The pipelines cover a great deal: tier 1 is a static gate that runs in about six and a half minutes, tier 2 resolves package names against live repositories, and tier 3 runs the real playbook inside a systemd container on six Linux distributions across eight scenarios, plus real installs on hosted macOS and Windows runners. Read [README_E2E.md](README_E2E.md) for what those do. This page is the complement: the residue.
 
 ---
 

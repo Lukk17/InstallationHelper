@@ -18,7 +18,8 @@ delegate_to_wsl_when_no_ansible e2e/tier1/ansible_static.sh
 
 info "Tier 1: Ansible static checks"
 
-cd "${ANSIBLE_DIR}"
+cd "${ANSIBLE_DIR}" || { fail "cannot reach setup/ansible, so nothing below is checking the playbook" \
+                        "${ANSIBLE_DIR}"; finish "Ansible static"; }
 
 # --- syntax ------------------------------------------------------------------
 syntax_out="$(ansible-playbook --syntax-check site.yaml 2>&1 || true)"
@@ -51,13 +52,57 @@ else
 fi
 
 # --- every verify and scenario file must parse too ---------------------------
-for f in "${E2E_ROOT}"/tier3/verify.yaml; do
-    if ansible-playbook --syntax-check "${f}" &>/dev/null; then
-        pass "$(basename "${f}") parses"
-    else
-        fail "$(basename "${f}") does not parse" "$(ansible-playbook --syntax-check "${f}" 2>&1 | tail -3 | tr '\n' ' ')"
-    fi
-done
+# This was written as a loop over one filename, so the heading said "every" and the body checked one
+# file. The scenario files existed on the day it was written and were never reached by it, which is
+# what a loop that can only run once always means. They are not playbooks, so ansible-playbook is
+# the wrong parser for them: they are variable files container.sh reads, and a broken one costs a
+# tier 3 run its first twenty-five minutes before anything says why. So the playbook gets the
+# playbook parser and the variable files get a YAML load, which is the whole of what they must
+# survive. Finding none of them is a failure, since a scan over an empty set proves nothing.
+if ansible-playbook --syntax-check "${E2E_ROOT}/tier3/verify.yaml" &>/dev/null; then
+    pass "verify.yaml parses"
+else
+    fail "verify.yaml does not parse" \
+         "$(ansible-playbook --syntax-check "${E2E_ROOT}/tier3/verify.yaml" 2>&1 | tail -3 | tr '\n' ' ')"
+fi
+
+scenario_probe="$("${PYTHON:-python3}" - "${E2E_ROOT}/tier3" <<'SCENARIOEOF'
+import glob, os, sys
+
+try:
+    import yaml
+except ImportError as exc:
+    print("SKIP {}".format(exc))
+    sys.exit(0)
+
+root = sys.argv[1]
+paths = sorted(glob.glob(os.path.join(root, "scenarios", "*.yaml")))
+paths += sorted(glob.glob(os.path.join(root, "container_limits*.yaml")))
+if not paths:
+    print("FAIL no scenario or limits file was found under {}".format(root))
+    sys.exit(0)
+
+problems = []
+for path in paths:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            document = yaml.safe_load(handle)
+    except Exception as exc:
+        problems.append("{}: {}".format(os.path.basename(path), str(exc).replace("\n", " ")))
+        continue
+    if not isinstance(document, dict):
+        problems.append("{}: loads as {}, not as a mapping of variables".format(
+            os.path.basename(path), type(document).__name__))
+
+print("FAIL " + "; ".join(problems) if problems else "OK {}".format(len(paths)))
+SCENARIOEOF
+)"
+case "${scenario_probe}" in
+    OK*)   pass "all ${scenario_probe#OK } tier 3 scenario and limits files load as YAML mappings" ;;
+    SKIP*) skip "the tier 3 scenario and limits files load as YAML mappings" "${scenario_probe#SKIP }" ;;
+    *)     fail "a tier 3 scenario or limits file does not load, so the scenario dies inside the container" \
+                "${scenario_probe#FAIL }" ;;
+esac
 
 # --- every free-form module body survives split_args -------------------------
 # The hole this closes cost every Linux run for eleven hours. ansible-playbook --syntax-check above

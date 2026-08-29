@@ -83,6 +83,9 @@ in_list() {
 fill_set() {
     local -n target="$1"; shift
     local item
+    # A nameref: this write lands in the caller's array, which is where it is read from. The
+    # linter does not follow local -n, so it sees a variable only ever assigned to.
+    # shellcheck disable=SC2034
     for item in "$@"; do [[ -n "${item}" ]] && target["${item}"]=1; done
 }
 

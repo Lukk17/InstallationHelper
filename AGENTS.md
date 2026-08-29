@@ -219,7 +219,7 @@ dates, error text and fixes are in the ledger.
 
 This is not optional and it is not advisory. Every regression recorded in [`docs/regression_ledger.md`](docs/regression_ledger.md) reached a real machine because nothing ran the playbook before it shipped. Reading a diff cannot tell you that a group name does not exist on Arch, or that a toggle installs nothing, and both of those have happened here.
 
-**After any change under `setup/`, run the tier 1 gate. It takes seconds.**
+**After any change under `setup/`, run the tier 1 gate.** It now takes about six and a half minutes rather than the seconds it used to, measured at 6 minutes 28 seconds from Git Bash on Windows on 2026-08-29, because six of its checks start `setup.sh` as a real process and process creation under Git Bash is what nearly all of that time goes on. It has not been measured on Linux, where those same processes are much cheaper.
 
 ```bash
 ./e2e/run.sh
@@ -253,7 +253,7 @@ Whether WSL can also reach the daemon depends on Docker Desktop having integrati
 
 A non-zero exit means the work is not done. Do not report success, do not commit, and do not explain the failure away. Fix it.
 
-**Additionally, when your change touches any of the following, run the container tier as well.** The cheapest scenario there is forced-failure, at a 90 minute ceiling and 46 minutes measured on debian, because it is the only one that never installs the software set. The cheapest that installs anything is defaults, at 180. There is still no cheap container scenario: the smoke scenario used to declare 45 minutes, but every toggle it enabled was already true in defaults, so it proved nothing defaults does not. Tier 1 is what runs in seconds.
+**Additionally, when your change touches any of the following, run the container tier as well.** The cheapest scenario there is forced-failure, at a 90 minute ceiling and 46 minutes measured on debian, because it is the only one that never installs the software set. The cheapest that installs anything is defaults, at 180. There is still no cheap container scenario: the smoke scenario used to declare 45 minutes, but every toggle it enabled was already true in defaults, so it proved nothing defaults does not. Tier 1 is still the cheap one at about six and a half minutes, measured at 6 minutes 28 seconds from Git Bash on Windows on 2026-08-29.
 
 | If you changed | Run |
 |---|---|

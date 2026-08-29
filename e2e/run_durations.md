@@ -140,7 +140,7 @@ If a Windows cell reports `cancelled` at close to a round number of minutes, sus
 | Gate: checks passed | under 1 |
 | Verdict: Linux installs | under 1 |
 
-This is the argument for running tier 1 locally before pushing anything. It answers in seconds what a sweep answers in hours.
+This is the argument for running tier 1 locally before pushing anything. It answers in minutes what a sweep answers in hours, measured at 6 minutes 28 seconds from Git Bash on Windows on 2026-08-29.
 
 ---
 

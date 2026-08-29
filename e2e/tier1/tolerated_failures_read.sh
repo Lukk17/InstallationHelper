@@ -70,7 +70,7 @@ pass "found ${n_total} tasks that tolerate failure, ${n_registered} of which reg
 
 # The assertion. A registered result must appear somewhere other than its own register line.
 unread=()
-while IFS=$'\t' read -r loc reg name; do
+while IFS=$'\t' read -r loc reg _; do
     [[ -z "${reg}" || "${reg}" == "NONE" ]] && continue
     grep -qE "^${reg}([[:space:]]|$)" "${ALLOWED_FILE}" 2>/dev/null && continue
     uses="$(grep -rho "\b${reg}\b" --include='*.yaml' --include='*.yml' "${SCAN_ROOT}" | grep -c . || true)"
