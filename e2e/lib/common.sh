@@ -9,7 +9,12 @@ E2E_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # checks themselves are tested: point it at a copy carrying the old bug and the
 # check must fail. A check never proven to fail is not a check.
 REPO_ROOT="$(cd "${E2E_REPO_ROOT:-${E2E_ROOT}/..}" && pwd)"
+# Both are read only by the checks that source this file, never inside it, so shellcheck sees an
+# assignment with no reader. Not exported instead, because that would hand both paths to every
+# python, docker and ansible child a check starts, which is a behaviour change to silence a linter.
+# shellcheck disable=SC2034
 ANSIBLE_DIR="${REPO_ROOT}/setup/ansible"
+# shellcheck disable=SC2034
 RUNS_DIR="${E2E_ROOT}/runs"
 
 # Which kind of shell this is, decided once. It is not a stand-in for the operating system: it
@@ -212,6 +217,71 @@ yaml_bool_toggles() {
     sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "$1" \
         | grep -E '^[a-z0-9_]+: (true|false)$' \
         | tr -d ':'
+}
+
+# The keys the wizard's checklist offers, one per line, in the wizard's own order.
+#
+# This is the harness's only route to that answer, and it evaluates the functions setup.sh ships
+# rather than restating the rule they encode. The rule used to live twice, once in the wizard and
+# once as a `^install_` sweep inside container.sh, and the two disagreed in both directions for as
+# long as they both existed: the sweep could not see the four system settings whose names do not
+# begin with install_, and it swept up the two desktop keys the wizard deliberately keeps off the
+# checklist because the desktop has a screen of its own. That is defect class 2 in AGENTS.md, the
+# same rule implemented twice and then disagreeing, sitting inside the harness meant to catch it.
+#
+# Run under setup.sh's own IFS, because that file sets IFS to newline and tab at the top and its
+# expansions are written against it. Everything the extracted functions reach for is extracted too,
+# so nothing below is a paraphrase.
+#
+# $1 is group_vars/all.yaml and $2 the per-OS file, whose value wins, which is the precedence
+# site.yaml gives them.
+# Returns 3, and writes nothing to stdout, when setup.sh no longer ships a piece this needs or the
+# rule resolves no toggle at all. An empty list would read to a caller as "no software", which is a
+# generated scenario that installs nothing while reporting a pass over everything.
+wizard_toggle_keys() {
+    local all_vars="$1" os_vars="$2"
+    local setup_sh="${REPO_ROOT}/setup/setup.sh"
+    local keys=""
+
+    if [[ -f "${setup_sh}" ]]; then
+        keys="$(
+            IFS=$'\n\t'
+            for piece in "$(grep -m1 '^EXCLUDED_VARS=' "${setup_sh}")" \
+                         "$(grep -m1 '^DE_KEYS=' "${setup_sh}")" \
+                         "$(sed -n '/^declare -A LABEL_OVERRIDES=(/,/^)$/p' "${setup_sh}")" \
+                         "$(sed -n '/^format_label()/,/^}/p' "${setup_sh}")" \
+                         "$(sed -n '/^is_de_key()/,/^}/p' "${setup_sh}")" \
+                         "$(sed -n '/^read_boolean_toggles()/,/^}/p' "${setup_sh}")" \
+                         "$(sed -n '/^preload_toggles()/,/^}/p' "${setup_sh}")"; do
+                [[ -z "${piece}" ]] && exit 3
+                eval "${piece}"
+            done
+
+            # Read only by the functions eval'd above, which shellcheck cannot see, so it
+            # reports all four as unused. PRELOADED_KEYS escapes that because it is printed.
+            # shellcheck disable=SC2034
+            ALL_VARS="${all_vars}"
+            # shellcheck disable=SC2034
+            OS_VARS_FILE="${os_vars}"
+            # shellcheck disable=SC2034
+            PRELOADED_ITEMS=(); PRELOADED_KEYS=()
+            preload_toggles
+            [[ ${#PRELOADED_KEYS[@]} -eq 0 ]] && exit 3
+            printf '%s\n' "${PRELOADED_KEYS[@]}"
+        )" || keys=""
+    fi
+
+    if [[ -z "${keys}" ]]; then
+        {
+            printf 'ERROR: the wizard checklist could not be resolved out of %s\n' "${setup_sh}"
+            printf '       It must still ship EXCLUDED_VARS, DE_KEYS, LABEL_OVERRIDES, format_label,\n'
+            printf '       is_de_key, read_boolean_toggles and preload_toggles, and those must resolve\n'
+            printf '       at least one toggle out of %s and %s.\n' "${all_vars}" "${os_vars}"
+        } >&2
+        return 3
+    fi
+
+    printf '%s\n' "${keys}"
 }
 
 timestamp() { date -u +%Y-%m-%dT%H-%M-%SZ; }

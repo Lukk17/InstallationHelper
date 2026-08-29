@@ -81,7 +81,12 @@ DOCKERFILE="${TIER3_DIR}/${OS}.Dockerfile"
 IMAGE="installationhelper-e2e-${OS}:latest"
 if [[ "${MODE}" != "collect" && ! -f "${DOCKERFILE}" ]]; then
     echo "ERROR: no Dockerfile for --os ${OS}. Available:" >&2
-    ls -1 "${TIER3_DIR}"/*.Dockerfile 2>/dev/null | xargs -r -n1 basename | sed 's/\.Dockerfile$//; s/^/  /' >&2
+    for dockerfile in "${TIER3_DIR}"/*.Dockerfile; do
+        if [[ -f "${dockerfile}" ]]; then
+            printf '  %s
+' "$(basename "${dockerfile}" .Dockerfile)"
+        fi
+    done >&2
     exit 2
 fi
 
@@ -225,27 +230,40 @@ start_run() {
     } > "${EFFECTIVE_VARS}"
 
     if [[ -n "${SCENARIO_GENERATE}" ]]; then
-        # Collected from the two files the wizard itself reads, so a newly added toggle
-        # is picked up with no edit here. A hand-maintained copy would quietly stop
-        # covering new software, which is the silent gap this suite exists to catch.
-        # The wizard's EXCLUDED_VARS list is read out of setup.sh rather than restated,
-        # because those keys are system settings rather than software and must not be swept
-        # into a generated software set. install_system_core is the one that mattered: the
-        # smoke scenario, since removed, generated it as false, which disabled the entire
-        # system_core role, so that scenario silently skipped the bootstrap and reported a
-        # pass over far less than it appeared to cover. Exactly the kind of hole this suite
-        # exists to close, in the suite itself.
-        excluded_line="$(grep -m1 '^EXCLUDED_VARS=' "${REPO_ROOT}/setup/setup.sh" || true)"
-        eval "${excluded_line}"
-
+        # The generated set is the wizard's checklist, resolved by evaluating the functions
+        # setup.sh ships. It is not decided again here, and that is the whole point of the
+        # call: this block used to sweep `^install_` out of group_vars itself, which is the
+        # same rule implemented twice, and the two answers disagreed in both directions for
+        # as long as they both existed. The sweep could not see the four system settings
+        # whose names do not begin with install_, so setup_zsh, setup_tmpfs,
+        # set_custom_wallpaper and toggle_wayland_nvidia were never part of a generated set
+        # on any distribution, and it swept up install_kde_plasma and install_gnome, which
+        # the wizard keeps off the checklist because the desktop environment has a screen of
+        # its own where exactly one is chosen, so the all-software scenario installed both
+        # desktops onto one machine. A scenario that wants a desktop names its own keys, as
+        # 03-kde-full.yaml and 04-gnome-full.yaml do, and those still win below.
+        #
+        # Reading the wizard also keeps what it excludes: EXCLUDED_VARS holds keys that are
+        # system settings rather than software and must not be swept into a generated set.
+        # install_system_core is the one that mattered: the smoke scenario, since removed,
+        # generated it as false, which disabled the entire system_core role, so that
+        # scenario silently skipped the bootstrap and reported a pass over far less than it
+        # appeared to cover. Exactly the kind of hole this suite exists to close, in the
+        # suite itself.
+        #
+        # A toggle named under e2e_generate_except is matched below with its install_ prefix
+        # removed, so a key that never had one, setup_zsh for instance, is named in full.
         mapfile -t all_toggles < <(
-            cat "${ANSIBLE_DIR}/group_vars/all.yaml" "${ANSIBLE_DIR}/group_vars/linux.yaml" \
-                | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' \
-                | grep -E '^install_[a-z0-9_]+: (true|false)$' \
-                | sed -E 's/^(install_[a-z0-9_]+):.*/\1/' \
-                | grep -vE "^(${EXCLUDED_VARS})$" \
-                | sort -u
+            wizard_toggle_keys "${ANSIBLE_DIR}/group_vars/all.yaml" \
+                               "${ANSIBLE_DIR}/group_vars/linux.yaml"
         )
+        # A process substitution hands mapfile no exit status, so a reader that failed would
+        # leave an empty array and the run would generate nothing while claiming to generate
+        # everything. wizard_toggle_keys says why on stderr, and this refuses to continue.
+        if [[ ${#all_toggles[@]} -eq 0 ]]; then
+            echo "ERROR: the generated software set is empty, so this scenario would install nothing it claims to" >&2
+            exit 2
+        fi
         mapfile -t excepted < <(sed -n '/^e2e_generate_except:/,/^[a-z]/p' "${SCENARIO_FILE}" \
             | grep -E '^[[:space:]]*-[[:space:]]' | sed -E 's/^[[:space:]]*-[[:space:]]*//' | tr -d '"')
 
@@ -271,7 +289,7 @@ start_run() {
             grep -qhE "^${t}:" "${LIMITS_FILES[@]}" && continue
             echo "${t}: ${gen_value}" >> "${EFFECTIVE_VARS}"
         done
-        dim "generated ${#all_toggles[@]} install_ toggles as ${gen_value}"
+        dim "generated ${#all_toggles[@]} checklist toggles as ${gen_value}"
         [[ ${#skipped[@]} -gt 0 ]] && warn "excluded from the generated set: ${skipped[*]}"
     fi
 

@@ -1,0 +1,23 @@
+# Toggles that only one of the two software selections offers, with which side offers them and what
+# the divergence costs. Format: <toggle> <wizard|container> <what that costs>
+#
+# Empty of entries as of 2026-08-29, and kept for the reason a divergence needs somewhere to be
+# admitted before anybody is tempted to hide one.
+#
+# Every line is an admission, not a permission. setup/setup.sh resolves which toggles a run enables,
+# and e2e/tier3/container.sh used to resolve the same thing again by sweeping ^install_ out of
+# group_vars, which is two implementations of one rule. A line here said the two were known to
+# disagree about that key and that nobody had reconciled them yet. The six lines this file shipped
+# with were all closed on 2026-08-29 by making the harness read the wizard: container.sh now calls
+# wizard_toggle_keys in e2e/lib/common.sh, which evaluates the functions setup.sh ships. See the
+# entry in docs/regression_ledger.md, which also records what that reconciliation is not yet proven
+# against, namely a real container run.
+#
+# selection_parity.sh fails on any divergence that is not listed, and equally on any line here whose
+# toggle no longer diverges in the direction it claims, so the file cannot quietly outlive its
+# reasons. A key both sides offer but resolve to different values is never allowed and has no
+# listing, because that is the half of the defect a count cannot see.
+#
+# Adding a line here is a decision to ship a disagreement. Before writing one, ask whether the
+# harness can read the wizard's answer instead, because that is what closed every entry this file
+# has ever carried.

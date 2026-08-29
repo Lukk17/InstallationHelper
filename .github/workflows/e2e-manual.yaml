@@ -477,12 +477,13 @@ jobs:
           esac
 
           # --- software baseline --------------------------------------------------------
-          # e2e_generate only sweeps install_* toggles (see container.sh), which is also true
-          # of setup.sh's --software all/none for every toggle the checklist offers, not only
-          # install_*-prefixed ones. That gap is in the harness this job deliberately reuses
-          # rather than reimplements, and is called out here rather than silently papered
-          # over: a software_mode of all/none on Linux exercises the install_* sweep, not
-          # setup_zsh/setup_tmpfs/etc.
+          # e2e_generate resolves the wizard's own checklist (see container.sh, which calls
+          # wizard_toggle_keys), so a software_mode of all or none here means the same set
+          # setup.sh's --software all or --software none means, including the toggles whose
+          # names do not begin with install_. Until 2026-08-29 it swept install_* instead and
+          # this comment recorded that gap. The desktop keys are no longer part of the
+          # generated set either, which is why the desktop_environment answer above is now
+          # the only thing that decides whether a desktop is installed.
           case "${SEL_SOFTWARE}" in
             all)
               echo "e2e_generate: all_software" >> "${SCENARIO_FILE}"

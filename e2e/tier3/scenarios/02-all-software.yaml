@@ -1,14 +1,22 @@
 ---
 # Wizard path: Step 2 "customise", then `a` to select every entry in the checklist.
 #
-# The toggle list is generated at run time from group_vars rather than written out
-# here, so it can never fall behind a newly added toggle. That matters: a hand
-# maintained copy of the list would quietly stop covering new software, which is the
-# same silent-gap failure this suite exists to catch. The runner appends one
-# `install_<key>: true` line per toggle it finds and writes the result into the run
+# The toggle list is the wizard's own checklist, resolved at run time out of setup.sh
+# rather than written out here, so it can never fall behind a newly added toggle. That
+# matters: a hand maintained copy of the list would quietly stop covering new software,
+# which is the same silent-gap failure this suite exists to catch. The runner appends one
+# `<key>: true` line per toggle the checklist offers and writes the result into the run
 # directory, so the exact input is always recoverable from the run record.
+#
+# The checklist is not the same thing as every install_ toggle, and until 2026-08-29 this
+# scenario used the latter. It leaves out install_kde_plasma and install_gnome, which the
+# wizard puts on a screen of their own where exactly one environment is chosen, so this
+# scenario no longer installs both desktops onto one machine. It adds the four system
+# settings whose names do not begin with install_. The 300 minute ceiling below has not
+# been re-measured since, and is deliberately left where it was rather than lowered on an
+# expectation.
 e2e_scenario_name: "all-software"
-e2e_scenario_description: "every install_ toggle forced true, as the checklist select-all produces"
+e2e_scenario_description: "every checklist toggle forced true, as the wizard select-all produces"
 e2e_generate: all_software
 e2e_timeout_minutes: 300
 e2e_expect_desktop: none
