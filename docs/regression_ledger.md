@@ -473,6 +473,16 @@ because the stub never authenticates anything. That last step still needs a mach
 a password that somebody knows, so the honest status is that the plumbing is proven and the
 authentication itself remains covered only by a real installation run.
 
+Closed on 2026-08-29. A real CachyOS virtual machine ran the wizard end to end and the run passed:
+1 hour 12 minutes, 68 packages newly installed, 7 already present, an empty errors log, and a
+verification that completed all 41 assertions with `failed=0`. It got past `Configure passwordless
+sudo for non-root user`, which is the exact task that died twenty seconds into the run this entry
+is about, and then ran root tasks for over an hour, so real sudo does accept the password from the
+file. The verification playbook also ran to completion rather than stopping on an unanswered second
+prompt. The coverage hole above is unchanged and still open: this was proven by a person running
+the installer, not by anything automated, and the container scenario that would prove it in the
+gate is still unbuilt.
+
 #### One character of IFS, and the checklist kept one application out of everything the user ticked
 
 Cause: setup.sh sets `IFS=$'\n\t'` on its second executable line, and two pieces of code further
