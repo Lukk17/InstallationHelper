@@ -562,14 +562,14 @@ ensure_gum() {
 
 install_collections() {
     local req_file="${ANSIBLE_DIR}/requirements.yaml"
-    local required installed missing=0
+    local required installed missing_any=0
     required=$(grep -E '^\s*-\s*name:\s*' "${req_file}" | awk '{print $NF}')
     if command -v ansible-galaxy &>/dev/null; then
         installed=$(ansible-galaxy collection list 2>/dev/null | awk '/^[a-z]/{print $1}' || true)
         for coll in ${required}; do
-            grep -qx "${coll}" <<<"${installed}" || missing=1
+            grep -qx "${coll}" <<<"${installed}" || missing_any=1
         done
-        if [[ ${missing} -eq 0 ]]; then
+        if [[ ${missing_any} -eq 0 ]]; then
             say "Ansible collections: already installed"
             return 0
         fi
@@ -689,9 +689,9 @@ load_profiles() {
     for pfile in "${ANSIBLE_DIR}/profiles/"*.yaml; do
         [[ ! -f "${pfile}" ]] && continue
         local base; base=$(basename "${pfile}" .yaml)
-        local raw_name="${base//_/ }"
-        local name="" word
-        for word in ${raw_name}; do name+="${name:+ }${word^}"; done
+        local name="" word words=()
+        IFS=' ' read -ra words <<<"${base//_/ }"
+        for word in "${words[@]}"; do name+="${name:+ }${word^}"; done
         PROF_NAMES+=("${name}")
         PROF_FILES+=("${base}")
 
@@ -1020,7 +1020,7 @@ pick_de() {
 }
 
 pick_de_action() {
-    local de="$1" de_upper="${1^^}"
+    local de_upper="${1^^}"
     banner "Step 1/3 - ${de_upper}: action"
     SCREEN_RESULT=$(gum choose \
         --header "What should the playbook do with ${de_upper}?" \
@@ -1180,7 +1180,7 @@ main_interactive() {
                 pick_software
                 if [[ -z "${SCREEN_RESULT}" ]]; then state="review"; continue; fi
                 local -a selected_keys=()
-                read -ra selected_keys <<<"${SCREEN_RESULT}"
+                mapfile -t selected_keys <<<"${SCREEN_RESULT}"
                 pkg_vars=()
                 local key found sel
                 for key in "${PRELOADED_KEYS[@]}"; do
@@ -1311,8 +1311,8 @@ prepare_become_password() {
     echo
     say "Your sudo password is asked once, here, for the whole run. Nothing asks again later."
 
-    local attempt password=""
-    for attempt in 1 2 3; do
+    local password=""
+    for _ in 1 2 3; do
         if ! IFS= read -r -s -p "  [sudo] password for $(id -un): " password; then
             echo >&2
             echo "ERROR: there is no terminal here to read the sudo password from." >&2

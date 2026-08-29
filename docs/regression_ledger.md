@@ -30,7 +30,7 @@ The older, pre-Ansible bash-script era of this repository (2022 to early 2024, t
 
 Note added 2026-08-20: the coverage sentences below count seven scenarios, and the seventh, smoke, was removed on that date. Every toggle it enabled is already enabled in the defaults scenario, so it was the same test with 88 of 96 toggles taken out, and defaults is the cheapest container scenario now. The counts are left as they were written, because they record runs that really happened.
 
-A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5 are fully covered by its tier 1 checks, which run in seconds and are proven to fail against the code from before each fix. Item 2 is covered by tier 2, in two halves that cover different things. The `vars/{OS}.yaml` dictionary names are resolved over HTTP for Arch, the Arch User Repository, Flathub, Homebrew, Chocolatey and winget, and deliberately not for apt or dnf, because most of those names come from repositories the playbook adds while it runs and resolving them beforehand would report healthy packages as missing. The names written directly into role task files are resolved for all four Linux families, apt and dnf included, inside the same pinned base images the tier 3 scenarios use, with the handful that genuinely need a run-time repository listed in [runtime_repo_packages.txt](../e2e/tier2/runtime_repo_packages.txt) rather than silently forgiven. So for apt and dnf, a stale name in a role is caught in seconds and a stale name in a dictionary is caught only by tier 3. Items 1 and 6 are covered by tier 3, which runs the real playbook in a container. Coverage there is uneven and worth stating exactly, because a green tier 3 is easy to read as more than it is. Arch has run all seven scenarios. Debian and Fedora have since also run the defaults scenario, on 2026-08-17: Fedora passed clean, Debian did not, failing on a balena-etcher dependency the container image cannot satisfy (`Dependency is not satisfiable: polkit-1-auth-agent|policykit-1-gnome|polkit-kde-1`, run `2026-08-17T10-13-03Z_debian_defaults`), an open finding not yet triaged. Ubuntu has run smoke and nothing else. So five of the seven scenarios remain something a person has to do by hand on Debian and Fedora, six on Ubuntu, and the desktop environment scenarios in particular have never run outside Arch. macOS has no container at all and Windows has never been run in one, its gate being a separate PowerShell entry point that needs a Docker daemon already serving Windows containers, which this project's machine is not and will not be. Items 3, 7, 8, 9 and 10 are not mechanised at all and remain review discipline.
+A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5 are fully covered by its tier 1 checks, which run in minutes and are proven to fail against the code from before each fix. Item 2 is covered by tier 2, in two halves that cover different things. The `vars/{OS}.yaml` dictionary names are resolved over HTTP for Arch, the Arch User Repository, Flathub, Homebrew, Chocolatey and winget, and deliberately not for apt or dnf, because most of those names come from repositories the playbook adds while it runs and resolving them beforehand would report healthy packages as missing. The names written directly into role task files are resolved for all four Linux families, apt and dnf included, inside the same pinned base images the tier 3 scenarios use, with the handful that genuinely need a run-time repository listed in [runtime_repo_packages.txt](../e2e/tier2/runtime_repo_packages.txt) rather than silently forgiven. So for apt and dnf, a stale name in a role is caught in seconds and a stale name in a dictionary is caught only by tier 3. Items 1 and 6 are covered by tier 3, which runs the real playbook in a container. Coverage there is uneven and worth stating exactly, because a green tier 3 is easy to read as more than it is. Arch has run all seven scenarios. Debian and Fedora have since also run the defaults scenario, on 2026-08-17: Fedora passed clean, Debian did not, failing on a balena-etcher dependency the container image cannot satisfy (`Dependency is not satisfiable: polkit-1-auth-agent|policykit-1-gnome|polkit-kde-1`, run `2026-08-17T10-13-03Z_debian_defaults`), an open finding not yet triaged. Ubuntu has run smoke and nothing else. So five of the seven scenarios remain something a person has to do by hand on Debian and Fedora, six on Ubuntu, and the desktop environment scenarios in particular have never run outside Arch. macOS has no container at all and Windows has never been run in one, its gate being a separate PowerShell entry point that needs a Docker daemon already serving Windows containers, which this project's machine is not and will not be. Items 3, 7, 8, 9 and 10 are not mechanised at all and remain review discipline.
 
 [AGENTS.md](../AGENTS.md) carries the mandatory recurring check for the upstream ansible-core deserialization bug referenced at the bottom of this ledger, and that file is the authoritative copy, this ledger only summarises it.
 
@@ -472,6 +472,277 @@ plugin asks for it. What it does not prove is that real sudo then accepts the pa
 because the stub never authenticates anything. That last step still needs a machine whose sudo requires
 a password that somebody knows, so the honest status is that the plumbing is proven and the
 authentication itself remains covered only by a real installation run.
+
+#### One character of IFS, and the checklist kept one application out of everything the user ticked
+
+Cause: setup.sh sets `IFS=$'\n\t'` on its second executable line, and two pieces of code further
+down were written as though it were still the default, one joining an array with `${_results[*]}`
+and reading it back with a plain `read -ra`, the other splitting a profile name on its spaces with
+an unquoted expansion.
+
+Effect: an array expanded with `[*]` is joined with the first character of IFS, which here is a
+newline rather than a space, and `read` without `-d` stops at the first newline, so exactly one key
+survived the checklist however many the user marked. Every other key was then written into the extra
+variables as `key=false`, and an extra variable outranks group_vars, so those applications were
+actively turned off rather than merely left out and the run still reported success. Driven over a
+four-key fixture with `install_alpha` and `install_gamma` marked, the wizard produced
+`install_alpha=true`, `install_beta=false`, `install_gamma=false`, `install_delta=false`, so the
+second key the user marked came back off. The second defect costs only a label: the loop that title
+cases a profile name never split anything, so the one profile on disk was offered as `Linux live`
+instead of `Linux Live`.
+
+How it was proven: reduced to a one-liner outside the repository first, where
+`IFS=$'\n\t'; a=(one two three); s="${a[*]}"; read -ra out <<<"$s"; echo "${#out[@]}"`
+prints 1, and the same line with `mapfile -t out` prints 3. Then in the tree itself, both checks
+failed against the shipped file and pass against the fixed one, `interactive_states.sh` at 19 checks
+with 1 failed and `shell_units.sh` at 33 checks with 1 failed, both now all passed, and the
+checklist assertion is made on the variables the state machine hands the playbook rather than on the
+route it took.
+
+Fix: [setup/setup.sh](../setup/setup.sh), where the checklist state now reads the keys with
+`mapfile -t selected_keys` and `load_profiles` splits the name with `IFS=' ' read -ra words`, which
+scopes the space to that one command instead of changing IFS for the file. The join in
+`pick_software` was left alone on purpose, because joining on a newline is what keeps the value
+unambiguous if a key ever contains a space, so moving the fix to the reading end trades nothing.
+
+Found by a check written the same day,
+[e2e/tier1/interactive_states.sh](../e2e/tier1/interactive_states.sh) and
+[e2e/tier1/shell_units.sh](../e2e/tier1/shell_units.sh), and not by anybody reading the code. The
+interactive path had never been executed by any automated test before those two files existed: the
+wizard's six states, the seven back edges between them and `load_profiles` were all text that no
+gate had ever run. That is the whole argument for writing them. The first time the state machine was
+driven at all, both of these fell out of it, and one of them is the difference between a person
+getting the software they asked for and getting one application with the rest switched off.
+
+#### The wizard and the container harness each decide the software set, and they have never agreed
+
+Cause: [setup/setup.sh](../setup/setup.sh) resolves which toggles a run enables in
+`software_override_vars`, working from the keys `preload_toggles` collected out of `group_vars`,
+while [e2e/tier3/container.sh](../e2e/tier3/container.sh) resolves the same thing again by sweeping
+`^install_` out of `group_vars/all.yaml` and `group_vars/linux.yaml`. That is the same rule
+implemented twice, which is defect class 2 in [AGENTS.md](../AGENTS.md), and this instance sits
+inside the harness that is supposed to catch the class. The only thing the two ever shared was the
+`EXCLUDED_VARS` line the harness greps out of the wizard, and nothing had compared the answers.
+
+Effect: 100 keys are shared and agree on their value, and six are not shared at all, identically on
+both the all and the defaults baseline. Four are offered only by the wizard, `set_custom_wallpaper`,
+`setup_tmpfs`, `setup_zsh` and `toggle_wayland_nvidia`, because `--software all` enables every
+selectable toggle and those four are system settings whose names do not begin with `install_`, so
+the harness sweep cannot see them. The cost is that no container scenario in this repository has
+ever executed those four roles, on any distribution, which means the automated coverage of them is
+zero and always has been. That last sentence is wrong and is kept because it was believed on the day.
+Three of the four are true in `group_vars` and nothing in the harness ever wrote them, so they have run
+at their defaults in every container scenario ever executed here. What had never happened is their
+appearing in a generated set. The Fix paragraph below has the correction and how it was established. Two are generated only by the harness, `install_gnome` and
+`install_kde_plasma`, because the wizard keeps the desktop keys off the checklist and gives them a
+screen where exactly one environment is chosen, while the harness has no such screen. The cost there
+is that the all-software scenario installs KDE and GNOME onto the same machine, which is a
+combination no wizard run can produce, so that scenario has been proving something about a machine
+nobody can ask for.
+
+How it was proven: [e2e/tier1/selection_parity.sh](../e2e/tier1/selection_parity.sh) evaluates the
+two shipped implementations rather than restating either, the wizard's own functions on one side and
+the sweep lifted verbatim out of `container.sh` on the other, and against the tree at
+`HEAD` on 2026-08-29 it reported `only the wizard offers: set_custom_wallpaper setup_tmpfs setup_zsh
+toggle_wayland_nvidia | only the container harness generates: install_gnome install_kde_plasma` for
+both baselines. That the check can see a divergence at all rather than merely reprinting a fixed
+list was proven by narrowing the harness sweep to `^install_[a-m]` in a copy of the tree, which
+fails it and names every key the narrowed sweep stopped generating.
+
+Fix: reconciled on 2026-08-29, in the direction the owner chose, which is that the harness follows
+the wizard and `setup.sh` is not touched. `container.sh` no longer resolves a software set at all. It
+calls `wizard_toggle_keys` in [e2e/lib/common.sh](../e2e/lib/common.sh), which evaluates the shipped
+`EXCLUDED_VARS`, `DE_KEYS`, `LABEL_OVERRIDES`, `format_label`, `is_de_key`, `read_boolean_toggles` and
+`preload_toggles` out of `setup.sh` under that file's own IFS and prints the checklist keys. There is
+one rule and the harness reads it, which is the only fix that does not leave a third copy behind: a
+sweep rewritten inside `container.sh` to match the wizard's answer would have been the same defect
+again, one commit further on. The reader returns 3 and prints why rather than an empty list, because a
+process substitution hands `mapfile` no exit status and an empty array would have generated a scenario
+that installs nothing while reporting a pass over everything, which is defect class 10 in
+[AGENTS.md](../AGENTS.md).
+
+The check kept its two-route shape rather than being deleted as satisfied. `selection_parity.sh`
+extracts `setup.sh`'s functions its own way on the wizard side and evaluates whatever `container.sh`
+actually does on the other, so it does not reach the answer the way the harness reaches it and can
+still fail. It also now asserts the coupling itself, in place of the `EXCLUDED_VARS` line it used to
+assert: that the block at `mapfile -t all_toggles` calls `wizard_toggle_keys`, and that
+`wizard_toggle_keys` still reads `setup/setup.sh`. Either can be undone by one paste, and each has its
+own failure line. [e2e/tier1/selection_parity_allowed.txt](../e2e/tier1/selection_parity_allowed.txt)
+now carries no entries and stays as the place a future divergence has to be admitted.
+
+How the fix was proven: the check reports `all: both implementations resolve the same 104 toggles to
+the same values` and the same for `defaults`, with an empty allow file, where before it reported 100
+shared and 6 listed. That it can still fail was proven by pointing `E2E_REPO_ROOT` at a copy of the
+tree at the previous commit, where the old `^install_` sweep is still in place: it fails four of four
+checks and names every one of the six keys on both baselines. `container.sh`'s sweep was also extracted
+and run on its own against the real `group_vars`, which prints 104 keys, with the four system settings
+present and neither desktop key in the list.
+
+What the reconciliation is not proven against, and this is the part to read before trusting it: no
+container scenario was run, because this machine had no Docker daemon on the day. Every claim above is
+static. The scenario to run first when a daemon exists is `--tier 3 --scenario all-software`, because
+that is the only scenario `e2e_generate` touches and therefore the only one whose input this change
+alters at all.
+
+What changes in a real run, in both directions. `install_kde_plasma` and `install_gnome` fall out of
+the generated set, so the all-software scenario installs no desktop environment and its
+`e2e_expect_desktop: none` becomes true rather than merely unasserted. The desktop scenarios are
+unaffected: `03-kde-full.yaml`, `04-gnome-full.yaml` and `06-kde-configure-only.yaml` each state all
+four desktop keys themselves, and a key the scenario states explicitly has always won over a generated
+one. The 300 minute ceiling on the all-software scenario is deliberately left alone, because dropping
+two desktop environments should cut the run and nobody has measured the new number, and a ceiling
+lowered on an expectation is how a slow cell starts being killed for being slow.
+
+In the other direction the four system settings join the generated set. Three of them cost nothing,
+and the claim above that none of the four had ever run in a container is wrong, which is worth more
+here than the fix: `set_custom_wallpaper` is true in `all.yaml`, `setup_tmpfs` and `setup_zsh` are true
+in `linux.yaml`, nothing in `container.sh`, in the scenario files or in the container limits ever wrote
+any of the three, and `site.yaml` loads both `group_vars` files, so all three have run at their
+defaults in every container scenario this repository has ever executed. What had never happened is
+their appearing in a generated set, which is a statement about the sweep rather than about coverage.
+The wrong sentence came from reading a key-set difference as a coverage claim without checking what the
+playbook does when the harness writes nothing. `setup_tmpfs` only adds a line to `/etc/fstab` and
+`setup_zsh` runs the `shell_zsh` role, neither of which a container prevents, so neither needs a line
+in [e2e/tier3/container_limits.yaml](../e2e/tier3/container_limits.yaml). `set_custom_wallpaper` is
+read only inside `configure_gnome`, `configure_kde` and `macos_core`, none of which the all-software
+scenario reaches, so it stays a no-op there.
+
+`toggle_wayland_nvidia` is the only one of the four whose value this change actually alters, from false
+to true in the all-software scenario, and it is also a defect in its own right that this work found and
+did not fix. Nothing consumes it. It appears in `group_vars/linux.yaml`, in `setup.sh`'s label map and
+in `setup.ps1`'s label map, and in no task, no role and no template anywhere under `setup/ansible`. It
+is therefore a toggle the wizard offers, the checklist labels "force Wayland on NVIDIA, can break the
+session", and the playbook ignores, which is the shape of the `install_gradle` defect recorded further
+down this page. `toggle_coverage.sh` cannot see it because that check collects consumers by grepping
+for `install_[a-z0-9_]+` and this key has no such prefix. Turning it true in a container is safe
+precisely because it does nothing, so it needs no container limit either, but it needs either an
+implementation or a deletion, and it has neither.
+
+#### A gate that was green on the machine that wrote it and red on every machine that could run it
+
+Cause: `e2e/tier1/shell_syntax.sh` was added on 2026-08-28 and runs two things, `bash -n` over every
+shell script in the tree and ShellCheck at severity warning over the same set. ShellCheck is optional
+by design, reported as a SKIP when it is absent so the gate does not depend on a tool that may not be
+installed. It is not installed on this development machine, so the check reported SKIP here and the
+tree it was added to was never measured against it. It is preinstalled on GitHub's hosted Ubuntu
+runners and on many developer machines, where the same check runs for real and fails.
+
+Effect: the tree carried 32 ShellCheck findings at severity warning on the day the check was written,
+across twelve files, so the new gate exited 0 here and 1 everywhere ShellCheck existed. Green on one
+machine and red on the rest is worse than no check at all, because the machine that decides whether to
+commit is the one that cannot see the failure. Two of the thirty-two were real defects rather than
+noise, one silent and one that made the check around it assert less than it claimed. `cd
+"${ANSIBLE_DIR}"` in [ansible_static.sh](../e2e/tier1/ansible_static.sh) had no `|| exit`, so a run
+that could not reach `setup/ansible` would have gone on to syntax-check `site.yaml` in whatever
+directory it happened to be in and reported a parse failure that had nothing to do with the playbook.
+`ls -1 ... | xargs -r -n1 basename` in [container.sh](../e2e/tier3/container.sh) parsed `ls` output.
+
+How it was proven rather than reasoned about: a portable ShellCheck 0.10.0 binary was fetched and run
+against the tree. `shellcheck -S warning -f gcc $(git ls-files '*.sh')` reported 15 findings, and the
+same command over the 56 files the check itself collects reported 32. The gap is worth recording on
+its own: seven of the check scripts written that day were still untracked, so the obvious `git
+ls-files` measurement under-reported the gate by seventeen findings, and only running the tool over
+the set the gate builds gives the number the gate will act on. Both commands report nothing now and
+exit 0.
+
+Fix: all 32 cleared, in [common.sh](../e2e/lib/common.sh),
+[ansible_static.sh](../e2e/tier1/ansible_static.sh), [pinned_values.sh](../e2e/tier1/pinned_values.sh),
+[pwsh_probe.sh](../e2e/tier1/pwsh_probe.sh),
+[tolerated_failures_read.sh](../e2e/tier1/tolerated_failures_read.sh),
+[wizard_parse.sh](../e2e/tier1/wizard_parse.sh),
+[interactive_states.sh](../e2e/tier1/interactive_states.sh),
+[list_software.sh](../e2e/tier1/list_software.sh),
+[print_command_resolution.sh](../e2e/tier1/print_command_resolution.sh),
+[selection_parity.sh](../e2e/tier1/selection_parity.sh), [container.sh](../e2e/tier3/container.sh) and
+[setup.sh](../setup/setup.sh). Three shapes, judged one at a time rather than suppressed as a batch.
+The two real defects above were fixed. Three variables were genuinely dead and were deleted or renamed
+to `_`: `ALLOWED_REASON` in `selection_parity.sh`, which was filled from the allow file and read
+nowhere, and `de` and `attempt` in `setup.sh`, which were a local assigned and never read and a loop
+counter nobody counted. The rest are variables a reader can see and the linter cannot, every one of
+them set for a function that arrives through `eval` or `source`, and each carries its own
+`# shellcheck disable=` on the line above with the reason. No file-level or repository-level
+suppression was added anywhere, because a blanket disable hides the next real finding.
+
+A hypothesis along the way was wrong and is kept here because the wrong turn is the useful part. The
+three findings at `setup/setup.sh` lines 565, 570 and 572 were read as being about `required`, the
+newline-separated collection list that `for coll in ${required}` splits on the non-default IFS of
+newline and tab set at the top of that file. They are not. ShellCheck reports columns, and columns 30,
+53 and 15 on those three lines all land on `missing`, an integer flag local to `install_collections`.
+The linter had carried the array type over from `local missing=()` in `install_prerequisites`, a
+different function five dozen lines earlier, and misread all three. `required` is correct and was never
+what was flagged. The flag was renamed to `missing_any` rather than suppressed three times, because two
+locals sharing a name and not a type in one file mislead a reader exactly as they misled the tool.
+
+One more finding belongs here because it was introduced during this very fix rather than found by it.
+The widened toggle check written in the entry below reads the Windows installer through
+`find "${WINDOWS_DIR}" -name '*.ps1' | xargs -r sed ...`, which is SC2038, the same class as the `ls`
+pipe fixed two paragraphs up, written by the same hand in the same sitting minutes after fixing it.
+The gate caught it: running `shell_syntax.sh` with the portable binary on `PATH` failed with one line
+naming `toggle_coverage.sh:205`. It is now `find ... -exec sed ... {} +`. The useful part is that
+knowing a rule and having just applied it elsewhere did nothing to stop it, and only the mechanical
+check did.
+
+Check added: none, because the check already existed and this is the tree it was measuring. What the
+episode is really about is that an optional half of a gate is a half nobody measures. ShellCheck stays
+optional in [shell_syntax.sh](../e2e/tier1/shell_syntax.sh), and the lesson is to run it once by hand
+against a downloaded binary before trusting a clean local run, which takes about a minute. Better
+still, run the check itself with the binary on `PATH`, which is what caught the finding above.
+
+#### A coverage check that had only ever looked at one prefix, and the dead toggles behind it
+
+Cause: [toggle_coverage.sh](../e2e/tier1/toggle_coverage.sh) exists to catch a toggle that installs
+nothing, which is the `install_gradle` shape recorded further down this page. It collected consumers
+with `grep -ohE 'install_[a-z0-9_]+'` and selected toggles with `^install_[a-z0-9_]+: (true|false)$`.
+`group_vars` declares booleans under eight prefixes, so `configure_`, `setup_`, `remove_`, `set_`,
+`enable_`, `allow_` and `toggle_` were outside the check entirely. It also asked its question only of
+toggles set to true, and a dead toggle set to false is invisible to that question while being just as
+dead.
+
+Effect: three declared toggles are consumed by nothing anywhere in the repository, and the check
+reported full coverage on all five families throughout. `toggle_wayland_nvidia` is the one that reaches
+a user: it is on both wizards' checklists, labelled "System: force Wayland on NVIDIA, can break the
+session", and ticking it does nothing at all. `setup_grub` and `remove_distro_systemd_boot` are hidden
+from both checklists by `EXCLUDED_VARS`, so only somebody editing `group_vars/linux.yaml` can reach
+them, and they are the unwritten halves of a symmetric pair whose other halves, `setup_systemd_boot`
+and `remove_distro_grub`, are implemented in
+[systemd_boot](../setup/ansible/roles/systemd_boot/tasks/main.yaml).
+
+How it was proven rather than reasoned about: each of the sixteen non-install toggles was searched for
+by name across `setup/ansible`, `setup/windows` and both wizards. Thirteen have a real consumer. Two of
+the three had appeared to have one and did not: `setup_grub` and `remove_distro_systemd_boot` are named
+in `dual_logger.py`'s `ROLE_TOGGLE_MAPPING`, which decides how a skipped role is described in the
+summary, and in `setup.ps1`'s `$ExcludedVars`, which decides that the checklist must not offer them.
+Both are display. Counting either as an implementation is the same mistake as the `gradle` comment that
+claimed SDKMAN handled it, which is why this check strips comments in the first place. The widened
+check was then run against a copy of the tree under `E2E_REPO_ROOT` with one line,
+`setup_nonexistent_thing: true`, appended to `group_vars/linux.yaml`: it fails on Debian, RedHat and
+Archlinux naming that toggle, and lists it among the unconsumed. The check as it stood at `HEAD` passes
+that same copy with `15 checks, all passed`.
+
+Fix: the prefix is no longer in the check. Consumers are collected as every identifier the
+implementation files mention and the declared set decides which of them are toggle names, so a prefix
+nobody has used yet is covered on the day it is first written. The enabled direction now covers every
+prefix, which took Debian from 95 toggles to 99 and Windows from 99 to 102, and Windows gained the
+settings list in `WindowsSettings.ps1` as a consumer source, because `enable_hyperv`, `setup_wsl` and
+`set_custom_wallpaper` are applied there and carry no `install_` prefix. A second direction was added
+that asks of every declared non-install toggle, whatever its value, whether anything at all acts on it.
+That direction is asked once over the union of the `group_vars` files rather than once per family,
+because these toggles have one route each and the thing at the end of it differs by platform, an
+Ansible task for Linux and macOS and `WindowsSettings.ps1` for Windows. Neither wizard counts as a
+consumer and neither does the callback's role table, for the reason above.
+
+The three toggles themselves are not fixed. Implementing one and deleting one are both the owner's
+call, so the new direction reports them as a SKIP that names all three on every run rather than as a
+failure, and the gate stays green while they are open. That is deliberate and temporary: it is recorded
+in the check next to the line, and turning the `skip` into a `fail` is the whole of the change once
+they are resolved. None of the three was added to
+[documented_no_ops.txt](../e2e/tier1/documented_no_ops.txt), because that file is for a toggle that is
+deliberately inert on some operating system and these are inert on all of them.
+
+Check added: none, for the same reason as the entry above. The check existed, and what was wrong with
+it was the width of one regular expression. Its own vacuous-pass guard was widened to match: it now
+fails if the reader comes back with fewer than a hundred toggles or with only one prefix, so a future
+narrowing back to `install_` is a failure rather than a quiet return to full marks.
 
 ---
 
