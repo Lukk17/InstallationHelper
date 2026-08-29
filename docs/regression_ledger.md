@@ -739,6 +739,12 @@ they are resolved. None of the three was added to
 [documented_no_ops.txt](../e2e/tier1/documented_no_ops.txt), because that file is for a toggle that is
 deliberately inert on some operating system and these are inert on all of them.
 
+The owner decided on 2026-08-29 to leave all three as they are rather than implement or delete them,
+and the plan for each was written down the same day so it is not lost. It lives in
+[openspec/changes/implement-unconsumed-linux-toggles](../openspec/changes/implement-unconsumed-linux-toggles),
+as three separately selectable tasks with the research already done, and the SKIP message now names
+that directory so the gate's own output leads to it.
+
 Check added: none, for the same reason as the entry above. The check existed, and what was wrong with
 it was the width of one regular expression. Its own vacuous-pass guard was widened to match: it now
 fails if the reader comes back with fewer than a hundred toggles or with only one prefix, so a future

@@ -242,8 +242,12 @@ else
     # this direction was written. Turn this skip into a fail once they are resolved: that is the
     # whole change, and until it is made this line is the only thing standing between a dead toggle
     # and a green gate.
+    #
+    # The owner has decided to leave all three as they are for now, and the plan for each is written
+    # down so it is not lost. The message below names that plan, so anybody reading this gate's
+    # output finds it in one step rather than searching the tree for what these toggles are.
     skip "every declared toggle outside the install_ prefix is consumed by something that acts on it" \
-         "${#dead[@]} are consumed by nothing, so ticking one does nothing at all: ${dead[*]}"
+         "${#dead[@]} are consumed by nothing, so ticking one does nothing at all: ${dead[*]}. The plan for each is openspec/changes/implement-unconsumed-linux-toggles"
 fi
 
 # A mapping resolving to a package manager is not the end of it for apt_url and dnf_url, which
