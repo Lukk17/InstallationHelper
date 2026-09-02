@@ -27,8 +27,8 @@ ENV KC_DB=postgres
 COPY --from=ubi-micro-build /mnt/rootfs /
 COPY --from=builder /opt/keycloak/ /opt/keycloak/
 
-COPY ./certificates/localhost/localhostDomain.crt /etc/x509/https/localhost.crt
-COPY ./certificates/localhost/localhostDomain.key /etc/x509/https/localhostCert.key
+COPY ./certificates/localhost/localhost.crt /etc/x509/https/localhost.crt
+COPY ./certificates/localhost/localhost.key /etc/x509/https/localhostCert.key
 
 # HTTPS port
 EXPOSE 9443

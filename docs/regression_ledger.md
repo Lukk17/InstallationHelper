@@ -2178,3 +2178,154 @@ is not enough to reason from.
 The fix is the rewritten curl subsection. It gives `--ssl-revoke-best-effort` as the runnable Windows command,
 names the operating system trust store import as the alternative that needs no flag at all, and explains the
 failure as a revocation status that cannot be determined rather than as a file that was never read.
+
+---
+
+### Outside the Ansible playbook, found while swapping MinIO out of the local-dev stack
+
+Same caveat as the section above. This is the local development Docker Compose stack rather than the Ansible
+playbook, and it is recorded here because the instruction for the work said to log any defect here.
+
+#### The object store's credentials were assumed to be enforced, and nothing on the gateway checks them
+
+Status: fixed in this change, in [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md). Documentation
+only. No behaviour was changed, and the defect was found before the section was written rather than after it
+shipped.
+
+The brief for replacing MinIO with [Floci](https://github.com/floci-io/floci) and
+[s3manager](https://github.com/cloudlena/s3manager) named one authentication consequence and only one: that
+s3manager has no authentication of any kind, so anything reaching port `9071` has read, write and delete on every
+bucket, "which the MinIO console did not allow without a password". Read as written that scopes the exposure to the
+browser interface and leaves the impression that the S3 gateway on port `9070` still enforces the `admin` and
+`password` pair that `s3manager` is configured to send it. It does not. The gateway enforces nothing at all, so the
+exposure is the whole object store rather than one web page, and a reader who took the brief's wording into the
+documentation would have understated it.
+
+The assumption is the same shape as defect class 3 in [AGENTS.md](../AGENTS.md), where a vendor's support matrix was
+treated as the installer's behaviour. Here a service's advertised credential configuration was treated as proof that
+the credential is checked. It is a configuration input, not a measurement.
+
+Proven against `floci/floci:2.0.1` running from
+[local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml), container healthy, with curl
+8.19.0 from Git Bash on Windows. Every request below targeted the bucket `local-dev-bucket` that had just been
+created with a correctly signed request, so the resource existed and a rejection would have been a rejection rather
+than a miss:
+
+1. Correct credentials, `--aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"`, listing the bucket: HTTP 200.
+2. Wrong secret key, `--user "admin:wrongpassword"`, same listing: HTTP 200.
+3. Wrong region, `--aws-sigv4 "aws:amz:eu-west-1:s3"` with the correct key pair: HTTP 200.
+4. No signature at all, no `--aws-sigv4` and no `--user`, same listing: HTTP 200.
+5. No signature at all, `PUT` of a new object `third.txt`: HTTP 200, and an unsigned `GET` returned its body.
+6. No signature at all, `DELETE` of `third.txt`: HTTP 204, and the object was gone from the next listing.
+
+Runs 5 and 6 are the ones that matter, because a read-only leak and a full write and delete leak are different
+problems. Both ports are published on `0.0.0.0` in the Compose file, so the reachable surface is the network
+segment rather than the loopback interface.
+
+What was not measured, and is therefore not claimed anywhere: how MinIO itself behaves against the same requests.
+The instruction for this work forbade starting the MinIO service, so the documentation now states only what the old
+Compose block configured, a `MINIO_ROOT_USER` and a `MINIO_ROOT_PASSWORD`, and does not assert what MinIO would
+have done with an unsigned request.
+
+The fix is the "Object storage" section of [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md), which
+says both ports are unauthenticated, names the unsigned write and the unsigned delete specifically, explains that
+the documented `admin` and `password` values exist only so that a client library demanding a key has one to send,
+and gives binding the ports to `127.0.0.1` as the mitigation for a machine on an untrusted network.
+
+There is no mechanical check for this. A gate that fires an unsigned request at a local endpoint would only ever be
+asserting a property of a third-party image, and it would have to start that image to do it, which no tier of the
+e2e harness covers for the local development stack.
+
+---
+
+### Outside the Ansible playbook, found while renaming the local-dev/auth certificate authority
+
+Same caveat as the two sections above. This is the local development Docker Compose stack rather than the Ansible
+playbook, and it is recorded here because the instruction for the work said to log any defect here. The work was
+reshaping `local-dev/auth/certificates/localhost/` to match the pattern a sibling project uses, splitting one config
+file into `ca.cnf` and `leaf.cnf`, adding `generate-certificates.sh`, and renaming every file.
+
+#### `authorityKeyIdentifier` in `req_extensions` makes the certificate signing request fail, so copying the sibling project's `leaf.cnf` shape verbatim could not work here
+
+Status: introduced and fixed inside this change, in
+[local-dev/auth/certificates/localhost/leaf.cnf](../local-dev/auth/certificates/localhost/leaf.cnf). Never
+committed in the broken form.
+
+The pattern being copied puts `req_extensions = leaf_ext` in the `[ req ]` section, so the one extension section
+serves both the signing request and the signing step. That works there because its leaf carries only
+`basicConstraints`, `keyUsage`, `extendedKeyUsage` and `subjectAltName`. This repository's leaf also carries
+`subjectKeyIdentifier` and `authorityKeyIdentifier`, kept deliberately, and an authority key identifier names the
+issuer's key. A signing request has no issuer, so OpenSSL cannot compute the value and refuses to build the request
+at all.
+
+Proven by running the new script in a scratch directory outside the repository containing nothing but the two
+config files, with OpenSSL 3.5.6 from Git Bash on Windows:
+
+```text
+Error adding request extensions from section leaf_ext
+44570000:error:11000079:X509 V3 routines:v2i_AUTHORITY_KEYID:no issuer certificate:../openssl-3.5.6/crypto/x509/v3_akid.c:156:
+44570000:error:11000080:X509 V3 routines:X509V3_EXT_nconf_int:error in extension:../openssl-3.5.6/crypto/x509/v3_conf.c:48:section=leaf_ext, name=authorityKeyIdentifier, value=keyid,issuer
+```
+
+The script exited 1 and left the directory holding `localhost-ca.crt`, `localhost-ca.key` and `localhost.key`, with
+no leaf certificate, which is what a half-finished generation looks like.
+
+The fix is to drop the `req_extensions` line from `[ req ]` in `leaf.cnf` and leave `[ leaf_ext ]` as a
+signing-only section, which is where it is actually consumed: the third OpenSSL call passes `-extfile leaf.cnf
+-extensions leaf_ext`, and `openssl x509 -req` never copies extensions out of a request anyway. The request now
+carries no extensions, and it is deleted by the line after it is signed, so nothing reads what it lost.
+
+The mechanical check already exists and is what caught this: `generate-certificates.sh` runs under `set -euo
+pipefail` and ends with `openssl verify -CAfile localhost-ca.crt localhost.crt`, so a config file that cannot
+produce a chain fails the script rather than producing a partial set quietly. The lesson is narrower than the fix:
+a pattern lifted from another repository has to be run before it is called a match, because the difference that
+breaks it is a property of this tree rather than of the pattern.
+
+#### A blind global rename rewrote three references that named the old file on purpose
+
+Status: introduced and fixed inside this change, in
+[local-dev/auth/Keycloak/README.md](../local-dev/auth/Keycloak/README.md). Never committed in the broken form.
+
+The rename of `localhostDomain.crt` to `localhost.crt` was applied with one `sed -i ... s/localhostDomain\.crt/localhost.crt/g`
+across the file. Most of the hits were live commands and moved correctly. Three were not. The "Certificate" section
+carries migration instructions for a reader who imported the leaf certificate itself into a trust store before the
+authority existed, and those deliberately name the file as it was called at the time. Renaming them produced text
+telling the reader to remove a file under a name they never imported, and one runnable command,
+`sudo rm /usr/local/share/ca-certificates/localhost.crt`, pointing at a path that only exists if somebody copied
+the new leaf into the system store, which nothing in this repository ever tells anyone to do.
+
+Proven by reading the rewritten section back rather than by trusting the substitution count: the sed reported
+nothing, exited 0, and every changed line was individually plausible. The defect is only visible against the
+surrounding prose, which says "if you previously imported".
+
+The fix is to make those three references name-agnostic. The prose now says "a leaf certificate from this
+directory, under whichever name it carried at the time", and the Linux removal step lists
+`/usr/local/share/ca-certificates/` first and tells the reader to substitute the name the listing shows. That form
+survives the next rename as well, which the previous form did not.
+
+This is the same shape as defect class 1 in [AGENTS.md](../AGENTS.md), where deleting a block took the statement
+underneath it. A mechanical edit was correct for the thing it targeted and wrong for its neighbour, and the
+verification that would have caught it is reading what the edit produced rather than counting what it changed.
+
+#### The certificate generation link at the bottom of `config.md` has never resolved
+
+Status: fixed in this change, in [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md). Found
+while checking that file for certificate names, which it turned out not to carry.
+
+The last line of that file linked to `../README.md#certificate-generation-a-namecertificate-generationa`. That
+anchor is the slug of a heading written as `### Certificate generation <a name="certificate-generation"></a>`, with
+the HTML flattened into the slug instead of stripped from it. The heading in
+[local-dev/auth/README.md](../local-dev/auth/README.md) reads `### Certificate generation` and has no anchor tag, so
+the target does not exist and the link lands at the top of the page. GitHub strips HTML tags before slugging a
+heading, so the anchor would not have matched the older heading either.
+
+Proven against the file rather than reasoned about: `grep -n "^### Certificate" local-dev/auth/README.md` at `HEAD`
+returns one line, `### Certificate generation`, with nothing after it, and `git log -S` on the broken anchor string
+attributes it to `5daf306`, the commit that lowercased non-README markdown filenames, so it has been wrong since
+that rewrite.
+
+The fix is the correct slug, `#certificate-generation`. No mechanical check was added. The check that would catch it
+is a markdown link and anchor resolver over the whole tree, and the e2e harness under `e2e/` covers `setup/` rather
+than the documentation, so adding a tier 1 check for this means proving it against a copy of the tree carrying the
+defect and running the whole gate from Git Bash and from WSL, which was outside this change. It is worth doing,
+because this class is invisible in review: a broken anchor renders as a working link.

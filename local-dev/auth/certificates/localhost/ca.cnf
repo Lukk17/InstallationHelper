@@ -1,0 +1,17 @@
+[ req ]
+default_bits       = 4096
+distinguished_name = req_distinguished_name
+x509_extensions    = ca_ext
+prompt             = no
+
+[ req_distinguished_name ]
+C  = PL
+ST = Mazowieckie
+L  = Warsaw
+O  = Lukk
+CN = localhost certificate authority
+
+[ ca_ext ]
+basicConstraints       = critical, CA:TRUE, pathlen:0
+keyUsage               = critical, keyCertSign, cRLSign
+subjectKeyIdentifier   = hash

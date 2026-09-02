@@ -167,4 +167,4 @@ Export include:
 7. Other settings: Various other realm-specific configurations.
 
 ---
-[Certificate Generation](../README.md#certificate-generation-a-namecertificate-generationa)
+[Certificate Generation](../README.md#certificate-generation)

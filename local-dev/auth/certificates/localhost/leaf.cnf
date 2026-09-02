@@ -1,7 +1,6 @@
 [ req ]
 default_bits       = 2048
 distinguished_name = req_distinguished_name
-req_extensions     = req_ext
 prompt             = no
 
 [ req_distinguished_name ]
@@ -9,19 +8,14 @@ C  = PL
 ST = Mazowieckie
 L  = Warsaw
 O  = Lukk
-OU = Originals
-CN = Local-dev
-emailAddress = luksarna@gmail.com
-
-[ req_ext ]
-subjectAltName = @alt_names
+CN = localhost
 
 [ leaf_ext ]
-basicConstraints = CA:FALSE
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-subjectAltName = @alt_names
-subjectKeyIdentifier = hash
+basicConstraints       = critical, CA:FALSE
+keyUsage               = critical, digitalSignature, keyEncipherment
+extendedKeyUsage       = serverAuth
+subjectAltName         = @alt_names
+subjectKeyIdentifier   = hash
 authorityKeyIdentifier = keyid,issuer
 
 [ alt_names ]
@@ -31,7 +25,5 @@ DNS.3 = keycloak.test
 DNS.4 = keycloak
 DNS.5 = sky.test
 DNS.6 = sky
-
-# IP SANs for localhost
-IP.1 = 127.0.0.1
-IP.2 = ::1
+IP.1  = 127.0.0.1
+IP.2  = ::1

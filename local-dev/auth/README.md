@@ -31,48 +31,40 @@ For Keycloak setup, container build, realm import, and troubleshooting, see
 
 #### Localhost (local certificate authority) <a id="localhost"></a>
 
-The Keycloak container expects a cert + key under
-[certificates/localhost/](./certificates/localhost/). Those two files are a leaf certificate signed by a local
-root certificate authority that also lives in that directory. Importing the root into your OS trust store once, as
-described under "Trust the cert on your machine" below, covers this leaf and any future leaf signed by the same
-root, with no further import needed. The root private key, `localDevCA.key`, is committed to this repository on
-purpose, because this authority exists only for local development on machines the owner controls.
+Nothing here is self-signed. A local certificate authority signs a leaf, and Keycloak serves the leaf. That split is
+what makes the trust import a one-time job: import the authority into a trust store once, as described under "Trust
+the cert on your machine" and "Trust the cert from application code" below, and it covers this leaf and every future
+leaf the same authority signs. A self-signed leaf would have to be re-imported everywhere on every reissue.
 
-Regenerate the pair with openssl, from the project root, in three steps.
+All four files are committed, so a clone runs with no generation step. Regenerating is only needed when a hostname
+is added, a key is rotated, or the ten years run out. Edit the SAN list in
+[certificates/localhost/leaf.cnf](./certificates/localhost/leaf.cnf) first.
 
-Create the root key and its self-signed certificate. Skip this step if `localDevCA.key` and `localDevCA.crt`
-already exist and only the leaf needs regenerating.
-
-```bash
-openssl req -x509 -new -nodes -days 3650 -keyout ./local-dev/auth/certificates/localhost/localDevCA.key -out ./local-dev/auth/certificates/localhost/localDevCA.crt -config ./local-dev/auth/certificates/localhost/localDevCA.cnf
-```
-
-Create the leaf key and its certificate signing request:
+The script writes its output beside itself, so run it from its own directory. From the project root, on Linux, macOS,
+WSL or Git Bash on Windows:
 
 ```bash
-openssl req -new -nodes -keyout ./local-dev/auth/certificates/localhost/localhostDomain.key -out ./local-dev/auth/certificates/localhost/localhostDomain.csr -config ./local-dev/auth/certificates/localhost/localhost.cnf
-```
-
-Sign the request with the root, then remove the request, which is not needed once the certificate exists:
-
-```bash
-openssl x509 -req -in ./local-dev/auth/certificates/localhost/localhostDomain.csr -CA ./local-dev/auth/certificates/localhost/localDevCA.crt -CAkey ./local-dev/auth/certificates/localhost/localDevCA.key -CAcreateserial -out ./local-dev/auth/certificates/localhost/localhostDomain.crt -days 3650 -extfile ./local-dev/auth/certificates/localhost/localhost.cnf -extensions leaf_ext
+cd local-dev/auth/certificates/localhost
 ```
 
 ```bash
-rm ./local-dev/auth/certificates/localhost/localhostDomain.csr
+bash generate-certificates.sh
 ```
 
-The root's distinguished name and CA extensions live in
-[certificates/localhost/localDevCA.cnf](./certificates/localhost/localDevCA.cnf). The leaf's CN, SAN entries, and
-extensions live in [certificates/localhost/localhost.cnf](./certificates/localhost/localhost.cnf). Edit the leaf
-file before regenerating if you need to add another local domain to the SAN list, then run the last two commands
-above again, the root does not need to change.
+The script regenerates the authority as well as the leaf, and ends by running `openssl verify` against what it
+produced. Reissuing the leaf costs a rebuild of the Keycloak image, which copies the leaf in, and a restart.
+Reissuing the authority costs that plus a re-import in every trust store that holds it: the operating system store,
+and any JVM, Node or Python trust store set up from the sections below. To reissue the leaf alone, run the second and
+third `openssl` commands inside the script and skip the first, then run its `rm` line as well: signing writes a
+serial file, `localhost-ca.srl`, which this repository deliberately does not track.
 
-Expected output: `localDevCA.key` and `localDevCA.crt` from the first command, `localhostDomain.key` and a
-`localhostDomain.csr` from the second, and `localDevCA.srl` and `localhostDomain.crt` from the third. The CSR is
-removed by the command right after it, so only the two key and certificate pairs and the serial file remain,
-alongside the two `.cnf` files.
+`localhost-ca.crt`, `localhost-ca.key`, `localhost.crt` and `localhost.key` are the result. The authority's
+distinguished name and its CA extensions live in [certificates/localhost/ca.cnf](./certificates/localhost/ca.cnf),
+the leaf's common name, SAN entries and extensions in
+[certificates/localhost/leaf.cnf](./certificates/localhost/leaf.cnf). The authority's private key,
+`localhost-ca.key`, is committed on purpose, because this authority exists only for local development on machines
+the owner controls. It mints a certificate for any name, which is a larger exposure than the leaf it signs, so it
+must never reach a real environment.
 
 #### Production (Let's Encrypt) <a id="production"></a>
 
@@ -141,21 +133,21 @@ repository. Nothing in [.gitignore](../../.gitignore) matches a `.jks`, so a tru
 turns up as an untracked file in every `git status` from then on.
 
 ```bash
-keytool -importcert -noprompt -trustcacerts -alias localdevca -file ./local-dev/auth/certificates/localhost/localDevCA.crt -keystore "$HOME/localDevCA.truststore.jks" -storepass changeit
+keytool -importcert -noprompt -trustcacerts -alias localhostca -file ./local-dev/auth/certificates/localhost/localhost-ca.crt -keystore "$HOME/localhost-ca.truststore.jks" -storepass changeit
 ```
 
 ```powershell
-keytool -importcert -noprompt -trustcacerts -alias localdevca -file .\local-dev\auth\certificates\localhost\localDevCA.crt -keystore "$env:USERPROFILE\localDevCA.truststore.jks" -storepass changeit
+keytool -importcert -noprompt -trustcacerts -alias localhostca -file .\local-dev\auth\certificates\localhost\localhost-ca.crt -keystore "$env:USERPROFILE\localhost-ca.truststore.jks" -storepass changeit
 ```
 
 Point the application at it with the two system properties every JVM's default trust manager reads:
 
 ```bash
-java -Djavax.net.ssl.trustStore="$HOME/localDevCA.truststore.jks" -Djavax.net.ssl.trustStorePassword=changeit -jar your-app.jar
+java -Djavax.net.ssl.trustStore="$HOME/localhost-ca.truststore.jks" -Djavax.net.ssl.trustStorePassword=changeit -jar your-app.jar
 ```
 
 ```powershell
-java -Djavax.net.ssl.trustStore="$env:USERPROFILE\localDevCA.truststore.jks" -Djavax.net.ssl.trustStorePassword=changeit -jar your-app.jar
+java -Djavax.net.ssl.trustStore="$env:USERPROFILE\localhost-ca.truststore.jks" -Djavax.net.ssl.trustStorePassword=changeit -jar your-app.jar
 ```
 
 A Spring Boot application started through an IDE run configuration, `./gradlew bootRun`, or `mvn spring-boot:run`
@@ -176,11 +168,11 @@ by this one application's own launch configuration, stays scoped to the thing th
 The alternative, importing straight into `cacerts`, is proven to work as well, using the same root certificate:
 
 ```bash
-keytool -importcert -noprompt -trustcacerts -alias localdevca -file ./local-dev/auth/certificates/localhost/localDevCA.crt -keystore "$JAVA_HOME/lib/security/cacerts" -storepass changeit
+keytool -importcert -noprompt -trustcacerts -alias localhostca -file ./local-dev/auth/certificates/localhost/localhost-ca.crt -keystore "$JAVA_HOME/lib/security/cacerts" -storepass changeit
 ```
 
 ```powershell
-keytool -importcert -noprompt -trustcacerts -alias localdevca -file .\local-dev\auth\certificates\localhost\localDevCA.crt -keystore "$env:JAVA_HOME\lib\security\cacerts" -storepass changeit
+keytool -importcert -noprompt -trustcacerts -alias localhostca -file .\local-dev\auth\certificates\localhost\localhost-ca.crt -keystore "$env:JAVA_HOME\lib\security\cacerts" -storepass changeit
 ```
 
 #### Node.js
@@ -198,7 +190,7 @@ CAUSE unable to verify the first certificate
 Set the variable to the root certificate authority and the same request succeeds:
 
 ```bash
-export NODE_EXTRA_CA_CERTS=./local-dev/auth/certificates/localhost/localDevCA.crt
+export NODE_EXTRA_CA_CERTS=./local-dev/auth/certificates/localhost/localhost-ca.crt
 ```
 
 ```bash
@@ -206,7 +198,7 @@ node your-app.js
 ```
 
 ```powershell
-$env:NODE_EXTRA_CA_CERTS = ".\local-dev\auth\certificates\localhost\localDevCA.crt"
+$env:NODE_EXTRA_CA_CERTS = ".\local-dev\auth\certificates\localhost\localhost-ca.crt"
 ```
 
 ```powershell
@@ -235,7 +227,7 @@ ERROR SSLError HTTPSConnectionPool(host='keycloak', port=9443): Max retries exce
 With `REQUESTS_CA_BUNDLE` pointed at the root:
 
 ```bash
-export REQUESTS_CA_BUNDLE=./local-dev/auth/certificates/localhost/localDevCA.crt
+export REQUESTS_CA_BUNDLE=./local-dev/auth/certificates/localhost/localhost-ca.crt
 ```
 
 ```bash
@@ -243,7 +235,7 @@ python your-app.py
 ```
 
 ```powershell
-$env:REQUESTS_CA_BUNDLE = ".\local-dev\auth\certificates\localhost\localDevCA.crt"
+$env:REQUESTS_CA_BUNDLE = ".\local-dev\auth\certificates\localhost\localhost-ca.crt"
 ```
 
 ```powershell
@@ -263,7 +255,7 @@ ERROR URLError <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verif
 With `SSL_CERT_FILE` pointed at the root:
 
 ```bash
-export SSL_CERT_FILE=./local-dev/auth/certificates/localhost/localDevCA.crt
+export SSL_CERT_FILE=./local-dev/auth/certificates/localhost/localhost-ca.crt
 ```
 
 ```bash
@@ -271,7 +263,7 @@ python your-app.py
 ```
 
 ```powershell
-$env:SSL_CERT_FILE = ".\local-dev\auth\certificates\localhost\localDevCA.crt"
+$env:SSL_CERT_FILE = ".\local-dev\auth\certificates\localhost\localhost-ca.crt"
 ```
 
 ```powershell
@@ -290,7 +282,7 @@ the same Keycloak. macOS has no measurement here, but its curl does not use Scha
 the one to reach for there too:
 
 ```bash
-curl --cacert ./local-dev/auth/certificates/localhost/localDevCA.crt https://keycloak:9443/realms/local/.well-known/openid-configuration
+curl --cacert ./local-dev/auth/certificates/localhost/localhost-ca.crt https://keycloak:9443/realms/local/.well-known/openid-configuration
 ```
 
 From Git Bash on Windows the same command fails, and not for the reason it first looks like:
@@ -316,13 +308,13 @@ them off the Linux and macOS command.
 Git Bash:
 
 ```bash
-curl --cacert ./local-dev/auth/certificates/localhost/localDevCA.crt --ssl-revoke-best-effort https://keycloak:9443/realms/local/.well-known/openid-configuration
+curl --cacert ./local-dev/auth/certificates/localhost/localhost-ca.crt --ssl-revoke-best-effort https://keycloak:9443/realms/local/.well-known/openid-configuration
 ```
 
 PowerShell:
 
 ```powershell
-curl.exe --cacert .\local-dev\auth\certificates\localhost\localDevCA.crt --ssl-revoke-best-effort https://keycloak:9443/realms/local/.well-known/openid-configuration
+curl.exe --cacert .\local-dev\auth\certificates\localhost\localhost-ca.crt --ssl-revoke-best-effort https://keycloak:9443/realms/local/.well-known/openid-configuration
 ```
 
 Write `curl.exe` rather than `curl` in PowerShell. Windows PowerShell 5.1 aliases `curl` to `Invoke-WebRequest`,
@@ -367,9 +359,9 @@ variable the service's own runtime reads:
 services:
   your-service:
     volumes:
-      - ./local-dev/auth/certificates/localhost/localDevCA.crt:/certs/localDevCA.crt:ro
+      - ./local-dev/auth/certificates/localhost/localhost-ca.crt:/certs/localhost-ca.crt:ro
     environment:
-      - NODE_EXTRA_CA_CERTS=/certs/localDevCA.crt
+      - NODE_EXTRA_CA_CERTS=/certs/localhost-ca.crt
 ```
 
 Swap the environment variable for `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE`, or the two `javax.net.ssl` system
