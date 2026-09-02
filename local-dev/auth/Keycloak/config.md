@@ -128,10 +128,19 @@ for local postgres password for default user is `local`
 ---
 ### Export config
 
+Nothing in this stack is seeded from a realm export. The `local` realm arrives with the database, restored from
+[export/database/keycloak-dump.sql](./export/database/keycloak-dump.sql) on the first boot of the `postgres_data`
+volume. The two JSON files under [export/config](./export/config) are reference copies for reading, not an import
+source, and they are not wired into any build or compose step.
+
+Do not import them into this stack. They declare the realm `local` but carry a different client, `pharmaApp-client`,
+where the running realm has `local-client` with the secret documented in [README.md](./README.md). An import would
+collide with what the dump creates rather than reproduce it.
+
 ### via terminal
 Selected realm export
 ```shell
-/opt/keycloak/bin/kc.sh export --realm pharma --file /tmp/pharma-realm-export.json
+/opt/keycloak/bin/kc.sh export --realm local --file /tmp/local-realm-export.json
 ```
 full export
 ```shell
@@ -140,13 +149,13 @@ full export
 
 then if docker has local discs mounted:
 ```shell
-cp /tmp/realm-export.json /mnt/c/tmp/
+cp /tmp/local-realm-export.json /mnt/c/tmp/
 ```
 if not in docker desktop if you click on keycloak container there is tab `Files`.  
 Right-click on file in a file tree and click `Save` popup will open asking where to save it. 
 
 #### Via UI (partial export) 
-1. Go to your realm: In the Keycloak Admin Console, select the realm you want to export ("pharma" in your case).
+1. Go to your realm: In the Keycloak Admin Console, select the realm you want to export (`local` in this stack).
 2. Realm settings: Click on the "Realm Settings" tab.
 3. Export: Click the "Export" button.
    Options:

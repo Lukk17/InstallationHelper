@@ -1,6 +1,6 @@
 {
   "id" : "67c26da6-bdd0-4600-92a3-67f11ba6edaf",
-  "realm" : "pharma",
+  "realm" : "local",
   "notBefore" : 0,
   "defaultSignatureAlgorithm" : "RS256",
   "revokeRefreshToken" : false,
@@ -56,7 +56,7 @@
       "attributes" : { }
     }, {
       "id" : "963cbee8-7430-4acc-abfd-328b0cc2d8fe",
-      "name" : "default-roles-pharma",
+      "name" : "default-roles-local",
       "description" : "${role_default-roles}",
       "composite" : true,
       "composites" : {
@@ -354,7 +354,7 @@
   "groups" : [ ],
   "defaultRole" : {
     "id" : "963cbee8-7430-4acc-abfd-328b0cc2d8fe",
-    "name" : "default-roles-pharma",
+    "name" : "default-roles-local",
     "description" : "${role_default-roles}",
     "composite" : true,
     "clientRole" : false,
@@ -412,7 +412,7 @@
     } ],
     "disableableCredentialTypes" : [ ],
     "requiredActions" : [ ],
-    "realmRoles" : [ "ROLE_USER", "default-roles-pharma" ],
+    "realmRoles" : [ "ROLE_USER", "default-roles-local" ],
     "notBefore" : 0,
     "groups" : [ ]
   }, {
@@ -426,7 +426,7 @@
     "credentials" : [ ],
     "disableableCredentialTypes" : [ ],
     "requiredActions" : [ ],
-    "realmRoles" : [ "default-roles-pharma" ],
+    "realmRoles" : [ "default-roles-local" ],
     "clientRoles" : {
       "pharmaApp-client" : [ "uma_protection" ]
     },
@@ -448,12 +448,12 @@
     "clientId" : "account",
     "name" : "${client_account}",
     "rootUrl" : "${authBaseUrl}",
-    "baseUrl" : "/realms/pharma/account/",
+    "baseUrl" : "/realms/local/account/",
     "surrogateAuthRequired" : false,
     "enabled" : true,
     "alwaysDisplayInConsole" : false,
     "clientAuthenticatorType" : "client-secret",
-    "redirectUris" : [ "/realms/pharma/account/*" ],
+    "redirectUris" : [ "/realms/local/account/*" ],
     "webOrigins" : [ ],
     "notBefore" : 0,
     "bearerOnly" : false,
@@ -479,12 +479,12 @@
     "clientId" : "account-console",
     "name" : "${client_account-console}",
     "rootUrl" : "${authBaseUrl}",
-    "baseUrl" : "/realms/pharma/account/",
+    "baseUrl" : "/realms/local/account/",
     "surrogateAuthRequired" : false,
     "enabled" : true,
     "alwaysDisplayInConsole" : false,
     "clientAuthenticatorType" : "client-secret",
-    "redirectUris" : [ "/realms/pharma/account/*" ],
+    "redirectUris" : [ "/realms/local/account/*" ],
     "webOrigins" : [ ],
     "notBefore" : 0,
     "bearerOnly" : false,
@@ -720,12 +720,12 @@
     "clientId" : "security-admin-console",
     "name" : "${client_security-admin-console}",
     "rootUrl" : "${authAdminUrl}",
-    "baseUrl" : "/admin/pharma/console/",
+    "baseUrl" : "/admin/local/console/",
     "surrogateAuthRequired" : false,
     "enabled" : true,
     "alwaysDisplayInConsole" : false,
     "clientAuthenticatorType" : "client-secret",
-    "redirectUris" : [ "/admin/pharma/console/*" ],
+    "redirectUris" : [ "/admin/local/console/*" ],
     "webOrigins" : [ "+" ],
     "notBefore" : 0,
     "bearerOnly" : false,

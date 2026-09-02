@@ -44,7 +44,7 @@ For the integrated Compose stack (recommended), use the entry in
 ---
 
 The `local` realm ships a confidential client `local-client` with a baked-in test user (`lukk` / `test1234`). The
-secret below is part of the committed realm export and is safe to use locally.
+secret below is part of the committed seed dump, [export/database/keycloak-dump.sql](./export/database/keycloak-dump.sql), and is safe to use locally.
 
 Run it from the project root. The command is the same everywhere except for one Windows-only flag, so it is written
 once per platform group rather than once per operating system. All three forms were measured returning HTTP 200 with

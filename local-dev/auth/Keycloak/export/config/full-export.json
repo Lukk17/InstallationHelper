@@ -70,7 +70,7 @@
       "composites" : {
         "realm" : [ "create-realm" ],
         "client" : {
-          "pharma-realm" : [ "manage-identity-providers", "query-groups", "query-realms", "manage-users", "manage-clients", "manage-events", "manage-authorization", "view-realm", "view-clients", "create-client", "impersonation", "manage-realm", "view-authorization", "query-users", "view-users", "view-identity-providers", "view-events", "query-clients" ],
+          "local-realm" : [ "manage-identity-providers", "query-groups", "query-realms", "manage-users", "manage-clients", "manage-events", "manage-authorization", "view-realm", "view-clients", "create-client", "impersonation", "manage-realm", "view-authorization", "query-users", "view-users", "view-identity-providers", "view-events", "query-clients" ],
           "master-realm" : [ "manage-realm", "manage-authorization", "view-authorization", "impersonation", "manage-clients", "view-users", "manage-events", "view-clients", "manage-identity-providers", "create-client", "view-identity-providers", "view-events", "query-clients", "query-groups", "manage-users", "query-realms", "view-realm", "query-users" ]
         }
       },
@@ -103,7 +103,7 @@
       "attributes" : { }
     } ],
     "client" : {
-      "pharma-realm" : [ {
+      "local-realm" : [ {
         "id" : "0f3a8b6c-f5e8-422d-878c-3537a2db9996",
         "name" : "manage-identity-providers",
         "description" : "${role_manage-identity-providers}",
@@ -182,7 +182,7 @@
         "composite" : true,
         "composites" : {
           "client" : {
-            "pharma-realm" : [ "query-clients" ]
+            "local-realm" : [ "query-clients" ]
           }
         },
         "clientRole" : true,
@@ -219,7 +219,7 @@
         "composite" : true,
         "composites" : {
           "client" : {
-            "pharma-realm" : [ "query-groups", "query-users" ]
+            "local-realm" : [ "query-groups", "query-users" ]
           }
         },
         "clientRole" : true,
@@ -733,8 +733,8 @@
     "optionalClientScopes" : [ "address", "phone", "offline_access", "organization", "microprofile-jwt" ]
   }, {
     "id" : "d012b095-0b9b-4261-a53c-317559f9fe0b",
-    "clientId" : "pharma-realm",
-    "name" : "pharma Realm",
+    "clientId" : "local-realm",
+    "name" : "local Realm",
     "surrogateAuthRequired" : false,
     "enabled" : true,
     "alwaysDisplayInConsole" : false,
@@ -2091,7 +2091,7 @@
   }
 }, {
   "id" : "67c26da6-bdd0-4600-92a3-67f11ba6edaf",
-  "realm" : "pharma",
+  "realm" : "local",
   "notBefore" : 0,
   "defaultSignatureAlgorithm" : "RS256",
   "revokeRefreshToken" : false,
@@ -2147,7 +2147,7 @@
       "attributes" : { }
     }, {
       "id" : "963cbee8-7430-4acc-abfd-328b0cc2d8fe",
-      "name" : "default-roles-pharma",
+      "name" : "default-roles-local",
       "description" : "${role_default-roles}",
       "composite" : true,
       "composites" : {
@@ -2445,7 +2445,7 @@
   "groups" : [ ],
   "defaultRole" : {
     "id" : "963cbee8-7430-4acc-abfd-328b0cc2d8fe",
-    "name" : "default-roles-pharma",
+    "name" : "default-roles-local",
     "description" : "${role_default-roles}",
     "composite" : true,
     "clientRole" : false,
@@ -2503,7 +2503,7 @@
     } ],
     "disableableCredentialTypes" : [ ],
     "requiredActions" : [ ],
-    "realmRoles" : [ "ROLE_USER", "default-roles-pharma" ],
+    "realmRoles" : [ "ROLE_USER", "default-roles-local" ],
     "notBefore" : 0,
     "groups" : [ ]
   }, {
@@ -2517,7 +2517,7 @@
     "credentials" : [ ],
     "disableableCredentialTypes" : [ ],
     "requiredActions" : [ ],
-    "realmRoles" : [ "default-roles-pharma" ],
+    "realmRoles" : [ "default-roles-local" ],
     "clientRoles" : {
       "pharmaApp-client" : [ "uma_protection" ]
     },
@@ -2539,12 +2539,12 @@
     "clientId" : "account",
     "name" : "${client_account}",
     "rootUrl" : "${authBaseUrl}",
-    "baseUrl" : "/realms/pharma/account/",
+    "baseUrl" : "/realms/local/account/",
     "surrogateAuthRequired" : false,
     "enabled" : true,
     "alwaysDisplayInConsole" : false,
     "clientAuthenticatorType" : "client-secret",
-    "redirectUris" : [ "/realms/pharma/account/*" ],
+    "redirectUris" : [ "/realms/local/account/*" ],
     "webOrigins" : [ ],
     "notBefore" : 0,
     "bearerOnly" : false,
@@ -2570,12 +2570,12 @@
     "clientId" : "account-console",
     "name" : "${client_account-console}",
     "rootUrl" : "${authBaseUrl}",
-    "baseUrl" : "/realms/pharma/account/",
+    "baseUrl" : "/realms/local/account/",
     "surrogateAuthRequired" : false,
     "enabled" : true,
     "alwaysDisplayInConsole" : false,
     "clientAuthenticatorType" : "client-secret",
-    "redirectUris" : [ "/realms/pharma/account/*" ],
+    "redirectUris" : [ "/realms/local/account/*" ],
     "webOrigins" : [ ],
     "notBefore" : 0,
     "bearerOnly" : false,
@@ -2811,12 +2811,12 @@
     "clientId" : "security-admin-console",
     "name" : "${client_security-admin-console}",
     "rootUrl" : "${authAdminUrl}",
-    "baseUrl" : "/admin/pharma/console/",
+    "baseUrl" : "/admin/local/console/",
     "surrogateAuthRequired" : false,
     "enabled" : true,
     "alwaysDisplayInConsole" : false,
     "clientAuthenticatorType" : "client-secret",
-    "redirectUris" : [ "/admin/pharma/console/*" ],
+    "redirectUris" : [ "/admin/local/console/*" ],
     "webOrigins" : [ "+" ],
     "notBefore" : 0,
     "bearerOnly" : false,

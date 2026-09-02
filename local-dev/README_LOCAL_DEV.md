@@ -194,7 +194,7 @@ Nothing on either port asks for a credential. s3manager on `9071` ships no authe
 
 | Doc                                                          | What's in it                                                            |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| [auth/Keycloak/config.md](./auth/Keycloak/config.md)         | Realm export, client setup, export-import flow.                         |
+| [auth/Keycloak/config.md](./auth/Keycloak/config.md)         | First run, realm and client setup by hand, database dump, exporting the realm. |
 | [auth/Keycloak/README.md](./auth/Keycloak/README.md)         | Dockerfile, token curl, OS trust store import for the certificate authority. |
 | [auth/README.md](./auth/README.md)                           | Local certificate authority generation, trust store setup per platform, Let's Encrypt for prod. |
 | [postgresql/README.md](./postgresql/README.md)               | Standalone Postgres run, credentials.                                   |

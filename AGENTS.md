@@ -231,7 +231,7 @@ On Windows, prefer Git Bash, because that is the only shell here that can prove 
 bash e2e/run.sh
 ```
 
-WSL runs the gate too, but as measured on 2026-08-20 it does not come back clean, and neither reason is about the tree under test. One check fails because `setup/manifests/generate.py` passes `newline=` to `Path.read_text`, which needs Python 3.13 and WSL has 3.12.3, and three more skip because the Store `pwsh` alias did not answer through interop that time. Both were reproduced against a clean worktree at `HEAD`. The interop route does work when Windows lets it: the Store build's `pwsh.exe` and `winget.exe` under `WindowsApps` have been observed running from inside WSL and answering real queries, which is why those checks report SKIP rather than a pass when nothing runs. This paragraph has now been rewritten twice in both directions, which is itself the lesson: a Store app-execution alias is not a normal executable, whether WSL can run one is a property of the Windows build rather than of this repository, so measure it on the day rather than trusting what is written here. Git Bash remains the better default, because it needs no interop hop and delegates the two Ansible checks to WSL by itself. The gate prints its own tally, and [`e2e/README_E2E.md`](e2e/README_E2E.md) describes the shells without restating a number that goes stale every time a check is added.
+WSL runs the gate too, and as measured on 2026-09-02 it now comes back clean, with the same tally Git Bash gives and the same two skips, one for shellcheck not being installed and one toggle coverage assertion. What this paragraph said before, one failure and three skips, understated the gap by an order of magnitude, and the direction of the error is the part worth keeping. Measured on 2026-09-02 against a clean worktree, fourteen of the checks that run Python were useless there: twelve printed their header and then nothing at all, no PASS, no FAIL and no tally, a thirteenth got one assertion out before it died, and a fourteenth, `shell_syntax`, turned the same failure into `FAIL no shell script was found anywhere in the repository`. The cause was that every one of them named its interpreter `${PYTHON:-python}` while WSL Ubuntu here has `/usr/bin/python3` and no `python`, so the command substitution failed and `set -e` ended the script on the assignment. Forty-seven assertions never ran, and the gate reported all of that as a bare exit code. Two more checks were broken the same shape for a different reason: `windows_pester` and `powershell_variables` converted their paths with `host_path`, which answers a Docker daemon's question and is the identity on Linux, so a Windows `pwsh.exe` was handed a `/mnt/d` path and answered that it could not find `D:\mnt\d\...`, which made one of them accuse the tree of failing unit tests it had never run. The interpreter is resolved once now, by `require_python` in [`e2e/lib/common.sh`](e2e/lib/common.sh), which reports SKIP and names what it looked for when there is none, and those two checks use `to_windows_path`. The manifest failure recorded here before is gone as well, because `setup/manifests/generate.py` compares bytes rather than calling `Path.read_text(newline="")`. The interop route does work when Windows lets it: the Store build's `pwsh.exe` and `winget.exe` under `WindowsApps` have been observed running from inside WSL and answering real queries, which is why those checks report SKIP rather than a pass when nothing runs. This paragraph has now been rewritten three times and in both directions, which is itself the lesson: a Store app-execution alias is not a normal executable, whether WSL can run one is a property of the Windows build rather than of this repository, so measure it on the day rather than trusting what is written here. Git Bash remains the better default, because it needs no interop hop and delegates the two Ansible checks to WSL by itself. The gate prints its own tally, and [`e2e/README_E2E.md`](e2e/README_E2E.md) describes the shells without restating a number that goes stale every time a check is added.
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh"
@@ -361,7 +361,7 @@ Use multiline prompts when you need to include logs or detailed context with a c
 A cross-platform Ansible-based system setup and local development toolkit. It has three main parts:
 
 1. **`setup/`** — OS configuration and software installation. An Ansible playbook covers Ubuntu/Debian, Fedora, Arch Linux and macOS. Windows is not covered by Ansible at all: `setup/setup.ps1` and the modules in `setup/windows/` provision it natively from the same toggles and mappings.
-2. **`local-dev/`** — Docker Compose stack for local development services (MySQL, PostgreSQL, MongoDB, Keycloak).
+2. **`local-dev/`** — Docker Compose stack for local development services: databases, a cache, a vector store, object storage and Keycloak. The services and their ports are listed under Local Dev Stack below.
 3. **`homelab/`** — Docker Compose stack and documentation for an always-on home server: a Proxmox host running a Home Assistant OS VM and an Ubuntu Docker VM (AdGuard Home, Nginx Proxy Manager, Homepage, Uptime Kuma, Syncthing, Perlite). Docs only plus one compose file, no Ansible. Write instructions against `<angle-bracket>` placeholders so the docs stay reusable, then give the LAN addresses of this specific lab as a concrete example block underneath. Never commit credentials, API tokens, device keys, or MAC addresses.
 
 ## Documentation Conventions
@@ -483,17 +483,23 @@ The `-K` flag prompts for the sudo password. Windows must run from within WSL.
 Start all services from the project root:
 
 ```bash
-docker-compose -f ./local-dev/local-dev-docker-compose.yaml up -d
+docker compose -f ./local-dev/local-dev-docker-compose.yaml up -d
 ```
 
 | Service | Port | Credentials |
 |---|---|---|
 | MySQL | 3306 | root / local, DB: `test-spring` |
 | PostgreSQL | 5432 | postgres / local |
-| MongoDB | 27017 | No auth, DB: `articles` |
+| MongoDB | 27017 | No auth, no database created, one appears on first write |
 | Keycloak | 9443 (HTTPS) | admin / admin; test user: lukk / test1234 (realm: `local`) |
+| Qdrant | 6333 (HTTP), 6334 (gRPC) | No auth, also answers to `mem0_store` inside the Compose network |
+| Redis | 6379 | No auth, no volume, everything goes when the container does |
+| Floci (S3) | 9070 | admin / password, nothing actually checks them |
+| s3manager | 9071 | No auth, browses the Floci buckets |
 
-PostgreSQL and Keycloak use custom Dockerfiles (`local-dev/postgresql/Dockerfile`, `local-dev/auth/Keycloak/Dockerfile`). Keycloak realm configs are in `local-dev/auth/Keycloak/export/`.
+PostgreSQL and Keycloak use custom Dockerfiles (`local-dev/postgresql/Dockerfile`, `local-dev/auth/Keycloak/Dockerfile`). The `local` realm is not imported from a realm export, it arrives with the database: `local-dev/postgresql/Dockerfile` copies `local-dev/auth/Keycloak/export/database/keycloak-dump.sql` into `docker-entrypoint-initdb.d`, and `local-dev/postgresql/init.sh` restores it on first boot of the `postgres_data` volume. Realm export JSON lives in `local-dev/auth/Keycloak/export/config/` as reference copies only. Nothing imports them, and they carry a `pharmaApp-client` where the running realm has `local-client`, so importing one does not reproduce the stack.
+
+[`local-dev/local-dev-docker-compose.yaml`](local-dev/local-dev-docker-compose.yaml) is the source of truth for images, ports and pins. [`local-dev/README_LOCAL_DEV.md`](local-dev/README_LOCAL_DEV.md) carries the rest, including the `keycloak.test` and `s3.test` hosts entries that nothing sets up for you.
 
 ## KDE Plasma Profile Management
 

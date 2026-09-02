@@ -2619,8 +2619,9 @@ written as bytes.
 
 #### Thirteen tier 1 checks produce no result at all under WSL, and the gate has been reporting that as a failure with no message
 
-Status: found while running the gate from WSL for the change above. Not fixed, because it belongs to thirteen checks
-rather than to this one, and it is named here so it is not found a third time.
+Status: found while running the gate from WSL for the change above. Fixed on 2026-09-02, in
+[e2e/lib/common.sh](../e2e/lib/common.sh) and the sixteen checks that now call it. The finding stays as it was written,
+because the lesson is the shape rather than the fix.
 
 Every check that runs Python invokes it as `"${PYTHON:-python}"`. WSL Ubuntu here has `/usr/bin/python3` and no
 `python` at all, so the command substitution fails with `python: command not found`, `set -e` ends the script on the
@@ -2645,3 +2646,246 @@ One measurement to keep with it, because it wasted a comparison here. Reading `$
 string always gives 0, so both gate logs written that way end with a `GATE_EXIT=0` that means nothing. Read from the
 Git Bash side instead, the same two runs exit 1 and 1: `wsl -d Ubuntu bash -c "exit 7"` propagates 7, while
 `wsl -d Ubuntu bash -c "bash -c 'exit 5'; echo inner=$?"` prints `inner=0`.
+
+The fix, and the before and after it was measured against. Every tier 1 check was run on its own under WSL, twice,
+once at `214a0c1` and once after the change, and the counts came out of those runs rather than out of the combined log,
+which interleaves the stderr of a dying check over the stdout of the one before it and is unreadable at exactly the
+place it matters:
+
+| Under WSL | Before | After |
+|---|---|---|
+| checks that printed a header | 39 | 39 |
+| checks that printed a tally | 25 | 39 |
+| checks that emitted no PASS, FAIL or SKIP at all | 13 | 0 |
+| assertions that ran | 224 | 271 |
+| FAIL | 2 | 0 |
+| SKIP | 1 | 2 |
+| exit code of `./e2e/run.sh` | 1 | 0 |
+
+Both remaining skips are the two Git Bash already had, shellcheck not being installed and the three unconsumed Linux
+toggles, and Git Bash still reports 271 passed, 0 failed and 2 skipped, in 9 minutes 11 seconds. Every one of the
+thirteen silent checks now passes, and `shell_syntax` reports five passes and the shellcheck skip instead of accusing
+the repository of containing no shell scripts.
+
+The resolution lives in one place. `require_python <claim> <label>` in [e2e/lib/common.sh](../e2e/lib/common.sh)
+resolves the interpreter through `pinned_values_python`, leaves it in `PYTHON`, and on failure reports the claim as
+SKIP and ends the check through `finish`, which is the shape `control_characters.sh` and `manifests.sh` had already
+grown by hand and which those two now share rather than repeat. `compose_and_docs.sh` needs Python for one assertion
+out of three, so it calls `find_runnable_python` itself and skips only that one. Fifteen files carried
+`"${PYTHON:-python}"`, fourteen of them as code, and none does now.
+
+Two things were fixed alongside it because they are the same defect and would have kept the gate silent on their own.
+`assert_python_ran <status> <label>` covers the other half of the rule: finding an interpreter is not the same as it
+finishing, and a report assignment whose Python raises takes the script down under `set -e` just as quietly as one
+that never started, so every callsite now keeps that status with `|| status=$?` and fails loudly instead. And
+`ansible_static.sh` had the mirror-image bug, `"${PYTHON:-python3}"`, which is silent on the shell that has `python`
+and no `python3`, plus a third resolver of its own spelled `$(command -v python3 || command -v python)` that dies the
+same way when neither exists. Both now go through the shared one.
+
+Proven rather than reasoned about, in both directions. A PATH was built inside WSL holding symlinks to all 997 entries
+of `/usr/bin` except the interpreters, and against it `desktop_settings`, `shell_syntax`, `line_endings` and
+`control_characters` each report `SKIP ... no Python 3.11 or newer on PATH (tried python3, python and py)` and exit 0,
+while `compose_and_docs` keeps its other two passes and skips only the service assertion. With
+`PINNED_VALUES_PYTHON=/usr/bin/false`, so that an interpreter is found and then dies, `desktop_settings` reports
+`FAIL the Python half of this check did not run to completion` and exits 1. Neither branch is silent.
+
+#### Two checks handed a Windows PowerShell a Linux path, so one died without a word and the other blamed the tree
+
+Status: found on 2026-09-02 while proving the entry above, fixed in the same change.
+
+`host_path` in [e2e/lib/common.sh](../e2e/lib/common.sh) exists to spell a path the way a Docker daemon will accept
+it, and on Linux it is the identity. `to_windows_path` in [e2e/tier1/pwsh_probe.sh](../e2e/tier1/pwsh_probe.sh) exists
+to spell a path the way a Windows PowerShell will accept it, through `wslpath -w` or `cygpath -w`.
+`windows_mapping.sh`, `windows_settings.sh` and `pinned_values.sh` use the second one. `powershell_variables.sh` and
+`windows_pester.sh` used the first, which is the wrong converter and does nothing at all under WSL, where the only
+PowerShell 7 reachable is the Windows `pwsh.exe` through interop:
+
+```text
+Cannot find path 'D:\mnt\d\Development\projekty-IT\InstallationHelper\setup' because it does not exist.
+```
+
+`pwsh.exe` then exited non-zero, `pipefail` carried that into the assignment, and `powershell_variables` died there
+having printed nothing but its own header, which is why it was one of the fourteen silent checks even though it runs
+no Python at all. `windows_pester` survived and reported the worse thing, a failure that reads as a defect in the
+repository:
+
+```text
+FAIL the Windows installer unit tests fail, and CI would refuse the whole sweep for it
+     total= passed= failed= skipped= |
+```
+
+The empty numbers are the tell. Pester was pointed at a path that does not exist, found no tests, and the counts came
+back null. Anybody reading that line in a WSL run would have gone looking through `setup/windows/` for a fault that
+was never there. Both now call `to_windows_path`, and both pass under WSL. Two guards went in with the fix, because
+the silence was a second defect on top of the wrong path: the `pwsh` invocation in `powershell_variables.sh` keeps its
+status and fails with what `pwsh` said instead of dying, and `windows_pester.sh` no longer reads its totals through a
+`grep` whose exit 1 would have ended the script under `pipefail` before the branch that handles "printed no totals"
+could ever run.
+
+---
+
+### Found in the local development stack while making it run on Linux and macOS, 2026-09-02
+
+Six defects, all in [local-dev/](../local-dev/) rather than under `setup/`, and all of the same family: a thing that
+was true on the owner's Windows machine written down as if it were true everywhere, or a setting written down as if it
+did something. Nothing in the e2e gate covers this directory, so every one of them was found by reading a document
+next to a running stack rather than by a check.
+
+#### A Compose variable that did nothing, and a services table that promised its result
+
+`MONGO_INITDB_DATABASE: articles` sat on the `mongodb` service and had never created anything. The official image runs
+its initialisation phase only when a root username and password are both set or a shell or JavaScript file is present
+in `/docker-entrypoint-initdb.d`, and neither was true here, and even when that phase does run the variable is only the
+database argument handed to those scripts. The effect was documentation rather than breakage: the services table in
+[local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md) and the stack table in
+[AGENTS.md](../AGENTS.md) both named `articles` as a database that exists, and it never has.
+
+Proven rather than reasoned. With the variable removed, `db.adminCommand({listDatabases:1})` returns exactly
+`["admin","config","local"]`, which is what it returned with the variable present. Inserting one document into
+`articles` makes it appear immediately and dropping it removes it again, so the lazy creation MongoDB does on first
+write is the whole mechanism and no initialisation was ever needed. The fix removes the variable and rewrites both
+tables to say the server starts empty. The owner's decision was deliberately to add nothing, no init script and no
+mount.
+
+#### A Schannel-only curl flag inside code blocks labelled bash
+
+[local-dev/auth/Keycloak/README.md](../local-dev/auth/Keycloak/README.md) gave its token request and its health
+request as one `bash` block and one `powershell` block, and both carried `--ssl-revoke-best-effort`. That option is
+Schannel only. It exists because the Windows curl build cannot answer the revocation question for a certificate signed
+by a local authority that publishes neither a CRL distribution point nor an OCSP responder, and the sibling document
+[local-dev/auth/README.md](../local-dev/auth/README.md) already said so in its own curl section. A reader on Ubuntu,
+Arch or macOS was handed a Windows flag with nothing telling them so.
+
+What made it survive is worth recording, because it is why nobody noticed. The flag does not fail on Linux. Measured
+from Ubuntu 24.04 with curl 8.5.0 built against OpenSSL, the same request with the flag returns HTTP 200 and
+`ssl_verify_result=0`, exactly as without it. A wrong platform flag that errors gets fixed on first use, one that is
+silently ignored lives forever. The fix splits each command into three labelled forms, Ubuntu and Arch and macOS and
+WSL without the flag, Git Bash with it, PowerShell with it, and all three were run against the running stack.
+
+#### Debian's trust store answer written down as the Linux answer
+
+The same file's operating system trust section had one heading, `Linux (Ubuntu / Debian)`, telling the reader to copy
+the authority into `/usr/local/share/ca-certificates/` and run `update-ca-certificates`. On Arch neither of those
+exists. Measured in an `archlinux` container: `/usr/local/share/ca-certificates` is absent and there is no
+`update-ca-certificates` binary at all, so the documented procedure creates a directory nothing reads and trusts
+nothing, with no error to notice. Arch keeps anchors in `/etc/ca-certificates/trust-source/anchors/` and rebuilds with
+`update-ca-trust`, and with that done `openssl verify` accepts this repository's leaf against the system store while
+removing the file puts it back to `error 20 at 0 depth lookup: unable to get local issuer certificate`.
+
+This is defect class 1 from [AGENTS.md](../AGENTS.md), a per-distribution fact hardcoded to Debian's answer, in a
+document rather than in a task. The fix gives Ubuntu, Arch and macOS their own commands and adds an Arch row to the
+container trust table in the sibling document. macOS is labelled as reasoned, since no macOS machine exists here.
+
+#### An instruction spelled `$JAVA_HOME` on distributions that do not set it
+
+The `keytool` guidance for importing the authority pointed at `"$JAVA_HOME/lib/security/cacerts"`. Measured after a
+default Java Development Kit install in a container for each distribution, `JAVA_HOME` is unset on both Ubuntu 24.04
+with `openjdk-21-jdk-headless` and Arch with `jdk-openjdk`, so that command expands to `/lib/security/cacerts` and
+fails on a machine that did nothing wrong. `keytool` itself is on the path on both, at `/usr/bin/keytool` on Ubuntu and
+`/usr/sbin/keytool` on Arch. The fix leads with `keytool -cacerts`, which names the current Java Development Kit's own
+trust store with no path and no variable and behaves the same on all four platforms, and keeps the explicit path form
+underneath for machines where the variable really is set.
+
+#### "Java never consults the operating system trust store", which is false on Ubuntu and on Arch
+
+Both auth documents asserted that importing the authority into the operating system store cannot fix a single service
+to service call, because Java reads `cacerts` inside the Java Development Kit and consults the operating system for
+nothing. That is true on Windows and it is wrong on both Linux distributions this project supports, because the
+distribution packaging links the two. On Ubuntu `$JAVA_HOME/lib/security/cacerts` is a symlink to
+`/etc/ssl/certs/java/cacerts` kept in step by `ca-certificates-java`, which the `openjdk-*` packages pull in, and after
+`update-ca-certificates` a plain `keytool -list -cacerts -v` shows `CN=localhost certificate authority` with nothing
+else done. On Arch the same path is a symlink chain ending at `/etc/ca-certificates/extracted/java-cacerts.jks`, and
+`update-ca-trust` has the same effect.
+
+The Arch half carries a trap that the corrected text now names. Because that file is regenerated rather than edited, an
+alias imported straight into it with `keytool -importcert -cacerts` is destroyed by the next `update-ca-trust`, proven
+by importing an alias, listing it, running the command and finding it gone. The identical manual alias survives
+`update-ca-certificates` on Ubuntu. So the same two commands, run in the same order, leave two different distributions
+in opposite states.
+
+#### The documented start command does not start on a current Ubuntu
+
+[local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md) opened with
+`docker-compose -f ./local-dev/local-dev-docker-compose.yaml up -d`, hyphenated, which is the standalone Compose v1
+program rather than the `docker compose` subcommand of the Docker command line. Docker Desktop still installs the
+hyphenated name on Windows and inside WSL, which is why it had always worked here. On Ubuntu 24.04 the package
+literally called `docker-compose` is version 1.29.2 and does not run at all, measured in an `ubuntu:24.04` container:
+
+```text
+ModuleNotFoundError: No module named 'distutils'
+```
+
+Python 3.12 removed `distutils` and Compose v1 was retired before that happened. Ubuntu ships Compose v2 as
+`docker-compose-v2`, and Arch's `docker-compose` package is Compose v2 and installs both spellings, so `docker compose`
+as two words is the only form present everywhere. The fix rewrites every start and stop command in that file and gives
+each one a PowerShell form alongside the Unix shell form.
+
+#### Still open: a `docker run` in config.md that cannot resolve its own database host on Linux
+
+Not fixed, because [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) was outside the scope of
+the change that found it, and it is named here so the next reader does not have to find it again. Its second
+`docker run` passes `KC_DB_URL=jdbc:postgresql://host.docker.internal:5432/keycloak` and
+`--add-host="keycloak.test:host-gateway"`, with no `--add-host` for `host.docker.internal` itself. That name is a
+Docker Desktop convenience and does not exist on a native Linux engine, which is exactly why the `keycloak` service in
+[local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) carries
+`extra_hosts: host.docker.internal:host-gateway`. The compose path was checked and is correct, and it is the only
+service in the stack that needs the name. The standalone command needs the same `--add-host` added.
+
+#### An export command in config.md naming a realm this stack has never had
+
+[local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) told the reader to run
+`kc.sh export --realm pharma --file /tmp/pharma-realm-export.json`, and its user interface section said to select the
+realm to export, "pharma" in your case. This stack runs one realm and it is called `local`. Run verbatim against the
+running container, the command does not half work or export something empty, it refuses:
+
+```text
+ERROR: realm not found by realm name 'pharma'
+```
+
+The name came from the sibling Pharmacy project at `D:/Development/projekty-IT/Pharmacy`, along with the two files
+under [local-dev/auth/Keycloak/export/config](../local-dev/auth/Keycloak/export/config) that the command produces. The
+fix renames the realm inside both exports to `local` and points the documented commands at `--realm local`. The same
+run proves the corrected command works, `KC-SERVICES0035: Export finished successfully`, as does the unchanged full
+export.
+
+Renaming a realm inside a Keycloak export is not one string. Measured by exporting the real `local` realm out of the
+running container and diffing the shape against the pharma file, Keycloak writes the realm name into seven distinct
+places: `"realm"`, the `default-roles-<realm>` role and both `realmRoles` lists that reference it, the `account` and
+`account-console` clients' `baseUrl` and `redirectUris` under `/realms/<realm>/account/`, the
+`security-admin-console` client's `/admin/<realm>/console/`, and in a full export the master realm's generated
+`<realm>-realm` management client and its `"<realm> Realm"` display name. The line numbers of those entries in the
+live `local` export and in the pharma export are identical, 357, 415, 429, 451, 456, 482, 487, 723 and 728, which is
+what proves they are generated from the realm name rather than chosen by a person. Names somebody chose keep their
+spelling on purpose: `pharmaApp-client`, `service-account-pharmaapp-client`, the `pharma-gateway` redirect URI and the
+`com.pharmacyclient.app` callback.
+
+#### The documented copy step named a file no command in the same document produces
+
+Three lines below the export commands, the same file said `cp /tmp/realm-export.json /mnt/c/tmp/`. Neither export
+above it ever writes that path: the realm export wrote `/tmp/pharma-realm-export.json` and the full export writes
+`/tmp/full-export.json`. Proven by running both exports in the container and listing the directory, which holds
+`/tmp/local-realm-export.json` at 80637 bytes and `/tmp/full-export.json` at 254874 bytes and nothing called
+`realm-export.json`. The fix points the copy at the file the command above it actually writes. The destination
+`/mnt/c/tmp/` still does not exist inside the container, `cp: cannot create regular file '/mnt/c/tmp/': No such file
+or directory`, which is the document's own stated precondition about mounted local discs rather than a defect.
+
+#### A secret sourced from the database dump, documented as coming from the realm export
+
+[local-dev/auth/Keycloak/README.md](../local-dev/auth/Keycloak/README.md) introduced the `local-client` secret with
+"the secret below is part of the committed realm export". It is not. Counted with grep, the string
+`nZUMlOQZufa5ljWW5hHXOtGKLn0mpTkN` appears once in
+[local-dev/auth/Keycloak/export/database/keycloak-dump.sql](../local-dev/auth/Keycloak/export/database/keycloak-dump.sql)
+and zero times in either file under `export/config`. That mattered more after the rename than before it, because an
+export that now declares the realm `local` while carrying `pharmaApp-client` instead of `local-client` is exactly the
+file a reader would go looking in. The fix names the dump, and both
+[local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) and [AGENTS.md](../AGENTS.md) now say the
+exports are reference copies that nothing imports and that importing one would collide with what the dump creates.
+
+This one is worth keeping as a wrong turn as well. The first instruction on this task was to delete both exports as
+leftovers, and they were deleted with `git rm` before the owner corrected it to a rename. Nothing consumed them, so
+the deletion would have passed every check: `local-dev/postgresql/Dockerfile` copies only
+`export/database/keycloak-dump.sql` into `docker-entrypoint-initdb.d`, `local-dev/postgresql/init.sh` restores only
+that dump, and neither the Keycloak Dockerfile nor
+[local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) mentions `export/config` or sets
+`--import-realm`. A green build is not evidence that a file is worthless, and the check that would have caught the
+mistake was asking the owner rather than grepping for consumers.
