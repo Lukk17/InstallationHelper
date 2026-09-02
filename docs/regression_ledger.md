@@ -1121,7 +1121,7 @@ failed after 1s: exit -2147009284. An unexpected error occurred while executing 
 Six packages in a row reported that, and the real cause appeared exactly once, in the last line of the job:
 
 ```text
-##[error]There is not enough space on the disk. : 'C:ctions-runner\cached.336.0\_diaglocks\...'
+##[error]There is not enough space on the disk. : 'C:\actions-runner\cached\2.336.0\_diag\blocks\...'
 ```
 
 A reader who stopped at the first error would have gone hunting for a broken package or a bad MSIX. `0x80073cfc` is an APPX activation failure, which reads like the package's fault and is not.
@@ -2447,8 +2447,9 @@ scanning the written file for code points below 32, not reading the output. That
 documentation edit in this repository that goes through a generated write.
 
 The scan found a second instance the moment it was run, already committed and older than this change. Line 1124 of
-this file quotes a continuous integration error and reads `'C:` + 0x07 + `ctions-runner\\cached` + 0x02 + `.336.0\\_diag` + 0x08 + `locks'`.
+this file quotes a continuous integration error and read `'C:` + 0x07 + `ctions-runner\\cached` + 0x02 + `.336.0\\_diag` + 0x08 + `locks'`.
 Each control character is the inverse of the same transformation: 0x07 was `\a`, 0x02 was `\2`, 0x08 was `\b`, so the
-quoted path was `C:\actions-runner\cached\2.336.0\_diag\blocks`. It is left as it is rather than repaired, because
-rewriting a quoted error message on a reconstruction is how a record stops being a record. What it proves is that
-this class had already shipped here once and went unnoticed through every read of this page since.
+quoted path was `C:\actions-runner\cached\2.336.0\_diag\blocks`, which is what the line carries now. It was repaired
+in this change rather than left in place, on the owner's instruction that damaged or outdated content gets fixed and
+git keeps the history. What it proves is that this class had already shipped here once and went unnoticed through
+every read of this page since.
