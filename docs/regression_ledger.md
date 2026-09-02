@@ -2453,3 +2453,195 @@ quoted path was `C:\actions-runner\cached\2.336.0\_diag\blocks`, which is what t
 in this change rather than left in place, on the owner's instruction that damaged or outdated content gets fixed and
 git keeps the history. What it proves is that this class had already shipped here once and went unnoticed through
 every read of this page since.
+
+---
+
+### Outside the Ansible playbook, found while pinning the local-dev images by digest on 2026-09-02
+
+Same caveat as the three sections above. This is the local development Docker Compose stack rather than the Ansible
+playbook, and it is recorded here because the instruction for the work said to log any defect here. The work was
+moving MySQL to 9.7.2, MongoDB to 8.3.8 and Redis to the current 8 line, and rewriting every image reference as
+`name:tag@sha256:...`.
+
+#### The mongo image declares two volumes, the Compose file named one, so every container creation orphaned an anonymous volume
+
+Status: fixed in this change, in
+[local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml).
+
+The `mongo` image declares both `/data/db` and `/data/configdb` as volumes. The Compose file named only the first.
+Docker's rule for a declared volume with no mount of its own is to create an anonymous one, so every `docker compose
+up` that had to create the container produced a fresh volume with a 64 hex character name, holding the mongod
+configuration database, linked to nothing that names this stack and invisible to any backup or cleanup keyed to
+`local-dev_`.
+
+Proven rather than reasoned about, in three steps on the day of the fix. First, what the image declares:
+
+```text
+{"/data/configdb":{},"/data/db":{}}
+```
+
+Then a container created in the shape the Compose file used to have, with only `/data/db` named:
+
+```text
+probe_mongo_db -> /data/db
+15eb0677111b297c6fe126dcd24d97b5f848f2ab6e8d7ca0d87d6b0cf74c7c86 -> /data/configdb
+```
+
+Then the same image in the shape the Compose file has now:
+
+```text
+probe_mongo_db -> /data/db
+probe_mongo_cfg -> /data/configdb
+```
+
+The fix adds a `mongodb_config` named volume and mounts it at `/data/configdb`. After it, the full stack was brought
+up and every mount on all eight containers was listed: every one is a named volume and there is no anonymous mount
+anywhere in the stack.
+
+The generalisation is that a Compose service inherits its image's `VOLUME` declarations whether or not the author
+knows about them, so `docker image inspect --format '{{json .Config.Volumes}}' <image>` belongs in the review of any
+service that persists anything. The `docker-patterns` skill already bans anonymous volumes, and this is the way one
+arrives without anybody writing one down.
+
+There is no mechanical check for this. Nothing in the e2e harness starts the local development stack, and a check
+that did would be asserting a property of third-party images.
+
+#### The MongoDB feature compatibility version was raised before the backup was taken, by the agent doing the work
+
+Status: no code fix exists or is possible, this entry is the record. Introduced by the agent that wrote it, which is
+why it is here.
+
+The instruction gave an explicit order for the MongoDB move: back up the volume, start the current 8.2.12 against the
+real volume, raise the feature compatibility version to 8.2, then change the pin. The agent started the container and
+raised the version first, and only then took the backup. The raise is irreversible. MongoDB says so itself, and the
+refusal it prints is the reason the step was noticed at all:
+
+```text
+MongoServerError: Once you have upgraded to 8.2, you will not be able to downgrade FCV and binary version without support assistance. Please re-run this command with 'confirm: true' to acknowledge this and continue with the FCV upgrade.
+```
+
+The effect on this machine was nil, because the owner had already accepted the one-way step by name and because the
+raise itself does not touch user data. The effect that matters is the one it would have had somewhere else: for the
+window between the raise and the copy, the recovery path the instruction asked for did not exist, and any failure in
+that window would have been unrecoverable. The backup was taken immediately afterwards, with the container stopped
+first so the copy was consistent, and it measures 448.3 MB across 23 entries in `local-dev_mongodb_data_backup`,
+matching the source.
+
+The lesson is the ordering one, not the MongoDB one. When a brief names an irreversible step and a backup in the same
+breath, the backup is the first command run, before anything reads or writes the data at all, and the copy is proven
+non-empty before the irreversible step is even typed. This was done correctly for MySQL in the same piece of work,
+where the copy was taken and verified at 214.7 MB across 31 entries before the new server ever saw the volume, so the
+same agent had the right pattern in hand and did not apply it twice.
+
+#### A volume size quoted in the brief was wrong by about fifty times, and was measured rather than repeated
+
+Status: no defect in the tree. Recorded because the number would otherwise have been repeated back to the owner as
+fact.
+
+The instruction to delete the orphaned `local-dev_minio_data` volume described it as holding roughly 20 MB. Two
+measurements before removing it disagreed with that and with each other, and both were an order of magnitude below
+it. `du -sh` inside a container mounting the volume read only reported `1.1M`, and Docker's own accounting reported
+smaller still:
+
+```text
+local-dev_minio_data                                               0         412.6kB
+```
+
+The `0` in that line is the link count, which is the part that actually mattered before deleting: no container on the
+machine referenced the volume, and the only occurrence of the string `minio` anywhere in the repository is one prose
+sentence in [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md) about a `404` path, not a reference to
+the volume. It held `.minio.sys`, `e2e-fixtures`, `knowledge-base` and `sky-offers`. It was removed on the owner's
+instruction and `docker volume inspect` now answers `no such volume`.
+
+Nothing was lost by the number being wrong, because the decision did not depend on the size. It is here because a
+figure handed to an agent in a brief is not a measurement, and this page exists mostly because of the times that
+distinction went unmade.
+
+### The invisible byte class now has a check, added on 2026-09-02
+
+#### The two shipped instances of a control character in a tracked file are now caught mechanically
+
+Status: guarded by [control_characters.sh](../e2e/tier1/control_characters.sh), which is check 39 of the tier 1 gate.
+
+Cause, in one sentence: text written into a tracked file through a layer that interprets a backslash escape lands in
+the file as the single byte that escape stands for, and nothing in this repository read the raw bytes of a file, so
+that byte survived review.
+
+The two instances are the entry above titled "A Windows path in a documented command was written with a BEL control
+character instead of \a", which carries the full story of both and is not retold here. What matters for this entry is
+the bytes and how they rendered. Line 1124 of this file held 0x07, 0x02 and 0x08 where a backslash a, a backslash two
+and a backslash b belonged, so a quoted Windows path rendered as `C:` followed directly by `ctions-runner`, and it sat
+there through every read of this page until somebody scanned bytes. The other was `.\local-dev\auth\certificates\...`
+in the Keycloak page arriving with 0x07 in place of the backslash and the a, rendering as
+`.\local-devuth\certificates\...` with a directory name swallowed. Neither byte has a width, so an editor, a diff, a
+review and a rendered markdown page all show the line as correct.
+
+Proven rather than reasoned about, in four steps against a clone of the tree at `822887a`:
+
+1. Both instances were reintroduced into the clone, one at a time, by a script that built the damaged strings from
+   `chr(7)`, `chr(2)`, `chr(8)` and `chr(92)` rather than from any backslash literal. The check named each one exactly:
+   `docs/regression_ledger.md line 1124 column 54 carries 0x07 BEL; ... column 76 carries 0x02 STX; ... column 90
+   carries 0x08 BS`, and `local-dev/auth/Keycloak/README.md line 103 column 137 carries 0x07 BEL`. Exit 1 both times.
+   The clean clone passes, exit 0.
+2. The nine tracked binary files hold 3,492,613 bytes below 32 between them, counted, the `.knsv` archive alone
+   holding 2,133,788. If the text and binary split were wrong this check would fail on all nine at once.
+3. That split is git's own verdict, read from `git ls-files --eol`, not an extension list. Tracking a `setup/newformat.dat`
+   holding every byte value, an extension `.gitattributes` does not name, moved the excluded count from nine to ten
+   without a line of the check changing.
+4. Three carriage returns were then put into `README.md` in the clone. `control_characters` stayed green and
+   `line_endings` failed, which is the proof that the two checks do not implement the same rule twice. The carriage
+   return belongs to `line_endings` and to `.gitattributes`, and this check leaves it alone deliberately.
+
+Cost: 1.6 seconds from Git Bash and 10.6 from WSL, where every read crosses drvfs, against a tier 1 gate measured at
+7 minutes 36 seconds with the check in it.
+
+#### A text-mode print put a carriage return inside this check's own output, and the check broke on it
+
+Status: introduced and fixed inside the same change, in [control_characters.sh](../e2e/tier1/control_characters.sh).
+
+The first version of the check printed its counts with `print()`. On Windows that writes a carriage return and a
+newline, so the shell read `BINARY 9` and set the count to a 9 with an invisible byte stuck to it. The next line
+failed:
+
+```text
+e2e/tier1/control_characters.sh: line 150: [[: 9: arithmetic syntax error: invalid arithmetic operator (error token is "")
+```
+
+and the check went on to report that git treats no tracked file as binary, which was false and which would have hidden
+the very exclusion that entry above spends four paragraphs proving. The scan itself was right the whole time. What was
+wrong was an invisible byte inside a check about invisible bytes, found within a minute of writing it and only because
+bash refuses an arithmetic operand it cannot parse.
+
+The fix writes the report through `sys.stdout.buffer` instead, which is the same fix
+[shell_syntax.sh](../e2e/tier1/shell_syntax.sh) already carries a note about for the same reason. Worth keeping because
+the lesson is general: on Windows, anything a Python child prints to a shell is rewritten on the way out unless it is
+written as bytes.
+
+#### Thirteen tier 1 checks produce no result at all under WSL, and the gate has been reporting that as a failure with no message
+
+Status: found while running the gate from WSL for the change above. Not fixed, because it belongs to thirteen checks
+rather than to this one, and it is named here so it is not found a third time.
+
+Every check that runs Python invokes it as `"${PYTHON:-python}"`. WSL Ubuntu here has `/usr/bin/python3` and no
+`python` at all, so the command substitution fails with `python: command not found`, `set -e` ends the script on the
+assignment, and the check exits without a PASS, a FAIL or a tally. Measured on 2026-09-02, thirteen of them do this in
+every WSL run: `windows_phase_contract`, `windows_cache_cleanup`, `powershell_splat`, `workflow_timeouts`,
+`workflow_parity`, `compose_and_docs`, `network_retries`, `batched_managers`, `sigpipe_pipelines`,
+`unreachable_tasks`, `desktop_settings`, `become_password_file` and `line_endings`. A fourteenth, `shell_syntax`,
+survives the same failure and turns it into a false accusation about the tree:
+
+```text
+FAIL no shell script was found anywhere in the repository, so this check proves nothing
+```
+
+This is defect class 10 from [AGENTS.md](../AGENTS.md), a watcher that can go quiet, sitting inside the gate that
+exists to catch it. It also means the WSL description in AGENTS.md, one failure and three skips, understates the gap
+by an order of magnitude. The route out already exists and is used by `manifests.sh` and now by
+`control_characters.sh`: `pinned_values_python` in [pinned_values.sh](../setup/pinned_values/pinned_values.sh) tries
+`python3`, `python` and `py`, rejects the Windows App Execution Alias stub by asking each candidate its version, and
+returns non-zero when there is nothing usable, which lets a check report SKIP instead of dying.
+
+One measurement to keep with it, because it wasted a comparison here. Reading `$?` inside a `wsl -d Ubuntu bash -c`
+string always gives 0, so both gate logs written that way end with a `GATE_EXIT=0` that means nothing. Read from the
+Git Bash side instead, the same two runs exit 1 and 1: `wsl -d Ubuntu bash -c "exit 7"` propagates 7, while
+`wsl -d Ubuntu bash -c "bash -c 'exit 5'; echo inner=$?"` prints `inner=0`.

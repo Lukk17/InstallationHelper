@@ -75,7 +75,7 @@ run_tier1() {
     # Bash on Windows process creation is what they spend nearly all of their time on. They are last
     # so that everything answerable from text has already reported by the time the slow tail starts.
     local rc=0
-    for check in shell_syntax wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings windows_phase_contract windows_cache_cleanup windows_pester powershell_variables powershell_splat workflow_timeouts workflow_parity verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation pinned_values pinned_values_reader manifests compose_and_docs network_retries batched_managers sigpipe_pipelines unreachable_tasks desktop_settings become_password_file line_endings ansible_static interactive_states list_software wizard_refusals shell_units print_command_resolution selection_parity; do
+    for check in shell_syntax wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings windows_phase_contract windows_cache_cleanup windows_pester powershell_variables powershell_splat workflow_timeouts workflow_parity verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation pinned_values pinned_values_reader manifests compose_and_docs network_retries batched_managers sigpipe_pipelines unreachable_tasks desktop_settings become_password_file line_endings ansible_static control_characters interactive_states list_software wizard_refusals shell_units print_command_resolution selection_parity; do
         bash "${E2E_ROOT}/tier1/${check}.sh" || rc=1
         echo
     done
