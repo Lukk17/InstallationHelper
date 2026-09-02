@@ -1,8 +1,56 @@
 # Local Development Databases and Services
 
-> Docker Compose stack with MySQL, PostgreSQL, MongoDB, and Keycloak (HTTPS). Spin up, point your app at it, tear down.
+> Docker Compose stack of local backing services: relational and document databases, a cache, a vector store, object storage and an identity provider. Spin up, point your app at it, tear down.
 
 ---
+
+### Services
+
+---
+
+| Service | Address | Database / Realm | Username | Password | Image |
+| ------- | ------- | ---------------- | -------- | -------- | ----- |
+| MySQL | `mysql://root:local@localhost:3306/test-spring` | `test-spring` | `root` | `local` | `mysql:9.7.2` |
+| PostgreSQL | `postgresql://postgres:local@localhost:5432/postgres` | `keycloak`, `postgres` | `postgres` | `local` | custom, built from `postgres:17.11`. See [postgresql/](./postgresql/README.md). |
+| MongoDB | `mongodb://localhost:27017/articles` | none, see below | (none) | (none) | `mongo:8.3.8` |
+| Qdrant | dashboard at [http://localhost:6333/dashboard](http://localhost:6333/dashboard), REST API on the same port, gRPC on `localhost:6334` | collections, also reachable on the Compose network as `mem0_store` | (none) | (none) | `qdrant/qdrant:v1.19` |
+| Redis | `redis://localhost:6379/0` | numbered databases `0` to `15` | (none) | (none) | `redis:8.10.1-alpine` |
+| Keycloak | admin console at [https://keycloak.test:9443/admin/](https://keycloak.test:9443/admin/), health at [https://localhost:9000/health/ready](https://localhost:9000/health/ready) | realm `local` | `admin` | `admin` | custom, built from `keycloak:26.5`. See [auth/Keycloak/](./auth/Keycloak/README.md). |
+| Floci | S3 endpoint at `http://localhost:9070`, health at [http://localhost:9070/_floci/health](http://localhost:9070/_floci/health) | S3 buckets | `admin` | `password` | `floci/floci:2.0.1` |
+| s3manager | bucket browser at [http://localhost:9071](http://localhost:9071) | browses Floci | (none) | (none) | `cloudlena/s3manager:v0.8.0` |
+
+Nothing on that list answers until the containers are running, which is [Start the stack](#start-the-stack), the next section.
+
+Every address is written against `localhost`, so seven of the eight need nothing configured. Keycloak is the exception: it redirects to its own configured hostname, so `https://localhost:9443/` sends the browser to `https://keycloak.test:9443/admin/`, and that name resolves only once the line from [Hosts file](#hosts-file) is in place. `s3.test` is the other optional name, and it stands in for `localhost` on ports `9070` and `9071`.
+
+Keycloak serves HTTPS with a certificate from the local authority, so a browser warns about it until that authority is imported. Clicking through the warning is enough for local work, and [auth/README.md](./auth/README.md) covers importing it if you would rather not.
+
+The Image column gives the tag only, because a `sha256` digest is 71 characters and would make this table unreadable.
+Every image pulled from a registry is written in the Compose file as `name:tag@sha256:...`, and the digest is what
+actually resolves. The two custom images are built here and never pushed, so they keep a plain tag and it is their base
+images that carry digests. See [Refreshing an image pin](#refreshing-an-image-pin) before changing a version.
+
+Redis is the one service here with no volume, so everything in it is gone the moment the container is removed. Treat it
+as a cache, not as storage.
+
+MongoDB starts empty and creates a database the first time something writes to it, so there is nothing to set up and
+no name to configure. A freshly initialised server reports only its own `admin`, `config` and `local` databases, and
+an application pointed at `mongodb://localhost:27017/articles` gets `articles` on its first insert. This table used to
+name `articles` here and the Compose file used to set `MONGO_INITDB_DATABASE: articles`, which never created anything:
+the official image runs its initialisation phase only when a root username and password are both set or a shell or
+JavaScript file is mounted into `/docker-entrypoint-initdb.d`, and neither is true here.
+
+PostgreSQL also initialises a `keycloak` user (password `local`) and an empty `keycloak` database, and that empty
+database is everything it knows about Keycloak. The realm arrives from the other side. The Keycloak image carries
+[auth/Keycloak/export/config/local-realm-export.json](./auth/Keycloak/export/config/local-realm-export.json) at
+`/opt/keycloak/data/import/` and its entrypoint passes `--import-realm`, so Keycloak creates its own schema and
+imports the realm on first boot. It used to be the other way round, with a 302 kilobyte SQL dump of Keycloak's own
+tables baked into the Postgres image, which tied one image to the other and tied the realm to a schema that changes
+between Keycloak versions.
+
+Keycloak's management endpoints sit on port `9000` rather than on `9443`. The readiness probe in the table is one of them, and `/health`, `/metrics` and the rest are beside it on the same port.
+
+Test user in the `local` realm: `lukk` / `test1234`.
 
 ### Start the stack
 
@@ -72,52 +120,6 @@ The file's contents are the same everywhere, only its path and the privilege nee
 
 Why `keycloak.test` rather than `localhost`, and why the two Keycloak names are not interchangeable, is in
 [auth/README.md](./auth/README.md).
-
-### Services
-
----
-
-| Service     | Port              | Database / Realm       | Username    | Password    | Image                                                                          |
-| ----------- | ----------------- | ---------------------- | ----------- | ----------- | ------------------------------------------------------------------------------ |
-| MySQL       | `3306`            | `test-spring`          | `root`      | `local`     | `mysql:9.7.2`                                                                  |
-| PostgreSQL  | `5432`            | `keycloak`, `postgres` | `postgres`  | `local`     | custom, built from `postgres:17.11`. See [postgresql/](./postgresql/README.md). |
-| MongoDB     | `27017`           | none, see below        | (none)      | (none)      | `mongo:8.3.8`                                                                  |
-| Qdrant      | `6333` (HTTP), `6334` (gRPC) | collections, also reachable on the Compose network as `mem0_store` | (none) | (none) | `qdrant/qdrant:v1.19`                                       |
-| Redis       | `6379`            | numbered databases `0` to `15` | (none) | (none)      | `redis:8.10.1-alpine`                                                          |
-| Keycloak    | `9443` (HTTPS)    | realm `local`          | `admin`     | `admin`     | custom, built from `keycloak:26.5`. See [auth/Keycloak/](./auth/Keycloak/README.md). |
-| Floci       | `9070`            | S3 buckets             | `admin`     | `password`  | `floci/floci:2.0.1`                                                            |
-| s3manager   | `9071`            | browses Floci          | (none)      | (none)      | `cloudlena/s3manager:v0.8.0`                                                   |
-
-The Image column gives the tag only, because a `sha256` digest is 71 characters and would make this table unreadable.
-Every image pulled from a registry is written in the Compose file as `name:tag@sha256:...`, and the digest is what
-actually resolves. The two custom images are built here and never pushed, so they keep a plain tag and it is their base
-images that carry digests. See [Refreshing an image pin](#refreshing-an-image-pin) before changing a version.
-
-Redis is the one service here with no volume, so everything in it is gone the moment the container is removed. Treat it
-as a cache, not as storage.
-
-MongoDB starts empty and creates a database the first time something writes to it, so there is nothing to set up and
-no name to configure. A freshly initialised server reports only its own `admin`, `config` and `local` databases, and
-an application pointed at `mongodb://localhost:27017/articles` gets `articles` on its first insert. This table used to
-name `articles` here and the Compose file used to set `MONGO_INITDB_DATABASE: articles`, which never created anything:
-the official image runs its initialisation phase only when a root username and password are both set or a shell or
-JavaScript file is mounted into `/docker-entrypoint-initdb.d`, and neither is true here.
-
-PostgreSQL also initialises a `keycloak` user (password `local`) and an empty `keycloak` database, and that empty
-database is everything it knows about Keycloak. The realm arrives from the other side. The Keycloak image carries
-[auth/Keycloak/export/config/local-realm-export.json](./auth/Keycloak/export/config/local-realm-export.json) at
-`/opt/keycloak/data/import/` and its entrypoint passes `--import-realm`, so Keycloak creates its own schema and
-imports the realm on first boot. It used to be the other way round, with a 302 kilobyte SQL dump of Keycloak's own
-tables baked into the Postgres image, which tied one image to the other and tied the realm to a schema that changes
-between Keycloak versions.
-
-Keycloak's management port is `9000`. URLs:
-
-- HTTPS app: `https://localhost:9443` or `https://keycloak.test:9443` (hosts entry needed; see
-  [Hosts file](#hosts-file))
-- Management: `https://localhost:9000/health`, `/metrics`, etc.
-
-Test user in the `local` realm: `lukk` / `test1234`.
 
 ### Object storage
 
