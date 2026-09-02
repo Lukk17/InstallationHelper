@@ -2329,3 +2329,126 @@ is a markdown link and anchor resolver over the whole tree, and the e2e harness 
 than the documentation, so adding a tier 1 check for this means proving it against a copy of the tree carrying the
 defect and running the whole gate from Git Bash and from WSL, which was outside this change. It is worth doing,
 because this class is invisible in review: a broken anchor renders as a working link.
+
+#### `docker compose down` stopped a second agent's containers, because the project is shared and the command is not scoped
+
+Status: introduced and repaired inside this change, in the operator's commands rather than in any file. Nothing in
+the tree was left broken, but the lesson is a file-level one and belongs here.
+
+Tearing down two services started for a port test was done with
+`docker compose -f local-dev/local-dev-docker-compose.yaml down`. That command takes no service argument and removes
+every container in the Compose project, so alongside `floci` and `s3manager` it printed
+`Container keycloak Removed` and `Container postgres Removed`. Those two belonged to a different agent working in
+`local-dev/auth/` at the same moment, and they had been healthy seconds earlier.
+
+Proven rather than reasoned about, in two steps. The `down` output itself names the four containers it removed, and
+`docker ps -a` before the test had listed none of the stack's containers, so `keycloak` and `postgres` had been
+started by somebody else in between. The image timestamp settles who: `docker images` reports
+`keycloak-local:latest` built at `2026-09-02 13:55:55 +0200`, roughly ninety seconds before the `down` ran, which is
+not this change's work because this change never builds that image.
+
+The repair was `docker compose ... up -d --no-build keycloak`, which brought both back to `(healthy)`. The rule that
+prevents it is to name the services: `docker compose ... rm -sf <service> ...` stops and removes exactly the ones
+listed and leaves the rest of the project alone. That is what every later teardown in this change used. No
+mechanical check was added, because the hazard is a command an agent types rather than anything the repository
+stores, and a check over the tree cannot see it.
+
+A second consequence is worth recording separately: `docker compose up` on `mongodb` creates an anonymous volume for
+`/data/configdb`, because the `mongo` image declares it and the Compose file names a volume only for `/data/db`.
+Each container creation leaves another unnamed volume behind after teardown. One was removed by hand here. The
+standing fix is a named volume for `/data/configdb` in the Compose file, which was outside this change.
+
+#### The `Get a token` command has no `--cacert`, so it fails on any machine that skipped the operating system import
+
+Status: found and fixed in this change, in
+[local-dev/auth/Keycloak/README.md](../local-dev/auth/Keycloak/README.md). Found while making the operating system
+trust import optional, which is what turned a latent assumption into a broken command.
+
+The documented token request was a plain `curl --location 'https://keycloak:9443/realms/local/protocol/...'` with no
+certificate flag at all. That works only if the reader has already imported `localhost-ca.crt` into the operating
+system trust store, which the same file used to present as the thing you do first. Once that import is documented as
+optional, and the owner's own machine is a machine that skipped it, the first runnable command in the file cannot
+succeed.
+
+Proven rather than reasoned about. Against a live `keycloak` container on this machine, the command exactly as
+documented returned no HTTP status at all:
+
+```text
+http_code=000
+```
+
+and with `-sS` the reason it never got one:
+
+```text
+curl: (60) schannel: SEC_E_UNTRUSTED_ROOT (0x80090325) - The certificate chain was issued by an authority that is not trusted.
+```
+
+The same request with `--cacert ./local-dev/auth/certificates/localhost/localhost-ca.crt --ssl-revoke-best-effort`
+returned `http_code=200 ssl_verify_result=0`, and the access token it carried decoded to
+`"iss": "https://keycloak.test:9443/realms/local"`.
+
+The fix is `--cacert` on both the Git Bash and the PowerShell form, with the measured failure quoted underneath so
+the next reader knows why the flag is there rather than deleting it as noise. No mechanical check was added. The one
+that would catch this class is a harness that executes every fenced command in the documentation against a running
+stack, which does not exist here and was outside this change.
+
+#### `docker compose down` was used again, unscoped, against a shared Compose project
+
+Status: introduced in this change and no damage resulted, recorded because it is a repeat of an entry already on
+this page rather than a new shape.
+
+The teardown of the two services started for the verification above was
+`docker compose -f local-dev/local-dev-docker-compose.yaml down`. The entry titled "`docker compose down` stopped a second agent's
+containers" records the same command removing another agent's containers, and names the safe form,
+`docker compose ... rm -sf <service>`.
+That form was not used.
+
+Proven rather than assumed: the `down` output names exactly `keycloak`, `postgres` and `local-dev_default`, which
+are the two services this change started plus their network, so nothing belonging to anyone else was running at the
+time and nothing else was removed. `docker volume ls` afterwards shows the same five `local-dev_*` volumes as before,
+so no data was lost either.
+
+There is no fix in the tree, because the hazard is a command an agent types. What this entry adds to the earlier one
+is that writing the rule down did not stop the next agent repeating it the same day, so the rule needs to live
+somewhere an agent reads before typing rather than only in the ledger.
+
+#### A Windows path in a documented command was written with a BEL control character instead of \a
+
+Status: introduced and fixed inside this change, in
+[local-dev/auth/Keycloak/README.md](../local-dev/auth/Keycloak/README.md).
+
+A PowerShell example was written into the file by a Python heredoc, and the doubled backslashes in
+`.\\local-dev\\auth\\certificates\\localhost\\localhost-ca.crt` did not survive the trip through the tool that ran it. Python
+received a single backslash, read `\a` as an escape, and wrote code point 0x07 into the markdown. The rendered
+line read `.\local-devuth\certificates...`, with the directory name silently swallowed, because a BEL is
+non-printing.
+
+Proven rather than reasoned about, in two steps. The interpreter warned on the way past, which is the only reason
+this was caught at all:
+
+```text
+<stdin>:38: SyntaxWarning: invalid escape sequence '\l'
+```
+
+and a scan of the file afterwards named the character that had landed in it:
+
+```text
+control chars present: ['0x7']
+```
+
+The fix rebuilt the line with `chr(92)` rather than any backslash literal, and the file now scans clean for every
+code point below 32 other than newline. Both documented commands were then run verbatim, copied out of the file, and
+each returned the health document the page quotes.
+
+Two lessons, and the second is the one that generalises. A backslash in a Windows path does not survive being written
+through several layers of quoting, so build it from a code point when the content is generated rather than typed. And
+a control character is invisible in a diff, in a review and in a rendered page, so the check that catches it is
+scanning the written file for code points below 32, not reading the output. That scan is now part of finishing any
+documentation edit in this repository that goes through a generated write.
+
+The scan found a second instance the moment it was run, already committed and older than this change. Line 1124 of
+this file quotes a continuous integration error and reads `'C:` + 0x07 + `ctions-runner\\cached` + 0x02 + `.336.0\\_diag` + 0x08 + `locks'`.
+Each control character is the inverse of the same transformation: 0x07 was `\a`, 0x02 was `\2`, 0x08 was `\b`, so the
+quoted path was `C:\actions-runner\cached\2.336.0\_diag\blocks`. It is left as it is rather than repaired, because
+rewriting a quoted error message on a reconstruction is how a record stops being a record. What it proves is that
+this class had already shipped here once and went unnoticed through every read of this page since.
