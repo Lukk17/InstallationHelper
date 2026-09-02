@@ -11,16 +11,67 @@
 Run from the project root.
 
 ```bash
-docker-compose -f ./local-dev/local-dev-docker-compose.yaml up -d
+docker compose -f ./local-dev/local-dev-docker-compose.yaml up -d
+```
+
+```powershell
+docker compose -f ./local-dev/local-dev-docker-compose.yaml up -d
 ```
 
 Stop with the same command and `down`:
 
 ```bash
-docker-compose -f ./local-dev/local-dev-docker-compose.yaml down
+docker compose -f ./local-dev/local-dev-docker-compose.yaml down
 ```
 
-PowerShell on Windows is the same; just use forward slashes or escape backslashes.
+```powershell
+docker compose -f ./local-dev/local-dev-docker-compose.yaml down
+```
+
+The command itself is identical on Windows, Ubuntu, Arch Linux and macOS, forward slashes included, which is why it is
+written once per shell rather than once per operating system. It is written as `docker compose`, two words, because
+that is the Compose v2 subcommand built into the Docker command line and it is the only spelling that is there on
+every platform. The hyphenated `docker-compose` is a separate program and is not: Docker Desktop still installs it on
+Windows and inside WSL, and Arch's `docker-compose` package installs both spellings, but on Ubuntu 24.04 the package
+called `docker-compose` is version 1.29.2, the retired Python implementation, and on that release it does not start at
+all:
+
+```text
+ModuleNotFoundError: No module named 'distutils'
+```
+
+That failure was measured in an `ubuntu:24.04` container after installing the `docker-compose` package. On a release
+where it does start, it still could not read this file, because the top-level `name:` key and `build.tags` are Compose
+v2 additions, and that half is reasoning rather than measurement. Ubuntu packages Compose v2 as `docker-compose-v2`.
+
+### Hosts file
+
+---
+
+Three names in this stack resolve to the loopback address, and nothing sets them up for you. Add all three in one
+edit. This is the only place they are listed, so there is no second file to check.
+
+```text
+127.0.0.1 keycloak.test
+127.0.0.1 keycloak
+127.0.0.1 s3.test
+```
+
+| Name | What it is for |
+| ---- | -------------- |
+| `keycloak.test` | The canonical Keycloak name and the issuer in every token it mints. Point applications, browsers and HTTP clients here. |
+| `keycloak` | The container name. Docker's own resolver answers it inside the Compose network, and this line makes the same name answer from the machine as well. |
+| `s3.test` | The object store, on both of its ports: `http://s3.test:9070` is the S3 endpoint and `http://s3.test:9071` is the s3manager browser. |
+
+The file's contents are the same everywhere, only its path and the privilege needed to write it differ.
+
+| Platform | Path | How to edit it |
+| -------- | ---- | -------------- |
+| Ubuntu, Debian, Arch Linux, macOS | `/etc/hosts` | any editor under `sudo` |
+| Windows | `C:\Windows\System32\drivers\etc\hosts` | an editor started as Administrator |
+
+Why `keycloak.test` rather than `localhost`, and why the two Keycloak names are not interchangeable, is in
+[auth/README.md](./auth/README.md).
 
 ### Services
 
@@ -30,7 +81,7 @@ PowerShell on Windows is the same; just use forward slashes or escape backslashe
 | ----------- | ----------------- | ---------------------- | ----------- | ----------- | ------------------------------------------------------------------------------ |
 | MySQL       | `3306`            | `test-spring`          | `root`      | `local`     | `mysql:9.7.2`                                                                  |
 | PostgreSQL  | `5432`            | `keycloak`, `postgres` | `postgres`  | `local`     | custom, built from `postgres:17.11`. See [postgresql/](./postgresql/README.md). |
-| MongoDB     | `27017`           | `articles`             | (none)      | (none)      | `mongo:8.3.8`                                                                  |
+| MongoDB     | `27017`           | none, see below        | (none)      | (none)      | `mongo:8.3.8`                                                                  |
 | Qdrant      | `6333` (HTTP), `6334` (gRPC) | collections, also reachable on the Compose network as `mem0_store` | (none) | (none) | `qdrant/qdrant:v1.19`                                       |
 | Redis       | `6379`            | numbered databases `0` to `15` | (none) | (none)      | `redis:8.10.1-alpine`                                                          |
 | Keycloak    | `9443` (HTTPS)    | realm `local`          | `admin`     | `admin`     | custom, built from `keycloak:26.5`. See [auth/Keycloak/](./auth/Keycloak/README.md). |
@@ -45,6 +96,13 @@ images that carry digests. See [Refreshing an image pin](#refreshing-an-image-pi
 Redis is the one service here with no volume, so everything in it is gone the moment the container is removed. Treat it
 as a cache, not as storage.
 
+MongoDB starts empty and creates a database the first time something writes to it, so there is nothing to set up and
+no name to configure. A freshly initialised server reports only its own `admin`, `config` and `local` databases, and
+an application pointed at `mongodb://localhost:27017/articles` gets `articles` on its first insert. This table used to
+name `articles` here and the Compose file used to set `MONGO_INITDB_DATABASE: articles`, which never created anything:
+the official image runs its initialisation phase only when a root username and password are both set or a shell or
+JavaScript file is mounted into `/docker-entrypoint-initdb.d`, and neither is true here.
+
 PostgreSQL also initialises a `keycloak` user (password `local`) and imports the seed dump from
 [auth/Keycloak/export/database/keycloak-dump.sql](./auth/Keycloak/export/database/keycloak-dump.sql) so Keycloak boots
 with the realm already in place.
@@ -52,7 +110,7 @@ with the realm already in place.
 Keycloak's management port is `9000`. URLs:
 
 - HTTPS app: `https://localhost:9443` or `https://keycloak.test:9443` (hosts entry needed; see
-  [auth/README.md](./auth/README.md))
+  [Hosts file](#hosts-file))
 - Management: `https://localhost:9000/health`, `/metrics`, etc.
 
 Test user in the `local` realm: `lukk` / `test1234`.
@@ -65,56 +123,66 @@ Test user in the `local` realm: `lukk` / `test1234`.
 
 [s3manager](https://github.com/cloudlena/s3manager) is the browser side: a bucket and object browser that took over port `9071` from the MinIO console. It talks to Floci over the Compose network at `floci:4566` and starts only once Floci reports healthy.
 
+Both ports answer to `s3.test` as well as to `localhost`, once the hosts line from
+[Hosts file](#hosts-file) is in place. One name covers both: `http://s3.test:9070` is the endpoint and
+`http://s3.test:9071` is the browser. It exists for the same reason `keycloak.test` does, which is that a name you
+configure an application against should not be the same word every other service on the machine also answers to. There
+is no certificate anywhere in this: both ports are plain HTTP, and a TLS handshake against either of them is refused
+outright, measured as `curl` exit 35 on 9070 and on 9071. So `s3.test` needs no entry in any certificate and none of
+the trust store work under [auth/](./auth/README.md) applies to it.
+
 Point an application at these values:
 
 | Setting | Value |
 | ------- | ----- |
-| Endpoint | `http://localhost:9070` |
+| Endpoint | `http://s3.test:9070`, or `http://localhost:9070` with no hosts entry |
 | Region | `us-east-1` |
 | Access key id | `admin` |
 | Secret access key | `password` |
-| Path style addressing | works, `http://localhost:9070/<bucket>/<key>` |
+| Path style addressing | works, `http://s3.test:9070/<bucket>/<key>` |
 | Virtual hosted addressing | works, `http://<bucket>.localhost:9070/<key>` |
 
-Both addressing styles were exercised against the running container, so a client library that insists on one or the other is fine either way.
+Both addressing styles were exercised against the running container, so a client library that insists on one or the other is fine either way. Prefer `localhost` for the virtual hosted style. Any subdomain of `localhost` resolves to the loopback with nothing configured, measured on both Windows and Ubuntu, whereas a hosts file cannot hold a wildcard, so every bucket under `s3.test` would need a line of its own.
 
 The AWS command line interface is not a prerequisite. `curl` signs Signature Version 4 requests on its own, which is enough to create a bucket and move objects around.
 
 Create a bucket:
 
 ```bash
-curl -X PUT "http://localhost:9070/local-dev-bucket" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl -X PUT "http://s3.test:9070/local-dev-bucket" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 ```powershell
-curl.exe -X PUT "http://localhost:9070/local-dev-bucket" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl.exe -X PUT "http://s3.test:9070/local-dev-bucket" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 Upload a file into it:
 
 ```bash
-curl -X PUT --upload-file ./first.txt "http://localhost:9070/local-dev-bucket/first.txt" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl -X PUT --upload-file ./first.txt "http://s3.test:9070/local-dev-bucket/first.txt" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 ```powershell
-curl.exe -X PUT --upload-file ./first.txt "http://localhost:9070/local-dev-bucket/first.txt" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl.exe -X PUT --upload-file ./first.txt "http://s3.test:9070/local-dev-bucket/first.txt" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 List what is in it:
 
 ```bash
-curl "http://localhost:9070/local-dev-bucket?list-type=2" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl "http://s3.test:9070/local-dev-bucket?list-type=2" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 ```powershell
-curl.exe "http://localhost:9070/local-dev-bucket?list-type=2" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl.exe "http://s3.test:9070/local-dev-bucket?list-type=2" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
-For clicking around instead, open `http://localhost:9071` in a browser. It redirects to `/Default/buckets`, which lists every bucket, and each bucket links to its objects with download, metadata and delete actions.
+The six commands above were run verbatim against the running stack from Git Bash on Windows, and their Unix shell forms were run again from Ubuntu inside WSL. Swap `s3.test` for `localhost` in any of them if you have not added the hosts line.
+
+For clicking around instead, open `http://s3.test:9071` in a browser, or `http://localhost:9071` without the hosts line. It answers `308` and redirects to `/Default/buckets`, keeping whichever name you asked with, and that page lists every bucket and links each one to its objects with download, metadata and delete actions.
 
 Objects live in the `floci_data` named volume, mounted at `/app/data` because `FLOCI_STORAGE_MODE` is set to `persistent`. A `docker restart floci` keeps them, and so does destroying the container and recreating it from the Compose file. Both were verified. What does remove them is `docker compose down -v`, which deletes the volume along with every other volume in the stack.
 
-Health lives at `http://localhost:9070/_floci/health`, which answers with a JSON map of every emulated service. Two behaviours differ from MinIO and will bite if you assume otherwise.
+Health lives at `http://s3.test:9070/_floci/health`, or `http://localhost:9070/_floci/health` without the hosts line, and answers with a JSON map of every emulated service. Two behaviours differ from MinIO and will bite if you assume otherwise.
 
 Floci implements no MinIO admin interface. The old `http://localhost:9070/minio/health/live` path answers `404`, and any tool built on MinIO's admin API, `mc` included, has nothing to talk to here.
 
@@ -128,7 +196,7 @@ Nothing on either port asks for a credential. s3manager on `9071` ships no authe
 | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | [auth/Keycloak/config.md](./auth/Keycloak/config.md)         | Realm export, client setup, export-import flow.                         |
 | [auth/Keycloak/README.md](./auth/Keycloak/README.md)         | Dockerfile, token curl, OS trust store import for the certificate authority. |
-| [auth/README.md](./auth/README.md)                           | `hosts` setup, local certificate authority generation, Let's Encrypt for prod. |
+| [auth/README.md](./auth/README.md)                           | Local certificate authority generation, trust store setup per platform, Let's Encrypt for prod. |
 | [postgresql/README.md](./postgresql/README.md)               | Standalone Postgres run, credentials.                                   |
 
 ### Refreshing an image pin

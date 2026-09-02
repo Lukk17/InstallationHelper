@@ -46,25 +46,46 @@ For the integrated Compose stack (recommended), use the entry in
 The `local` realm ships a confidential client `local-client` with a baked-in test user (`lukk` / `test1234`). The
 secret below is part of the committed realm export and is safe to use locally.
 
-Run it from the project root. Both forms below were measured returning HTTP 200 with `ssl_verify_result=0`.
+Run it from the project root. The command is the same everywhere except for one Windows-only flag, so it is written
+once per platform group rather than once per operating system. All three forms were measured returning HTTP 200 with
+`ssl_verify_result=0`, the first from Ubuntu 24.04 inside WSL and the other two from Windows.
+
+Ubuntu, Arch Linux, macOS and WSL:
+
+```bash
+curl --cacert ./local-dev/auth/certificates/localhost/localhost-ca.crt --location 'https://keycloak.test:9443/realms/local/protocol/openid-connect/token' --header 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'grant_type=password' --data-urlencode 'client_id=local-client' --data-urlencode 'client_secret=nZUMlOQZufa5ljWW5hHXOtGKLn0mpTkN' --data-urlencode 'scope=openid profile email' --data-urlencode 'username=lukk' --data-urlencode 'password=test1234'
+```
+
+Git Bash on Windows:
 
 ```bash
 curl --cacert ./local-dev/auth/certificates/localhost/localhost-ca.crt --ssl-revoke-best-effort --location 'https://keycloak.test:9443/realms/local/protocol/openid-connect/token' --header 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'grant_type=password' --data-urlencode 'client_id=local-client' --data-urlencode 'client_secret=nZUMlOQZufa5ljWW5hHXOtGKLn0mpTkN' --data-urlencode 'scope=openid profile email' --data-urlencode 'username=lukk' --data-urlencode 'password=test1234'
 ```
 
+PowerShell:
+
 ```powershell
 curl.exe --cacert .\local-dev\auth\certificates\localhost\localhost-ca.crt --ssl-revoke-best-effort --location 'https://keycloak.test:9443/realms/local/protocol/openid-connect/token' --header 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'grant_type=password' --data-urlencode 'client_id=local-client' --data-urlencode 'client_secret=nZUMlOQZufa5ljWW5hHXOtGKLn0mpTkN' --data-urlencode 'scope=openid profile email' --data-urlencode 'username=lukk' --data-urlencode 'password=test1234'
 ```
 
-`--cacert` is there because the operating system import below is optional, so on a machine that skipped it the same
-command without the flag fails before it reaches Keycloak, measured:
+`--cacert` is on all three, because the operating system import below is optional, so on a machine that skipped it the
+same command without the flag fails before it reaches Keycloak. What that failure looks like depends on which library
+curl was built against, and both were measured. On Windows, where curl uses Schannel:
 
 ```text
 curl: (60) schannel: SEC_E_UNTRUSTED_ROOT (0x80090325) - The certificate chain was issued by an authority that is not trusted.
 ```
 
-`--ssl-revoke-best-effort` is Schannel-only and belongs on the Windows forms, Git Bash included. Drop it on Linux and
-macOS. Both flags are explained in [../README.md](../README.md) under "curl".
+On Ubuntu in WSL, where curl uses OpenSSL:
+
+```text
+curl failed to verify the legitimacy of the server and therefore could not establish a secure connection to it.
+```
+
+`--ssl-revoke-best-effort` is the one Windows-only piece. It is a Schannel option, so it belongs on the two Windows
+forms, Git Bash included, and it is left off the first form. Nothing complains if you get that wrong, which is the
+trap: measured on Ubuntu, curl accepts the flag and returns the same 200, so a copied Windows command carries a dead
+flag rather than failing. Both flags are explained in [../README.md](../README.md) under "curl".
 
 The hostname is not cosmetic either. The compose file sets `KC_HOSTNAME=keycloak.test` and `KC_HOSTNAME_PORT=9443`,
 so the token that command returns carries `"iss": "https://keycloak.test:9443/realms/local"`, read off a real token
@@ -77,11 +98,13 @@ certificate, so nothing breaks. It is simply not the name to point a client at.
 
 ---
 
-This section is optional and it changes only what the developer sees. Trusting the authority here silences the
-browser warning on `https://keycloak.test:9443` and satisfies any tool that reads the operating system's own
-certificate store. It makes no service to service call work that was not working already, because Java reads
-`cacerts` inside the JDK and Node reads its own compiled-in list, and neither consults the operating system at all.
-Skipping the whole section and clicking through the browser warning is a perfectly reasonable choice.
+This section is optional. Trusting the authority here silences the browser warning on `https://keycloak.test:9443`
+and satisfies any tool that reads the operating system's own certificate store. Node is untouched by it wherever you
+run, because it carries its own compiled-in list of roots. Java depends on the platform: on Windows it reads a
+`cacerts` file inside the Java Development Kit that is linked to nothing, while on Ubuntu and on Arch the
+distribution points that same file at the system bundle, so an import here does reach Java there. That is measured
+per platform in [../README.md](../README.md) under "Trust the authority in your operating system". Skipping the whole
+section and clicking through the browser warning is a perfectly reasonable choice.
 
 What is not optional is the build-time import, where each image that talks to Keycloak imports the authority into
 its own trust store in its own Dockerfile. That is the path that makes the stack work, it is documented in
@@ -114,7 +137,11 @@ Start-Process powershell -Verb RunAs -ArgumentList "-NoExit -Command & { Remove-
 If you imported a leaf certificate earlier and still have the thumbprint it printed at the time, run the same
 removal command with that thumbprint before importing `localhost-ca.crt`.
 
-#### Linux (Ubuntu / Debian)
+There are four mechanisms below, not one with variations. Ubuntu and Arch disagree about both the directory and the
+command, and macOS uses a keychain that is not a directory of files at all, so pick your own heading and ignore the
+rest.
+
+#### Ubuntu and Debian
 
 Copy the authority's certificate into the system store:
 
@@ -154,6 +181,66 @@ sudo rm /usr/local/share/ca-certificates/THE_FILE_YOU_COPIED
 sudo update-ca-certificates
 ```
 
+#### Arch Linux
+
+Arch does not use the Debian directory or the Debian command. `/usr/local/share/ca-certificates` does not exist and
+`update-ca-certificates` is not installed, so the commands above do nothing here except create a directory nobody
+reads. Copy the authority into the p11-kit anchor directory instead:
+
+```bash
+sudo cp ./local-dev/auth/certificates/localhost/localhost-ca.crt /etc/ca-certificates/trust-source/anchors/
+```
+
+Rebuild the extracted bundles:
+
+```bash
+sudo update-ca-trust
+```
+
+Check that it took, which prints the authority's own subject line:
+
+```bash
+trust list --filter=ca-anchors | grep -A2 "localhost certificate authority"
+```
+
+To remove, delete the file and rebuild again:
+
+```bash
+sudo rm /etc/ca-certificates/trust-source/anchors/localhost-ca.crt
+```
+
+```bash
+sudo update-ca-trust
+```
+
+Both halves were measured in an `archlinux` container: after the import `openssl verify` accepts this repository's
+leaf against the system store, and after the removal it goes back to `error 20 at 0 depth lookup: unable to get local
+issuer certificate`. Two Arch-specific consequences come with it, both measured and both explained in
+[../README.md](../README.md). This import also reaches Java, because Arch's Java trust store is a symlink into the same
+extracted bundle. And for the same reason, anything imported straight into that store with `keytool -cacerts` is
+destroyed the next time `update-ca-trust` runs.
+
+#### macOS
+
+Not measured, because no macOS machine was available to this repository. macOS keeps trust in a keychain rather than
+in a directory of certificate files, so neither Linux mechanism applies and this is the documented one. Import into
+the system keychain:
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ./local-dev/auth/certificates/localhost/localhost-ca.crt
+```
+
+Remove it again by its common name, which is what the certificate carries in
+[certificates/localhost/ca.cnf](../certificates/localhost/ca.cnf):
+
+```bash
+sudo security delete-certificate -c "localhost certificate authority" /Library/Keychains/System.keychain
+```
+
+Assume this does not reach a Java Development Kit installed from Temurin or Oracle, which ships its own `cacerts` file
+with no link to the keychain, so on macOS use the `keytool` route in [../README.md](../README.md) for anything running
+on the Java Virtual Machine.
+
 ### Configuration
 
 ---
@@ -179,12 +266,22 @@ that run rather than from the pattern.
 | `https://keycloak.test:9000/health/started` | Startup probe (initial boot completed) | 200, 45 bytes |
 | `https://keycloak.test:9000/metrics` | Prometheus-format metrics | 200, 186805 bytes |
 
-These are HTTPS, so they hit the same trust question as the token request above. Pass `--cacert` unless you took the
-optional operating system import, and add `--ssl-revoke-best-effort` on Windows, Git Bash included:
+These are HTTPS, so they hit the same trust question as the token request above, and split the same way. Pass
+`--cacert` unless you took the optional operating system import, and add `--ssl-revoke-best-effort` on Windows only.
+
+Ubuntu, Arch Linux, macOS and WSL:
+
+```bash
+curl --cacert ./local-dev/auth/certificates/localhost/localhost-ca.crt https://keycloak.test:9000/health
+```
+
+Git Bash on Windows:
 
 ```bash
 curl --cacert ./local-dev/auth/certificates/localhost/localhost-ca.crt --ssl-revoke-best-effort https://keycloak.test:9000/health
 ```
+
+PowerShell:
 
 ```powershell
 curl.exe --cacert .\local-dev\auth\certificates\localhost\localhost-ca.crt --ssl-revoke-best-effort https://keycloak.test:9000/health

@@ -1,29 +1,22 @@
 # Local Auth
 
-> A local certificate authority + hosts entries for running Keycloak under `https://keycloak.test:9443` on the local machine.
+> A local certificate authority and the trust store setup behind `https://keycloak.test:9443` on the local machine. The hosts file lines live in [README_LOCAL_DEV.md](../README_LOCAL_DEV.md#hosts-file).
 
 ---
 
-### Hosts setup
+### The two Keycloak names
 
 ---
 
-Two names point at the loopback. Both are in the leaf certificate's SAN list, so the handshake succeeds either way, but they are not interchangeable in what you should use them for.
-
-Append both lines to your hosts file:
-
-```text
-127.0.0.1 keycloak.test
-127.0.0.1 keycloak
-```
+The hosts file itself is documented once, in
+[Hosts file](../README_LOCAL_DEV.md#hosts-file), because the stack needs a line for the object store as well and one
+list beats two. The lines it gives you for Keycloak are `keycloak.test` and `keycloak`. Both are in the leaf
+certificate's SAN list, so the handshake succeeds either way, but they are not interchangeable in what you should use
+them for, and that part belongs here.
 
 `keycloak.test` is the canonical name and the one to point applications, browsers and HTTP clients at. The compose file sets `KC_HOSTNAME=keycloak.test` and `KC_HOSTNAME_PORT=9443`, so every token Keycloak mints carries `https://keycloak.test:9443/realms/local` as its `iss` claim. A client configured against any other name completes the handshake and then fails issuer validation on the token it gets back, which is a confusing failure because nothing about it looks like a hostname problem. The port is part of the name here. 9443 is not a port any client infers, so it is written out everywhere.
 
 `keycloak` is the container name, so Docker's embedded resolver answers it inside the compose network whether or not any hosts file mentions it. That is why the healthcheck in [local-dev-docker-compose.yaml](../local-dev-docker-compose.yaml) reaches `https://keycloak:9000/health/ready` and works. Keep the hosts line so the same name also resolves from the machine, and treat it as the name for talking to the container rather than to the issuer.
-
-Linux path: [/etc/hosts](file:///etc/hosts) (needs `sudo`).
-
-Windows path: `C:\Windows\System32\drivers\etc\hosts` (needs an Administrator editor).
 
 For Keycloak setup, container build, realm import, and troubleshooting, see
 [Keycloak/README.md](./Keycloak/README.md).
@@ -75,6 +68,25 @@ cd local-dev/auth/certificates/localhost
 bash generate-certificates.sh
 ```
 
+That one command is the whole story on Ubuntu, on Arch and in WSL, because both distributions carry the `openssl`
+command in a base install with nothing to add. It was run on both, in throwaway directories so the committed
+certificates were never touched, and produced the same authority, the same leaf and the same subject alternative name
+list, ending in `localhost.crt: OK` from `openssl verify`. Ubuntu 24.04 has OpenSSL 3.0.13 and Arch has OpenSSL 3.6.3,
+and the script behaved identically on both. It uses no bash feature newer than version 3, so the elderly bash macOS
+ships is not a problem either.
+
+macOS is the one platform with a real question mark over it, and this repository cannot answer it. `/usr/bin/openssl`
+there is LibreSSL rather than OpenSSL, which is a different program with the same name, and no LibreSSL command line
+was available to test against, so what follows is reasoning rather than measurement. Everything the script uses is
+long settled, `req -x509`, `req -new`, `x509 -req` with `-extfile` and `-extensions`, `-CAcreateserial` and `verify`,
+all of which LibreSSL implements, so it is expected to work. If it does not, install a genuine OpenSSL with
+`brew install openssl@3` and call it by its full path, which Homebrew keeps off the default path on purpose so that it
+cannot shadow the system copy:
+
+```bash
+PATH="$(brew --prefix openssl@3)/bin:$PATH" bash generate-certificates.sh
+```
+
 The script regenerates the authority as well as the leaf, and ends by running `openssl verify` against what it
 produced. Reissuing the leaf costs a rebuild of the Keycloak image, which copies the leaf in, and a restart.
 Reissuing the authority costs that plus a re-import in every trust store that holds it: every image that imported it
@@ -95,11 +107,32 @@ must never reach a real environment.
 
 #### Production (Let's Encrypt) <a id="production"></a>
 
-Use certbot on Linux (or WSL on Windows). Install it first:
+Use certbot on Linux (or WSL on Windows). Install it first, and this is one of the few places the command genuinely
+differs by distribution.
+
+Ubuntu and Debian:
 
 ```bash
 sudo apt install certbot
 ```
+
+Arch Linux:
+
+```bash
+sudo pacman -S certbot
+```
+
+macOS:
+
+```bash
+brew install certbot
+```
+
+Everything after this point is identical on all three, because it is `openssl` and `keytool` rather than a package
+manager. The Ubuntu and Arch package names were checked against each distribution's own repository, `certbot` 2.9.0
+in Ubuntu 24.04 and `certbot` 5.7.0 in Arch's `extra`. The Homebrew name is reasoned rather than checked, since no
+macOS machine was available. None of the three was installed and run, because this section is about a public hostname
+that no local machine has.
 
 Issue the certificate. Replace `your_domain` below with the actual public hostname pointing at this machine:
 
@@ -169,9 +202,19 @@ Everything else goes through the operating system trust bundle inside the contai
 | --- | --- | --- |
 | Debian, Ubuntu | `/usr/local/share/ca-certificates/localhost-ca.crt` | `update-ca-certificates` |
 | Alpine | `/usr/local/share/ca-certificates/localhost-ca.crt` | `apk add --no-cache ca-certificates && update-ca-certificates` |
+| Arch Linux | `/etc/ca-certificates/trust-source/anchors/localhost-ca.crt` | `update-ca-trust` |
 | Red Hat, Fedora, UBI | `/etc/pki/ca-trust/source/anchors/localhost-ca.crt` | `update-ca-trust` |
 
-The Debian and Alpine rows were measured against a running Keycloak. The Red Hat row was not, and is the documented mechanism rather than a proven one.
+The Arch row is not a spelling variant of the Debian one, it is a different mechanism. On a stock `archlinux` image
+`/usr/local/share/ca-certificates` does not exist and there is no `update-ca-certificates` binary at all, so a
+Dockerfile that copies the Debian way into an Arch base silently trusts nothing.
+
+The Debian and Alpine rows were measured against a running Keycloak. The Arch row was measured a step short of that,
+in an `archlinux` container: with the authority dropped into the anchors directory and `update-ca-trust` run,
+`openssl verify` accepts this repository's leaf against the rebuilt system store, and `trust list` shows the anchor
+with `trust: anchor`. Deleting the file and running `update-ca-trust` again puts it back to `error 20 at 0 depth
+lookup: unable to get local issuer certificate`. The Red Hat row was not measured at all, and is the documented
+mechanism rather than a proven one.
 
 That bundle covers anything built on OpenSSL, which includes `curl`, `wget` and Python's standard library. Two common runtimes ignore it, and were measured ignoring it, so on those the Dockerfile also sets the variable the runtime does read. Setting it with `ENV` rather than in the compose file is the whole point: the image stays self-sufficient.
 
@@ -286,7 +329,25 @@ by this one application's own launch configuration, stays scoped to the thing th
 objection applies inside a container image, where the JVM is shared with nothing and an upgrade means a rebuild,
 which is why the build-time section above writes straight into `cacerts`.
 
-The alternative, importing straight into `cacerts`, is proven to work as well, using the same root certificate:
+Two things about `keytool` itself before the commands, both measured in a container for each distribution. It is on
+the path after a default Java Development Kit install on Ubuntu and on Arch alike, at `/usr/bin/keytool` on Ubuntu
+24.04 with `openjdk-21-jdk-headless` and at `/usr/sbin/keytool` on Arch with `jdk-openjdk`, so nothing has to be
+located first. `JAVA_HOME`, on the other hand, is unset on both after that same install, so any instruction that spells
+a path as `$JAVA_HOME/...` fails on a stock machine with an error about `/lib/security/cacerts`.
+
+That is what `keytool -cacerts` is for. The flag has been in `keytool` since Java 9 and means the current Java
+Development Kit's own trust store, whichever file that is, so it needs no `JAVA_HOME` and no path at all. It is the
+same flag the Dockerfile snippet above uses, and this form runs unchanged on Ubuntu, Arch, macOS and Windows:
+
+```bash
+keytool -importcert -noprompt -trustcacerts -alias localhostca -file ./local-dev/auth/certificates/localhost/localhost-ca.crt -cacerts -storepass changeit
+```
+
+```powershell
+keytool -importcert -noprompt -trustcacerts -alias localhostca -file .\local-dev\auth\certificates\localhost\localhost-ca.crt -cacerts -storepass changeit
+```
+
+The explicit path form works too, on any machine where `JAVA_HOME` is genuinely set:
 
 ```bash
 keytool -importcert -noprompt -trustcacerts -alias localhostca -file ./local-dev/auth/certificates/localhost/localhost-ca.crt -keystore "$JAVA_HOME/lib/security/cacerts" -storepass changeit
@@ -295,6 +356,9 @@ keytool -importcert -noprompt -trustcacerts -alias localhostca -file ./local-dev
 ```powershell
 keytool -importcert -noprompt -trustcacerts -alias localhostca -file .\local-dev\auth\certificates\localhost\localhost-ca.crt -keystore "$env:JAVA_HOME\lib\security\cacerts" -storepass changeit
 ```
+
+On Arch, remember what the previous section measured: whichever of these two you use, `update-ca-trust` regenerates
+that file and takes the alias with it.
 
 #### Node.js
 
@@ -398,8 +462,9 @@ STATUS 200
 #### curl
 
 `curl --cacert <file>` points curl at a certificate to build and verify the chain against instead of whatever store
-curl would otherwise use. On plain Linux and inside WSL that is the whole answer, proven with the same root against
-the same Keycloak. macOS has no measurement here, but its curl does not use Schannel either, so the plain form is
+curl would otherwise use. On Ubuntu, on Arch and inside WSL that is the whole answer, because curl there is built
+against OpenSSL: measured from Ubuntu 24.04 in WSL with curl 8.5.0, this exact command returns HTTP 200 with
+`ssl_verify_result=0`. macOS has no measurement here, but its curl does not use Schannel either, so the plain form is
 the one to reach for there too:
 
 ```bash
@@ -424,7 +489,13 @@ Two flags tell it not to, and both were measured returning HTTP 200 against the 
 revocation checks "when they failed due to missing/offline distribution points for the revocation check lists".
 That is exactly this case, and it leaves the check in place otherwise. `--ssl-no-revoke` disables revocation
 checking altogether, which the same manual flags as loosening security. Both are marked Schannel-only, so leave
-them off the Linux and macOS command.
+them off the Ubuntu, Arch and macOS commands.
+
+Leaving them off matters even though nothing punishes you for getting it wrong. Measured on Ubuntu, curl 8.5.0
+accepts `--ssl-revoke-best-effort` on the command line and returns the same HTTP 200 as without it, so a Windows
+command copied onto Linux does not fail, it just carries a flag that means nothing there. That silence is exactly how
+the flag ended up inside blocks labelled `bash` in [Keycloak/README.md](./Keycloak/README.md), where it stayed until
+somebody read them rather than ran them.
 
 Git Bash:
 
@@ -469,7 +540,20 @@ machine's own trust state contributed to these results.
 
 ---
 
-Optional, and it changes only what you see. Importing the authority into the operating system trust store stops the browser warning on `https://keycloak.test:9443` and satisfies any tool that reads the operating system's own certificate store. It does not make a single service to service call succeed that was failing before, because Java reads `cacerts` inside the JDK and Node reads its own compiled-in list, and neither of them consults the operating system at all.
+Optional, and on Windows it changes only what you see. Importing the authority into the operating system trust store stops the browser warning on `https://keycloak.test:9443` and satisfies any tool that reads the operating system's own certificate store. Node is unaffected wherever you do it, because it reads its own compiled-in list of roots and consults the operating system for nothing.
+
+Java is where this differs by platform, and an earlier version of this page got it wrong by saying Java never consults the operating system at all. That holds on Windows, where the Java Development Kit ships its own `cacerts` file and nothing links it to the Windows certificate store. It does not hold on Ubuntu or on Arch Linux, where the distribution's own packaging points the same file at the system bundle, both measured:
+
+| Platform | What `$JAVA_HOME/lib/security/cacerts` actually is | So an operating system import reaches Java |
+| --- | --- | --- |
+| Ubuntu, Debian | a symlink to `/etc/ssl/certs/java/cacerts`, kept in step by the `ca-certificates-java` package that the `openjdk-*` packages pull in | yes |
+| Arch Linux | a symlink to `/etc/ssl/certs/java/cacerts`, which is itself a symlink to `/etc/ca-certificates/extracted/java-cacerts.jks` | yes |
+| Windows | a real file inside the Java Development Kit, linked to nothing | no |
+| macOS | reasoned, not measured: a Java Development Kit installed from Temurin or Oracle ships its own `cacerts` and the keychain is a separate store, so treat it as Windows behaves | assume no |
+
+Measured on Ubuntu 24.04 with `openjdk-21-jdk-headless`: after `update-ca-certificates`, `keytool -list -cacerts -v` shows `CN=localhost certificate authority` without anything else being done. Measured on Arch with `jdk-openjdk`: the same is true after `update-ca-trust`.
+
+One Arch-only trap comes with that. Because its Java trust store is a file p11-kit regenerates, an import made straight into it with `keytool -importcert -cacerts` is destroyed the next time anything runs `update-ca-trust`, measured by importing an alias, confirming it, running `update-ca-trust` and finding the alias gone. On Ubuntu the same manual alias survives `update-ca-certificates`. On Arch, put the certificate in the anchors directory and let `update-ca-trust` do the work, or use a dedicated truststore file as recommended below.
 
 So these are two independent decisions and only one of them is required. Each image importing the authority at build time is what makes the stack work, and it happens on its own with no developer action. The operating system import is one command, affects nothing but the developer's own view, and can be skipped entirely by clicking through the browser warning.
 
