@@ -1,6 +1,6 @@
 # Local Auth
 
-> A local certificate authority and the trust store setup behind `https://keycloak.test:9443` on the local machine. The hosts file lines live in [README_LOCAL_DEV.md](../README_LOCAL_DEV.md#hosts-file).
+> A local certificate authority and the trust store setup behind `https://keycloak.test:9443` on the local machine. The hosts file line lives in [README_LOCAL_DEV.md](../README_LOCAL_DEV.md#hosts-file).
 
 ---
 
@@ -9,14 +9,14 @@
 ---
 
 The hosts file itself is documented once, in
-[Hosts file](../README_LOCAL_DEV.md#hosts-file), because the stack needs a line for the object store as well and one
-list beats two. The lines it gives you for Keycloak are `keycloak.test` and `keycloak`. Both are in the leaf
-certificate's SAN list, so the handshake succeeds either way, but they are not interchangeable in what you should use
-them for, and that part belongs here.
+[Hosts file](../README_LOCAL_DEV.md#hosts-file), and that page owns the whole block. It gives Keycloak exactly one
+line, `keycloak.test`, and the bare `keycloak` container name gets none. Both names sit in the leaf certificate's SAN
+list, so the handshake succeeds either way, but they are not interchangeable in what you should use them for, and that
+part belongs here.
 
 `keycloak.test` is the canonical name and the one to point applications, browsers and HTTP clients at. The compose file sets `KC_HOSTNAME=keycloak.test` and `KC_HOSTNAME_PORT=9443`, so every token Keycloak mints carries `https://keycloak.test:9443/realms/local` as its `iss` claim. A client configured against any other name completes the handshake and then fails issuer validation on the token it gets back, which is a confusing failure because nothing about it looks like a hostname problem. The port is part of the name here. 9443 is not a port any client infers, so it is written out everywhere.
 
-`keycloak` is the container name, so Docker's embedded resolver answers it inside the compose network whether or not any hosts file mentions it. That is why the healthcheck in [local-dev-docker-compose.yaml](../local-dev-docker-compose.yaml) reaches `https://keycloak:9000/health/ready` and works. Keep the hosts line so the same name also resolves from the machine, and treat it as the name for talking to the container rather than to the issuer.
+`keycloak` is the container name, so Docker's embedded resolver answers it inside the compose network whether or not any hosts file mentions it. That is why the healthcheck in [local-dev-docker-compose.yaml](../local-dev-docker-compose.yaml) reaches `https://keycloak:9000/health/ready` and works with nothing configured on the machine. Treat it as the name for talking to the container rather than to the issuer, and note that nothing on the host needs it, which is why it has no hosts line of its own.
 
 For Keycloak setup, container build, realm import, and troubleshooting, see
 [Keycloak/README.md](./Keycloak/README.md).

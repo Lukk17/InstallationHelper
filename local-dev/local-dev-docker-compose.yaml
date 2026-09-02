@@ -145,6 +145,7 @@ services:
     environment:
       FLOCI_STORAGE_MODE: persistent
       FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+      FLOCI_SERVICES_UI_ENABLED: "false"
     volumes:
       - floci_data:/app/data
     healthcheck:
@@ -153,26 +154,24 @@ services:
       timeout: 3s
       retries: 5
 
-  s3manager:
-    image: cloudlena/s3manager:v0.8.0@sha256:9ed3a8ecf10381031b19afa4e5ff863efddb81aeac2f84b142a2190d7973e68b
-    container_name: s3manager
+  floci-ui:
+    image: floci/floci-ui:0.4.0@sha256:31993d99032cb72278b8df60f56e0840cfb722fbc26174fa7eb581a0518dbc78
+    container_name: floci-ui
     restart: unless-stopped
     ports:
-      - "9071:8080"
+      - "9071:4500"
     environment:
-      ENDPOINT: floci:4566
-      REGION: us-east-1
-      ACCESS_KEY_ID: admin
-      SECRET_ACCESS_KEY: password
-      USE_SSL: "false"
-      ALLOW_DELETE: "true"
-      LIST_RECURSIVE: "true"
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
+      FLOCI_ENDPOINT: http://floci:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      PORT: "4500"
     depends_on:
       floci:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://localhost:4500/api/clouds || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s

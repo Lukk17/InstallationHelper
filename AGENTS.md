@@ -495,11 +495,11 @@ docker compose -f ./local-dev/local-dev-docker-compose.yaml up -d
 | Qdrant | 6333 (HTTP), 6334 (gRPC) | No auth, also answers to `mem0_store` inside the Compose network |
 | Redis | 6379 | No auth, no volume, everything goes when the container does |
 | Floci (S3) | 9070 | admin / password, nothing actually checks them |
-| s3manager | 9071 | No auth, browses the Floci buckets |
+| Floci UI | 9071 | No auth, fifteen Amazon service pages, eleven of them empty, Azure and GCP dead ends here |
 
 PostgreSQL and Keycloak use custom Dockerfiles (`local-dev/postgresql/Dockerfile`, `local-dev/auth/Keycloak/Dockerfile`). The `local` realm comes from Keycloak's own realm import and nothing else: `local-dev/auth/Keycloak/Dockerfile` copies `local-dev/auth/Keycloak/export/config/local-realm-export.json` into `/opt/keycloak/data/import/` and its entrypoint is `kc.sh start --optimized --import-realm`, so Keycloak imports the realm on the first boot against the empty `keycloak` database that `local-dev/postgresql/init.sh` creates. The Postgres image knows nothing about Keycloak beyond that empty database. It used to: a 302 kilobyte `pg_dump` of Keycloak's own tables was baked into it and restored on first boot, which coupled the two images and pinned the realm to a schema that changes between Keycloak versions. That dump and the leftover `full-export.json` beside it are both deleted. `--import-realm` imports only a realm that is absent, so an existing `postgres_data` volume is never overwritten and editing the JSON changes nothing until the volume goes.
 
-[`local-dev/local-dev-docker-compose.yaml`](local-dev/local-dev-docker-compose.yaml) is the source of truth for images, ports and pins. [`local-dev/README_LOCAL_DEV.md`](local-dev/README_LOCAL_DEV.md) carries the rest, including the `keycloak.test` and `s3.test` hosts entries that nothing sets up for you.
+[`local-dev/local-dev-docker-compose.yaml`](local-dev/local-dev-docker-compose.yaml) is the source of truth for images, ports and pins. [`local-dev/README_LOCAL_DEV.md`](local-dev/README_LOCAL_DEV.md) carries the rest, including the single `keycloak.test` hosts entry that nothing sets up for you.
 
 ## KDE Plasma Profile Management
 

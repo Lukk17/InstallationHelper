@@ -2968,3 +2968,53 @@ Property '--users' can be used only when exporting to a directory, or value set 
 
 Only `same_file` puts the users into the realm file. Without it there is no `lukk` and no password credential, and a
 fresh clone would come up with a working client and nobody to log in as.
+
+### Found while replacing s3manager with Floci's own console in the local-dev stack, 2026-09-02
+
+#### The service table in AGENTS.md describes a stack that no longer exists
+
+Introduced by this change and still open, because the change's file boundary was
+[local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) and
+[local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md) alone, and the defect landed in
+[AGENTS.md](../AGENTS.md).
+
+Removing the `s3manager` service and giving port `9071` to `floci-ui` left two statements in `AGENTS.md` that are now
+false. Its local development table still reads `| s3manager | 9071 | No auth, browses the Floci buckets |`, naming an
+image the Compose file no longer declares, and the paragraph under it still sends the reader to
+`README_LOCAL_DEV.md` for "the `keycloak.test` and `s3.test` hosts entries that nothing sets up for you", when
+`s3.test` was deleted from that file in the same change and the bare `keycloak` line went with it.
+
+Proven rather than reasoned about. After the edits, `grep -rn "s3manager\|s3\.test"` across the tree returns
+`AGENTS.md` lines 498 and 502 as the only live instructions left standing, everything else being either the historical
+prose in this ledger or a sentence in `README_LOCAL_DEV.md` that explicitly says s3manager used to hold the port.
+`docker compose config --services` lists eight services and `s3manager` is not among them, so the table names a
+service the file cannot start.
+
+This matters more than a stale row usually would, because `AGENTS.md` is what every agent in this repository reads
+first. An agent that trusts the table will look for a container that does not exist, and one that trusts the sentence
+will tell the owner to add a hosts entry he has just decided he does not want. The fix is one row and one clause in
+[AGENTS.md](../AGENTS.md), and it needs the owner or an agent whose boundary includes that file.
+
+#### A status endpoint read while the service was still starting, which answered differently thirty seconds later
+
+Caught before it reached the report, and worth recording because it is defect class 14 from `AGENTS.md`, measuring the
+right thing at the wrong time, committed on the first attempt.
+
+`FLOCI_SERVICES_UI_ENABLED=false` was added to the `floci` service to stop the gateway trying to launch its console
+through the host Docker daemon. Read seconds after `docker compose up -d` recreated the container,
+`http://localhost:9070/_floci/ui/status` answered `{"ready":false,"url":null,"error":null}`, a null error that reads as
+"the toggle suppressed the attempt and says nothing about it". On that reading the splash page would spin for five
+minutes and then report `Timed out waiting for the UI to become ready.`, which would have been reported as a
+regression against the previous behaviour of failing immediately.
+
+Polled again once the container had finished warming up, the same endpoint answers:
+
+```text
+{"ready":false,"url":null,"error":"The Floci UI is disabled (set floci.services.ui.enabled=true to enable it)."}
+```
+
+That is the message the toggle actually produces, and the page renders it under the heading `Floci UI unavailable`.
+The first reading was not a different behaviour, it was the same behaviour observed before the gateway had evaluated
+the toggle. Nothing in the endpoint's response distinguishes "not decided yet" from "decided, nothing to report",
+because `error` is null in both cases. The lesson is the one already on the page: a measurement taken during startup
+says nothing about steady state, and a health-gated wait costs seconds against being wrong in a document.
