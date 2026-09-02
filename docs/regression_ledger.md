@@ -2889,3 +2889,82 @@ that dump, and neither the Keycloak Dockerfile nor
 [local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) mentions `export/config` or sets
 `--import-realm`. A green build is not evidence that a file is worthless, and the check that would have caught the
 mistake was asking the owner rather than grepping for consumers.
+
+#### The realm in the dump could not be imported by Keycloak's own importer
+
+Replacing the SQL dump with `--import-realm` failed on the first cold start, and the reason had been sitting in the
+realm since whenever the client was created, invisible for as long as the dump was the transport. `local-client`
+carried a JavaScript authorization policy named
+`Default Policy`, body `$evaluation.grant()`, plus a `Default Permission` applying it. Older Keycloak created that
+trio automatically when Authorization was ticked on a client. Keycloak 26.5 refuses to import a realm containing one
+and aborts startup entirely:
+
+```text
+ERROR: Failed to start server in (production) mode
+ERROR: Script upload is disabled
+```
+
+The container then crash looped, and the health check reported `starting` for 250 seconds with no failure visible
+anywhere except in `docker logs`, which is the shape of this defect that costs the most time: a crash loop and a slow
+boot look identical from the outside.
+
+This is the entry that justifies the whole change. A realm carrying an object Keycloak's own import path rejects can
+only be moved by copying its database tables underneath it, which is exactly what the dump was doing, and nobody could
+have learned that from reading a 302 kilobyte SQL file. Switching to the mechanism the vendor supports made the defect
+visible in one run.
+
+Proven three ways rather than reasoned about. The failure is the log above from a cold `local-dev-coldtest` project.
+The cause is the export itself, where a walk of the JSON reports
+`/clients/4/authorizationSettings/policies/0/type = 'js'`. And the claim that the trio is a leftover rather than
+something the current version wants was measured, not assumed: a client created on 26.5 through the admin API with
+`authorizationServicesEnabled=true` comes back with `"resources" : [ ], "policies" : [ ]`, no default resource, no
+default policy and no default permission.
+
+The fix was made in the live realm and not in the file. The dump was restored from `HEAD` into a throwaway Postgres,
+Keycloak was started against it, both objects were deleted through `kcadm.sh delete`, and the realm was exported
+again, so [local-dev/auth/Keycloak/export/config/local-realm-export.json](../local-dev/auth/Keycloak/export/config/local-realm-export.json)
+is a real export rather than a file edited into shape. `Default Resource` was left in place, because nothing referenced
+it once the permission was gone. The trap that remains is documented in
+[local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md): every machine whose `postgres_data` volume
+predates this change still holds the JavaScript policy, because `--import-realm` never touches an existing realm, so
+an export taken there commits the policy straight back and breaks the next fresh clone.
+
+#### A guard against that policy, written with a pattern that could never match
+
+Introduced during the same change, caught before it was committed. The paragraph above tells the reader to check an
+export before committing it, and the check as first written was
+`grep -c '"type": "js"' ./local-dev/auth/Keycloak/export/config/local-realm-export.json`. `kc.sh export` writes
+`"type" : "js"` with a space on each side of the colon, so that pattern answers 0 on every file, including one that
+carries the policy. A check that always passes is worse than no check, because it is read as evidence.
+
+Proven by running both patterns against the export taken before the fix, which still has the policy in it: the spaced
+pattern answers 1 there and 0 on the corrected file, the unspaced pattern answers 0 in both places. The fix is in the
+same section of [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md), which now carries the
+spaced pattern in both the Unix shell and the PowerShell form and says in as many words why the spaces are not a typo.
+
+#### An export that succeeds and then exits non-zero
+
+`kc.sh export` run inside the container while the server is still serving writes the file, logs
+`KC-SERVICES0035: Export finished successfully`, and then dies trying to bind a management port the running server
+already holds:
+
+```text
+ERROR: Unable to start the management interface on 0.0.0.0:9000
+ERROR: Address already in use
+```
+
+The command exits non-zero on a completed export, which nothing automated can tell apart from an export that failed.
+Proven by running it both ways: with `--http-management-port 9001` it exits 0, and `md5sum` gives
+`37daacaa10e3e336dc1f00b1d9ea6f8a` for both files, so the flag changes the exit code and nothing else. The documented
+command in [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) now carries the flag.
+
+The same section records the second trap on that command, which cost nothing here only because the task warned about
+it. `--users` defaults to `different_files`, and with `--file` the export refuses outright rather than silently
+dropping the users:
+
+```text
+Property '--users' can be used only when exporting to a directory, or value set to 'same_file' when exporting to a file.
+```
+
+Only `same_file` puts the users into the realm file. Without it there is no `lukk` and no password credential, and a
+fresh clone would come up with a working client and nobody to log in as.

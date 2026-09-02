@@ -30,9 +30,11 @@ COPY --from=builder /opt/keycloak/ /opt/keycloak/
 COPY ./certificates/localhost/localhost.crt /etc/x509/https/localhost.crt
 COPY ./certificates/localhost/localhost.key /etc/x509/https/localhostCert.key
 
+COPY ./Keycloak/export/config/local-realm-export.json /opt/keycloak/data/import/local-realm-export.json
+
 # HTTPS port
 EXPOSE 9443
 # Management port
 EXPOSE 9000
 
-ENTRYPOINT ["/opt/keycloak/bin/kc.sh", "start", "--optimized"]
+ENTRYPOINT ["/opt/keycloak/bin/kc.sh", "start", "--optimized", "--import-realm"]

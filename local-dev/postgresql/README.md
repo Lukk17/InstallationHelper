@@ -1,6 +1,6 @@
 # Local PostgreSQL
 
-> Custom PostgreSQL image used by the local-dev Compose stack. Ships a pre-seeded `keycloak` database.
+> Custom PostgreSQL image used by the local-dev Compose stack. Creates the users and databases the stack needs, all of them empty.
 
 ---
 
@@ -49,5 +49,6 @@ For the normal multi-service setup, use the Compose entry in
 | Password | `local`    |
 | Port     | `5432`     |
 
-The image also initialises a second user `keycloak` (password `local`) with an imported data dump; see the Keycloak
-notes in [local-dev/README_LOCAL_DEV.md](../README_LOCAL_DEV.md).
+The image also initialises a second user `keycloak` (password `local`) and an empty `keycloak` database for Keycloak
+to migrate into. It holds no Keycloak data of its own: Keycloak creates its schema and imports its realm itself on
+first boot. See the Keycloak notes in [local-dev/README_LOCAL_DEV.md](../README_LOCAL_DEV.md).

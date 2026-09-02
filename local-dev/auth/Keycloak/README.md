@@ -1,6 +1,6 @@
 # Keycloak (local)
 
-> Custom Keycloak image used by the local-dev Compose stack. HTTPS on 9443, admin / `local` realm pre-imported.
+> Custom Keycloak image used by the local-dev Compose stack. HTTPS on 9443, and the `local` realm imported from a committed realm export on first boot.
 
 ---
 
@@ -24,13 +24,14 @@ docker build --no-cache -f ./local-dev/auth/Keycloak/Dockerfile -t keycloak-loca
 
 ---
 
-On first run, import the seed dump into the `keycloak` PostgreSQL database:
+There is no database seeding step. The realm travels inside the image: the Dockerfile copies
+[export/config/local-realm-export.json](./export/config/local-realm-export.json) into `/opt/keycloak/data/import/`
+and the entrypoint is `kc.sh start --optimized --import-realm`, so Keycloak creates its own schema and imports the
+realm on its first boot against an empty `keycloak` database. All Postgres has to provide is that empty database,
+which [../../postgresql/init.sh](../../postgresql/init.sh) creates. Nothing mounts the JSON at runtime, so the image
+needs no file from your disk.
 
-```bash
-psql -U postgres -h localhost -p 5432 -d keycloak -f ./local-dev/auth/Keycloak/export/database/keycloak-dump.sql
-```
-
-Then start the container (use the tag you built):
+Start the container (use the tag you built):
 
 ```bash
 docker run -d --name keycloak -p 9443:9443 keycloak-local:latest
@@ -39,12 +40,19 @@ docker run -d --name keycloak -p 9443:9443 keycloak-local:latest
 For the integrated Compose stack (recommended), use the entry in
 [local-dev/README_LOCAL_DEV.md](../../README_LOCAL_DEV.md) instead.
 
+`--import-realm` imports a realm only when that realm is absent from the database. On a machine whose
+`postgres_data` volume already holds `local`, the import is skipped and nothing is overwritten, which is measured:
+starting the container against a database that already carries the realm logs
+`Realm 'local' already exists. Import skipped` and then boots normally. Editing the JSON
+therefore changes nothing for an existing volume. What takes the import path is a fresh clone, or a volume that has
+been removed.
+
 ### Get a token
 
 ---
 
 The `local` realm ships a confidential client `local-client` with a baked-in test user (`lukk` / `test1234`). The
-secret below is part of the committed seed dump, [export/database/keycloak-dump.sql](./export/database/keycloak-dump.sql), and is safe to use locally.
+secret below is part of the committed realm export, [export/config/local-realm-export.json](./export/config/local-realm-export.json), and is safe to use locally.
 
 Run it from the project root. The command is the same everywhere except for one Windows-only flag, so it is written
 once per platform group rather than once per operating system. All three forms were measured returning HTTP 200 with

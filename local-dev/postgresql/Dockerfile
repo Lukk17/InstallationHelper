@@ -5,7 +5,6 @@ FROM postgres:17.11@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937
 ENV POSTGRES_PASSWORD=temporary_password_for_build
 
 COPY ./postgresql/init.sh /docker-entrypoint-initdb.d/
-COPY ./auth/Keycloak/export/database/keycloak-dump.sql /docker-entrypoint-initdb.d/
 
 # Start a temporary PostgreSQL instance, entrypoint script automatically runs init.sh
 # The result is a fully configured database in the /var/lib/postgresql/data directory.

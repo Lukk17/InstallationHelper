@@ -103,9 +103,13 @@ name `articles` here and the Compose file used to set `MONGO_INITDB_DATABASE: ar
 the official image runs its initialisation phase only when a root username and password are both set or a shell or
 JavaScript file is mounted into `/docker-entrypoint-initdb.d`, and neither is true here.
 
-PostgreSQL also initialises a `keycloak` user (password `local`) and imports the seed dump from
-[auth/Keycloak/export/database/keycloak-dump.sql](./auth/Keycloak/export/database/keycloak-dump.sql) so Keycloak boots
-with the realm already in place.
+PostgreSQL also initialises a `keycloak` user (password `local`) and an empty `keycloak` database, and that empty
+database is everything it knows about Keycloak. The realm arrives from the other side. The Keycloak image carries
+[auth/Keycloak/export/config/local-realm-export.json](./auth/Keycloak/export/config/local-realm-export.json) at
+`/opt/keycloak/data/import/` and its entrypoint passes `--import-realm`, so Keycloak creates its own schema and
+imports the realm on first boot. It used to be the other way round, with a 302 kilobyte SQL dump of Keycloak's own
+tables baked into the Postgres image, which tied one image to the other and tied the realm to a schema that changes
+between Keycloak versions.
 
 Keycloak's management port is `9000`. URLs:
 
@@ -194,7 +198,7 @@ Nothing on either port asks for a credential. s3manager on `9071` ships no authe
 
 | Doc                                                          | What's in it                                                            |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| [auth/Keycloak/config.md](./auth/Keycloak/config.md)         | First run, realm and client setup by hand, database dump, exporting the realm. |
+| [auth/Keycloak/config.md](./auth/Keycloak/config.md)         | First run, realm and client setup by hand, and regenerating the realm export the image imports. |
 | [auth/Keycloak/README.md](./auth/Keycloak/README.md)         | Dockerfile, token curl, OS trust store import for the certificate authority. |
 | [auth/README.md](./auth/README.md)                           | Local certificate authority generation, trust store setup per platform, Let's Encrypt for prod. |
 | [postgresql/README.md](./postgresql/README.md)               | Standalone Postgres run, credentials.                                   |
