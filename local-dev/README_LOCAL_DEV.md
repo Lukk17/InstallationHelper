@@ -28,12 +28,22 @@ PowerShell on Windows is the same; just use forward slashes or escape backslashe
 
 | Service     | Port              | Database / Realm       | Username    | Password    | Image                                                                          |
 | ----------- | ----------------- | ---------------------- | ----------- | ----------- | ------------------------------------------------------------------------------ |
-| MySQL       | `3306`            | `test-spring`          | `root`      | `local`     | `mysql:9.6.0`                                                                  |
+| MySQL       | `3306`            | `test-spring`          | `root`      | `local`     | `mysql:9.7.2`                                                                  |
 | PostgreSQL  | `5432`            | `keycloak`, `postgres` | `postgres`  | `local`     | custom, built from `postgres:17.11`. See [postgresql/](./postgresql/README.md). |
-| MongoDB     | `27017`           | `articles`             | (none)      | (none)      | `mongo:8.2.12`                                                                 |
+| MongoDB     | `27017`           | `articles`             | (none)      | (none)      | `mongo:8.3.8`                                                                  |
+| Qdrant      | `6333` (HTTP), `6334` (gRPC) | collections, also reachable on the Compose network as `mem0_store` | (none) | (none) | `qdrant/qdrant:v1.19`                                       |
+| Redis       | `6379`            | numbered databases `0` to `15` | (none) | (none)      | `redis:8.10.1-alpine`                                                          |
 | Keycloak    | `9443` (HTTPS)    | realm `local`          | `admin`     | `admin`     | custom, built from `keycloak:26.5`. See [auth/Keycloak/](./auth/Keycloak/README.md). |
 | Floci       | `9070`            | S3 buckets             | `admin`     | `password`  | `floci/floci:2.0.1`                                                            |
 | s3manager   | `9071`            | browses Floci          | (none)      | (none)      | `cloudlena/s3manager:v0.8.0`                                                   |
+
+The Image column gives the tag only, because a `sha256` digest is 71 characters and would make this table unreadable.
+Every image pulled from a registry is written in the Compose file as `name:tag@sha256:...`, and the digest is what
+actually resolves. The two custom images are built here and never pushed, so they keep a plain tag and it is their base
+images that carry digests. See [Refreshing an image pin](#refreshing-an-image-pin) before changing a version.
+
+Redis is the one service here with no volume, so everything in it is gone the moment the container is removed. Treat it
+as a cache, not as storage.
 
 PostgreSQL also initialises a `keycloak` user (password `local`) and imports the seed dump from
 [auth/Keycloak/export/database/keycloak-dump.sql](./auth/Keycloak/export/database/keycloak-dump.sql) so Keycloak boots
@@ -121,16 +131,64 @@ Nothing on either port asks for a credential. s3manager on `9071` ships no authe
 | [auth/README.md](./auth/README.md)                           | `hosts` setup, local certificate authority generation, Let's Encrypt for prod. |
 | [postgresql/README.md](./postgresql/README.md)               | Standalone Postgres run, credentials.                                   |
 
-### Docker Hub image tags for reference
+### Refreshing an image pin
 
 ---
 
-Bump the image tags in [local-dev-docker-compose.yaml](./local-dev-docker-compose.yaml) when you want a newer
-release; the links go to the upstream tag listings.
+Every image that comes from a registry is written as `name:tag@sha256:...`, in
+[local-dev-docker-compose.yaml](./local-dev-docker-compose.yaml) and in the `FROM` lines of
+[postgresql/Dockerfile](./postgresql/Dockerfile) and [auth/Keycloak/Dockerfile](./auth/Keycloak/Dockerfile) alike. The
+tag is there so a person reading the file can see which version it is, the digest is what Docker actually resolves. A
+tag that moves upstream, or that gets rebuilt under the same name, therefore cannot change what starts here.
+
+The cost is that a version bump is two edits rather than one: change the tag, then replace the digest with the one that
+new tag points at. A stale digest wins over a fresh tag, so half the edit gives you the old image under a new label.
+
+Pull the tag you want, then read its digest back:
+
+```bash
+docker pull mysql:9.7.2
+```
+
+```bash
+docker image inspect --format '{{index .RepoDigests 0}}' mysql:9.7.2
+```
+
+```powershell
+docker pull mysql:9.7.2
+```
+
+```powershell
+docker image inspect --format "{{index .RepoDigests 0}}" mysql:9.7.2
+```
+
+That prints `mysql@sha256:<digest>`. Paste the digest after the tag, so the line reads `mysql:9.7.2@sha256:<digest>`,
+and confirm the file still parses:
+
+```bash
+docker compose -f ./local-dev/local-dev-docker-compose.yaml config
+```
+
+```powershell
+docker compose -f ./local-dev/local-dev-docker-compose.yaml config
+```
+
+For a repository that publishes several architectures, `RepoDigests` gives the digest of the manifest index rather than
+of one platform's image, so the pin still resolves on an arm64 machine as well as on amd64. `cloudlena/s3manager` is the
+exception in this stack: version `v0.8.0` upstream is a single `linux/amd64` manifest with no index above it, so its
+digest is inherently one platform, which is a property of what the publisher shipped rather than of how it is pinned
+here.
+
+`postgres-local:latest` and `keycloak-local:latest` are built on this machine and never pushed anywhere, so they have no
+registry digest and keep a plain tag. Their base images inside the two Dockerfiles carry the digests instead.
+
+The links below go to the upstream tag listings, for picking the tag in the first place.
 
 - [MySQL](https://hub.docker.com/_/mysql/tags)
 - [PostgreSQL](https://hub.docker.com/_/postgres/tags)
 - [MongoDB](https://hub.docker.com/_/mongo/tags)
+- [Qdrant](https://hub.docker.com/r/qdrant/qdrant/tags)
+- [Redis](https://hub.docker.com/_/redis/tags)
 - [Keycloak](https://hub.docker.com/r/keycloak/keycloak/tags)
 - [Floci](https://hub.docker.com/r/floci/floci/tags)
 - [s3manager](https://hub.docker.com/r/cloudlena/s3manager/tags)

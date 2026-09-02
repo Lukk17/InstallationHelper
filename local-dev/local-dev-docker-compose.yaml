@@ -3,6 +3,7 @@ name: local-dev
 volumes:
   mysql_data:
   mongodb_data:
+  mongodb_config:
   postgres_data:
   qdrant_data:
   floci_data:
@@ -10,7 +11,7 @@ volumes:
 services:
   mysql:
     container_name: mysql
-    image: mysql:9.6.0
+    image: mysql:9.7.2@sha256:257388edf9c84dbc04c763625446d5f3fa6ed60d1b0873bc552c614ba0a7ab4e
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: local
@@ -28,7 +29,7 @@ services:
 
   mongodb:
     container_name: mongodb
-    image: mongo:8.2.12
+    image: mongo:8.3.8@sha256:5211c51171f57ae60842b11664bb244628971b3d35325762a97888337b9bb0db
     restart: unless-stopped
     environment:
       MONGO_INITDB_DATABASE: articles
@@ -36,6 +37,7 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
     healthcheck:
       test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 5s
@@ -64,7 +66,7 @@ services:
       start_period: 15s
 
   qdrant:
-    image: qdrant/qdrant:v1.19
+    image: qdrant/qdrant:v1.19@sha256:057ee3a8da769fe7310dd3537b4dc7583bf87a95ce8ac43c0af5a46bc580d1fc
     container_name: qdrant
     restart: unless-stopped
     ports:
@@ -84,7 +86,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:8.10.1-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
     container_name: redis
     restart: unless-stopped
     ports:
@@ -137,7 +139,7 @@ services:
         condition: service_healthy
 
   floci:
-    image: floci/floci:2.0.1
+    image: floci/floci:2.0.1@sha256:4e451c39c7bb88e3cd4f87e8fc0c25d5b47695a51185d521e2241fa00486e8eb
     container_name: floci
     restart: unless-stopped
     ports:
@@ -154,7 +156,7 @@ services:
       retries: 5
 
   s3manager:
-    image: cloudlena/s3manager:v0.8.0
+    image: cloudlena/s3manager:v0.8.0@sha256:9ed3a8ecf10381031b19afa4e5ff863efddb81aeac2f84b142a2190d7973e68b
     container_name: s3manager
     restart: unless-stopped
     ports:
