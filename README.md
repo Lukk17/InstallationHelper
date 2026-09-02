@@ -241,7 +241,7 @@ Released under the [MIT License](LICENSE).
 | [setup/version_sources.md](setup/version_sources.md)                    | Where to look up the latest version for every pinned package      |
 | [setup/ansible/tags.md](setup/ansible/tags.md)                          | Ansible `--tags` taxonomy for surgical partial runs               |
 | [local-dev/README_LOCAL_DEV.md](local-dev/README_LOCAL_DEV.md)          | Docker Compose stack: ports, credentials, image tags              |
-| [local-dev/auth/README.md](local-dev/auth/README.md)                    | Local auth: hosts file entries, self-signed certs, Let's Encrypt  |
+| [local-dev/auth/README.md](local-dev/auth/README.md)                    | Local auth: hosts file entries, local certificate authority, Let's Encrypt |
 | [local-dev/auth/Keycloak/README.md](local-dev/auth/Keycloak/README.md)  | Keycloak container build, token curl, OS trust store import       |
 | [local-dev/auth/Keycloak/config.md](local-dev/auth/Keycloak/config.md)  | Realm export, client setup, export-import flow                    |
 | [local-dev/postgresql/README.md](local-dev/postgresql/README.md)        | Standalone Postgres build and run                                 |

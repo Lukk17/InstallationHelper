@@ -2055,10 +2055,10 @@ The `if` on each cell is what the deleted `stage2_plan` job used to compute. A d
 
 ### Outside the Ansible playbook, found while touching local-dev/auth
 
-This project's own scope statement above is the Ansible playbook and its wizard scripts. The one entry below is
-outside that, in the local development Docker Compose stack, and is recorded here because it was found while
-building the local certificate authority for `local-dev/auth/certificates/localhost/` and the instruction for that
-work said to log it here.
+This project's own scope statement above is the Ansible playbook and its wizard scripts. The entries below are
+outside that, in the local development Docker Compose stack, and are recorded here because they were found while
+building the local certificate authority for `local-dev/auth/certificates/localhost/`, and documenting how to trust
+it, and the instruction for that work said to log it here.
 
 #### The documented certificate generation command could never run on a clean checkout
 
@@ -2118,3 +2118,63 @@ not a fix for a live failure. Nothing in the chain, not git, not OpenSSL, not Ke
 or key. The original conclusion, that anyone regenerating these files from Git Bash on Windows hits this and needs
 the same manual fix, does not hold: this repository's own `.gitattributes` normalizes the committed form regardless,
 and the working tree form that briefly carries CRLF works fine as an input to every tool that reads it.
+
+
+#### The Windows curl advice named a mechanism its own error message ruled out
+
+Status: fixed in this change, in [local-dev/auth/README.md](../local-dev/auth/README.md). Documentation only.
+Nothing in the compose stack behaved differently at any point, and the defect was found before the section was
+committed.
+
+The "Trust the cert from application code" section said the Git Bash build of curl on Windows, which uses Schannel
+as its TLS backend, "ignores `--cacert` entirely, it only ever trusts what is already in the Windows certificate
+store", and concluded from that the only fix on Windows is importing the root into the operating system trust
+store. Immediately below the claim it quoted the error it had actually measured:
+
+```text
+curl: (60) schannel: the revocation status is unknown
+```
+
+Those two statements cannot both be true. A backend that never opens the file has no chain to build and fails on
+trust. Getting as far as a revocation question means a chain was built, which means the file was read. The
+mechanism had been inferred from the fact of the failure rather than measured.
+
+Proven by five runs from Git Bash on Windows, curl 8.19.0 with the Schannel backend, against
+`https://keycloak:9443/realms/local/.well-known/openid-configuration` served by the `keycloak` container from
+[local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml):
+
+1. `--cacert localDevCA.crt` on its own reproduced the documented error, exit 60.
+2. Adding `--ssl-no-revoke` returned HTTP 200, exit 0.
+3. Adding `--ssl-revoke-best-effort` instead of it returned HTTP 200, exit 0.
+4. Pointing `--cacert` at an unrelated throwaway authority generated in a scratch directory outside the repository failed differently, and identically with `--ssl-no-revoke` added: `curl: (60) schannel: the certificate chain is incomplete`.
+5. Dropping `--cacert` altogether failed on trust rather than on revocation: `curl: (60) schannel: SEC_E_UNTRUSTED_ROOT (0x80090325) - The certificate chain was issued by an authority that is not trusted.`
+
+Runs 2 and 3 alone disprove the claim, because a flag that only relaxes revocation checking cannot make an ignored
+file start being read. Run 4 shows what a genuine trust failure looks like from this same build, and run 5 shows
+what the machine's own trust state produces with no file supplied at all. Runs 2 and 5 were repeated against
+`keycloak.test`, the name this machine's hosts file actually carries, with the same outcomes, so none of it depends
+on how the host name was resolved.
+
+The revocation status is unknown because the leaf carries no CRL distribution point and no Authority Information
+Access extension, which is what a locally generated authority produces, since it publishes neither a revocation
+list nor an online responder. Confirmed with `openssl x509 -noout -text` on the leaf, and independently by
+`certutil -verify -urlfetch localhostDomain.crt localDevCA.crt`, which reports `Certificate has no
+revocation-check extension` and `Revocation check skipped`.
+
+The Windows certificate store held nothing relevant for any of it. `Cert:\LocalMachine\Root` (76 certificates),
+`Cert:\CurrentUser\Root` (76), both `CA` stores and both `My` stores contained no certificate whose subject matched
+`Local-dev`, and a search by the root and leaf thumbprints matched nothing either. So no result above was
+contaminated by the machine already trusting this authority, and the older `Local-dev` leaf that predates the local
+certificate authority was not lingering in a store either.
+
+An earlier report during the same work said Git Bash curl could not be made to trust a custom `--cacert` even with
+`--ssl-no-revoke`, quoting `schannel: the certificate or certificate chain is based on an untrusted root`. Recorded
+here because it was the second half of the contradiction, and because the likeliest reading is that it was run 5
+rather than run 2: an untrusted-root error is what this build produces when no `--cacert` takes effect. That
+reading was not reproduced directly, because the exact command behind that report was never written down. Both
+failures exit 60, so the message text is the only thing that separates them, which is precisely why the exit code
+is not enough to reason from.
+
+The fix is the rewritten curl subsection. It gives `--ssl-revoke-best-effort` as the runnable Windows command,
+names the operating system trust store import as the alternative that needs no flag at all, and explains the
+failure as a revocation status that cannot be determined rather than as a file that was never read.

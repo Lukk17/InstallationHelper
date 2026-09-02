@@ -108,3 +108,270 @@ Drop the resulting `keystore.jks` into Keycloak's expected location and restart 
 
 Importing the root certificate authority into the OS trust store stops browsers and HTTP clients from rejecting
 the certificates it signs. Steps are in [Keycloak/README.md](./Keycloak/README.md) under "Certificate".
+
+### Trust the cert from application code
+
+---
+
+The OS trust store import above fixes browsers and any tool that reads the operating system's own certificate
+store. It does nothing for a runtime that keeps a separate trust store of its own, or that reads a certificate
+bundle from an environment variable instead of asking the operating system. Every command below was run against a
+real `https://keycloak:9443`, first with nothing pointed at the root to show the rejection, then again with the
+root in place to show it working.
+
+#### Java Virtual Machine applications
+
+Every JVM keeps its own trust store, a keystore file in the JKS format, and by default that file is the only place
+its trust manager looks. That is a default rather than a hard limit. On Windows,
+`-Djavax.net.ssl.trustStoreType=Windows-ROOT` switches the trust manager to the SunMSCAPI provider, which reads the
+Windows certificate store directly, so a root already imported there needs no truststore file at all. That switch
+is Windows only, and everything measured below uses the truststore file, which behaves the same on every platform.
+Proven against Keycloak's own admin client, `kcadm.sh`, which is itself a JVM program and ships inside the Keycloak
+container. With TLS verification on and nothing pointed at the root, logging in over HTTPS fails before it reaches
+Keycloak at all:
+
+```text
+Logging into https://keycloak:9443 as user admin of realm master
+Failed to send request - (certificate_unknown) PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+```
+
+Build a truststore from the root certificate authority. Where that file lands is your choice, and the home
+directory below is only a placeholder: the truststore belongs next to the application that loads it, not in this
+repository. Nothing in [.gitignore](../../.gitignore) matches a `.jks`, so a truststore written into the checkout
+turns up as an untracked file in every `git status` from then on.
+
+```bash
+keytool -importcert -noprompt -trustcacerts -alias localdevca -file ./local-dev/auth/certificates/localhost/localDevCA.crt -keystore "$HOME/localDevCA.truststore.jks" -storepass changeit
+```
+
+```powershell
+keytool -importcert -noprompt -trustcacerts -alias localdevca -file .\local-dev\auth\certificates\localhost\localDevCA.crt -keystore "$env:USERPROFILE\localDevCA.truststore.jks" -storepass changeit
+```
+
+Point the application at it with the two system properties every JVM's default trust manager reads:
+
+```bash
+java -Djavax.net.ssl.trustStore="$HOME/localDevCA.truststore.jks" -Djavax.net.ssl.trustStorePassword=changeit -jar your-app.jar
+```
+
+```powershell
+java -Djavax.net.ssl.trustStore="$env:USERPROFILE\localDevCA.truststore.jks" -Djavax.net.ssl.trustStorePassword=changeit -jar your-app.jar
+```
+
+A Spring Boot application started through an IDE run configuration, `./gradlew bootRun`, or `mvn spring-boot:run`
+reads the same two properties as JVM arguments. With that truststore in place, the same login against the same
+Keycloak succeeds:
+
+```text
+Logging into https://keycloak:9443 as user admin of realm master
+```
+
+Recommendation: build a truststore scoped to this one application rather than importing the root into the JVM's
+own shared `cacerts` file. `cacerts` is used by every application that runs under that JVM installation, so
+importing a local development root into it trusts that authority for anything else on the machine that happens to
+share the JVM, and a JVM upgrade replaces `cacerts` with a fresh one carrying only the public authorities the
+distribution ships, so the import has to be repeated on every upgrade. A dedicated truststore file, referenced only
+by this one application's own launch configuration, stays scoped to the thing that actually needs it.
+
+The alternative, importing straight into `cacerts`, is proven to work as well, using the same root certificate:
+
+```bash
+keytool -importcert -noprompt -trustcacerts -alias localdevca -file ./local-dev/auth/certificates/localhost/localDevCA.crt -keystore "$JAVA_HOME/lib/security/cacerts" -storepass changeit
+```
+
+```powershell
+keytool -importcert -noprompt -trustcacerts -alias localdevca -file .\local-dev\auth\certificates\localhost\localDevCA.crt -keystore "$env:JAVA_HOME\lib\security\cacerts" -storepass changeit
+```
+
+#### Node.js
+
+Node reads the `NODE_EXTRA_CA_CERTS` environment variable at startup and adds whatever certificate it points at to
+its built-in trust store, on top of the certificates Node ships with rather than instead of them. Proven with a
+throwaway Node container on the same Docker network as Keycloak. Without the variable, the request fails inside
+the process rather than returning a response:
+
+```text
+ERROR fetch failed
+CAUSE unable to verify the first certificate
+```
+
+Set the variable to the root certificate authority and the same request succeeds:
+
+```bash
+export NODE_EXTRA_CA_CERTS=./local-dev/auth/certificates/localhost/localDevCA.crt
+```
+
+```bash
+node your-app.js
+```
+
+```powershell
+$env:NODE_EXTRA_CA_CERTS = ".\local-dev\auth\certificates\localhost\localDevCA.crt"
+```
+
+```powershell
+node your-app.js
+```
+
+```text
+STATUS 200
+```
+
+#### Python
+
+The two most common HTTP layers in Python read different environment variables, and mixing them up is the usual
+mistake. The `requests` library reads `REQUESTS_CA_BUNDLE`, because it carries its own bundled certificate store
+(`certifi`) rather than asking OpenSSL for the system default. The standard library, meaning `urllib.request` and
+anything built on the `ssl` module directly, reads `SSL_CERT_FILE` instead. `REQUESTS_CA_BUNDLE` has no effect on
+standard library code, and `SSL_CERT_FILE` has no effect on `requests`.
+
+Both were proven the same way, against the same Keycloak, from a throwaway Python container. `requests` without
+the variable set:
+
+```text
+ERROR SSLError HTTPSConnectionPool(host='keycloak', port=9443): Max retries exceeded with url: /realms/local/.well-known/openid-configuration (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY
+```
+
+With `REQUESTS_CA_BUNDLE` pointed at the root:
+
+```bash
+export REQUESTS_CA_BUNDLE=./local-dev/auth/certificates/localhost/localDevCA.crt
+```
+
+```bash
+python your-app.py
+```
+
+```powershell
+$env:REQUESTS_CA_BUNDLE = ".\local-dev\auth\certificates\localhost\localDevCA.crt"
+```
+
+```powershell
+python your-app.py
+```
+
+```text
+STATUS 200
+```
+
+The standard library, without `SSL_CERT_FILE` set:
+
+```text
+ERROR URLError <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1010)>
+```
+
+With `SSL_CERT_FILE` pointed at the root:
+
+```bash
+export SSL_CERT_FILE=./local-dev/auth/certificates/localhost/localDevCA.crt
+```
+
+```bash
+python your-app.py
+```
+
+```powershell
+$env:SSL_CERT_FILE = ".\local-dev\auth\certificates\localhost\localDevCA.crt"
+```
+
+```powershell
+python your-app.py
+```
+
+```text
+STATUS 200
+```
+
+#### curl
+
+`curl --cacert <file>` points curl at a certificate to build and verify the chain against instead of whatever store
+curl would otherwise use. On plain Linux and inside WSL that is the whole answer, proven with the same root against
+the same Keycloak. macOS has no measurement here, but its curl does not use Schannel either, so the plain form is
+the one to reach for there too:
+
+```bash
+curl --cacert ./local-dev/auth/certificates/localhost/localDevCA.crt https://keycloak:9443/realms/local/.well-known/openid-configuration
+```
+
+From Git Bash on Windows the same command fails, and not for the reason it first looks like:
+
+```text
+curl: (60) schannel: the revocation status is unknown
+```
+
+That build reports its TLS backend as Schannel in `curl --version`, which is Windows' own TLS library, and the
+error is the evidence that Schannel did read the file. Nothing can ask whether a certificate has been revoked
+before a chain has been built, and a chain was built here. What curl could not do next was answer the revocation
+question, because the leaf carries neither a CRL distribution point nor an OCSP responder, which is normal for a
+certificate signed by a local authority that publishes neither. So the status is unknown rather than revoked, and
+on the code path `--cacert` selects, curl treats unknown as a failure unless you tell it not to.
+
+Two flags tell it not to, and both were measured returning HTTP 200 against the same Keycloak. Prefer
+`--ssl-revoke-best-effort`, which the [curl manual](https://curl.se/docs/manpage.html) describes as ignoring
+revocation checks "when they failed due to missing/offline distribution points for the revocation check lists".
+That is exactly this case, and it leaves the check in place otherwise. `--ssl-no-revoke` disables revocation
+checking altogether, which the same manual flags as loosening security. Both are marked Schannel-only, so leave
+them off the Linux and macOS command.
+
+Git Bash:
+
+```bash
+curl --cacert ./local-dev/auth/certificates/localhost/localDevCA.crt --ssl-revoke-best-effort https://keycloak:9443/realms/local/.well-known/openid-configuration
+```
+
+PowerShell:
+
+```powershell
+curl.exe --cacert .\local-dev\auth\certificates\localhost\localDevCA.crt --ssl-revoke-best-effort https://keycloak:9443/realms/local/.well-known/openid-configuration
+```
+
+Write `curl.exe` rather than `curl` in PowerShell. Windows PowerShell 5.1 aliases `curl` to `Invoke-WebRequest`,
+which has none of these flags.
+
+Two controls, run from the same Git Bash against the same Keycloak, are what rule out the alternative reading that
+the file is ignored.
+
+Point `--cacert` at an unrelated throwaway authority so the chain genuinely cannot be built, and the failure names
+the chain instead of revocation, with or without either revocation flag:
+
+```text
+curl: (60) schannel: the certificate chain is incomplete
+```
+
+Drop `--cacert` and curl falls back on Schannel's own trust decision, which on a machine that has not imported the
+root fails on trust and never reaches the revocation question:
+
+```text
+curl: (60) schannel: SEC_E_UNTRUSTED_ROOT (0x80090325) - The certificate chain was issued by an authority that is not trusted.
+```
+
+That last error is the one the operating system import under "Trust the cert on your machine" removes, and it is
+the alternative to reach for if you would rather not carry a flag around. With the root in the Windows certificate
+store there is no `--cacert` to pass, so curl never enters the chain verification that raises the revocation
+question in the first place. The Windows certificate store held no copy of this root for any measurement above,
+checked by subject and by thumbprint in `Cert:\LocalMachine\Root` and `Cert:\CurrentUser\Root`, so nothing in the
+machine's own trust state contributed to these results.
+
+#### A container in the compose stack
+
+Getting the root into another container that needs to reach Keycloak over HTTPS is the same shape as the Node and
+Python cases above, and was proven the same way: bind mount the root certificate file into the container
+read-only, and point the runtime's own environment variable at that path, exactly as documented for that runtime
+above. There is nothing compose-specific about it beyond making sure the new service is on the same network as
+`keycloak`.
+
+For a Compose service definition, the shape is a `volumes` entry plus an `environment` entry, using whichever
+variable the service's own runtime reads:
+
+```yaml
+services:
+  your-service:
+    volumes:
+      - ./local-dev/auth/certificates/localhost/localDevCA.crt:/certs/localDevCA.crt:ro
+    environment:
+      - NODE_EXTRA_CA_CERTS=/certs/localDevCA.crt
+```
+
+Swap the environment variable for `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE`, or the two `javax.net.ssl` system
+properties depending on what the service actually runs. Mount the certificate at runtime rather than baking it into
+the image with a `COPY`, so the same image works unchanged if the certificate is ever regenerated.

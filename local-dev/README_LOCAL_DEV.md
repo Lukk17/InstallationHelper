@@ -52,8 +52,8 @@ Test user in the `local` realm: `lukk` / `test1234`.
 | Doc                                                          | What's in it                                                            |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | [auth/Keycloak/config.md](./auth/Keycloak/config.md)         | Realm export, client setup, export-import flow.                         |
-| [auth/Keycloak/README.md](./auth/Keycloak/README.md)         | Dockerfile, token curl, OS trust store import for the self-signed cert. |
-| [auth/README.md](./auth/README.md)                           | `hosts` setup, self-signed cert generation, Let's Encrypt for prod.     |
+| [auth/Keycloak/README.md](./auth/Keycloak/README.md)         | Dockerfile, token curl, OS trust store import for the certificate authority. |
+| [auth/README.md](./auth/README.md)                           | `hosts` setup, local certificate authority generation, Let's Encrypt for prod. |
 | [postgresql/README.md](./postgresql/README.md)               | Standalone Postgres run, credentials.                                   |
 
 ### Docker Hub image tags for reference
