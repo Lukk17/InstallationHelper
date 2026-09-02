@@ -41,7 +41,6 @@
 # exclusion as unproven instead of quietly passing.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
 
 info "Tier 1: control characters"
 
@@ -53,23 +52,13 @@ if ! command -v git >/dev/null 2>&1; then
     return 0 2>/dev/null || exit 0
 fi
 
-# The interpreter is resolved through the search the pinned values adapter already owns, the way
-# manifests.sh does, rather than through `${PYTHON:-python}`. Git Bash here has no python3 and its
-# App Execution Alias resolves without running, while WSL has python3 and no python at all, so a
-# check that names one of the two reports a failure on the other shell that is about the shell rather
-# than about the tree.
-if ! CONTROL_CHARACTERS_PYTHON="$(pinned_values_python)"; then
-    skip "no tracked text file carries a control character" \
-         "no Python 3.11 or newer on PATH, so the byte scan could not run"
-    finish "control characters"
-    return 0 2>/dev/null || exit 0
-fi
+require_python "no tracked text file carries a control character" "control characters"
 
 # git is asked from inside Python rather than through a pipe, because this heredoc already owns the
 # script's stdin. line_endings.sh reported "git listed no tracked files" against a clean tree on its
 # first run for exactly that reason.
 scan_status=0
-report="$("${CONTROL_CHARACTERS_PYTHON}" - <<'PYEOF'
+report="$("${PYTHON}" - <<'PYEOF'
 import subprocess
 import sys
 
@@ -146,15 +135,7 @@ report('BINARY %d' % len(binary_paths),
        verdict)
 PYEOF
 )" || scan_status=$?
-
-# An interpreter that died mid-scan must say so. Without this the assignment above ends the script
-# under `set -e`, and a check that exits with no PASS, no FAIL and no tally is the shape of silence
-# this harness exists to prevent.
-if [[ "${scan_status}" -ne 0 ]]; then
-    fail "the byte scan did not run to completion, so nothing here is proven" \
-         "${CONTROL_CHARACTERS_PYTHON} exited ${scan_status}, and its own error is above"
-    finish "control characters"
-fi
+assert_python_ran "${scan_status}" "control characters"
 
 binary=""
 unreadable=""

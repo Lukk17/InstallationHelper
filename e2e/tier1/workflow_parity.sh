@@ -53,7 +53,10 @@ info "Tier 1: both workflows prepare a runner the same way"
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "workflow parity"; }
 
-report="$("${PYTHON:-python}" - <<'PYEOF'
+require_python "both workflows prepare a runner the same way" "workflow parity"
+
+report_status=0
+report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 import re
 
@@ -184,7 +187,8 @@ for label, prefix in (('Windows', 'windows-'), ('macOS', 'macos-'), ('Linux', 'u
 
 print('\n'.join(lines))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "workflow parity"
 
 while IFS= read -r line; do
     case "${line}" in

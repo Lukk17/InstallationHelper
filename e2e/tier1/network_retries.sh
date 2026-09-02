@@ -29,7 +29,10 @@ info "Tier 1: network tasks retry"
 
 ALLOWLIST="$(dirname "${BASH_SOURCE[0]}")/network_retries_allowed.txt"
 
-report="$("${PYTHON:-python}" - "$(host_path "${ANSIBLE_DIR}")" "$(host_path "${ALLOWLIST}")" <<'PYEOF'
+require_python "every network task retries, or is allowlisted with a reason" "network tasks retry"
+
+report_status=0
+report="$("${PYTHON}" - "$(host_path "${ANSIBLE_DIR}")" "$(host_path "${ALLOWLIST}")" <<'PYEOF'
 import pathlib, re, sys
 
 try:
@@ -129,7 +132,8 @@ if missing or stale:
 else:
     print("OK {} network tasks, {} allowlisted".format(len(seen_names), len(allowed)))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "network tasks retry"
 
 case "${report}" in
     OK*)   pass "every network task retries, or is allowlisted with a reason (${report#OK })" ;;

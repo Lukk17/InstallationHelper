@@ -21,6 +21,12 @@ info "Tier 1: Ansible static checks"
 cd "${ANSIBLE_DIR}" || { fail "cannot reach setup/ansible, so nothing below is checking the playbook" \
                         "${ANSIBLE_DIR}"; finish "Ansible static"; }
 
+# Three of the blocks below run Python, and this file named it `${PYTHON:-python3}`, which is the
+# mirror of the `${PYTHON:-python}` that made fourteen checks go quiet under WSL: it is Git Bash
+# that has python and no python3. Resolved once here through the search common.sh owns, and if
+# nothing answers then ansible-playbook, which is itself a Python program, cannot be here either.
+require_python "the playbook, the tier 3 scenario files and the callback truncation" "Ansible static"
+
 # --- syntax ------------------------------------------------------------------
 syntax_out="$(ansible-playbook --syntax-check site.yaml 2>&1 || true)"
 if grep -qE '^playbook: site\.yaml' <<<"${syntax_out}"; then
@@ -66,7 +72,8 @@ else
          "$(ansible-playbook --syntax-check "${E2E_ROOT}/tier3/verify.yaml" 2>&1 | tail -3 | tr '\n' ' ')"
 fi
 
-scenario_probe="$("${PYTHON:-python3}" - "${E2E_ROOT}/tier3" <<'SCENARIOEOF'
+scenario_status=0
+scenario_probe="$("${PYTHON}" - "${E2E_ROOT}/tier3" <<'SCENARIOEOF'
 import glob, os, sys
 
 try:
@@ -96,7 +103,8 @@ for path in paths:
 
 print("FAIL " + "; ".join(problems) if problems else "OK {}".format(len(paths)))
 SCENARIOEOF
-)"
+)" || scenario_status=$?
+assert_python_ran "${scenario_status}" "Ansible static"
 case "${scenario_probe}" in
     OK*)   pass "all ${scenario_probe#OK } tier 3 scenario and limits files load as YAML mappings" ;;
     SKIP*) skip "the tier 3 scenario and limits files load as YAML mappings" "${scenario_probe#SKIP }" ;;
@@ -122,7 +130,11 @@ esac
 # block, rescue and always are descended into, because a task nested in a rescue parses the same way
 # and would otherwise be skipped by this.
 ansible_python="$(head -1 "$(command -v ansible-playbook)" 2>/dev/null | sed 's/^#!//; s/ .*//')"
-[[ -x "${ansible_python}" ]] || ansible_python="$(command -v python3 || command -v python)"
+# The interpreter behind ansible-playbook is wanted here rather than any interpreter, because this
+# probe imports ansible itself. The fallback is the one common.sh resolved, not a second search
+# that can find nothing and take the script down on the assignment.
+[[ -x "${ansible_python}" ]] || ansible_python="${PYTHON}"
+split_status=0
 split_probe="$("${ansible_python}" - "${ANSIBLE_DIR}" <<'PYEOF'
 import pathlib, sys, yaml
 
@@ -174,7 +186,8 @@ if broken:
 else:
     print("OK {}".format(bodies))
 PYEOF
-)"
+)" || split_status=$?
+assert_python_ran "${split_status}" "Ansible static"
 case "${split_probe}" in
     OK*) pass "all ${split_probe#OK } free-form shell, command, raw and script bodies split cleanly, included files too" ;;
     SKIP*) skip "every free-form module body survives split_args" "${split_probe#SKIP }" ;;
@@ -190,7 +203,8 @@ esac
 #
 # The real function is imported out of the plugin rather than reimplemented here, so this cannot
 # pass against a copy while the plugin regresses.
-trunc_probe="$("${PYTHON:-python3}" - "${ANSIBLE_DIR}/callback_plugins/dual_logger.py" <<'PYEOF'
+trunc_status=0
+trunc_probe="$("${PYTHON}" - "${ANSIBLE_DIR}/callback_plugins/dual_logger.py" <<'PYEOF'
 import importlib.util, sys
 
 spec = importlib.util.spec_from_file_location("dual_logger_probe", sys.argv[1])
@@ -221,7 +235,8 @@ if truncate(short, limit) != short:
     problems.append("mangled a block shorter than the limit")
 print("FAIL " + "; ".join(problems) if problems else "OK")
 PYEOF
-)"
+)" || trunc_status=$?
+assert_python_ran "${trunc_status}" "Ansible static"
 case "${trunc_probe}" in
     OK) pass "the callback keeps both the head and the tail when it truncates a long block" ;;
     SKIP*) skip "the callback keeps both ends when it truncates" "${trunc_probe#SKIP }" ;;

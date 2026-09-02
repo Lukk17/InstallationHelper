@@ -36,7 +36,10 @@ info "Tier 1: no command is fed from a program that never stops writing"
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "sigpipe pipelines"; }
 
-report="$("${PYTHON:-python}" - <<'PYEOF'
+require_python "no command is fed from a program that never stops writing" "sigpipe pipelines"
+
+report_status=0
+report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 import re
 
@@ -139,7 +142,8 @@ else:
 
 print('\n'.join(lines))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "sigpipe pipelines"
 
 while IFS= read -r line; do
     case "${line}" in

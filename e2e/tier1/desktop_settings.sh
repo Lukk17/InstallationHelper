@@ -24,7 +24,10 @@ info "Tier 1: nothing here changes a screen lock, idle or session setting"
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "desktop settings"; }
 
-report="$("${PYTHON:-python}" - <<'PYEOF'
+require_python "nothing here changes a screen lock, idle or session setting" "desktop settings"
+
+report_status=0
+report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 import re
 import zipfile
@@ -119,7 +122,8 @@ else:
 
 print('\n'.join(lines))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "desktop settings"
 
 while IFS= read -r line; do
     case "${line}" in

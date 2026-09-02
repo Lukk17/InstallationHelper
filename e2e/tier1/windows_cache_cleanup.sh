@@ -40,7 +40,10 @@ info "Tier 1: the Windows run reclaims the package caches between the packages a
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "Windows cache cleanup"; }
 
-report="$("${PYTHON:-python}" - <<'PYEOF'
+require_python "the Windows run reclaims the package caches between the packages and the SDKs" "Windows cache cleanup"
+
+report_status=0
+report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 import re
 
@@ -147,7 +150,8 @@ else:
 
 print('\n'.join(lines))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "Windows cache cleanup"
 
 while IFS= read -r line; do
     case "${line}" in

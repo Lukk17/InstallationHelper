@@ -38,6 +38,7 @@ fi
 
 # The totals line is parsed rather than the exit code alone, so a suite that discovered nothing is a
 # failure of this check instead of a silent zero.
+pester_status=0
 out="$("${PWSH}" -NoProfile -NonInteractive -Command "
     \$ErrorActionPreference = 'Stop'
     \$m = Get-Module -ListAvailable Pester | Where-Object { \$_.Version.Major -ge 5 } |
@@ -45,14 +46,14 @@ out="$("${PWSH}" -NoProfile -NonInteractive -Command "
     if (-not \$m) { Write-Output 'PESTER_ABSENT'; exit 0 }
     Import-Module \$m.Path -Force
     \$c = New-PesterConfiguration
-    \$c.Run.Path = '$(host_path "${SUITE}")'
+    \$c.Run.Path = '$(to_windows_path "${SUITE}")'
     \$c.Run.PassThru = \$true
     \$c.Filter.ExcludeTag = @('Slow', 'Network')
     \$c.Output.Verbosity = 'None'
     \$r = Invoke-Pester -Configuration \$c
     Write-Output (\"TOTALS total={0} passed={1} failed={2} skipped={3}\" -f \$r.TotalCount, \$r.PassedCount, \$r.FailedCount, \$r.SkippedCount)
     foreach (\$t in \$r.Failed) { Write-Output (\"FAILED {0}: {1}\" -f \$t.ExpandedPath, (\"\$(\$t.ErrorRecord)\" -replace '\s+', ' ')) }
-" 2>&1 | tr -d '\r')"
+" 2>&1 | tr -d '\r')" || pester_status=$?
 
 if grep -q 'PESTER_ABSENT' <<<"${out}"; then
     skip "the Pester suite passes" "Pester 5 is not installed here, install it with: Install-Module Pester -Scope CurrentUser"
@@ -60,9 +61,12 @@ if grep -q 'PESTER_ABSENT' <<<"${out}"; then
     return 0 2>/dev/null || exit 0
 fi
 
-totals="$(grep -o 'TOTALS .*' <<<"${out}" | head -1)"
+# `|| true` because grep exits 1 when it matches nothing, and under pipefail that status would end
+# the script on this assignment, which is the branch below never running rather than a quiet pass.
+totals="$(grep -o 'TOTALS .*' <<<"${out}" | head -1 || true)"
 if [[ -z "${totals}" ]]; then
-    fail "the Pester run printed no totals, so this check proves nothing" "$(tr '\n' ' ' <<<"${out}" | tail -c 400)"
+    fail "the Pester run printed no totals, so this check proves nothing" \
+         "${PWSH} exited ${pester_status}: $(tr '\n' ' ' <<<"${out}" | tail -c 400)"
 elif [[ "${totals}" == *"total=0 "* ]]; then
     fail "Pester discovered no tests, which is a broken gate rather than a clean run" "${totals}"
 elif [[ "${totals}" == *"failed=0 "* ]]; then

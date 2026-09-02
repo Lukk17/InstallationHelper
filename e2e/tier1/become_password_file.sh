@@ -36,7 +36,10 @@ if [[ ! -f "${SETUP_SH}" ]]; then
     finish "become password file"
 fi
 
-report="$("${PYTHON:-python}" - "${SETUP_SH}" <<'PYEOF'
+require_python "the sudo password file setup.sh hands to both playbooks" "become password file"
+
+report_status=0
+report="$("${PYTHON}" - "${SETUP_SH}" <<'PYEOF'
 import pathlib
 import re
 import sys
@@ -140,7 +143,8 @@ assert_that(
 
 print('\n'.join(lines))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "become password file"
 
 while IFS= read -r line; do
     case "${line}" in

@@ -40,7 +40,10 @@ info "Tier 1: Windows phase functions return what their caller reads"
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "Windows phase contract"; }
 
-report="$("${PYTHON:-python}" - <<'PYEOF'
+require_python "Windows phase functions return what their caller reads" "Windows phase contract"
+
+report_status=0
+report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 import re
 
@@ -178,7 +181,8 @@ for index, var, callee in calls:
 
 print('\n'.join(lines))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "Windows phase contract"
 
 while IFS= read -r line; do
     case "${line}" in

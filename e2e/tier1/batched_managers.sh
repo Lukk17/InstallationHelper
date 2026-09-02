@@ -49,7 +49,10 @@ if [[ ! -f "${DISPATCH}" ]]; then
     return 0 2>/dev/null || exit 0
 fi
 
-report="$("${PYTHON:-python}" - "${DISPATCH}" <<'PYEOF'
+require_python "no manager installs its whole set in one call" "batched managers"
+
+report_status=0
+report="$("${PYTHON}" - "${DISPATCH}" <<'PYEOF'
 import json
 import pathlib
 import re
@@ -131,7 +134,8 @@ for manager in managers:
 
 print('\n'.join(lines))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "batched managers"
 
 while IFS= read -r line; do
     case "${line}" in

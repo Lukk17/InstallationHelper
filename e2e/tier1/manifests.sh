@@ -17,7 +17,6 @@
 # setup/pinned_values rather than through a second parse of the TOML.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
 
 GENERATOR="${REPO_ROOT}/setup/manifests/generate.py"
 MANIFEST_DIR="${REPO_ROOT}/setup/manifests"
@@ -29,13 +28,7 @@ if [[ ! -f "${GENERATOR}" ]]; then
     finish "generated manifests"
 fi
 
-# The same interpreter search the pinned values adapter uses, for the same reason: Git Bash here has
-# no python3 and the Windows App Execution Alias resolves without running.
-if ! PYTHON="$(pinned_values_python)"; then
-    skip "the generated package manifests are up to date" \
-         "no Python 3.11 or newer on PATH, so the generator cannot be run"
-    finish "generated manifests"
-fi
+require_python "the generated package manifests are up to date" "generated manifests"
 
 # --- every manifest exists ------------------------------------------------------------------------
 missing=()

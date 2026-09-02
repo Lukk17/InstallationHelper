@@ -32,7 +32,10 @@ info "Tier 1: no task is gated on a toggle the container tier switches off every
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "unreachable tasks"; }
 
-report="$("${PYTHON:-python}" - <<'PYEOF'
+require_python "no task is gated on a toggle the container tier switches off everywhere it could run" "unreachable tasks"
+
+report_status=0
+report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 import re
 
@@ -156,7 +159,8 @@ if not unlisted and not stale:
 
 print('\n'.join(lines))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "unreachable tasks"
 
 while IFS= read -r line; do
     case "${line}" in

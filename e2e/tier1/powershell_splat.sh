@@ -34,7 +34,10 @@ info "Tier 1: nothing splats an array into a PowerShell command"
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "PowerShell splats"; }
 
-report="$("${PYTHON:-python}" - <<'PYEOF'
+require_python "nothing splats an array into a PowerShell command" "PowerShell splats"
+
+report_status=0
+report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 import re
 
@@ -89,7 +92,8 @@ elif offenders:
 else:
     print('OK %d splat(s) across %d file(s), every one of them a hashtable' % (splats_seen, checked))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "PowerShell splats"
 
 case "${report}" in
     OK*)   pass "${report#OK }" ;;

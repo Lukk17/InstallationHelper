@@ -34,10 +34,12 @@ cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; f
 # every file in the tree, and one process per file costs about two minutes under Git Bash on
 # Windows for a tree this size. One interpreter reading the first line of each file answers in well
 # under a second, which is what keeps this inside the seconds tier 1 is allowed.
+require_python "every shell script in the repository parses" "shell syntax"
+
 SCRIPTS=()
 while IFS= read -r candidate; do
     [[ -n "${candidate}" ]] && SCRIPTS+=("${candidate}")
-done < <("${PYTHON:-python}" - . <<'PYEOF'
+done < <("${PYTHON}" - . <<'PYEOF'
 import os
 import re
 import sys
@@ -71,7 +73,7 @@ PYEOF
 
 if [[ ${#SCRIPTS[@]} -eq 0 ]]; then
     fail "no shell script was found anywhere in the repository, so this check proves nothing" \
-         "searched ${REPO_ROOT} by extension and by shebang"
+         "searched ${REPO_ROOT} by extension and by shebang with ${PYTHON}, whose own error would be above"
     finish "shell syntax"
 fi
 

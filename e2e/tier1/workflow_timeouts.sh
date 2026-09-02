@@ -26,7 +26,10 @@ info "Tier 1: the single-platform workflow allows as much time as the sweep"
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "workflow timeouts"; }
 
-report="$("${PYTHON:-python}" - <<'PYEOF'
+require_python "the single-platform workflow allows as much time as the sweep" "workflow timeouts"
+
+report_status=0
+report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 
 import yaml
@@ -98,7 +101,8 @@ for label, prefix in (('Windows', 'windows-'), ('macOS', 'macos-')):
 
 print('\n'.join(lines))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "workflow timeouts"
 
 while IFS= read -r line; do
     case "${line}" in

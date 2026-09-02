@@ -157,6 +157,60 @@ require_cmd() {
     done
 }
 
+# find_runnable_python  ->  prints the interpreter a check must use, or nothing with status 2
+#
+# The search itself belongs to setup/pinned_values/pinned_values.sh, which tries python3, python and
+# py in turn and asks each candidate its version rather than trusting that it resolved, which is how
+# it refuses the Windows app-execution-alias stub. That file is sourced here rather than by every
+# check, so the harness has one answer to this question instead of one per check.
+#
+# Every check that ran Python named the interpreter itself as `${PYTHON:-python}` until 2026-09-02.
+# Git Bash on this machine has python and no python3, WSL Ubuntu has python3 and no python, so under
+# WSL that expansion resolved to nothing, `set -e` ended the script on the assignment, and fourteen
+# checks exited with no PASS, no FAIL and no tally at all. That is the shape this whole harness
+# exists to refuse, so the status here is one a caller has to read.
+find_runnable_python() {
+    if [[ -z "${E2E_PINNED_VALUES_SOURCED:-}" ]]; then
+        local adapter="${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
+        if [[ ! -f "${adapter}" ]]; then
+            printf 'e2e: %s is missing, and it owns the interpreter search\n' "${adapter}" >&2
+            return 2
+        fi
+        source "${adapter}"
+        E2E_PINNED_VALUES_SOURCED=1
+    fi
+
+    pinned_values_python
+}
+
+# require_python <claim> <label>  ->  leaves the interpreter in PYTHON, or reports <claim> as SKIP
+#                                     and ends the check through finish
+#
+# For a check that cannot assert anything at all without Python. One that needs it for only part of
+# what it asserts calls find_runnable_python itself and skips that part, the way compose_and_docs.sh
+# does, because ending the whole check there would throw away assertions that do not need it.
+require_python() {
+    # shellcheck disable=SC2034  # read by the caller, which shellcheck cannot see from in here
+    PYTHON="$(find_runnable_python)" && return 0
+
+    skip "$1" "no Python 3.11 or newer on PATH (tried python3, python and py), so this check could not run"
+    finish "$2"
+}
+
+# assert_python_ran <status> <label>  ->  returns, or fails the check and ends it
+#
+# The other half of the same rule. Finding an interpreter is not the same as it finishing: a report
+# assignment whose Python raised takes the script down under `set -e` just as silently as one that
+# never started. Called with the status of the command substitution, which the callsite has to keep
+# with `|| status=$?` because the assignment itself would otherwise be the thing that dies.
+assert_python_ran() {
+    [[ "$1" -eq 0 ]] && return 0
+
+    fail "the Python half of this check did not run to completion, so nothing here is proven" \
+         "${PYTHON:-python} exited $1, and its own error is above"
+    finish "$2"
+}
+
 # The container tiers need two things, and neither of them is an operating system: a Docker daemon
 # that answers, and a shell that can spell a host path the way that daemon expects. This asks those
 # two questions directly.

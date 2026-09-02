@@ -60,11 +60,22 @@ fi
 # spaces, which catches volumes: and networks: entries as well as services and reported three healthy
 # files as broken. compose knows what a service is, so it is the one to ask.
 missing_image=()
-if command -v docker >/dev/null 2>&1; then
+services_seen=0
+# Both ways this cannot run are named. It used to be one `command -v docker` guard around the
+# loop, so a machine without docker walked no service at all and then printed the pass line for a
+# question nobody had asked.
+if ! command -v docker >/dev/null 2>&1; then
+    skip "every service in those files names an image or a build context" \
+         "no docker binary here, and only docker knows what counts as a service"
+elif ! PYTHON="$(find_runnable_python)"; then
+    skip "every service in those files names an image or a build context" \
+         "no Python 3.11 or newer on PATH (tried python3, python and py), so compose's own JSON could not be read"
+else
     for f in "${compose_files[@]}"; do
         while IFS= read -r svc; do
             [[ -z "${svc}" ]] && continue
-            body="$(docker compose -f "$(host_path "${f}")" config --no-interpolate --format json 2>/dev/null                 | "${PYTHON:-python}" -c "
+            services_seen=$((services_seen + 1))
+            body="$(docker compose -f "$(host_path "${f}")" config --no-interpolate --format json 2>/dev/null                 | "${PYTHON}" -c "
 import json, sys
 name = sys.argv[1]
 try:
@@ -77,11 +88,15 @@ print('yes' if ('image' in s or 'build' in s) else 'no')
             [[ "${body}" == no ]] && missing_image+=("$(basename "${f}"): ${svc}")
         done < <(docker compose -f "$(host_path "${f}")" config --services 2>/dev/null || true)
     done
-fi
-if [[ ${#missing_image[@]} -eq 0 ]]; then
-    pass "every service in those files names an image or a build context"
-else
-    fail "${#missing_image[@]} compose file(s) have a service with nothing to run" "${missing_image[*]}"
+
+    if [[ "${services_seen}" -eq 0 ]]; then
+        fail "not one service was found in any compose file, so this check proves nothing" \
+             "${#compose_files[@]} file(s) were read"
+    elif [[ ${#missing_image[@]} -eq 0 ]]; then
+        pass "all ${services_seen} services in those files name an image or a build context"
+    else
+        fail "${#missing_image[@]} compose file(s) have a service with nothing to run" "${missing_image[*]}"
+    fi
 fi
 
 # --- documentation links point at something -------------------------------------------------------

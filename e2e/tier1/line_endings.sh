@@ -39,7 +39,10 @@ fi
 # Python asks git itself rather than reading a pipe, because a heredoc already owns this stdin:
 # `git ls-files | python - <<EOF` hands the script to python and throws the file list away, which
 # this check did on its first run and reported "git listed no tracked files" against a clean tree.
-report="$("${PYTHON:-python}" - <<'PYEOF'
+require_python "no tracked text file carries a carriage return" "line endings"
+
+report_status=0
+report="$("${PYTHON}" - <<'PYEOF'
 import subprocess
 
 raw = subprocess.run(['git', 'ls-files', '-z'], capture_output=True).stdout
@@ -66,7 +69,8 @@ elif offenders:
 else:
     print('OK {}'.format(checked))
 PYEOF
-)"
+)" || report_status=$?
+assert_python_ran "${report_status}" "line endings"
 
 case "${report}" in
     OK*) pass "none of the ${report#OK } tracked text files carries a carriage return" ;;
