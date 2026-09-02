@@ -2050,3 +2050,71 @@ Stage 3 ran alongside stage 2 rather than after it. That was deliberate and it w
 The names were long and said little. "Stage 3 install on Windows: nothing on, then a few by name" is now "Windows four apps only", and the same treatment went through every job: "Tier 1 checks", "Windows unit tests", "Debian defaults", "CachyOS forced failure", "Verdict: Linux installs".
 
 The `if` on each cell is what the deleted `stage2_plan` job used to compute. A dispatch of `scenario: defaults` with `distro: all` runs six jobs and skips forty-two, exactly as the plan's generated matrix did.
+
+---
+
+### Outside the Ansible playbook, found while touching local-dev/auth
+
+This project's own scope statement above is the Ansible playbook and its wizard scripts. The one entry below is
+outside that, in the local development Docker Compose stack, and is recorded here because it was found while
+building the local certificate authority for `local-dev/auth/certificates/localhost/` and the instruction for that
+work said to log it here.
+
+#### The documented certificate generation command could never run on a clean checkout
+
+Status: fixed in this change, in [local-dev/auth/README.md](../local-dev/auth/README.md).
+
+The "Certificate generation" section of that README told the reader to run `openssl req -x509 -nodes -days 3650
+-key ./local-dev/auth/certificates/localhost/localhostDomain.key -out ... -config ...`. The `-key` flag tells
+openssl to sign with an existing private key file, and no command anywhere in the README, or in the repository,
+ever produced `localhostDomain.key`. It shipped as a tracked file, so the command worked for anyone who already
+had a checkout with that key committed, and would fail the instant the key was absent, for example on a fresh
+clone made after a history rewrite, or if a future change stopped committing keys.
+
+Proven by copying only `localhost.cnf` into an empty directory and running the documented command verbatim:
+
+```text
+Could not open file or uri for loading private key from ./localhostDomain.key: No such file or directory
+```
+
+The fix is the three-step flow the README now documents: create the root key and certificate, create the leaf key
+and its signing request with `openssl req -new`, then sign the request with the root. Every file the flow needs is
+produced by a command the reader already ran, so there is no step that depends on a file already existing outside
+of git.
+
+#### OpenSSL on Windows wrote the new certificate and key files with CRLF line endings
+
+Status: not a live defect, corrected in this change. The original entry below overstated the risk. Kept, with the
+correction, per this ledger's own rule to mark a wrong hypothesis rather than delete it.
+
+This repository's own [.gitattributes](../.gitattributes) forces `eol=lf` on every text file, and states its own
+reason at the top: a carriage return is invisible in a diff and breaks a check that passes under Git Bash and fails
+under WSL or inside a container. Running the three documented `openssl` commands from Git Bash on Windows to build
+`localDevCA.crt`, `localDevCA.key`, `localDevCA.srl`, `localhostDomain.crt` and `localhostDomain.key` produced every
+one of them with CRLF line endings, because OpenSSL writes PEM output with the platform's native line ending and
+Windows Git Bash's OpenSSL build is a native Windows binary. Proven with `xxd`, which showed `0d0a` after
+`-----BEGIN CERTIFICATE-----` in every generated file, against `0a` alone in the certificate already committed at
+`HEAD`.
+
+That reading of the risk was wrong. `git check-attr text eol` against all four new files in
+`local-dev/auth/certificates/localhost/` answers `text: auto` and `eol: lf` for every one of them, which means git
+normalizes the carriage return out the moment a file is staged. The committed blob is LF whether or not anyone runs
+a manual fix, so a checked-out CRLF certificate breaking some later reader was never a real exposure for the
+committed form.
+
+The one place worth actually checking was the working tree copy, since the Dockerfile's `COPY` reads that file
+straight off disk rather than through git, so a freshly generated CRLF certificate goes into a built image exactly
+as CRLF. Measured rather than assumed: a CRLF copy of the leaf certificate and key, confirmed with `xxd` to carry
+`0d0a`, parsed cleanly with both `openssl x509 -noout -subject -issuer -serial` and `openssl rsa -check -noout`,
+because a PEM file's base64 decoder treats a carriage return as ordinary whitespace. Built into a throwaway Keycloak
+image from a scratch copy of `local-dev/auth` carrying that CRLF pair, and confirmed with `od -c` that the file
+inside the running container still carried `\r\n` after `-----BEGIN CERTIFICATE-----`, the server started clean,
+logging `Listening on: https://0.0.0.0:9443`, served the realm discovery endpoint over TLS with a plain `curl -k`
+returning HTTP 200, and the handshake verified with `Verify return code: 0 (ok)` against the real committed root
+via `openssl s_client -CAfile localDevCA.crt`.
+
+So stripping the trailing carriage return with `sed -i 's/\r$//'` on the five generated files was belt and braces,
+not a fix for a live failure. Nothing in the chain, not git, not OpenSSL, not Keycloak, breaks on a CRLF certificate
+or key. The original conclusion, that anyone regenerating these files from Git Bash on Windows hits this and needs
+the same manual fix, does not hold: this repository's own `.gitattributes` normalizes the committed form regardless,
+and the working tree form that briefly carries CRLF works fine as an input to every tool that reads it.

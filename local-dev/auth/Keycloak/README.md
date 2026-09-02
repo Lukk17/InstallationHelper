@@ -54,19 +54,22 @@ curl --location 'https://keycloak:9443/realms/local/protocol/openid-connect/toke
 
 ---
 
-The Compose stack uses a self-signed cert under
-[certificates/localhost/](../certificates/localhost/). For browsers and HTTP clients to trust it, import the cert
-into the OS trust store. Run from the project root.
+The Compose stack uses a leaf certificate signed by a local certificate authority, both under
+[certificates/localhost/](../certificates/localhost/). Import the authority's certificate, `localDevCA.crt`, into
+the OS trust store once and it covers this leaf and any future leaf signed by the same authority, with no further
+import needed. For browsers and HTTP clients to trust it, run the steps below from the project root. If you
+previously imported `localhostDomain.crt` itself, remove it first, using the platform-specific removal step below,
+then import `localDevCA.crt` instead.
 
 #### Windows (Administrator PowerShell)
 
 Import:
 
 ```powershell
-Start-Process powershell -Verb RunAs -ArgumentList "-NoExit -Command & { Import-Certificate -FilePath '$(Resolve-Path -Path '.\local-dev\auth\certificates\localhost\localhostDomain.crt')' -CertStoreLocation Cert:\LocalMachine\Root }"
+Start-Process powershell -Verb RunAs -ArgumentList "-NoExit -Command & { Import-Certificate -FilePath '$(Resolve-Path -Path '.\local-dev\auth\certificates\localhost\localDevCA.crt')' -CertStoreLocation Cert:\LocalMachine\Root }"
 ```
 
-The command prints the certificate's thumbprint on success. Save that string; you need it to remove the cert later.
+The command prints the certificate's thumbprint on success. Save that string, you need it to remove the cert later.
 
 Remove (replace `YOUR_CERT_THUMBPRINT`):
 
@@ -74,12 +77,15 @@ Remove (replace `YOUR_CERT_THUMBPRINT`):
 Start-Process powershell -Verb RunAs -ArgumentList "-NoExit -Command & { Remove-Item -Path 'Cert:\LocalMachine\Root\YOUR_CERT_THUMBPRINT' -ErrorAction Stop }"
 ```
 
+If you previously imported `localhostDomain.crt` and still have the thumbprint it printed at the time, run the same
+removal command with that thumbprint before importing `localDevCA.crt`.
+
 #### Linux (Ubuntu / Debian)
 
-Copy the cert into the system store:
+Copy the authority's certificate into the system store:
 
 ```bash
-sudo cp ./local-dev/auth/certificates/localhost/localhostDomain.crt /usr/local/share/ca-certificates/
+sudo cp ./local-dev/auth/certificates/localhost/localDevCA.crt /usr/local/share/ca-certificates/
 ```
 
 Refresh the trust bundle:
@@ -89,6 +95,16 @@ sudo update-ca-certificates
 ```
 
 To remove, delete the file and refresh again:
+
+```bash
+sudo rm /usr/local/share/ca-certificates/localDevCA.crt
+```
+
+```bash
+sudo update-ca-certificates
+```
+
+To remove a previously imported `localhostDomain.crt` instead:
 
 ```bash
 sudo rm /usr/local/share/ca-certificates/localhostDomain.crt

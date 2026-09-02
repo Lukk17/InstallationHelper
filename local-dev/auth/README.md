@@ -1,6 +1,6 @@
 # Local Auth
 
-> Self-signed TLS + hosts entries for running Keycloak under `https://keycloak:9443` on the local machine.
+> A local certificate authority + hosts entries for running Keycloak under `https://keycloak:9443` on the local machine.
 
 ---
 
@@ -29,20 +29,50 @@ For Keycloak setup, container build, realm import, and troubleshooting, see
 
 ---
 
-#### Localhost (self-signed) <a id="localhost"></a>
+#### Localhost (local certificate authority) <a id="localhost"></a>
 
 The Keycloak container expects a cert + key under
-[certificates/localhost/](./certificates/localhost/). Generate them with openssl, from the project root:
+[certificates/localhost/](./certificates/localhost/). Those two files are a leaf certificate signed by a local
+root certificate authority that also lives in that directory. Importing the root into your OS trust store once, as
+described under "Trust the cert on your machine" below, covers this leaf and any future leaf signed by the same
+root, with no further import needed. The root private key, `localDevCA.key`, is committed to this repository on
+purpose, because this authority exists only for local development on machines the owner controls.
+
+Regenerate the pair with openssl, from the project root, in three steps.
+
+Create the root key and its self-signed certificate. Skip this step if `localDevCA.key` and `localDevCA.crt`
+already exist and only the leaf needs regenerating.
 
 ```bash
-openssl req -x509 -nodes -days 3650 -key ./local-dev/auth/certificates/localhost/localhostDomain.key -out ./local-dev/auth/certificates/localhost/localhostDomain.crt -config ./local-dev/auth/certificates/localhost/localhost.cnf -extensions req_ext
+openssl req -x509 -new -nodes -days 3650 -keyout ./local-dev/auth/certificates/localhost/localDevCA.key -out ./local-dev/auth/certificates/localhost/localDevCA.crt -config ./local-dev/auth/certificates/localhost/localDevCA.cnf
 ```
 
-The CN, SAN entries, and other certificate fields live in
-[certificates/localhost/localhost.cnf](./certificates/localhost/localhost.cnf). Edit that file before regenerating
-if you need to add another local domain.
+Create the leaf key and its certificate signing request:
 
-Expected output: `localhostDomain.crt` and `localhostDomain.key` alongside the `.cnf`.
+```bash
+openssl req -new -nodes -keyout ./local-dev/auth/certificates/localhost/localhostDomain.key -out ./local-dev/auth/certificates/localhost/localhostDomain.csr -config ./local-dev/auth/certificates/localhost/localhost.cnf
+```
+
+Sign the request with the root, then remove the request, which is not needed once the certificate exists:
+
+```bash
+openssl x509 -req -in ./local-dev/auth/certificates/localhost/localhostDomain.csr -CA ./local-dev/auth/certificates/localhost/localDevCA.crt -CAkey ./local-dev/auth/certificates/localhost/localDevCA.key -CAcreateserial -out ./local-dev/auth/certificates/localhost/localhostDomain.crt -days 3650 -extfile ./local-dev/auth/certificates/localhost/localhost.cnf -extensions leaf_ext
+```
+
+```bash
+rm ./local-dev/auth/certificates/localhost/localhostDomain.csr
+```
+
+The root's distinguished name and CA extensions live in
+[certificates/localhost/localDevCA.cnf](./certificates/localhost/localDevCA.cnf). The leaf's CN, SAN entries, and
+extensions live in [certificates/localhost/localhost.cnf](./certificates/localhost/localhost.cnf). Edit the leaf
+file before regenerating if you need to add another local domain to the SAN list, then run the last two commands
+above again, the root does not need to change.
+
+Expected output: `localDevCA.key` and `localDevCA.crt` from the first command, `localhostDomain.key` and a
+`localhostDomain.csr` from the second, and `localDevCA.srl` and `localhostDomain.crt` from the third. The CSR is
+removed by the command right after it, so only the two key and certificate pairs and the serial file remain,
+alongside the two `.cnf` files.
 
 #### Production (Let's Encrypt) <a id="production"></a>
 
@@ -76,5 +106,5 @@ Drop the resulting `keystore.jks` into Keycloak's expected location and restart 
 
 ---
 
-Importing the self-signed cert into the OS trust store stops browsers and HTTP clients from rejecting it. Steps are
-in [Keycloak/README.md](./Keycloak/README.md) under "Certificate".
+Importing the root certificate authority into the OS trust store stops browsers and HTTP clients from rejecting
+the certificates it signs. Steps are in [Keycloak/README.md](./Keycloak/README.md) under "Certificate".
