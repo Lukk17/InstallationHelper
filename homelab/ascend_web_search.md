@@ -35,6 +35,14 @@ That requires the three secrets in `.env` to already be filled in, covered below
 
 ---
 
+### Image tags, and why a restart is not an upgrade
+
+`ascend-web-search` is the one image in this homelab published from this account, so its `image:` line follows the `latest` tag instead of naming a version. The deployment therefore always points at the newest build of that service, and the drift that a floating tag brings is accepted here because the same person decides what goes into the tag. The other three containers in the stack are somebody else's builds and stay pinned to exact versions.
+
+What this does not give you is an upgrade that happens by itself. `restart: unless-stopped` brings the container back from the image already on the host, and a plain `docker compose up -d` pulls only when nothing local carries that tag, so a newer published build sits in the registry unnoticed until something fetches it. Getting onto it takes an explicit pull and then a recreate, and both are one command each in [ascend-web-search_deploy/README.md](ascend-web-search_deploy/README.md#upgrading), which also covers going back to an older build when a new one misbehaves.
+
+---
+
 ### Joining the homelab reverse proxy
 
 `ascend-web-search` is attached to two Docker networks: `default`, which is private to the `ascend-scrapper` project and is what lets it reach `searxng` and `flaresolverr`, and `proxy-tier`, the network this homelab's [compose.yaml](compose.yaml) declares for every service that Nginx Proxy Manager needs to reach by name. `searxng` and `flaresolverr` stay off `proxy-tier` on purpose, since nothing outside their own stack should be able to reach them.

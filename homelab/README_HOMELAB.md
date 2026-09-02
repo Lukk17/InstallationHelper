@@ -137,7 +137,7 @@ The `proxy-tier` network in `compose.yaml` carries an explicit `name: proxy-tier
 
 Persistent data lives under `/opt/docker-stack/`, one directory per service, bind mounted into the containers. The Compose file alone will not restore your setup, because AdGuard filters, proxy hosts, dashboard layout, uptime monitors and Syncthing keys all live in those directories.
 
-Image tags are pinned to exact versions rather than `latest`. An unattended pull with floating tags can hand you a breaking major release on a random Tuesday. Bump a tag deliberately, one service at a time.
+Every image tag in this file is pinned to an exact version rather than `latest`. An unattended pull with floating tags can hand you a breaking major release on a random Tuesday. Bump a tag deliberately, one service at a time. The separate AscendWebSearch stack makes one deliberate exception for the one image published from this account, described in [ascend_web_search.md](ascend_web_search.md).
 
 ---
 

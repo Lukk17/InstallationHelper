@@ -191,9 +191,13 @@ There is no log aggregation in this stack. The Loki and Grafana setup used in de
 
 ### Upgrading
 
-Images are pinned to exact versions rather than `latest`, so a restart never silently changes what is running and you can always roll back to a version you know worked.
+The ascend-web-search image tracks `latest`, so this deployment follows the newest published build of the service without editing the file. The other three images, SearXNG, FlareSolverr and ngrok, are pinned to exact versions, because they are other people's builds and a change there is a change nobody here chose.
 
-To move to a newer AscendWebSearch build, change the `image:` tag on the ascend-web-search service, then pull and recreate.
+A floating tag does not make the upgrade happen on its own, and this is the part that catches people out. `restart: unless-stopped` restarts the existing container from the image already on the host, and a plain `docker compose up -d` pulls only when no local image carries that tag. Both of those leave the old build running for as long as an image tagged `latest` exists locally, however new the published one is. Moving to a newer build takes an explicit pull first, then a recreate.
+
+The two commands are identical in both shells, because `docker compose` takes the same arguments everywhere.
+
+Unix shell:
 
 ```bash
 docker compose pull ascend-web-search
@@ -203,9 +207,21 @@ docker compose pull ascend-web-search
 docker compose up -d ascend-web-search
 ```
 
-Published tags are listed at [hub.docker.com/r/lukk17/ascend-web-search/tags](https://hub.docker.com/r/lukk17/ascend-web-search/tags). The same images are published to `ghcr.io/lukk17/ascend-web-search` if you prefer GitHub's registry. Both are public and neither needs a login to pull.
+PowerShell:
 
-Upstream images, SearXNG and FlareSolverr, are pinned too. SearXNG ships a new build most days and its search engines break as the sites they scrape change, so it is worth bumping every few months even when nothing appears wrong.
+```powershell
+docker compose pull ascend-web-search
+```
+
+```powershell
+docker compose up -d ascend-web-search
+```
+
+The pull rewrites what `latest` points at locally, and the recreate is what swaps the running container onto it. Naming the service keeps both commands off the other three containers, which stay untouched.
+
+To go back to a build you know worked, put the exact tag of that build on the `image:` line, run the same pull and recreate, and set the line back to `latest` once the newer build is fixed. Published tags are listed at [hub.docker.com/r/lukk17/ascend-web-search/tags](https://hub.docker.com/r/lukk17/ascend-web-search/tags). The same images are published to `ghcr.io/lukk17/ascend-web-search` if you prefer GitHub's registry. Both are public and neither needs a login to pull.
+
+Upstream images move on their own schedule and need their tag edited by hand. SearXNG ships a new build most days and its search engines break as the sites they scrape change, so it is worth bumping every few months even when nothing appears wrong.
 
 ---
 
@@ -225,7 +241,7 @@ The equivalent file in the repository root is `ascend-scrapper.docker-compose.ya
 
 | Topic | Development stack | This file |
 |---|---|---|
-| ascend-web-search image | Built from source with `build:` | Pulled, pinned to a published version tag |
+| ascend-web-search image | Built from source with `build:` | Pulled from the published `latest` tag |
 | SearXNG port 9020 | Published on 127.0.0.1 so the service can run natively against it | Not published |
 | FlareSolverr port 8191 | Published on 127.0.0.1 for the same reason | Not published |
 | OTEL variables | Set, pointing at the platform collector | Absent |

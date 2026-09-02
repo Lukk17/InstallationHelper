@@ -104,7 +104,7 @@ services:
           - ngrok-ascend-web-search
 
   ascend-web-search:
-    image: lukk17/ascend-web-search:v0.0.3
+    image: lukk17/ascend-web-search:latest
     container_name: ascend-web-search
     hostname: ascend-web-search
     restart: unless-stopped
