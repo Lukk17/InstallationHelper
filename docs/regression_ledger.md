@@ -3018,3 +3018,47 @@ The first reading was not a different behaviour, it was the same behaviour obser
 the toggle. Nothing in the endpoint's response distinguishes "not decided yet" from "decided, nothing to report",
 because `error` is null in both cases. The lesson is the one already on the page: a measurement taken during startup
 says nothing about steady state, and a health-gated wait costs seconds against being wrong in a document.
+
+### Found while proving the new Keycloak realm check, 2026-09-02
+
+#### The one assertion about the wiring passed over a Dockerfile that had been commented out
+
+Introduced by the agent that wrote [e2e/tier1/keycloak_realm_import.sh](../e2e/tier1/keycloak_realm_import.sh), found
+by the review that was meant to prove that check fails, and fixed before either reached a commit.
+
+Five of that check's six assertions are about the contents of
+[local-dev/auth/Keycloak/export/config/local-realm-export.json](../local-dev/auth/Keycloak/export/config/local-realm-export.json),
+and they mean nothing unless the image still imports that file, so the sixth asks whether it does. It asked with two
+greps over [local-dev/auth/Keycloak/Dockerfile](../local-dev/auth/Keycloak/Dockerfile) that were anchored to nothing,
+`grep -q 'local-realm-export\.json /opt/keycloak/data/import/'` and `grep -q -- '--import-realm'`, so any line
+carrying either string answered the question, a comment included.
+
+Proven against a copy of the tree whose `COPY` line was commented out and whose entrypoint had lost the flag, with
+`# was: --import-realm` left on the line below, which is what somebody pausing the seed for an afternoon would
+actually leave behind. That image copies nothing into `/opt/keycloak/data/import/` and passes no import flag. The
+check answered `keycloak realm import: 6 checks, all passed` and exited 0. This is the same shape as the entry above
+about a guard written with a pattern that could never match, in the opposite direction: there a check could never
+fail, here a check could not fail at the one thing it was the only guard for.
+
+The fix anchors each half to the directive that has to carry it,
+`^[[:space:]]*COPY[[:space:]].*local-realm-export\.json[[:space:]]+/opt/keycloak/data/import/` and
+`^[[:space:]]*(ENTRYPOINT|CMD)[[:space:]].*--import-realm`, and evaluates the two separately so the failure names
+which of them rotted rather than printing one sentence for both. Re-proven against five Dockerfiles: both lines
+commented out, the `COPY` deleted, the flag deleted, the file absent, and the committed one. The first four fail and
+name the missing half or halves, the fifth passes.
+
+#### The same check threw away its Python-free assertion whenever Python was missing
+
+Found in the same review, milder, and fixed in the same edit.
+
+The check called `require_python` before asserting anything, and that helper reports one SKIP and ends the script
+through `finish`. On a machine with no Python 3.11 or newer, which is a state this harness expects and handles
+elsewhere, the run therefore proved nothing at all, including the wiring assertion above, which needs only grep. The
+note on `require_python` in [e2e/lib/common.sh](../e2e/lib/common.sh) already says a check needing Python for part of
+what it asserts must skip only that part, and this was the first check written since that note that ignored it.
+
+Proven by running the check with `PATH` reduced to `/usr/bin:/bin` on Git Bash, where no interpreter resolves: before
+the fix it printed its header, one SKIP and `0 passed, 1 SKIPPED and therefore unproven`, and after it prints the
+wiring PASS, the same SKIP and `1 passed, 1 SKIPPED`. The fix moves the wiring assertion above `require_python`, which
+also means a tree whose export file has gone missing now reports both that the file is absent and that the image
+still tries to copy it, rather than only the first.
