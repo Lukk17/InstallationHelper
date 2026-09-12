@@ -29,6 +29,11 @@ The first time you need to give it initial admin credential to create an account
   docker run -d --name keycloak-local -p 9443:9443 -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin -e KC_DB=postgres -e KC_DB_URL=jdbc:postgresql://host.docker.internal:5432/keycloak -e KC_DB_USERNAME=postgres -e KC_DB_PASSWORD=local -e KC_HOSTNAME=keycloak.test -e KC_HOSTNAME_PORT=9443 -e KC_HOSTNAME_STRICT=false -e KC_HOSTNAME_STRICT_HTTPS=false --add-host="keycloak.test:host-gateway" keycloak-local:latest --https-certificate-file=/etc/x509/https/localhost.crt --https-certificate-key-file=/etc/x509/https/localhostCert.key --https-port=9443
 ```
 
+The Compose stack passes the same `KC_BOOTSTRAP_ADMIN_USERNAME=admin` and `KC_BOOTSTRAP_ADMIN_PASSWORD=admin` pair, so
+neither command above is needed to get an administrator on a fresh machine. What that pair does, and what to do on a
+machine whose `keycloak` database already holds an administrator and ignores it, is in [README.md](./README.md) under
+"Admin account".
+
 ---
 
 ### Realm config

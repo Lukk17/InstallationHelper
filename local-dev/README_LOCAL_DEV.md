@@ -50,6 +50,8 @@ between Keycloak versions.
 
 Keycloak's management endpoints sit on port `9000` rather than on `9443`. The readiness probe in the table is one of them, and `/health`, `/metrics` and the rest are beside it on the same port.
 
+The `admin` / `admin` in that table is set by `KC_BOOTSTRAP_ADMIN_USERNAME` and `KC_BOOTSTRAP_ADMIN_PASSWORD` on the `keycloak` service in [local-dev-docker-compose.yaml](./local-dev-docker-compose.yaml), and Keycloak reads that pair only while it creates its `master` realm, which is the first start against a database holding no administrator. It therefore covers a fresh machine and changes nothing on a machine whose `keycloak` database already has an administrator, where that account keeps the password it already has. Getting in there means creating a temporary administrator with Keycloak's own `bootstrap-admin` command inside the running container, which is in [auth/Keycloak/README.md](./auth/Keycloak/README.md) under "Admin account".
+
 Test user in the `local` realm: `lukk` / `test1234`.
 
 ### Start the stack

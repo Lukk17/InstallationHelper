@@ -119,6 +119,9 @@ services:
       - KC_HOSTNAME=keycloak.test
       - KC_HOSTNAME_PORT=9443
       - KC_HOSTNAME_STRICT=false      # Allows other hosts like 'localhost' or 'keycloak'
+      # Bootstrap Admin Config
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
     # Certificates need to be imported everytime Keycloak is starting
     # Change port from default 8443 to 9443 as it was conflicted with Docker Desktop and WSL
     command: [

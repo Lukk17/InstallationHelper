@@ -47,6 +47,78 @@ starting the container against a database that already carries the realm logs
 therefore changes nothing for an existing volume. What takes the import path is a fresh clone, or a volume that has
 been removed.
 
+### Admin account
+
+---
+
+The Compose stack passes `KC_BOOTSTRAP_ADMIN_USERNAME=admin` and `KC_BOOTSTRAP_ADMIN_PASSWORD=admin` to this image in
+[local-dev-docker-compose.yaml](../../local-dev-docker-compose.yaml), which is what makes `admin` / `admin` work on the
+admin console. Those are the names Keycloak 26 reads, and the older `KEYCLOAK_ADMIN` and `KEYCLOAK_ADMIN_PASSWORD` pair
+is deprecated. Both halves were read out of the jars inside this image, version 26.5.7 at the digest the Dockerfile
+pins: the Keycloak server jar reaches the two old names only through a method called
+`usingDeprecatedEnvironmentVariable`, and the current pair maps onto the `bootstrap-admin-username` and
+`bootstrap-admin-password` options declared in the config API jar, which become environment variables by the `KC_`
+prefix rule the same image implements in `KcEnvConfigSource`.
+
+That pair is read only while Keycloak creates the `master` realm, which is the first start against a database that has
+no `master` realm yet. It is the same shape as the realm import above, and it has the same consequence: a fresh clone
+gets the account, and a database whose `master` realm already exists ignores both values, so an administrator already
+in there keeps whatever password it was given. The trigger is the realm rather than the account, which is worth
+knowing, because this machine held a `master` realm carrying no administrator at all and these two variables could not
+have created one there. Keycloak's own configuration guide states what happens when an administrator is already in
+place and the variables are still set, which is a logged error about the failed creation of the initial administrator
+and an otherwise normal startup, so there is nothing to take back out of the Compose file afterwards.
+
+On a machine like that, whether the existing administrator's password is lost or there is no administrator at all,
+create one with the image's own command. It runs inside the container, so the container has to be up.
+
+Ubuntu, Arch Linux, macOS and WSL:
+
+```bash
+docker exec keycloak /opt/keycloak/bin/kc.sh bootstrap-admin user --optimized --username:env KC_BOOTSTRAP_ADMIN_USERNAME --password:env KC_BOOTSTRAP_ADMIN_PASSWORD --no-prompt
+```
+
+Git Bash on Windows needs the path rewriting switched off, for the reason [config.md](./config.md) gives under "Export
+config": MSYS rewrites any argument that starts with a slash, so the path inside the container turns into a Windows
+path nobody wrote.
+
+```bash
+MSYS_NO_PATHCONV=1 docker exec keycloak /opt/keycloak/bin/kc.sh bootstrap-admin user --optimized --username:env KC_BOOTSTRAP_ADMIN_USERNAME --password:env KC_BOOTSTRAP_ADMIN_PASSWORD --no-prompt
+```
+
+PowerShell:
+
+```powershell
+docker exec keycloak /opt/keycloak/bin/kc.sh bootstrap-admin user --optimized --username:env KC_BOOTSTRAP_ADMIN_USERNAME --password:env KC_BOOTSTRAP_ADMIN_PASSWORD --no-prompt
+```
+
+The two `:env` options name environment variables rather than values, and those are the variables Compose already sets
+inside this container, so the recovered account comes out as `admin` / `admin` and matches the table in
+[README_LOCAL_DEV.md](../../README_LOCAL_DEV.md) rather than being a second credential to remember. `--no-prompt` keeps
+the command non-interactive, which also keeps it clear of the terminal problem an interactive prompt hits in Git Bash.
+`--optimized` is the flag for an image built with `kc.sh build`, which this one is. Drop the two `:env` options and the
+command prompts for a username and a password instead.
+
+Every option above was read out of this image rather than taken from the documentation: `bootstrap-admin` with its
+inherited `--no-prompt`, the `user` subcommand with `--username:env` and `--password:env`, and `--optimized`, which
+`BootstrapAdminUser` picks up from `AbstractNonServerCommand`. The run is measured too, against this image with the
+container up and serving on 9443: the command created the account, logging
+`KC-SERVICES0077: Created temporary admin user with username admin` and exiting cleanly in 0.079 seconds, and a
+password grant against `https://localhost:9443/realms/master/protocol/openid-connect/token` with `admin` and `admin`
+then returned 200 where the identical grant had returned 401 `invalid_grant` minutes earlier. That run named the
+username inline as `--username admin` and took the password from an environment variable, so the `--username:env` form
+above is the same path with one option spelled differently.
+
+Keycloak's guide asks for every Keycloak node to be stopped before this command runs. That matters for a clustered
+deployment and it is not a step to take here. On this single-container stack the command was run against a live
+container that was still serving and it succeeded, because it starts its own short-lived non-server Keycloak instance,
+writes, and exits, which its own log states as `Profile nonserver activated`. Nothing clashed on the management port
+either, so this needs none of the `--http-management-port` treatment the export in [config.md](./config.md) does, and
+there is nothing to take down first.
+
+One thing to expect afterwards. The account is a temporary one, so the admin console carries a warning banner about it
+and Keycloak expects it to be removed by hand once a permanent administrator exists.
+
 ### Get a token
 
 ---
