@@ -1,5 +1,8 @@
 name: local-dev
 
+x-host-network: &host-network
+  network_mode: host
+
 volumes:
   mysql_data:
   mongodb_data:
@@ -10,29 +13,27 @@ volumes:
 
 services:
   mysql:
+    <<: *host-network
     container_name: mysql
     image: mysql:9.7.2@sha256:257388edf9c84dbc04c763625446d5f3fa6ed60d1b0873bc552c614ba0a7ab4e
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: local
       MYSQL_DATABASE: test-spring
-    ports:
-      - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-plocal" ]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-plocal" ]
       interval: 5s
       timeout: 20s
       retries: 10
       start_period: 10s
 
   mongodb:
+    <<: *host-network
     container_name: mongodb
-    image: mongo:8.3.8@sha256:5211c51171f57ae60842b11664bb244628971b3d35325762a97888337b9bb0db
+    image: mongo:8.0.4@sha256:6b0f3b8898c09d1d15753978cd8a733834f692d70aa3d424f680bccd2896f6a1
     restart: unless-stopped
-    ports:
-      - "27017:27017"
     volumes:
       - mongodb_data:/data/db
       - mongodb_config:/data/configdb
@@ -44,11 +45,10 @@ services:
       start_period: 15s
 
   postgres:
+    <<: *host-network
     container_name: postgres
     image: postgres-local:latest
     restart: unless-stopped
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     build:
@@ -57,53 +57,41 @@ services:
       tags:
         - postgres-local:latest
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres -h localhost" ]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -h 127.0.0.1" ]
       interval: 5s
       timeout: 3s
       retries: 30
       start_period: 15s
 
   qdrant:
+    <<: *host-network
     image: qdrant/qdrant:v1.19@sha256:057ee3a8da769fe7310dd3537b4dc7583bf87a95ce8ac43c0af5a46bc580d1fc
     container_name: qdrant
     restart: unless-stopped
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    networks:
-      default:
-        aliases:
-          - mem0_store
-          - qdrant
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: [ "CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/localhost/6333'" ]
+      test: [ "CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/6333'" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
+    <<: *host-network
     image: redis:8.10.1-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
     container_name: redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: [ "CMD", "redis-cli", "-h", "127.0.0.1", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
 
   keycloak:
+    <<: *host-network
     container_name: keycloak
     image: keycloak-local:latest
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway" # for linux internal host recognition same as on windows
-    ports:
-      - "9443:9443" # https port
-      - "9000:9000" # management port
     build:
       context: ./auth
       dockerfile: ./Keycloak/Dockerfile
@@ -112,7 +100,7 @@ services:
     environment:
       # Database Config
       - KC_DB=postgres
-      - KC_DB_URL=jdbc:postgresql://host.docker.internal:5432/keycloak
+      - KC_DB_URL=jdbc:postgresql://127.0.0.1:5432/keycloak
       - KC_DB_USERNAME=postgres
       - KC_DB_PASSWORD=local
       # Hostname Config
@@ -130,7 +118,7 @@ services:
       "--https-port=9443"
     ]
     healthcheck:
-      test: [ "CMD", "curl", "-f", "-L", "-k", "https://keycloak:9000/health/ready" ]
+      test: [ "CMD", "curl", "-f", "-L", "-k", "https://127.0.0.1:9000/health/ready" ]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -140,11 +128,10 @@ services:
         condition: service_healthy
 
   floci:
+    <<: *host-network
     image: floci/floci:2.0.1@sha256:4e451c39c7bb88e3cd4f87e8fc0c25d5b47695a51185d521e2241fa00486e8eb
     container_name: floci
     restart: unless-stopped
-    ports:
-      - "9070:4566"
     environment:
       FLOCI_STORAGE_MODE: persistent
       FLOCI_STORAGE_PERSISTENT_PATH: /app/data
@@ -152,19 +139,18 @@ services:
     volumes:
       - floci_data:/app/data
     healthcheck:
-      test: [ "CMD-SHELL", "curl -f http://localhost:4566/_floci/health || exit 1" ]
+      test: [ "CMD-SHELL", "curl -f http://127.0.0.1:4566/_floci/health || exit 1" ]
       interval: 5s
       timeout: 3s
       retries: 5
 
   floci-ui:
+    <<: *host-network
     image: floci/floci-ui:0.4.0@sha256:31993d99032cb72278b8df60f56e0840cfb722fbc26174fa7eb581a0518dbc78
     container_name: floci-ui
     restart: unless-stopped
-    ports:
-      - "9071:4500"
     environment:
-      FLOCI_ENDPOINT: http://floci:4566
+      FLOCI_ENDPOINT: http://127.0.0.1:4566
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
@@ -173,7 +159,7 @@ services:
       floci:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "wget -q -O /dev/null http://localhost:4500/api/clouds || exit 1" ]
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:4500/api/clouds || exit 1" ]
       interval: 5s
       timeout: 3s
       retries: 5
