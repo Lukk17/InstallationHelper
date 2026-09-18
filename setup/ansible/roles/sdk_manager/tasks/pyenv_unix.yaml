@@ -78,6 +78,46 @@
   delay: 10
   until: pyenv_bootstrap is succeeded
 
+# pyenv.run prints the exact snippet a shell needs, at install time, and nothing here used to
+# capture it: there is no blockinfile or lineinfile anywhere in this role writing PYENV_ROOT or
+# `pyenv init` into a profile. A real CachyOS run on 2026-09-15 has that output sitting unused at
+# lines 1026 to 1036 of the log, and pyenv stayed off PATH even in bash, where the NVM and SDKMAN
+# equivalents already work. `pyenv init - bash` and `pyenv init - zsh` are pyenv's own two answers
+# for the two shells this project writes to.
+#
+# This used to loop the block into both .bashrc and .zshrc directly, one shell name baked into each
+# copy. It now writes one block into apps_config/env.sh, the file every rc file this project touches
+# sources, because shell_zsh's Oh My Zsh install replaces .zshrc wholesale on a fresh install and
+# would take a block written straight into it down too. See docs/regression_ledger.md, "shell_zsh's
+# Oh My Zsh install overwrites the PATH block env_variables just wrote". One file for both shells
+# means the two `pyenv init -` invocations can no longer be picked by which rc file is being written,
+# so the block picks between them at source time instead, by which of $BASH_VERSION or $ZSH_VERSION
+# the running shell has actually set.
+- name: Ensure the project's own environment file directory exists (Linux/Mac)
+  ansible.builtin.file:
+    path: "{{ non_root_home }}/apps_config"
+    state: directory
+    owner: "{{ non_root_user }}"
+    group: "{{ ih_non_root_group }}"
+    mode: '0755'
+  become: yes
+
+- name: Persist Pyenv shell init into the project's environment file (Linux/Mac)
+  ansible.builtin.blockinfile:
+    path: "{{ non_root_home }}/apps_config/env.sh"
+    marker: "# {mark} ANSIBLE PYENV SHELL INIT"
+    create: yes
+    block: |
+      export PYENV_ROOT="$HOME/.pyenv"
+      [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+      if [ -n "$BASH_VERSION" ]; then
+        eval "$(pyenv init - bash)"
+      elif [ -n "$ZSH_VERSION" ]; then
+        eval "$(pyenv init - zsh)"
+      fi
+  become: yes
+  become_user: "{{ non_root_user }}"
+
 # Fire all 4 Python builds in parallel (poll: 0). Each compiles from source
 # in ~5–10 min — serial is 20–40 min, parallel is bound by CPU contention
 # on a 4-core box (≈15–20 min). async_status collects results afterwards.

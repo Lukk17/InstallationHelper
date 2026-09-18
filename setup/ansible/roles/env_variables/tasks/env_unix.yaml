@@ -1,40 +1,33 @@
 ---
-- name: Set Linux Environment Variables
-  ansible.builtin.blockinfile:
-    path: "{{ non_root_home }}/.bashrc"
-    marker: "# {mark} ANSIBLE DEV APPS CONFIG"
-    create: yes
-    block: |
-      export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
-      export DOCKER_CONFIG="$HOME/apps_config/.docker"
-      export M2_HOME="$HOME/apps_config/.m2"
-      export KUBECONFIG="$HOME/apps_config/.kube/config"
-      # The SDK location, from the same android_home the installer writes to. ANDROID_HOME is the
-      # current name and ANDROID_SDK_ROOT is the deprecated one, and both are set to the same path
-      # because Android Studio and the Gradle plugin check the two for consistency when the old one
-      # is present. https://developer.android.com/tools/variables
-      export ANDROID_HOME="{{ android_home }}"
-      export ANDROID_SDK_ROOT="{{ android_home }}"
-      # The user preferences directory, which is a different thing from the SDK. ANDROID_USER_HOME
-      # names it outright; ANDROID_SDK_HOME is the legacy variable Android Studio 4.3 and earlier
-      # read, and it names the PARENT the .android directory is created under, so it gets
-      # apps_config rather than apps_config/.android.
-      export ANDROID_USER_HOME="$HOME/apps_config/.android"
-      export ANDROID_SDK_HOME="$HOME/apps_config"
-      # Pub (Dart/Flutter) installs user-level executables here; pin it to PATH
-      # so the "Pub installs executables into $HOME/.pub-cache/bin, which is
-      # not on your path" warning never reappears.
-      export PUB_CACHE="$HOME/.pub-cache"
-      export PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:$HOME/.pub-cache/bin:$PATH"
+# This block used to be written straight into every rc file a login shell might read, and that is
+# exactly what let it be destroyed: shell_zsh's Oh My Zsh install replaces ~/.zshrc with its own
+# template on a fresh install, and the "Copy ZSH configuration files" task right after it
+# unconditionally overwrites ~/.zshrc again with this project's own checked-in file. Both run after
+# this role in site.yaml, and neither preserves a block an earlier role wrote into the same file. A
+# real CachyOS run on 2026-09-15 and two container runs on 2026-09-17 hit variants of this. See
+# docs/regression_ledger.md, "shell_zsh's Oh My Zsh install overwrites the PATH block env_variables
+# just wrote".
+#
+# The fix is one file this project owns, under the same apps_config directory these variables
+# already point into, that env_unix.yaml, nvm_unix.yaml and pyenv_unix.yaml can each append their
+# own marked block to. A copy over ~/.zshrc can still destroy whatever that file sources, so the
+# checked-in setup/config/.zshrc carries the one line that sources this file as a permanent part of
+# itself, and a copy of that file therefore carries the fix along with it.
+- name: Ensure the project's own environment file directory exists (Linux/macOS)
+  ansible.builtin.file:
+    path: "{{ non_root_home }}/apps_config"
+    state: directory
+    owner: "{{ non_root_user }}"
+    group: "{{ ih_non_root_group }}"
+    mode: '0755'
   become: yes
-  become_user: "{{ non_root_user }}"
-  when: ansible_facts['system'] == 'Linux'
 
-- name: Set macOS Environment Variables
+- name: Set Dev Apps Environment Variables (Linux/macOS)
   ansible.builtin.blockinfile:
-    path: "{{ non_root_home }}/.zshrc"
+    path: "{{ non_root_home }}/apps_config/env.sh"
     marker: "# {mark} ANSIBLE DEV APPS CONFIG"
     create: yes
+    mode: '0644'
     block: |
       export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
       export DOCKER_CONFIG="$HOME/apps_config/.docker"
@@ -56,7 +49,34 @@
       # so the "Pub installs executables into $HOME/.pub-cache/bin, which is
       # not on your path" warning never reappears.
       export PUB_CACHE="$HOME/.pub-cache"
-      export PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:$HOME/.pub-cache/bin:$PATH"
+      # FVM's own global-version symlink. Confirmed against FVM's source, lib/src/utils/context.dart:
+      # globalCacheLink = join(fvmDir, 'default') and globalCacheBinPath = join(globalCacheLink,
+      # 'bin'), with fvmDir defaulting to "$HOME/fvm". fvm_unix.yaml's "Set FVM global version" task
+      # is what points this symlink at a real SDK. The per-channel versions directory it installs
+      # into, ~/fvm/versions/<channel>/bin, carries the channel name and so cannot be a fixed PATH
+      # entry the way this one can.
+      export PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:$HOME/.pub-cache/bin:$HOME/fvm/default/bin:$PATH"
   become: yes
   become_user: "{{ non_root_user }}"
-  when: ih_family == 'Darwin'
+
+# A Linux machine gets both .bashrc and .zshrc sourcing this file, because the login shell is a
+# per-user choice this playbook does not control, and a zsh user with nothing in .zshrc never sees
+# any of the above even though the packages it points at installed correctly. macOS keeps writing
+# only .zshrc, since zsh is the default and only shell there. `create: yes` matches the previous
+# behaviour: a missing rc file is created rather than skipped.
+- name: Determine target rc files that must source the project's environment file (Linux/macOS)
+  ansible.builtin.set_fact:
+    env_apps_rc_files: "{{ [non_root_home + '/.bashrc', non_root_home + '/.zshrc'] if ansible_facts['system'] == 'Linux' else [non_root_home + '/.zshrc'] if ih_family == 'Darwin' else [] }}"
+
+# Guarded with `[ -f ... ]` so a shell started before this role has ever run, or a rc file restored
+# from some other source, does not error out sourcing a file that is not there yet.
+- name: Source the project's environment file from every rc file (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ item }}"
+    marker: "# {mark} ANSIBLE PROJECT ENV SOURCE"
+    create: yes
+    block: |
+      [ -f "$HOME/apps_config/env.sh" ] && . "$HOME/apps_config/env.sh"
+  loop: "{{ env_apps_rc_files }}"
+  become: yes
+  become_user: "{{ non_root_user }}"

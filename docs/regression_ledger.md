@@ -3062,3 +3062,263 @@ the fix it printed its header, one SKIP and `0 passed, 1 SKIPPED and therefore u
 wiring PASS, the same SKIP and `1 passed, 1 SKIPPED`. The fix moves the wiring assertion above `require_python`, which
 also means a tree whose export file has gone missing now reports both that the file is absent and that the image
 still tries to copy it, rather than only the first.
+
+### Found on a real CachyOS machine on 2026-09-15
+
+Two entries from the same run, both shipped by this project, and both about the same class of gap: something
+installed correctly and reported CHANGED, and the owner could not run it, because nothing wired it into the shell he
+actually uses. The run's own verification play printed a clean tally and exited 0 on both.
+
+#### Dev tool environment and NVM wired into bash only, invisible from a zsh login shell
+
+Cause: `env_unix.yaml` wrote the `GRADLE_USER_HOME` / `ANDROID_HOME` / `PUB_CACHE` / PATH block to
+`~/.bashrc` on Linux and to `~/.zshrc` on macOS only, and NVM's own installer, invoked through
+`ansible.builtin.shell` with `executable: /bin/bash`, detects `bash` from that invocation regardless of the target
+user's actual login shell and appends its three source lines there and nowhere else. Neither writer ever reached
+`~/.zshrc` on Linux.
+
+Effect: `installation_full.log` line 911 reads `=> Appending nvm source string to /home/lukk/.bashrc`, with no
+matching append to `~/.zshrc` anywhere in the log. Node, npm and the six npm-installed command line tools (Claude
+Code 2.1.272, OpenCode, OpenSpec, Codex, Grok and Bruno CLI) all installed into
+`~/.nvm/versions/node/v24.21.0/bin` and reported success, and `command -v npm` in the owner's zsh answered nothing,
+because his login shell is zsh and the playbook had written only bash's profile.
+
+How it was proven rather than reasoned about: the log lines named in the failure were read directly rather than
+inferred, and `grep -rn "\.zshrc" setup/ansible/roles/env_variables setup/ansible/roles/sdk_manager` before the fix
+returned exactly one hit, the macOS-only `blockinfile` task in `env_unix.yaml`, confirming no Linux path ever touched
+that file. SDKMAN's own installer writes both `~/.bashrc` and `~/.zshrc` unconditionally
+(`sdkman_unix.yaml` lines 958-961 of the same log show both), which is the behaviour the fix matches.
+
+Fix: [env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml) now computes the target rc file list
+per OS with one `set_fact` and applies one `blockinfile` block, defined once, in a loop, so Linux gets both
+`~/.bashrc` and `~/.zshrc` and macOS keeps `~/.zshrc` only; this also removed the byte-for-byte duplicated block the
+two prior tasks carried. [nvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/nvm_unix.yaml) adds a dedicated,
+idempotent `blockinfile` task that mirrors NVM's own three source lines into `~/.zshrc`, deliberately leaving
+`~/.bashrc` to the vendor installer so the two writers never fight over the same file.
+
+#### pyenv init printed and never persisted anywhere, so pyenv stayed off PATH even in bash
+
+Cause: `pyenv.run` prints the shell snippet a user is meant to add (`pyenv init - bash` or `pyenv init - zsh`,
+depending on shell) once installation finishes, and no task anywhere in `sdk_manager` ever captured that output or
+wrote the equivalent into any rc file. This is a second, separate defect from the one above: even a machine whose
+login shell is bash never gained a usable `pyenv`.
+
+Effect: lines 1026 to 1036 of the same CachyOS log are pyenv printing exactly that guidance, to a log nothing reads
+back. `PYENV_ROOT` and the `pyenv` shim directory reached no shell's PATH, in bash or in zsh.
+
+How it was proven: `grep -rn "PYENV_ROOT\|pyenv init" setup/ansible/roles` before the fix matched only the ephemeral
+`export PYENV_ROOT=...` lines scoped inside two `ansible.builtin.shell` task bodies in `pyenv_unix.yaml`, both of
+which die with the task and touch no rc file; no `blockinfile` or `lineinfile` task existed anywhere in the role.
+
+Fix: [pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml) adds a `blockinfile` task,
+looped over `{bash, ~/.bashrc}` and `{zsh, ~/.zshrc}`, writing `PYENV_ROOT`, the conditional PATH entry for
+`$PYENV_ROOT/bin`, and `eval "$(pyenv init - <shell>)"`, using the exact shell-qualified invocation pyenv itself
+recommends for each file.
+
+### Found on real Arch and CachyOS containers on 2026-09-17, chasing the outside-package-manager assertion
+
+Two full container runs, Arch and CachyOS, both reached "Assert every enabled outside-package-manager tool is
+installed and reachable from the login shell" (as it was named before this entry) and both failed it identically on
+fvm, flutter, the fvm-bundled dart and the two Android command line tools. Investigating that failure found three
+separate things, one already-shipped defect in a role, one already-shipped defect in the same role's PATH line, and
+one defect in the assertion itself that had been quietly turning a real failure into a false pass.
+
+#### shell_zsh's Oh My Zsh install overwrites the PATH block env_variables just wrote
+
+Cause: `site.yaml` runs `env_variables` before `shell_zsh`. `env_variables` writes the `ANDROID_HOME` / `PUB_CACHE` /
+PATH block into both `~/.bashrc` and `~/.zshrc` via `blockinfile`. `shell_zsh`'s `oh_my_zsh.yaml` then installs
+Oh My Zsh, which replaces `~/.zshrc` with its own template on a fresh install, and immediately afterwards its own
+"Copy ZSH configuration files" task unconditionally `copy`s the checked-in `setup/config/.zshrc` over whatever is
+there. Neither step preserves or re-applies the block `env_variables` wrote three tasks earlier in the same run.
+
+Effect: on any machine where `setup_zsh` is true and Oh My Zsh has never been installed before, which is every fresh
+container and every real first run, `~/.zshrc` ends the play with no `ANDROID_HOME`, no `PUB_CACHE`, and none of the
+PATH entries `env_variables` added. A login shell that is zsh, or an interactive one, can no longer find `fvm`,
+`sdkmanager` or `adb`, all three of which sit in directories that line does put on PATH. `fvm`, `sdkmanager` and `adb`
+reported UNREACHABLE, on disk but not resolvable, on both the Arch and CachyOS runs.
+
+How it was proven: reproduced directly in `installationhelper-e2e-arch:latest`. Appending the exact `ANSIBLE DEV APPS
+CONFIG` block to `~/.zshrc` and putting a stub `fvm` under `~/.pub-cache/bin` made both `zsh -ic 'command -v fvm'` and
+`zsh -lic 'command -v fvm'` answer `/home/lukk/.pub-cache/bin/fvm`, `RC=0`. Overwriting `~/.zshrc` with the real
+`setup/config/.zshrc`, exactly as `oh_my_zsh.yaml`'s copy task does, made both the same two commands answer nothing,
+`RC=1`, identically. `grep -c "ANSIBLE DEV APPS CONFIG\|pub-cache\|Android/Sdk" ~/.zshrc` read 0 after the overwrite
+against a non-zero count before it.
+
+Fix: fixed. See "The two PATH-loss defects above share one root cause" below,
+[env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml) and
+[setup/config/.zshrc](../setup/config/.zshrc).
+
+#### FVM's own Flutter SDK is never added to PATH, on any shell, on any OS
+
+Cause: `env_unix.yaml`'s PATH line is `"{{ android_home }}/cmdline-tools/latest/bin:{{ android_home
+}}/platform-tools:{{ android_home }}/emulator:$HOME/.pub-cache/bin:$PATH"`. `~/fvm/versions/{{ flutter_channel }}/bin`
+never appears in it, and nothing else in the repository adds it either (`grep -rn "fvm/default\|fvm.*PATH\|PATH.*fvm"
+setup/` matches nothing that touches PATH). `fvm_unix.yaml` installs the Flutter SDK correctly under
+`~/fvm/versions/<channel>/bin` and runs `fvm global <channel>`, which creates the `~/fvm/default` symlink FVM's own
+documentation expects a caller to add to PATH, but nothing here does that.
+
+Effect: `flutter (via fvm)` and, as a consequence, `dart (bundled with the fvm flutter SDK)` are unreachable by name
+from every shell this project could plausibly generate, independent of the `.zshrc`-overwrite defect above. Confirmed
+on the Arch and CachyOS runs, where `flutter (via fvm)` reported UNREACHABLE with `~/fvm/versions/stable/bin/flutter`
+genuinely present on disk.
+
+How it was proven: read `setup/ansible/roles/env_variables/tasks/env_unix.yaml` line 41 directly, then confirmed with
+a repository-wide grep for any PATH assignment mentioning fvm, which returned nothing.
+
+Fix: fixed. `~/fvm/default/bin` was added, in
+[env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml), see "The two PATH-loss defects above share
+one root cause" below for why that directory rather than the per-channel one.
+
+#### The outside-package-manager assertion reported a tool "installed" on the strength of an unrelated binary with the same name
+
+Cause: the shell-reachability check ran `command -v {{ item.shell_bin }}` and treated any non-empty answer as proof
+that row's own artefact was reachable. Two rows, "dart (bundled with the fvm flutter SDK)" and "dart (standalone)",
+both resolve `shell_bin: dart`, and the check had no way to tell which install answered. Arch installs a standalone
+dart via pacman as a side effect of `fvm_unix.yaml`'s own "Ensure Dart is installed before activating FVM" task, so
+`/usr/bin/dart` is on PATH from the moment that runs, regardless of whether the fvm-bundled dart at
+`~/fvm/versions/stable/bin/dart` is reachable at all.
+
+Effect: on the same two runs, `dart (bundled with the fvm flutter SDK)` reported `installed` in the same table where
+`flutter (via fvm)`, sitting in the identical directory, reported `UNREACHABLE`. Both rows named a path. Only one of
+them was ever actually checked against it, and the assertion this section belongs to would have kept reporting that
+false pass indefinitely, since nothing about it can fail on its own.
+
+How it was proven: reproduced directly. `pacman -S dart` on the same container, then a hand-written stub file at
+`~/fvm/versions/stable/bin/dart` with different content, then `zsh -ic 'command -v dart'` inside the container
+answered `/usr/sbin/dart` (the pacman package, Arch's usr-merge makes `/usr/bin` and `/usr/sbin` the same directory),
+never the stub. A direct `-ef` comparison between that resolved path and the fvm-bundled one that the row actually
+names returned false, confirming the row's own claim was never verified.
+
+Fix: [setup/ansible/verify_install.yaml](../setup/ansible/verify_install.yaml). Every tool entry whose `disk_cmd`
+checks exactly one location now carries an `expected_path`, and both shell probes compare the resolved binary against
+it with `[ "$resolved" -ef "$expected_path" ]`, bash and zsh's same-file test by device and inode, chosen over
+`readlink -f` because BSD's `readlink` on macOS has no `-f` and this file has to run there too. Proven with the same
+container: the standalone-dart row still matches (`/usr/bin/dart` and `/usr/sbin/dart` are `-ef` each other), and the
+fvm-bundled row now correctly fails, converting a false `installed` into an honest `UNREACHABLE` alongside `flutter
+(via fvm)`. The same edit also replaced the single login-and-interactive (`-lic`) probe with an interactive-only
+(`-ic`) probe as the one the assertion fails on, since that is the shell a person opening a terminal actually gets,
+and kept the `-lic` probe as a second, non-failing check that names a tool reachable only from a login shell rather
+than silently merging it into an ordinary UNREACHABLE. The renamed assertion,
+`Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`, is
+what `e2e/tier1/verify_spec_parity.sh` now expects every container scenario spec to quote verbatim, and all seven were
+updated in the same change.
+
+#### The two PATH-loss defects above share one root cause, closed by giving the environment variables one file the shell startup files can't destroy
+
+Cause: both of the two entries directly above trace back to the same design flaw, not two unrelated bugs. Three
+roles, `env_variables`, and `sdk_manager`'s NVM and pyenv tasks, wrote their exports directly into `~/.bashrc` and
+`~/.zshrc`, and `shell_zsh`'s Oh My Zsh install and its "Copy ZSH configuration files" task, which run after all
+three in `site.yaml`, replace `~/.zshrc` wholesale. Whatever was written straight into that file is gone the moment
+those two tasks run, which is every fresh container and every real first install.
+
+Fix: one file this project owns, `~/apps_config/env.sh`, chosen because `apps_config` already existed as the
+project's own directory for `GRADLE_USER_HOME`, `DOCKER_CONFIG`, `M2_HOME` and `KUBECONFIG`, so this is one more file
+under a directory the project already manages rather than a new convention. `env_variables`, `nvm_unix.yaml` and
+`pyenv_unix.yaml` each append their own marked `blockinfile` block to it rather than one role owning the whole file,
+exactly as they did before against `.bashrc`/`.zshrc`, just retargeted. `~/.bashrc` and `~/.zshrc` each get one
+guarded, idempotent line, `[ -f "$HOME/apps_config/env.sh" ] && . "$HOME/apps_config/env.sh"`, written by
+`env_variables` through the same `blockinfile` marker mechanism, so a second run cannot duplicate it. The line that
+actually closes the hole is the one baked permanently into the checked-in `setup/config/.zshrc`, since that is the
+file the copy overwrites `~/.zshrc` with, and a copy of that file now carries the fix along with it. Pyenv's block
+used to carry the shell name (`pyenv init - bash` or `pyenv init - zsh`) chosen by which rc file it was written into.
+Sharing one file for both shells means it now branches on `$BASH_VERSION` versus `$ZSH_VERSION` at source time
+instead. The FVM PATH gap was closed by adding `$HOME/fvm/default/bin` to the same PATH line, confirmed by reading
+FVM's own source rather than its docs: `lib/src/utils/context.dart` on the `leoafarias/fvm` `main` branch defines
+`globalCacheLink = join(fvmDir, 'default')` and `globalCacheBinPath = join(globalCacheLink, 'bin')`, with `fvmDir`
+defaulting to `join(kUserHome, 'fvm')`, which is the fixed symlink `fvm_unix.yaml`'s "Set FVM global version" task
+points at a real SDK, as against `~/fvm/versions/<channel>/bin`, whose name carries the channel and so could never be
+a constant PATH entry.
+
+One piece of duplication is deliberate rather than fixed: NVM's own vendor installer, run through
+`ansible.builtin.shell` with `executable: /bin/bash`, still appends its own three source lines directly into
+`~/.bashrc` on every run, and nothing in this project controls that script. A bash login shell now sources `nvm.sh`
+twice, once from the vendor's own line and once through `apps_config/env.sh`. `nvm.sh` guards its own function
+definitions against redefinition, so the second source is a harmless no-op that costs a few milliseconds at shell
+start, not a correctness problem. zsh only ever gets the one copy, since the vendor installer never touches
+`~/.zshrc`.
+
+How it was proven rather than reasoned about: reproduced directly in `installationhelper-e2e-arch:latest`. A user was
+given the new arrangement, `~/apps_config/env.sh` carrying the `ANSIBLE DEV APPS CONFIG` block, `~/.bashrc` and
+`~/.zshrc` each carrying the guarded source line, and a stub `fvm` under the new `~/fvm/default/bin`. Before the
+copy, `zsh -ic 'command -v fvm'` answered `/home/lukk/fvm/default/bin/fvm` and `zsh -ic 'echo $ANDROID_HOME'`
+answered `/home/lukk/Android/Sdk`. The exact copy `oh_my_zsh.yaml` performs, the real
+`setup/config/.zshrc` copied straight over `~/.zshrc`, was then run. Both commands answered identically afterwards,
+`RC=0` on each: `command -v fvm` still gave `/home/lukk/fvm/default/bin/fvm` and `echo $ANDROID_HOME` still gave
+`/home/lukk/Android/Sdk`. Before this fix, the same sequence reproduced in the entry above made both answer nothing.
+`bash e2e/run.sh` was also run clean afterwards, 277 passed, the same two pre-existing SKIPs, exit code 0.
+
+### Found on a real Arch container on 2026-09-17, two false failures the strict `-ef` path check itself introduced the same day
+
+The `expected_path` / `-ef` mechanism added earlier the same day (see "The outside-package-manager assertion reported
+a tool 'installed' on the strength of an unrelated binary with the same name" above) closed the false pass it was
+built for and opened two false failures of its own, on `verify.log` from `e2e/runs/2026-09-17T20-15-48Z_arch_defaults/`:
+a clean Arch run, 223 tasks, 84 changed, zero failed, that still failed the verification assertion on `pyenv` and
+`dart (standalone)`. A check that cries wolf on its first day is the thing most likely to get ignored the next time it
+is right, which is the reason this gets its own entry rather than a quiet edit to the row.
+
+#### pyenv is a shell function after `pyenv init`, and the strict check demanded a file path from it
+
+Cause: the `pyenv` row carried `expected_path: "{{ non_root_home }}/.pyenv/bin/pyenv"`, so the shell probe required
+`command -v pyenv` to return something `-ef` the real binary. `pyenv_unix.yaml` persists `eval "$(pyenv init - bash)"`
+/ `eval "$(pyenv init - zsh)"` into `apps_config/env.sh`, and `pyenv init -` is pyenv's own vendor script defining a
+shell function named `pyenv` that intercepts `activate`, `deactivate`, `rehash` and `shell` before falling through to
+the real binary. Once that function is loaded, `command -v pyenv` in bash and zsh alike prints the bare word `pyenv`,
+not a path, because that is what `command -v` reports for a function. `[ "pyenv" -ef "$HOME/.pyenv/bin/pyenv" ]` can
+never be true: `pyenv` is not a path to any file in the current directory, so `-ef` fails, for the correctly-installed
+case identically to the genuinely-broken one. `nvm` and `sdk` are the same shape, a function sourced from an init
+file, and both already carried `expected_path: ""` for exactly this reason, which the `pyenv` row alone did not
+follow.
+
+Effect: `[verify] pyenv    UNREACHABLE    ~/.pyenv/bin/pyenv` on a run where `python (pyenv shim)` and all four pinned
+Python builds passed, because the shim and the builds are plain files the `-ef` comparison actually applies to and
+`pyenv` itself is not.
+
+How it was proven: read `pyenv_unix.yaml` lines 105-117, which is the `blockinfile` task writing `eval "$(pyenv init
+- bash)"` / `eval "$(pyenv init - zsh)"` into `apps_config/env.sh`, confirming pyenv is initialised as a shell
+function rather than left as a binary on PATH, the same fact the `nvm` and `sdk` rows already state in their own
+`how` field. Compared directly against those two rows' `expected_path: ""` in `verify_install.yaml`, which the
+`pyenv` row did not match.
+
+Fix: [setup/ansible/verify_install.yaml](../setup/ansible/verify_install.yaml), the `pyenv` row's `expected_path` is
+now `""`, matching `nvm` and `sdk`, so the probe only requires `command -v pyenv` to resolve to something non-empty
+rather than to a specific file. `disk_cmd` is unchanged and still fails a genuinely absent pyenv, because that check
+never depended on `expected_path` at all.
+
+#### FVM's dart is deliberately meant to shadow the standalone Dart SDK on PATH, and the strict check treated the shadow as a failure
+
+Cause: the `dart (standalone)` row carried `shell_bin: dart`, the same name `dart (bundled with the fvm flutter SDK)`
+uses, and `env_unix.yaml`'s PATH construction puts `$HOME/fvm/default/bin` ahead of every other candidate on every
+family, so `command -v dart` in an interactive shell always answers with FVM's copy once FVM is installed, never the
+standalone one, by design rather than by accident. The standalone package still has to be installed on Arch, not as
+decoration: `fvm_unix.yaml`'s "Install FVM via dart pub global (Arch Linux)" task runs `dart pub global activate
+fvm`, which needs a `dart` on PATH to run at all, and the "Ensure Dart is installed before activating FVM (Arch)"
+task immediately above it is what puts one there via pacman before that command runs.
+
+Effect: `[verify] dart (standalone)   UNREACHABLE   the native Dart SDK install for Archlinux` in the same run where
+`dart (bundled with the fvm flutter SDK)` reported `installed`, which is the two dart rows disagreeing exactly as
+intended by the PATH order, reported as a failure of the row that was never meant to win the name.
+
+How it was proven: read `fvm_unix.yaml` lines 14-24, confirming the Arch FVM install path activates FVM through
+`dart pub global activate fvm` rather than through the install script every other Linux and macOS use, and that the
+standalone Dart package is what makes that command possible in the first place. Read `env_unix.yaml`'s PATH line,
+confirming `$HOME/fvm/default/bin` precedes the rest of `$PATH` on every family, not only Arch, so the shadowing is
+universal rather than Arch-specific.
+
+Fix: [setup/ansible/verify_install.yaml](../setup/ansible/verify_install.yaml), the `dart (standalone)` row now
+carries `shell_bin: ""` and `expected_path: ""`, so it is checked on disk only, the same treatment the four pinned
+Java majors and four pinned Python builds already get for the same reason: one install can be present without ever
+being the name a shell resolves. `disk_cmd` is unchanged, so a genuinely missing standalone Dart SDK on Arch, which
+would silently break `dart pub global activate fvm` and therefore FVM and Flutter, still fails the assertion. The
+row's `how` field now states the shadowing and the Arch dependency directly, rather than leaving a future reader to
+rediscover both from a failing run.
+
+#### The mechanical check that would have caught this ahead of time
+
+`e2e/tier1/verify_spec_parity.sh` proves every assertion name in `verify_install.yaml` is quoted verbatim across the
+seven container-scenario specs, which catches a renamed assertion. It cannot catch a row inside an unrenamed
+assertion producing the wrong verdict, because the row's `key`, `expected_path` and `shell_bin` are data the check
+never reads. No new mechanical check is added for this shape: a check that actually distinguishes "genuinely
+unreachable" from "resolves to a function" or "shadowed by design" would have to run the same interactive-shell probe
+this file already runs, against a real pyenv and a real FVM install, which is exactly what the tier 3 container run
+that surfaced this already does. The container run is the check; what was missing was reading its output before
+calling the day's work done.

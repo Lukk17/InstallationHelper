@@ -5,6 +5,12 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
+# This file gets copied straight over ~/.zshrc on every Oh My Zsh install, which is exactly what
+# used to destroy the environment env_variables, nvm_unix.yaml and pyenv_unix.yaml write. All three
+# now write into apps_config/env.sh instead of into this file, so this one line, baked into the
+# checked-in copy itself, is what survives the overwrite and keeps sourcing them.
+[ -f "$HOME/apps_config/env.sh" ] && . "$HOME/apps_config/env.sh"
+
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:/usr/local/bin:$PATH
 

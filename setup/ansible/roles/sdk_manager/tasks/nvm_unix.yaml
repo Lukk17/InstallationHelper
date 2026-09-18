@@ -13,6 +13,43 @@
   delay: 10
   until: nvm_bootstrap is succeeded
 
+# The vendor installer above appends the three source lines to whatever profile file it detects
+# from $SHELL at the time it runs, and under `ansible.builtin.shell` with `executable: /bin/bash`
+# that is always .bashrc, regardless of the user's actual login shell. A real CachyOS run on
+# 2026-09-15 confirmed the gap: line 911 of that log shows "Appending nvm source string to
+# /home/lukk/.bashrc" and nothing was ever written to .zshrc, so nvm, npm and every npm-installed
+# tool were unreachable from the owner's zsh session even though they had installed correctly.
+#
+# This block now targets apps_config/env.sh, the one file env_unix.yaml has every rc file source,
+# rather than .zshrc directly, because shell_zsh's Oh My Zsh install replaces .zshrc wholesale on a
+# fresh install and would take a block written straight into it down too. See
+# docs/regression_ledger.md, "shell_zsh's Oh My Zsh install overwrites the PATH block env_variables
+# just wrote". Do not add this to .bashrc: the vendor installer already owns that file and a second
+# writer there would fight it on every rerun. It still writes its own copy there on its own, so a
+# bash login shell now sources nvm.sh twice: once from the vendor's line in .bashrc and once through
+# apps_config/env.sh. nvm.sh guards its own function definitions, so the second source is a harmless
+# no-op, at the cost of a few extra milliseconds at shell start. zsh only ever gets this one copy.
+- name: Ensure the project's own environment file directory exists (Linux/Mac)
+  ansible.builtin.file:
+    path: "{{ non_root_home }}/apps_config"
+    state: directory
+    owner: "{{ non_root_user }}"
+    group: "{{ ih_non_root_group }}"
+    mode: '0755'
+  become: yes
+
+- name: Ensure NVM shell init is present in the project's environment file (Linux/Mac)
+  ansible.builtin.blockinfile:
+    path: "{{ non_root_home }}/apps_config/env.sh"
+    marker: "# {mark} ANSIBLE NVM SHELL INIT"
+    create: yes
+    block: |
+      export NVM_DIR="$HOME/.nvm"
+      [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+      [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+  become: yes
+  become_user: "{{ non_root_user }}"
+
 # `nvm` is a shell function, not a binary — `timeout nvm …` fails with
 # "No such file or directory" because timeout uses execve(). Wrap the
 # whole call in `bash -c` so the function is defined inside the timed
