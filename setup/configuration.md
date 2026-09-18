@@ -18,6 +18,7 @@ Configuration tasks the Ansible playbook performs, grouped by desktop environmen
 | Lens | Linux | Lens Desktop is free for personal use. Installed from the official apt/dnf repo (`downloads.k8slens.dev`) configured by `debian_repos.yaml` / `fedora_repos.yaml`. macOS uses cask `lens`; Windows uses winget `Mirantis.Lens`; Arch uses AUR `lens-bin`. |
 | FileZilla | macOS | No Homebrew cask exists for FileZilla on macOS. The `install_filezilla` toggle maps to **Cyberduck** (cask `cyberduck`) — the standard free macOS FTP/SFTP/S3 client. Set the toggle to `false` and install FileZilla manually from `filezilla-project.org` if you need FileZilla specifically. |
 | Game storefronts (EA app, GOG Galaxy, Epic, CurseForge) | Linux | No official Linux clients. `install_ea_app` / `install_gog` / `install_epic` / `install_curseforge` map to winget (Windows) and Homebrew casks (macOS) only; they no-op on Linux since `vars/{Debian,RedHat,Archlinux}.yaml` carry no mapping for these keys. Run the games on Linux via Lutris/Heroic + Proton if needed. |
+| Podman Desktop | Linux | Installed as a flatpak (`io.podman_desktop.PodmanDesktop`) purely as a graphical front end for the Docker engine `install_docker` already installs, not for podman: no podman engine, pods, or podman machine ship with this setup. One manual step after first launch: open the application's Extensions page and disable the bundled podman extension, or you get a five second startup stall, a "Podman needs to be set up" notification, an empty Pods page and a dashboard tile every time. Rootless Docker is not supported by this flatpak. |
 
 ## Linux
 
@@ -140,6 +141,7 @@ Configuration is controlled via Ansible group variables in `group_vars/`:
 - `setup_hibernate`
 - `setup_tmpfs`
 - `setup_zsh`
+- `install_podman_desktop` (GUI front end for `install_docker`, see the per-OS caveats table above)
 
 ### All OS (`group_vars/all.yaml`)
 

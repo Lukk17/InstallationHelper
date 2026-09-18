@@ -98,6 +98,7 @@ install_baobab: false
 # ---- Virtualization (all off) ----
 install_virt_manager: false
 install_docker: false
+install_podman_desktop: false  # GUI front end for a Docker engine install_docker above turns off
 
 # ---- Gnome live settings ----
 default_internetBrowser_app: brave-browser.desktop

@@ -49,6 +49,7 @@ install_gputest: true     # Alt for FurMark
 # Virtualization toggles
 install_virt_manager: true
 install_docker: true
+install_podman_desktop: true  # GUI front end for the Docker engine above, flatpak on every distro
 install_virtualbox: false
 install_vmware: false
 
