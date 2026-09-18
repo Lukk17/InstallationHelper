@@ -344,6 +344,18 @@
       register: user_groups
       changed_when: false
 
+    # `id -nG <user>` above re-reads the group database and reflects an addition made earlier in
+    # this same run immediately. Supplementary groups are stamped onto a process at login and never
+    # re-read afterwards, so the two can disagree: the database gains a group the instant a task
+    # adds it, while this ansible-playbook process, and any shell that later spawns from the same
+    # login session, keeps the group list it started with until the session is renewed. `id -nG`
+    # with no argument reports this process's own live credentials rather than looking anything up,
+    # so it stands in for what the caller's current shell can actually use right now.
+    - name: Read the invoking user's live-session groups
+      ansible.builtin.command: id -nG
+      register: user_groups_live
+      changed_when: false
+
     # --- the temporary sudoers entry must be gone ---------------------------
     # become is required: /etc/sudoers.d is mode 0750 and root-owned on Debian and Arch, so an
     # unprivileged stat fails with Permission denied rather than reporting the file's absence.
@@ -385,6 +397,455 @@
       register: de_probe
       when: ih_expect_desktop in ['kde', 'gnome']
 
+    # --- command-line tools installed outside a package manager --------------
+    # Everything above this line asks a package manager what it recorded, and none of it can see
+    # NVM, pyenv, SDKMAN, FVM, the Android SDK command line tools, or any of the six npm-installed AI
+    # CLIs, because none of them ever tell apt, dnf, pacman or Homebrew that they exist. Measured on a
+    # real CachyOS machine on 2026-09-15: Claude Code, OpenCode, OpenSpec, Codex, Grok and Bruno CLI
+    # all installed, all reported CHANGED, and the owner could run none of them, because NVM wired
+    # itself into ~/.bashrc only and his login shell is zsh. The verification play at the end of that
+    # same run printed a clean tally and exited 0.
+    #
+    # Two questions per tool, not one, because that machine is exactly the case where the two
+    # questions have different answers. Whether the file is on disk where the installer put it is
+    # what this play's own shell, ansible_connection: local, can answer directly, and it is not the
+    # question a human asks. Whether the shell the user actually opens can find it by name is the
+    # real question, and answering it means asking the account record what that shell is, then
+    # running that exact shell as that exact user, interactively, because opening a terminal on a
+    # desktop is what gives a person an interactive, non-login shell, and that case caught the
+    # CachyOS defect above just as well as a combined login-and-interactive probe did: an
+    # interactive zsh never reads ~/.bashrc regardless of login state. A login-shell probe is run too,
+    # further down, but only to tell a tool that is unreachable everywhere apart from one that a login
+    # shell alone would find, never to decide pass or fail by itself.
+    - name: Define the per-family query for this user's configured login shell
+      ansible.builtin.set_fact:
+        ih_shell_query:
+          Archlinux: "getent passwd {{ non_root_user }}"
+          Debian: "getent passwd {{ non_root_user }}"
+          RedHat: "getent passwd {{ non_root_user }}"
+          Darwin: "dscl . -read /Users/{{ non_root_user }} UserShell"
+
+    # macOS carries no getent at all, so the login shell comes from the directory service instead of
+    # the account database every Linux family shares. Both answers are read from the account record
+    # rather than from $SHELL, which this play's own environment does not set to the target user's
+    # shell: it is whatever started ansible-playbook, and on the CachyOS machine above that was bash
+    # even though the owner's shell is zsh.
+    - name: Ask the account record what this user's login shell actually is
+      ansible.builtin.command: "{{ ih_shell_query[ih_family] }}"
+      register: ih_shell_record
+      changed_when: false
+      failed_when: false
+
+    # getent's seventh colon-separated field is the shell. dscl answers one line, "UserShell:
+    # /bin/zsh", so the last whitespace-separated token is the same answer in the other shape. A
+    # record that could not be read at all falls back to bash for the probe below, which is wrong
+    # exactly as often as the defect this section exists to catch, so ih_user_shell_known carries the
+    # fact into the report rather than hiding it.
+    - name: Resolve the login shell path from that record
+      ansible.builtin.set_fact:
+        ih_user_shell: >-
+          {{ (ih_shell_record.stdout | trim).split(':')[-1]
+             if (ih_shell_record.rc | default(1) == 0 and ih_family != 'Darwin')
+             else (ih_shell_record.stdout | trim).split()[-1]
+             if (ih_shell_record.rc | default(1) == 0 and ih_family == 'Darwin')
+             else '/bin/bash' }}
+        ih_user_shell_known: "{{ ih_shell_record.rc | default(1) == 0 }}"
+
+    # macOS installs Bruno CLI as the Homebrew formula bruno-cli, already covered by the
+    # native-package assertion above, so its npm-under-NVM path applies to Linux and the non-Darwin
+    # half of this playbook only.
+    - name: Decide whether Bruno CLI's npm-under-NVM install path applies on this machine
+      ansible.builtin.set_fact:
+        ih_bru_applies: "{{ (install_bruno_cli | default(false) | bool) and (ih_family != 'Darwin') }}"
+
+    # One entry per tool this playbook installs outside a package manager. shell_bin is the name a
+    # login shell is asked to resolve; left empty for the four pinned Java majors and the four pinned
+    # Python builds, because only one of each is ever the active java or python on PATH at a time,
+    # and the java and "python (pyenv shim)" entries below already ask about that one. disk_cmd is a
+    # bash boolean expression, true when the artefact the installer had to produce is actually there,
+    # run through the shell verbatim rather than through ansible.builtin.stat, because several of
+    # these live at a version-numbered path this file cannot know in advance and fvm needs an OR
+    # across the several places its own install script is documented to have used over time, the same
+    # reasoning fvm_unix.yaml gives for its own multi-path probe.
+    #
+    # The npm-under-NVM lookups below deliberately carry no `-type f` on their `find`: npm creates a
+    # symlink in bin/ pointing at the real script under lib/node_modules, confirmed on a real NVM
+    # install where npm, npx and every plugin-provided binary including bru are symlinks and only the
+    # node interpreter itself is a regular file. `-type f` would have reported every one of them
+    # MISSING on a machine where they are correctly installed, which is the opposite failure from the
+    # one this file exists to catch.
+    #
+    # expected_path is set only where disk_cmd checks exactly one location and the shell resolves the
+    # tool by that same path when it is genuinely reachable, and is the fix for a false pass measured
+    # on 2026-09-17: "dart (bundled with the fvm flutter SDK)" and "dart (standalone)" both resolved
+    # the same shell_bin, "dart", so `command -v dart` inside the shell check below could not tell
+    # which install answered. On the Arch container that ran that day, the fvm-bundled dart was on
+    # disk and genuinely unreachable, the pacman-installed standalone dart was on PATH, and the
+    # shared-name check reported the fvm row "installed" on the strength of the unrelated binary.
+    #
+    # Left empty for the rows above that check several candidate directories with no single path to
+    # name (fvm itself, and every npm-under-NVM tool); for nvm, sdk and pyenv, whose init scripts wrap
+    # the name in a shell function, so `command -v` there returns the function rather than a path and
+    # an `-ef` comparison against a real file can never succeed even when the tool loaded correctly;
+    # and for "dart (standalone)", which this file checks on disk only rather than by shell name.
+    # FVM's own dart is the one meant to win on PATH, deliberately: env_variables' PATH construction
+    # puts ~/fvm/default/bin ahead of every other candidate on every family, and asking the shell to
+    # resolve the bare name "dart" would answer with FVM's copy regardless of whether the standalone
+    # SDK this row is about is present at all. What still has to be asserted is that the package
+    # exists on disk, because on Arch it is what fvm_unix.yaml's `dart pub global activate fvm` needs
+    # to install FVM in the first place, and env_variables' PATH order is what makes checking it by
+    # name pointless rather than a reason to stop checking it at all. RedHat and Darwin's disk_cmd is
+    # an OR across two candidates for the same single-location reasoning as fvm above.
+    - name: Define every command-line tool this playbook installs outside a package manager
+      ansible.builtin.set_fact:
+        ih_outside_pm_tools:
+          - key: node
+            toggle: install_nodejs
+            shell_bin: node
+            how: "NVM-managed Node under ~/.nvm/versions/node/*/bin"
+            expected_path: ""
+            disk_cmd: >-
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name node 2>/dev/null | grep -q .
+          - key: npm
+            toggle: install_nodejs
+            shell_bin: npm
+            how: "NVM-managed npm under ~/.nvm/versions/node/*/bin"
+            expected_path: ""
+            disk_cmd: >-
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name npm 2>/dev/null | grep -q .
+          - key: nvm
+            toggle: install_nodejs
+            shell_bin: nvm
+            how: "NVM is a shell function sourced from ~/.nvm/nvm.sh, not a binary on PATH"
+            expected_path: ""
+            disk_cmd: >-
+              [ -f "{{ non_root_home }}/.nvm/nvm.sh" ]
+          - key: claude
+            toggle: install_claude_code
+            shell_bin: claude
+            how: "npm package @anthropic-ai/claude-code under ~/.nvm/versions/node/*/bin"
+            expected_path: ""
+            disk_cmd: >-
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name claude 2>/dev/null | grep -q .
+          - key: opencode
+            toggle: install_opencode
+            shell_bin: opencode
+            how: "npm package opencode-ai under ~/.nvm/versions/node/*/bin"
+            expected_path: ""
+            disk_cmd: >-
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name opencode 2>/dev/null | grep -q .
+          - key: openspec
+            toggle: install_openspec
+            shell_bin: openspec
+            how: "npm package @fission-ai/openspec under ~/.nvm/versions/node/*/bin"
+            expected_path: ""
+            disk_cmd: >-
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name openspec 2>/dev/null | grep -q .
+          - key: codex
+            toggle: install_codex
+            shell_bin: codex
+            how: "npm package @openai/codex under ~/.nvm/versions/node/*/bin"
+            expected_path: ""
+            disk_cmd: >-
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name codex 2>/dev/null | grep -q .
+          - key: grok
+            toggle: install_grok
+            shell_bin: grok
+            how: "npm package @xai-official/grok under ~/.nvm/versions/node/*/bin"
+            expected_path: ""
+            disk_cmd: >-
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name grok 2>/dev/null | grep -q .
+          - key: bru
+            toggle: ih_bru_applies
+            shell_bin: bru
+            how: "npm package @usebruno/cli under ~/.nvm/versions/node/*/bin (macOS uses the Homebrew formula bruno-cli instead, checked above)"
+            expected_path: ""
+            disk_cmd: >-
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name bru 2>/dev/null | grep -q .
+          - key: pyenv
+            toggle: install_python
+            shell_bin: pyenv
+            how: "~/.pyenv/bin/pyenv, wrapped in a shell function by `pyenv init` in apps_config/env.sh, not resolved from PATH directly"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.pyenv/bin/pyenv" ]
+          - key: "python (pyenv shim)"
+            toggle: install_python
+            shell_bin: python
+            how: "~/.pyenv/shims/python, the shim pyenv init puts on PATH"
+            expected_path: "{{ non_root_home }}/.pyenv/shims/python"
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.pyenv/shims/python" ]
+          - key: "python {{ python310_id }}"
+            toggle: install_python
+            shell_bin: ""
+            how: "~/.pyenv/versions/{{ python310_id }}, one of the four builds pyenv was asked to install"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.pyenv/versions/{{ python310_id }}/bin/python" ]
+          - key: "python {{ python311_id }}"
+            toggle: install_python
+            shell_bin: ""
+            how: "~/.pyenv/versions/{{ python311_id }}, one of the four builds pyenv was asked to install"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.pyenv/versions/{{ python311_id }}/bin/python" ]
+          - key: "python {{ python312_id }}"
+            toggle: install_python
+            shell_bin: ""
+            how: "~/.pyenv/versions/{{ python312_id }}, one of the four builds pyenv was asked to install"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.pyenv/versions/{{ python312_id }}/bin/python" ]
+          - key: "python {{ python313_id }}"
+            toggle: install_python
+            shell_bin: ""
+            how: "~/.pyenv/versions/{{ python313_id }}, one of the four builds pyenv was asked to install"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.pyenv/versions/{{ python313_id }}/bin/python" ]
+          - key: sdk
+            toggle: install_java
+            shell_bin: sdk
+            how: "SDKMAN is a shell function sourced from ~/.sdkman/bin/sdkman-init.sh, not a binary on PATH"
+            expected_path: ""
+            disk_cmd: >-
+              [ -f "{{ non_root_home }}/.sdkman/bin/sdkman-init.sh" ]
+          - key: java
+            toggle: install_java
+            shell_bin: java
+            how: "~/.sdkman/candidates/java/current, SDKMAN's default-version symlink"
+            expected_path: "{{ non_root_home }}/.sdkman/candidates/java/current/bin/java"
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.sdkman/candidates/java/current/bin/java" ]
+          - key: "java {{ java11_id }}"
+            toggle: install_java
+            shell_bin: ""
+            how: "~/.sdkman/candidates/java/{{ java11_id }}, one of the four Temurin majors SDKMAN was asked to install"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.sdkman/candidates/java/{{ java11_id }}/bin/java" ]
+          - key: "java {{ java17_id }}"
+            toggle: install_java
+            shell_bin: ""
+            how: "~/.sdkman/candidates/java/{{ java17_id }}, one of the four Temurin majors SDKMAN was asked to install"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.sdkman/candidates/java/{{ java17_id }}/bin/java" ]
+          - key: "java {{ java21_id }}"
+            toggle: install_java
+            shell_bin: ""
+            how: "~/.sdkman/candidates/java/{{ java21_id }}, one of the four Temurin majors SDKMAN was asked to install"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.sdkman/candidates/java/{{ java21_id }}/bin/java" ]
+          - key: "java {{ java25_id }}"
+            toggle: install_java
+            shell_bin: ""
+            how: "~/.sdkman/candidates/java/{{ java25_id }}, one of the four Temurin majors SDKMAN was asked to install"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.sdkman/candidates/java/{{ java25_id }}/bin/java" ]
+          - key: fvm
+            toggle: install_flutter
+            shell_bin: fvm
+            how: "fvm in whichever of ~/fvm/bin, ~/.fvm/bin, ~/.pub-cache/bin or /usr/local/bin the installer used"
+            expected_path: ""
+            disk_cmd: >-
+              for p in "{{ non_root_home }}/fvm/bin" "{{ non_root_home }}/.fvm/bin" "{{ non_root_home }}/.pub-cache/bin" /usr/local/bin; do [ -f "$p/fvm" ] && exit 0; done; exit 1
+          - key: "flutter (via fvm)"
+            toggle: install_flutter
+            shell_bin: flutter
+            how: "~/fvm/versions/{{ flutter_channel }}/bin/flutter"
+            expected_path: "{{ non_root_home }}/fvm/versions/{{ flutter_channel }}/bin/flutter"
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/fvm/versions/{{ flutter_channel }}/bin/flutter" ]
+          - key: "dart (bundled with the fvm flutter SDK)"
+            toggle: install_flutter
+            shell_bin: dart
+            how: "~/fvm/versions/{{ flutter_channel }}/bin/dart"
+            expected_path: "{{ non_root_home }}/fvm/versions/{{ flutter_channel }}/bin/dart"
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/fvm/versions/{{ flutter_channel }}/bin/dart" ]
+          - key: "dart (standalone)"
+            toggle: install_dart
+            shell_bin: ""
+            how: >-
+              the native Dart SDK install for {{ ih_family }}, checked on disk only: FVM's own dart is
+              the one meant to win on PATH, and on Arch this package is also what fvm_unix.yaml's
+              `dart pub global activate fvm` needs to install FVM in the first place
+            expected_path: ""
+            disk_cmd: >-
+              {{ '[ -x /usr/bin/dart ]' if ih_family in ['Archlinux', 'Debian']
+                 else '[ -x /usr/local/bin/dart ] || [ -x /opt/dart-sdk/bin/dart ]' if ih_family == 'RedHat'
+                 else '[ -x /opt/homebrew/bin/dart ] || [ -x /usr/local/bin/dart ]' }}
+          - key: sdkmanager
+            toggle: install_android_sdk
+            shell_bin: sdkmanager
+            how: "{{ android_home }}/cmdline-tools/latest/bin/sdkmanager"
+            expected_path: "{{ android_home }}/cmdline-tools/latest/bin/sdkmanager"
+            disk_cmd: >-
+              [ -x "{{ android_home }}/cmdline-tools/latest/bin/sdkmanager" ]
+          - key: adb
+            toggle: install_android_sdk
+            shell_bin: adb
+            how: "{{ android_home }}/platform-tools/adb"
+            expected_path: "{{ android_home }}/platform-tools/adb"
+            disk_cmd: >-
+              [ -x "{{ android_home }}/platform-tools/adb" ]
+
+    - name: Determine which outside-package-manager tools this run enabled
+      ansible.builtin.set_fact:
+        ih_outside_pm_enabled: "{{ ih_outside_pm_enabled | default([]) + [item] }}"
+      loop: "{{ ih_outside_pm_tools }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: lookup('vars', item.toggle, default=false) | bool
+
+    # Run as the same account every install task above ran as, become_user rather than whoever
+    # connected, because a restrictive home directory permission would otherwise make this read fail
+    # differently from how the tool itself was written, which is the two-readers-disagreeing shape
+    # AGENTS.md already has one entry for. ignore_errors matches the Flathub-remote check above: a
+    # task that dies escalating privilege never reaches failed_when, so a run without a usable sudo
+    # password would abort the whole play here instead of reporting these as unverifiable.
+    - name: Check whether each enabled tool exists on disk where its installer put it
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ item.disk_cmd }}
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: ih_outside_pm_disk
+      loop: "{{ ih_outside_pm_enabled | default([]) }}"
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+
+    # Two probes, not one, because they answer two different questions and a real machine measured
+    # on 2026-09-17 showed they can disagree. A person opening a terminal on a desktop gets an
+    # interactive, non-login shell, which is the case that actually bit the owner: NVM had written
+    # only to ~/.bashrc, his login shell was zsh, and an interactive zsh never reads ~/.bashrc either
+    # way, so that defect fails under both probes and neither one is weaker for it. What the two
+    # probes catch differently is an install script that only wired itself into a login-only file
+    # such as ~/.profile: reachable from a terminal's `-ic` shell, unreachable from `-lic`, a shape
+    # this project has not hit yet but has no way to rule out. `-ic` is therefore the one the
+    # assertion below fails on, because it is the shell the user actually gets. `-lic` is kept as a
+    # second, non-failing read so a tool reachable only from a login shell is reported as the lesser
+    # problem it is rather than folded into an ordinary UNREACHABLE.
+    #
+    # Both probes also check the exact path when the row named one via expected_path, not merely
+    # that the name resolves to something. Measured on 2026-09-17 on a real Arch container: "dart
+    # (bundled with the fvm flutter SDK)" and "dart (standalone)" both used to resolve the shell_bin
+    # "dart", and `command -v dart` there answered the pacman-installed standalone dart while the
+    # fvm-bundled one sat on disk and genuinely unreachable. `-ef` compares the resolved binary
+    # against the row's own path by device and inode, which is what actually answers "is this the
+    # one this row's installer produced" rather than "does something by this name exist somewhere",
+    # and does it without readlink -f, which BSD's readlink on macOS does not implement. "dart
+    # (standalone)" has since moved to disk-only, see the comment above ih_outside_pm_tools, so the
+    # only row this -ef comparison still needs to arbitrate between the two dart installs is the
+    # fvm-bundled one.
+    - name: Check whether the user's interactive shell can find each enabled tool at its own path
+      ansible.builtin.shell: |
+        set -o pipefail
+        export IH_EXPECTED_PATH={{ item.expected_path | default('') | quote }}
+        {{ ih_user_shell }} -ic '
+          resolved="$(command -v {{ item.shell_bin }} 2>/dev/null)"
+          [ -n "$resolved" ] || exit 1
+          [ -z "$IH_EXPECTED_PATH" ] || [ "$resolved" -ef "$IH_EXPECTED_PATH" ]
+        ' >/dev/null 2>&1
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: ih_outside_pm_shell_interactive
+      loop: "{{ ih_outside_pm_enabled | default([]) }}"
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+      when: item.shell_bin | length > 0
+
+    # Same check, as a login shell, kept only to tell "unreachable everywhere" apart from "reachable
+    # only when the shell logs in", never to decide pass or fail on its own.
+    - name: Check whether the user's login shell can find each enabled tool at its own path
+      ansible.builtin.shell: |
+        set -o pipefail
+        export IH_EXPECTED_PATH={{ item.expected_path | default('') | quote }}
+        {{ ih_user_shell }} -lic '
+          resolved="$(command -v {{ item.shell_bin }} 2>/dev/null)"
+          [ -n "$resolved" ] || exit 1
+          [ -z "$IH_EXPECTED_PATH" ] || [ "$resolved" -ef "$IH_EXPECTED_PATH" ]
+        ' >/dev/null 2>&1
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: ih_outside_pm_shell_login
+      loop: "{{ ih_outside_pm_enabled | default([]) }}"
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+      when: item.shell_bin | length > 0
+
+    # Zipped by index rather than by name, because all three registers above were built from one loop
+    # over ih_outside_pm_enabled in the same order, which Ansible preserves. An empty shell_bin means
+    # this tool has no independent PATH identity of its own to test, so both shell verdicts mirror the
+    # disk verdict rather than penalising it for a question that was never asked. in_shell is the
+    # interactive probe and is what the assertion below reads; in_shell_login_only is true only when
+    # the login probe succeeded and the interactive one, the one that matters, did not.
+    - name: Build the per-tool verdict for every outside-package-manager check this run enabled
+      ansible.builtin.set_fact:
+        ih_outside_pm_report: "{{ ih_outside_pm_report | default([]) + [ih_row] }}"
+      loop: "{{ ih_outside_pm_enabled | default([]) }}"
+      loop_control:
+        index_var: ih_idx
+        label: "{{ item.key }}"
+      vars:
+        ih_on_disk: "{{ (ih_outside_pm_disk.results[ih_idx].rc | default(1)) == 0 }}"
+        ih_in_shell_interactive: "{{ ih_on_disk if item.shell_bin | length == 0 else (ih_outside_pm_shell_interactive.results[ih_idx].rc | default(1)) == 0 }}"
+        ih_in_shell_login: "{{ ih_on_disk if item.shell_bin | length == 0 else (ih_outside_pm_shell_login.results[ih_idx].rc | default(1)) == 0 }}"
+        ih_row:
+          key: "{{ item.key }}"
+          how: "{{ item.how }}"
+          on_disk: "{{ ih_on_disk }}"
+          in_shell: "{{ ih_in_shell_interactive }}"
+          in_shell_login_only: "{{ (not ih_in_shell_interactive) and ih_in_shell_login }}"
+
+    # The report below has to say "not requested" for a tool nobody enabled, in the same vocabulary
+    # the per-application table above uses, so this walks the full universe rather than only the
+    # enabled subset.
+    - name: Build the full outside-package-manager report, including tools this run never enabled
+      ansible.builtin.set_fact:
+        ih_outside_pm_report_all: "{{ ih_outside_pm_report_all | default([]) + [ih_full_row] }}"
+      loop: "{{ ih_outside_pm_tools }}"
+      loop_control:
+        label: "{{ item.key }}"
+      vars:
+        ih_enabled_row: "{{ (ih_outside_pm_report | default([]) | selectattr('key', 'equalto', item.key) | list | first) | default({}, true) }}"
+        ih_full_row:
+          key: "{{ item.key }}"
+          how: "{{ item.how }}"
+          verdict: >-
+            {{ 'not requested' if not (lookup('vars', item.toggle, default=false) | bool)
+               else 'installed' if (ih_enabled_row.on_disk and ih_enabled_row.in_shell)
+               else 'UNREACHABLE (login shell only)' if (ih_enabled_row.on_disk and ih_enabled_row.in_shell_login_only | default(false))
+               else 'UNREACHABLE' if ih_enabled_row.on_disk
+               else 'MISSING' }}
+
+    # The match test catches both UNREACHABLE and the login-shell-only variant, because a tool
+    # reachable only when the shell logs in still fails the case that matters: a plain terminal.
+    - name: Name every outside-package-manager tool this run cannot actually use
+      ansible.builtin.set_fact:
+        ih_outside_pm_missing: >-
+          {{ (ih_outside_pm_report_all | default([]) | selectattr('verdict', 'equalto', 'MISSING') | map(attribute='key') | list)
+             + (ih_outside_pm_report_all | default([]) | selectattr('verdict', 'match', '^UNREACHABLE') | map(attribute='key') | list) }}
+
     # --- the report a person reads ------------------------------------------
     # Printed before the assertions, because an assertion failure ends the play and the whole point
     # of this block is that the reader sees every verdict, not the first one that went wrong.
@@ -403,6 +864,9 @@
           {% set verdict = 'MISSING' if key in ih_missing_keys else 'installed' if key in (enabled_mapped | default([])) else 'not requested' %}
           [verify] {{ '%-30s %-14s %s' | format(key, verdict, os_dict.software_mapping[key].manager ~ ': ' ~ ih_package_by_key[key]) }}
           {% endfor %}
+          {% for row in ih_outside_pm_report_all | default([]) %}
+          [verify] {{ '%-30s %-14s %s' | format(row.key, row.verdict, row.how) }}
+          {% endfor %}
           [verify] --------------------------------------------------------------------------
           {% if ih_expect_desktop in ['kde', 'gnome'] %}
           [verify] {{ '%-30s %-14s %s' | format('desktop ' ~ ih_expect_desktop, 'installed' if de_probe.stat.exists | default(false) else 'MISSING', 'shell binary on disk') }}
@@ -417,10 +881,20 @@
           [verify] {{ '%-30s %-14s %s' | format('flathub remote', 'present' if (flatpak_remotes.rc | default(1) | int == 0 and 'flathub' in flatpak_remotes.stdout | default('')) else 'MISSING' if flatpak_remotes.rc is defined else 'UNREADABLE', 'flatpak remotes') }}
           {% endif %}
           {% if install_docker | default(false) | bool and ih_family != 'Darwin' %}
-          [verify] {{ '%-30s %-14s %s' | format('docker group', 'joined' if 'docker' in user_groups.stdout.split() else 'MISSING', ansible_facts['user_id']) }}
+          {% set docker_in_db = os_dict.docker_group in user_groups.stdout.split() %}
+          {% set docker_in_session = os_dict.docker_group in user_groups_live.stdout.split() %}
+          [verify] {{ '%-30s %-14s %s' | format('docker group', 'joined' if (docker_in_db and docker_in_session) else 'joined, new login needed' if docker_in_db else 'MISSING', ansible_facts['user_id']) }}
+          {% if docker_in_db and not docker_in_session %}
+          [verify]   in /etc/group already, not yet in this session. Log out and back in, or run `newgrp {{ os_dict.docker_group }}` in the shell you want to use now. A new terminal window alone will not pick it up.
+          {% endif %}
           {% endif %}
           {% if install_openrazer | default(false) | bool %}
-          [verify] {{ '%-30s %-14s %s' | format('openrazer device group', 'joined' if os_dict.openrazer_device_group in user_groups.stdout.split() else 'MISSING', os_dict.openrazer_device_group) }}
+          {% set razer_in_db = os_dict.openrazer_device_group in user_groups.stdout.split() %}
+          {% set razer_in_session = os_dict.openrazer_device_group in user_groups_live.stdout.split() %}
+          [verify] {{ '%-30s %-14s %s' | format('openrazer device group', 'joined' if (razer_in_db and razer_in_session) else 'joined, new login needed' if razer_in_db else 'MISSING', os_dict.openrazer_device_group) }}
+          {% if razer_in_db and not razer_in_session %}
+          [verify]   in /etc/group already, not yet in this session. Log out and back in, a new terminal window alone will not pick it up.
+          {% endif %}
           {% endif %}
           [verify] {{ '%-30s %-14s %s' | format('temporary sudo rule', 'removed' if (temp_sudoers.stat is defined and not temp_sudoers.stat.exists) else 'STILL THERE' if (temp_sudoers.stat is defined) else 'UNREADABLE', '/etc/sudoers.d/99-ansible-user') }}
           [verify] --------------------------------------------------------------------------
@@ -428,6 +902,9 @@
           [verify] missing: {{ ih_missing_keys | join(', ') | default('none', true) }}
           [verify] native packages expected {{ expected_native | length }}, missing {{ missing_native | length }}; flatpak expected {{ expected_flatpak | length }}, missing {{ missing_flatpak | length }}
           [verify] URL-installed candidates examined {{ url_candidates | default([]) | length }}, without a download location {{ (url_without_location | default([])) | length }}
+          [verify] outside-package-manager tools probed via {{ ih_user_shell }} as an interactive shell for {{ non_root_user }}, the shell a plain terminal opens, with a login-shell probe kept as a secondary, non-failing check{{ '' if ih_user_shell_known | default(false) else ' (login shell unknown, /bin/bash assumed)' }}
+          [verify] outside-package-manager tools requested {{ (ih_outside_pm_report_all | default([]) | rejectattr('verdict', 'equalto', 'not requested') | list) | length }}, missing or unreachable {{ (ih_outside_pm_missing | default([])) | length }}
+          [verify] outside-package-manager tools missing or unreachable: {{ (ih_outside_pm_missing | default([])) | join(', ') | default('none', true) }}
           [verify] ==========================================================================
 
     - name: Report every application, and what the system state came out as
@@ -546,9 +1023,9 @@
     # for the user to be in and asserting one would fail every Mac.
     - name: Assert the user is in the docker group when Docker was requested
       ansible.builtin.assert:
-        that: "'docker' in user_groups.stdout.split()"
-        success_msg: "PASS user is in docker"
-        fail_msg: "FAIL user is not in docker, groups are: {{ user_groups.stdout }}"
+        that: os_dict.docker_group in user_groups.stdout.split()
+        success_msg: "PASS user is in {{ os_dict.docker_group }}"
+        fail_msg: "FAIL user is not in {{ os_dict.docker_group }}, groups are: {{ user_groups.stdout }}"
         quiet: true
       when:
         - install_docker | default(false) | bool
@@ -609,3 +1086,25 @@
         fail_msg: "FAIL {{ ih_expect_desktop }} was requested but its shell binary is not on disk"
         quiet: true
       when: ih_expect_desktop in ['kde', 'gnome']
+
+    # This is the assertion the CachyOS run of 2026-09-15 needed and did not have: every one of
+    # Claude Code, OpenCode, OpenSpec, Codex, Grok and Bruno CLI installed clean and none of them
+    # were reachable, and the play still exited 0. The full per-tool detail, including which ones are
+    # on disk but UNREACHABLE from the login shell versus MISSING outright, is already in the report
+    # printed above.
+    - name: Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell
+      ansible.builtin.assert:
+        that: (ih_outside_pm_missing | default([])) | length == 0
+        success_msg: >-
+          PASS outside-package-manager tools: every enabled one is on disk and resolves, at its own
+          path, from an interactive {{ ih_user_shell }}
+        fail_msg: >-
+          FAIL outside-package-manager tools missing or unreachable:
+          {{ (ih_outside_pm_missing | default([])) | join(', ') }}. See the table above for which of
+          these are MISSING outright, on disk but UNREACHABLE from any shell, or UNREACHABLE (login
+          shell only), meaning a login shell finds it but the interactive shell a plain terminal opens
+          does not. A tool marked UNREACHABLE installed correctly and something else is not sourcing
+          it, or not sourcing the right file, into {{ ih_user_shell }} for {{ non_root_user }}. A tool
+          marked MISSING never reached disk, and the install task that was supposed to put it there is
+          what to look at.
+        quiet: true
