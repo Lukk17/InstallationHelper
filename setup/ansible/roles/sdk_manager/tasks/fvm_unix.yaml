@@ -1,44 +1,29 @@
 ---
-# Each of the two installs below puts the binary in exactly one place, so each one is guarded by the
-# `creates` for its own place. The single probe that used to gate both of them looked in
-# ~/.fvm/bin and ~/.pub-cache/bin only, and installer 2.0.0 has installed into ~/fvm/bin since
-# 2025-12, so the probe could not see the script install's own result and FVM was downloaded and
-# unpacked again on every run. Verified in a debian:trixie container: the script leaves
-# ~/fvm/bin/fvm and nothing at all in ~/.fvm, ~/.pub-cache or /usr/local/bin.
-- name: Check whether FVM is already active in the Dart pub cache (Arch)
-  ansible.builtin.stat:
-    path: "{{ non_root_home }}/.pub-cache/bin/fvm"
-  register: fvm_pub_cache_binary
-  when: ih_family == 'Archlinux'
-
-# `dart pub global activate fvm` requires dart on PATH. The dart install
-# task is tagged `[dart]`, so under `--tags fvm` alone dart may be absent.
-# Pacman is idempotent — if dart is already installed this is a no-op.
-- name: Ensure Dart is installed before activating FVM (Arch)
-  become: true
-  community.general.pacman:
-    name: dart
-    state: present
-  when:
-    - ih_family == 'Archlinux'
-    - not (fvm_pub_cache_binary.stat.exists | default(false))
-
-- name: Install FVM via dart pub global (Arch Linux)
-  ansible.builtin.shell: |
-    set -o pipefail
-    dart pub global activate fvm
-  args:
-    creates: "{{ non_root_home }}/.pub-cache/bin/fvm"
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  register: fvm_arch_install
-  retries: 3
-  delay: 10
-  until: fvm_arch_install is succeeded
-  when: ih_family == 'Archlinux'
-
-- name: Install FVM via install script (Linux/Mac non-Arch)
+# One install route on every Unix platform, including Arch. Measured directly rather than assumed:
+# `curl -fsSL https://fvm.app/install.sh | bash` run as a non-root user with HOME set inside a fresh
+# installationhelper-e2e-arch container downloaded fvm-4.3.1-linux-x64.tar.gz, a self-contained
+# compiled binary release, needed no Dart at all, and left a working `~/fvm/bin/fvm` that answered
+# `fvm --version` correctly. Arch had its own route before this, `dart pub global activate fvm`
+# through a pacman-installed Dart, which was never explained anywhere in this file as something Arch
+# needed rather than something an earlier version of this file happened to do. FVM's own installation
+# page settles it: it marks the install script above as the recommended route on macOS and Linux, and
+# puts `dart pub global activate fvm` behind a warning reading "This is not recommended if you plan on
+# using FVM to manage your global Flutter install", which is exactly what the "Set FVM global version"
+# task below this file does with `fvm global`. One route means one place FVM's binary can land, which
+# is what lets env_variables' PATH construction name that single directory instead of guessing across
+# several. This is Linux and macOS only: Windows has no install script to fall back on (the same page's
+# OS support is macOS and Linux, nothing else), so it keeps `dart pub global activate fvm` from pub.dev
+# and the standalone Dart that route needs, in setup/windows/WindowsCustomInstalls.ps1, untouched by
+# this file.
+#
+# The install script has installed into ~/fvm/bin since version 2.0.0, confirmed on 2026-09-18
+# against 4.3.1, which is also what `creates` below guards. It installs under $FVM_INSTALL_DIR, which
+# defaults to ~/fvm and is not overridden here, so this project takes the vendor's own default rather
+# than pinning a directory of its own. A machine this playbook provisioned before 2026-09-18 could
+# still carry FVM at the pre-2.0.0 path, ~/.fvm_flutter/bin: the `creates` guard below only recognises
+# the current path, so such a machine reinstalls on its next run rather than being silently skipped,
+# and the script always fetches the latest release, so the reinstall lands in the current layout.
+- name: Install FVM via install script (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
     export HOME="{{ non_root_home }}"
@@ -52,14 +37,11 @@
   retries: 3
   delay: 10
   until: fvm_script_install is succeeded
-  when: ih_family != 'Archlinux'
 
 - name: Locate FVM binary after install
   ansible.builtin.shell: |
     set -o pipefail
-    for p in "{{ non_root_home }}/fvm/bin" "{{ non_root_home }}/.fvm/bin" "{{ non_root_home }}/.pub-cache/bin" "/usr/local/bin"; do
-      [ -f "$p/fvm" ] && echo "$p" && exit 0
-    done
+    [ -f "{{ non_root_home }}/fvm/bin/fvm" ] && echo "{{ non_root_home }}/fvm/bin" && exit 0
     exit 1
   args:
     executable: /bin/bash
@@ -195,10 +177,9 @@
   ansible.builtin.debug:
     msg: >-
       [ERROR] Flutter {{ flutter_channel }} was NOT installed, because FVM itself is not on this
-      machine: no fvm binary was found in ~/fvm/bin, ~/.fvm/bin, ~/.pub-cache/bin or /usr/local/bin
-      after the install step above. Every task that installs Flutter is gated on finding it, so they
-      all skipped silently. The FVM install itself is the thing to fix, and its own task above says
-      why it failed.
+      machine: no fvm binary was found in ~/fvm/bin after the install step above. Every task that
+      installs Flutter is gated on finding it, so they all skipped silently. The FVM install itself
+      is the thing to fix, and its own task above says why it failed.
   when: fvm_bin_dir.rc != 0
 
 - name: Report that the requested Flutter channel never arrived

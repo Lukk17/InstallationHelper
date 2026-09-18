@@ -23,14 +23,6 @@
   tags: [pyenv]
   when: install_python | default(false) | bool
 
-- name: Setup Dart SDK
-  ansible.builtin.include_tasks:
-    file: dart.yaml
-    apply:
-      tags: [dart]
-  tags: [dart]
-  when: install_dart | default(false) | bool
-
 - name: Setup FVM and Flutter
   ansible.builtin.include_tasks:
     file: fvm.yaml

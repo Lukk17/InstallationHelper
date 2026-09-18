@@ -3465,3 +3465,127 @@ not added here, because this change was documentation only and another agent was
 time, so it is an open item rather than a closed one. The wider shape has no mechanical answer at all: an agent
 concluding a thing is impossible because the page it read did not mention the thing is a reasoning failure no check
 can see, and the only defence against it is that the page mention the thing.
+
+### Found on 2026-09-18, a PATH fix proven only on the one distribution that did not need it, and a Dart SDK installed by up to three routes at once
+
+Two manual-dispatch CI runs failed the same assertion the morning after env_variables' PATH line gained
+$HOME/fvm/default/bin: Debian run 35315695155 and Fedora run 35315311669 both stopped on FAIL
+outside-package-manager tools missing or unreachable: fvm. Arch, run against the same commit, passed. Chasing why
+led to a second, older defect underneath the first: this project installed a Dart SDK by up to three separate routes
+at once, for a dependency FVM's own install script never actually needed.
+
+#### The PATH line gained FVM's SDK-cache symlink and never gained FVM's own binary
+
+Cause: the PATH line added $HOME/fvm/default/bin, FVM's default-channel symlink where flutter and dart live
+once a channel is installed, but never added $HOME/fvm/bin, where FVM's own install script has put the fvm
+binary itself since installer version 2.0.0, a fact fvm_unix.yaml's own header comment already stated. The
+playbook's own tasks never noticed, because fvm_unix.yaml's "Locate FVM binary after install" task builds its own
+PATH from a four-candidate search rather than from this line, so the same run that failed verification had already
+installed Flutter successfully.
+
+Effect: [verify] fvm    UNREACHABLE    fvm in whichever of ~/fvm/bin, ~/.fvm/bin, ~/.pub-cache/bin or /usr/local/bin
+the installer used, on both Debian and Fedora, in the same run where flutter (via fvm) and dart (bundled with the
+fvm flutter SDK) both reported installed. Arch passed by coincidence rather than correctness: its
+now-removed dart pub global activate fvm route (below) put the fvm binary in ~/.pub-cache/bin, which the PATH
+line already carried for an unrelated reason.
+
+How it was proven: gh run download on both runs, reading verify.log's verdict table directly, which named fvm
+UNREACHABLE rather than MISSING on both, ruling out a failed install. playbook.log's "Locate FVM binary after
+install" task printed /home/lukk/fvm/bin on both runs, matching the script's own documented destination.
+Reproduced directly in a fresh installationhelper-e2e-debian container: ran the real install script as a non-root
+user with HOME set, wrote the pre-fix and post-fix PATH lines into an apps_config/env.sh sourced from .bashrc
+the way env_unix.yaml does, and ran bash -ic 'command -v fvm', the same probe verify_install.yaml runs. It
+failed to resolve under the old line and resolved to /home/testuser/fvm/bin/fvm under the new one.
+
+Fix: [setup/ansible/roles/env_variables/tasks/env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml),
+$HOME/fvm/bin added to the PATH line. [setup/ansible/verify_install.yaml](../setup/ansible/verify_install.yaml)'s
+fvm row now checks and expects that one path directly instead of the four-candidate search it carried before,
+which stopped being the honest single source of truth once the second defect below removed every route but one.
+
+#### The same tool installed by up to three routes, for a dependency FVM's own install script never needed
+
+Cause: fvm_unix.yaml activated FVM through dart pub global activate fvm on Arch alone, which needs a dart on
+PATH to run, making a pacman-installed Dart SDK a hard prerequisite of installing FVM at all on that one
+distribution. Nothing in the file ever stated a reason Arch needed that route rather than the install script every
+other Unix family used; its comments explained only where the script's own output lands, never why Arch was carved
+out of using it. Separately, dart.yaml, gated by its own install_dart toggle, installed a second, general-purpose
+standalone Dart SDK on Arch, Debian, Fedora and macOS, unrelated to FVM. A third Dart, FVM's own bundled copy under
+~/fvm/versions/<channel>/bin/dart, existed regardless of either toggle. Up to three Dart installs could be present
+on one Arch machine at once.
+
+Effect: beyond the wasted work, this shape had already produced one live defect recorded earlier in this file,
+"FVM's dart is deliberately meant to shadow the standalone Dart SDK on PATH, and the strict check treated the shadow
+as a failure": the standalone Dart's own verify row had to be pinned to disk-only checking because it could never
+win the dart name on PATH, which its own presence was still required to justify installing at all.
+
+How it was proven: measured directly rather than assumed. Started a container from
+installationhelper-e2e-arch:latest, created a non-root user, and ran curl -fsSL https://fvm.app/install.sh | bash
+with HOME set and no Dart anywhere on the machine. It downloaded fvm-4.3.1-linux-x64.tar.gz, a self-contained
+compiled binary release, installed to ~/fvm/bin/fvm, and fvm --version answered 4.3.1, exit code 0 throughout.
+The install script itself was also read directly: its OS case (RAW_UNAME_S) matches only Darwin and Linux and
+rejects everything else, including Windows, which is why Windows keeps its existing dart pub global activate fvm
+route from pub.dev and keeps installing a standalone Dart through install_dart to support it. That toggle is not
+orphaned by this fix, only narrowed to the one platform that still consumes it.
+
+Fix: setup/ansible/roles/sdk_manager/tasks/fvm_unix.yaml's Arch-specific probe, Dart-install and
+dart pub global activate tasks are gone; the install script now runs on every Unix family with no when
+distinguishing Arch at all. setup/ansible/roles/sdk_manager/tasks/dart.yaml is deleted outright, along with its
+inclusion in setup/ansible/roles/sdk_manager/tasks/main.yaml, so Linux and macOS never install a standalone Dart
+again. install_dart stays in group_vars/all.yaml, deliberately: Windows is out of scope for this change entirely
+(setup/setup.ps1, setup/windows/, setup/ansible/vars/Windows.yaml and setup/ansible/group_vars/windows.yaml are
+all untouched), and moving the toggle out of the one file Windows also reads would have broken the one platform
+this fix was told to leave alone. It is now a documented no-op on Debian, RedHat, Archlinux and Darwin instead
+(e2e/tier1/documented_no_ops.txt), with the full reasoning next to the toggle itself.
+setup/ansible/verify_install.yaml lost its dart (standalone)
+row entirely, and the comments explaining why the fvm-bundled dart row still needs its own expected_path were
+rewritten to say the naming collision they guarded against is gone rather than merely rare.
+setup/pinned_values/pinned_values.toml's dart_version pin, read by nothing once dart.yaml's Fedora zip download
+went with it, is deleted too; e2e/tier1/pinned_values.sh's "pin(s) nobody reads" assertion caught this one
+directly, on the very next run of the gate. setup/software.md, setup/configuration.md, setup/ansible/tags.md,
+setup/ansible/profiles/linux_live.yaml, e2e/testing/50-live-profile-test.md and
+setup/ansible/callback_plugins/dual_logger.py each carried a dart tag, row, toggle or mapping mention that no
+longer described anything, and are updated to match.
+
+#### What would have caught this sooner
+
+e2e/tier1/toggle_coverage.sh already asks whether every enabled toggle resolves to something and whether every
+mapping has a toggle behind it, and it passed on every run this shape ever produced, because install_dart genuinely
+was consumed by dart.yaml the whole time. Nothing mechanical in this repository asks whether two toggles installing
+the same tool, or one toggle existing only to satisfy another's undocumented dependency, is a design worth keeping;
+that question needed a person reading fvm_unix.yaml end to end and noticing the reason that was never written down.
+The PATH half is more mechanical: e2e/tier1/toggle_coverage.sh's two-direction check has no equivalent for "every
+directory an outside-package-manager tool can land in is on PATH", which is exactly the assertion
+verify_install.yaml's own interactive-shell probe already makes, just never inside the tier 1 gate that runs in
+minutes rather than the container tiers that run in hours. No new check is added here: the honest answer is that
+this project's container tiers are the check, and what was missing on the night of 2026-09-17 was running one
+against a non-Arch distribution before calling the PATH line finished.
+
+#### What the vendor's own documentation adds, and two things it does not change
+
+FVM's installation page, read directly rather than assumed, marks curl -fsSL https://fvm.app/install.sh | bash
+as the recommended route on macOS and Linux and puts dart pub global activate fvm behind a warning reading "This
+is not recommended if you plan on using FVM to manage your global Flutter install". This project calls fvm global
+in the very next task after install, which is exactly the case that warning names, so the Arch-only pub.dev route
+removed above was not merely unexplained, it was the vendor's own documented anti-pattern for what this playbook
+does. The same page names $HOME/fvm/bin as the default PATH directory, given as <install_dir>/bin, and the script's
+own help text prints export PATH="$BIN_DIR:$PATH", confirming the directory added to env_unix.yaml's PATH line is
+the one the vendor itself tells an installer to add.
+
+Two details from the same page were considered and found not to matter here. FVM_INSTALL_DIR overrides the base
+directory the script installs into; fvm_unix.yaml's own install task sets HOME but never FVM_INSTALL_DIR, so the
+vendor's default of $HOME/fvm applies, which is the same assumption this fix already made and did not need to
+change. Versions before 2.0.0 installed into ~/.fvm_flutter/bin; a real machine provisioned by an old copy of this
+playbook could carry that path today, but the install task's own creates guard checks only ~/fvm/bin/fvm, so such a
+machine reinstalls FVM on its next run rather than silently staying on the old layout, and the script always fetches
+the latest release, so the reinstall lands in the current location. Neither detail changes the fix; both are written
+down so a future reader does not have to re-derive them.
+
+#### The same failure confirmed on five more platforms after this fix was written
+
+All seven manual-dispatch runs against the pre-fix commit finished before this entry was closed. Arch and CachyOS,
+both Arch-family and both routed through the now-removed dart pub global activate path, passed. Debian, Ubuntu,
+Pop!_OS, Fedora and macOS, every one of them routed through the install script, failed the identical assertion,
+outside-package-manager tools missing or unreachable: fvm, and nothing else. macOS failing the same way as the four
+Linux distributions is the strongest evidence available that this was never a Linux-specific defect: it is the
+install-script route itself, on every platform that uses it, against a PATH line that never named the one directory
+that route needs.

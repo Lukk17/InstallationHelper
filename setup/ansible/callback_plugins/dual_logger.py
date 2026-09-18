@@ -193,7 +193,7 @@ ROLE_TOGGLE_MAPPING: Dict[str, List[str]] = {
     'systemd_boot':        ['setup_systemd_boot', 'setup_grub',
                             'remove_distro_grub', 'remove_distro_systemd_boot'],
     'snapper':             ['install_snapper'],
-    'sdk_manager':         ['install_dart', 'install_flutter', 'install_android_sdk',
+    'sdk_manager':         ['install_flutter', 'install_android_sdk',
                             'install_nodejs', 'install_python', 'install_java',
                             'install_maven', 'install_gradle'],
     'ai_tools':            ['install_claude_code', 'install_claude_desktop',

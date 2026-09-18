@@ -64,3 +64,12 @@ Darwin     partitionmanager Linux only, macOS uses Disk Utility
 Windows    gparted          Linux only, Windows uses partition_wizard
 Windows    partitionmanager Linux only, Windows uses partition_wizard
 RedHat claude_desktop Anthropic distributes the Linux desktop application through an apt repository and its documentation states that Fedora and RHEL are not supported today, so there is deliberately no dnf mapping. Debian and Ubuntu install it as an ordinary package from that repository.
+
+# Dart, standalone. FVM's own install script needs no Dart on Linux or macOS, so as of 2026-09-18
+# neither installs one anymore. Windows is the deliberate exception: FVM's install script has no
+# Windows build, so Windows activates FVM from pub.dev via `dart pub global activate fvm`, which does
+# need a real Dart, and group_vars/all.yaml carries the full reasoning next to the toggle.
+Debian     dart             Dart is installed only through FVM on Linux, this toggle is Windows only
+RedHat     dart             Dart is installed only through FVM on Linux, this toggle is Windows only
+Archlinux  dart             Dart is installed only through FVM on Linux, this toggle is Windows only
+Darwin     dart             Dart is installed only through FVM on macOS, this toggle is Windows only

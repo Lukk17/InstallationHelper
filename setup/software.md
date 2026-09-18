@@ -216,7 +216,7 @@ Installed by the `sdk_manager` role. All versions are pinned in [setup/pinned_va
 | Java (Temurin) | `sdk install java 21.0.11-tem` | `sdk install java 21.0.11-tem` | `sdk install java 21.0.11-tem` inside WSL |
 | Pyenv | `curl https://pyenv.run \| bash` | `curl https://pyenv.run \| bash` | `choco install pyenv-win -y` |
 | Python | `pyenv install 3.11.15` | `pyenv install 3.11.15` | `pyenv install 3.11.15` |
-| Dart SDK | `sudo apt-get install -y dart` / `sudo dnf install -y dart` / `sudo pacman -S --needed dart` | `brew install dart` | manual from [dart.dev](https://dart.dev/get-dart) |
+| Dart SDK | not installed standalone, bundled with FVM's Flutter SDK below | not installed standalone, bundled with FVM's Flutter SDK below | `choco install dart-sdk`, needed only so `dart pub global activate fvm` can run: FVM's own install script has no Windows build |
 | FVM (Flutter) | `curl -fsSL https://fvm.app/install.sh \| bash` | `curl -fsSL https://fvm.app/install.sh \| bash` | manual from [fvm.app](https://fvm.app/documentation/getting-started/installation) |
 | Flutter (stable) | `fvm install stable` | `fvm install stable` | `fvm install stable` |
 | Android SDK | `sdkmanager "platform-tools" "build-tools;35.0.0"` | `sdkmanager "platform-tools" "build-tools;35.0.0"` | install Android Studio, which bundles the SDK manager |

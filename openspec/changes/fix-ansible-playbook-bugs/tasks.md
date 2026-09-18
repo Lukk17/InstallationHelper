@@ -117,10 +117,13 @@
   - Task: `system_core : Add Flathub repository (Linux)`
   - Error: `error: Can't load uri https://flathub.org/flathub.flatpakrepo: Server returned status 404`
   - Fix: Update URL to `https://dl.flathub.org/repo/flathub.flatpakrepo`
-- [ ] 15.3.2 Fix Dart SDK package not available (Fedora)
+- [x] 15.3.2 Fix Dart SDK package not available (Fedora)
   - Task: `sdk_manager : Install Dart SDK (Fedora)`
   - Error: `No package dart available`
-  - Fix: Install Dart via FVM instead of dnf
+  - Fix: superseded on 2026-09-18 by removing the standalone Dart SDK install everywhere on Linux and
+    macOS, not only on Fedora. See docs/regression_ledger.md, "Found on 2026-09-18, a PATH fix proven
+    only on the one distribution that did not need it, and a Dart SDK installed by up to three routes
+    at once".
 - [x] 15.3.3 Fix Docker service not found (Fedora)
   - Task: `virtualization_config : Enable and start Docker service (Linux)`
   - Error: `Could not find the requested service docker`
@@ -157,8 +160,14 @@
 
 ## 18. Dart SDK via FVM (Fedora)
 
-- [ ] 18.1 Update dart.yaml to use FVM on Fedora
+- [x] 18.1 Update dart.yaml to use FVM on Fedora
+  - Superseded on 2026-09-18: dart.yaml is deleted rather than updated. FVM's own install script
+    needs no Dart on any Unix family, including Fedora, so there is nothing left for dart.yaml to
+    route through FVM.
 - [ ] 18.2 Test Dart installation on Fedora
+  - Not exercised in this session: verified on Arch (installationhelper-e2e-arch) and Debian
+    (installationhelper-e2e-debian) directly. Fedora runs the identical install script and task, so
+    the fix applies there by construction, but a Fedora container was not run to confirm it.
 
 ## 19. Docker Service Fix (Fedora)
 

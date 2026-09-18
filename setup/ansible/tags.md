@@ -52,7 +52,7 @@ Pass any of these to run a whole role.
 | `gnome` | GNOME install + configure |
 | `env` | Environment variables (PATH, JAVA_HOME, ANDROID_HOME, etc.) |
 | `shell` | ZSH + Oh-My-Zsh + Powerlevel10k |
-| `sdk` | All SDK managers (NVM + SDKMAN + Pyenv + Dart + FVM + Android) |
+| `sdk` | All SDK managers (NVM + SDKMAN + Pyenv + FVM + Android) |
 | `ai` | All AI tools (Claude Code + Claude Desktop + OpenCode + OpenSpec + LM Studio + Stable Diffusion) |
 | `jetbrains` | JetBrains Toolbox |
 | `software` | Whole software_installer router (every app via every manager) |
@@ -73,8 +73,7 @@ Pass any of these to run just that subsystem. Inherits the parent role tag autom
 | `nvm` | NVM install + Node LTS install | — |
 | `sdkman` | SDKMAN install + all four Java JDKs (11, 17, 21, 25) | — |
 | `pyenv` | Pyenv install + four Python builds | system build deps (gcc, make) — covered by `linux_core` |
-| `dart` | Dart SDK (pacman on Arch, apt on Debian, zip on Fedora, brew tap on macOS) | — |
-| `fvm` | FVM install via `dart pub global activate` + Flutter SDK | `dart` (auto-installs dart on Arch when missing) |
+| `fvm` | FVM install via its own install script (fvm.app/install.sh) + Flutter SDK | — |
 | `android` | Android cmdline-tools + platform + build-tools + SDK licenses | `sdkman` (skips with warning if SDKMAN Java is missing) |
 
 #### AI tools subsystems
@@ -145,7 +144,7 @@ ansible-playbook site.yaml --tags claude,opencode,openspec -i localhost, -c loca
 ansible-playbook site.yaml --tags flatpak -i localhost, -c local -K
 ```
 
-### Re-run only the SDK manager dispatchers (NVM + SDKMAN + Pyenv + Dart + FVM + Android)
+### Re-run only the SDK manager dispatchers (NVM + SDKMAN + Pyenv + FVM + Android)
 
 ```bash
 ansible-playbook site.yaml --tags sdk -i localhost, -c local -K
@@ -163,7 +162,6 @@ Some Layer 2 subsystems genuinely depend on other Layer 2 subsystems. The playbo
 
 | Subsystem | Hard dep | Behavior when dep is missing |
 |---|---|---|
-| `fvm` on Arch | `dart` | Auto-installs dart via pacman (idempotent — no-op if already there) |
 | `claude`, `opencode`, `openspec`, `bruno_cli` | `nvm` (Linux only) | Skips with `[WARN]` debug message; instructs you to run `--tags nvm,ai`. On macOS, these tools install via brew (`bruno_cli` uses the `bruno-cli` formula; `claude`/`opencode`/`openspec` continue to use npm under brew-installed Node) and have no nvm dep. |
 | `android` | `sdkman` (provides Java) | Skips with `[WARN]` debug message; instructs you to run `--tags sdkman,android` |
 | `docker` on Arch (with virt-manager installed) | `libvirt` | The libvirt firewall_backend fixup is skipped if libvirtd unit is absent (which is correct — without libvirt, Docker doesn't need that fixup) |

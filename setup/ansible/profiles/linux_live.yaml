@@ -68,7 +68,6 @@ install_tailscale: false
 install_gridcoin: true
 
 # ---- SDK & AI Ecosystem (all off) ----
-install_dart: false
 install_flutter: false
 install_android_sdk: false
 install_stable_diffusion: false

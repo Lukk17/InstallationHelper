@@ -155,7 +155,7 @@ The cross-platform toggle file has 50+ entries grouped by category — see the f
 - **Peripherals:** `install_synapse` (Razer Synapse 4, Windows and macOS), plus `install_openrazer` and `install_polychromatic` in `group_vars/linux.yaml` for the Linux equivalent
 - **Utilities:** `install_syncthing`, `install_tailscale`, `install_veracrypt`, `install_teamviewer`, `install_speedtest`
 - **Crypto/Volunteer:** `install_boinc`, `install_gridcoin`
-- **SDKs:** `install_dart`, `install_flutter`, `install_android_sdk`
+- **SDKs:** `install_dart` (Windows only in effect since 2026-09-18: FVM installs its own Dart on Linux and macOS, and this toggle is a documented no-op on every other family, see `e2e/tier1/documented_no_ops.txt`), `install_flutter`, `install_android_sdk`
 
 OS-specific toggles live in `group_vars/{linux,macos,windows}.yaml`. Version pins for downloaded artefacts (Java, Python, Node, Minikube, balena_etcher, etc.) are in [pinned_values.toml](pinned_values/pinned_values.toml), alongside a `[checksums]` table for sha256 enforcement on `get_url` tasks.
 

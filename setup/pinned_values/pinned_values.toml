@@ -109,9 +109,6 @@ default_python = "{{ python311_id }}"
 # Node NVM version
 nvm_version = "0.40.4"
 
-# Dart SDK — verify at https://storage.googleapis.com/dart-archive/channels/stable/release/latest/VERSION
-dart_version = "3.12.0"
-
 # Flutter via FVM
 flutter_channel = "stable"
 

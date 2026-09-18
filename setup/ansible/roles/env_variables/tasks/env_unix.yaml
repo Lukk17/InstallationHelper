@@ -55,7 +55,20 @@
       # is what points this symlink at a real SDK. The per-channel versions directory it installs
       # into, ~/fvm/versions/<channel>/bin, carries the channel name and so cannot be a fixed PATH
       # entry the way this one can.
-      export PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:$HOME/.pub-cache/bin:$HOME/fvm/default/bin:$PATH"
+      #
+      # $HOME/fvm/bin is FVM's own binary, not the SDK it manages, and is the gap this line had until
+      # 2026-09-18: fvm_unix.yaml's install script has put fvm there since installer version 2.0.0,
+      # measured again directly against 4.3.1 on 2026-09-18, but this PATH line never carried that
+      # directory, only the SDK's own default symlink above. Every non-Arch platform's CI (Debian,
+      # Ubuntu, Pop!_OS, Fedora, macOS) failed `outside-package-manager tools missing or unreachable:
+      # fvm` on 2026-09-18 for exactly that reason: `fvm` sat on disk and installed Flutter correctly
+      # inside the playbook's own shell, which builds its PATH from fvm_unix.yaml's own search rather
+      # than this file, and was UNREACHABLE from the login shell verify_install.yaml actually opens.
+      # Arch and CachyOS passed the same run by coincidence: their now-removed `dart pub global
+      # activate fvm` route put the binary in ~/.pub-cache/bin, which this line already carried for an
+      # unrelated reason. See docs/regression_ledger.md for the full account. One install route
+      # everywhere as of the same date means this is the one remaining directory to add.
+      export PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:$HOME/.pub-cache/bin:$HOME/fvm/bin:$HOME/fvm/default/bin:$PATH"
   become: yes
   become_user: "{{ non_root_user }}"
 

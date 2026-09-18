@@ -464,9 +464,7 @@
     # and the java and "python (pyenv shim)" entries below already ask about that one. disk_cmd is a
     # bash boolean expression, true when the artefact the installer had to produce is actually there,
     # run through the shell verbatim rather than through ansible.builtin.stat, because several of
-    # these live at a version-numbered path this file cannot know in advance and fvm needs an OR
-    # across the several places its own install script is documented to have used over time, the same
-    # reasoning fvm_unix.yaml gives for its own multi-path probe.
+    # these live at a version-numbered path this file cannot know in advance.
     #
     # The npm-under-NVM lookups below deliberately carry no `-type f` on their `find`: npm creates a
     # symlink in bin/ pointing at the real script under lib/node_modules, confirmed on a real NVM
@@ -476,26 +474,18 @@
     # one this file exists to catch.
     #
     # expected_path is set only where disk_cmd checks exactly one location and the shell resolves the
-    # tool by that same path when it is genuinely reachable, and is the fix for a false pass measured
-    # on 2026-09-17: "dart (bundled with the fvm flutter SDK)" and "dart (standalone)" both resolved
-    # the same shell_bin, "dart", so `command -v dart` inside the shell check below could not tell
-    # which install answered. On the Arch container that ran that day, the fvm-bundled dart was on
-    # disk and genuinely unreachable, the pacman-installed standalone dart was on PATH, and the
-    # shared-name check reported the fvm row "installed" on the strength of the unrelated binary.
+    # tool by that same path when it is genuinely reachable. "dart (bundled with the fvm flutter SDK)"
+    # carries one for a defect measured on 2026-09-17: a standalone Dart SDK, installed back then on
+    # Arch, Debian, Fedora and macOS and removed from all four on 2026-09-18 in favour of FVM's own
+    # install script everywhere, used to share the same shell_bin, "dart", and command -v dart could
+    # not tell the two apart. FVM's own dart is the one meant to win on PATH by construction, since
+    # env_variables' PATH puts ~/fvm/default/bin ahead of everything else, so the row still asserts
+    # against its own exact path rather than trusting the name to resolve to it.
     #
     # Left empty for the rows above that check several candidate directories with no single path to
-    # name (fvm itself, and every npm-under-NVM tool); for nvm, sdk and pyenv, whose init scripts wrap
-    # the name in a shell function, so `command -v` there returns the function rather than a path and
-    # an `-ef` comparison against a real file can never succeed even when the tool loaded correctly;
-    # and for "dart (standalone)", which this file checks on disk only rather than by shell name.
-    # FVM's own dart is the one meant to win on PATH, deliberately: env_variables' PATH construction
-    # puts ~/fvm/default/bin ahead of every other candidate on every family, and asking the shell to
-    # resolve the bare name "dart" would answer with FVM's copy regardless of whether the standalone
-    # SDK this row is about is present at all. What still has to be asserted is that the package
-    # exists on disk, because on Arch it is what fvm_unix.yaml's `dart pub global activate fvm` needs
-    # to install FVM in the first place, and env_variables' PATH order is what makes checking it by
-    # name pointless rather than a reason to stop checking it at all. RedHat and Darwin's disk_cmd is
-    # an OR across two candidates for the same single-location reasoning as fvm above.
+    # name (every npm-under-NVM tool), and for nvm, sdk and pyenv, whose init scripts wrap the name in
+    # a shell function, so command -v there returns the function rather than a path and an -ef
+    # comparison against a real file can never succeed even when the tool loaded correctly.
     - name: Define every command-line tool this playbook installs outside a package manager
       ansible.builtin.set_fact:
         ih_outside_pm_tools:
@@ -649,10 +639,10 @@
           - key: fvm
             toggle: install_flutter
             shell_bin: fvm
-            how: "fvm in whichever of ~/fvm/bin, ~/.fvm/bin, ~/.pub-cache/bin or /usr/local/bin the installer used"
-            expected_path: ""
+            how: "~/fvm/bin/fvm, the one location fvm_unix.yaml's install script uses on every Unix family"
+            expected_path: "{{ non_root_home }}/fvm/bin/fvm"
             disk_cmd: >-
-              for p in "{{ non_root_home }}/fvm/bin" "{{ non_root_home }}/.fvm/bin" "{{ non_root_home }}/.pub-cache/bin" /usr/local/bin; do [ -f "$p/fvm" ] && exit 0; done; exit 1
+              [ -f "{{ non_root_home }}/fvm/bin/fvm" ]
           - key: "flutter (via fvm)"
             toggle: install_flutter
             shell_bin: flutter
@@ -667,18 +657,6 @@
             expected_path: "{{ non_root_home }}/fvm/versions/{{ flutter_channel }}/bin/dart"
             disk_cmd: >-
               [ -x "{{ non_root_home }}/fvm/versions/{{ flutter_channel }}/bin/dart" ]
-          - key: "dart (standalone)"
-            toggle: install_dart
-            shell_bin: ""
-            how: >-
-              the native Dart SDK install for {{ ih_family }}, checked on disk only: FVM's own dart is
-              the one meant to win on PATH, and on Arch this package is also what fvm_unix.yaml's
-              `dart pub global activate fvm` needs to install FVM in the first place
-            expected_path: ""
-            disk_cmd: >-
-              {{ '[ -x /usr/bin/dart ]' if ih_family in ['Archlinux', 'Debian']
-                 else '[ -x /usr/local/bin/dart ] || [ -x /opt/dart-sdk/bin/dart ]' if ih_family == 'RedHat'
-                 else '[ -x /opt/homebrew/bin/dart ] || [ -x /usr/local/bin/dart ]' }}
           - key: sdkmanager
             toggle: install_android_sdk
             shell_bin: sdkmanager
@@ -744,9 +722,10 @@
     # against the row's own path by device and inode, which is what actually answers "is this the
     # one this row's installer produced" rather than "does something by this name exist somewhere",
     # and does it without readlink -f, which BSD's readlink on macOS does not implement. "dart
-    # (standalone)" has since moved to disk-only, see the comment above ih_outside_pm_tools, so the
-    # only row this -ef comparison still needs to arbitrate between the two dart installs is the
-    # fvm-bundled one.
+    # (standalone)" is gone entirely as of 2026-09-18, removed along with the standalone Dart SDK
+    # install on Linux and macOS, see docs/regression_ledger.md, so nothing today shares "dart" as a
+    # shell_bin with the fvm-bundled row and the exact-path comparison is defence in depth rather than
+    # a live arbitration.
     - name: Check whether the user's interactive shell can find each enabled tool at its own path
       ansible.builtin.shell: |
         set -o pipefail

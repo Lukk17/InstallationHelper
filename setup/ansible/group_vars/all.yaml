@@ -95,6 +95,19 @@ install_boinc: true
 install_gridcoin: true
 
 # Universal SDK & AI Ecosystem (Installed via custom roles, not basic pkg managers)
+#
+# install_dart installs a standalone Dart SDK. As of 2026-09-18 that only happens on Windows, where
+# FVM has no Dart-free route: fvm.app's own install script offers macOS and Linux only, so Windows
+# activates FVM from pub.dev through `dart pub global activate fvm`, which needs a real Dart on PATH
+# to run at all. FVM's own installation page puts that same command behind a warning, "This is not
+# recommended if you plan on using FVM to manage your global Flutter install", which is exactly what
+# this project does with `fvm global`, and Linux and macOS dropped both the warning and the Dart it
+# needed by switching to the install script everywhere, including Arch, which needs no Dart either.
+# Windows keeps this toggle and its `dart pub global activate` route by deliberate choice: Chocolatey
+# has already been rejected here once, because its `fvm` package declares an exact `dart-sdk` version
+# as a hard dependency (see docs/regression_ledger.md), and a standalone zip from GitHub releases
+# trades away Chocolatey's own upgrade tracking. This toggle is a documented no-op on every family
+# but Windows, see e2e/tier1/documented_no_ops.txt.
 install_dart: true
 install_flutter: true
 install_android_sdk: true
