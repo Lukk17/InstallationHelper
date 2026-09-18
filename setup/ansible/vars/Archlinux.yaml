@@ -5,6 +5,10 @@
 # not exist on Arch at all.
 openrazer_device_group: "openrazer"
 
+# Group the docker package creates for daemon socket access. Confirmed by this
+# project's own Arch container run log: "Creating group 'docker' with GID 946."
+docker_group: "docker"
+
 software_mapping:
   # Browsers
   chrome: { manager: "aur", package: "google-chrome" }
@@ -103,3 +107,9 @@ software_mapping:
 
   # Virtualization — docker is installed by virtualization_config role
   virt_manager: { manager: "pacman", package: "virt-manager" }
+  # Podman Desktop is a GUI front end only, for the Docker engine above. No podman engine, pods,
+  # or podman machine, the app's Docker extension talks to /var/run/docker.sock directly. Arch
+  # and CachyOS also carry a native podman-desktop package in extra: the flatpak is used here
+  # deliberately, on every Linux distribution, so there is one route rather than two. Do not
+  # "fix" this to pacman.
+  podman_desktop: { manager: "flatpak", package: "io.podman_desktop.PodmanDesktop" }

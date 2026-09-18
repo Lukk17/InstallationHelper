@@ -3,6 +3,11 @@
 # ship plugdev in the base system and keep upstream's rule file unpatched.
 openrazer_device_group: "plugdev"
 
+# Group the docker-ce package's postinst script creates for daemon socket access.
+# Verified live: installing docker-ce 5:29.8.1 from the upstream apt repo on a
+# debian:trixie container creates group 'docker'.
+docker_group: "docker"
+
 software_mapping:
   # Browsers
   chrome: { manager: "apt", package: "google-chrome-stable" }   # Official Google apt repo, see debian_repos.yaml
@@ -111,3 +116,6 @@ software_mapping:
   # (not via software_installer), so the same role can stat and start
   # docker.service after the package is in place.
   virt_manager: { manager: "apt", package: "virt-manager" }
+  # Podman Desktop is a GUI front end only, for the Docker engine above. No podman engine, pods,
+  # or podman machine, the app's Docker extension talks to /var/run/docker.sock directly.
+  podman_desktop: { manager: "flatpak", package: "io.podman_desktop.PodmanDesktop" }

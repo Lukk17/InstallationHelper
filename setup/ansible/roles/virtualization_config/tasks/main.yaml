@@ -365,7 +365,27 @@
   become: true
   ansible.builtin.user:
     name: "{{ non_root_user }}"
-    groups: docker
+    groups: "{{ os_dict.docker_group }}"
     append: true
-  when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool
+  register: docker_group_add
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_docker | default(false) | bool
+    - os_dict.docker_group is defined
+  tags: [docker]
+
+# Supplementary groups are stamped onto a login session, not re-read by an already-open shell or by
+# a new terminal window opened from the same desktop session, because that new window still inherits
+# the desktop session's credentials from hours earlier. Only a full logout, a reboot, or `newgrp
+# docker` in the one shell that needs it right now applies the change. Without this message the user
+# is left to discover that the hard way: `docker` keeps asking for sudo, and verify_install.yaml's
+# own group check re-reads /etc/group rather than the caller's live session, so it reports success
+# for the exact state the user experiences as failure.
+- name: Report the docker group session requirement
+  ansible.builtin.debug:
+    msg: "[WARN] {{ non_root_user }} was added to the {{ os_dict.docker_group }} group, but this only takes effect on a new login session. A new terminal window is NOT enough, it still carries the group list from the desktop session you are already in. Either log out and back in (or reboot), or run `newgrp {{ os_dict.docker_group }}` in the one shell you want to use right now."
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_docker | default(false) | bool
+    - docker_group_add is changed
   tags: [docker]

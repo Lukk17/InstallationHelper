@@ -4,6 +4,11 @@
 # it, and upstream's rule file is unpatched.
 openrazer_device_group: "plugdev"
 
+# Group the docker-ce package creates for daemon socket access. Verified live:
+# installing docker-ce from the upstream dnf repo on a fedora:latest (fc44)
+# container creates group 'docker' through its sysusers.d entry.
+docker_group: "docker"
+
 software_mapping:
   # Browsers
   chrome: { manager: "dnf", package: "google-chrome-stable" }
@@ -105,3 +110,6 @@ software_mapping:
 
   # Virtualization — docker is installed by virtualization_config role
   virt_manager: { manager: "dnf", package: "virt-manager" }
+  # Podman Desktop is a GUI front end only, for the Docker engine above. No podman engine, pods,
+  # or podman machine, the app's Docker extension talks to /var/run/docker.sock directly.
+  podman_desktop: { manager: "flatpak", package: "io.podman_desktop.PodmanDesktop" }

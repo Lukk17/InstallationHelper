@@ -963,6 +963,7 @@ finish_run() {
     run_verification || verify_rc=$?
 
     echo
+    local final_rc=0
     if [[ "${playbook_rc}" -ne 0 ]]; then
         if [[ "${verify_rc}" -eq 0 ]]; then
             echo "The playbook exited ${playbook_rc}, but the verification found everything that was requested." >&2
@@ -971,17 +972,58 @@ finish_run() {
             echo "The playbook exited ${playbook_rc} and the verification found problems too." >&2
             echo "Start with ${HOME}/installation_errors.log, then ${VERIFY_LOG}." >&2
         fi
-        exit "${playbook_rc}"
-    fi
-
-    if [[ "${verify_rc}" -ne 0 ]]; then
+        final_rc="${playbook_rc}"
+    elif [[ "${verify_rc}" -ne 0 ]]; then
         echo "The playbook succeeded and the verification did not: something it asked for is not on this machine." >&2
         echo "Read ${VERIFY_LOG}." >&2
-        exit 3
+        final_rc=3
+    else
+        say "Done. The playbook succeeded and every requested application is present."
     fi
 
-    say "Done. The playbook succeeded and every requested application is present."
-    exit 0
+    offer_reboot
+    exit "${final_rc}"
+}
+
+# ---------------------------------------------------------------------------
+# Reboot prompt — group membership and freshly built kernel modules only
+# take effect on a new login session, never on an already-open shell or on a
+# freshly opened terminal window, because that window still inherits the
+# desktop session's credentials from whenever it was opened.
+# ---------------------------------------------------------------------------
+
+# More than one signal on purpose, because a scenario container is not always started the same way.
+# /.dockerenv is written by Docker specifically, systemd-detect-virt recognises most other runtimes,
+# and the cgroup fallback covers a host where neither of those is available.
+running_in_container() {
+    [[ -f /.dockerenv ]] && return 0
+    if command -v systemd-detect-virt &>/dev/null; then
+        systemd-detect-virt --container &>/dev/null && return 0
+    fi
+    grep -qE '(docker|containerd|kubepods|lxc)' /proc/1/cgroup 2>/dev/null && return 0
+    return 1
+}
+
+# Offered once, at the very end of every Linux run. Recommended rather than required: pressing Enter
+# with no answer means no reboot, so does piping this script's stdin from anything other than a
+# terminal, and a container never even sees the question, because e2e/tier3 runs this script inside
+# one and a reboot there would take the harness down with it.
+offer_reboot() {
+    [[ "${OS_FAMILY}" == "Darwin" ]] && return 0
+    running_in_container && return 0
+    [[ -t 0 ]] || return 0
+
+    echo
+    say "Recommended: reboot now. Group membership (docker, libvirt, kvm, OpenRazer) and any freshly built kernel module only take effect on a new session."
+    local answer=""
+    read -r -p "Reboot now? [y/N] " answer || true
+    case "${answer,,}" in
+        y|yes)
+            say "Rebooting..."
+            sudo reboot || say "Reboot did not start. Log out and back in (or reboot manually) before relying on new group membership."
+            ;;
+        *)     say "Not rebooting. Log out and back in (or reboot later) before relying on new group membership." ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
