@@ -413,9 +413,9 @@ Every tier 3 run writes a directory under `e2e/runs/`, which is gitignored.
 
 | File | Contents |
 |---|---|
-| effective-vars.yaml | The exact variable file the playbook received, including everything generated |
-| playbook.log | The full playbook output |
-| verify.log | The verification output |
+| effective-vars.yaml | The exact profile setup.sh's `--profile` flag received, including everything generated |
+| playbook.log | setup.sh's full output: the system upgrade, the playbook, and its own embedded verification commentary |
+| verify.log | setup.sh's own `~/installation_verify.log`, copied out rather than run a second time |
 | result.txt | Exit codes, the play recap, and every error line |
 
 Keep the run directory when you report a failure. The effective variable file is the only record of what was actually asked for, and reconstructing it afterwards is guesswork.
