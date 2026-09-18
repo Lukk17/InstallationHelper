@@ -176,6 +176,7 @@ find_runnable_python() {
             printf 'e2e: %s is missing, and it owns the interpreter search\n' "${adapter}" >&2
             return 2
         fi
+        # shellcheck source=../../setup/pinned_values/pinned_values.sh
         source "${adapter}"
         E2E_PINNED_VALUES_SOURCED=1
     fi

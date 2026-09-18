@@ -424,28 +424,33 @@ Describe 'Install-WingetPackage retries a failed install once' {
                 [switch] $Hang
             )
 
-            $stub = Join-Path $Directory 'winget.cmd'
+            $marker1 = Join-Path $Directory 'a1'
+            $marker2 = Join-Path $Directory 'a2'
+            $marker3 = Join-Path $Directory 'a3'
 
-            if ($Hang) {
-                $body = @"
+            if ($IsWindows) {
+                $stub = Join-Path $Directory 'winget.cmd'
+
+                if ($Hang) {
+                    $body = @"
 @echo off
 if "%1"=="list" exit /b 1
-echo x>"$Directory\a1"
+echo x>"$marker1"
 ping -n 300 127.0.0.1 >nul
 exit /b 0
 "@
-            } else {
-                $body = @"
+                } else {
+                    $body = @"
 @echo off
 if "%1"=="list" exit /b 1
-if not exist "$Directory\a1" (
-  echo x>"$Directory\a1"
+if not exist "$marker1" (
+  echo x>"$marker1"
   set ATTEMPT=1
-) else if not exist "$Directory\a2" (
-  echo x>"$Directory\a2"
+) else if not exist "$marker2" (
+  echo x>"$marker2"
   set ATTEMPT=2
 ) else (
-  echo x>"$Directory\a3"
+  echo x>"$marker3"
   set ATTEMPT=3
 )
 if %ATTEMPT% LEQ $FailFirstN (
@@ -455,9 +460,50 @@ if %ATTEMPT% LEQ $FailFirstN (
 echo Successfully installed
 exit /b 0
 "@
+                }
+
+                Set-Content -LiteralPath $stub -Value $body -Encoding ascii
+            } else {
+                # Start-Process execs this file directly on a non-Windows host, which needs a shebang
+                # and the execute bit rather than the .cmd extension Windows resolves through its own
+                # association, so the stub is a POSIX translation of the same state machine rather
+                # than the batch file made executable. 52 of the 58 tests in this suite never touch
+                # an external process at all, so there is no existing stub pattern to reuse: this is
+                # the one it sets.
+                $stub = Join-Path $Directory 'winget'
+
+                if ($Hang) {
+                    $body = @"
+#!/usr/bin/env bash
+if [ "`$1" = "list" ]; then exit 1; fi
+echo x > "$marker1"
+sleep 300
+exit 0
+"@
+                } else {
+                    $body = @"
+#!/usr/bin/env bash
+if [ "`$1" = "list" ]; then exit 1; fi
+if [ ! -f "$marker1" ]; then
+  echo x > "$marker1"; attempt=1
+elif [ ! -f "$marker2" ]; then
+  echo x > "$marker2"; attempt=2
+else
+  echo x > "$marker3"; attempt=3
+fi
+if [ "`$attempt" -le "$FailFirstN" ]; then
+  echo "Installer failed with exit code: 3221225477"
+  exit 1
+fi
+echo "Successfully installed"
+exit 0
+"@
+                }
+
+                Set-Content -LiteralPath $stub -Value $body -Encoding ascii
+                & chmod +x $stub
             }
 
-            Set-Content -LiteralPath $stub -Value $body -Encoding ascii
             return [PSCustomObject]@{ Path = $stub }
         }
 
@@ -584,6 +630,16 @@ Describe 'Get-ChocolateyCachePath' {
     It 'reads a configured cacheLocation and still joins chocolatey onto it' {
         # The key replaces $env:TEMP for the choco process rather than replacing the whole path, so
         # the payload still lands in a chocolatey folder underneath whatever is configured.
+        #
+        # A Windows drive letter on purpose: Chocolatey only ever runs on Windows, so this is the
+        # only shape of absolute path the real config file holds. Join-Path resolves "D:" through a
+        # PSDrive, which every real Windows machine has for its own drive letters and no Linux host
+        # ever does, so this one assertion is skipped off Windows rather than rewritten around a
+        # path shape production code never sees.
+        if (-not $IsWindows) {
+            Set-ItResult -Skipped -Because 'a Windows drive letter has no PSDrive on this platform, and Chocolatey never configures one here'
+            return
+        }
         $path = Join-Path $script:CacheProbe 'set.config'
         @'
 <?xml version="1.0" encoding="utf-8"?>
@@ -667,7 +723,14 @@ Describe 'Clear-WindowsPackageCache' {
 
     It 'names a file it could not remove and still returns, because the run must not die over a cache' {
         # A real cause rather than a mocked one: an installer another process still holds open cannot
-        # be deleted, and the wizard has to carry on with the disk it already had.
+        # be deleted, and the wizard has to carry on with the disk it already had. FileShare.None is
+        # a mandatory lock on Windows, which is the platform this function ever runs on, and only an
+        # advisory one on Linux, where the same open handle does not stop the delete this test means
+        # to provoke, so it is skipped rather than asserting a rename of what it actually covers.
+        if (-not $IsWindows) {
+            Set-ItResult -Skipped -Because 'FileShare.None does not block a delete on this platform, so there is nothing here to fail'
+            return
+        }
         $held = Join-Path $script:ChocoCache 'locked\held.exe'
         New-Item -ItemType Directory -Path (Split-Path $held -Parent) -Force | Out-Null
         [System.IO.File]::WriteAllBytes($held, (New-Object byte[] 1024))
