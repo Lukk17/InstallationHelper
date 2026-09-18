@@ -305,6 +305,55 @@ Rules that come out of the ledger and that the gate cannot check for you:
 
 Full harness documentation, including what a container cannot test, is in [`e2e/README_E2E.md`](e2e/README_E2E.md).
 
+## Continuous integration: one operating system, or the whole sweep
+
+Nothing in this repository starts on an automatic event. All three workflow files are dispatch-only or call-only, deliberately, and [`.github/workflows/e2e-manual.yaml`](.github/workflows/e2e-manual.yaml) states the rule in its own header: "No workflow in this repository may start on push or on any other automatic event: every run here is a deliberate, explicit action by whoever clicks 'Run workflow', exactly the same decision as running setup/setup.sh or setup/setup.ps1 by hand, just on a throwaway runner or throwaway container instead of a real machine."
+
+So there are two instruments and choosing between them is a decision you make rather than one the repository makes for you. Reach for the single platform workflow when the change touches one operating system, which is most changes. Reach for the sweep when the change is broad enough that one distribution cannot answer for the rest. This page used to describe the local tiers at length and mention the dispatch workflows twice in passing, and an agent reading it concluded a sweep was the only thing on offer and dispatched one for a Linux change.
+
+### One operating system
+
+[`.github/workflows/e2e-manual.yaml`](.github/workflows/e2e-manual.yaml), which the Actions tab calls "E2E - single platform", takes one `target_platform` and runs that and nothing else. Its three jobs are gated on the plan job's `run_linux`, `run_macos` and `run_windows` outputs, so the platforms you did not ask for never start.
+
+```bash
+gh workflow run e2e-manual.yaml -f target_platform=debian
+```
+
+`arch`, `debian`, `ubuntu`, `fedora`, `cachyos` and `popos` never touch the runner itself. Each of them delegates to this repository's own container harness, `e2e/run.sh --tier 3`, against a systemd container built from `e2e/tier3/<distro>.Dockerfile`, so a Linux dispatch runs the same harness your own machine runs. `macos` and `windows` have no container to run in, so they run the real wizard directly on the runner, `setup/setup.sh` on `macos-26` and `setup/setup.ps1` on `windows-latest`. That file's own header explains the rest and explains it well, including why both of those jobs are always non-interactive and what a hosted Windows runner's disabled User Account Control does to `Assert-NotAdmin`. Read it there rather than trusting a summary here.
+
+Eight inputs, and one of them is a trap. `skip_system_upgrade` defaults to true, so a dispatch that leaves it alone never exercises the system upgrade `setup.sh` performs before Ansible starts. Turn that upgrade back on when it is the part you changed:
+
+```bash
+gh workflow run e2e-manual.yaml -f target_platform=debian -f skip_system_upgrade=false
+```
+
+| Input | Default | What it does |
+|---|---|---|
+| `target_platform` | `arch` | `arch`, `debian`, `ubuntu`, `fedora`, `cachyos`, `popos`, `macos` or `windows` |
+| `desktop_environment` | `skip` | `skip`, `kde` or `gnome`. Anything but `skip` is refused on `macos` and `windows` |
+| `desktop_action` | `full` | `full`, `install` or `configure`, read only when `desktop_environment` is not `skip` |
+| `software_mode` | `unset` | `unset`, `defaults`, `all` or `none`. `unset` passes no flag at all, leaving the `group_vars` toggles as they are |
+| `profile_name` | empty | a file under `setup/ansible/profiles/`, without the extension. Refused alongside `software_mode` on Linux and macOS, a documented no-op on Windows |
+| `enable_keys` | empty | comma-separated toggle keys forced on. A key in neither `group_vars/all.yaml` nor `group_vars/linux.yaml` fails the job rather than being quietly ignored |
+| `disable_keys` | empty | comma-separated toggle keys forced off, applied after `enable_keys`, so a key named in both ends up off |
+| `skip_system_upgrade` | `true` | see above |
+
+### The whole sweep
+
+[`.github/workflows/e2e-matrix.yml`](.github/workflows/e2e-matrix.yml), which the Actions tab calls "E2E - test software install and configuration on every OS", is three gated stages, cheapest first, and it costs hours rather than minutes. Dispatch it when the change is broad. Its inputs default to `start_from_stage: stage-1`, `scenario: all` and `distro: all`, so a dispatch with nothing filled in is the whole sweep.
+
+```bash
+gh workflow run e2e-matrix.yml
+```
+
+Three things about it are not visible on the dispatch form:
+
+1. `distro` narrows stage 2 and only stage 2. The macOS and Windows jobs live in stage 3, and no value of `distro` reaches them.
+2. A stage skipped by `start_from_stage` counts as passed, so the stage after it still runs. Starting at stage 3 does not require stage 1 and stage 2 to have run in the same dispatch.
+3. It carries a concurrency group that does not cancel, so a second dispatch queues behind a sweep that is still open instead of replacing it. A run sitting at `pending` with no jobs of its own is usually that rather than a slow start, which is defect class 13 above.
+
+Both workflows upload their logs as run artefacts. What each side proves, and what it does not, is the "CI matrix sweep vs local runs" section of [`e2e/README_E2E.md`](e2e/README_E2E.md), and watching either one is the next section here.
+
 ## Watch anything that runs long, every ten minutes
 
 A container scenario takes 90 to 300 minutes by declared ceiling and a CI sweep takes hours. Neither tells you it is

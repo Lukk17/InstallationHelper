@@ -3322,3 +3322,146 @@ unreachable" from "resolves to a function" or "shadowed by design" would have to
 this file already runs, against a real pyenv and a real FVM install, which is exactly what the tier 3 container run
 that surfaced this already does. The container run is the check; what was missing was reading its output before
 calling the day's work done.
+
+### Found on 2026-09-18, a sweep dispatched for an unrelated reason found a gate that had been red since 2026-08-26
+
+Run 35311265843 stopped at its first stage inside two minutes, and 55 of its 62 jobs never ran. Two checks inside the
+"Tier 1 checks" job (`ubuntu-latest`) had been failing on every dispatch since 2026-09-02 and 2026-08-26
+respectively, unseen because the previous sweep predates both. Neither was visible from the owner's own machine:
+`shellcheck` is not installed there, so `e2e/tier1/shell_syntax.sh` reports SKIP instead of running it, and the
+Windows Pester suite there executes against a real Windows install, where none of the three defects below reproduce.
+
+#### shellcheck SC1090 on a source whose path is only known at runtime
+
+Cause: `e2e/lib/common.sh` line 179 does `source "${adapter}"`, where `$adapter` is built from `$REPO_ROOT` two lines
+above and checked for existence immediately before, so shellcheck cannot follow it and flags SC1090 at severity
+warning.
+
+Effect: `FAIL shellcheck reports findings at severity warning` in the CI log for run 35311265843,
+`./e2e/lib/common.sh:179:16: warning: ShellCheck can't follow non-constant source. Use a directive to specify
+location. [SC1090]`. True of every run since the file's last edit on 2026-09-02, and invisible on the owner's
+machine because `shell_syntax.sh` reports SKIP for this half of the check there, shellcheck itself never having been
+installed.
+
+How it was proven: run inside `koalaman/shellcheck:stable` (Docker), over the same 59-file list `shell_syntax.sh`'s
+own Python finder produces, with the same flags the check uses (`--severity=warning --format=gcc`). Before the fix,
+that reproduced the exact CI finding, one line and nothing else. After the fix, the same command over the same 59
+files produced no output and exit code 0.
+
+Fix: [e2e/lib/common.sh](../e2e/lib/common.sh), a `# shellcheck source=../../setup/pinned_values/pinned_values.sh`
+directive immediately above the `source` line, naming the one real file `$adapter` ever resolves to, rather than a
+blanket `disable=SC1090` that would also stop shellcheck from checking that file's own contents through this call
+site.
+
+#### The winget retry stub is a .cmd file, and Start-Process cannot exec one outside Windows
+
+Cause: `Install-WingetPackage retries a failed install once` (`e2e/tier1/windows/WindowsSoftware.Tests.ps1`, added
+2026-08-26) stubs winget with a batch file, `winget.cmd`, and calls it through `Start-Process -FilePath`. Windows
+resolves `.cmd` through its own file-association mechanism; a non-Windows host has none, so `Start-Process` tries to
+exec the text file directly and the kernel refuses a file with no execute bit and no shebang.
+
+Effect: `Win32Exception: An error occurred trying to start process '.../wingetstub-.../winget.cmd' ... Permission
+denied` on the "Tier 1 checks" job, which runs on `ubuntu-latest` and also runs this suite because
+`e2e/tier1/windows_pester.sh` runs Pester wherever `pwsh` is found rather than only on Windows, and GitHub's
+`ubuntu-latest` image ships PowerShell 7 preinstalled. Four of the suite's 58 tests failed this way in run
+35311265843 (`total=58 passed=49 failed=6`); the other two of the six are a separate, pre-existing defect from the
+same day, covered below.
+
+How it was proven: reproduced first in `mcr.microsoft.com/powershell:latest` (Ubuntu 22.04) with Pester 5 installed,
+matching the CI log's error text exactly. `mcr.microsoft.com/powershell:7.5-ubuntu-24.04`, which matches
+`ubuntu-latest`'s OS and its Python 3.12, gave the definitive before-and-after count:
+`total=58 passed=49 failed=6` became `total=58 passed=53 failed=0 skipped=2` after every fix in this entry. Windows
+itself, run locally against a real winget on PATH, stayed at `total=58 ... failed=0`, one pre-existing and unrelated
+skip (`Get-WingetPath on a machine without winget`, skipped because this machine's winget is real).
+
+Fix: [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1), `New-WingetStub`
+now branches on `$IsWindows`. On Windows it writes the same batch file as before. Off Windows it writes a POSIX
+shell translation of the same attempt-counting state machine to a file named `winget` with a `#!/usr/bin/env bash`
+shebang, then sets the execute bit with `chmod +x`. 52 of the 58 tests in this suite never touch an external process
+at all, so there was no existing cross-platform stub pattern here to reuse.
+
+#### Two more failures from the same day, a different commit, and not fixable the same way
+
+Cause: `Get-ChocolateyCachePath`'s "reads a configured cacheLocation" test asserts `Join-Path 'D:\choco-cache'
+'chocolatey'`, and PowerShell's FileSystem provider resolves a drive-letter path through a PSDrive; every real
+Windows machine has one PSDrive per OS drive letter, and no Linux host has one named `D`.
+`Clear-WindowsPackageCache`'s "names a file it could not remove" test opens a file with `FileShare.None` to simulate
+another process holding it open, which is a mandatory lock on Windows and only an advisory one on Linux, so the
+delete the test means to fail does not fail there.
+
+Effect: `DriveNotFoundException: Cannot find drive. A drive with the name 'D' does not exist.` and `Expected a
+collection with size 1, but got an empty collection.`, both introduced in commit `5bc83cb` on 2026-08-26 (the
+cache-cleanup feature, a different commit from the retry feature above, landed the same day), and both silently red
+on every "Tier 1 checks" run since, for the same reason as the rest of this entry: nobody's own machine reproduces
+it.
+
+How it was proven: same two containers as above. Both assertions still fail on Ubuntu 24.04 with Python 3.12
+present, which rules out the Python-version gap that separately explained six PinnedValues-module failures seen only
+in the older Ubuntu 22.04 image (Python 3.10, one short of the 3.11 `tomllib` floor `pinned_values.py` requires),
+confirming these two are a genuine platform gap rather than an artifact of the container used to reproduce them.
+
+Fix: [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1), both `It` blocks
+now open with `if (-not $IsWindows) { Set-ItResult -Skipped -Because '...'; return }`, each naming the OS capability
+it depends on. Neither is a portability gap in the retry stub's sense: a drive letter and a mandatory file lock are
+not things a differently-written stub can reproduce on Linux, so skipping with a named reason is the fix rather than
+a workaround standing in for one.
+
+#### What would have made this visible sooner
+
+Nothing on the owner's machine runs `windows_pester.sh` on Linux, and nothing there runs `shell_syntax.sh`'s
+shellcheck half at all, so both gaps could only ever be found by CI, and this sweep was the first one dispatched
+since 2026-08-26. The mechanical fix available today is `e2e/README_E2E.md`'s own advice taken literally: run the
+container form of each check locally after touching the file it covers, `koalaman/shellcheck:stable` for one and a
+Linux `pwsh` image for the other, rather than trusting a SKIP line to mean nothing was missed. A schedule that
+dispatches this workflow on some cadence would also have closed the sixteen-day and twenty-three-day gaps, but
+AGENTS.md forbids any automatic trigger for it, so that option is not open to this repository as written.
+
+### Found on 2026-09-18, a documentation gap that sent an agent to the most expensive instrument in the repository
+
+Cause: [AGENTS.md](../AGENTS.md) documented the local test tiers at length and named the two dispatch workflows only
+twice in passing, once as "the `macos` target of the dispatch workflow" in the what-to-run table and once as a
+`gh run list --workflow e2e-matrix.yml` command in the watch section, so nothing on the page said that a single
+operating system can be run in continuous integration at all.
+
+Effect: an agent read the page, told the owner there was no way to run Linux alone in CI, and dispatched the full
+sweep instead. Run 35311265843, titled `E2E from stage-1: all on all`, was created at 2026-09-18T05:33:26Z and
+concluded `failure` at 05:35:17Z, one minute and fifty-one seconds later, on its own stage 1 gate. Of its 62 jobs,
+4 succeeded, 3 failed (`Tier 1 checks`, `Gate: checks passed` and `Verdict: Linux installs`) and 55 were skipped
+without ever starting. The owner's answer was that the per-platform pipeline was built precisely so that a single
+distribution can be checked, and the file bears that out:
+[.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) has taken exactly one `target_platform`
+per dispatch since the day it was written.
+
+A wrong number recorded on the way, because the habit matters more than this particular instance: the run was first
+described as having died at its gate "in three minutes". Measured with
+`gh run view 35311265843 --json createdAt,updatedAt`, it was one minute and fifty-one seconds. Nothing turned on the
+difference here, but the cost gap between the two instruments is the entire argument of this entry, so the numbers in
+it belong to the API rather than to a memory of the Actions tab.
+
+How it was proven: by reading both workflow files rather than by inferring anything from the run.
+`.github/workflows/e2e-manual.yaml` declares `on: workflow_dispatch` with a `target_platform` choice of arch, debian,
+ubuntu, fedora, cachyos, popos, macos and windows, and its three jobs carry `if: needs.plan.outputs.run_linux ==
+'true'` and the macOS and Windows equivalents, so a dispatch starts one of them and skips the other two. Its Linux
+targets never touch the runner: they call `bash e2e/run.sh --tier 3 --scenario manual-dispatch --os <distro>` against
+a systemd container built from `e2e/tier3/<distro>.Dockerfile`, which is the same harness a developer runs locally.
+`.github/workflows/e2e-matrix.yml` describes its own `distro` input as "Stage 2 only" and carries
+`concurrency: group: e2e-matrix-sweep` with `cancel-in-progress: false`, and its header states that a stage bypassed
+by `start_from_stage` counts as passed so the stage after it still runs, which is where the macOS and Windows jobs
+are. `.github/workflows/e2e-linux-cell.yml` is `on: workflow_call` and nothing else. A grep for `push:`,
+`pull_request:`, `schedule:` and `cron:` across `.github/workflows/` returns nothing, which is the rule the manual
+workflow's header states outright. The job breakdown above came from `gh run view 35311265843 --json jobs`.
+
+Fix: [AGENTS.md](../AGENTS.md) gained a "Continuous integration: one operating system, or the whole sweep" section,
+placed immediately after the local tier material and immediately before the watch-it-every-ten-minutes section,
+because that is where a reader working out how to verify a change already is. It says which workflow to reach for,
+gives the copy-and-paste `gh workflow run` command for a single platform dispatch, and names every input with the
+default read out of the file. That includes `skip_system_upgrade`, which defaults to true, so every dispatch that
+leaves it alone silently skips the system upgrade `setup.sh` performs before Ansible starts.
+
+What would make this visible sooner, and what is not in place yet: a tier 1 check that fails when a file under
+`.github/workflows/` carrying a `workflow_dispatch` trigger is not linked from [AGENTS.md](../AGENTS.md). It is
+cheap, it is mechanical, and it would have failed against the tree as it stood on the morning of 2026-09-18. It is
+not added here, because this change was documentation only and another agent was editing under `e2e/` at the same
+time, so it is an open item rather than a closed one. The wider shape has no mechanical answer at all: an agent
+concluding a thing is impossible because the page it read did not mention the thing is a reasoning failure no check
+can see, and the only defence against it is that the page mention the thing.
