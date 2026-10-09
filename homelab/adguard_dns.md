@@ -42,8 +42,83 @@ only, never another DNS entry.
 
 ### Upstream resolvers
 
-Everything that is not internal and not blocked goes upstream. Pick a resolver that supports DNS over HTTPS or DNS
-over TLS so your queries are not readable on the way out, and set it under Settings, then DNS settings.
+Everything that is not internal and not blocked goes upstream. Set all of this under Settings, then DNS settings.
+
+Upstream DNS servers, three providers instead of one, one per line:
+
+```text
+https://dns10.quad9.net/dns-query
+https://unfiltered.adguard-dns.com/dns-query
+https://cloudflare-dns.com/dns-query
+```
+
+Google (`https://dns.google/dns-query`) is removed here for privacy, because Google keeps query logs, and AdGuard
+DNS's own non-filtering address takes its place instead. None of the three filters anything on its own, AdGuard
+DNS's unfiltered address included. AdGuard Home's own blocklists do the blocking, further down this page, so an
+upstream that also filtered would only hide a failure behind a second, invisible blocklist. The reason for three
+providers instead of one is plain reliability: with a single upstream, any moment that one provider is unreachable
+fails every lookup that is not already cached. Measured on 2026-10-09 from the home network: a lookup through
+`https://unfiltered.adguard-dns.com/dns-query` answered (HTTP 200 for a raw DNS query), and `doubleclick.net`
+resolved through it, proving it does not filter.
+
+Set the upstream mode to Parallel requests, not Load-balancing. Parallel requests asks all three upstreams at once,
+so a dead provider costs no wait at all, since one of the other two answers first, and under this mode the order of
+the three lines above makes no difference. Load-balancing instead picks one
+upstream per query by weighted random choice and falls through to the next on failure, marking the failed one as
+slow so it gets picked less often, so a dead provider there costs a wait of up to the upstream timeout rather than
+a failed lookup. With only one upstream, the single-provider case above, there is nothing to fall through to, so a
+failure there does fail the lookup.
+
+Fallback DNS servers, used only once every upstream above has failed:
+
+```text
+9.9.9.10
+1.1.1.1
+```
+
+Both are plain, unencrypted DNS, Quad9 and Cloudflare, with no filtering of their own. They are the last resort
+after the encrypted upstreams have all failed, not a second tier of upstreams, so they only ever answer during an
+actual outage.
+
+Bootstrap DNS servers, left on the Quad9 defaults:
+
+```text
+9.9.9.10
+149.112.112.10
+2620:fe::10
+2620:fe::fe:10
+```
+
+Bootstrap servers only resolve the hostnames in the Upstream DNS servers list above, such as `dns10.quad9.net`.
+They never see or answer a query this network actually makes, so there is nothing to change here.
+
+Set Upstream timeout to 3 seconds instead of the default 10. A dead upstream now gives up before the device asking
+the question would have given up on its own, instead of the other way around.
+
+Under DNS cache configuration, turn on Optimistic caching, which the interface describes as responding from the
+cache even when the entries are expired. With it on, an expired cache entry still answers immediately, within the
+cache_optimistic_max_age limit, while AdGuard refreshes it in the background, rather than making the client wait
+on the upstreams. The same behaviour also covers a short outage: a name already in the cache keeps answering even
+in the moment every upstream above has failed at once.
+
+None of this touches ad blocking. Blocking happens in AdGuard Home's own blocklists, further down this page,
+before any upstream is ever asked, so moving to three non-filtering upstreams changes nothing about what gets
+blocked. Measured on 2026-10-09 against `<docker-vm-ip>` after making this change: `doubleclick.net` and
+`googleadservices.com` both answered `0.0.0.0`, and `google.com` answered its real addresses.
+
+---
+
+### Rate limit
+
+In the DNS server configuration block on this same page, set Rate limit to 0, which means no limit. AdGuard
+Home's rate limit does not count per device, it groups every address in the same /24 subnet for IPv4, or the same
+/56 subnet for IPv6, into one client, so the default limit is a budget shared by every device in the house rather
+than a budget each device gets on its own. The AdGuard Home default configuration sets `ratelimit_subnet_len_ipv4`
+to 24 and `ratelimit_subnet_len_ipv6` to 56, which is exactly that grouping, and a rate limit above zero is applied
+per subnet of that size rather than per address.
+
+Leave Subnet prefix length for IPv4 addresses and Subnet prefix length for IPv6 addresses at their defaults, 24
+and 56. Both fields only matter once a rate limit above zero is set, and on a network this size that limit is off.
 
 ---
 
@@ -82,6 +157,32 @@ checkout button does nothing usually needs one tracker domain allowed, not a who
 
 Each row shows which device asked, which is why the DHCP configuration below matters. Point the router at AdGuard
 correctly and you get per device names. Get it wrong and every query in the log appears to come from the router.
+
+The log itself lives on the Docker VM as JSON lines, one object per line, at
+`/opt/docker-stack/adguard/work/data/querylog.json`. That is the AdGuard work directory bind mount from
+[compose.yaml](compose.yaml), `/opt/docker-stack/adguard/work` on the host mapped to `/opt/adguardhome/work` inside
+the container, with `querylog.json` the file AdGuard Home writes inside that directory's `data` subfolder. AdGuard
+rotates that file to `querylog.json.1` once it grows past its limit, so a search for anything older than the
+newest entries has to read both. Grep both directly when the web interface itself will not load:
+
+```bash
+grep google.com /opt/docker-stack/adguard/work/data/querylog.json /opt/docker-stack/adguard/work/data/querylog.json.1
+```
+
+The last few minutes may not be on disk yet either way, since AdGuard keeps the newest entries in memory before
+it flushes them to the file.
+
+---
+
+### Keep the network watch domain out of the query log and statistics
+
+The Telegraf network watcher described in [network_watch.md](network_watch.md) asks AdGuard Home for
+`connectivitycheck.gstatic.com` once a second, 86,400 times a day. Left alone, that one name drowns out every
+other query in both the query log above and the statistics page.
+
+Go to Settings, then General settings. Add `connectivitycheck.gstatic.com` to Ignored domains on the Logs
+configuration card, then add the same domain to Ignored domains again on the Statistics configuration card. They
+are two separate fields that happen to sit side by side, so the domain has to go into both.
 
 ---
 

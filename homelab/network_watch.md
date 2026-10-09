@@ -73,10 +73,11 @@ Pull the change that adds the Telegraf service:
 cd /opt/docker-stack/InstallationHelper && git pull
 ```
 
-Start only the new service:
+Start the whole stack rather than only the new service, since the same change also moved Uptime Kuma to 2.5.5 and
+this recreates it on the new image too:
 
 ```bash
-cd /opt/docker-stack/InstallationHelper/homelab && docker compose up -d telegraf
+cd /opt/docker-stack/InstallationHelper/homelab && docker compose up -d
 ```
 
 Check it is actually writing, a minute or two after it starts:
@@ -124,16 +125,9 @@ docker compose restart telegraf
 ### AdGuard Home: keep the test domain out of the query log and the statistics
 
 Telegraf asks AdGuard Home for `connectivitycheck.gstatic.com` once a second, which is 86,400 lookups a day. Left
-alone, that drowns out every other query in the log and in the statistics page. Add the domain to both ignore
-lists, which are two separate settings even though they sit side by side.
-
-1. Open AdGuard Home, go to Settings, then General settings.
-2. In the Query Log section, open Ignored domains, add `connectivitycheck.gstatic.com` on its own line, and save.
-3. In the Statistics section, open Ignored domains again, add the same domain on its own line, and save.
-
-Both lists take one host name per line, and AdGuard stops writing anything matching those names to that
-particular feature. Real queries for the same domain from other devices on the network are affected the same way,
-which is fine here since nothing else on this network has a reason to ask for it on purpose.
+alone that would drown out every other query in the log and in the statistics page. The steps live in one place,
+in [adguard_dns.md](adguard_dns.md#keep-the-network-watch-domain-out-of-the-query-log-and-statistics), under "Keep
+the network watch domain out of the query log and statistics", so follow them there rather than here.
 
 ---
 
