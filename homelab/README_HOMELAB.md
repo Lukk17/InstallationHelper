@@ -83,12 +83,15 @@ graph TB
 | Perlite | `notes.internal` | 7781 | 80 | Renders the synced notes folder as a read only website |
 | Redis | none, TCP only | 6379 | 6379 | In-memory cache, unauthenticated and with no data volume, used by AscendWebSearch below |
 | AscendWebSearch | `ascend-scrapper.internal` | 7021 | 7021 | Web search and scraping API, a separate Compose project joined to this one only through the shared proxy network |
+| Telegraf | none, host network | none | none | Records a ping, DNS and HTTP row every second as proof of short provider outages, written into the Syncthing folder |
 
 Nginx Proxy Manager also binds 80 and 443 for proxied traffic, AdGuard binds 53 for plain DNS plus 853 and 784 for the encrypted variants, and Syncthing binds 22000 and 21027 for its own peer protocol.
 
 Perlite is two containers rather than one. The engine renders the markdown and has no published port, and `perlite-web` is the nginx that serves it. Setting it up takes a few extra steps, so it has its own page: [perlite_notes.md](perlite_notes.md).
 
 Redis has no proxy entry because it speaks its own wire protocol, not HTTP, so Nginx Proxy Manager has nothing to forward. AscendWebSearch lives in its own directory with its own Compose file rather than in `compose.yaml`, since it is a different project with a different lifecycle. Both are covered together in [ascend_web_search.md](ascend_web_search.md).
+
+Telegraf has no proxy entry and no published port either. It runs on `network_mode: host`, writes its rows straight into a folder, and has no web interface for anyone to open. [network_watch.md](network_watch.md) covers what it records and why.
 
 Proxmox is not a container and is not in the Compose file, so its proxy entry points at an address rather than a container name. [nginx_proxy_manager.md](nginx_proxy_manager.md) covers that case. Home Assistant is reached directly on `<ha-vm-ip>:8123`, since it is the one service you open constantly from phones that already have it bookmarked.
 
@@ -196,5 +199,6 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [perlite_notes.md](perlite_notes.md) | Publishing the synced notes folder as a website |
 | [homepage_dashboard.md](homepage_dashboard.md) | Dashboard tiles, allowed hosts, and why the status check bypasses DNS |
 | [uptime_kuma.md](uptime_kuma.md) | Monitors, why Proxmox is a ping, why AdGuard gets two checks |
+| [network_watch.md](network_watch.md) | Telegraf recording proof of short provider outages, and reading it back afterward |
 | [ascend_web_search.md](ascend_web_search.md) | AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
 | [backup_restore.md](backup_restore.md) | Backing up the VMs and the service data, and restoring both |
