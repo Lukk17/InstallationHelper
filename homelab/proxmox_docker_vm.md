@@ -170,8 +170,9 @@ Persistent service data lives outside the containers, under one root directory.
 sudo mkdir -p /opt/docker-stack
 ```
 
-The Compose file bind mounts one subdirectory per service beneath it. Docker creates them on first start, so nothing
-else is needed here.
+The Compose file bind mounts one subdirectory per service beneath it. The quick start in
+[README_HOMELAB.md](README_HOMELAB.md) creates them before the first start, so Docker never creates one itself and
+hands it to root.
 
 Take ownership of it, so you can edit configuration files over SFTP later without fighting permissions on every save:
 

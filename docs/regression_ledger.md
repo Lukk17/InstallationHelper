@@ -3589,3 +3589,198 @@ outside-package-manager tools missing or unreachable: fvm, and nothing else. mac
 Linux distributions is the strongest evidence available that this was never a Linux-specific defect: it is the
 install-script route itself, on every platform that uses it, against a PATH line that never named the one directory
 that route needs.
+
+---
+
+### Found while writing homelab/network_watch.md, 2026-10-09
+
+#### Instructions assumed a repository clone that this homelab does not have
+
+Introduced by the assistant, in commit b2fc4f9 and carried forward in commit 90ea7ea.
+
+Cause: [network_watch.md](../homelab/network_watch.md) told the reader to `cd /opt/docker-stack/InstallationHelper
+&& git pull` and then start Compose from `homelab/`, but the real deployment on this homelab runs a plain copy of
+`compose.yaml` at `/opt/docker-stack`, with no repository clone on the VM at all, and that file mounts
+`./telegraf/telegraf.conf` relative to the folder holding it, so the path resolved to
+`/opt/docker-stack/telegraf/telegraf.conf`, which did not exist.
+
+Effect: `docker compose up -d` failed with `error mounting "/opt/docker-stack/telegraf/telegraf.conf" to rootfs at
+"/etc/telegraf/telegraf.conf": ... not a directory: Are you trying to mount a directory onto a file (or
+vice-versa)? Check if the specified host path exists and is the expected type`. Docker had already created the
+missing path itself, as an empty directory owned by root, so a second start without the file in place reproduced
+the identical error. The same first start also created the missing output folder
+`/opt/docker-stack/syncthing/data/network-watch` as root, so once the config was fixed Telegraf (user 1000)
+started but wrote nothing, restarting in a loop. `docker compose up -d telegraf` printing `Container telegraf
+Started` therefore did not prove Telegraf was working, only that the mount itself had succeeded.
+
+How it was proven: the owner's `ls -la /opt/docker-stack/` showed `compose.yaml` as a regular file with no
+`InstallationHelper` directory anywhere under it, ruling out a clone that had simply gone stale rather than never
+existed. Placing the real config at `/opt/docker-stack/telegraf/telegraf.conf` and running
+`docker compose up -d telegraf` again printed `Container telegraf Started`, confirming the mount itself, not
+Telegraf's own configuration, was the fault. The output-folder permission problem was measured from the owner's
+`docker logs --tail 20 telegraf` on 2026-10-09: `E! [agent] Failed to connect to [outputs.file], retrying in 15s,
+error was "open /network-watch/ping.csv: permission denied"` and `E! [telegraf] Error running agent: connecting
+output outputs.file: error connecting to output "outputs.file": open /network-watch/ping.csv: permission denied`.
+
+Wrong hypothesis worth keeping: the assistant first blamed the relative path itself and proposed rewriting the
+mount to an absolute path into the clone, which would have broken this exact layout, since there is no clone for
+an absolute path to point at.
+
+Why the test missed it: the Telegraf service was proven by running the image from the repository folder on the
+development machine, where `./telegraf/telegraf.conf` resolves correctly, so nothing ever exercised the
+copy-only layout this homelab actually runs.
+
+Fix: [network_watch.md](../homelab/network_watch.md), one-time setup section. It now creates
+`/opt/docker-stack/telegraf` and copies the config into it before the first start, either by curl download or by
+upload, says a repository clone at `/opt/docker-stack/InstallationHelper/homelab` already has the file in place,
+and warns that Docker silently creates a missing bind mount source as an empty root-owned directory for either
+the config file or the output folder. The output folder's own fix is
+`sudo chown -R 1000:1000 /opt/docker-stack/syncthing/data/network-watch` then `docker restart telegraf`, both
+documented in the same section of [network_watch.md](../homelab/network_watch.md).
+
+Mechanical check: none added yet, decision pending with the owner.
+
+#### Ignore Delete placed on a tab that does not have it
+
+Introduced by the assistant, in commit b2fc4f9.
+
+Cause: [network_watch.md](../homelab/network_watch.md) told the reader to open the folder's Advanced tab on the
+PC and turn on Ignore Delete there, but the folder's own Advanced tab has no such option. Syncthing shows it only in
+the Actions, Advanced dialog, under Folders, inside the panel for that one folder. The assistant wrote the location
+as verified against the documentation without ever checking the web page source, and the documentation does not
+say where the option sits in the web page at all.
+
+Effect: a reader following the guide would not find the option. Without it, the day Telegraf's rotation deletes a
+file older than 30 days on the server, Syncthing deletes the same file from the PC, so the permanent local copy
+the page exists to build loses its history.
+
+How it was proven: read from the Syncthing v2.1.2 web page source, the version the server runs, and again at
+v2.1.6, the newest release on 2026-10-09.
+[editFolderModalView.html](https://raw.githubusercontent.com/syncthing/syncthing/v2.1.2/gui/default/syncthing/folder/editFolderModalView.html)
+has no match for `ignoreDelete` or `Ignore Delete` at either tag. Its Advanced tab holds Folder Type and nothing
+for deletes.
+[advancedSettingsModalView.html](https://raw.githubusercontent.com/syncthing/syncthing/v2.1.2/gui/default/syncthing/settings/advancedSettingsModalView.html)
+lists every key of each folder under a "Folders" panel, labelled through `{{key | uncamel}}`, and
+`inputTypeFor` in `syncthingController.js` renders a boolean as a checkbox. The Actions menu in `index.html` opens
+that dialog through `ng-click="advanced()"`. The click path was read from source, not clicked through on either
+machine.
+
+Wrong hypothesis worth keeping: that the documentation had settled the location. The config reference at
+https://docs.syncthing.net/users/config.html describes the `ignoreDelete` key in the XML file and says nothing
+about the web page, so the location in the guide was an assumption presented as a verified fact.
+
+Why the test missed it: [e2e/tier1/compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh) checks that links
+resolve and compose files parse. Nothing can check a click path in a vendor's web page, so only reading the vendor
+source or using the page catches this.
+
+Fix: [network_watch.md](../homelab/network_watch.md), Syncthing section, steps 4 and 5. Folder Type is set on the
+folder's Advanced tab and saved, then Ignore Delete is ticked under Actions, Advanced, Folders, in the panel for
+this folder.
+
+Mechanical check: none possible from this repository, for the reason above.
+
+#### Perlite's setup created the Syncthing notes folder as root
+
+Pre-existing, found in the documentation sweep on 2026-10-09.
+
+Cause: [perlite_notes.md](../homelab/perlite_notes.md) created the notes folder with
+`sudo mkdir -p /opt/docker-stack/perlite /opt/docker-stack/syncthing/data/notes` and downloaded the nginx config
+with `sudo curl ... -o /opt/docker-stack/perlite/perlite.conf`. `/opt/docker-stack` already belongs to the login
+user from [proxmox_docker_vm.md](../homelab/proxmox_docker_vm.md), so `sudo` was never needed and made both root's.
+
+Effect: `/opt/docker-stack/syncthing/data/notes` owned by root, which Syncthing, running as `PUID` 1000, cannot
+write into, so the notes folder would sit in an error state on the server. This is the same class as the
+root-owned Telegraf output folder in
+[Instructions assumed a repository clone that this homelab does not have](#instructions-assumed-a-repository-clone-that-this-homelab-does-not-have).
+
+How it was proven: by inference, not reproduced for Perlite itself. `sudo mkdir` creates a folder owned by root,
+and the same day the owner's `docker logs --tail 20 telegraf` measured exactly that failure on a root-owned
+folder under `/opt/docker-stack/syncthing/data`: `open /network-watch/ping.csv: permission denied`. No Syncthing
+error on the notes folder was observed on the real server.
+
+Wrong hypothesis worth keeping: none.
+
+Why the test missed it: [e2e/tier1/compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh) checks links and
+compose files, not who owns a folder a documented command creates, and the Perlite steps were never run on a
+fresh VM after the folder ownership step in [proxmox_docker_vm.md](../homelab/proxmox_docker_vm.md) was added.
+
+Fix: [perlite_notes.md](../homelab/perlite_notes.md), "Prepare the directories". Both commands run without
+`sudo`, with one sentence saying `/opt/docker-stack` already belongs to the login user.
+
+Mechanical check: none added yet, decision pending with the owner.
+
+#### memory_saving_mode read backwards from the README's own warning
+
+Introduced by the assistant, while adding the `internet_speed` input to
+[telegraf.conf](../homelab/telegraf/telegraf.conf), caught in review before any commit.
+
+Cause: the plugin's own README says turning `memory_saving_mode` on "reduces the memory requirements and the
+runtime of the test at the cost of a reduced accuracy especially for fast (>30Mb/s) connections," naming this
+homelab's own 300 to 600 megabit line as exactly the connection the warning is about. The assistant read that
+sentence as a reason to turn the option on for a fast line rather than a reason to leave it off, and shipped
+`memory_saving_mode = true` in the config.
+
+Effect: every speed test row this configuration would have written understated the line's real throughput, which
+defeats the one thing [network_watch.md](../homelab/network_watch.md) asks the reader to do with this data,
+compare it against the Orange contract.
+
+How it was proven: run back to back with the real telegraf:1.40.1 image, `telegraf --test --input-filter
+internet_speed`, same development machine, 2026-10-09. `memory_saving_mode=true` gave download 120.2 and upload
+90.4 Mbps against server speed.datahouse.net. `memory_saving_mode=false` gave 207.7 and 201.2 Mbps against
+speedtest.telnaptelecom.pl, and a second false run gave 192.8 and 215.8 Mbps against
+speedtest.pl-waw.as210558.net. Each run hit a different server, so it is not a controlled comparison, but every
+false run beat the true run by roughly 70 to 90 percent, consistent with the README's warning rather than against
+it.
+
+Wrong hypothesis worth keeping: that enabling a setting literally named "memory saving" on a fast connection,
+where memory is not the constraint, was a safe default. The option's own name says nothing about the accuracy
+trade-off, only the README's prose does.
+
+Why the test missed it: [e2e/tier1/compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh) checks that compose
+files parse and documentation links resolve, not whether a plugin option matches its own documentation's advice,
+and the real-image verification run performed before this was caught measured only that the plugin produced a
+row, not whether the numbers in that row were trustworthy.
+
+Fix: [telegraf.conf](../homelab/telegraf/telegraf.conf), the `[[inputs.internet_speed]]` block. The
+`memory_saving_mode` line is removed, leaving it at its own default, off, and
+[network_watch.md](../homelab/network_watch.md) now says why, in the Speed test section.
+
+Mechanical check: none added yet, decision pending with the owner.
+
+#### A ten minute wait measured as the test's own duration
+
+Introduced by the assistant, in the same change, caught in review before any commit. This is the same shape as
+defect classes 11 and 14 in [AGENTS.md](../AGENTS.md), measuring something adjacent to the thing the claim is
+about rather than the thing itself.
+
+Cause: the real-image verification run started Telegraf with `interval = "10m"` and no `--test` flag, so
+Telegraf's own `round_interval` default held the first collection back until the next whole 10 minute mark on the
+clock. The assistant then read the wall clock time between container start and the row landing in `speed.csv`,
+10 minutes 26 seconds in one run and 8 minutes 50 seconds in a second, and wrote both into `network_watch.md` as
+how long the test itself takes to run.
+
+Effect: the guide told the reader a speed test fills the line for 8 to 10 minutes out of every 10 minute
+interval, which would mean the line is busy with this diagnostic almost continuously throughout the diagnostic
+period. The real figure is about 40 seconds. The same mistake reached the data volume estimate, which was built
+from byte counters read after that same long run, understating one test's real transfer by roughly the same
+order of magnitude, 240 MB against a corrected 685 MB.
+
+How it was proven: timed with `telegraf --test --input-filter internet_speed`, which gathers every input
+immediately rather than waiting for its own interval, against the same telegraf:1.40.1 image, same development
+machine, 2026-10-09. One test including the container's own startup took 47 seconds with `memory_saving_mode` on
+and 46 seconds with it off. Reading the container's own `/proc/net/dev` immediately after one of those runs, on
+an isolated bridge network so the counters belong to this container alone, gave eth0 received 282,184,059 bytes
+and sent 402,764,399 bytes, about 685 MB, for that one roughly 40 second test.
+
+Wrong hypothesis worth keeping: none. The first measurement was read as the test's own duration without checking
+what the agent's own `round_interval` setting does to a plugin's first collection.
+
+Why the test missed it: nothing in [e2e/tier1/compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh) runs
+Telegraf, and the real-image verification run that did run it never isolated the interval wait from the test
+itself, so a number that was mostly idle time was reported as the test's own cost.
+
+Fix: [network_watch.md](../homelab/network_watch.md), Speed test section. The duration, the clock alignment
+warning and the data volume estimate are rewritten with the `--test` measurements above, state which numbers are
+measured and where, and the wrong 10 minute and 8 minute figures are named as wrong rather than quietly replaced.
+
+Mechanical check: none added yet, decision pending with the owner.

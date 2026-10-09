@@ -186,10 +186,11 @@ Ports, credentials, and TLS notes live in [local-dev/README_LOCAL_DEV.md](local-
 Separate from the local-dev stack, [homelab/](homelab/) holds a Compose file and setup notes for an always-on server:
 a Proxmox host running two virtual machines. One is Home Assistant OS with a Zigbee dongle passed through to it. The
 other is Ubuntu with the Compose stack, running AdGuard Home for network wide DNS, Nginx Proxy Manager for private
-`.internal` names, plus Homepage, Uptime Kuma, Syncthing, and Perlite for reading a synced notes vault in a browser.
+`.internal` names, plus Homepage, Uptime Kuma, Syncthing, Perlite for reading a synced notes vault in a browser, and
+Telegraf recording proof of short internet provider outages.
 
 ```bash
-docker compose up -d
+cd /opt/docker-stack && docker compose up -d
 ```
 
 Start at [homelab/README_HOMELAB.md](homelab/README_HOMELAB.md). The documents are written as a template, so fill in
@@ -250,13 +251,14 @@ Released under the [MIT License](LICENSE).
 | [homelab/proxmox_docker_vm.md](homelab/proxmox_docker_vm.md)            | Building the Ubuntu VM on Proxmox and installing Docker Engine    |
 | [homelab/home_assistant_vm.md](homelab/home_assistant_vm.md)            | Home Assistant OS VM via `qm`, and Zigbee USB passthrough         |
 | [homelab/home_assistant_backup.md](homelab/home_assistant_backup.md)    | Home Assistant's own backups, encryption key, restore paths       |
-| [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, blocklists, router DNS |
+| [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, upstream resolvers, rate limit, blocklists, router DNS |
 | [homelab/nginx_proxy_manager.md](homelab/nginx_proxy_manager.md)        | Reverse proxy entries for each internal name, and verification    |
 | [homelab/ascend_web_search.md](homelab/ascend_web_search.md)            | AscendWebSearch stack: containers, secrets, resource limits, ngrok exposure |
 | [homelab/syncthing.md](homelab/syncthing.md)                            | Pairing devices, folder paths, ownership, file versioning         |
 | [homelab/perlite_notes.md](homelab/perlite_notes.md)                    | Publishing a synced notes vault as a website                      |
 | [homelab/homepage_dashboard.md](homelab/homepage_dashboard.md)          | Dashboard tiles, allowed hosts, status checks that bypass DNS     |
-| [homelab/uptime_kuma.md](homelab/uptime_kuma.md)                        | Monitors, ping versus HTTP checks, DNS resolution monitoring      |
+| [homelab/uptime_kuma.md](homelab/uptime_kuma.md)                        | Service monitors and network monitors, ping versus HTTP checks, DNS resolution monitoring |
+| [homelab/network_watch.md](homelab/network_watch.md)                    | Telegraf recording proof of short provider outages, and reading it back afterward |
 | [homelab/backup_restore.md](homelab/backup_restore.md)                  | vzdump, qmrestore, and backing up the service data directories    |
 | [e2e/README_E2E.md](e2e/README_E2E.md)                                  | End-to-end harness: the pre-commit gate, and running the playbook in containers |
 | [docs/regression_ledger.md](docs/regression_ledger.md)                  | Every regression the playbook has suffered, grouped by failure mechanism, with a prevention checklist |

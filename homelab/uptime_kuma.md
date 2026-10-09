@@ -10,26 +10,60 @@ Open `http://<docker-vm-ip>:7779`, or `http://uptime.internal` once the proxy en
 
 The setup wizard asks you to create an administrator account and to choose a database.
 
-Choose SQLite, the embedded option. It keeps everything in a single file under `/app/data`, which is mounted from `/opt/docker-stack/uptime-kuma/data` on the host, which is the directory [backup_restore.md](backup_restore.md) tells you to copy off the box. The external database option means a second service to run and back up separately, for a workload of a few checks a minute.
+Choose SQLite, the embedded option. It keeps everything in a single file under `/app/data`, which is mounted from `/opt/docker-stack/uptime-kuma/data` on the host, which is the directory [backup_restore.md](backup_restore.md) tells you to copy off the box. The external database option means a second service to run and back up separately, for a workload of about 180 checks a minute from the six network monitors alone, below.
+
+---
+
+### The 2.5.5 image
+
+The Compose file pins `louislam/uptime-kuma:2.5.5` ([compose.yaml](compose.yaml)). It carries nothing that needs a manual step beyond the version bump itself. The releases between 2.5.1 and 2.5.5 fixed a memory leak on TCP monitors, fixed a bug where the two ping timeout fields in the monitor form were swapped, and patched a denial of service weakness in a bundled library, CVE-2026-77415, listed in the official 2.5.4 release notes on GitHub. None of them touch the Docker image layout or the database schema.
 
 ---
 
 ### The monitors
 
+Two kinds of monitor live here: service checks that confirm each container answers, and network checks that
+catch a short provider outage before you would otherwise notice it.
+
+#### Service monitors
+
 | Service | Type | Target |
 |---|---|---|
-| Router | Ping | `<router>` |
 | Proxmox host | Ping | `<proxmox-host>` |
 | Home Assistant | HTTP(s) | `http://<ha-vm-ip>:8123` |
 | Nginx Proxy Manager | HTTP(s) | `http://<docker-vm-ip>:81` |
 | AdGuard Home interface | HTTP(s) | `http://<docker-vm-ip>:7777` |
-| AdGuard Home resolution | DNS | Resolve a public name using `<docker-vm-ip>` as the resolver |
 | Homepage | HTTP(s) | `http://<docker-vm-ip>:7778` |
 | Syncthing | HTTP(s) | `http://<docker-vm-ip>:7780` |
 | Perlite notes | HTTP(s) | `http://<docker-vm-ip>:7781` |
 | AscendWebSearch | HTTP(s) | `http://<docker-vm-ip>:7021/health` |
 
 Every target is an address and port, never an `.internal` name, for the same reason the dashboard checks work that way in [homepage_dashboard.md](homepage_dashboard.md). A monitor that resolves through AdGuard and travels through the proxy is really testing three things at once, and when it goes red it cannot tell you which one failed.
+
+#### Network monitors
+
+These six catch the thirty second provider drops that [network_watch.md](network_watch.md) records to disk.
+Add each one from scratch:
+
+1. Click Add New Monitor.
+2. Set Monitor Type to the type in the table below.
+3. Set Friendly Name to the name in the table below.
+4. Fill in the type-specific fields from the table below.
+5. Set Heartbeat Interval to 2, Retries to 1, and Heartbeat Retry Interval to 2.
+6. Click Save.
+
+| Friendly Name | Monitor Type | Fields |
+|---|---|---|
+| Asus Router | Ping | Hostname `192.168.1.1` |
+| AdGuard Home DNS | DNS | Hostname `connectivitycheck.gstatic.com`, Resolver Server `192.168.1.12`, Port `53`, Resource Record Type `A` |
+| Orange DNS | Ping | Hostname `194.204.159.1` |
+| Internet 1.1.1.1 | Ping | Hostname `1.1.1.1` |
+| DNS direct 1.1.1.1 | DNS | Hostname `connectivitycheck.gstatic.com`, Resolver Server `1.1.1.1`, Port `53`, Resource Record Type `A` |
+| Internet web check | HTTP(s) | URL `http://connectivitycheck.gstatic.com/generate_204` |
+
+Internet web check answers 204, which sits inside Uptime Kuma's own default accepted status code range, so leave that field alone.
+
+While you are in there, go to Settings, then Monitor History, and set "Keep monitor history data for" to 30 days, to match the CSV retention [network_watch.md](network_watch.md) keeps and stop the database from growing without a limit.
 
 ---
 
@@ -67,7 +101,7 @@ A monitoring system nobody is watching is a log file with a nicer font.
 
 Set up at least one notification channel under Settings, then Notifications. Uptime Kuma supports the usual chat and push services, and any of them beats none.
 
-Attach it to every monitor rather than a few, and set the retry count high enough that a single missed poll does not wake you. Two or three retries at sixty seconds is a reasonable starting point on a home network, where a brief blip is usually a device deciding to renew a lease rather than an outage.
+Attach it to every monitor rather than a few, and set the retry count high enough that a single missed poll does not wake you. For the service monitors, two or three retries at sixty seconds is a reasonable starting point on a home network, where a brief blip is usually a device deciding to renew a lease rather than an outage. The six network monitors keep their own tighter setting instead, interval 2, retries 1, retry interval 2, because they exist to catch a thirty second outage rather than to wait out a lease renewal.
 
 ---
 

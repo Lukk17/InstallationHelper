@@ -22,16 +22,18 @@ Nothing writes back. Perlite has no editor, no login, and the mount is read only
 
 ### Prepare the directories
 
-Create the notes directory and the one holding the nginx config:
+Create the notes directory and the one holding the nginx config. `/opt/docker-stack` already belongs to you, from
+[proxmox_docker_vm.md](proxmox_docker_vm.md), so this needs no `sudo`, and the notes folder stays owned by the
+same user Syncthing writes as:
 
 ```bash
-sudo mkdir -p /opt/docker-stack/perlite /opt/docker-stack/syncthing/data/notes
+mkdir -p /opt/docker-stack/perlite /opt/docker-stack/syncthing/data/notes
 ```
 
 Perlite ships its own nginx configuration, and the container will not serve anything sensible without it:
 
 ```bash
-sudo curl -fsSL https://raw.githubusercontent.com/secure-77/Perlite/main/web/config/perlite.conf -o /opt/docker-stack/perlite/perlite.conf
+curl -fsSL https://raw.githubusercontent.com/secure-77/Perlite/main/web/config/perlite.conf -o /opt/docker-stack/perlite/perlite.conf
 ```
 
 ---
@@ -41,7 +43,7 @@ sudo curl -fsSL https://raw.githubusercontent.com/secure-77/Perlite/main/web/con
 Move into the stack directory:
 
 ```bash
-cd /opt/docker-stack/InstallationHelper/homelab
+cd /opt/docker-stack
 ```
 
 Bring up only these two:

@@ -99,17 +99,26 @@ Then restore it as above.
 
 ### Back up the service data
 
+Stopping the stack first gives a cleaner snapshot, since databases written while the archive is being read can end
+up inconsistent.
+
+```bash
+cd /opt/docker-stack && docker compose down
+```
+
 Archive the whole data root from the VM, not just the Compose file.
 
 ```bash
-sudo tar czf /tmp/docker-stack-backup.tar.gz --exclude=docker-stack/InstallationHelper -C /opt docker-stack
+sudo tar czf /tmp/docker-stack-backup.tar.gz -C /opt docker-stack
 ```
 
-The exclusion drops the repository checkout that the quick start clones into that directory. It is already in version
-control, it is the largest thing under there, and restoring it from a tar rather than from `git clone` gives you a
-copy that silently stops tracking upstream.
+Start the stack again now that the archive has been taken.
 
-Then pull it down the same way as the VM archive.
+```bash
+cd /opt/docker-stack && docker compose up -d
+```
+
+Then pull the archive down the same way as the VM archive.
 
 Unix shell:
 
@@ -121,13 +130,6 @@ PowerShell:
 
 ```powershell
 scp <user>@<docker-vm-ip>:/tmp/docker-stack-backup.tar.gz $HOME\backups\
-```
-
-Stopping the stack first gives a cleaner snapshot, since databases written while the archive is being read can end
-up inconsistent.
-
-```bash
-docker compose down
 ```
 
 A graphical SFTP client is the easier route if you would rather drag the directory across than build an archive.
@@ -177,4 +179,4 @@ started, as covered in [home_assistant_vm.md](home_assistant_vm.md). Entities ca
 | Back up a VM | `vzdump <vmid> --storage local --mode snapshot --compress zstd` |
 | List archives | `ls -lh /var/lib/vz/dump/` |
 | Restore a VM | `qmrestore <archive> <vmid> --storage local-lvm` |
-| Archive service data | `sudo tar czf /tmp/docker-stack-backup.tar.gz --exclude=docker-stack/InstallationHelper -C /opt docker-stack` |
+| Archive service data | `sudo tar czf /tmp/docker-stack-backup.tar.gz -C /opt docker-stack` |

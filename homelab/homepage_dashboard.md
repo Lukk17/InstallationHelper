@@ -20,7 +20,7 @@ The container writes a default set of these on first start, so bring the stack u
 Homepage reloads most changes on its own within a few seconds. If a change does not appear, restart the one container:
 
 ```bash
-docker compose restart homepage
+cd /opt/docker-stack && docker compose restart homepage
 ```
 
 ---
@@ -46,7 +46,7 @@ environment:
 This is an environment variable, so the container has to be recreated rather than restarted:
 
 ```bash
-docker compose up -d homepage
+cd /opt/docker-stack && docker compose up -d homepage
 ```
 
 ---

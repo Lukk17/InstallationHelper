@@ -25,6 +25,8 @@ Every path you type into the Syncthing interface is a container path. When you a
 
 The notes folder used by the site is therefore `/data/notes` inside the container, which is `/opt/docker-stack/syncthing/data/notes` on the host.
 
+The network watch folder Telegraf writes into is `/data/network-watch` inside the container, which is `/opt/docker-stack/syncthing/data/network-watch` on the host. It is Send Only on the server, and Receive Only with Ignore Delete on your PC. The steps are in [network_watch.md](network_watch.md#syncthing-share-the-folder-and-protect-it-on-your-pc).
+
 `/config` holds the device identity. Lose it and this machine becomes a different device to every peer, and you get to accept every pairing again. It is inside `/opt/docker-stack/`, which is what [backup_restore.md](backup_restore.md) tells you to copy off the box.
 
 ---

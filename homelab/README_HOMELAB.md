@@ -6,7 +6,7 @@
 
 ### What this is
 
-A template for a small always-on server. A mini PC runs Proxmox. One virtual machine runs Home Assistant OS with a Zigbee dongle passed through to it. A second runs Ubuntu Server with Docker, where one Compose file brings up six services. AdGuard Home answers DNS for the whole network, Nginx Proxy Manager turns `something.internal` into the right container, and the rest are the services you actually use.
+A template for a small always-on server. A mini PC runs Proxmox. One virtual machine runs Home Assistant OS with a Zigbee dongle passed through to it. A second runs Ubuntu Server with Docker, where one Compose file brings up the services below. AdGuard Home answers DNS for the whole network, Nginx Proxy Manager turns `something.internal` into the right container, and the rest are the services you actually use.
 
 Instructions are written against placeholders in angle brackets so they stay reusable. Fill in your own addresses.
 
@@ -54,6 +54,8 @@ graph TB
             UK[Uptime Kuma]
             SY[Syncthing]
             PL[Perlite notes]
+            TG[Telegraf]
+            RD[Redis]
         end
     end
 
@@ -64,6 +66,7 @@ graph TB
     NPM --> SY
     NPM --> PL
     SY -->|synced folder on disk| PL
+    TG -->|rows written every second| SY
     USB[/Zigbee USB dongle/] --> Z2M
     Z2M --> MQ --> HA
     ZB([Zigbee devices]) -.-> USB
@@ -83,7 +86,7 @@ graph TB
 | Perlite | `notes.internal` | 7781 | 80 | Renders the synced notes folder as a read only website |
 | Redis | none, TCP only | 6379 | 6379 | In-memory cache, unauthenticated and with no data volume, used by AscendWebSearch below |
 | AscendWebSearch | `ascend-scrapper.internal` | 7021 | 7021 | Web search and scraping API, a separate Compose project joined to this one only through the shared proxy network |
-| Telegraf | none, host network | none | none | Records a ping, DNS and HTTP row every second as proof of short provider outages, written into the Syncthing folder |
+| Telegraf | none, host network | none | none | Records a ping and DNS row every second, an HTTP row every 5 seconds, and a download, upload and latency row every 10 minutes, as proof of short provider outages, written into the Syncthing folder |
 
 Nginx Proxy Manager also binds 80 and 443 for proxied traffic, AdGuard binds 53 for plain DNS plus 853 and 784 for the encrypted variants, and Syncthing binds 22000 and 21027 for its own peer protocol.
 
@@ -101,23 +104,39 @@ Proxmox is not a container and is not in the Compose file, so its proxy entry po
 
 The Proxmox host has to exist first, then the virtual machine. Follow [proxmox_host_install.md](proxmox_host_install.md), then [proxmox_docker_vm.md](proxmox_docker_vm.md), then come back here.
 
-Clone this repository onto the virtual machine:
+This stack runs from a plain copy of two files on the virtual machine, not a clone of this repository. Create the folder that holds the Telegraf config first:
 
 ```bash
-sudo git clone https://github.com/Lukk17/InstallationHelper.git /opt/docker-stack/InstallationHelper
+mkdir -p /opt/docker-stack/telegraf
 ```
 
-Move into the stack directory:
+Copy [compose.yaml](compose.yaml) to `/opt/docker-stack/compose.yaml`, with FileZilla, with `scp`, or by downloading it directly:
 
 ```bash
-cd /opt/docker-stack/InstallationHelper/homelab
+curl -fsSL https://raw.githubusercontent.com/Lukk17/InstallationHelper/master/homelab/compose.yaml -o /opt/docker-stack/compose.yaml
 ```
+
+Copy [telegraf/telegraf.conf](telegraf/telegraf.conf) to `/opt/docker-stack/telegraf/telegraf.conf` the same way:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lukk17/InstallationHelper/master/homelab/telegraf/telegraf.conf -o /opt/docker-stack/telegraf/telegraf.conf
+```
+
+Create the per-service folders the other containers bind mount into, so Docker never has to invent one of them itself and hand it to root. `/opt/docker-stack` already belongs to you, from [proxmox_docker_vm.md](proxmox_docker_vm.md), so none of this needs `sudo`:
+
+```bash
+mkdir -p /opt/docker-stack/{nginx/data,nginx/letsencrypt,adguard/work,adguard/conf,homepage/config,uptime-kuma/data,syncthing/config,syncthing/data,syncthing/data/network-watch}
+```
+
+Perlite needs one more folder and a config file of its own before it will serve anything, covered in [perlite_notes.md](perlite_notes.md), and Telegraf needs a one-time sysctl check for its ping permission, covered in [network_watch.md](network_watch.md).
 
 Start everything:
 
 ```bash
-docker compose up -d
+cd /opt/docker-stack && docker compose up -d
 ```
+
+Updating later means copying the newer `compose.yaml` and `telegraf.conf` over the old ones the same way, then running that same `cd /opt/docker-stack && docker compose up -d` again.
 
 Then configure the two services that need it: [adguard_dns.md](adguard_dns.md) first, because AdGuard owns the `.internal` names, and [nginx_proxy_manager.md](nginx_proxy_manager.md) second.
 
@@ -125,14 +144,17 @@ Then configure the two services that need it: [adguard_dns.md](adguard_dns.md) f
 
 ### Configuration
 
-Four values in the Compose file are host specific. None of them is a secret, so they sit in the file directly.
+The values in the Compose file that are host specific sit in the file directly, since none of them is a secret.
 
 | Setting | Default here | Why you might change it |
 |---|---|---|
 | `HOMEPAGE_ALLOWED_HOSTS` | `dashboard-proxmox.internal` | Homepage rejects any hostname missing from this list. Add `<docker-vm-ip>:7778` if you also open it by address |
 | `PUID` | `1000` | User ID that owns the Syncthing files on the host |
 | `PGID` | `1000` | Group ID for the same |
-| `TZ` | `Europe/Warsaw` | Timezone inside the Syncthing container |
+| `TZ` (Syncthing) | `Europe/Warsaw` | Timezone inside the Syncthing container |
+| Telegraf `user` | `1000:1000` | Set directly in the Compose file rather than as an environment variable, so Telegraf can write into the Syncthing folder the same `PUID`/`PGID` above owns |
+| Telegraf `TZ` | `Europe/Warsaw` | Timezone inside the Telegraf container, set separately from Syncthing's |
+| Telegraf `network_mode` | `host` | Telegraf shares the VM's network namespace instead of the bridge network, which the ping checks in [network_watch.md](network_watch.md) need |
 
 The stack carries no passwords or tokens. Every service sets its own credentials on first run and stores them under `/opt/docker-stack/`, which never enters version control.
 
@@ -193,12 +215,12 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [proxmox_docker_vm.md](proxmox_docker_vm.md) | Creating the Ubuntu VM, installing Docker Engine, freeing port 53 |
 | [home_assistant_vm.md](home_assistant_vm.md) | Building the Home Assistant OS VM with `qm`, and Zigbee USB passthrough |
 | [home_assistant_backup.md](home_assistant_backup.md) | Home Assistant's own backups, the encryption key, and restoring |
-| [adguard_dns.md](adguard_dns.md) | AdGuard first run, the `.internal` wildcard rewrite, blocklists, router DNS cutover |
+| [adguard_dns.md](adguard_dns.md) | AdGuard first run, the `.internal` wildcard rewrite, upstream resolvers, rate limit, blocklists, router DNS cutover |
 | [nginx_proxy_manager.md](nginx_proxy_manager.md) | Adding the proxy host entries and verifying them |
 | [syncthing.md](syncthing.md) | Pairing devices, folder paths, ownership, versioning |
 | [perlite_notes.md](perlite_notes.md) | Publishing the synced notes folder as a website |
 | [homepage_dashboard.md](homepage_dashboard.md) | Dashboard tiles, allowed hosts, and why the status check bypasses DNS |
-| [uptime_kuma.md](uptime_kuma.md) | Monitors, why Proxmox is a ping, why AdGuard gets two checks |
+| [uptime_kuma.md](uptime_kuma.md) | Service monitors and network monitors, why Proxmox is a ping, why AdGuard gets two checks |
 | [network_watch.md](network_watch.md) | Telegraf recording proof of short provider outages, and reading it back afterward |
 | [ascend_web_search.md](ascend_web_search.md) | AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
 | [backup_restore.md](backup_restore.md) | Backing up the VMs and the service data, and restoring both |

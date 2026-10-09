@@ -177,12 +177,16 @@ it flushes them to the file.
 ### Keep the network watch domain out of the query log and statistics
 
 The Telegraf network watcher described in [network_watch.md](network_watch.md) asks AdGuard Home for
-`connectivitycheck.gstatic.com` once a second, 86,400 times a day. Left alone, that one name drowns out every
-other query in both the query log above and the statistics page.
+`connectivitycheck.gstatic.com` once a second, 86,400 times a day. The AdGuard Home DNS monitor in
+[uptime_kuma.md](uptime_kuma.md#network-monitors) asks the same name every 2 seconds, adding roughly 43,200 more
+lookups a day. Left alone, those two together would drown out every other query in both the query log above and
+the statistics page.
 
 Go to Settings, then General settings. Add `connectivitycheck.gstatic.com` to Ignored domains on the Logs
 configuration card, then add the same domain to Ignored domains again on the Statistics configuration card. They
-are two separate fields that happen to sit side by side, so the domain has to go into both.
+are two separate fields that happen to sit side by side, so the domain has to go into both. The one ignore rule
+covers both sources, Telegraf and the Uptime Kuma monitor alike, since AdGuard matches by domain name regardless
+of which client asked.
 
 ---
 
