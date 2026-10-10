@@ -128,6 +128,65 @@ services:
       timeout: 3s
       retries: 5
 
+  filebrowser:
+    image: gtstef/filebrowser:2.0.0-stable-slim
+    container_name: filebrowser
+    restart: unless-stopped
+    user: "1000:1000"
+    networks:
+      - proxy-tier
+    environment:
+      - TZ=Europe/Warsaw
+    ports:
+      - "7782:80/tcp"
+    volumes:
+      - /opt/docker-stack/filebrowser/data:/home/filebrowser/data
+      - type: bind
+        source: /mnt/data/files
+        target: /srv
+        bind:
+          create_host_path: false
+
+  samba:
+    image: dockurr/samba:4.23.10
+    container_name: samba
+    restart: unless-stopped
+    environment:
+      - NAME=files
+      - USER=${SAMBA_USER:?set SAMBA_USER in /opt/docker-stack/.env}
+      - PASS=${SAMBA_PASS:?set SAMBA_PASS in /opt/docker-stack/.env}
+      - UID=1000
+      - GID=1000
+    ports:
+      - "445:445/tcp"
+    volumes:
+      - type: bind
+        source: /mnt/data/files
+        target: /shared
+        bind:
+          create_host_path: false
+
+  plex:
+    image: plexinc/pms-docker:1.43.4.10903-e5521bd8c
+    container_name: plex
+    restart: unless-stopped
+    network_mode: host
+    cpus: 1.5
+    environment:
+      - TZ=Europe/Warsaw
+      - PLEX_UID=1000
+      - PLEX_GID=1000
+      - PLEX_CLAIM=${PLEX_CLAIM:-}
+    volumes:
+      - /opt/docker-stack/plex/config:/config
+      - /opt/docker-stack/plex/transcode:/transcode
+      - type: bind
+        source: /mnt/data/files/media
+        target: /data
+        read_only: true
+        bind:
+          create_host_path: false
+
   telegraf:
     image: telegraf:1.40.1
     container_name: telegraf

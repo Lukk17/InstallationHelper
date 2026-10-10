@@ -117,6 +117,18 @@ Replace the placeholders with your own addresses. The concrete example block is 
         href: http://notes.internal
         siteMonitor: http://<docker-vm-ip>:7781
         description: Markdown notes viewer
+    - File Browser:
+        icon: filebrowser
+        href: http://drive.internal
+        siteMonitor: http://<docker-vm-ip>:7782/health
+        description: Shared files on the USB disk, also at \\drive.internal\files
+
+- Media:
+    - Plex:
+        icon: plex
+        href: http://plex.internal/web
+        siteMonitor: http://<docker-vm-ip>:32400/identity
+        description: Films and series, direct play only
 ```
 
 The indentation is load bearing. A group is a list item whose value is a list of services, and each service is a mapping with one key. Homepage fails quietly on a malformed file, showing an empty dashboard rather than an error, so check your indentation first when nothing renders.

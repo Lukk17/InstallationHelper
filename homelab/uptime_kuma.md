@@ -37,6 +37,9 @@ catch a short provider outage before you would otherwise notice it.
 | Syncthing | HTTP(s) | `http://<docker-vm-ip>:7780` |
 | Perlite notes | HTTP(s) | `http://<docker-vm-ip>:7781` |
 | AscendWebSearch | HTTP(s) | `http://<docker-vm-ip>:7021/health` |
+| File Browser | HTTP(s) | `http://<docker-vm-ip>:7782/health` |
+| Samba network drive | TCP Port | Hostname `<docker-vm-ip>`, Port `445` |
+| Plex | HTTP(s) | `http://<docker-vm-ip>:32400/identity` |
 
 Every target is an address and port, never an `.internal` name, for the same reason the dashboard checks work that way in [homepage_dashboard.md](homepage_dashboard.md). A monitor that resolves through AdGuard and travels through the proxy is really testing three things at once, and when it goes red it cannot tell you which one failed.
 
