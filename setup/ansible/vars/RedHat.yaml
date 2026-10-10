@@ -9,6 +9,82 @@ openrazer_device_group: "plugdev"
 # container creates group 'docker' through its sysusers.d entry.
 docker_group: "docker"
 
+# Every third-party dnf repository software_installer/tasks/fedora_repos.yaml adds, keyed by the toggle
+# that asks for it, so install_<key> decides whether it is set up and the software_mapping entry of the
+# same key is the package that needs it. Docker has no mapping entry because virtualization_config
+# installs it, and Antigravity has none because custom_installs.yaml installs it from a tarball and the
+# repository only carries its later updates, which is what updates_only says.
+#
+# files is the .repo file that defines the repository, and setup/ansible/tasks/
+# repository_availability.yaml reads it to decide whether the repository is on this machine, for the
+# playbook and for verify_install.yaml alike. A key rpm_key imported stays imported when the rescue
+# runs, because a trusted vendor key with no repository behind it installs nothing.
+#
+# repo_ids is the id of every enabled repository inside that file, the name dnf knows it by, which
+# software_installer/tasks/fedora_repository_check.yaml hands to `dnf makecache --repo`. For a file
+# yum_repository writes it is that task's name. For the three files fetched from a vendor it was read
+# out of the file itself on 2026-10-10: hashicorp.repo holds [hashicorp] and the disabled
+# [hashicorp-test], docker-ce.repo holds [docker-ce-stable] and three disabled test and source
+# repositories, and hardware:razer.repo holds [hardware_razer]. Only the enabled ones are listed,
+# because naming a disabled one to --repo enables it. An id a vendor later renames makes the check
+# answer `No matching repositories`, exit 2, so it fails loudly rather than passing over nothing.
+third_party_repositories:
+  chrome:
+    vendor: "Google Chrome"
+    files: ["/etc/yum.repos.d/google-chrome.repo"]
+    repo_ids: ["google-chrome"]
+  brave:
+    vendor: "Brave"
+    files: ["/etc/yum.repos.d/brave-browser.repo"]
+    repo_ids: ["brave-browser"]
+  vscode:
+    vendor: "Microsoft VS Code"
+    files: ["/etc/yum.repos.d/vscode.repo"]
+    repo_ids: ["vscode"]
+  sublime:
+    vendor: "Sublime Text"
+    files: ["/etc/yum.repos.d/sublime-text.repo"]
+    repo_ids: ["sublime-text"]
+  kubectl:
+    vendor: "Kubernetes"
+    files: ["/etc/yum.repos.d/kubernetes.repo"]
+    repo_ids: ["kubernetes"]
+  terraform:
+    vendor: "HashiCorp"
+    files: ["/etc/yum.repos.d/hashicorp.repo"]
+    repo_ids: ["hashicorp"]
+  lens:
+    vendor: "Lens"
+    files: ["/etc/yum.repos.d/lens.repo"]
+    repo_ids: ["lens"]
+  antigravity:
+    vendor: "Antigravity"
+    updates_only: true
+    files: ["/etc/yum.repos.d/antigravity-rpm.repo"]
+    repo_ids: ["antigravity-rpm"]
+  docker:
+    vendor: "Docker"
+    files: ["/etc/yum.repos.d/docker-ce.repo"]
+    repo_ids: ["docker-ce-stable"]
+  openrazer:
+    vendor: "OpenRazer"
+    files: ["/etc/yum.repos.d/hardware:razer.repo"]
+    repo_ids: ["hardware_razer"]
+  tailscale:
+    vendor: "Tailscale"
+    files: ["/etc/yum.repos.d/tailscale-stable.repo"]
+    repo_ids: ["tailscale-stable"]
+  # Written by ensure_gum in setup/setup.sh rather than by fedora_repos.yaml, so it has no repository
+  # block. The id is the [charm] section that function writes. Nothing reads this entry before a dnf
+  # refresh, because dnf on Fedora 44 skips a repository that does not answer, as site.yaml records.
+  # It is here so e2e/tier1/availability_facts.sh can hold every .repo file written under setup/ to an
+  # entry, and so a vendor whose file it is can be looked up in one place.
+  charm:
+    vendor: "Charm (gum)"
+    added_by: "setup/setup.sh"
+    files: ["/etc/yum.repos.d/charm.repo"]
+    repo_ids: ["charm"]
+
 software_mapping:
   # Browsers
   chrome: { manager: "dnf", package: "google-chrome-stable" }
@@ -58,6 +134,9 @@ software_mapping:
   bitwarden: { manager: "flatpak", package: "com.bitwarden.desktop" }
   keepassxc: { manager: "dnf", package: "keepassxc" }
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
+
+  # AI
+  opencode_desktop: { manager: "flatpak", package: "ai.opencode.opencode" }   # Flathub, the desktop app. The CLI is the npm package, not this.
 
   # Media / Design
   vlc: { manager: "dnf", package: "vlc" }

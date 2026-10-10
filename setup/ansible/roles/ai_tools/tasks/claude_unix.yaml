@@ -12,7 +12,7 @@
 #
 # What was here before downloaded a file from a content host and installed it with a raw apt-get. That
 # URL now answers 404, so the install had been broken for some time and nothing noticed, because the
-# toggle is off by default on Linux and no container run reaches it. Found by the pinned-location check
+# toggle was off by default on Linux then and no container run reached it. Found by the pinned-location check
 # in tier 2 rather than by a person.
 
 - name: Check if Claude Desktop is installed (Arch Linux)
@@ -36,6 +36,20 @@
     - install_claude_desktop | default(false) | bool
     - ih_family == 'Archlinux'
     - claude_desktop_arch_check.rc != 0
+    - paru_available | default(false) | bool
+
+# claude-desktop is an Arch User Repository package, so without paru it is not installed, and it is
+# named among the skipped packages in the run's final summary rather than left out silently.
+# paru_available comes from setup/ansible/tasks/paru_availability.yaml through arch_core.
+- name: Record Claude Desktop as NOT installed because paru could not be built (Arch Linux)
+  ansible.builtin.set_fact:
+    aur_skipped_without_paru: "{{ aur_skipped_without_paru | default([]) + ['claude-desktop'] }}"
+    any_role_failed: true
+  when:
+    - install_claude_desktop | default(false) | bool
+    - ih_family == 'Archlinux'
+    - claude_desktop_arch_check.rc != 0
+    - not (paru_available | default(false) | bool)
 
 - name: Install Claude Desktop (macOS)
   community.general.homebrew_cask:

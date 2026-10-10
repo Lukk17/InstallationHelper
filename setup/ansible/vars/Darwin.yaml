@@ -53,6 +53,7 @@ software_mapping:
 
   # AI
   chatgpt: { manager: "brew_cask", package: "chatgpt" }   # Official OpenAI build from persistent.oaistatic.com (arm64 + x86_64), needs macOS 12 or newer
+  opencode_desktop: { manager: "brew_cask", package: "opencode-desktop" }   # OpenCode.app in /Applications, needs macOS 12 or newer. The CLI is the npm package, not this cask.
 
   # Peripherals
   # synapse: installed via macos_install.yaml (official .pkg from dl.razerzone.com). Razer publishes no

@@ -3,7 +3,7 @@
 # Every application the playbook would install on macOS with the toggles as they ship,
 # expressed as a Brewfile so a Mac can be brought up with Homebrew alone.
 #
-# 16 formulae and 47 casks. Install with:
+# 16 formulae and 48 casks. Install with:
 #
 #     brew bundle install --file setup/manifests/Brewfile
 #
@@ -62,6 +62,7 @@ cask "lens"
 cask "lulu"
 cask "obsidian"
 cask "onlyoffice"
+cask "opencode-desktop"
 cask "postman"
 cask "prusaslicer"
 cask "rawtherapee"

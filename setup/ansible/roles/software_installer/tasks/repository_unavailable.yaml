@@ -1,0 +1,49 @@
+---
+# The rescue every repository block in debian_repos.yaml and fedora_repos.yaml includes, with
+# repository_key naming its entry in os_dict.third_party_repositories. One copy, so a repository that
+# could not be added is undone, recorded and named the same way whichever vendor it was.
+#
+# The files go first, and that is what keeps the rest of the run working rather than tidiness. A sources
+# entry whose key never arrived, or whose host does not answer, fails every later `apt-get update`, and
+# the apt cache refresh after the last repository is one of those, so leaving it behind would have
+# turned one dead vendor back into a dead software phase. Removing them is also what makes
+# setup/ansible/tasks/repository_availability.yaml, which asks the disk, report this repository as
+# unavailable, and every consumer then skips only the packages that need it.
+- name: Remove what was written for the repository that could not be added
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  become: true
+  loop: >-
+    {{ os_dict.third_party_repositories[repository_key].files
+       + os_dict.third_party_repositories[repository_key].keyrings | default([]) }}
+
+- name: Record that a third-party repository could not be added
+  ansible.builtin.set_fact:
+    any_role_failed: true
+
+# repository_rechecked is set by debian_repository_recheck.yaml, which checks a repository an earlier
+# run added before the first apt cache refresh of this one, so the words say what happened there.
+- name: Name the repository that could not be added and what it costs
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+      {{ ansible_failed_result.msg | default('no message given') }}
+      {% if repository_rechecked | default(false) | bool %}
+      The {{ os_dict.third_party_repositories[repository_key].vendor }} repository an earlier run added
+      does not answer, so its files were removed to keep the apt cache refresh working.
+      {% if os_dict.third_party_repositories[repository_key].added_by is defined %}
+      {{ os_dict.third_party_repositories[repository_key].added_by }} adds it again when it needs it,
+      and until then the copy already installed receives no updates through it.
+      {% else %}
+      {{ 'The software installer adds it again later in this run, and if it still does not answer, it is named again there with what that costs'
+         if lookup('vars', 'install_' ~ repository_key, default=false) | bool
+         else 'It was not asked for in this run, so nothing is skipped, and the copy already installed receives no updates through it until a run that asks for it adds it again' }}.
+      {% endif %}
+      {% else %}
+      The {{ os_dict.third_party_repositories[repository_key].vendor }} repository could not be added,
+      so {{ 'nothing installs from it in this run, and the copy already installed will not receive updates through it'
+            if os_dict.third_party_repositories[repository_key].updates_only | default(false)
+            else 'what installs from it is skipped and named as NOT installed further down, and a copy installed by an earlier run gets no updates until a later run adds the repository again' }}.
+      {% endif %}
+      Everything else continues, and the run is marked failed.

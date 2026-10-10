@@ -7,6 +7,18 @@
 # defect in this repository and both cost a job of twenty minutes or more. The vendor downloads in
 # custom_installs.yaml already had this and the repository key downloads did not, which was an
 # inconsistency rather than a decision.
+#
+# Retries are not enough on their own, because a vendor host that is down stays down for all three
+# attempts. Until 2026-10-10 nothing here had a rescue, so one repository that could not be added
+# ended the whole software phase, and every package after it was skipped, from every manager. Each
+# repository is now its own block. Its last step fetches that repository's package lists on their own
+# through debian_repository_check.yaml, because writing a sources file touches no network and a dead
+# host would otherwise only surface at the shared refresh at the bottom of this file. Its rescue is
+# repository_unavailable.yaml, which removes what the block wrote, records the failure and names it.
+# setup/ansible/tasks/repository_availability.yaml then reads the disk, and dynamic_install.yaml,
+# custom_installs.yaml and virtualization_config skip and name only what needed that repository.
+# Every repository here has an entry of the same key in vars/Debian.yaml under
+# third_party_repositories, and e2e/tier1/availability_facts.sh fails the gate when the two drift.
 
 # Set up official APT repositories before batched apt installs.
 # Uses /etc/apt/keyrings/ + signed-by= with DEARMORED binary keyrings (.gpg).
@@ -27,356 +39,593 @@
 # so each repo is two tasks: download to /tmp, dearmor into /etc/apt/keyrings.
 
 # --- Google Chrome ---
-- name: Download Google Chrome signing key
-  ansible.builtin.get_url:
-    url: https://dl.google.com/linux/linux_signing_key.pub
-    dest: /tmp/google-chrome.asc
-    mode: '0644'
-    force: true
+- name: Add the Google Chrome repository
   when: install_chrome | default(false) | bool
-  register: download_google_chrome_signing_key_fetch
-  retries: 3
-  delay: 10
-  until: download_google_chrome_signing_key_fetch is succeeded
+  block:
+    - name: Download Google Chrome signing key
+      ansible.builtin.get_url:
+        url: https://dl.google.com/linux/linux_signing_key.pub
+        dest: /tmp/google-chrome.asc
+        mode: '0644'
+        force: true
+      register: download_google_chrome_signing_key_fetch
+      retries: 3
+      delay: 10
+      until: download_google_chrome_signing_key_fetch is succeeded
 
-- name: Convert Google Chrome key to binary keyring
-  ansible.builtin.shell: |
-    set -o pipefail
-    gpg --dearmor < /tmp/google-chrome.asc > /etc/apt/keyrings/google-chrome.gpg
-    chmod 0644 /etc/apt/keyrings/google-chrome.gpg
-  args:
-    executable: /bin/bash
-    creates: /etc/apt/keyrings/google-chrome.gpg
-  become: true
-  when: install_chrome | default(false) | bool
+    - name: Convert Google Chrome key to binary keyring
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --dearmor < /tmp/google-chrome.asc > /etc/apt/keyrings/google-chrome.gpg
+        chmod 0644 /etc/apt/keyrings/google-chrome.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/google-chrome.gpg
+      become: true
 
-# google-chrome-stable owns this repository itself once it has been installed once, and the line
-# below only exists to bootstrap that first install.
-#
-# What the package does, read out of /var/lib/dpkg/info/google-chrome-stable.postinst inside a
-# debian:trixie container that had just installed Chrome from the repository this task adds: its
-# install_deb822_sources() runs on every install and upgrade, recognises the line below through its
-# own REPOCONFIGREGEX, rewrites it into /etc/apt/sources.list.d/google-chrome.sources in deb822 form
-# pointing at https://dl.google.com/linux/chrome-stable/deb/ and signed by
-# /usr/share/keyrings/google-chrome.gpg, and then deletes /etc/apt/sources.list.d/google-chrome.list
-# outright. The container showed the .list file present before the install and gone after it, with
-# the .sources file in its place.
-#
-# So on every later run apt_repository found its file missing, wrote it again and reported changed
-# forever, and left the machine carrying two definitions of the same repository. Skipping once the
-# package's own file exists is what stops it, and it is also the honest description of who owns the
-# repository at that point.
-- name: Check whether google-chrome-stable already owns its apt repository
-  ansible.builtin.stat:
-    path: /etc/apt/sources.list.d/google-chrome.sources
-  register: chrome_vendor_sources
-  when: install_chrome | default(false) | bool
+    # google-chrome-stable owns this repository itself once it has been installed once, and the line
+    # below only exists to bootstrap that first install.
+    #
+    # What the package does, read out of /var/lib/dpkg/info/google-chrome-stable.postinst inside a
+    # debian:trixie container that had just installed Chrome from the repository this task adds: its
+    # install_deb822_sources() runs on every install and upgrade, recognises the line below through its
+    # own REPOCONFIGREGEX, rewrites it into /etc/apt/sources.list.d/google-chrome.sources in deb822 form
+    # pointing at https://dl.google.com/linux/chrome-stable/deb/ and signed by
+    # /usr/share/keyrings/google-chrome.gpg, and then deletes /etc/apt/sources.list.d/google-chrome.list
+    # outright. The container showed the .list file present before the install and gone after it, with
+    # the .sources file in its place.
+    #
+    # So on every later run apt_repository found its file missing, wrote it again and reported changed
+    # forever, and left the machine carrying two definitions of the same repository. Skipping once the
+    # package's own file exists is what stops it, and it is also the honest description of who owns the
+    # repository at that point.
+    - name: Check whether google-chrome-stable already owns its apt repository
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list.d/google-chrome.sources
+      register: chrome_vendor_sources
 
-- name: Add Google Chrome apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main"
-    filename: google-chrome
-    state: present
-    update_cache: false
-  become: true
-  when:
-    - install_chrome | default(false) | bool
-    - not (chrome_vendor_sources.stat.exists | default(false))
+    - name: Add Google Chrome apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main"
+        filename: google-chrome
+        state: present
+        update_cache: false
+      become: true
+      when: not (chrome_vendor_sources.stat.exists | default(false))
+
+    - name: Fetch the Google Chrome package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: chrome
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Google Chrome repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: chrome
+      tags: [always]
 
 # --- Brave Browser ---
 # Brave publishes an already-binary keyring, so no dearmor needed.
-- name: Download Brave signing key (already binary)
-  ansible.builtin.get_url:
-    url: https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
-    dest: /etc/apt/keyrings/brave-browser-archive-keyring.gpg
-    mode: '0644'
-  become: true
+- name: Add the Brave repository
   when: install_brave | default(false) | bool
-  register: download_brave_signing_key_already_binary_fetch
-  retries: 3
-  delay: 10
-  until: download_brave_signing_key_already_binary_fetch is succeeded
+  block:
+    - name: Download Brave signing key (already binary)
+      ansible.builtin.get_url:
+        url: https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+        dest: /etc/apt/keyrings/brave-browser-archive-keyring.gpg
+        mode: '0644'
+      become: true
+      register: download_brave_signing_key_already_binary_fetch
+      retries: 3
+      delay: 10
+      until: download_brave_signing_key_already_binary_fetch is succeeded
 
-- name: Add Brave apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main"
-    filename: brave-browser
-    state: present
-    update_cache: false
-  become: true
-  when: install_brave | default(false) | bool
+    - name: Add Brave apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main"
+        filename: brave-browser
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the Brave package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: brave
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Brave repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: brave
+      tags: [always]
 
 # --- Microsoft VS Code ---
-- name: Download Microsoft signing key for VS Code
-  ansible.builtin.get_url:
-    url: https://packages.microsoft.com/keys/microsoft.asc
-    dest: /tmp/packages.microsoft.asc
-    mode: '0644'
-    force: true
+- name: Add the Microsoft VS Code repository
   when: install_vscode | default(false) | bool
-  register: download_microsoft_signing_key_for_vs_code_fetch
-  retries: 3
-  delay: 10
-  until: download_microsoft_signing_key_for_vs_code_fetch is succeeded
+  block:
+    - name: Download Microsoft signing key for VS Code
+      ansible.builtin.get_url:
+        url: https://packages.microsoft.com/keys/microsoft.asc
+        dest: /tmp/packages.microsoft.asc
+        mode: '0644'
+        force: true
+      register: download_microsoft_signing_key_for_vs_code_fetch
+      retries: 3
+      delay: 10
+      until: download_microsoft_signing_key_for_vs_code_fetch is succeeded
 
-- name: Convert Microsoft key to binary keyring
-  ansible.builtin.shell: |
-    set -o pipefail
-    gpg --dearmor < /tmp/packages.microsoft.asc > /etc/apt/keyrings/packages.microsoft.gpg
-    chmod 0644 /etc/apt/keyrings/packages.microsoft.gpg
-  args:
-    executable: /bin/bash
-    creates: /etc/apt/keyrings/packages.microsoft.gpg
-  become: true
-  when: install_vscode | default(false) | bool
+    - name: Convert Microsoft key to binary keyring
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --dearmor < /tmp/packages.microsoft.asc > /etc/apt/keyrings/packages.microsoft.gpg
+        chmod 0644 /etc/apt/keyrings/packages.microsoft.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/packages.microsoft.gpg
+      become: true
 
-- name: Add VS Code apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main"
-    filename: vscode
-    state: present
-    update_cache: false
-  become: true
-  when: install_vscode | default(false) | bool
+    - name: Add VS Code apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main"
+        filename: vscode
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the Microsoft VS Code package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: vscode
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Microsoft VS Code repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: vscode
+      tags: [always]
 
 # --- Sublime Text ---
-- name: Download Sublime Text signing key (ASCII despite .gpg URL suffix)
-  ansible.builtin.get_url:
-    url: https://download.sublimetext.com/sublimehq-pub.gpg
-    dest: /tmp/sublimehq-pub.asc
-    mode: '0644'
-    force: true
+- name: Add the Sublime Text repository
   when: install_sublime | default(false) | bool
-  register: download_sublime_text_signing_key_ascii_despite_gpg_url_suffix_fetch
-  retries: 3
-  delay: 10
-  until: download_sublime_text_signing_key_ascii_despite_gpg_url_suffix_fetch is succeeded
+  block:
+    - name: Download Sublime Text signing key (ASCII despite .gpg URL suffix)
+      ansible.builtin.get_url:
+        url: https://download.sublimetext.com/sublimehq-pub.gpg
+        dest: /tmp/sublimehq-pub.asc
+        mode: '0644'
+        force: true
+      register: download_sublime_text_signing_key_ascii_despite_gpg_url_suffix_fetch
+      retries: 3
+      delay: 10
+      until: download_sublime_text_signing_key_ascii_despite_gpg_url_suffix_fetch is succeeded
 
-- name: Convert Sublime key to binary keyring
-  ansible.builtin.shell: |
-    set -o pipefail
-    gpg --dearmor < /tmp/sublimehq-pub.asc > /etc/apt/keyrings/sublimehq-pub.gpg
-    chmod 0644 /etc/apt/keyrings/sublimehq-pub.gpg
-  args:
-    executable: /bin/bash
-    creates: /etc/apt/keyrings/sublimehq-pub.gpg
-  become: true
-  when: install_sublime | default(false) | bool
+    - name: Convert Sublime key to binary keyring
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --dearmor < /tmp/sublimehq-pub.asc > /etc/apt/keyrings/sublimehq-pub.gpg
+        chmod 0644 /etc/apt/keyrings/sublimehq-pub.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/sublimehq-pub.gpg
+      become: true
 
-- name: Add Sublime Text apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/sublimehq-pub.gpg] https://download.sublimetext.com/ apt/stable/"
-    filename: sublime-text
-    state: present
-    update_cache: false
-  become: true
-  when: install_sublime | default(false) | bool
+    - name: Add Sublime Text apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/sublimehq-pub.gpg] https://download.sublimetext.com/ apt/stable/"
+        filename: sublime-text
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the Sublime Text package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: sublime
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Sublime Text repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: sublime
+      tags: [always]
 
 # --- Kubernetes (kubectl) ---
-- name: Download Kubernetes signing key
-  ansible.builtin.get_url:
-    url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/deb/Release.key"
-    dest: /tmp/kubernetes-apt-keyring.asc
-    mode: '0644'
-    force: true
+- name: Add the Kubernetes repository
   when: install_kubectl | default(false) | bool
-  register: download_kubernetes_signing_key_fetch
-  retries: 3
-  delay: 10
-  until: download_kubernetes_signing_key_fetch is succeeded
+  block:
+    - name: Download Kubernetes signing key
+      ansible.builtin.get_url:
+        url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/deb/Release.key"
+        dest: /tmp/kubernetes-apt-keyring.asc
+        mode: '0644'
+        force: true
+      register: download_kubernetes_signing_key_fetch
+      retries: 3
+      delay: 10
+      until: download_kubernetes_signing_key_fetch is succeeded
 
-- name: Convert Kubernetes key to binary keyring
-  ansible.builtin.shell: |
-    set -o pipefail
-    gpg --dearmor < /tmp/kubernetes-apt-keyring.asc > /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-    chmod 0644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-  args:
-    executable: /bin/bash
-    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-  become: true
-  when: install_kubectl | default(false) | bool
+    - name: Convert Kubernetes key to binary keyring
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --dearmor < /tmp/kubernetes-apt-keyring.asc > /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        chmod 0644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      become: true
 
-- name: Add Kubernetes apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/deb/ /"
-    filename: kubernetes
-    state: present
-    update_cache: false
-  become: true
-  when: install_kubectl | default(false) | bool
+    - name: Add Kubernetes apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/deb/ /"
+        filename: kubernetes
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the Kubernetes package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: kubectl
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Kubernetes repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: kubectl
+      tags: [always]
 
 # --- Helm ---
-- name: Download Helm signing key
-  ansible.builtin.get_url:
-    url: https://packages.buildkite.com/helm-linux/helm-debian/gpgkey
-    dest: /tmp/helm-apt-keyring.asc
-    mode: '0644'
-    force: true
+- name: Add the Helm repository
   when: install_helm | default(false) | bool
-  register: download_helm_signing_key_fetch
-  retries: 3
-  delay: 10
-  until: download_helm_signing_key_fetch is succeeded
+  block:
+    - name: Download Helm signing key
+      ansible.builtin.get_url:
+        url: https://packages.buildkite.com/helm-linux/helm-debian/gpgkey
+        dest: /tmp/helm-apt-keyring.asc
+        mode: '0644'
+        force: true
+      register: download_helm_signing_key_fetch
+      retries: 3
+      delay: 10
+      until: download_helm_signing_key_fetch is succeeded
 
-- name: Convert Helm key to binary keyring
-  ansible.builtin.shell: |
-    set -o pipefail
-    gpg --dearmor < /tmp/helm-apt-keyring.asc > /etc/apt/keyrings/helm-apt-keyring.gpg
-    chmod 0644 /etc/apt/keyrings/helm-apt-keyring.gpg
-  args:
-    executable: /bin/bash
-    creates: /etc/apt/keyrings/helm-apt-keyring.gpg
-  become: true
-  when: install_helm | default(false) | bool
+    - name: Convert Helm key to binary keyring
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --dearmor < /tmp/helm-apt-keyring.asc > /etc/apt/keyrings/helm-apt-keyring.gpg
+        chmod 0644 /etc/apt/keyrings/helm-apt-keyring.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/helm-apt-keyring.gpg
+      become: true
 
-- name: Add Helm apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/helm-apt-keyring.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main"
-    filename: helm
-    state: present
-    update_cache: false
-  become: true
-  when: install_helm | default(false) | bool
+    - name: Add Helm apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/helm-apt-keyring.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main"
+        filename: helm
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the Helm package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: helm
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Helm repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: helm
+      tags: [always]
 
 # --- Terraform (HashiCorp) ---
-- name: Download HashiCorp signing key
-  ansible.builtin.get_url:
-    url: https://apt.releases.hashicorp.com/gpg
-    dest: /tmp/hashicorp-archive-keyring.asc
-    mode: '0644'
-    force: true
+- name: Add the HashiCorp repository
   when: install_terraform | default(false) | bool
-  register: download_hashicorp_signing_key_fetch
-  retries: 3
-  delay: 10
-  until: download_hashicorp_signing_key_fetch is succeeded
+  block:
+    - name: Download HashiCorp signing key
+      ansible.builtin.get_url:
+        url: https://apt.releases.hashicorp.com/gpg
+        dest: /tmp/hashicorp-archive-keyring.asc
+        mode: '0644'
+        force: true
+      register: download_hashicorp_signing_key_fetch
+      retries: 3
+      delay: 10
+      until: download_hashicorp_signing_key_fetch is succeeded
 
-- name: Convert HashiCorp key to binary keyring
-  ansible.builtin.shell: |
-    set -o pipefail
-    gpg --dearmor < /tmp/hashicorp-archive-keyring.asc > /etc/apt/keyrings/hashicorp-archive-keyring.gpg
-    chmod 0644 /etc/apt/keyrings/hashicorp-archive-keyring.gpg
-  args:
-    executable: /bin/bash
-    creates: /etc/apt/keyrings/hashicorp-archive-keyring.gpg
-  become: true
-  when: install_terraform | default(false) | bool
+    - name: Convert HashiCorp key to binary keyring
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --dearmor < /tmp/hashicorp-archive-keyring.asc > /etc/apt/keyrings/hashicorp-archive-keyring.gpg
+        chmod 0644 /etc/apt/keyrings/hashicorp-archive-keyring.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/hashicorp-archive-keyring.gpg
+      become: true
 
-- name: Add HashiCorp apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
-    filename: hashicorp
-    state: present
-    update_cache: false
-  become: true
-  when: install_terraform | default(false) | bool
+    - name: Add HashiCorp apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        filename: hashicorp
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the HashiCorp package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: terraform
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the HashiCorp repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: terraform
+      tags: [always]
 
 # --- GitHub CLI (gh) ---
 # GitHub publishes an already-dearmored (binary) keyring, so no gpg --dearmor step.
-- name: Download GitHub CLI binary keyring
-  ansible.builtin.get_url:
-    url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
-    dest: /etc/apt/keyrings/githubcli-archive-keyring.gpg
-    mode: '0644'
-    force: true
-  become: true
+- name: Add the GitHub CLI repository
   when: install_gh | default(false) | bool
-  register: download_github_cli_binary_keyring_fetch
-  retries: 3
-  delay: 10
-  until: download_github_cli_binary_keyring_fetch is succeeded
+  block:
+    - name: Download GitHub CLI binary keyring
+      ansible.builtin.get_url:
+        url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+        dest: /etc/apt/keyrings/githubcli-archive-keyring.gpg
+        mode: '0644'
+        force: true
+      become: true
+      register: download_github_cli_binary_keyring_fetch
+      retries: 3
+      delay: 10
+      until: download_github_cli_binary_keyring_fetch is succeeded
 
-- name: Add GitHub CLI apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
-    filename: github-cli
-    state: present
-    update_cache: false
-  become: true
-  when: install_gh | default(false) | bool
+    - name: Add GitHub CLI apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
+        filename: github-cli
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the GitHub CLI package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: gh
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the GitHub CLI repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: gh
+      tags: [always]
 
 # --- Lens Desktop ---
-- name: Download Lens signing key
-  ansible.builtin.get_url:
-    url: https://downloads.k8slens.dev/keys/gpg
-    dest: /tmp/lens.asc
-    mode: '0644'
-    force: true
+- name: Add the Lens repository
   when: install_lens | default(false) | bool
-  register: download_lens_signing_key_fetch
-  retries: 3
-  delay: 10
-  until: download_lens_signing_key_fetch is succeeded
+  block:
+    # The key location is a role default only so that the forced-failure scenario,
+    # e2e/tier3/scenarios/07-forced-failure.yaml, can point it at a path that answers 404 and prove that
+    # one repository that cannot be added is reported, and costs only what installs from it.
+    - name: Download Lens signing key
+      ansible.builtin.get_url:
+        url: "{{ software_installer_lens_key_url }}"
+        dest: /tmp/lens.asc
+        mode: '0644'
+        force: true
+      register: download_lens_signing_key_fetch
+      retries: 3
+      delay: 10
+      until: download_lens_signing_key_fetch is succeeded
 
-- name: Convert Lens key to binary keyring
-  ansible.builtin.shell: |
-    set -o pipefail
-    gpg --dearmor < /tmp/lens.asc > /etc/apt/keyrings/lens.gpg
-    chmod 0644 /etc/apt/keyrings/lens.gpg
-  args:
-    executable: /bin/bash
-    creates: /etc/apt/keyrings/lens.gpg
-  become: true
-  when: install_lens | default(false) | bool
+    - name: Convert Lens key to binary keyring
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --dearmor < /tmp/lens.asc > /etc/apt/keyrings/lens.gpg
+        chmod 0644 /etc/apt/keyrings/lens.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/lens.gpg
+      become: true
 
-- name: Add Lens apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/lens.gpg] https://downloads.k8slens.dev/apt/debian stable main"
-    filename: lens
-    state: present
-    update_cache: false
-  become: true
-  when: install_lens | default(false) | bool
+    - name: Add Lens apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/lens.gpg] https://downloads.k8slens.dev/apt/debian stable main"
+        filename: lens
+        state: present
+        update_cache: false
+      become: true
 
-# Antigravity is intentionally NOT pre-registered here. The `antigravity`
-# .deb's postinst script installs its own keyring at
-# /etc/apt/keyrings/antigravity-repo-key.gpg and writes its own .list file.
-# Pre-adding ours produces a "Conflicting values set for option Signed-By"
-# error that breaks every subsequent `apt update`. We let the package's
-# postinst own the repo; we just install the .deb via apt_url.
+    - name: Fetch the Lens package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: lens
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Lens repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: lens
+      tags: [always]
+
+# --- Antigravity ---
+# Moved here from debian_core on 2026-10-10, where it was critical bootstrap with no rescue, so a key
+# host that did not answer stopped the whole run before a single package was installed. Antigravity
+# itself does not install from this repository: custom_installs.yaml extracts the official tarball,
+# because the pool URLs behind this repository answer 404. The repository is what carries later
+# updates, which is why its entry in vars/Debian.yaml says updates_only and nothing is skipped when it
+# could not be added. The failure is still recorded and named, and the run still ends failed.
+- name: Add the Antigravity repository
+  when: install_antigravity | default(false) | bool
+  block:
+    # Downloaded to a file first and converted second, like every other key in this file. The key used
+    # to arrive through `curl | gpg --dearmor -o <keyring>` guarded by creates: on that keyring, so a
+    # download that failed could leave a zero-length keyring behind, and the retry then skipped because
+    # the file it was guarded by existed, which counted the step as done.
+    - name: Download Antigravity APT signing key
+      ansible.builtin.get_url:
+        url: https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg
+        dest: /tmp/antigravity-repo-key.gpg
+        mode: '0644'
+        force: true
+      register: antigravity_key
+      retries: 3
+      delay: 10
+      until: antigravity_key is succeeded
+
+    - name: Convert Antigravity key to binary keyring
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --dearmor < /tmp/antigravity-repo-key.gpg > /etc/apt/keyrings/antigravity-repo-key.gpg
+        chmod 0644 /etc/apt/keyrings/antigravity-repo-key.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/antigravity-repo-key.gpg
+      become: true
+
+    - name: Add Antigravity APT repository
+      become: yes
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/antigravity.list
+        content: |
+          deb [signed-by=/etc/apt/keyrings/antigravity-repo-key.gpg] {{ antigravity_apt_repo }}/ antigravity-debian main
+        mode: '0644'
+
+    - name: Fetch the Antigravity package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: antigravity
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Antigravity repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: antigravity
+      tags: [always]
 
 # --- Docker CE ---
-- name: Download Docker signing key
-  ansible.builtin.get_url:
-    url: "https://download.docker.com/linux/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/gpg"
-    dest: /tmp/docker.asc
-    mode: '0644'
-    force: true
+- name: Add the Docker repository
   when: install_docker | default(false) | bool
-  register: download_docker_signing_key_fetch
-  retries: 3
-  delay: 10
-  until: download_docker_signing_key_fetch is succeeded
+  block:
+    - name: Download Docker signing key
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/gpg"
+        dest: /tmp/docker.asc
+        mode: '0644'
+        force: true
+      register: download_docker_signing_key_fetch
+      retries: 3
+      delay: 10
+      until: download_docker_signing_key_fetch is succeeded
 
-- name: Convert Docker key to binary keyring
-  ansible.builtin.shell: |
-    set -o pipefail
-    gpg --dearmor < /tmp/docker.asc > /etc/apt/keyrings/docker.gpg
-    chmod 0644 /etc/apt/keyrings/docker.gpg
-  args:
-    executable: /bin/bash
-    creates: /etc/apt/keyrings/docker.gpg
-  become: true
-  when: install_docker | default(false) | bool
+    - name: Convert Docker key to binary keyring
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --dearmor < /tmp/docker.asc > /etc/apt/keyrings/docker.gpg
+        chmod 0644 /etc/apt/keyrings/docker.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/docker.gpg
+      become: true
 
-- name: Add Docker apt repository
-  ansible.builtin.apt_repository:
-    repo: >-
-      deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.gpg]
-      https://download.docker.com/linux/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
-      {{ ansible_facts['distribution_release'] }} stable
-    filename: docker
-    state: present
-    update_cache: false
-  become: true
-  vars:
-    docker_apt_arch_map:
-      x86_64: amd64
-      aarch64: arm64
-      armv7l: armhf
-      armv6l: armel
-    docker_apt_arch: "{{ docker_apt_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
-  when: install_docker | default(false) | bool
+    - name: Add Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.gpg]
+          https://download.docker.com/linux/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
+          {{ ansible_facts['distribution_release'] }} stable
+        filename: docker
+        state: present
+        update_cache: false
+      become: true
+      vars:
+        docker_apt_arch_map:
+          x86_64: amd64
+          aarch64: arm64
+          armv7l: armhf
+          armv6l: armel
+        docker_apt_arch: "{{ docker_apt_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+
+    - name: Fetch the Docker package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: docker
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Docker repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: docker
+      tags: [always]
 
 # --- Claude Desktop ---
 # Anthropic publishes an apt repository, and the desktop application is only distributed that way on
@@ -391,65 +640,102 @@
 #
 # Debian based only. The vendor states that Fedora and RHEL are not supported today, which is why
 # there is no equivalent block in fedora_repos.yaml and no RedHat mapping.
-- name: Download the Claude Desktop signing key
-  ansible.builtin.get_url:
-    url: https://downloads.claude.ai/claude-desktop/key.asc
-    dest: /usr/share/keyrings/claude-desktop-archive-keyring.asc
-    mode: '0644'
-    force: true
-  become: true
-  register: claude_desktop_key
-  retries: 3
-  delay: 10
-  until: claude_desktop_key is succeeded
+- name: Add the Claude Desktop repository
   when: install_claude_desktop | default(false) | bool
+  block:
+    - name: Download the Claude Desktop signing key
+      ansible.builtin.get_url:
+        url: https://downloads.claude.ai/claude-desktop/key.asc
+        dest: /usr/share/keyrings/claude-desktop-archive-keyring.asc
+        mode: '0644'
+        force: true
+      become: true
+      register: claude_desktop_key
+      retries: 3
+      delay: 10
+      until: claude_desktop_key is succeeded
 
-# Verified rather than assumed, because a key that downloaded as an error page produces an apt failure
-# several tasks later that names a missing public key instead of a bad download.
-- name: Confirm the Claude Desktop key is the one Anthropic publishes
-  ansible.builtin.command: gpg --show-keys --with-colons /usr/share/keyrings/claude-desktop-archive-keyring.asc
-  become: true
-  register: claude_desktop_fpr
-  changed_when: false
-  failed_when: >-
-    claude_desktop_fpr.rc != 0 or
-    '31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE' not in claude_desktop_fpr.stdout
-  when: install_claude_desktop | default(false) | bool
+    # Verified rather than assumed, because a key that downloaded as an error page produces an apt failure
+    # several tasks later that names a missing public key instead of a bad download.
+    - name: Confirm the Claude Desktop key is the one Anthropic publishes
+      ansible.builtin.command: gpg --show-keys --with-colons /usr/share/keyrings/claude-desktop-archive-keyring.asc
+      become: true
+      register: claude_desktop_fpr
+      changed_when: false
+      failed_when: >-
+        claude_desktop_fpr.rc != 0 or
+        '31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE' not in claude_desktop_fpr.stdout
 
-- name: Add the Claude Desktop apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main"
-    filename: claude-desktop
-    state: present
-    update_cache: false
-  become: true
-  when: install_claude_desktop | default(false) | bool
+    - name: Add the Claude Desktop apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main"
+        filename: claude-desktop
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the Claude Desktop package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: claude_desktop
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Claude Desktop repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: claude_desktop
+      tags: [always]
 
 # --- Syncthing ---
 # Syncthing publishes an already-dearmored (binary) release key, so no gpg
 # --dearmor step. The repo has one suite (`syncthing`) for every Debian
 # derivative. `stable-v2` is the monthly stable channel of the 2.x line.
-- name: Download Syncthing binary keyring
-  ansible.builtin.get_url:
-    url: https://syncthing.net/release-key.gpg
-    dest: /etc/apt/keyrings/syncthing-archive-keyring.gpg
-    mode: '0644'
-    force: true
-  become: true
+- name: Add the Syncthing repository
   when: install_syncthing | default(false) | bool
-  register: download_syncthing_binary_keyring_fetch
-  retries: 3
-  delay: 10
-  until: download_syncthing_binary_keyring_fetch is succeeded
+  block:
+    - name: Download Syncthing binary keyring
+      ansible.builtin.get_url:
+        url: https://syncthing.net/release-key.gpg
+        dest: /etc/apt/keyrings/syncthing-archive-keyring.gpg
+        mode: '0644'
+        force: true
+      become: true
+      register: download_syncthing_binary_keyring_fetch
+      retries: 3
+      delay: 10
+      until: download_syncthing_binary_keyring_fetch is succeeded
 
-- name: Add Syncthing apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2"
-    filename: syncthing
-    state: present
-    update_cache: false
-  become: true
-  when: install_syncthing | default(false) | bool
+    - name: Add Syncthing apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2"
+        filename: syncthing
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the Syncthing package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: syncthing
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Syncthing repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: syncthing
+      tags: [always]
 
 # --- Tailscale ---
 # Tailscale publishes an already-dearmored (binary) keyring, so no gpg
@@ -457,31 +743,50 @@
 # per-codename path. The distribution segment is normalised to ubuntu or debian
 # the same way the Docker task above does it, because upstream publishes those
 # two only and a derivative's own name (linuxmint, pop!_os) is a 404.
-- name: Download Tailscale binary keyring
-  ansible.builtin.get_url:
-    url: >-
-      https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg
-    dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
-    mode: '0644'
-    force: true
-  become: true
+- name: Add the Tailscale repository
   when: install_tailscale | default(false) | bool
-  register: download_tailscale_binary_keyring_fetch
-  retries: 3
-  delay: 10
-  until: download_tailscale_binary_keyring_fetch is succeeded
+  block:
+    - name: Download Tailscale binary keyring
+      ansible.builtin.get_url:
+        url: >-
+          https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg
+        dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
+        mode: '0644'
+        force: true
+      become: true
+      register: download_tailscale_binary_keyring_fetch
+      retries: 3
+      delay: 10
+      until: download_tailscale_binary_keyring_fetch is succeeded
 
-- name: Add Tailscale apt repository
-  ansible.builtin.apt_repository:
-    repo: >-
-      deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg]
-      https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
-      {{ ansible_facts['distribution_release'] }} main
-    filename: tailscale
-    state: present
-    update_cache: false
-  become: true
-  when: install_tailscale | default(false) | bool
+    - name: Add Tailscale apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg]
+          https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
+          {{ ansible_facts['distribution_release'] }} main
+        filename: tailscale
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the Tailscale package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: tailscale
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Tailscale repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: tailscale
+      tags: [always]
 
 - name: Refresh apt cache after repo changes
   ansible.builtin.apt:

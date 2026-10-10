@@ -92,6 +92,7 @@ software_mapping:
   chatgpt: { manager: "winget", package: "9PLM9XGG6VKS", source: "msstore" }   # MS Store — official OpenAI build. `9NT1R1C2HH7J` is the retired "ChatGPT Classic" and `9N8CJ4W95TBZ` is the beta channel.
   claude_desktop: { manager: "winget", package: "Anthropic.Claude" }           # Publisher "Anthropic, PBC", verified with winget show. The ai_tools role has no Windows path, so this mapping is the only one.
   lm_studio: { manager: "winget", package: "ElementLabs.LMStudio" }            # Author "Element Labs, Inc.", verified with winget show.
+  opencode_desktop: { manager: "winget", package: "SST.OpenCodeDesktop" }      # Publisher "OpenCode", verified with winget show on 2026-10-10 (1.18.35, per-user nullsoft). SST.opencode is the CLI, which comes from npm instead.
 
   # Media / Design
   vlc: { manager: "winget", package: "VideoLAN.VLC" }

@@ -1,0 +1,133 @@
+---
+# The apt cache refresh at the start of every Debian and Ubuntu run, included by the pre_tasks in
+# site.yaml.
+#
+# It used to be one apt task with update_cache, and that is one fetch of every sources file on the
+# machine. A third-party repository this playbook added on an earlier run, whose host does not answer
+# on this one, made it fail: the apt module refreshes through python-apt, which raises
+# FetchFailedException for a single source whose host does not resolve, measured on 2026-10-10. The
+# pre_tasks have no rescue, so the play stopped there, before any role, any summary or any repository
+# block could catch it, and every later apt task with update_cache, in debian_core, system_core, the
+# desktop roles and snapper, would have failed the same way.
+#
+# So every third-party repository that vars/<family>.yaml third_party_repositories names and that is
+# already on this machine is fetched on its own first, through the same check and the same rescue the
+# repository blocks in software_installer/tasks/debian_repos.yaml use. One whose host does not answer
+# has its files removed, the run is marked failed and the [ERROR] line names it. Every repository on
+# disk is checked, asked for in this run or not, because the refresh below reads all of them alike.
+# The software installer then adds a requested one again and checks it again, so a host that comes
+# back during the run still serves it, and one that stays down is skipped and named by that
+# repository's own block and setup/ansible/tasks/repository_availability.yaml, as on a first run.
+#
+# A sources file this project does not manage, a personal PPA for instance, stopped the play the same
+# way, and so would every later apt task with update_cache. It is not this project's to delete, so it
+# is fetched on its own as well, and one whose repository does not answer is set aside for this run by
+# renaming it with a suffix apt ignores, named in a [WARN] line, and put back by
+# tasks/apt_sources_restore.yaml at the end of the run, in the always section of site.yaml. Nothing
+# this run was asked to install is lost through it, so the run is not marked failed for it. Which files
+# are the distribution's own is os_dict.distribution_sources_files, the list setup.sh reads too.
+#
+# The refresh itself stays the apt module, and on purpose: once the sources that do not answer are out
+# of the way, what it still fetches is the distribution's own repositories, and a failure there must
+# still stop the run, because nothing after it can install anything. Its rescue puts the set-aside
+# files back before it stops, because the always section of site.yaml is never reached from here.
+- name: Put back any sources file an earlier run set aside and could not restore
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/apt_sources_restore.yaml"
+    apply:
+      tags: [always]
+  tags: [always]
+
+- name: Ask which third-party repositories this playbook manages are already on this machine
+  ansible.builtin.stat:
+    path: "{{ item.1 }}"
+  loop: "{{ os_dict.third_party_repositories | default({}) | dict2items | subelements('value.files') }}"
+  loop_control:
+    label: "{{ item.1 }}"
+  register: existing_repository_probe
+
+- name: Fetch each third-party repository already on this machine on its own, and undo one that does not answer
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/roles/software_installer/tasks/debian_repository_recheck.yaml"
+    apply:
+      tags: [always]
+  loop: >-
+    {{ existing_repository_probe.results | selectattr('stat.exists') | map(attribute='item.0.key')
+       | unique | list }}
+  loop_control:
+    loop_var: repository_key
+  tags: [always]
+
+- name: Find every sources file on this machine
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: ["*.list", "*.sources"]
+  register: apt_sources_on_disk
+
+# Three attempts inside the command rather than through until, so each result says only what apt
+# answered. An until that runs out of attempts leaves failed true on the result even under failed_when
+# false, measured on ansible-core 2.19.9, while the play carries on, which is a result that says two
+# things at once.
+- name: Fetch each sources file this project does not manage on its own
+  ansible.builtin.shell: |
+    for attempt in 1 2 3; do
+        apt-get update --error-on=any -o Dir::Etc::sourcelist={{ item | quote }} -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 && exit 0
+        [ "$attempt" -lt 3 ] && sleep 10
+    done
+    exit 1
+  become: true
+  loop: >-
+    {{ apt_sources_on_disk.files | map(attribute='path')
+       | difference(os_dict.third_party_repositories | default({}) | dict2items
+                    | map(attribute='value.files') | flatten)
+       | difference(os_dict.distribution_sources_files | default([]))
+       | sort }}
+  register: unmanaged_source_fetch
+  changed_when: false
+  failed_when: false
+
+- name: Set aside for this run each sources file this project does not manage whose repository does not answer
+  ansible.builtin.command:
+    argv:
+      - mv
+      - "{{ item.item }}"
+      - "{{ item.item }}.installation-helper.disabled"
+    removes: "{{ item.item }}"
+  become: true
+  loop: "{{ unmanaged_source_fetch.results | rejectattr('rc', 'equalto', 0) | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Name each sources file set aside for this run and what it costs
+  ansible.builtin.debug:
+    msg: >-
+      [WARN] The repository in {{ item.item }} does not answer, so that file was set aside for this
+      run as {{ item.item }}.installation-helper.disabled to keep the apt cache refresh and every apt
+      task after it working. This project does not manage it and did not delete it: it is put back at
+      the end of the run, and packages from it get no updates in this run. apt said:
+      {{ (item.stderr | default('')).splitlines() | select | list | last | default('nothing', true) }}
+  loop: "{{ unmanaged_source_fetch.results | rejectattr('rc', 'equalto', 0) | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Refresh the apt cache
+  block:
+    - name: Refresh the apt cache from every sources file that answers
+      ansible.builtin.apt:
+        update_cache: yes
+      become: yes
+      changed_when: false
+  rescue:
+    - name: Put back the sources files set aside for this run before stopping
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/apt_sources_restore.yaml"
+        apply:
+          tags: [always]
+      tags: [always]
+
+    - name: Stop, because the distribution's own repositories could not be refreshed
+      ansible.builtin.fail:
+        msg: >-
+          The apt cache refresh failed after every third-party repository that does not answer was
+          taken out of it, so the distribution's own repositories could not be read and nothing after
+          this can install anything. apt said: {{ ansible_failed_result.msg | default('nothing') }}

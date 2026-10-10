@@ -102,6 +102,7 @@ ANSIBLE_DIR="${SCRIPT_DIR}/ansible"
 ALL_VARS="${ANSIBLE_DIR}/group_vars/all.yaml"
 LINUX_VARS="${ANSIBLE_DIR}/group_vars/linux.yaml"
 MACOS_VARS="${ANSIBLE_DIR}/group_vars/macos.yaml"
+DEBIAN_OS_VARS="${ANSIBLE_DIR}/vars/Debian.yaml"
 
 # The verification play and where its output is kept. The log sits beside the four the
 # dual_logger callback writes (installation_full.log and friends), under the same name pattern, so
@@ -135,6 +136,7 @@ declare -A LABEL_OVERRIDES=(
     [setup_finder_defaults]="System: Finder default settings (macOS)"
     [setup_wsl]="System: install WSL and Ubuntu (Windows)"
     [enable_hyperv]="System: enable Hyper-V, WSL, .NET and Sandbox features, needs a reboot (Windows)"
+    [install_yay]="Yay: a second AUR helper, nothing here uses it (Arch only)"
 )
 DE_KEYS=("install_kde_plasma" "configure_kde_plasma" "install_gnome" "configure_gnome")
 
@@ -315,8 +317,23 @@ check_int_or_die() {
 # OS detection (handles WSL)
 # ---------------------------------------------------------------------------
 
+# Prints ubuntu or debian for a Debian-family machine, by the rule derive_os_facts.yaml uses for ih_base.
+# $1 is an os-release file, /etc/os-release when empty.
+debian_lineage() {
+    (
+        # shellcheck disable=SC1090 # the os-release file is chosen at run time, and only read here
+        . "${1:-/etc/os-release}" 2>/dev/null || true
+        if [[ -n "${UBUNTU_CODENAME:-}" || "${ID_LIKE:-}" == *ubuntu* || "${ID:-}" == ubuntu ]]; then
+            printf 'ubuntu\n'
+        else
+            printf 'debian\n'
+        fi
+    )
+}
+
 detect_os() {
     IS_WSL=false
+    DEBIAN_LINEAGE=""
     if grep -qi microsoft /proc/version 2>/dev/null; then
         IS_WSL=true
     fi
@@ -349,6 +366,9 @@ detect_os() {
                 *)                           OS_FAMILY="Linux" ;;
             esac ;;
     esac
+    if [[ "${OS_FAMILY}" == Debian ]]; then
+        DEBIAN_LINEAGE="$(debian_lineage)"
+    fi
     OS_VARS_FILE="${LINUX_VARS}"
 }
 
@@ -423,8 +443,9 @@ ensure_ansible_version() {
     fi
     if version_lt "${version}" "${ANSIBLE_CORE_MIN_VERSION}"; then
         echo "ERROR: ansible-core ${version} is older than ${ANSIBLE_CORE_MIN_VERSION}, which this playbook needs." >&2
-        echo "       On Debian or Ubuntu add the Ansible PPA (ppa:ansible/ansible) and upgrade, on macOS run" >&2
-        echo "       'brew upgrade ansible', or install a supported version with pipx or pip." >&2
+        echo "       On Ubuntu or an Ubuntu-based system add the Ansible PPA (ppa:ansible/ansible) and upgrade," >&2
+        echo "       on Debian move to a release that carries it, on macOS run 'brew upgrade ansible'," >&2
+        echo "       or install a supported version with pipx or pip." >&2
         exit 1
     fi
     if ! version_lt "${version}" "${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}"; then
@@ -446,10 +467,12 @@ ensure_ansible() {
     say "Ansible not found - installing for ${OS_FAMILY}..."
     case "${OS_FAMILY}" in
         Debian)
-            sudo apt-get update -q
-            if command -v add-apt-repository &>/dev/null || apt-cache show software-properties-common &>/dev/null 2>&1; then
+            apt_update_own_sources
+            if [[ "${DEBIAN_LINEAGE}" == ubuntu ]] \
+                && { command -v add-apt-repository &>/dev/null || apt-cache show software-properties-common &>/dev/null; }; then
                 sudo apt-get install -y software-properties-common
-                sudo add-apt-repository --yes --update ppa:ansible/ansible 2>/dev/null || true
+                sudo add-apt-repository --yes ppa:ansible/ansible 2>/dev/null || true
+                apt_update_own_sources /etc/apt/sources.list.d/ansible-*ansible-*
             fi
             sudo apt-get install -y ansible ;;
         RedHat)    sudo dnf install -y ansible ;;
@@ -466,24 +489,84 @@ ensure_ansible() {
     esac
 }
 
+# Runs a command up to three times, delay seconds apart, and returns the status of the last attempt.
+# For the network steps of the system upgrade, where one dropped connection or a mirror that answers a
+# moment late must not end the run. A command that fails all three times still fails.
+run_with_retries() {
+    local delay="$1"
+    shift
+    local attempt status=0
+    for attempt in 1 2 3; do
+        "$@" && return 0
+        status=$?
+        if (( attempt < 3 )); then
+            say "Attempt ${attempt} of 3 failed (exit ${status}): $*"
+            say "Trying again in ${delay} seconds..."
+            sleep "${delay}"
+        fi
+    done
+    return "${status}"
+}
+
+# The distribution's own apt sources files, one per line, read from vars/Debian.yaml so this script
+# and setup/ansible/tasks/apt_cache_refresh.yaml name the same files.
+distribution_sources_files() {
+    awk '/^distribution_sources_files:/ { inside = 1; next }
+         inside && /^  - / { sub(/^  - /, ""); print; next }
+         inside { exit }' "${DEBIAN_OS_VARS}"
+}
+
+# Updates the apt package lists from the distribution's own sources and the extra files named, and
+# from no other sources file. Every apt-get update before Ansible starts goes through here, because a
+# plain one reads every sources file on the machine, and one broken third-party source, a key that
+# rotated (NO_PUBKEY) or a repository with no Release file for a new codename, makes it exit 100 and
+# stopped the whole run before Ansible could check that source on its own and carry on without it.
+# Measured on 2026-10-10 on apt 2.8.3: exit 100 for either, and exit 0 with the same broken file left
+# out. The lists of the sources left out are kept, so nothing that was installed from them looks gone.
+apt_update_own_sources() {
+    local sources_dir source_file copied=0 status=0
+    sources_dir="$(mktemp -d)"
+    for source_file in $(distribution_sources_files) "$@"; do
+        [[ -f "${source_file}" ]] || continue
+        cp -- "${source_file}" "${sources_dir}/" && copied=$((copied + 1))
+    done
+    if (( copied == 0 )); then
+        say "None of the distribution sources files named in ${DEBIAN_OS_VARS} exists here, so every sources file is read."
+        sudo apt-get update -q || status=$?
+    else
+        sudo apt-get update -q \
+            -o Dir::Etc::sourcelist=/dev/null \
+            -o Dir::Etc::sourceparts="${sources_dir}" \
+            -o APT::Get::List-Cleanup=0 || status=$?
+    fi
+    rm -rf -- "${sources_dir}"
+    return "${status}"
+}
+
 # Full system upgrade BEFORE Ansible takes over. Running natively here gives
 # the user live per-package output in their terminal, instead of the Ansible
 # raw task's heartbeat. The corresponding playbook task stays in place as a
 # safety net; on a freshly-upgraded host it becomes a no-op (0 packages).
+#
+# Each command gets three attempts, twenty seconds apart, because until 2026-10-10 one dropped
+# connection to a mirror stopped the whole run here before Ansible had started. All three failing still
+# stops it, on purpose, and that part must not change: on Arch a half-finished `pacman -Syu` followed by
+# installs is a partial upgrade, which Arch does not support, and on every other family installing on
+# top of an upgrade that did not finish leaves the machine in a state nobody tested.
+# e2e/tier1/shell_units.sh drives run_with_retries and fails when a command here does not go through it.
 system_upgrade() {
     if [[ "${OPT_SKIP_SYSTEM_UPGRADE}" == true ]]; then
         say "Skipping system upgrade (--skip-system-upgrade)."
         return 0
     fi
     say "Running full system upgrade before Ansible (skip with --skip-system-upgrade)..."
+    local upgrade_failed=false retry_delay=20
     case "${OS_FAMILY}" in
         Debian)
-            sudo DEBIAN_FRONTEND=noninteractive \
-                 APT_LISTCHANGES_FRONTEND=none \
-                 NEEDRESTART_MODE=a \
-                 NEEDRESTART_SUSPEND=1 \
-                 apt-get update
-            sudo DEBIAN_FRONTEND=noninteractive \
+            # Only the distribution's own sources, and the reason is in apt_update_own_sources. A
+            # third-party source is left to the Ansible pre_task, which checks each one on its own.
+            run_with_retries "${retry_delay}" apt_update_own_sources || upgrade_failed=true
+            [[ "${upgrade_failed}" == true ]] || run_with_retries "${retry_delay}" sudo DEBIAN_FRONTEND=noninteractive \
                  APT_LISTCHANGES_FRONTEND=none \
                  NEEDRESTART_MODE=a \
                  NEEDRESTART_SUSPEND=1 \
@@ -491,18 +574,24 @@ system_upgrade() {
                    -o DPkg::Lock::Timeout=300 \
                    -o Dpkg::Options::=--force-confdef \
                    -o Dpkg::Options::=--force-confold \
-                   full-upgrade
-            sudo apt-get -y autoremove ;;
+                   full-upgrade || upgrade_failed=true
+            [[ "${upgrade_failed}" == true ]] || run_with_retries "${retry_delay}" sudo apt-get -y autoremove || upgrade_failed=true ;;
         RedHat)
-            sudo dnf -y upgrade --refresh ;;
+            run_with_retries "${retry_delay}" sudo dnf -y upgrade --refresh || upgrade_failed=true ;;
         Archlinux)
-            sudo pacman -Syu --noconfirm ;;
+            run_with_retries "${retry_delay}" sudo pacman -Syu --noconfirm || upgrade_failed=true ;;
         Darwin)
-            brew update
-            brew upgrade ;;
+            run_with_retries "${retry_delay}" brew update || upgrade_failed=true
+            [[ "${upgrade_failed}" == true ]] || run_with_retries "${retry_delay}" brew upgrade || upgrade_failed=true ;;
         *)
             say "No system upgrade path defined for ${OS_FAMILY}; skipping." ;;
     esac
+    if [[ "${upgrade_failed}" == true ]]; then
+        echo "ERROR: the system upgrade failed three times in a row, so setup.sh stops here, before Ansible changes anything." >&2
+        echo "Installing on top of an upgrade that did not finish is a partial upgrade, which Arch does not support and no other family is tested for." >&2
+        echo "Fix the cause shown above and run setup.sh again, or rerun with --skip-system-upgrade if you accept that risk." >&2
+        return 1
+    fi
 }
 
 ensure_prereqs() {
@@ -515,7 +604,7 @@ ensure_prereqs() {
     say "Installing prerequisites: ${missing[*]} (this needs sudo)..."
     case "${OS_FAMILY}" in
         Debian)
-            sudo apt-get update -q
+            apt_update_own_sources
             sudo apt-get install -y ca-certificates "${missing[@]}"
             ;;
         RedHat)    sudo dnf install -y ca-certificates "${missing[@]}" ;;
@@ -538,7 +627,7 @@ ensure_gum() {
             curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor --yes -o /etc/apt/keyrings/charm.gpg
             echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" \
                 | sudo tee /etc/apt/sources.list.d/charm.list >/dev/null
-            sudo apt-get update -q
+            apt_update_own_sources /etc/apt/sources.list.d/charm.list
             sudo apt-get install -y gum
             ;;
         RedHat)
@@ -633,11 +722,12 @@ PRELOADED_KEYS=()    # ordered keys (parallel to PRELOADED_ITEMS / 3)
 # and include_vars outranks play vars, so the per-OS value wins there. This function read all.yaml first
 # and kept the first spelling of each key, so the per-OS value lost.
 #
-# One toggle differs today and it is enough to show the cost: install_claude_desktop is true in all.yaml
-# and false in linux.yaml. The checklist showed it ON while a defaults run installed nothing, and the two
-# paths disagreed with each other, because opening the checklist and confirming passes every state as an
-# extra variable, which outranks everything, so the same toggle installed on one path and not the other.
-# The Windows wizard had the same shape for two packages and was corrected the same way.
+# Any toggle whose value differs between all.yaml and the per-OS file shows the cost. When
+# install_claude_desktop was true in all.yaml and false in linux.yaml, the checklist showed it ON while a
+# defaults run installed nothing, and the two paths disagreed with each other, because opening the
+# checklist and confirming passes every state as an extra variable, which outranks everything, so the same
+# toggle installed on one path and not the other. The Windows wizard had the same shape for two packages
+# and was corrected the same way.
 #
 # Keys are still ordered all.yaml first, because that is the reading order of the checklist and the
 # grouping the user recognises. Only the state comes from the per-OS file.
@@ -1344,7 +1434,7 @@ prepare_become_password() {
     # A machine whose sudo needs no password answers this immediately and is never asked for one.
     # Every hosted runner and every container is such a machine, and so is a workstation whose owner
     # configured NOPASSWD and did not think to pass the flag.
-    if sudo -n true >/dev/null 2>&1; then
+    if sudo -n -k true >/dev/null 2>&1; then
         BECOME_ARGS=()
         say "Sudo needs no password on this machine, so you will not be asked for one."
         return 0

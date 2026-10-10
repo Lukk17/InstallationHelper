@@ -8,3 +8,5 @@
 # on 2026-08-22 lost four cells to four unrelated transient network errors.
 
 Install Gridcoin flatpak bundle (Linux) | it installs a .flatpak bundle already on disk, so the only thing it reads is a local file and a retry could not change the outcome
+Check if rustup has a default toolchain for the build user | rustup default with no argument only reads the build user's own rustup settings and downloads nothing, so a retry could not change the outcome
+Check if rustup already provides cargo | pacman -Q only reads the local package database, the word rustup is the package it asks about, so nothing is downloaded and a retry could not change the outcome

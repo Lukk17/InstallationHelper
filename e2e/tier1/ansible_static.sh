@@ -243,6 +243,64 @@ case "${trunc_probe}" in
     *) fail "the callback truncation loses the end of a long block, which is where failures explain themselves"             "${trunc_probe#FAIL }" ;;
 esac
 
+# --- the callback never drops a line the playbook marked as an error ---------
+# The noise filter, IGNORE_PATTERNS, was applied to deliberate debug messages too, and the repository
+# rescue's [ERROR] line said "the copy already installed", which is one of its patterns. So the whole
+# line vanished from the console and from installation_errors.log, measured on 2026-10-10 in a Debian
+# container. The real methods are driven end to end, display and both log files, with in-memory
+# files standing in for installation_full.log and installation_errors.log. An earlier version of
+# this probe replaced _write_log with a stub, so it proved the console kept the line while the real
+# _write_log, which ran the same filter a second time, still dropped it from both files.
+render_status=0
+render_probe="$("${PYTHON}" - "${ANSIBLE_DIR}/callback_plugins/dual_logger.py" <<'PYEOF'
+import importlib.util, io, sys
+
+spec = importlib.util.spec_from_file_location("dual_logger_render_probe", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(module)
+except Exception as exc:                      # ansible not importable here, for instance
+    print("SKIP {}".format(exc))
+    sys.exit(0)
+
+shown = []
+
+
+class Display:
+    def display(self, text):
+        shown.append(text)
+
+
+callback = module.CallbackModule.__new__(module.CallbackModule)
+callback._display = Display()
+callback.full_log = io.StringIO()
+callback.errors_log = io.StringIO()
+callback.warnings_log = io.StringIO()
+callback._log_initialized = True
+noise = module.IGNORE_PATTERNS[0]
+callback._render_message("[ERROR] The copy %s gets no updates.\nplain line %s" % (noise, noise), "INFO")
+full_text = callback.full_log.getvalue()
+errors_text = callback.errors_log.getvalue()
+
+problems = []
+if not any(text.strip().startswith("[ERROR]") and noise in text for text in shown):
+    problems.append("dropped an [ERROR] line containing {!r} from the console".format(noise))
+if not any(ln.strip().endswith("gets no updates.") and "[ERROR]" in ln for ln in full_text.splitlines()):
+    problems.append("dropped an [ERROR] line containing {!r} from installation_full.log".format(noise))
+if not any("[ERROR]" in ln and noise in ln for ln in errors_text.splitlines()):
+    problems.append("dropped an [ERROR] line containing {!r} from installation_errors.log".format(noise))
+if any(text.strip().startswith("plain line") for text in shown) or "plain line" in full_text:
+    problems.append("stopped filtering an ordinary line containing {!r}".format(noise))
+print("FAIL " + "; ".join(problems) if problems else "OK")
+PYEOF
+)" || render_status=$?
+assert_python_ran "${render_status}" "Ansible static"
+case "${render_probe}" in
+    OK) pass "the callback keeps every [ERROR] line a debug message prints, whatever words it holds" ;;
+    SKIP*) skip "the callback keeps every [ERROR] line" "${render_probe#SKIP }" ;;
+    *) fail "the callback drops a line the playbook marked as an error" "${render_probe#FAIL }" ;;
+esac
+
 # --- optional linters --------------------------------------------------------
 # Reported, never required. Making the gate depend on a tool that may not be installed
 # would mean the gate silently stops running, which is its own failure mode.

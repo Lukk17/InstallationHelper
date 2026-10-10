@@ -1,6 +1,11 @@
 ---
 # Each DMG chain uses block: + always: so the volume is detached even when
 # the copy step fails — otherwise stale /Volumes/ mounts collide on rerun.
+#
+# Each one carries a rescue as well, in the shape custom_installs.yaml uses for the Linux vendor
+# downloads. Until 2026-10-10 none did, and this file runs inside the software installer block, so one
+# vendor host that did not answer ended the installer there and the installs after it were skipped. Now
+# the failure is recorded, the application is named as NOT installed, and the rest continue.
 
 # Every vendor artifact below is staged in a directory only root can enter, never in /tmp. All three
 # are handed to root: the .pkg goes to `installer -pkg -target /`, and the two disk images have their
@@ -83,6 +88,20 @@
       when:
         - antigravity_app is defined
         - antigravity_app.files | default([]) | length > 0
+  rescue:
+    - name: Record that Antigravity could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['antigravity (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Antigravity step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Antigravity is NOT installed. Every other install continues, and the run is marked failed.
   always:
     - name: Detach Antigravity DMG
       ansible.builtin.command: hdiutil detach -quiet "{{ antigravity_mount.stdout }}"
@@ -151,17 +170,35 @@
     # Intermittent, which is why it took until now to see: the same cell passed in run 32839893770
     # an hour earlier. It depends on how long Razer's postinstall work keeps the session busy.
     #
-    # wait_for_connection is the mechanism Ansible provides for this, and it is the honest one. Not a
-    # rescue and not ignore_errors, because both of those would hide a genuine failure of the install
-    # itself, and not merging this into the install task either, because a disruption long enough to
-    # kill the next task would kill whatever came after it too. This waits for the transport to
-    # answer and then carries on, and if it never answers the play still fails.
+    # wait_for_connection is the mechanism Ansible provides for this, and it is the honest one. Not
+    # ignore_errors, because that would hide a genuine failure of the install itself, and not merging
+    # this into the install task either, because a disruption long enough to kill the next task would
+    # kill whatever came after it too. This waits for the transport to answer and then carries on, and
+    # if it never answers the host is unreachable, which no rescue catches, so the play still fails.
+    # The rescue below hides nothing either: it marks the run failed and names Synapse as NOT
+    # installed, and only spares the installs that come after it.
     - name: Wait for the connection to come back after the Synapse installer
       ansible.builtin.wait_for_connection:
         delay: 5
         timeout: 180
       when: razer_synapse_receipt.rc != 0
+  rescue:
+    - name: Record that Razer Synapse could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['synapse (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
 
+    - name: Name the Razer Synapse step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Razer Synapse is NOT installed. Every other install continues, and the run is marked failed.
+  # In always rather than at the end of the block, so a download that arrived and an installer that
+  # then failed do not leave the package behind in the permanent staging directory.
+  always:
     - name: Remove the staged Razer Synapse pkg
       ansible.builtin.file:
         path: "{{ software_installer_stage_dir }}/RazerSynapseInstaller.pkg"
@@ -225,6 +262,20 @@
       when:
         - gridcoin_app is defined
         - gridcoin_app.files | default([]) | length > 0
+  rescue:
+    - name: Record that Gridcoin could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['gridcoin (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Gridcoin step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Gridcoin is NOT installed. Every other install continues, and the run is marked failed.
   always:
     - name: Detach Gridcoin DMG
       ansible.builtin.command: hdiutil detach -quiet "{{ gridcoin_mount.stdout }}"

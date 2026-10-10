@@ -241,6 +241,9 @@ function Invoke-AndShowNpmTools {
     }
 
     Write-Status "CLI tools: $($r.Installed.Count) installed, $($r.Present.Count) already present, $($r.Failed.Count) failed"
+    foreach ($i in @($r.Installed | Where-Object { $_.Detail })) {
+        Write-Hint "  $($i.Display) ($($i.Package)): $($i.Detail)"
+    }
     foreach ($f in $r.Failed) {
         Write-Host "  [!] $($f.Display) ($($f.Package)): $($f.Detail)" -ForegroundColor Red
     }
@@ -904,14 +907,32 @@ function Invoke-WindowsSystemUpgrade {
 # ---------------------------------------------------------------------------
 
 function Install-ConsoleGuiTools {
+    <#
+    .SYNOPSIS
+        Makes the software picker's module available, and returns whether it is.
+    .DESCRIPTION
+        False means the picker cannot open, and the caller then runs the default software list, the
+        same one -NonInteractive installs. Until 2026-10-10 a failed install threw here, which ended
+        the wizard before it had installed anything, although only the customise screen needs this
+        module. That is the shape Invoke-WindowsSoftwareInstall already follows for a missing winget:
+        say what is missing and what it costs, and carry on with everything that does not need it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
     if (Get-Module -ListAvailable -Name Microsoft.PowerShell.ConsoleGuiTools) {
-        return
+        return $true
     }
     Write-Status 'Installing Microsoft.PowerShell.ConsoleGuiTools (one-time)...'
     try {
         Install-Module -Name Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser -Force -AcceptLicense -ErrorAction Stop
+        return $true
     } catch {
-        Write-Err "Could not install Microsoft.PowerShell.ConsoleGuiTools: $_"
+        Write-Host "  [!] Could not install Microsoft.PowerShell.ConsoleGuiTools, so the software picker cannot open: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Hint '  This run continues with the default software list from group_vars, the same list -NonInteractive installs.'
+        Write-Hint '  To choose individual applications, run: Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser, then run setup.ps1 again.'
+        return $false
     }
 }
 
@@ -1406,10 +1427,13 @@ function Invoke-Main {
             Write-Hint "  -Profile '$Profile' selects nothing here. The profiles are Ansible variable overrides for the Linux side, this wizard configures Windows, and it is accepted only so the documented command still runs."
         }
     } else {
-        Install-ConsoleGuiTools
-        Write-Status 'Ready.'
-
-        $selectedSoftwareKeys = Get-SoftwareSelection -Selectable $selectable
+        # Without the picker module there is nothing to choose with, so the selection stays null, which
+        # means the group_vars defaults exactly as on the -NonInteractive path. The confirmation below
+        # needs no module and is still asked, because this is still a person at a prompt.
+        if (Install-ConsoleGuiTools) {
+            Write-Status 'Ready.'
+            $selectedSoftwareKeys = Get-SoftwareSelection -Selectable $selectable
+        }
 
         Write-Section 'Step 2/2 — Confirm and Run'
         Write-Hint '  Windows software is installed natively with winget and Chocolatey.'

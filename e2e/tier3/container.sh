@@ -853,7 +853,7 @@ collect_and_verify() {
         || echo "(no installation_errors.log was copied out of the container)" > "${ERRORS_LOG}"
 
     # The package manager's own transcripts, which are where the reason for a failed batch actually
-    # lives. Both the batched apt install and the three virtualization apt calls tee to these, and
+    # lives. Both the per-package apt install and the three virtualization apt calls tee to these, and
     # both are lost when the container goes.
     #
     # Worth collecting because of how a batch failure reads without them. Debian's kde-configure-only
@@ -865,7 +865,7 @@ collect_and_verify() {
     #
     # Every scenario, not just failing ones. On a clean run these are a few kilobytes of what apt
     # installed, which is the same reason installation_errors.log is collected unconditionally above.
-    for remote_log in installation-apt-batch.log installation-virt-apt.log; do
+    for remote_log in installation-apt.log installation-virt-apt.log; do
         docker cp "${CONTAINER}:/var/log/${remote_log}" "$(host_path "${RUN_DIR}/${remote_log}")" &>/dev/null || true
     done
 
@@ -1055,6 +1055,49 @@ collect_and_verify() {
         else
             fail "${SCENARIO_NAME}: the error log does not name the failing task" \
                  "expected '${named_task:-the failing task}' in ${ERRORS_LOG}"
+        fi
+
+        # Debian, Ubuntu, Pop!_OS and Fedora carry a third injection, a Lens signing key at a path that
+        # answers 404. Lens is the one repository that should be lost: its block's rescue has to name
+        # it in the error log, and the software installer has to skip Lens alone and say so, which it
+        # only does if the repository failure did not end the software phase. Arch and CachyOS map Lens
+        # to the Arch User Repository, so nothing reads the variable there.
+        if [[ "${OS}" != "arch" && "${OS}" != "cachyos" ]]; then
+            if grep -qF "The Lens repository could not be added" "${ERRORS_LOG}" \
+                && grep -qF "could not be added: lens." "${PLAYBOOK_LOG}"; then
+                pass "${SCENARIO_NAME}: the Lens repository that could not be added was recorded, and the software installer skipped Lens alone and named it"
+            else
+                fail "${SCENARIO_NAME}: the Lens repository failure was not reported the way a skipped repository is" \
+                     "expected 'The Lens repository could not be added' in ${ERRORS_LOG} and 'could not be added: lens.' in ${PLAYBOOK_LOG}"
+            fi
+        fi
+
+        # Every family carries a fourth injection, a Pyenv installer location that answers 404. The
+        # Pyenv block's rescue has to name it in the error log, and the two SDK blocks after it have to
+        # run anyway, which the callback records as an included task file for each.
+        if grep -qF "Pyenv and Python, or some of the Python builds, are NOT installed" "${ERRORS_LOG}" \
+            && grep -qE "included: .*sdk_manager/tasks/fvm\.yaml" "${PLAYBOOK_LOG}" \
+            && grep -qE "included: .*sdk_manager/tasks/android_sdk\.yaml" "${PLAYBOOK_LOG}"; then
+            pass "${SCENARIO_NAME}: the failed Pyenv build was recorded, and FVM and the Android SDK still ran after it"
+        else
+            fail "${SCENARIO_NAME}: the failed Pyenv build was not reported, or it stopped the SDKs after it" \
+                 "expected the Pyenv [ERROR] line in ${ERRORS_LOG} and fvm.yaml and android_sdk.yaml included in ${PLAYBOOK_LOG}"
+        fi
+
+        # Arch and CachyOS carry a second injection, a paru clone that cannot succeed. The pacman
+        # failure above would fail this scenario on its own, so without a check of its own a paru
+        # failure that was swallowed, or one that stopped the run, would go unnoticed here. The step
+        # has to be in the error log, and the run has to have gone on to name the skipped Arch User
+        # Repository packages, which the software installer and the final summary do, long after
+        # arch_core.
+        if [[ "${OS}" == "arch" || "${OS}" == "cachyos" ]]; then
+            if grep -qF "Clone paru AUR helper repository" "${ERRORS_LOG}" \
+                && grep -qF "paru could not be built, so these Arch User Repository packages were NOT installed" "${PLAYBOOK_LOG}"; then
+                pass "${SCENARIO_NAME}: the failed paru build was recorded, and the run carried on and named the skipped Arch User Repository packages"
+            else
+                fail "${SCENARIO_NAME}: the failed paru build was not reported the way a role failure is" \
+                     "expected 'Clone paru AUR helper repository' in ${ERRORS_LOG} and the skipped-package line in ${PLAYBOOK_LOG}"
+            fi
         fi
 
         # The verification has to refuse, and it has to say what is missing rather than only that

@@ -1,0 +1,5 @@
+---
+# Where arch_core clones paru from. A variable only so that the forced-failure scenario,
+# e2e/tier3/scenarios/07-forced-failure.yaml, can point it at an Arch User Repository name that holds
+# nothing and prove that a paru failure is reported rather than swallowed.
+arch_core_paru_repository: https://aur.archlinux.org/paru.git

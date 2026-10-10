@@ -1,0 +1,38 @@
+---
+# The last step of every repository block in debian_repos.yaml, with repository_key naming its entry in
+# os_dict.third_party_repositories: fetch that one repository's package lists on their own, and fail
+# the block when they do not arrive.
+#
+# Writing the sources file touches no network, so without this a repository whose host does not answer
+# looked added, and the first thing to notice was the apt cache refresh after the last repository,
+# which fails for every repository at once. Measured on 2026-10-10: python-apt, which the apt module
+# uses, raised FetchFailedException for a single source whose host does not resolve, while plain
+# `apt-get update` exited 0 for the same source and printed only a warning. `--error-on=any` makes
+# apt-get exit 100 for it instead, and 0 for a source that answers, measured on apt 2.8.3 with a
+# .list file and with a deb822 .sources file alike.
+#
+# Dir::Etc::sourcelist names the one file, sourceparts=- leaves out every other one, and
+# List-Cleanup=0 stops apt deleting the package lists of the repositories it was told to leave out.
+# Every file the entry names that exists is fetched, which covers Chrome's own .sources once its
+# package has replaced the .list this playbook wrote.
+#
+# setup/ansible/tasks/apt_cache_refresh.yaml runs the same check, through debian_repository_recheck.yaml,
+# for every repository an earlier run left on this machine, before the first apt cache refresh of the run.
+- name: Fetch the package lists of one third-party repository on their own
+  ansible.builtin.shell: |
+    set -o pipefail
+    for source_file in {{ os_dict.third_party_repositories[repository_key].files | map('quote') | join(' ') }}; do
+        [ -f "$source_file" ] || continue
+        apt-get update --error-on=any \
+            -o Dir::Etc::sourcelist="$source_file" \
+            -o Dir::Etc::sourceparts=- \
+            -o APT::Get::List-Cleanup=0 || exit 1
+    done
+  args:
+    executable: /bin/bash
+  become: true
+  register: repository_list_fetch
+  changed_when: false
+  retries: 3
+  delay: 10
+  until: repository_list_fetch.rc == 0

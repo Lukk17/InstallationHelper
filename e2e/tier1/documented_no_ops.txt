@@ -58,6 +58,11 @@ Darwin     partition_wizard Windows only, Disk Utility covers this on macOS
 # Arch AUR balena-etcher conflicts with the nodejs version other AUR packages need.
 Archlinux  balena_etcher    AUR package conflicts with nodejs, install the AppImage by hand
 
+# yay is an Arch User Repository helper, built by arch_core only, and off by default on Arch too.
+# macOS and Windows never read group_vars/linux.yaml, where the toggle lives, so they need no line.
+Debian     yay              AUR helper, Arch family only
+RedHat     yay              AUR helper, Arch family only
+
 # Partition editors that only exist on Linux.
 Darwin     gparted          Linux only, macOS uses Disk Utility
 Darwin     partitionmanager Linux only, macOS uses Disk Utility

@@ -190,6 +190,37 @@
 # by `software_installer/tasks/{debian_repos,fedora_repos}.yaml` when the toggle
 # is on.
 
+# Docker is installed here rather than by software_installer, so this is where a Docker repository
+# that could not be added is answered for. software_installer/tasks/debian_repos.yaml and
+# fedora_repos.yaml give it its own block with a rescue, setup/ansible/tasks/
+# repository_availability.yaml decides from the disk whether it is there, and every Docker task below
+# that needs the package reads that answer. Without that answer the package install would fail and take
+# every later task in this role with it, so Docker is skipped and named as NOT installed instead, and
+# everything else here continues.
+- name: Record Docker as NOT installed because its repository could not be added (Debian, Fedora)
+  ansible.builtin.set_fact:
+    any_role_failed: true
+    not_installed_with_reason: >-
+      {{ (not_installed_with_reason | default([]))
+         + ['docker (the ' ~ unavailable_repositories.docker.vendor ~ ' repository could not be added)'] }}
+  when:
+    - ih_family in ['Debian', 'RedHat']
+    - install_docker | default(false) | bool
+    - "'docker' in unavailable_repositories | default({})"
+  tags: [docker]
+
+- name: Name Docker as NOT installed because its repository could not be added (Debian, Fedora)
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] Docker was NOT installed, because the {{ unavailable_repositories.docker.vendor }}
+      repository could not be added. The repository step that failed is named earlier in this log.
+      Everything else in this role continues.
+  when:
+    - ih_family in ['Debian', 'RedHat']
+    - install_docker | default(false) | bool
+    - "'docker' in unavailable_repositories | default({})"
+  tags: [docker]
+
 # Same shell+apt-get pattern as the batched software install — Ubuntu's apt
 # module reliably trips "Module result deserialization failed" when a docker
 # install's containerd.io / docker-ce postinst writes to stdout (systemctl
@@ -220,7 +251,10 @@
   until: docker_apt_result.rc | default(1) == 0
   retries: 3
   delay: 20
-  when: ih_family == 'Debian' and install_docker | default(false) | bool
+  when:
+    - ih_family == 'Debian'
+    - install_docker | default(false) | bool
+    - "'docker' not in unavailable_repositories | default({})"
   tags: [docker]
 
 - name: Install Docker CE (Fedora)
@@ -233,7 +267,10 @@
       - docker-buildx-plugin
       - docker-compose-plugin
     state: present
-  when: ih_family == 'RedHat' and install_docker | default(false) | bool
+  when:
+    - ih_family == 'RedHat'
+    - install_docker | default(false) | bool
+    - "'docker' not in unavailable_repositories | default({})"
   tags: [docker]
 
 - name: Install Docker (Arch)
@@ -341,7 +378,10 @@
     - /lib/systemd/system/docker.service
     - /usr/lib/systemd/system/docker.service
     - /etc/systemd/system/docker.service
-  when: ansible_facts['system'] == 'Linux' and install_docker | default(false) | bool
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_docker | default(false) | bool
+    - "'docker' not in unavailable_repositories | default({})"
   tags: [docker]
 
 - name: Enable and start Docker service (Linux)
@@ -357,6 +397,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_docker | default(false) | bool
+    - "'docker' not in unavailable_repositories | default({})"
     - docker_service_units is defined
     - docker_service_units.results | selectattr('stat.exists', 'equalto', true) | list | length > 0
   tags: [docker]
@@ -371,6 +412,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_docker | default(false) | bool
+    - "'docker' not in unavailable_repositories | default({})"
     - os_dict.docker_group is defined
   tags: [docker]
 
@@ -387,5 +429,6 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_docker | default(false) | bool
+    - "'docker' not in unavailable_repositories | default({})"
     - docker_group_add is changed
   tags: [docker]

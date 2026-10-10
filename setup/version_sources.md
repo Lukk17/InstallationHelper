@@ -320,7 +320,7 @@ A few vendors publish a "latest" alias that we point at:
 | Ledger Live (Linux AppImage) | <https://download.live.ledger.com/latest/linux> |
 | Aurora Store | <https://auroraoss.com/downloads/AuroraStore/Latest/latest.apk> |
 | JetBrains Toolbox (Linux) | <https://data.services.jetbrains.com/products/download?platform=linux&code=TBA> |
-| Anthropic Claude Desktop | <https://claude.com/download> (currently macOS + Windows only; Linux build not published) |
+| Anthropic Claude Desktop | <https://claude.com/download> (macOS and Windows. Linux is served from the apt repository at `https://downloads.claude.ai/claude-desktop/apt/stable`, Debian and Ubuntu only) |
 | Google Antigravity (Linux tarball) | <https://antigravity.google/download> |
 
 If a vendor switches the alias format, the entry in `pinned_values.toml` needs a real update, and the playbook can't follow a moved redirect on its own.

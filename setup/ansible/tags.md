@@ -43,7 +43,7 @@ Pass any of these to run a whole role.
 | Tag | What it runs |
 |---|---|
 | `bootstrap_macos` | Core macOS bootstrap (Homebrew install + PATH) |
-| `bootstrap_arch` | Core Arch bootstrap (paru/yay, multilib, base config) |
+| `bootstrap_arch` | Core Arch bootstrap (paru, yay when `install_yay` is on, multilib, base config) |
 | `bootstrap_fedora` | Core Fedora bootstrap (Chrome/Brave/VSCode/Sublime/Antigravity repos, snapd) |
 | `bootstrap_debian` | Core Debian/Ubuntu bootstrap (sudoers, contrib/non-free, snapd) |
 | `linux_core` | Cross-distro Linux system_core (timezone, ufw, base utils) |

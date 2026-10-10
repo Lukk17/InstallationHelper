@@ -1,0 +1,45 @@
+---
+# unavailable_repositories: every third-party repository this run asked for that is not on this
+# machine, as a mapping of its key to its os_dict entry, whose vendor is the name a person reads.
+# Answered once, here, from the
+# files os_dict.third_party_repositories names, and read by every task that installs from one of those
+# repositories, so the playbook and the verification cannot disagree about why a package is missing.
+# software_installer includes this file after setting the repositories up, and verify_install.yaml
+# includes it to say why a package is missing.
+#
+# Until 2026-10-10 the repository setup in software_installer/tasks/debian_repos.yaml and
+# fedora_repos.yaml had no rescue, so one vendor key host that did not answer ended the whole software
+# phase and every package after it was skipped. Each repository is now its own block, and its rescue
+# removes what it wrote for that repository, so the files on disk are the truth about which
+# repositories this machine has. Every consumer reads this fact, skips only the packages that need a
+# repository that is not there, and names them as NOT installed with the reason.
+# e2e/tier1/availability_facts.sh fails the gate for a consumer that does not read it.
+#
+# A requested repository counts as present when any one of its files exists, because Chrome's package
+# replaces the file this playbook writes with one of its own. Arch and macOS have no entry at all, so
+# the answer there is always an empty mapping.
+#
+# An entry with added_by is left out. Its repository is written by setup.sh or by a role later in the
+# run rather than by the software installer, so its absence at this point says nothing about whether
+# it could be added, and no package in software_mapping comes from it.
+- name: Ask which requested third-party repository files are on this machine
+  ansible.builtin.stat:
+    path: "{{ item.1 }}"
+  loop: >-
+    {{ os_dict.third_party_repositories | default({}) | dict2items
+       | rejectattr('value.added_by', 'defined') | subelements('value.files') }}
+  loop_control:
+    label: "{{ item.1 }}"
+  register: repository_file_probe
+  when: lookup('vars', 'install_' ~ item.0.key, default=false) | bool
+
+- name: Record which requested third-party repositories are not on this machine
+  ansible.builtin.set_fact:
+    unavailable_repositories: >-
+      {{ os_dict.third_party_repositories | default({}) | dict2items
+         | selectattr('key', 'in', repository_file_probe.results | default([])
+                                   | selectattr('stat', 'defined') | map(attribute='item.0.key') | list)
+         | rejectattr('key', 'in', repository_file_probe.results | default([])
+                                   | selectattr('stat', 'defined') | selectattr('stat.exists')
+                                   | map(attribute='item.0.key') | list)
+         | items2dict }}

@@ -2,5 +2,6 @@
 - name: Install OpenCode CLI via npm helper
   ansible.builtin.include_tasks: npm_install_unix.yaml
   vars:
-    npm_pkg: "opencode-ai"
+    npm_pkg: "@opencode/cli"
+    npm_replaced_pkg: "opencode-ai"
     npm_display_name: "OpenCode"

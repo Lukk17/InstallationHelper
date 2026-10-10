@@ -1,0 +1,25 @@
+---
+# Puts back every sources file this project does not manage that setup/ansible/tasks/apt_cache_refresh.yaml
+# set aside for the run because its repository did not answer. Included at the start of that refresh,
+# so a run that was killed before it could restore them still gives them back, in its rescue, and in the
+# always section of site.yaml, so the machine ends the run with the person's own sources as they were.
+#
+# The suffix ends in .disabled because apt ignores such a file silently, through its own
+# Dir::Ignore-Files-Silently list, documented in sources.list(5).
+- name: Find sources files set aside for a run because their repository did not answer
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: "*.installation-helper.disabled"
+  register: apt_sources_set_aside
+
+- name: Put back each sources file that was set aside for the run
+  ansible.builtin.command:
+    argv:
+      - mv
+      - "{{ item.path }}"
+      - "{{ item.path | regex_replace('[.]installation-helper[.]disabled$', '') }}"
+    removes: "{{ item.path }}"
+  become: true
+  loop: "{{ apt_sources_set_aside.files }}"
+  loop_control:
+    label: "{{ item.path | regex_replace('[.]installation-helper[.]disabled$', '') }}"

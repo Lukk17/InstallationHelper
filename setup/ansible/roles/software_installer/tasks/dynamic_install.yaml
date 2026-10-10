@@ -120,6 +120,48 @@
       tags: [pacman_batch]
       when: ih_family == 'Archlinux'
 
+    # After the repository setup above, and tagged always, because every consumer reads the answer and
+    # a run limited by --tags to one of them still has to know the truth about this machine.
+    # tasks/repository_availability.yaml is the one place that answers it.
+    - name: Decide which requested third-party repositories this machine could not add
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/repository_availability.yaml"
+        apply:
+          tags: [always]
+      tags: [always]
+
+    # Worked out from the enabled mapping rather than from the batches, so the report names the
+    # application the user asked for, and so it still holds when the batches are overridden, which the
+    # forced-failure scenario does. updates_only repositories install nothing here, so nothing is
+    # skipped for them. The names go to the terminal summary in site.yaml and the [ERROR] line below
+    # reaches ~/installation_errors.log.
+    - name: Start with no package skipped for a missing repository
+      ansible.builtin.set_fact:
+        repository_skipped_packages: []
+      tags: [always]
+
+    - name: Skip each package whose repository could not be added
+      ansible.builtin.set_fact:
+        repository_skipped_packages: "{{ repository_skipped_packages + [item.value.package] }}"
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + [item.key ~ ' (the ' ~ unavailable_repositories[item.key].vendor ~ ' repository could not be added)'] }}
+        any_role_failed: true
+      loop: "{{ software_installer_packages | selectattr('key', 'in', unavailable_repositories | default({}) | list) | list }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: not (unavailable_repositories[item.key].updates_only | default(false) | bool)
+      tags: [always]
+
+    - name: Name every package skipped because its repository could not be added
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] {{ repository_skipped_packages | length }} package(s) were NOT installed because the
+          repository they come from could not be added: {{ repository_skipped_packages | join(', ') }}.
+          The repository step that failed is named above. Every other package still installs.
+      when: repository_skipped_packages | length > 0
+      tags: [always]
+
     # One package per call, and there is no batch left anywhere in this file.
     #
     # The batch went on 2026-08-25 at the owner's decision, and the measurement backs it. Twenty-two
@@ -169,9 +211,12 @@
       until: apt_results.rc | default(1) == 0
       retries: 3
       delay: 20
+      # A package whose repository could not be added is named above as NOT installed, and asking apt
+      # for it would only fail three times over and name it a second time with a worse reason.
       when:
         - ih_family == 'Debian'
         - software_installer_batches.apt | length > 0
+        - item not in repository_skipped_packages | default([])
       tags: [apt_batch]
 
     - name: Collect APT packages that did not install
@@ -542,9 +587,11 @@
       until: dnf_results.rc | default(1) == 0
       retries: 3
       delay: 20
+      # Skipped for a package whose repository could not be added, for the reason on the apt loop.
       when:
         - ih_family == 'RedHat'
         - software_installer_batches.dnf | length > 0
+        - item not in repository_skipped_packages | default([])
       tags: [dnf_batch]
 
     - name: Collect DNF packages that did not install
@@ -646,6 +693,30 @@
         label: "{{ item.key }}"
       tags: [dnf_batch]
 
+    - name: Record Steam as NOT installed because the 32-bit graphics stack could not be aligned
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['steam (the CachyOS 32-bit graphics packages could not be aligned)'] }}
+      when:
+        - ih_family == 'Archlinux'
+        - install_steam | default(false) | bool
+        - not (steam_graphics_stack_aligned | default(true) | bool)
+      tags: [pacman_batch]
+
+    - name: Name Steam as NOT installed because the 32-bit graphics stack could not be aligned
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Steam was NOT installed, because the CachyOS 32-bit graphics packages could not be
+          aligned. The alignment step that failed is named earlier in this log. Every other pacman
+          package still installs.
+      when:
+        - ih_family == 'Archlinux'
+        - install_steam | default(false) | bool
+        - not (steam_graphics_stack_aligned | default(true) | bool)
+      tags: [pacman_batch]
+
     # One package per call, for the reason written above the apt task, and the same shape.
     #
     # This is the path with the most to lose from losing its single solve, and it is worth naming
@@ -691,9 +762,15 @@
       until: pacman_results.rc | default(1) == 0
       retries: 3
       delay: 20
+      # Steam is skipped when the CachyOS 32-bit graphics stack could not be aligned, because without
+      # it pacman stops on a conflict it cannot answer. It is named as NOT installed with the reason
+      # just before this loop instead. steam_graphics_stack_aligned comes from
+      # setup/ansible/tasks/steam_graphics_alignment.yaml through arch_core, and is true everywhere
+      # there is nothing to align.
       when:
         - ih_family == 'Archlinux'
         - software_installer_batches.pacman | length > 0
+        - item != (os_dict.software_mapping.steam.package | default('')) or (steam_graphics_stack_aligned | default(true) | bool)
       tags: [pacman_batch]
 
     - name: Collect Pacman packages that did not install
@@ -812,7 +889,12 @@
         use: paru
         extra_args: "--noconfirm --skipreview --needed --noprovides"
       loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'aur') | list }}"
-      when: ih_family == 'Archlinux'
+      # paru_available comes from setup/ansible/tasks/paru_availability.yaml through arch_core. When
+      # paru could not be built nothing here runs, and the collector below the pacman query names every
+      # requested package that is not already on the machine as skipped for that reason.
+      when:
+        - ih_family == 'Archlinux'
+        - paru_available | default(false) | bool
       register: aur_results
       async: "{{ aur_build_timeout | default(5400) | int }}"
       poll: 15
@@ -919,7 +1001,28 @@
              | map(attribute='value.package')
              | difference(aur_installed_query.stdout_lines | default([]))
              | list }}
-      when: ih_family == 'Archlinux'
+      when:
+        - ih_family == 'Archlinux'
+        - paru_available | default(false) | bool
+      tags: [pacman_batch]
+
+    # The same absence, with the other cause. Nothing was attempted, so the message must not say a
+    # build failed or claimed success. A package an earlier run already installed is still there and
+    # is not named, which is why this asks pacman rather than listing every requested AUR package.
+    # Kept apart from failed_aur_packages for the same reason: that list's message explains three
+    # build outcomes, and none of them happened here.
+    - name: Collect AUR packages skipped because paru could not be built
+      ansible.builtin.set_fact:
+        aur_skipped_without_paru: >-
+          {{ (aur_skipped_without_paru | default([]))
+             + (software_installer_packages
+                | selectattr('value.manager', 'equalto', 'aur')
+                | map(attribute='value.package')
+                | difference(aur_installed_query.stdout_lines | default([]))
+                | list) }}
+      when:
+        - ih_family == 'Archlinux'
+        - not (paru_available | default(false) | bool)
       tags: [pacman_batch]
 
     - name: Combine every kind of AUR failure
@@ -988,6 +1091,17 @@
         - aur_absent_after_install | default([]) | length > 0
       tags: [pacman_batch]
 
+    - name: Surface AUR packages skipped because paru could not be built
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] paru could not be built, so these Arch User Repository packages were NOT installed:
+          {{ aur_skipped_without_paru | unique | join(', ') }}. The paru step that failed is named
+          earlier in this log. Fix it and rerun to install them.
+      when:
+        - ih_family == 'Archlinux'
+        - aur_skipped_without_paru | default([]) | length > 0
+      tags: [pacman_batch]
+
     - name: Surface AUR builds that ran out of time
       ansible.builtin.debug:
         msg: "[WARN] AUR packages were still building when their wait expired, so they are NOT installed: {{ aur_timed_out | join(', ') }}."
@@ -1006,7 +1120,7 @@
         any_role_failed: true
       when:
         - ih_family == 'Archlinux'
-        - failed_aur_packages | default([]) | length > 0
+        - (failed_aur_packages | default([]) | length > 0) or (aur_skipped_without_paru | default([]) | length > 0)
       tags: [pacman_batch]
 
     # No `| default(false)` on aur_allow_failures. defaults/main.yaml sets it to true and is the single

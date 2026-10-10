@@ -24,10 +24,11 @@ Set-StrictMode -Version Latest
 # e2e/tier1/windows_npm_parity.sh fails if the two lists ever disagree. The Windows task files this
 # once mirrored were deleted on 2026-08-20 because none of them could run, so the Unix files are the
 # reference now. Keyed by the group_vars toggle name without its install_ prefix, so it lines up
-# with the software mapping keys.
+# with the software mapping keys. Replaces names an older package that claims the same bin, which
+# Install-NpmToolPackage removes first, because npm refuses the new one with EEXIST while it is there.
 $script:NpmToolPackages = [ordered]@{
     claude_code = @{ Package = '@anthropic-ai/claude-code'; Display = 'Claude Code' }
-    opencode    = @{ Package = 'opencode-ai';               Display = 'OpenCode' }
+    opencode    = @{ Package = '@opencode/cli';             Display = 'OpenCode'; Replaces = 'opencode-ai' }
     openspec    = @{ Package = '@fission-ai/openspec';      Display = 'OpenSpec' }
     codex       = @{ Package = '@openai/codex';             Display = 'Codex' }
     grok        = @{ Package = '@xai-official/grok';        Display = 'Grok' }
@@ -63,7 +64,8 @@ function Install-NpmToolPackage {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $PackageName,
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $DisplayName
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $DisplayName,
+        [string] $ReplacesPackage = ''
     )
 
     $anchor = $env:USERPROFILE
@@ -88,20 +90,52 @@ function Install-NpmToolPackage {
             return [PSCustomObject]@{ Display = $DisplayName; Package = $PackageName; Status = 'skipped'; Detail = 'WhatIf' }
         }
 
+        # Measured on 2026-10-10 with npm 11.19.0 in a throwaway prefix: with opencode-ai installed,
+        # `npm install -g @opencode/cli` exits 1 with "EEXIST: file already exists" on opencode.cmd
+        # and changes nothing. `npm uninstall -g` prints "removed <n> packages" when it removed
+        # something and "up to date" when the package was absent, exit 0 both times.
+        $replacedDetail = ''
+        $replacedRemoved = $false
+        if ($ReplacesPackage) {
+            $removal = & npm uninstall -g $ReplacesPackage 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                return [PSCustomObject]@{
+                    Display = $DisplayName; Package = $PackageName; Status = 'failed'
+                    Detail  = "npm uninstall -g $ReplacesPackage exited $LASTEXITCODE, so $PackageName was not attempted. $(($removal -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')"
+                }
+            }
+            if ($removal -match 'removed \d+ package') {
+                $replacedDetail = "removed $ReplacesPackage, which it replaces"
+                $replacedRemoved = $true
+            }
+        }
+
         # Two attempts, because the npm registry flakes and a single transient failure should not
         # lose the tool. Same shape as the retries on the Ansible helper.
         $output = ''
+        $installExit = 0
         for ($attempt = 1; $attempt -le 2; $attempt++) {
             $output = & npm install -g $PackageName 2>&1 | Out-String
-            if ($LASTEXITCODE -eq 0) {
-                return [PSCustomObject]@{ Display = $DisplayName; Package = $PackageName; Status = 'installed'; Detail = '' }
+            $installExit = $LASTEXITCODE
+            if ($installExit -eq 0) {
+                return [PSCustomObject]@{ Display = $DisplayName; Package = $PackageName; Status = 'installed'; Detail = $replacedDetail }
             }
             if ($attempt -lt 2) { Start-Sleep -Seconds 15 }
         }
-        return [PSCustomObject]@{
-            Display = $DisplayName; Package = $PackageName; Status = 'failed'
-            Detail  = "npm exited $LASTEXITCODE. $(($output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')"
+        $detail = "npm exited $installExit. $(($output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')"
+
+        # The replaced package was removed before the new one was proven to install, because npm
+        # refuses the new one while the old one holds the bin. So a failed install after a removal
+        # installs the old one again and says so, rather than leaving the machine with neither.
+        if ($replacedRemoved) {
+            $restore = & npm install -g $ReplacesPackage 2>&1 | Out-String
+            if ($LASTEXITCODE -eq 0) {
+                $detail += " $ReplacesPackage had been removed to make room and was installed again, so the earlier $DisplayName is still on this machine."
+            } else {
+                $detail += " $ReplacesPackage had been removed to make room and could not be installed again either (npm exited $LASTEXITCODE), so there is no $DisplayName on this machine now. $(($restore -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')"
+            }
         }
+        return [PSCustomObject]@{ Display = $DisplayName; Package = $PackageName; Status = 'failed'; Detail = $detail }
     } finally {
         Set-Location -LiteralPath $here
         $PSNativeCommandUseErrorActionPreference = $previous
@@ -127,8 +161,9 @@ function Invoke-WindowsNpmToolInstall {
     foreach ($key in $script:NpmToolPackages.Keys) {
         if (-not ($Toggles.ContainsKey($key) -and $Toggles[$key])) { continue }
         if ($OnlyKeys -and $key -notin $OnlyKeys) { continue }
-        $wanted.Add([PSCustomObject]@{ Key = $key; Package = $script:NpmToolPackages[$key].Package
-                                       Display = $script:NpmToolPackages[$key].Display })
+        $entry = $script:NpmToolPackages[$key]
+        $wanted.Add([PSCustomObject]@{ Key = $key; Package = $entry.Package; Display = $entry.Display
+                                       Replaces = if ($entry.ContainsKey('Replaces')) { $entry.Replaces } else { '' } })
     }
 
     if ($wanted.Count -eq 0) {
@@ -147,7 +182,7 @@ function Invoke-WindowsNpmToolInstall {
 
     $results = [System.Collections.Generic.List[object]]::new()
     foreach ($tool in $wanted) {
-        $results.Add((Install-NpmToolPackage -PackageName $tool.Package -DisplayName $tool.Display))
+        $results.Add((Install-NpmToolPackage -PackageName $tool.Package -DisplayName $tool.Display -ReplacesPackage $tool.Replaces))
     }
 
     return [PSCustomObject]@{

@@ -74,7 +74,7 @@ On Windows, [setup/setup.ps1](setup/setup.ps1) never drives the Ansible playbook
 | **Language toolchains** | Python (Pyenv), Node.js (NVM), Java (SDKMAN), Dart and Flutter (FVM), Android SDK, Go, Rust |
 | **IDEs and editors** | IntelliJ IDEA, VS Code, Android Studio, Cursor, Zed |
 | **CLI tools** | git, zsh, oh-my-zsh, Docker, kubectl, k3d, Helm, Terraform, Ansible, gh, jq, fzf, ripgrep |
-| **AI tools** | Claude Code, Claude Desktop, OpenCode, OpenSpec |
+| **AI tools** | Claude Code, Claude Desktop, OpenCode, OpenCode desktop, OpenSpec |
 | **Apps** | Chrome, Firefox, Slack, Discord, Spotify, OBS, VLC, Postman |
 | **Fonts** | Nerd Fonts (FiraCode, JetBrainsMono, Hack, Meslo) |
 | **Desktop** | KDE Plasma and GNOME setup, dotfiles, shell config |

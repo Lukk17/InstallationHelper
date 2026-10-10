@@ -141,6 +141,18 @@ assert_that(
     'seconds into the run as a become failure on some unrelated task, which reads as a broken '
     'playbook rather than as a typo')
 
+# The probe that decides no password is needed has to ignore a cached credential. A plain sudo -n
+# true also answers yes when the user ran sudo in the same terminal minutes earlier, and on a real
+# CachyOS machine on 2026-10-10 that skipped the prompt and failed the run.
+non_interactive_flags = [match.group(1) for match in re.finditer(r'\bsudo((?:\s+-[A-Za-z]+)+)', code)
+                         if re.search(r'\s-[A-Za-z]*n', match.group(1))]
+assert_that(
+    non_interactive_flags and all(re.search(r'\s-[A-Za-z]*k', flags) for flags in non_interactive_flags),
+    'the passwordless sudo probe ignores cached credentials',
+    'a sudo -n probe runs without -k, so a credential cached in this terminal reads as NOPASSWD sudo '
+    'and the run starts with no become password. Flags found on sudo -n calls: %s'
+    % ('; '.join(flags.strip() for flags in non_interactive_flags) or 'no sudo -n call at all'))
+
 print('\n'.join(lines))
 PYEOF
 )" || report_status=$?

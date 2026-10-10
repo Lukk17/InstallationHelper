@@ -1,40 +1,138 @@
 ---
+# Every SDK is its own block with a rescue. Until 2026-10-10 they were five includes in a row with
+# only the role-level rescue in site.yaml around them, so one that failed skipped every one after it:
+# a Pyenv build that broke also cost FVM, Flutter and the Android SDK, which have nothing to do with
+# Python. Now each failure records any_role_failed, adds the SDK to the NOT installed list the terminal
+# summary in site.yaml prints, and names the step with an [ERROR] line, which is what reaches
+# ~/installation_errors.log. The next SDK still runs, and the run still ends failed.
+#
+# An SDK that needs another one, the Android SDK needing SDKMAN's Java and Flutter needing FVM, still
+# reports that itself, because each of those task files already asks rather than assumes.
+# e2e/tier1/rescue_coverage.sh fails the gate for an include here that has no rescue of its own, and
+# for a toggle here that the env_variables skip list in site.yaml does not carry.
 - name: Setup NVM and Node.js
-  ansible.builtin.include_tasks:
-    file: nvm.yaml
-    apply:
-      tags: [nvm]
   tags: [nvm]
   when: install_nodejs | default(false) | bool
+  block:
+    - name: Include the NVM and Node.js tasks
+      ansible.builtin.include_tasks:
+        file: nvm.yaml
+        apply:
+          tags: [nvm]
+      tags: [nvm]
+  rescue:
+    - name: Record that NVM and Node.js could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['NVM and Node.js (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the NVM step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          NVM and Node.js are NOT installed, and the npm-installed AI tools that need them will say so
+          themselves. Every other SDK continues, and the run is marked failed.
 
 - name: Setup SDKMAN and Java
-  ansible.builtin.include_tasks:
-    file: sdkman.yaml
-    apply:
-      tags: [sdkman]
   tags: [sdkman]
   when: install_java | default(false) | bool
+  block:
+    - name: Include the SDKMAN and Java tasks
+      ansible.builtin.include_tasks:
+        file: sdkman.yaml
+        apply:
+          tags: [sdkman]
+      tags: [sdkman]
+  rescue:
+    - name: Record that SDKMAN and Java could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['SDKMAN and Java (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the SDKMAN step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          SDKMAN and Java are NOT installed. Every other SDK continues, and the run is marked failed.
 
 - name: Setup Pyenv and Python
-  ansible.builtin.include_tasks:
-    file: pyenv.yaml
-    apply:
-      tags: [pyenv]
   tags: [pyenv]
   when: install_python | default(false) | bool
+  block:
+    - name: Include the Pyenv and Python tasks
+      ansible.builtin.include_tasks:
+        file: pyenv.yaml
+        apply:
+          tags: [pyenv]
+      tags: [pyenv]
+  rescue:
+    - name: Record that Pyenv and Python could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['Pyenv and Python (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Pyenv step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Pyenv and Python, or some of the Python builds, are NOT installed. Every other SDK
+          continues, and the run is marked failed.
 
 - name: Setup FVM and Flutter
-  ansible.builtin.include_tasks:
-    file: fvm.yaml
-    apply:
-      tags: [fvm]
   tags: [fvm]
   when: install_flutter | default(false) | bool
+  block:
+    - name: Include the FVM and Flutter tasks
+      ansible.builtin.include_tasks:
+        file: fvm.yaml
+        apply:
+          tags: [fvm]
+      tags: [fvm]
+  rescue:
+    - name: Record that FVM and Flutter could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['FVM and Flutter (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the FVM step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          FVM and Flutter are NOT installed. Every other SDK continues, and the run is marked failed.
 
 - name: Setup Android SDK
-  ansible.builtin.include_tasks:
-    file: android_sdk.yaml
-    apply:
-      tags: [android]
   tags: [android]
   when: install_android_sdk | default(false) | bool
+  block:
+    - name: Include the Android SDK tasks
+      ansible.builtin.include_tasks:
+        file: android_sdk.yaml
+        apply:
+          tags: [android]
+      tags: [android]
+  rescue:
+    - name: Record that the Android SDK could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['Android SDK (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Android SDK step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          The Android SDK is NOT installed. Every other SDK continues, and the run is marked failed.

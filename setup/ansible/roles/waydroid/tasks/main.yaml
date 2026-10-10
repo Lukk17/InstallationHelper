@@ -23,13 +23,13 @@
   become: yes
   when: ih_family == 'Debian'
 
+# From the official extra repository, not the Arch User Repository. waydroid has no AUR entry at all,
+# asked of the AUR API on 2026-10-10, and archlinux.org lists it in extra, so going through paru only
+# made Waydroid depend on an AUR helper it never needed.
 - name: Install Waydroid (Archlinux)
   become: yes
-  become_user: "{{ non_root_user }}"
-  kewlfft.aur.aur:
+  community.general.pacman:
     name: waydroid
-    use: paru
-    extra_args: "--noconfirm --skipreview"
     state: present
   when: ih_family == 'Archlinux'
 

@@ -1,0 +1,27 @@
+---
+# steam_graphics_stack_aligned: whether Steam can be installed as far as the 32-bit graphics stack is
+# concerned. Answered once, here, and read by every task that needs it, so the playbook and the
+# verification cannot disagree about it. arch_core includes this file around its CachyOS alignment
+# block, and verify_install.yaml includes it to say why Steam is missing.
+#
+# Only CachyOS has a question to answer. Its repositories resolve steam's 32-bit graphics dependencies
+# to mesa-git and lib32-mesa-git, which conflict with the stable mesa, so arch_core installs those two
+# first. Until 2026-10-10 that step had no rescue, and one failed alignment ended the whole run. It is
+# rescued now, the run carries on, and the pacman loop skips steam and names it as NOT installed when
+# this is false. e2e/tier1/availability_facts.sh fails the gate for a consumer that does not read it.
+#
+# Everywhere else, and on CachyOS when nobody asked for Steam, there is nothing to align, so the answer
+# is true.
+- name: Ask whether the CachyOS 32-bit graphics packages Steam needs are installed (CachyOS)
+  ansible.builtin.command: pacman -Q mesa-git lib32-mesa-git
+  register: steam_graphics_lookup
+  changed_when: false
+  failed_when: false
+  when:
+    - ih_family == 'Archlinux'
+    - ih_os_release_id == 'cachyos'
+    - install_steam | default(false) | bool
+
+- name: Record whether the 32-bit graphics stack is aligned for Steam
+  ansible.builtin.set_fact:
+    steam_graphics_stack_aligned: "{{ (steam_graphics_lookup.rc | default(0)) == 0 }}"

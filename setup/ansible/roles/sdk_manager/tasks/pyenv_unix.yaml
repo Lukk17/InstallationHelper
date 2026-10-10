@@ -67,7 +67,7 @@
 - name: Install Pyenv (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    curl -fsSL --max-time 120 https://pyenv.run | bash
+    curl -fsSL --max-time 120 {{ sdk_manager_pyenv_installer_url | quote }} | bash
   args:
     creates: "{{ non_root_home }}/.pyenv/bin/pyenv"
     executable: /bin/bash

@@ -3784,3 +3784,762 @@ warning and the data volume estimate are rewritten with the `--test` measurement
 measured and where, and the wrong 10 minute and 8 minute figures are named as wrong rather than quietly replaced.
 
 Mechanical check: none. The owner decided on 2026-10-10 not to add automatic checks for this set of homelab defects.
+
+### Found on a real CachyOS machine on 2026-10-10
+
+Three entries from the owner running `setup/setup.sh` on a freshly installed CachyOS machine. The logs of that run
+are in `results/cachyos/`.
+
+#### paru's build dependencies named the virtual package `cargo`, and CachyOS answered it with rustup
+
+Cause: the `Install paru build dependencies (rust, cargo)` task in `arch_core` passed `cargo` to pacman, and `cargo`
+is a virtual package with several providers, so the choice of provider was left to pacman's `--noconfirm` default,
+which is whatever its first repository lists first.
+
+Effect: `installation_full.log` lines 219 to 223 read `:: There are 3 providers available for cargo:`, then
+`:: Repository cachyos-extra-v3` `1) rustup`, then `:: Repository extra` `2) rust  3) rustup`. The default took
+rustup, and `installation_warnings.log` carries `warning: removing 'rust-1:1.99.0-1' from target list because it
+conflicts with 'rustup-1.29.1-1.1'`. rustup arrived with no default toolchain, so makepkg for paru failed in
+`prepare()` with `error: rustup could not choose a version of cargo to run, because one wasn't specified explicitly,
+and no default is configured.` (line 275). The block's rescue caught it and every later role was skipped, so the
+run installed nothing: `ok=35 changed=9 unreachable=0 failed=1 skipped=22 rescued=1`.
+
+How it was proven: by the owner's real CachyOS log of 2026-10-10, read line by line rather than inferred. rustup's
+own behaviour with no default was measured rather than assumed, on the same rustup 1.29.1, installed into a
+throwaway `RUSTUP_HOME` in WSL Ubuntu with `--default-toolchain none`: `rustup default` exits 1 and prints
+`error: no default toolchain is configured` on stderr with nothing on stdout, and `cargo --version` prints exactly
+the error the paru build printed.
+
+Why the tier 3 CachyOS container did not catch it: measured from that container's last run,
+`e2e/runs/2026-09-17T17-37-11Z_cachyos_defaults/playbook.log` line 224. On 2026-09-17 pacman listed
+`:: There are 4 providers available for cargo:` with `1) rust  2) rustup` under `cachyos-extra-v3`, so the default
+was rust and the build passed. By 2026-10-10 `cachyos-extra-v3` listed rustup alone, so the same default became
+rustup. The task depended on a repository's listing order, which changed under it between two runs, and no CachyOS
+container scenario ran in between. Docker was not running on the development machine when this entry was written,
+so the current container listing was not measured again.
+
+Fix: [arch_core/tasks/main.yaml](../setup/ansible/roles/arch_core/tasks/main.yaml). The task now installs `rust`,
+which provides cargo itself, and never names the virtual `cargo`, so pacman has nothing to ask. When rustup is
+already installed, from this failed run or by the user's choice, it installs no `rust`, because rust conflicts
+with rustup and `--noconfirm` answers no to removing it. It asks `rustup default` as the build user instead and
+runs `rustup default stable` for that user only when that exits non-zero, reading the exit code rather than the
+text. No other task under `setup/ansible` names `cargo` or `rust`.
+
+Mechanical check: none for the provider order, which only a container run against the live repositories can see.
+The two read-only probes, `pacman -Q rustup` and `rustup default`, are listed in
+[network_retries_allowed.txt](../e2e/tier1/network_retries_allowed.txt), because the network retry check matches
+the word `rustup`, and the `rustup default stable` task that does download retries.
+
+#### A sudo credential cached in the same terminal read as passwordless sudo
+
+Cause: `prepare_become_password` in [setup.sh](../setup/setup.sh) decided that sudo needs no password with
+`sudo -n true`, which also succeeds when the user ran sudo in the same terminal a few minutes earlier, because sudo
+caches the credential per terminal.
+
+Effect: the wizard printed `Sudo needs no password on this machine, so you will not be asked for one.`, passed no
+become password to Ansible, and Ansible's own sudo, which runs without that terminal's cached timestamp and outlives
+its timeout anyway, then failed. The owner reported this from the same machine. Its error text is not in the logs
+under `results/cachyos/`.
+
+How it was proven: the sudo manual, read on sudo 1.9.15p5 in WSL Ubuntu with
+`man sudo | col -b | grep -A16 -- '-k, --reset-timestamp'`, says of `-k`: "When used in conjunction with a command
+or an option that may require a password, this option will cause sudo to ignore the user's cached credentials. As a
+result, sudo will prompt for a password (if one is required by the security policy) and will not update the user's
+cached credentials." So `sudo -n -k true` answers yes only for real NOPASSWD sudo and leaves the user's cached
+credential alone. A warm credential could not be reproduced here, because WSL's sudo needs a password nobody typed.
+
+Fix: [setup.sh](../setup/setup.sh), `prepare_become_password`, which now runs `sudo -n -k true`.
+
+Mechanical check: [become_password_file.sh](../e2e/tier1/become_password_file.sh) now fails when any `sudo -n`
+call in `setup.sh` lacks `-k`. Proven against a copy of `setup.sh` with the old line put back:
+`FAIL ... Flags found on sudo -n calls: -n`, `7 checks, 1 FAILED`, exit 1.
+
+#### Claude Desktop off by default on Linux
+
+Cause: `group_vars/linux.yaml` overrode `install_claude_desktop: true` from `all.yaml` with `false`, by the owner's
+earlier choice, which the owner has now reversed.
+
+Effect: a default Linux run installed no Claude Desktop although the owner wants it on every machine.
+
+How it was proven: by the owner's request on 2026-10-10. Not a defect in the code's behaviour but a default that no
+longer matched the owner's choice, recorded here because it changed what a defaults run installs.
+
+Fix: [linux.yaml](../setup/ansible/group_vars/linux.yaml) sets it true, with its comment rewritten. The
+`profiles/linux_live.yaml` profile keeps it false for a live USB. The comments in `setup.sh`,
+`e2e/tier1/wizard_parse.sh` and `ai_tools/tasks/claude_unix.yaml` that used it as the current example of a toggle
+differing between `all.yaml` and `linux.yaml` now speak of it in the past, and `setup/software.md`,
+`setup/README_SETUP.md` and `setup/version_sources.md` no longer describe the old unofficial repository, the old
+AUR name, an `alien` conversion on Fedora or a missing Linux build.
+
+Mechanical check: none needed. [wizard_parse.sh](../e2e/tier1/wizard_parse.sh) already checks the effective state
+of any toggle that differs between the two files, and reports plainly when none does.
+
+#### An Arch User Repository helper build treated as critical bootstrap
+
+Cause: `arch_core` built paru with no rescue of its own, and `site.yaml` imports `arch_core` as critical bootstrap,
+so one failed paru build ended the play, although paru serves only the Arch User Repository and pacman, flatpak,
+the npm tools and `sdk_manager` need none of it.
+
+Effect: on the same CachyOS run, `Build paru package (non-root)` failed on the rustup error in the entry above, the
+outer rescue in `site.yaml` caught it, and every role after `arch_core` was skipped. The recap was
+`ok=35 changed=9 unreachable=0 failed=1 skipped=22 rescued=1`, and the machine was left with nothing installed at
+all, not one pacman or flatpak package, for a failure that should have cost at most the Arch User Repository
+packages.
+
+How it was proven: by the owner's real CachyOS log of 2026-10-10 for the effect. The new structure was exercised in
+WSL Ubuntu on ansible-core 2.19.9 with a probe role of the same shape that includes the real
+`setup/ansible/tasks/paru_availability.yaml`: with the build step forced to fail, the rescue named
+`Step 'Build paru package (non-root)' failed with: non-zero return code`, the consumer after the block read
+`paru_available=False any_role_failed=True`, the recap read `failed=0 rescued=1`, and the next role still ran.
+With the build step leaving a `paru` on PATH instead, the second availability check set `paru_available=True`, the
+final assertion passed, and nothing was rescued. With `--tags software`, the always-tagged availability check still
+ran, so a tag-limited run still knows whether paru is there.
+
+Fix: [arch_core/tasks/main.yaml](../setup/ansible/roles/arch_core/tasks/main.yaml) puts every paru step in one
+block. The rescue sets `any_role_failed` and prints an `[ERROR]` line naming the failed step, the same mechanism
+`site.yaml` uses for a role, so the run still exits non-zero and the step is still in the terminal summary and in
+`~/installation_errors.log`. The block ends by asking again whether paru exists and asserting it, so a build that
+exits zero and installs nothing is a failure too. Whether paru is available is decided only in
+[paru_availability.yaml](../setup/ansible/tasks/paru_availability.yaml), as the fact `paru_available`, and every
+consumer reads it: `Install snapd via paru` and the snapd tasks after it in `arch_core`, the Arch User Repository
+loop in [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml), and the Claude
+Desktop task in [claude_unix.yaml](../setup/ansible/roles/ai_tools/tasks/claude_unix.yaml). Each one that skips a
+package which is not already on the machine adds it to `aur_skipped_without_paru`, and the final failure message in
+[site.yaml](../setup/ansible/site.yaml) names them as NOT installed because paru could not be built.
+[verify_install.yaml](../setup/ansible/verify_install.yaml) includes the same task file, now also expects snapd and
+claude-desktop on Arch, which no check verified before, and marks every missing Arch User Repository package
+`(NOT installed: paru could not be built)` when paru is absent. The yay build is unchanged and nothing falls back to
+it.
+
+Mechanical check: [paru_consumers.sh](../e2e/tier1/paru_consumers.sh) fails when a task that calls paru does not
+read `paru_available`, when a `kewlfft.aur.aur` task does not name `use: paru`, when the fact is set anywhere but
+that task file and the `arch_core` rescue, and when `arch_core` or the verification stops including the file.
+Proven against the defect: with `paru_available` removed from the Claude Desktop task it fails naming
+`Install Claude Desktop via AUR (Arch Linux)`, with it removed from `Install snapd via paru` it fails naming that
+task, and with a second `set_fact` of the fact added to another role it fails naming the file. On the container
+side, the forced-failure scenario now points `arch_core_paru_repository` at an Arch User Repository name that holds
+nothing, so on Arch and CachyOS the paru clone fails every time, and
+[container.sh](../e2e/tier3/container.sh) asserts that the error log names `Clone paru AUR helper repository` and
+that the run went on to name the skipped packages. Cloning that name was measured on 2026-10-10: git succeeds with
+an empty repository and `ansible.builtin.git` then fails with `Failed to checkout branch master`. That scenario has
+not been run against this change yet.
+
+#### Waydroid installed through paru although it is not in the Arch User Repository
+
+Cause: the Arch task in the `waydroid` role used `kewlfft.aur.aur` with `use: paru` for `waydroid`, which is an
+official package.
+
+Effect: Waydroid on Arch depended on an Arch User Repository helper it never needed, so after the change above a
+failed paru build would have cost it as well. paru resolves a repository package through pacman, so no wrong
+package was ever installed.
+
+How it was proven: found while listing the paru consumers for the entry above. The AUR API at
+`https://aur.archlinux.org/rpc/v5/info?arg[]=waydroid` returned no result for it on 2026-10-10, and
+`https://archlinux.org/packages/search/json/?name=waydroid`, the same query the tier 2 Arch check makes, returned
+`extra waydroid 1.6.3`.
+
+Fix: [waydroid/tasks/main.yaml](../setup/ansible/roles/waydroid/tasks/main.yaml) installs it with
+`community.general.pacman`.
+
+Mechanical check: the tier 2 Arch role package check now resolves `waydroid` as a literal pacman name, which it
+skipped while the task went through the Arch User Repository module. Not run as part of this change.
+
+### Found while adding OpenCode desktop and moving the OpenCode CLI to version 2, 2026-10-10
+
+#### A new parity assertion that ended its own check without a word, introduced by the agent writing it
+
+Cause: the assertion added to [windows_npm_parity.sh](../e2e/tier1/windows_npm_parity.sh) to compare the replaced
+npm packages built its two lists in command substitutions that could exit non-zero under `set -e` and `pipefail`:
+first a loop whose last statement was `[[ -n "${old}" ]] && echo ...`, which returns 1 for every tool that replaces
+nothing, then a `grep` for `Replaces = '` that matches nothing when the PowerShell table names no replacement.
+
+Effect: the check printed its header and two `PASS` lines, then stopped, with no `FAIL`, no tally and exit 1. The
+first shape hit the real tree, the second hit exactly the defect the assertion exists to catch, so a missing
+`Replaces` would have been reported as a bare exit code. Same shape as defect class 10 in AGENTS.md.
+
+How it was proven: by running the check against the real tree and against a copy with `; Replaces = 'opencode-ai'`
+deleted from `setup/windows/WindowsNpmTools.ps1`. Both stopped after the second `PASS`.
+
+Fix: the loop uses an `if` and the `grep` is wrapped in `{ grep ... || true; }`, in the same file.
+
+Mechanical check: the assertion itself, now proven both ways. With `Replaces` deleted from the PowerShell table, and
+separately with `npm_replaced_pkg` deleted from `roles/ai_tools/tasks/opencode_unix.yaml`, it prints `FAIL the
+PowerShell installer and the ai_tools role disagree about which older npm package a tool replaces`, the tally reads
+`4 checks, 1 FAILED` and it exits 1. On the real tree it reads `4 checks, all passed`.
+
+#### The software list said Claude Desktop on Windows was not wired in, while it was
+
+Cause: the Claude Desktop row in [software.md](../setup/software.md) still said `not wired into the playbook` for
+Windows after the `claude_desktop` winget mapping in `vars/Windows.yaml` became the Windows path.
+
+Effect: a reader of the software list was told the wizard would not install Claude Desktop on Windows, while
+`setup/setup.ps1` installs `Anthropic.Claude` on every default run.
+
+How it was proven: by reading `vars/Windows.yaml`, whose `claude_desktop` entry says "The ai_tools role has no
+Windows path, so this mapping is the only one", against the row, found while adding the OpenCode desktop row next
+to it.
+
+Fix: the row in [software.md](../setup/software.md) now says the wizard installs it natively from that mapping.
+
+Mechanical check: none. It is prose, and no check reads the Windows column of that table.
+
+#### Three manual install pages and the setup hub still described installs the code no longer does
+
+Cause: when Claude Desktop moved to Anthropic's apt repository on Debian and to the AUR package `claude-desktop`
+through paru on Arch, and when OpenSpec was installed as `@fission-ai/openspec`, the human-facing pages that tell a
+reader how to do the same by hand were not updated with the code.
+
+Effect: [arch_manual_install.md](manual/arch/arch_manual_install.md) told the reader to run
+`yay -S claude-desktop-bin`, a different AUR package from the `claude-desktop` that
+`roles/ai_tools/tasks/claude_unix.yaml` installs. [debian_ubuntu_manual_install.md](manual/debian-ubuntu/debian_ubuntu_manual_install.md)
+said `Anthropic no longer publishes a Linux build (macOS/Windows only as of 2026-05). Skip on Linux until upstream
+restores it.`, while `roles/software_installer/tasks/debian_repos.yaml` adds Anthropic's apt repository and
+`vars/Debian.yaml` maps `claude_desktop: { manager: "apt", package: "claude-desktop" }`. And
+[README_SETUP.md](../setup/README_SETUP.md) plus all five manual install pages, Arch, Debian and Ubuntu, Fedora,
+macOS and Windows, gave `npm install -g openspec`, an unrelated package name, while
+`roles/ai_tools/tasks/openspec_unix.yaml` and `setup/windows/WindowsNpmTools.ps1` both install
+`@fission-ai/openspec`.
+
+How it was proven: noticed by the agent adding the OpenCode desktop app on 2026-10-10, then confirmed by reading
+each code path named above against the page, and by `grep -rn "npm install -g openspec"` over the repository,
+which found the six pages and nothing else outside this ledger.
+
+Fix: the Claude Desktop row of the Arch manual page now gives `paru -S claude-desktop`. The Debian and Ubuntu page
+drops the line from its manual install section and adds the same steps as `debian_repos.yaml` to its repository
+setup section: the key from `https://downloads.claude.ai/claude-desktop/key.asc` kept as `.asc`, a
+`gpg --show-keys` check for fingerprint `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`, and the repository line for
+amd64 and arm64. Its AI tools table gains a `sudo apt-get install -y claude-desktop` row. Every OpenSpec row now
+reads `npm install -g @fission-ai/openspec`.
+
+Closed later the same day, all three that this entry first listed as still open: [install.sh](manual/arch/install.sh) next to the Arch manual page now lists `claude-desktop` in `AUR_PACKAGES`, the name `roles/ai_tools/tasks/claude_unix.yaml` installs. [install.sh](manual/debian-ubuntu/install.sh) next to the Debian and Ubuntu page no longer skips `Claude Desktop (no Linux build published)`: it downloads the key from `https://downloads.claude.ai/claude-desktop/key.asc` to `/usr/share/keyrings/claude-desktop-archive-keyring.asc`, stops with an error unless `gpg --show-keys` finds fingerprint `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`, writes the amd64 and arm64 repository line, and installs `claude-desktop` with the other third-party apt packages, the same steps as `debian_repos.yaml` and as the page beside it. The `dual_logger.py` callback no longer maps `Install Claude Desktop .deb (Linux Debian)`, and [README_SETUP.md](../setup/README_SETUP.md) no longer lists it: on Debian and Ubuntu Claude Desktop is one item of `Install APT packages, one at a time`, which writes `/var/log/installation-apt.log`, and the README row for that task now says so. On Arch it is installed by the `kewlfft.aur.aur` module, which writes no log file of its own, so there is nothing to map. Proven by `bash -n` on both scripts and by `grep -rn "Install Claude Desktop .deb"`, which now finds this ledger and nothing else. The same mapping had two more stale neighbours, recorded in the next entry.
+
+Mechanical check: none. The manual pages are prose, and no check compares a package name written in a page with
+the one the code installs.
+[heartbeat_log_files.sh](../e2e/tier1/heartbeat_log_files.sh), added with the next entry, now covers the callback mapping and the README table, though not the two install scripts.
+
+#### The heartbeat, the setup hub and the container harness still named the batched apt and Flatpak logs
+
+Cause: when apt and Flatpak moved to one package per call on 2026-08-25 their tasks were renamed to `Install APT packages, one at a time` and `Install Flatpak applications, one at a time` and their transcripts moved from `installation-apt-batch.log` and `installation-flatpak-batch.log` to `installation-apt.log` and `installation-flatpak.log`, and three files that name those logs were not updated.
+
+Effect: `HEARTBEAT_LOG_FILES` in `setup/ansible/callback_plugins/dual_logger.py` kept the prefixes `Install APT packages (batched` and `Install Flatpak packages (Debian`, which match no task, so during the two longest tasks of a Debian run the heartbeat had no log to tail and printed only `still working… (log unchanged)`. [README_SETUP.md](../setup/README_SETUP.md) told the reader to run `tail -f /var/log/installation-flatpak-batch.log`, a file nothing writes. And `e2e/tier3/container.sh` copied `installation-apt-batch.log` out of every container scenario, found nothing, and said nothing because the copy ends in `|| true`, so the apt transcript that entry of 2026-08-21 above made a point of keeping has been lost from every container run since.
+
+How it was proven: found by the agent closing the Claude Desktop references above on 2026-10-10, by grepping for every `/var/log/installation` path under `setup/ansible`, `setup/README_SETUP.md` and `e2e/tier3/container.sh` and comparing each against the tasks that write it with `tee`. Only `dynamic_install.yaml` writes the apt and Flatpak logs, under the new names. Not reproduced in a container: no tier 3 scenario was run for this change, so the collected transcript is shown by reading the copy loop rather than by a run.
+
+Fix: the callback maps `Install APT packages, one at a time` to `/var/log/installation-apt.log` and `Install Flatpak applications, one at a time` to `/var/log/installation-flatpak.log`. The README table and both `tail -f` examples use the same names, and `container.sh` copies `installation-apt.log`.
+
+Mechanical check: [heartbeat_log_files.sh](../e2e/tier1/heartbeat_log_files.sh) fails when a heartbeat prefix matches no task name, when no task of that name writes the mapped log with `tee`, and when a log named in `setup/README_SETUP.md` or copied by `container.sh` is written by no task. Proven against a copy of the tree with the old callback, the old README and the old copy loop: it reports `7 checks, 7 FAILED`, naming the two batch prefixes, the Claude Desktop `.deb` prefix, the three README paths and the container copy. On the real tree it passes.
+
+### Found by a read-only audit on 2026-10-10: steps that only some software needs, each able to stop far more
+
+Every entry in this section was found by a read-only audit of the playbook and both wizards on 2026-10-10, after
+the paru build on a real CachyOS machine showed the shape: one step that only some of the software needs, with no
+rescue of its own, stopped everything after it. The owner approved one pattern for all of them, the paru one: the
+step gets its own block with a rescue, one fact decided in one place says whether it worked, every dependent reads
+that fact and names its package as NOT installed with the reason, in the terminal summary, in
+`~/installation_errors.log` and in `verify_install.yaml`, and the run still ends failed through `any_role_failed`.
+No container run was possible for any of them on the day, because Docker Desktop was not running, so each fix is
+proven by the tier 1 gate and by Ansible's syntax check, and the tier 3 forced-failure scenario was extended to
+prove two of them end to end when it next runs.
+
+#### 7.1 One dropped connection during the system upgrade stopped setup.sh before Ansible started
+
+Cause: `system_upgrade()` in [setup.sh](../setup/setup.sh) ran each update and upgrade command once, under
+`set -e`, so any non-zero exit ended the wizard.
+
+Effect: a mirror that answered a moment late, or one reset connection during `apt-get update`, `dnf upgrade
+--refresh`, `pacman -Syu` or `brew update`, ended the run before a single package was installed, and the ERR trap
+printed `ERROR: setup.sh aborted (exit 1) at line ... (in function: system_upgrade)`.
+
+How it was proven: by reading the function, which has no retry anywhere and no retry helper elsewhere in the file
+to reuse.
+
+Fix: [setup.sh](../setup/setup.sh) has a `run_with_retries` helper, three attempts twenty seconds apart, and every
+package manager command in `system_upgrade` goes through it. When all three attempts fail the function still
+stops the run, and now says why: on Arch a half-finished upgrade followed by installs is a partial upgrade, so
+carrying on was never an option.
+
+Mechanical check: [shell_units.sh](../e2e/tier1/shell_units.sh) drives `run_with_retries` and `system_upgrade` with
+`sudo`, `brew` and `sleep` stubbed as shell functions, and fails when a package manager command in `system_upgrade`
+does not go through the helper. Proven against a copy of the tree with `pacman -Syu` called directly: `50 checks, 2
+FAILED`, the structural assertion and the three-attempt count. On the real tree `50 checks, all passed`.
+
+#### 7.2 One third-party repository that could not be added ended the whole software phase
+
+Cause: `debian_repos.yaml` and `fedora_repos.yaml` in `roles/software_installer/tasks/` are included at the top of
+the software installer block in `dynamic_install.yaml`, and no repository in them had a rescue of its own. The
+Antigravity repository was worse off: it lived in `debian_core` and `fedora_core`, which are critical bootstrap with
+no rescue at all.
+
+Effect: one vendor key host that did not answer for three attempts failed the block, its rescue skipped every task
+after it, so every apt, dnf and Flatpak package, snap and every custom install was lost to one vendor. In debian_core
+it stopped the whole run. A second shape of the same defect, measured on 2026-10-10 with python-apt in WSL Ubuntu
+24.04: a sources entry whose host does not resolve makes `apt.Cache().update()` raise `FetchFailedException`, which
+is what the apt module's `update_cache` uses, so a repository whose key arrived but whose host was down failed the
+shared `Refresh apt cache after repo changes` and with it the phase. Plain `apt-get update` exits 0 for the same
+source and only warns.
+
+How it was proven: by reading the include chain, and by the python-apt and apt-get measurements above, run against
+a throwaway sources file and lists directory with `Debug::NoLocking`.
+
+Fix: every repository is its own block. Its rescue,
+[repository_unavailable.yaml](../setup/ansible/roles/software_installer/tasks/repository_unavailable.yaml), removes
+the sources or .repo file and keyring the block wrote, sets `any_role_failed` and names the step in an `[ERROR]` line.
+Each Debian block ends with
+[debian_repository_check.yaml](../setup/ansible/roles/software_installer/tasks/debian_repository_check.yaml),
+`apt-get update --error-on=any` limited to that one sources file, measured to exit 100 for a source whose host does
+not resolve and 0 for one that answers, with a `.list` and with a deb822 `.sources` file alike. The repositories are
+described once, in `third_party_repositories` in `vars/Debian.yaml` and `vars/RedHat.yaml`, and
+[repository_availability.yaml](../setup/ansible/tasks/repository_availability.yaml) decides `unavailable_repositories`
+from the files on disk for the playbook and for `verify_install.yaml` alike. The apt and dnf loops skip only the
+packages whose repository is missing and name them, `custom_installs.yaml` skips the Syncthing, Tailscale and OpenRazer
+configuration that would fail without the package, and `virtualization_config` skips and names Docker. Antigravity
+moved into the repository files. It installs from a tarball and its repository only carries updates, so a failure
+there skips nothing and is still recorded. Found in passing and fixed with it: `custom_installs.yaml` downloaded the
+Fedora Docker CE repository a second time after `fedora_repos.yaml` had already done so, one rule in two places, and
+its retry keys sat under a comment that belonged to the Gridcoin section. The duplicate is gone.
+
+Mechanical check: [availability_facts.sh](../e2e/tier1/availability_facts.sh) fails for a repository outside a block,
+a block whose rescue does not include `repository_unavailable.yaml` with a key that `third_party_repositories` carries
+under the same toggle, a Debian block that does not fetch its own lists, a second place setting the fact, a per-package
+loop that does not skip `repository_skipped_packages`, and any other task gated on a repository toggle outside Arch
+and macOS that does not read `unavailable_repositories`. Proven against a copy of the tree: dropping the skip from the
+apt loop, the rescue from the Lens block or the gate from the tailscaled task, and setting the fact in
+`virtualization_config`, each fail it and name the task or file. On the real tree it passes over 25 repository
+blocks, 3 per-package loops and 13 other consumers. The tier 3 forced-failure scenario now points
+`software_installer_lens_key_url` at a path that answers 404, measured on 2026-10-10, and `container.sh` asserts that
+the Lens failure is in the error log and that Lens alone was skipped and named.
+
+Two gaps were left open here at first and are both closed now, later on 2026-10-10. The `Update apt cache (Debian)`
+pre-task in `site.yaml` refreshed every sources file before any rescue existed, so a repository added on an earlier
+run whose host was down on this one still stopped the whole play there. That is entry 7.10 below. And Fedora had
+no per-repository metadata check, so a dnf repository whose host went down after it was added was not caught by its
+block. That is entry 7.11 below.
+
+#### 7.3 A failed CachyOS 32-bit graphics alignment stopped the whole run
+
+Cause: `Align the 32-bit graphics stack with the CachyOS repositories (CachyOS)` in
+[arch_core/tasks/main.yaml](../setup/ansible/roles/arch_core/tasks/main.yaml) was fatal on purpose, with a comment
+saying "This task stays fatal on purpose", inside arch_core, which `site.yaml` imports as critical bootstrap with no
+rescue.
+
+Effect: a CachyOS user who asked for Steam and whose mirror could not deliver `mesa-git` and `lib32-mesa-git` after
+three attempts lost the whole run, every role after arch_core, for one application.
+
+How it was proven: by reading the task and its comment against `site.yaml`.
+
+Fix: the alignment is its own block, still attempted on every CachyOS run that asks for Steam. Its rescue sets
+`any_role_failed` and `steam_graphics_stack_aligned: false` and prints an `[ERROR]` line naming the step.
+[steam_graphics_alignment.yaml](../setup/ansible/tasks/steam_graphics_alignment.yaml) decides the fact from
+`pacman -Q mesa-git lib32-mesa-git` and is true everywhere there is nothing to align. The pacman loop skips Steam when
+it is false, the software installer names Steam as NOT installed because "the CachyOS 32-bit graphics packages could
+not be aligned", and `verify_install.yaml` gives the same reason on the Steam row. The comment states the new
+behaviour.
+
+Mechanical check: [availability_facts.sh](../e2e/tier1/availability_facts.sh) fails when the pacman loop does not
+read the fact, when the fact is set anywhere but the decider and the arch_core rescue, and when that rescue does not
+set the fact, `any_role_failed` and an `[ERROR]` line together. Proven against a copy of the tree with the condition
+dropped from the pacman loop: it fails and names the task.
+
+#### 7.4 systemd_boot sat among the critical core roles with no rescue
+
+Cause: `site.yaml` imported `systemd_boot` directly inside the outer block, next to the five core roles, although
+nothing else in the run depends on it.
+
+Effect: with `setup_systemd_boot: true`, any failure in it ended every role after it, the desktop, SDKs, AI tools and
+the whole software installer.
+
+How it was proven: by reading `site.yaml`.
+
+Fix: `systemd_boot` has its own block with a rescue, the shape `kde_plasma_setup` has, and the rescue's `[ERROR]` line
+tells the user to check the boot entries before rebooting. It stays off by default.
+
+Mechanical check: [rescue_coverage.sh](../e2e/tier1/rescue_coverage.sh) fails for any role in `site.yaml` outside a
+block of its own apart from the five core roles, and for a rescue there that fails the play or does not set
+`any_role_failed`. Proven against a copy of the tree with `systemd_boot` imported the old way: it fails and names it.
+
+#### 7.5 The env_variables rescue re-raised and stopped every role after it
+
+Cause: the rescue around `env_variables` in `site.yaml` was an `ansible.builtin.fail` with the message "critical for
+SDK path resolution. Aborting playbook."
+
+Effect: one failure in writing `~/apps_config/env.sh` cost shell_zsh, ai_tools, the whole software installer and
+every role after them, although only the SDKs need that file.
+
+How it was proven: by reading `site.yaml` and `env_unix.yaml`, which writes the PATH block every SDK relies on.
+
+Fix: the rescue sets `any_role_failed` and `env_variables_available: false` and prints an `[ERROR]` line. Only
+`sdk_manager` is skipped, and each requested SDK is named as NOT installed in the terminal summary. `--tags sdk`
+still installs the SDKs, because only the rescue sets the fact.
+[env_variables_availability.yaml](../setup/ansible/tasks/env_variables_availability.yaml) asks the disk for
+`verify_install.yaml`, which names the reason on every SDK row that is MISSING.
+
+Mechanical check: [availability_facts.sh](../e2e/tier1/availability_facts.sh) fails when the rescue fails the play,
+when it does not set the fact, and when sdk_manager is not gated on it. Proven against a copy of the tree with the old
+failing rescue: `3 checks, 3 FAILED`. [rescue_coverage.sh](../e2e/tier1/rescue_coverage.sh) fails when the five SDK
+toggles differ between sdk_manager, the skip list in `site.yaml` and `ih_sdk_toggles` in the verification. Proven by
+dropping one toggle from the verification's list.
+
+#### 7.6 One SDK that failed skipped every SDK after it
+
+Cause: [sdk_manager/tasks/main.yaml](../setup/ansible/roles/sdk_manager/tasks/main.yaml) was five includes in a row,
+NVM, SDKMAN, Pyenv, FVM and the Android SDK, with only the role-level rescue in `site.yaml` around them.
+
+Effect: a Pyenv build that failed also cost FVM, Flutter and the Android SDK.
+
+How it was proven: by reading the file against `site.yaml`.
+
+Fix: each SDK is its own block, and its rescue sets `any_role_failed`, adds the SDK to the NOT installed list and
+names the step with an `[ERROR]` line.
+
+Mechanical check: [rescue_coverage.sh](../e2e/tier1/rescue_coverage.sh) fails for an include there without such a
+rescue. Proven against a copy of the tree with the file as it was at HEAD: `5 checks, 5 FAILED`, one per SDK. The tier
+3 forced-failure scenario now points `sdk_manager_pyenv_installer_url`, a new role default, at a path that answers 404,
+measured on 2026-10-10, and `container.sh` asserts
+the Pyenv failure is in the error log and that `fvm.yaml` and `android_sdk.yaml` were still included after it.
+
+#### 7.7 One AI tool that failed skipped every AI tool after it
+
+Cause: [ai_tools/tasks/main.yaml](../setup/ansible/roles/ai_tools/tasks/main.yaml) was seven imports in a row with only
+the role-level rescue around them.
+
+Effect: a Claude failure also cost OpenCode, OpenSpec, Codex, Grok, Bruno CLI and the local LLM tools.
+
+How it was proven: by reading the file.
+
+Fix: each tool is its own block with the same rescue as the SDKs. LM Studio and Stable Diffusion share one block,
+because they share one task file.
+
+Mechanical check: [rescue_coverage.sh](../e2e/tier1/rescue_coverage.sh). Proven against the file as it was at HEAD:
+`7 checks, 7 FAILED`.
+
+#### 7.8 One vendor download that did not arrive skipped every custom install after it
+
+Cause: the Antigravity tarball, the AppImageLauncher RPM, the k3d install script, the Gridcoin bundle and the GpuTest
+archive in [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml), and the
+Antigravity and Gridcoin disk images and the Razer Synapse package in
+[macos_install.yaml](../setup/ansible/roles/software_installer/tasks/macos_install.yaml), retried but had no rescue, and
+both files run inside the software installer block.
+
+Effect: one vendor host that stayed down for three attempts ended the software installer there and every install
+after it was skipped, while the vendor .deb downloads in `dynamic_install.yaml` had tolerated exactly this since
+2026-08-21.
+
+How it was proven: by reading both files against the `apt_url` path in `dynamic_install.yaml`.
+
+Fix: each download and the steps that use it are one block whose rescue sets `any_role_failed`, adds the application
+to the NOT installed list and names the step with an `[ERROR]` line. The staged files are removed in `always`, so a
+failed install no longer leaves them in the permanent staging directory.
+
+Mechanical check: [rescue_coverage.sh](../e2e/tier1/rescue_coverage.sh) fails for a `get_url`, or a shell or command
+that runs `curl`, outside such a block in either file. Proven against both files as they were at HEAD:
+`6 checks, 6 FAILED` and `3 checks, 3 FAILED`.
+
+#### 7.9 A failed install of the picker module ended the Windows wizard
+
+Cause: `Install-ConsoleGuiTools` in [setup.ps1](../setup/setup.ps1) called `Write-Err`, which throws, when
+`Install-Module Microsoft.PowerShell.ConsoleGuiTools` failed, and the wizard runs with
+`$ErrorActionPreference = 'Stop'`.
+
+Effect: a machine that could not reach the PowerShell Gallery lost the whole interactive run before anything was
+installed, although only the customise screen needs the module.
+
+How it was proven: by reading the function and `Invoke-Main`.
+
+Fix: the function returns whether the module is available and prints what the run does instead. `Invoke-Main` asks
+for a software selection only when it is, and otherwise runs the default software list, the one `-NonInteractive`
+installs, the way a missing winget is handled in `WindowsSoftware.ps1`. The confirmation prompt is still asked,
+because it needs no module.
+
+Mechanical check: four Pester tests in
+[WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1), run by `windows_pester.sh`, lift the
+function out of `setup.ps1`'s syntax tree and assert it returns true with the module present or installed, returns
+false without throwing when `Install-Module` throws, and that `Invoke-Main` calls `Get-SoftwareSelection` only inside
+an `if` on it. Proven against a copy of the tree with `setup.ps1` as it was at HEAD: `Failed: 4`.
+
+#### Three defects introduced by the agent making these changes, all caught before they were reported done
+
+Cause, the first: Python on Windows writes `\r\n` through `Path.write_text`, and four files rewritten that way,
+`debian_repos.yaml`, `fedora_repos.yaml` and the `debian_core` and `fedora_core` task lists, came out with Windows
+line endings, which `.gitattributes` forbids. Cause, the second: the shell tool used to run those edits turns `\\`
+into `\` before the command runs, so a backslash at the end of a line inside a heredoc became a line continuation.
+That joined the multi-line `apt-get` commands in `system_upgrade` into single lines, which still ran, and turned a
+`sed` that joins continuation lines in `shell_units.sh` into one that matched a literal `$`.
+
+Effect: `git ls-files --eol` reported `w/crlf` for the four files, and another agent's line endings check failed on
+three of them. The `sed` made the new structural assertion in `shell_units.sh` report the Debian commands as having
+no retries while they had.
+
+How it was proven: by `git ls-files --eol`, by counting `\r\n` with Python, and by running the `sed` and an `awk`
+over the same input and over a `printf` of the same shape.
+
+Fix: the four files were rewritten with `\n`, every touched file was counted again and holds none, the `system_upgrade`
+commands were restored to their multi-line form with an editor that writes the bytes as given, and the check joins
+continuation lines with `awk`.
+
+Mechanical check: [line_endings.sh](../e2e/tier1/line_endings.sh) already covers the first. The second is a property
+of the tool rather than of the repository, so no check here can see it: write files with an editor, not through a
+shell heredoc, whenever the content holds a backslash.
+
+The third: the first SDK injection added to the forced-failure scenario set `python310_id`, a pinned value, to a
+version pyenv has no definition for. The tier 1 gate refused it, `pinned values: 14 checks, 1 FAILED` with
+`python310_id in e2e/tier3/scenarios/07-forced-failure.yaml`, because a variable that shadows a pin is how a pin
+silently stops being read. Fixed by adding `sdk_manager_pyenv_installer_url` as a role default of sdk_manager, read
+by the Pyenv install in `pyenv_unix.yaml`, and pointing the scenario at a path on `pyenv.run` that answers 404,
+measured on 2026-10-10 alongside a 200 for the real one. Caught by
+[pinned_values.sh](../e2e/tier1/pinned_values.sh), which needed no change.
+
+#### 7.10 A third-party repository added on an earlier run stopped the next run before any rescue
+
+Cause: the `Update apt cache (Debian)` pre-task in [site.yaml](../setup/ansible/site.yaml) was one
+`ansible.builtin.apt` task with `update_cache`, which fetches every sources file on the machine at once, and the
+pre_tasks have no rescue.
+
+Effect: a repository this playbook added on an earlier run, whose host did not answer on this one, failed the play
+at that task, before any role, any repository block and the terminal summary. The python-apt measurement in 7.2 is
+the mechanism: `FetchFailedException` for one source whose host does not resolve. The same refresh sits in
+debian_core, system_core, both desktop roles and snapper, so the whole run was lost to one vendor.
+
+How it was proven: by running the real `site.yaml` with `--tags ih_measure_only`, so that only the tasks tagged always
+run, in a container from the `installationhelper-e2e-debian` image (Debian 13, ansible-core 2.19.4), with a
+`lens.list` pointing at `https://dead-vendor.invalid/apt` and an empty keyring beside it. Three cases, all after the
+fix. Lens not asked for: playbook exit 0, `rescued=1`, `lens.list` and its keyring gone, `Refresh the apt cache` ok.
+Lens asked for: the same, and the `[ERROR]` line reads "The Lens repository an earlier run added does not answer, so
+its files were removed to keep the apt cache refresh working. The software installer adds it again later in this
+run". Every Debian source rewritten to `http://dead-distro.invalid/debian` and no third-party file: `Refresh the apt
+cache` FAILED, playbook exit 2, `failed=1`, so a failure of the distribution's own repositories still stops the run.
+The check costs about 70 seconds for a dead host, three attempts ten seconds apart.
+
+Fix: the pre-task includes [apt_cache_refresh.yaml](../setup/ansible/tasks/apt_cache_refresh.yaml). It asks which
+files of `third_party_repositories` in `vars/Debian.yaml` are on disk, asked for in this run or not, because the
+refresh reads them all alike. For each one it includes
+[debian_repository_recheck.yaml](../setup/ansible/roles/software_installer/tasks/debian_repository_recheck.yaml), a
+block around the same `debian_repository_check.yaml` the repository blocks use, whose rescue is the same
+`repository_unavailable.yaml`. Then it refreshes the cache with the apt module as before. A requested repository is
+added again and checked again by its own block in `debian_repos.yaml`, so a host that comes back during the run still
+serves it, and one that stays down is skipped and named by `repository_availability.yaml` as on a first run. The
+[ERROR] line has its own words for this case, chosen by `repository_rechecked`. Removing an unrequested repository
+whose host is down is a change to the machine the run was not asked for. It was chosen over stopping the run,
+because the alternative is the defect, and the [ERROR] line says what was removed and that the installed copy gets
+no updates through it until a run that asks for it adds it again.
+
+Mechanical check: [availability_facts.sh](../e2e/tier1/availability_facts.sh) fails for an apt task with
+`update_cache` in the pre_tasks of `site.yaml`, for pre_tasks that do not include `apt_cache_refresh.yaml`, for a
+refresh in that file that runs before the recheck, for a task there that reads an `install_` toggle, and for a recheck
+file that is not one block with the shared check and rescue. Proven against a copy of the tree with the old bare
+pre-task: `2 checks, 2 FAILED`, naming `Update apt cache (Debian)`. Against a copy with the probe gated on
+`install_<key>`: `1 checks, 1 FAILED`, naming the task.
+
+#### 7.11 Fedora noticed nothing when a third-party repository host went down
+
+Cause: the repository blocks in
+[fedora_repos.yaml](../setup/ansible/roles/software_installer/tasks/fedora_repos.yaml) only wrote or downloaded a
+`.repo` file, and nothing fetched that repository's metadata on its own.
+
+Effect: worse than first assumed. Measured on 2026-10-10 in a `fedora:latest` container, Fedora 44 with dnf5 5.4.2.1:
+`/usr/share/dnf5/libdnf.conf.d/20-fedora-defaults.conf` sets `skip_if_unavailable=True`, so with a repository whose
+host does not resolve on disk, `dnf makecache` exited 0, `dnf install -y jq` exited 0, and `dnf makecache
+--repo=<that id>` exited 0 with `Metadata cache created.` In the `installationhelper-e2e-fedora` image, ansible-core
+2.20.7, `ansible.builtin.dnf` with `update_cache=true` installed jq and `name=* state=latest` reported CHANGED, both
+exit 0. So a dead vendor never stopped the shared refresh on Fedora, unlike Debian, and nothing reported it either:
+the package it should have served failed later as a package nobody could find, with no word about the repository.
+Only `fedora.repo` sets `skip_if_unavailable=False`, which is why the distribution's own repositories still stop dnf:
+measured with its `metalink` replaced by a dead `baseurl`, `dnf makecache --refresh` exited 1.
+
+How it was proven: by the measurements above, and by reading every vendor `.repo` file with `curl` on the day.
+`hashicorp.repo` holds `[hashicorp]` and the disabled `[hashicorp-test]`, `docker-ce.repo` holds `[docker-ce-stable]`
+and three disabled test and source repositories, and `hardware:razer.repo` holds `[hardware_razer]`. The eight files
+`yum_repository` writes carry the id given as its `name`. Two more measurements decided the command. A global
+`--setopt=skip_if_unavailable=False` exited 0 for a repository whose own file sets `skip_if_unavailable=1`, while
+`--setopt=<id>.skip_if_unavailable=False` exited 1. And `dnf repolist --repo=hashicorp-test` listed the disabled
+repository, so naming a disabled id enables it. Exit codes of the final form: 1 for a host that does not resolve,
+0 for `docker-ce-stable`, and 2 with `No matching repositories` for an id no file defines.
+
+Fix: every Fedora block now ends with
+[fedora_repository_check.yaml](../setup/ansible/roles/software_installer/tasks/fedora_repository_check.yaml), `dnf
+makecache --repo=<id> --setopt=<id>.skip_if_unavailable=False` for the enabled ids of that one repository, three
+attempts ten seconds apart, under the same rescue as Debian. The ids are `repo_ids` in `third_party_repositories` in
+[vars/RedHat.yaml](../setup/ansible/vars/RedHat.yaml), enabled ones only. The block runs on every run, so a
+repository an earlier run added is caught by its own block, which is the whole fix on Fedora: no pre-task is needed,
+because a dead vendor does not stop dnf there. Proven in the `installationhelper-e2e-fedora` image with the real task
+file and the real rescue: Docker, HashiCorp and OpenRazer with their vendor files passed, and a dead repository
+failed after three attempts with `cmd: ["dnf", "makecache", "--repo=deadvendor",
+"--setopt=deadvendor.skip_if_unavailable=False"]`, `rc: 1`, its file removed and its `[ERROR]` line printed.
+
+Mechanical check: [availability_facts.sh](../e2e/tier1/availability_facts.sh) now fails for a Fedora block that does
+not include the check with its own key, for a Fedora entry with no `repo_ids`, and for a `yum_repository` whose `name`
+is not in its entry's `repo_ids`. Proven against copies of the tree: the Docker check removed, `1 checks, 1 FAILED`
+naming the Docker block, and `repo_ids` for VS Code changed to `code` with HashiCorp's removed, `2 checks, 2 FAILED`
+naming both.
+
+#### 7.12 The callback dropped a repository rescue's whole [ERROR] line
+
+Cause: `_render_message` in [dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py) ran every line of a
+debug message through the stdout noise filter, and `IGNORE_PATTERNS` holds `already installed`. The `updates_only`
+wording in `repository_unavailable.yaml`, written earlier the same day, said "the copy already installed will not
+receive updates through it", and the first wording of 7.10 said the same.
+
+Effect: the line opening `[ERROR]` vanished from the console, from `installation_full.log` and from
+`installation_errors.log`. Measured in the Debian container of 7.10, with Lens not asked for: the output after `Name
+the repository that could not be added and what it costs` was only `Everything else continues, and the run is marked
+failed.` An Antigravity repository that could not be added would have lost its line the same way.
+
+How it was proven: by that container run, and by driving the real method with a stub display.
+
+Fix: a line opening with `[ERROR]`, `[FATAL]` or `[WARN]` is never filtered, because the playbook wrote it on
+purpose. Ordinary lines are filtered as before.
+
+Mechanical check: [ansible_static.sh](../e2e/tier1/ansible_static.sh) imports the plugin and renders an `[ERROR]` line
+holding the first noise pattern, and an ordinary line holding it. Proven in WSL against a copy of the plugin with the
+old filter: `FAIL dropped an [ERROR] line containing the noise pattern 'already installed'`, and `OK` against the fixed
+one. It reports SKIP wherever Ansible cannot be imported, the same as the truncation probe beside it, so from Git Bash
+it is WSL that proves it.
+
+#### 7.13 The docs said the Arch package for Claude Desktop compiles from source
+
+Cause: written without reading the package. The comment above `install_claude_desktop` in
+[group_vars/linux.yaml](../setup/ansible/group_vars/linux.yaml) said "On Arch the AUR package compiles from source, so
+it adds that build time to a defaults run", and [software.md](../setup/software.md) and
+[README_SETUP.md](../setup/README_SETUP.md) said paru "compiles it".
+
+Effect: a wrong reason in the place the owner reads to decide whether Claude Desktop stays on by default.
+
+How it was proven: by reading the PKGBUILD of the AUR package `claude-desktop`, maintainer diazkev314, on 2026-10-10,
+and again with `curl` from `https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=claude-desktop` the same day. It
+has no `build()` and no `makedepends`. Its `source_x86_64` is the official `.deb` from
+`https://downloads.claude.ai/claude-desktop/apt/stable/pool/main/c/claude-desktop`, its pinned SHA-256 matches
+Anthropic's signed Packages index, and `package()` unpacks it, about a 181 MB download.
+
+Fix: all three places say that it compiles nothing, downloads Anthropic's own `.deb`, checks its pinned SHA-256 and
+unpacks it. No other file said it compiles.
+
+Mechanical check: none. Whether a sentence describes a third-party package truthfully is not something the gate can
+read.
+
+#### One more defect introduced by the agent making 7.10 to 7.12, caught before it was reported done
+
+Cause: the shell heredoc problem recorded above, again. The extension of `availability_facts.sh` was written through a
+Python script in a heredoc, and the tool turned `\\` into `\` before it ran. So `r'\\binstall_'` became a literal
+backspace byte and the line continuations became a run of spaces.
+
+Effect: the new toggle assertion could never match, and the gate still passed, which is the worst way for a check to
+be broken.
+
+How it was proven: by `od -c` on the line, which showed `\b` as one byte, and by a count of `\x08` in the file, 1.
+
+Fix: the region was rewritten with an editor that writes the bytes as given, the file holds no `\x08`, and the
+assertion was then proven to fail against a copy of the tree with the probe gated on a toggle.
+
+Mechanical check: none new. The rule stands: write files with an editor, not through a shell heredoc, whenever the
+content holds a backslash.
+
+#### Two forgiveness entries for an apt package named dart outlived the install they forgave
+
+Cause: commit d97eed2, `fix(setup): one FVM install route on Unix, and Dart only from Flutter`, deleted `setup/ansible/roles/sdk_manager/tasks/dart.yaml`, which added Google's Dart apt repository and installed the `dart` package on Debian and Ubuntu, but left the two lines in [runtime_repo_packages.txt](../e2e/tier2/runtime_repo_packages.txt) that forgave `dart` for being absent from the stock Debian and Ubuntu archives.
+
+Effect: the tier 2 gate failed with exactly one line, `FAIL 2 entry(ies) in runtime_repo_packages.txt forgive a name nothing installs any more`, naming `debian dart` and `ubuntu dart`. A forgiveness that nothing asks for any more is a hole waiting for a wrong package name to fall through.
+
+How it was proven: by the tier 2 run `bash e2e/run.sh --tier 2` from Git Bash on 2026-10-10. Then by `git show d97eed2 --stat`, which lists `setup/ansible/roles/sdk_manager/tasks/dart.yaml` with 179 deletions, and by grepping `setup/ansible` for `dart`: the file is gone, no `vars/<OS>.yaml` maps `dart` except `vars/Windows.yaml` to the Chocolatey package `dart-sdk`, and the remaining Unix references are the `install_dart` toggle and the Flutter-bundled `dart` that `verify_install.yaml` probes under `~/fvm/versions`. After the fix, a rerun of tier 2 printed `PASS every entry in runtime_repo_packages.txt is still asked for by a role task or a dictionary`. That rerun did not reach its tally: Claude Code stopped it for low memory on the machine during the role task checks, after `package name resolution: 13 checks, all passed` and the Arch and Debian role task checks had passed.
+
+Fix: the two `dart` lines and the comment above them were removed from [runtime_repo_packages.txt](../e2e/tier2/runtime_repo_packages.txt).
+
+Mechanical check: the tier 2 assertion that found it, which needed no change. That assertion fails on d97eed2 as committed, so a tier 2 run after that commit, which AGENTS.md asks for after any change to a package name written into a role task, would have caught it.
+
+### Found by a code review of the uncommitted tree on 2026-10-10
+
+#### 7.14 The fix for 7.12 kept the [ERROR] line on the console and still dropped it from both log files
+
+This one was introduced on 2026-10-10 by the agent that fixed 7.12, and its check measured the thing next to the defect, which is defect class 11 in AGENTS.md.
+
+Cause: the 7.12 fix exempted lines that open with `[ERROR]`, `[FATAL]` or `[WARN]` inside `_render_message` in [dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py), and nowhere else. `_render_message` then hands each line to `_write_log`, and `_write_log` runs `_should_skip_line` a second time, with no exemption. The probe written for 7.12 in [ansible_static.sh](../e2e/tier1/ansible_static.sh) replaced `_write_log` with a lambda that recorded its arguments, so it proved that `_write_log` was called and never ran the second filter.
+
+Effect: the repository rescue's `[ERROR]` line, which says "the copy already installed", appeared on the console and reached neither `installation_full.log` nor `installation_errors.log`. The run still ended failed, so the step was lost from the one file a person is told to read.
+
+How it was proven: the probe was rewritten to drive the real `_render_message` and the real `_write_log` with `io.StringIO` standing in for the full and errors logs. Run through WSL against the tree before the fix, it printed `FAIL the callback drops a line the playbook marked as an error`, `dropped an [ERROR] line containing 'already installed' from installation_full.log; dropped an [ERROR] line containing 'already installed' from installation_errors.log`. After the fix it printed `PASS the callback keeps every [ERROR] line a debug message prints, whatever words it holds`.
+
+Fix: the exemption moved into `_should_skip_line` itself, through one tuple, `LEVEL_MARKERS`, so every caller agrees, and the duplicate exemption in `_render_message` is gone.
+
+Mechanical check: the rewritten probe in [ansible_static.sh](../e2e/tier1/ansible_static.sh). It still reports SKIP where Ansible cannot be imported, so from Git Bash it is the WSL delegation that proves it.
+
+#### 7.15 A failed yay build still ended the play before anything was installed
+
+Cause: the yay build in [arch_core](../setup/ansible/roles/arch_core/tasks/main.yaml), a clone from aur.archlinux.org, a `makepkg` and a `pacman -U`, was critical bootstrap with no rescue, while site.yaml gives arch_core none either. It is the shape the paru build had until it was rescued earlier the same day, and nothing in `setup/` uses yay after building it: `grep -rn yay setup/` finds only arch_core and a comment in the callback plugin.
+
+Effect: one clone that did not answer or one failed `makepkg` would have stopped an Arch or CachyOS run before a single package was installed, for a tool nothing calls.
+
+How it was proven: by reading the file and by the grep above. No run reproduced it, because the build has not failed on a machine this project has seen.
+
+Fix: the build is its own block, `Build and install yay`, with a rescue in the paru shape: `any_role_failed` and an `[ERROR]` line naming the step, which says only the yay helper itself is missing. The owner then made yay optional on the same day: `install_yay` in [group_vars/linux.yaml](../setup/ansible/group_vars/linux.yaml), off by default, gates the block, the wizard shows it with its own label, `verify_install.yaml` expects `/usr/bin/yay` only when the toggle is on and the family is Arch, and [documented_no_ops.txt](../e2e/tier1/documented_no_ops.txt) names it for Debian and RedHat. macOS and Windows never read `linux.yaml`, so they need no line. The owner's rule is recorded with it: nothing uses yay today, and the moment any task uses yay, through `use: yay`, `yay -S` or a `which yay` it depends on, yay is required, `install_yay` is removed from the selectable toggles and arch_core builds yay unconditionally.
+
+Mechanical check: two. [rescue_coverage.sh](../e2e/tier1/rescue_coverage.sh) now holds every git clone, `makepkg` and `pacman -U` in arch_core to a rescue that records and names the failure. Against a copy of the tree with the yay block unwrapped it printed three FAILs, one each for `Clone yay AUR helper repository`, `Build yay package (non-root)` and `Install built yay package (root)`. [paru_consumers.sh](../e2e/tier1/paru_consumers.sh) enforces the owner's rule: against a copy with a role task running `which yay` it printed `FAIL ... uses yay, and yay is still optional: install_yay is declared in setup/ansible/group_vars/linux.yaml, and the arch_core build is gated on it`, followed by what to change.
+
+#### 7.16 The per-repository check before the first apt refresh missed two repositories this project writes
+
+Cause: [apt_cache_refresh.yaml](../setup/ansible/tasks/apt_cache_refresh.yaml) fetched on its own only what `third_party_repositories` in [vars/Debian.yaml](../setup/ansible/vars/Debian.yaml) names. `ensure_gum` in [setup.sh](../setup/setup.sh) writes `/etc/apt/sources.list.d/charm.list` and the waydroid role runs the script at https://repo.waydro.id, which writes `/etc/apt/sources.list.d/waydroid.list` and `/usr/share/keyrings/waydroid.gpg`, read from that script on 2026-10-10. Neither was an entry, and the apt module refresh after the check reads every sources file. A sources file this project does not manage at all, a personal PPA, had the same effect and no answer.
+
+Effect: a dead repo.charm.sh, or a dead personal repository, would have stopped the play in the pre_tasks, before any rescue, and every later apt task with `update_cache` in debian_core, system_core, the desktop roles and snapper would have failed the same way.
+
+How it was proven: by reading the three files. Not reproduced in a container, Docker was closed on the machine that day.
+
+Fix: `charm` and `waydroid` are entries now, with `added_by` naming the file that writes them, so they have no repository block, and the availability decider leaves them out, because the waydroid role writes its repository after the software installer has decided. Fedora gets a `charm` entry with the id `[charm]` that `ensure_gum` writes. Nothing reads it before a dnf refresh, because dnf on Fedora 44 skips a repository that does not answer, as site.yaml records. The distribution's own sources files are one list, `distribution_sources_files` in `vars/Debian.yaml`, read by the playbook and by setup.sh alike. Every other sources file is one this project does not manage. It is fetched on its own, and one that does not answer is set aside for the run with a `.installation-helper.disabled` suffix, which apt ignores silently through its own `Dir::Ignore-Files-Silently` list (measured with `apt-config dump` on apt 2.8.3), named in a `[WARN]` line, and put back by [apt_sources_restore.yaml](../setup/ansible/tasks/apt_sources_restore.yaml) at the end of the run, from the always section of site.yaml, from the rescue of the final refresh, and at the start of the next run if one was killed. It is never deleted, and the run is not marked failed for it, because nothing it was asked to install is lost.
+
+A wrong belief along the way, kept because it is easy to repeat: the agent wrote that an `until` which runs out of attempts fails the task whatever `failed_when` says, and put that in a comment. Measured on ansible-core 2.19.9 with `command: "false"`, `failed_when: false`, `retries: 2` and `until: r.rc == 0`, the play carried on, the recap said `failed=0`, and the registered result held `failed=True`. So the task does not stop the play, it only leaves a result that says two things at once. The comment was corrected, and the per-file fetch keeps its retries inside the command for that reason.
+
+A first wording of the new assertion said every family's stray file stopped "the first apt cache refresh", which is wrong for a Fedora `.repo` file, and was corrected before the run that proved it.
+
+Mechanical check: [availability_facts.sh](../e2e/tier1/availability_facts.sh) now fails for any literal sources or `.repo` path written anywhere under `setup/` that no entry and no distribution file names, for an `added_by` entry whose writer does not write every path and dnf id it claims, for a decider that does not leave `added_by` entries out, for a refresh that does not handle the files this project does not manage, and for an always section that does not restore them. Against a copy of the tree without the two entries it printed three FAILs, for `charm.list`, `waydroid.list` and `charm.repo`. Against a copy without the unmanaged handling, the restore and the decider change it printed one FAIL for each.
+
+#### 7.17 One broken third-party source stopped setup.sh before Ansible started
+
+Cause: `system_upgrade` in [setup.sh](../setup/setup.sh) ran a plain `apt-get update`, which reads every sources file on the machine, three times through `run_with_retries`, and stopped the run when all three failed. `ensure_prereqs`, `ensure_gum` and `ensure_ansible` ran the same plain update.
+
+Effect: a third-party key that rotated, or a repository with no Release file for a new Ubuntu codename, made the update exit 100 on every attempt, so the run stopped before Ansible could check that source on its own and carry on without it.
+
+How it was proven: measured in WSL Ubuntu 24.04 on apt 2.8.3 as an unprivileged user, with a private `Dir::State` and `Dir::Cache` and a scratch sources directory holding a copy of `ubuntu.sources` and one broken file. A `charm.list` with no key: exit 100 reading every file, with `NO_PUBKEY 03BBF595D4DFD35C` and `E: The repository 'https://repo.charm.sh/apt * InRelease' is not signed.`, and exit 0 reading only the distribution's own file. A repository with no Release file for its codename: exit 100, `404 Not Found`, and exit 0 the same way. A host that does not resolve: exit 0 either way, with a warning only. Then the shipped function was driven against this machine's real sources with `sudo` replaced by the private state: exit 0, and `cuda-wsl-ubuntu-x86_64.list` was not fetched. Handed a key-less `charm.list` as an extra file, it fetched it and returned 100.
+
+Fix: one helper, `apt_update_own_sources`, copies the distribution's own sources files, read from `distribution_sources_files` in `vars/Debian.yaml`, plus any file it is handed, into a temporary directory and runs `apt-get update` with `Dir::Etc::sourcelist=/dev/null`, `Dir::Etc::sourceparts` pointing there and `APT::Get::List-Cleanup=0`, so the lists of the sources it leaves out are kept. Every `apt-get update` in setup.sh goes through it, `ensure_gum` hands it `charm.list`, and a third-party source is left to the Ansible pre_task of 7.16. The list names `/etc/apt/sources.list`, `debian.sources` (Debian 13 release notes, section 4.3), `ubuntu.sources` (sources.list(5) on trixie), the three files pop-os/core ships, and the file mintsources writes for Linux Mint. If none of them exists the helper says so and reads every file, which is the old behaviour.
+
+Mechanical check: [shell_units.sh](../e2e/tier1/shell_units.sh) fails for any `apt-get update` in setup.sh outside the helper, and drives the helper with a stub `sudo` that lists what it was handed. Against a copy of setup.sh with the old update in `system_upgrade` and in `ensure_gum` it printed `FAIL setup.sh runs apt-get update over every sources file` and named both lines.
+
+#### 7.18 The old OpenCode CLI was removed before the new one was proven to install
+
+Cause: npm refuses `@opencode/cli` with EEXIST while `opencode-ai` holds the same bin, so both [npm_install_unix.yaml](../setup/ansible/roles/ai_tools/tasks/npm_install_unix.yaml) and [WindowsNpmTools.ps1](../setup/windows/WindowsNpmTools.ps1) uninstall `opencode-ai` first, and neither put it back when the install that followed failed.
+
+Effect: a registry outage during that install left a machine that had a working OpenCode CLI with none at all. `npm view @opencode/cli name version bin --json` answered `2.0.26` with the bins `opencode` and `opencode2` on 2026-10-10, so the package exists and the failure needs only a network problem.
+
+How it was proven: by reading both files. On Windows by the Pester tests below, which failed against a copy of the module without the restore.
+
+Fix: on Unix the install is a block whose rescue installs the replaced package again when the removal changed something, then fails with a message that says whether the earlier CLI is still there, which the OpenCode rescue in ai_tools prints in its `[ERROR]` line. On Windows the function does the same and puts it in the result's detail.
+
+Mechanical check: three Pester tests in [WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1), of which two failed against the old module with `Expected regular expression 'opencode-ai had been removed to make room and was installed again' to match 'npm exited 1.'` and the same for `could not be installed again either`. [windows_npm_parity.sh](../e2e/tier1/windows_npm_parity.sh) asserts the shape on both platforms and printed two FAILs against a copy with neither restore.
+
+#### 7.19 Smaller findings from the same review
+
+1. The missing-NVM path in `npm_install_unix.yaml` set `any_role_failed` without adding the tool to `not_installed_with_reason`, so the summary in site.yaml did not name it. It now adds `<tool> (NVM is not installed)`. No check: the shape is one set_fact beside the one that was there.
+2. `ih_role_aur_packages` in [verify_install.yaml](../setup/ansible/verify_install.yaml) is a second, hand-written list of the packages roles install through paru. [paru_consumers.sh](../e2e/tier1/paru_consumers.sh) now fails for a package a role installs through paru by name that the list does not hold. Against a copy without `claude-desktop` in the list it printed `FAIL ... installs claude-desktop through paru and ih_role_aur_packages ... does not name it`.
+3. The Antigravity key in [debian_repos.yaml](../setup/ansible/roles/software_installer/tasks/debian_repos.yaml) came through `curl | gpg --dearmor -o <keyring>` guarded by `creates:` on that keyring, so a failed download could leave a zero-length keyring that the retry then counted as done. It downloads to a file with `get_url` and converts second, like the sibling blocks.
+4. A comment in debian_core said the next block fetches the Antigravity key, which moved to debian_repos.yaml. Corrected.
+5. The header of [07-forced-failure.yaml](../e2e/tier3/scenarios/07-forced-failure.yaml) described a batch install and a rescue that names the batch, and said arch_core compiles yay in that scenario. It describes the per-package loops, the collector after them and the optional yay now.
+6. [README_HOMELAB.md](../homelab/README_HOMELAB.md) said the rest of the stack runs normally when the data disk is missing, which was never measured, and Compose may stop at the first service it cannot create. It now says so and gives the command that starts the other services by name. Still unmeasured, because Docker was closed.
+7. `${SAMBA_USER:?}` and `${SAMBA_PASS:?}` in [compose.yaml](../homelab/compose.yaml) stop every `docker compose` command for the whole stack until `.env` holds them. Kept, with an upgrade note in README_HOMELAB.md and a restore note in [backup_restore.md](../homelab/backup_restore.md).
+8. The rescue for a third-party repository did not say that removing a vendor repository after an outage costs the copy already installed its updates until a later run. It says so now.
+
+One finding is still open and is waiting for the owner's decision. Nothing has been decided about it yet, and the code is unchanged. The review asked for the waydroid package name in [waydroid/tasks/main.yaml](../setup/ansible/roles/waydroid/tasks/main.yaml) to come from `os_dict.software_mapping` with behaviour unchanged. Those two cannot both hold: `dynamic_install.yaml` installs every `software_mapping` entry whose `install_<key>` is on, so a waydroid entry would make the software installer ask apt for waydroid before the waydroid role has added the repository that carries it, and Debian and Ubuntu do not carry it themselves ([runtime_repo_packages.txt](../e2e/tier2/runtime_repo_packages.txt) lines 36 to 39). That leaves two options:
+
+1. Keep the literal name in the role task, as it is today. Tier 2 resolves literal package names in role tasks per distribution, so the name stays proven to exist, at the cost of a per-distribution fact living in a task rather than in `vars/<OS>.yaml`, which is what rule 1 of the e2e section in AGENTS.md asks for.
+2. Move it to a scalar key per family in `vars/<OS>.yaml`, the way `docker_group` is done, read through `os_dict`. That follows rule 1 and keeps the behaviour, but tier 2 resolves only `software_mapping` entries and literal names in role tasks, so today the name would leave the one check that proves it exists, unless tier 2 is extended to resolve such keys as well.
+
+#### 7.20 setup.sh added the Ansible PPA on Debian, which the PPA does not publish for
+
+Cause: `ensure_ansible` in [setup.sh](../setup/setup.sh) ran `add-apt-repository --yes --update ppa:ansible/ansible` on every machine in the Debian family, Debian itself included, and never asked which lineage it was on. A Launchpad PPA publishes only for Ubuntu release names. A second defect sat in the same line: Linux Mint replaces `add-apt-repository` with its own, from mintsources, which knows only `-y` and `-r`, so `--update` made it refuse, and the `|| true` after it hid that.
+
+Effect: on Debian the call left a source for `trixie` that has no Release file, which makes every later full `apt-get update` exit 100. On Linux Mint the PPA was never added at all, so `apt-get install ansible` took Ubuntu noble's own ansible-core 2.16 and `ensure_ansible_version` then refused it as older than 2.19.0.
+
+How it was proven: the Launchpad API, `https://api.launchpad.net/1.0/~ansible/+archive/ubuntu/ansible?ws.op=getPublishedSources&status=Published`, on 2026-10-10 listed 42 published sources, every one for an Ubuntu series: ansible-core 2.21.5 for resolute and noble, 2.21.2 for questing, 2.19.5 for plucky, 2.18.6 for oracular, 2.17.14 for jammy, and older ones down to saucy. No Debian series appears. `https://ppa.launchpadcontent.net/ansible/ansible/ubuntu/dists/<series>/Release` answered 404 for trixie and bookworm and 200 for noble and resolute. For Mint, linuxmint/mintsources on GitHub: `usr/bin/add-apt-repository` builds an `OptionParser` with only `-y/--yes` and `-r/--remove`, and `debian/control` makes `software-properties-common` a transitional package that depends on mintsources. The same parser, run locally against `--yes --update ppa:ansible/ansible`, printed `error: no such option: --update` and exited 2. Mint's PPA code resolves the PPA against its Ubuntu base codename, so on Mint 22 it asks for noble, which the PPA publishes. Not run on a real Mint or Pop!_OS machine.
+
+Fix: one function, `debian_lineage`, prints `ubuntu` when the os-release file has a `UBUNTU_CODENAME`, an `ID_LIKE` naming ubuntu, or `ID=ubuntu`, and `debian` otherwise, which is the rule `derive_os_facts.yaml` uses for `ih_base`. `detect_os` stores it as `DEBIAN_LINEAGE`. `ensure_ansible` adds the PPA only on Ubuntu lineage, without `--update`, then updates the package lists through `apt_update_own_sources` with the PPA's own sources file, so it works with both the Ubuntu and the Mint `add-apt-repository`. Debian lineage, Debian, LMDE and Devuan, installs `ansible` from its own repository, which on trixie carries ansible-core 2.19.4, inside the accepted range. The version error message and the manual steps in [README_SETUP.md](../setup/README_SETUP.md) no longer tell a Debian user to add the PPA.
+
+What the fix cannot change: the PPA's newest ansible-core for jammy is 2.17.14, and Ubuntu 22.04 and Pop!_OS 22.04, which is the Pop!_OS fixture here, have no apt route to 2.19.0 at all. `ensure_ansible_version` still refuses them with its message, as before.
+
+Mechanical check: [shell_units.sh](../e2e/tier1/shell_units.sh) drives `debian_lineage` over every Debian-family fixture in [os_family_derivation.yaml](../e2e/tier1/os_family_derivation.yaml) and compares it with that play's expected `ih_base`, then drives `ensure_ansible` with `sudo` stubbed for each lineage. Against a copy of setup.sh with only the old `ensure_ansible` body put back it printed three FAILs: `ensure_ansible passes --update to add-apt-repository, which Linux Mint's own add-apt-repository refuses`, `ensure_ansible does not update the package lists from the PPA it added`, and `ensure_ansible adds no Ansible PPA on Debian lineage, where the PPA has no release` with `expected [0], got [1]`.
+
+One defect introduced by the agent writing that check, caught before it was reported: the first stubs logged `"$*"` under the file's own `IFS` of newline and tab, so each argument landed on its own line and three assertions failed against the fixed code. The stubs set a local `IFS=' '` now.

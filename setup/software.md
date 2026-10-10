@@ -8,7 +8,7 @@ Every cell holds the complete command, ready to paste into a terminal. Markdown 
 
 Cells marked `(repo)` install from an official third-party repository that has to be added first. The keyring and source list commands are in [Repository setup for Debian / Ubuntu](../docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md#repository-setup) and [Repository setup for Fedora](../docs/manual/fedora/fedora_manual_install.md#repository-setup). The playbook does this for you in `debian_repos.yaml` and `fedora_repos.yaml`.
 
-Arch cells using `yay` need an AUR helper. `arch_core` installs one; by hand, bootstrap `yay` first.
+Arch cells using `yay` are the commands to type by hand and need an AUR helper, so bootstrap `yay` first. The playbook itself installs every AUR package through `paru`, which `arch_core` builds, and builds `yay` only when `install_yay` is on.
 
 Flatpak cells assume the Flathub remote exists:
 
@@ -111,12 +111,15 @@ Terraform on macOS comes from the HashiCorp tap rather than Homebrew core, which
 | App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
 |---|---|---|---|---|---|
 | ChatGPT desktop | no official build | no official build | no official build | `brew install --cask chatgpt` | `winget install -e --id 9PLM9XGG6VKS --source msstore` |
+| OpenCode desktop | `flatpak install -y flathub ai.opencode.opencode` | `flatpak install -y flathub ai.opencode.opencode` | `flatpak install -y flathub ai.opencode.opencode` | `brew install --cask opencode-desktop` | `winget install -e --id SST.OpenCodeDesktop` |
 
 OpenAI ships the desktop app for macOS and Windows only, so `install_chatgpt` has no mapping in the three Linux dictionaries and the dispatcher skips it there. Register for the Linux client at [openai.com/form/chatgpt-app](https://openai.com/form/chatgpt-app/). The Arch and Debian community packages that claim to provide it repackage OpenAI's macOS bundle, so they are deliberately not wired in.
 
 The Windows entry needs `source: "msstore"` in `vars/Windows.yaml`, because the identifier is a Store product id and the default winget source cannot resolve it. `9NT1R1C2HH7J` is the retired "ChatGPT Classic" listing and `9N8CJ4W95TBZ` is the beta channel, neither is the current app.
 
 The desktop app is the former Codex desktop app renamed, its bundle identifier is still `com.openai.codex` and it reads the same `~/.codex` configuration directory as the Codex command line tool, so one login covers both.
+
+OpenCode desktop is `install_opencode_desktop`, on by default, and always comes from a package manager so it updates with the system. `SST.OpenCodeDesktop` is the desktop app in winget, and `SST.opencode` is the command line tool, which this repository installs from npm instead, see AI tools below. Chocolatey is deliberately not used: its community package runs a per-user installer elevated, so the app lands in the wrong profile.
 
 ### Media and design
 
@@ -230,8 +233,8 @@ Installed by the `ai_tools` role. Each toggle gates its own `import_tasks` so di
 | Tool | Linux | macOS | Windows |
 |---|---|---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` | `npm install -g @anthropic-ai/claude-code` | `npm install -g @anthropic-ai/claude-code` |
-| Claude Desktop | Arch: `yay -S claude-desktop-bin`. Debian: unofficial APT repo. Fedora: `alien` conversion of the upstream `.deb` | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, not wired into the playbook |
-| OpenCode | `npm install -g opencode-ai` | `npm install -g opencode-ai` | `npm install -g opencode-ai` |
+| Claude Desktop | On by default. Debian and Ubuntu: `apt install claude-desktop` from Anthropic's own apt repository. Arch: AUR `claude-desktop` through `paru`, which compiles nothing: it downloads Anthropic's own `.deb`, checks its pinned SHA-256 and unpacks it. Fedora: not installed, the vendor does not support it | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, installed natively by `setup/setup.ps1` from the `claude_desktop` mapping in `vars/Windows.yaml` |
+| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` removes version 1, which claims the same `opencode` command | same | same |
 | OpenSpec | `npm install -g @fission-ai/openspec` | `npm install -g @fission-ai/openspec` | `npm install -g @fission-ai/openspec` |
 | Codex CLI | `npm install -g @openai/codex` | `npm install -g @openai/codex` | `npm install -g @openai/codex` |
 | Grok CLI | `npm install -g @xai-official/grok` | `npm install -g @xai-official/grok` | `npm install -g @xai-official/grok` |
@@ -354,9 +357,9 @@ Podman Desktop is installed purely as a graphical front end for the Docker engin
 
 | Tool | Method |
 |---|---|
-| yay | `git clone https://aur.archlinux.org/yay.git && cd yay && makepkg -si` (handled by `arch_core`) |
-| paru | `git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si` |
-| snapd | `yay -S snapd` |
+| yay | `git clone https://aur.archlinux.org/yay.git && cd yay && makepkg -si` (handled by `arch_core` only when `install_yay` in `group_vars/linux.yaml` is on, off by default). Nothing in the playbook uses yay. The rule: the moment any task uses yay, yay becomes required, `install_yay` is removed from the selectable toggles and `arch_core` builds yay on every Arch run. `e2e/tier1/paru_consumers.sh` fails the gate when a task uses yay while the toggle still exists. A failed yay build is rescued: only yay is missing, the run ends failed, and everything else is still installed |
+| paru | `git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si` (handled by `arch_core`). A failed build does not stop the run: every Arch User Repository package, snapd and Claude Desktop included, is reported as NOT installed because paru could not be built, the run ends failed, and everything else is still installed |
+| snapd | `paru -S snapd`, so it is skipped and reported as NOT installed when paru could not be built |
 
 ## macOS-only
 

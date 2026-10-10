@@ -54,6 +54,7 @@ install_onlyoffice: true
 
 # AI
 install_chatgpt: true  # Desktop app — Windows and macOS only, OpenAI ships no Linux build.
+install_opencode_desktop: true  # Desktop app. winget on Windows, Homebrew cask on macOS, Flathub on Linux. The CLI is install_opencode.
 
 # Media / Design
 install_vlc: true

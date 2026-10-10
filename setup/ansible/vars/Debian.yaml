@@ -8,6 +8,108 @@ openrazer_device_group: "plugdev"
 # debian:trixie container creates group 'docker'.
 docker_group: "docker"
 
+# Every third-party apt repository software_installer/tasks/debian_repos.yaml adds, keyed by the toggle
+# that asks for it, so install_<key> decides whether it is set up and the software_mapping entry of the
+# same key is the package that needs it. Docker has no mapping entry because virtualization_config
+# installs it, and Antigravity has none because custom_installs.yaml installs it from a tarball and the
+# repository only carries its later updates, which is what updates_only says.
+#
+# files is every sources file that can define the repository, and setup/ansible/tasks/
+# repository_availability.yaml reads them to decide whether it is on this machine, for the playbook and
+# for verify_install.yaml alike. Chrome has two, because google-chrome-stable rewrites the .list this
+# playbook adds into its own .sources on first install. keyrings is what the rescue removes with them,
+# so a key that downloaded as something other than a key is fetched again next time.
+third_party_repositories:
+  chrome:
+    vendor: "Google Chrome"
+    files: ["/etc/apt/sources.list.d/google-chrome.list", "/etc/apt/sources.list.d/google-chrome.sources"]
+    keyrings: ["/etc/apt/keyrings/google-chrome.gpg"]
+  brave:
+    vendor: "Brave"
+    files: ["/etc/apt/sources.list.d/brave-browser.list"]
+    keyrings: ["/etc/apt/keyrings/brave-browser-archive-keyring.gpg"]
+  vscode:
+    vendor: "Microsoft VS Code"
+    files: ["/etc/apt/sources.list.d/vscode.list"]
+    keyrings: ["/etc/apt/keyrings/packages.microsoft.gpg"]
+  sublime:
+    vendor: "Sublime Text"
+    files: ["/etc/apt/sources.list.d/sublime-text.list"]
+    keyrings: ["/etc/apt/keyrings/sublimehq-pub.gpg"]
+  kubectl:
+    vendor: "Kubernetes"
+    files: ["/etc/apt/sources.list.d/kubernetes.list"]
+    keyrings: ["/etc/apt/keyrings/kubernetes-apt-keyring.gpg"]
+  helm:
+    vendor: "Helm"
+    files: ["/etc/apt/sources.list.d/helm.list"]
+    keyrings: ["/etc/apt/keyrings/helm-apt-keyring.gpg"]
+  terraform:
+    vendor: "HashiCorp"
+    files: ["/etc/apt/sources.list.d/hashicorp.list"]
+    keyrings: ["/etc/apt/keyrings/hashicorp-archive-keyring.gpg"]
+  gh:
+    vendor: "GitHub CLI"
+    files: ["/etc/apt/sources.list.d/github-cli.list"]
+    keyrings: ["/etc/apt/keyrings/githubcli-archive-keyring.gpg"]
+  lens:
+    vendor: "Lens"
+    files: ["/etc/apt/sources.list.d/lens.list"]
+    keyrings: ["/etc/apt/keyrings/lens.gpg"]
+  antigravity:
+    vendor: "Antigravity"
+    updates_only: true
+    files: ["/etc/apt/sources.list.d/antigravity.list"]
+    keyrings: ["/etc/apt/keyrings/antigravity-repo-key.gpg"]
+  docker:
+    vendor: "Docker"
+    files: ["/etc/apt/sources.list.d/docker.list"]
+    keyrings: ["/etc/apt/keyrings/docker.gpg"]
+  claude_desktop:
+    vendor: "Claude Desktop"
+    files: ["/etc/apt/sources.list.d/claude-desktop.list"]
+    keyrings: ["/usr/share/keyrings/claude-desktop-archive-keyring.asc"]
+  syncthing:
+    vendor: "Syncthing"
+    files: ["/etc/apt/sources.list.d/syncthing.list"]
+    keyrings: ["/etc/apt/keyrings/syncthing-archive-keyring.gpg"]
+  tailscale:
+    vendor: "Tailscale"
+    files: ["/etc/apt/sources.list.d/tailscale.list"]
+    keyrings: ["/etc/apt/keyrings/tailscale-archive-keyring.gpg"]
+  # The two below are written outside debian_repos.yaml, so added_by names the file that writes them
+  # and they have no repository block. They are listed here so the first apt cache refresh of a run
+  # checks them like every other repository this project adds, and e2e/tier1/availability_facts.sh
+  # fails the gate for any sources file written under setup/ that no entry here names. The charm paths
+  # are the ones ensure_gum in setup/setup.sh writes, and the waydroid paths are the ones the script
+  # at https://repo.waydro.id writes, read from that script on 2026-10-10.
+  charm:
+    vendor: "Charm (gum)"
+    added_by: "setup/setup.sh"
+    files: ["/etc/apt/sources.list.d/charm.list"]
+    keyrings: ["/etc/apt/keyrings/charm.gpg"]
+  waydroid:
+    vendor: "Waydroid"
+    added_by: "setup/ansible/roles/waydroid/tasks/main.yaml"
+    files: ["/etc/apt/sources.list.d/waydroid.list"]
+    keyrings: ["/usr/share/keyrings/waydroid.gpg"]
+
+# The distribution's own sources files, whichever of them this machine has. setup/setup.sh updates the
+# package lists from these alone before Ansible starts, and setup/ansible/tasks/apt_cache_refresh.yaml
+# treats every other sources file that third_party_repositories does not name as one this project
+# does not manage. Debian 13 keeps /etc/apt/sources.list or debian.sources, Ubuntu 24.04 and later
+# ubuntu.sources, Pop!_OS the three files pop-os/core ships, and Linux Mint the file mintsources writes.
+# contrib-non-free.list is the Debian archive's contrib and non-free components, which debian_core adds.
+distribution_sources_files:
+  - /etc/apt/sources.list
+  - /etc/apt/sources.list.d/debian.sources
+  - /etc/apt/sources.list.d/contrib-non-free.list
+  - /etc/apt/sources.list.d/ubuntu.sources
+  - /etc/apt/sources.list.d/system.sources
+  - /etc/apt/sources.list.d/pop-os-apps.sources
+  - /etc/apt/sources.list.d/pop-os-release.sources
+  - /etc/apt/sources.list.d/official-package-repositories.list
+
 software_mapping:
   # Browsers
   chrome: { manager: "apt", package: "google-chrome-stable" }   # Official Google apt repo, see debian_repos.yaml
@@ -60,6 +162,9 @@ software_mapping:
   bitwarden: { manager: "flatpak", package: "com.bitwarden.desktop" }
   keepassxc: { manager: "apt", package: "keepassxc" }
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
+
+  # AI
+  opencode_desktop: { manager: "flatpak", package: "ai.opencode.opencode" }   # Flathub, the desktop app. The CLI is the npm package, not this.
 
   # Media / Design
   vlc: { manager: "apt", package: "vlc" }

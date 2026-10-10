@@ -1,0 +1,27 @@
+---
+# paru_available: whether paru, the helper every Arch User Repository install goes through, is on
+# this machine. Answered once, here, and read by every task that needs paru, so the playbook and the
+# verification cannot disagree about it. arch_core includes this file after its paru build block, and
+# verify_install.yaml includes it to say why an Arch User Repository package is missing.
+#
+# arch_core no longer stops the run when paru cannot be built. Before, the build was critical
+# bootstrap and one failed makepkg on a real CachyOS machine on 2026-10-10 left it with nothing
+# installed at all. Now the failure is rescued and recorded, and each consumer reads this fact and
+# reports its package as not installed instead of calling a paru that is not there.
+# e2e/tier1/paru_consumers.sh fails the gate for any paru consumer that does not read it.
+#
+# `command -v` rather than a fixed path, because it is the same PATH lookup that the paru calls
+# themselves make. bash is named because dash answers 127 rather than 1 for a missing command.
+- name: Ask whether paru is on this machine (Arch)
+  ansible.builtin.shell: command -v paru
+  args:
+    executable: /bin/bash
+  register: paru_lookup
+  changed_when: false
+  failed_when: false
+  when: ih_family == 'Archlinux'
+
+- name: Record whether paru is available (Arch)
+  ansible.builtin.set_fact:
+    paru_available: "{{ (paru_lookup.rc | default(1)) == 0 }}"
+  when: ih_family == 'Archlinux'

@@ -32,11 +32,16 @@
         name: os_dict
       tags: always
 
+    # Not a bare apt refresh any longer: tasks/apt_cache_refresh.yaml fetches every third-party
+    # repository an earlier run added on its own first, and undoes one whose host does not answer,
+    # because a refresh of everything at once failed the whole play here for one dead vendor. Fedora
+    # needs no equivalent, measured on Fedora 44: its dnf defaults skip a repository that does not
+    # answer, so a dead vendor there is caught by its own block in fedora_repos.yaml instead.
     - name: Update apt cache (Debian)
-      ansible.builtin.apt:
-        update_cache: yes
-      become: yes
-      changed_when: false
+      ansible.builtin.include_tasks:
+        file: tasks/apt_cache_refresh.yaml
+        apply:
+          tags: [always]
       when: ih_family == 'Debian'
       tags: always
 
@@ -47,9 +52,10 @@
     # arch_core and debian_core, because a long run that re-prompts for sudo injects the prompt
     # into a module's captured stdout and breaks its JSON. It was removed in post_tasks, and a
     # fatal failure in any role that has no rescue skips post_tasks entirely, so the rule stayed
-    # on the machine permanently. Seven roles are imported here with no rescue, env_variables
-    # re-raises on purpose, and arch_core, which creates the file, is one of them. Proven with a
-    # probe of the same shape: the marker file survived the aborted play.
+    # on the machine permanently. Seven roles were imported here with no rescue, env_variables
+    # re-raised on purpose, and arch_core, which creates the file, is one of them. Proven with a
+    # probe of the same shape: the marker file survived the aborted play. Five core roles are still
+    # imported with no rescue, so the reason this block exists has not gone away.
     #
     # always: runs whether the block succeeded, failed or aborted, which is the only mechanism
     # that holds for all three. The rescue is what keeps the run reporting: without it a
@@ -58,6 +64,9 @@
     - name: Configure this machine
       block:
         # 1. OS-Specific Core Bootstrapping (CRITICAL — no rescue)
+        #    Two exceptions inside arch_core: its paru build and its CachyOS 32-bit graphics alignment
+        #    each have a rescue of their own, because paru only serves the Arch User Repository and the
+        #    alignment only serves Steam, and neither failure may cost every other package.
         #    Order: per-OS core roles install bootloader prerequisites (efibootmgr, sbctl, etc.)
         #    that systemd_boot depends on. systemd_boot must run AFTER core roles.
         - ansible.builtin.import_role:
@@ -85,10 +94,28 @@
           when: "ansible_facts['system'] == 'Linux' and install_system_core | default(false) | bool"
           tags: [linux_core]
 
-        - ansible.builtin.import_role:
-            name: systemd_boot
-          when: "ansible_facts['system'] == 'Linux' and setup_systemd_boot | default(false) | bool"
+        # Not critical bootstrap, although it used to sit among the core roles with no rescue. It
+        # configures the bootloader, which nothing else in the run depends on, so until 2026-10-10 a
+        # failure here stopped every role after it for no reason the rest of the run needed. It is off
+        # by default and has its own rescue now, the same shape kde_plasma_setup has. A failure is
+        # still recorded and the run still ends failed, and the [ERROR] line says that the bootloader
+        # was left as the step that failed left it, so the user checks it before rebooting.
+        - name: Run systemd_boot
           tags: [boot]
+          block:
+            - ansible.builtin.import_role:
+                name: systemd_boot
+          rescue:
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+            - ansible.builtin.debug:
+                msg: >-
+                  [ERROR] Role systemd_boot failed at step
+                  '{{ ansible_failed_task.name | default('unknown') }}' with:
+                  {{ ansible_failed_result.msg | default('no message given') }}
+                  The bootloader is left as that step left it, so check the boot entries before
+                  rebooting. Everything else in the run continues, and the run is marked failed.
+          when: "ansible_facts['system'] == 'Linux' and setup_systemd_boot | default(false) | bool"
 
         # 2. Linux Desktop Environments (non-critical)
         - name: Run kde_plasma_setup
@@ -116,14 +143,31 @@
           when: "ansible_facts['system'] == 'Linux' and (install_gnome | default(false) | bool or configure_gnome | default(false) | bool)"
 
         # 3. Cross-Platform Settings (needed for SDK path resolution)
+        #
+        # Every SDK sdk_manager installs is put on PATH through the file this role writes, so without
+        # it they would install where no shell finds them. That is a reason to skip sdk_manager, and
+        # it was never a reason to stop the run: until 2026-10-10 this rescue re-raised, and one
+        # failure here cost shell_zsh, ai_tools, the whole software installer and every role after
+        # them. Now it is recorded like any other role failure, env_variables_available goes false,
+        # and only sdk_manager below is skipped and named. tasks/env_variables_availability.yaml is
+        # the same answer asked of the disk, for verify_install.yaml.
         - name: Run env_variables
           tags: [env]
           block:
             - ansible.builtin.import_role:
                 name: env_variables
           rescue:
-            - ansible.builtin.fail:
-                msg: "Role env_variables failed — this is critical for SDK path resolution. Aborting playbook."
+            - ansible.builtin.set_fact:
+                any_role_failed: true
+                env_variables_available: false
+            - ansible.builtin.debug:
+                msg: >-
+                  [ERROR] Role env_variables failed at step
+                  '{{ ansible_failed_task.name | default('unknown') }}' with:
+                  {{ ansible_failed_result.msg | default('no message given') }}
+                  The project's environment file is not in place, so sdk_manager is skipped and the
+                  SDKs it installs are NOT installed. Everything else in the run continues, and the run
+                  is marked failed.
 
         - name: Run shell_zsh
           tags: [shell]
@@ -138,6 +182,8 @@
           when: "setup_zsh | default(false) | bool and ih_family != 'Windows'"
 
         # 4. Universal Complex Roles (non-critical)
+        #    sdk_manager reads env_variables_available, which only the env_variables rescue above sets,
+        #    so a run limited by --tags sdk, where env_variables never ran, still installs the SDKs.
         - name: Run sdk_manager
           tags: [sdk]
           block:
@@ -148,6 +194,29 @@
                 any_role_failed: true
             - ansible.builtin.debug:
                 msg: "Role sdk_manager failed. The failing task and its message are above in this log."
+          when: env_variables_available | default(true) | bool
+
+        # One entry per block in roles/sdk_manager/tasks/main.yaml, and e2e/tier1/rescue_coverage.sh
+        # fails the gate when the two lists name different toggles. The [ERROR] line in the rescue
+        # above is what reaches ~/installation_errors.log, and this list is what the terminal summary
+        # at the end of the run names.
+        - name: Record the SDKs as NOT installed because env_variables failed
+          tags: [sdk]
+          ansible.builtin.set_fact:
+            not_installed_with_reason: >-
+              {{ (not_installed_with_reason | default([]))
+                 + [item.name ~ ' (env_variables failed, so sdk_manager was skipped)'] }}
+          loop:
+            - { name: "NVM and Node.js", toggle: install_nodejs }
+            - { name: "SDKMAN and Java", toggle: install_java }
+            - { name: "Pyenv and Python", toggle: install_python }
+            - { name: "FVM and Flutter", toggle: install_flutter }
+            - { name: "Android SDK", toggle: install_android_sdk }
+          loop_control:
+            label: "{{ item.name }}"
+          when:
+            - not (env_variables_available | default(true) | bool)
+            - lookup('vars', item.toggle, default=false) | bool
 
         - name: Run ai_tools
           tags: [ai]
@@ -273,6 +342,16 @@
             state: absent
           become: true
           when: ansible_facts['system'] == 'Linux'
+          tags: always
+
+        # tasks/apt_cache_refresh.yaml sets aside, for the run, a sources file this project does not
+        # manage whose repository does not answer. This puts it back whatever happened in between.
+        - name: Put back the sources files set aside for this run (Debian)
+          ansible.builtin.include_tasks:
+            file: tasks/apt_sources_restore.yaml
+            apply:
+              tags: [always]
+          when: ih_family == 'Debian'
           tags: always
 
 
@@ -490,6 +569,16 @@
           {{ failed_aur_packages | join(', ') }}. Each is either a build that failed, a build that
           ran out of the wait budget, or a build that exited zero without installing, and the three
           warnings above distinguish them.
+          {% endif %}
+          {% if aur_skipped_without_paru | default([]) | length > 0 %}
+          paru could not be built, so these Arch User Repository packages were NOT installed:
+          {{ aur_skipped_without_paru | unique | join(', ') }}. The paru step that failed is named
+          above. Everything else in the run went ahead.
+          {% endif %}
+          {% if not_installed_with_reason | default([]) | length > 0 %}
+          These were NOT installed, each for the reason in brackets, and the step that failed is named
+          above: {{ not_installed_with_reason | unique | join(', ') }}. Everything else in the run went
+          ahead.
           {% endif %}
           Set allow_role_failures: true if you deliberately want a non-zero role failure to still
           exit successfully.

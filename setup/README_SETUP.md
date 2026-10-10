@@ -145,7 +145,7 @@ Use this only if you prefer to drive Ansible directly. All commands run from [se
 
 #### 1. Install Ansible
 
-Ubuntu / Debian:
+Ubuntu, Pop!_OS and Linux Mint. The Ansible PPA publishes only for Ubuntu release names, and Linux Mint's own `add-apt-repository` has no `--update` option, so the update is its own step:
 
 ```bash
 sudo apt update
@@ -156,7 +156,21 @@ sudo apt install -y software-properties-common
 ```
 
 ```bash
-sudo add-apt-repository --yes --update ppa:ansible/ansible
+sudo add-apt-repository --yes ppa:ansible/ansible
+```
+
+```bash
+sudo apt update
+```
+
+```bash
+sudo apt install -y ansible
+```
+
+Debian. The PPA has no Debian release, so Ansible comes from Debian's own repository, which on trixie carries ansible-core 2.19:
+
+```bash
+sudo apt update
 ```
 
 ```bash
@@ -274,24 +288,23 @@ otherwise the install is just slow.
 For verbose live output from the underlying tool, open a second terminal and tail the per-tool log directly:
 
 ```bash
-tail -f /var/log/installation-flatpak-batch.log
+tail -f /var/log/installation-flatpak.log
 ```
 
 The available log files match the running task:
 
 | Task | Log file |
 |---|---|
-| `Install APT packages (batched...)` | `/var/log/installation-apt-batch.log` |
-| `Install Flatpak packages (Debian...)` | `/var/log/installation-flatpak-batch.log` |
+| `Install APT packages, one at a time` (every apt package, Claude Desktop included) | `/var/log/installation-apt.log` |
+| `Install Flatpak applications, one at a time` | `/var/log/installation-flatpak.log` |
 | `Full system upgrade and autoremove (Debian, via raw)` | `/var/log/installation-apt-upgrade.log` |
 | `Install QEMU/KVM and virt-manager packages (Debian)` | `/var/log/installation-virt-apt.log` |
 | `Install Docker CE (Debian)` | `/var/log/installation-docker-apt.log` |
-| `Install Claude Desktop .deb (Linux Debian)` | `/var/log/installation-claude-desktop-apt.log` |
 
 These logs and tables only apply when the playbook runs, which on Windows means the Manual run section above, driven by hand inside WSL. `setup.ps1` never runs the playbook itself, see [docs/regression_ledger.md](../docs/regression_ledger.md). If you do run it that way, the same files live under WSL's filesystem. Tail them from PowerShell with:
 
 ```powershell
-wsl -d Ubuntu tail -f /var/log/installation-flatpak-batch.log
+wsl -d Ubuntu tail -f /var/log/installation-flatpak.log
 ```
 
 The heartbeat tick (default 5s) and idle-ping window (default 300s) are tunable:
@@ -440,13 +453,14 @@ Source role: [roles/ai_tools/](ansible/roles/ai_tools/).
 | Software | Ubuntu / Debian | Arch | Fedora | macOS | Windows |
 |---|---|---|---|---|---|
 | **Claude Code CLI** | `npm install -g @anthropic-ai/claude-code` | same | same | same | same |
-| **Claude Desktop** | unofficial APT repo script, then `sudo apt-get install -y claude-desktop` | `yay -S claude-desktop-bin` | `alien` conversion of the official `.deb`, then `sudo dnf install -y ./claude-desktop*.rpm` | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, installed natively by [setup/windows/](windows/), the `ai_tools` role's Windows task file for it can never run |
+| **Claude Desktop** | on by default, `sudo apt-get install -y claude-desktop` from Anthropic's own apt repository | on by default, AUR `claude-desktop` through `paru`, which compiles nothing: it downloads Anthropic's own `.deb`, checks its pinned SHA-256 and unpacks it | not installed, the vendor does not support Fedora | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, installed natively by [setup/windows/](windows/), the `ai_tools` role's Windows task file for it can never run |
 | **Claude Cowork** | Build from source via `go` and `make install` | same | same | same | not available |
-| **OpenCode** | `npm install -g opencode-ai` | same | same | same | same |
-| **OpenSpec** | `npm install -g openspec` | same | same | same | same |
+| **OpenCode** | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` removes version 1, which claims the same `opencode` command | same | same | same | same |
+| **OpenSpec** | `npm install -g @fission-ai/openspec` | same | same | same | same |
 | **Codex CLI** | `npm install -g @openai/codex` | same | same | same | same |
 | **Grok CLI** | `npm install -g @xai-official/grok` | same | same | same | same |
 | **ChatGPT desktop** | no official Linux build | no official Linux build | no official Linux build | `brew install --cask chatgpt` | `winget install -e --id 9PLM9XGG6VKS --source msstore` |
+| **OpenCode desktop** | `flatpak install -y flathub ai.opencode.opencode` | same | same | `brew install --cask opencode-desktop` | `winget install -e --id SST.OpenCodeDesktop` |
 
 #### Virtualization tools
 

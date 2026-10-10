@@ -1,0 +1,34 @@
+---
+# The last step of every repository block in fedora_repos.yaml, with repository_key naming its entry in
+# os_dict.third_party_repositories: fetch that one repository's metadata on its own, and fail the block
+# when it does not arrive. The Fedora counterpart of debian_repository_check.yaml.
+#
+# Writing a .repo file touches no network, so without this a repository whose host does not answer
+# looked added, and on a later run nothing noticed at all. Measured on 2026-10-10 in a fedora:latest
+# container, Fedora 44 with dnf5 5.4.2.1: /usr/share/dnf5/libdnf.conf.d/20-fedora-defaults.conf sets
+# skip_if_unavailable=True, so `dnf makecache`, `dnf install` and the ansible.builtin.dnf module all
+# exited 0 with a repository whose host does not resolve on disk, and `dnf makecache --repo=<id>` for
+# that repository alone exited 0 as well. The package it should have served then failed later as a
+# package nobody could find, with no word about the repository. Only fedora.repo itself sets
+# skip_if_unavailable=False, which is why a failure of the distribution's own repositories still
+# stops dnf.
+#
+# So the option is switched off for exactly the repositories being checked. It has to be the per-id
+# form: a global --setopt=skip_if_unavailable=False exited 0 for a repository whose own file sets
+# skip_if_unavailable=1, and --setopt=<id>.skip_if_unavailable=False exited 1 for it. Measured exit
+# codes: 1 for a host that does not resolve, 0 for docker-ce-stable, which answers, and 2 for an id
+# that no file defines.
+- name: Fetch the metadata of one third-party repository on its own
+  ansible.builtin.command:
+    argv: >-
+      {{ ['dnf', 'makecache']
+         + (os_dict.third_party_repositories[repository_key].repo_ids | map('regex_replace', '^', '--repo=') | list)
+         + (os_dict.third_party_repositories[repository_key].repo_ids
+            | map('regex_replace', '$', '.skip_if_unavailable=False')
+            | map('regex_replace', '^', '--setopt=') | list) }}
+  become: true
+  register: repository_metadata_fetch
+  changed_when: false
+  retries: 3
+  delay: 10
+  until: repository_metadata_fetch.rc == 0

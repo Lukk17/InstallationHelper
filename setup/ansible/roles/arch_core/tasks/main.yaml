@@ -84,167 +84,268 @@
       - zip
     state: present
 
-- name: Check if yay is already installed
-  ansible.builtin.command: which yay
-  register: yay_check
-  changed_when: false
-  failed_when: yay_check.rc > 1
+# Nothing in this playbook calls yay after building it: every Arch User Repository consumer goes
+# through paru. So yay is built only when install_yay in group_vars/linux.yaml asks for it, off by
+# default, and a yay that cannot be built costs yay and nothing else, rescued in the same shape as the
+# paru block below. The moment a task starts using yay, it becomes required: install_yay goes and this
+# block runs unconditionally, which e2e/tier1/paru_consumers.sh enforces. Before 2026-10-10 this was
+# critical bootstrap with no rescue, so one failed clone from aur.archlinux.org or one failed makepkg
+# ended the play before a single package was installed, which is exactly the failure mode the paru build had on a real CachyOS
+# machine that day. The failure is still a failure: the rescue sets any_role_failed and names the
+# step with an [ERROR] line, so the run exits non-zero and the step is in ~/installation_errors.log.
+#
+# The clone keeps its retries, because they cost nothing when the network is healthy and save a
+# failed run when it blinks.
+- name: Build and install yay
+  when: install_yay | default(false) | bool
+  block:
+    - name: Check if yay is already installed
+      ansible.builtin.command: which yay
+      register: yay_check
+      changed_when: false
+      failed_when: yay_check.rc > 1
 
-- name: Install yay build dependencies
-  become: yes
-  ansible.builtin.package:
-    name:
-      - git
-      - base-devel
-      - go
-    state: present
-  when: yay_check.rc != 0
+    - name: Install yay build dependencies
+      become: yes
+      ansible.builtin.package:
+        name:
+          - git
+          - base-devel
+          - go
+        state: present
+      when: yay_check.rc != 0
 
-- name: Ensure clean yay build directory exists
-  become: yes
-  ansible.builtin.file:
-    path: /tmp/yay
-    state: absent
-  when: yay_check.rc != 0
+    - name: Ensure clean yay build directory exists
+      become: yes
+      ansible.builtin.file:
+        path: /tmp/yay
+        state: absent
+      when: yay_check.rc != 0
 
-# site.yaml runs this role without a rescue, on purpose, because it is the bootstrap
-# everything later depends on. So a transient failure reaching aur.archlinux.org aborts the
-# whole run before a single package is installed. Retries cost nothing when the network is
-# healthy and save a forty minute run when it blinks. The same reasoning applies to every
-# network operation in this file.
-- name: Clone yay AUR helper repository
-  become: yes
-  become_user: "{{ non_root_user }}"
-  ansible.builtin.git:
-    repo: https://aur.archlinux.org/yay.git
-    dest: /tmp/yay
-    force: no
-    update: no
-  register: yay_clone
-  retries: 3
-  delay: 10
-  until: yay_clone is succeeded
-  when: yay_check.rc != 0
+    - name: Clone yay AUR helper repository
+      become: yes
+      become_user: "{{ non_root_user }}"
+      ansible.builtin.git:
+        repo: https://aur.archlinux.org/yay.git
+        dest: /tmp/yay
+        force: no
+        update: no
+      register: yay_clone
+      retries: 3
+      delay: 10
+      until: yay_clone is succeeded
+      when: yay_check.rc != 0
 
-- name: Build yay package (non-root)
-  ansible.builtin.shell: |
-    set -o pipefail
-    {{ ih_timeout }} 1500 makepkg -s --noconfirm </dev/null
-  args:
-    chdir: /tmp/yay
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  when: yay_check.rc != 0
-  async: 1800
-  poll: 30
-  register: yay_build
-  changed_when: yay_build.rc == 0
-  failed_when:
-    - yay_build.rc is defined
-    - yay_build.rc != 0
+    - name: Build yay package (non-root)
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ ih_timeout }} 1500 makepkg -s --noconfirm </dev/null
+      args:
+        chdir: /tmp/yay
+        executable: /bin/bash
+      become: yes
+      become_user: "{{ non_root_user }}"
+      when: yay_check.rc != 0
+      async: 1800
+      poll: 30
+      register: yay_build
+      changed_when: yay_build.rc == 0
+      failed_when:
+        - yay_build.rc is defined
+        - yay_build.rc != 0
 
-- name: Find built yay package
-  ansible.builtin.find:
-    paths: /tmp/yay
-    patterns: "*.pkg.tar.zst"
-    excludes: "*-debug-*"
-  register: yay_pkg_file
-  when: yay_check.rc != 0
+    - name: Find built yay package
+      ansible.builtin.find:
+        paths: /tmp/yay
+        patterns: "*.pkg.tar.zst"
+        excludes: "*-debug-*"
+      register: yay_pkg_file
+      when: yay_check.rc != 0
 
-- name: Set yay package path fact
-  ansible.builtin.set_fact:
-    yay_package_path: "{{ yay_pkg_file.files[0].path if yay_pkg_file.files | length > 0 else '' }}"
-  when:
-    - yay_check.rc != 0
-    - yay_pkg_file is defined
-    - yay_pkg_file.files | length > 0
+    - name: Set yay package path fact
+      ansible.builtin.set_fact:
+        yay_package_path: "{{ yay_pkg_file.files[0].path if yay_pkg_file.files | length > 0 else '' }}"
+      when:
+        - yay_check.rc != 0
+        - yay_pkg_file is defined
+        - yay_pkg_file.files | length > 0
 
-- name: Install built yay package (root)
-  ansible.builtin.command: >
-    pacman -U --noconfirm {{ yay_package_path }}
-  become: yes
-  when: yay_package_path is defined and yay_package_path | length > 0
+    - name: Install built yay package (root)
+      ansible.builtin.command: >
+        pacman -U --noconfirm {{ yay_package_path }}
+      become: yes
+      when: yay_package_path is defined and yay_package_path | length > 0
+  rescue:
+    - name: Record that yay could not be built
+      ansible.builtin.set_fact:
+        any_role_failed: true
+
+    - name: Name the yay step that failed and what it cost
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          The yay AUR helper could not be built, so only the yay helper itself is missing. Nothing in
+          this run uses yay, every Arch User Repository package goes through paru, and everything else
+          continues. The run is marked failed.
 
 
-- name: Check if paru is already installed
-  ansible.builtin.command: which paru
-  register: paru_installed
-  changed_when: false
-  failed_when: paru_installed.rc > 1
+# Asked outside the block and tagged always, because every Arch User Repository consumer in this
+# playbook reads paru_available, and a run limited by --tags to one of them still has to know the
+# truth about this machine. tasks/paru_availability.yaml is the one place that answers it.
+- name: Decide whether paru is already on this machine
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/paru_availability.yaml"
+    apply:
+      tags: [always]
+  tags: [always]
 
-- name: Install paru build dependencies (rust, cargo)
-  become: yes
-  ansible.builtin.package:
-    name:
-      - rust
-      - cargo
-      - git
-      - base-devel
-    state: present
-  when: paru_installed.rc != 0
+# paru only serves the Arch User Repository. pacman, flatpak, the npm tools and sdk_manager need
+# none of it, so a paru that cannot be built is no longer a reason to stop the run. It used to be:
+# this was critical bootstrap with no rescue, and on a real CachyOS machine on 2026-10-10 one failed
+# "Build paru package (non-root)" ended the play before a single package was installed.
+#
+# The failure is still a failure. The rescue below records it exactly the way site.yaml records a
+# role failure, any_role_failed and an [ERROR] line naming the step, so the run exits non-zero and
+# the step is in ~/installation_errors.log and in the terminal summary. What changes is the cost:
+# every consumer reads paru_available, skips its Arch User Repository package, and names it as NOT
+# installed in the summary and in the verification, and everything else carries on.
+- name: Build and install paru
+  block:
+    - name: Check if rustup already provides cargo
+      ansible.builtin.command: pacman -Q rustup
+      register: paru_rustup_installed
+      changed_when: false
+      failed_when: paru_rustup_installed.rc > 1
+      when: not (paru_available | bool)
 
-- name: Ensure clean paru build directory exists
-  become: yes
-  ansible.builtin.file:
-    path: /tmp/paru
-    state: absent
-  when: paru_installed.rc != 0
+    - name: Install paru build dependencies (rust, which provides cargo, unless rustup does)
+      become: yes
+      ansible.builtin.package:
+        name: "{{ ['git', 'base-devel'] + ([] if paru_rustup_installed.rc == 0 else ['rust']) }}"
+        state: present
+      when: not (paru_available | bool)
 
-- name: Clone paru AUR helper repository
-  become: yes
-  become_user: "{{ non_root_user }}"
-  ansible.builtin.git:
-    repo: https://aur.archlinux.org/paru.git
-    dest: /tmp/paru
-    force: no
-    update: no
-  register: paru_clone
-  retries: 3
-  delay: 10
-  until: paru_clone is succeeded
-  when: paru_installed.rc != 0
+    - name: Check if rustup has a default toolchain for the build user
+      ansible.builtin.command: rustup default
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: paru_rustup_default
+      changed_when: false
+      failed_when: paru_rustup_default.rc > 1
+      when:
+        - not (paru_available | bool)
+        - paru_rustup_installed.rc == 0
 
-- name: Build paru package (non-root)
-  ansible.builtin.shell: |
-    set -o pipefail
-    {{ ih_timeout }} 1800 makepkg -s --noconfirm </dev/null
-  args:
-    chdir: /tmp/paru
-    executable: /bin/bash
-  become: yes
-  become_user: "{{ non_root_user }}"
-  when: paru_installed.rc != 0
-  async: 2100
-  poll: 30
-  register: paru_build
-  changed_when: paru_build.rc == 0
-  failed_when:
-    - paru_build.rc is defined
-    - paru_build.rc != 0
+    - name: Set the stable toolchain as rustup's default for the build user
+      ansible.builtin.command: rustup default stable
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: paru_rustup_stable
+      retries: 3
+      delay: 10
+      until: paru_rustup_stable.rc == 0
+      changed_when: paru_rustup_stable.rc == 0
+      when:
+        - not (paru_available | bool)
+        - paru_rustup_installed.rc == 0
+        - paru_rustup_default.rc != 0
 
-- name: Find built paru package
-  ansible.builtin.find:
-    paths: /tmp/paru
-    patterns: "*.pkg.tar.zst"
-    excludes: "*-debug-*"
-  register: paru_pkg_file
-  when: paru_installed.rc != 0
+    - name: Ensure clean paru build directory exists
+      become: yes
+      ansible.builtin.file:
+        path: /tmp/paru
+        state: absent
+      when: not (paru_available | bool)
 
-- name: Set paru package path fact
-  ansible.builtin.set_fact:
-    paru_package_path: "{{ paru_pkg_file.files[0].path if paru_pkg_file.files | length > 0 else '' }}"
-  when:
-    - paru_installed.rc != 0
-    - paru_pkg_file is defined
-    - paru_pkg_file.files | length > 0
+    # The repository is a role default only so that the forced-failure scenario can point it at an
+    # Arch User Repository name that holds nothing, which makes this clone fail every time and proves
+    # the rescue below reports a paru failure rather than swallowing it.
+    - name: Clone paru AUR helper repository
+      become: yes
+      become_user: "{{ non_root_user }}"
+      ansible.builtin.git:
+        repo: "{{ arch_core_paru_repository }}"
+        dest: /tmp/paru
+        force: no
+        update: no
+      register: paru_clone
+      retries: 3
+      delay: 10
+      until: paru_clone is succeeded
+      when: not (paru_available | bool)
 
-- name: Install built paru package (root)
-  ansible.builtin.command: >
-    pacman -U --noconfirm {{ paru_package_path }}
-  become: yes
-  when: paru_package_path is defined and paru_package_path | length > 0
+    - name: Build paru package (non-root)
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ ih_timeout }} 1800 makepkg -s --noconfirm </dev/null
+      args:
+        chdir: /tmp/paru
+        executable: /bin/bash
+      become: yes
+      become_user: "{{ non_root_user }}"
+      when: not (paru_available | bool)
+      async: 2100
+      poll: 30
+      register: paru_build
+      changed_when: paru_build.rc == 0
+      failed_when:
+        - paru_build.rc is defined
+        - paru_build.rc != 0
 
+    - name: Find built paru package
+      ansible.builtin.find:
+        paths: /tmp/paru
+        patterns: "*.pkg.tar.zst"
+        excludes: "*-debug-*"
+      register: paru_pkg_file
+      when: not (paru_available | bool)
+
+    - name: Set paru package path fact
+      ansible.builtin.set_fact:
+        paru_package_path: "{{ paru_pkg_file.files[0].path if paru_pkg_file.files | length > 0 else '' }}"
+      when:
+        - not (paru_available | bool)
+        - paru_pkg_file is defined
+        - paru_pkg_file.files | length > 0
+
+    - name: Install built paru package (root)
+      ansible.builtin.command: >
+        pacman -U --noconfirm {{ paru_package_path }}
+      become: yes
+      when:
+        - not (paru_available | bool)
+        - paru_package_path is defined and paru_package_path | length > 0
+
+    # Asked again rather than assumed from the steps above, because a build that exits zero and
+    # leaves no package behind skips the install without an error, and that would otherwise be a
+    # paru nobody can call reported as nothing at all.
+    - name: Decide again whether paru is on this machine after the build
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/paru_availability.yaml"
+      when: not (paru_available | bool)
+
+    - name: Confirm the build left a paru that can be called
+      ansible.builtin.assert:
+        that: paru_available | bool
+        fail_msg: >-
+          Every paru build step finished without an error and `command -v paru` still finds
+          nothing, so no package was installed. /tmp/paru holds whatever the build left behind.
+        quiet: true
+  rescue:
+    - name: Record that paru could not be built
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        paru_available: false
+
+    - name: Name the paru step that failed and what it cost
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          paru could not be built, so every Arch User Repository package in this run is skipped and
+          reported as NOT installed. Everything else continues. The run is marked failed, and the
+          summary at the end names each package that was skipped.
 
 - name: Install snapd via paru
   become: yes
@@ -252,7 +353,29 @@
   ansible.builtin.command: paru -S --needed --noconfirm snapd
   args:
     creates: /usr/bin/snap
+  when:
+    - install_snapd | default(false) | bool
+    - paru_available | bool
+
+# snapd comes from the Arch User Repository, so without paru it is not installed. Asked of the disk
+# rather than inferred, because an earlier run may already have installed it, and then everything
+# below still applies. When it is absent it is named among the skipped packages, and every snapd task
+# below waits on this answer, because enabling a socket for a daemon that is not there is a fatal
+# error in a role with no rescue of its own.
+- name: Ask whether snapd is on this machine
+  ansible.builtin.stat:
+    path: /usr/bin/snap
+  register: arch_snapd_binary
   when: install_snapd | default(false) | bool
+
+- name: Record snapd as NOT installed because paru could not be built
+  ansible.builtin.set_fact:
+    aur_skipped_without_paru: "{{ aur_skipped_without_paru | default([]) + ['snapd'] }}"
+    any_role_failed: true
+  when:
+    - install_snapd | default(false) | bool
+    - not (paru_available | bool)
+    - not (arch_snapd_binary.stat.exists | default(false))
 
 # Order matters: snap install core needs snapd.socket bound first. The
 # previous order ran `snap install core` immediately after the paru install,
@@ -264,7 +387,9 @@
     name: snapd.socket
     state: started
     enabled: yes
-  when: install_snapd | default(false) | bool
+  when:
+    - install_snapd | default(false) | bool
+    - arch_snapd_binary.stat.exists | default(false)
 
 # A fixed five second pause replaced by asking snapd itself, because the socket being bound is not the
 # same thing as snapd being ready to install anything. After a fresh install snapd seeds itself, and
@@ -283,14 +408,18 @@
   register: snapd_seeded
   changed_when: false
   failed_when: false
-  when: install_snapd | default(false) | bool
+  when:
+    - install_snapd | default(false) | bool
+    - arch_snapd_binary.stat.exists | default(false)
 
 # rc, not the result's failed key, which failed_when has just rewritten and which
 # e2e/tier1/failed_key_reads.sh forbids reading.
 - name: Record whether snapd is usable in this environment
   ansible.builtin.set_fact:
     snapd_usable: "{{ (snapd_seeded.rc | default(1)) == 0 }}"
-  when: install_snapd | default(false) | bool
+  when:
+    - install_snapd | default(false) | bool
+    - arch_snapd_binary.stat.exists | default(false)
 
 - name: Explain that snaps are being skipped because snapd never finished seeding
   ansible.builtin.debug:
@@ -301,6 +430,7 @@
       `sudo snap wait system seed.loaded` and rerun, or reboot first.
   when:
     - install_snapd | default(false) | bool
+    - arch_snapd_binary.stat.exists | default(false)
     - not (snapd_usable | default(false))
 
 - name: Create snapd symlink for classic mode
@@ -309,7 +439,9 @@
     src: /var/lib/snapd/snap
     dest: /snap
     state: link
-  when: install_snapd | default(false) | bool
+  when:
+    - install_snapd | default(false) | bool
+    - arch_snapd_binary.stat.exists | default(false)
 
 - name: Install snapd core channel
   become: yes
@@ -364,6 +496,16 @@
     - snap_core_install.rc | default(0) != 0
     - "'already installed' not in (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))"
 
+# Asked outside the block and tagged always, because the pacman loop in software_installer reads
+# steam_graphics_stack_aligned, and a run limited by --tags to it still has to know the truth about this
+# machine. tasks/steam_graphics_alignment.yaml is the one place that answers it.
+- name: Decide whether the 32-bit graphics stack is aligned for Steam
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/steam_graphics_alignment.yaml"
+    apply:
+      tags: [always]
+  tags: [always]
+
 # CachyOS resolves the 32-bit graphics stack to its own git builds, and the run has to agree with it
 # before anything asks for a multilib package, or the whole software batch dies.
 #
@@ -391,44 +533,86 @@
 #
 # Verified end to end on the image: with this, `pacman -S --needed --noconfirm steam ...` exits 0 and
 # steam 1.0.0.87-1 installs. Without it the same command exits 1 on the conflict.
-- name: Align the 32-bit graphics stack with the CachyOS repositories (CachyOS)
-  become: yes
-  #
-  # The answers come from a file rather than from `yes |`, for the same reason the Android SDK licence
-  # task in roles/sdk_manager/tasks/android_sdk_unix.yaml does it that way. A pipe from `yes` is killed
-  # by SIGPIPE the moment pacman exits, and under `set -o pipefail` the pipeline then reports 141
-  # whatever pacman did. That is not theoretical here: on 2026-08-28 this task failed three times in a
-  # row on a real CachyOS machine where pacman had printed "there is nothing to do" and exited
-  # cleanly, and it took the whole run down with it. Reading from a file leaves rc meaning what it
-  # says. Two packages need at most a handful of answers, and 20 is the headroom.
-  #
-  # -Syy and three retries cover a mirror that is behind the database it serves. The failure recorded
-  # in the container on 2026-08-21 was a different thing and the record was wrong about it: it said
-  # the v3 index and the v3 files disagree. Re-measured on 2026-08-28, they do not. Both
-  # lib32-glibc-2.44+r24+g16be1518495f-1 and lib32-gcc-libs-16.2.1+r23+gd564253eb6c8-1, the exact
-  # builds the index names, answer 200 on mirror.cachyos.org and 404 on cdn77.cachyos.org. The index
-  # is right and one mirror is missing files, which is what a mirrorlist with more than one entry is
-  # for.
-  #
-  # This task stays fatal on purpose. A CachyOS user who asked for steam should see the run stop and
-  # read why, rather than have it hidden.
-  ansible.builtin.shell: |
-    set -o pipefail
-    answers="$(mktemp)"
-    trap 'rm -f "$answers"' EXIT
-    for _ in $(seq 20); do echo y; done > "$answers"
-    pacman -Syy --needed mesa-git lib32-mesa-git < "$answers"
-  args:
-    executable: /bin/bash
-  register: cachy_mesa_align
-  changed_when: "'there is nothing to do' not in (cachy_mesa_align.stdout | default(''))"
-  failed_when: cachy_mesa_align.rc != 0
-  retries: 3
-  delay: 20
-  until: cachy_mesa_align.rc == 0
+#
+# The alignment is still attempted on every CachyOS run that asks for Steam. What changed on 2026-10-10
+# is what a failure costs. The step used to be fatal on purpose, so a CachyOS user who asked for Steam
+# would see the run stop and read why, and what that bought was a run that stopped with nothing after
+# it installed: arch_core is critical bootstrap with no rescue around it in site.yaml. Now the failure
+# is rescued after its retries, recorded the way site.yaml records a role failure, any_role_failed and
+# an [ERROR] line naming the step, so the run still exits non-zero and the step is in
+# ~/installation_errors.log and the terminal summary. Steam alone is skipped and named as NOT
+# installed, by the pacman loop in software_installer and by verify_install.yaml, both reading
+# steam_graphics_stack_aligned, and everything else carries on.
+- name: Align the 32-bit graphics stack for Steam (CachyOS)
   when:
     - ih_family == 'Archlinux'
     - ih_os_release_id == 'cachyos'
     - install_steam | default(false) | bool
   tags: [cachyos, steam]
+  block:
+    - name: Align the 32-bit graphics stack with the CachyOS repositories (CachyOS)
+      become: yes
+      #
+      # The answers come from a file rather than from `yes |`, for the same reason the Android SDK licence
+      # task in roles/sdk_manager/tasks/android_sdk_unix.yaml does it that way. A pipe from `yes` is killed
+      # by SIGPIPE the moment pacman exits, and under `set -o pipefail` the pipeline then reports 141
+      # whatever pacman did. That is not theoretical here: on 2026-08-28 this task failed three times in a
+      # row on a real CachyOS machine where pacman had printed "there is nothing to do" and exited
+      # cleanly, and it took the whole run down with it. Reading from a file leaves rc meaning what it
+      # says. Two packages need at most a handful of answers, and 20 is the headroom.
+      #
+      # -Syy and three retries cover a mirror that is behind the database it serves. The failure recorded
+      # in the container on 2026-08-21 was a different thing and the record was wrong about it: it said
+      # the v3 index and the v3 files disagree. Re-measured on 2026-08-28, they do not. Both
+      # lib32-glibc-2.44+r24+g16be1518495f-1 and lib32-gcc-libs-16.2.1+r23+gd564253eb6c8-1, the exact
+      # builds the index names, answer 200 on mirror.cachyos.org and 404 on cdn77.cachyos.org. The index
+      # is right and one mirror is missing files, which is what a mirrorlist with more than one entry is
+      # for.
+      #
+      # A failure here is no longer fatal to the run. After the three attempts below the block's rescue
+      # records it, Steam is skipped and named as NOT installed with the reason, and the rest of the run
+      # continues. It is still a failure: the run ends failed and the step is named in the summary.
+      ansible.builtin.shell: |
+        set -o pipefail
+        answers="$(mktemp)"
+        trap 'rm -f "$answers"' EXIT
+        for _ in $(seq 20); do echo y; done > "$answers"
+        pacman -Syy --needed mesa-git lib32-mesa-git < "$answers"
+      args:
+        executable: /bin/bash
+      register: cachy_mesa_align
+      changed_when: "'there is nothing to do' not in (cachy_mesa_align.stdout | default(''))"
+      failed_when: cachy_mesa_align.rc != 0
+      retries: 3
+      delay: 20
+      until: cachy_mesa_align.rc == 0
+
+    # Asked again rather than assumed from the step above, so the fact the pacman loop reads is the
+    # disk's answer and not this task's exit code.
+    - name: Decide again whether the 32-bit graphics stack is aligned after the alignment
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/steam_graphics_alignment.yaml"
+        apply:
+          tags: [always]
+
+    - name: Confirm the alignment left the packages Steam needs
+      ansible.builtin.assert:
+        that: steam_graphics_stack_aligned | bool
+        fail_msg: >-
+          pacman finished without an error and `pacman -Q mesa-git lib32-mesa-git` still does not find
+          both packages, so Steam's 32-bit graphics dependencies cannot be resolved.
+        quiet: true
+  rescue:
+    - name: Record that the 32-bit graphics stack could not be aligned
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        steam_graphics_stack_aligned: false
+
+    - name: Name the alignment step that failed and what it cost
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          The CachyOS 32-bit graphics packages could not be aligned, so Steam is skipped and reported as
+          NOT installed. Everything else continues, and the run is marked failed.
 

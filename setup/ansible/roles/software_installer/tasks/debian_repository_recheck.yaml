@@ -1,0 +1,27 @@
+---
+# One third-party repository that is already on this machine, with repository_key naming its entry in
+# os_dict.third_party_repositories, checked before the first apt cache refresh of the run. Included in
+# a loop by setup/ansible/tasks/apt_cache_refresh.yaml, because a block cannot loop and each
+# repository needs a rescue of its own.
+#
+# The check and the rescue are the two files every repository block in debian_repos.yaml uses, so a
+# repository whose host does not answer is undone, recorded and named the same way whether it was
+# found here or while it was being added. repository_rechecked only changes the words of the [ERROR]
+# line, because here the repository was added by an earlier run rather than this one.
+- name: Check a third-party repository added by an earlier run
+  block:
+    - name: Fetch the package lists of a repository added by an earlier run, on their own
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/roles/software_installer/tasks/debian_repository_check.yaml"
+        apply:
+          tags: [always]
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the repository added by an earlier run that does not answer
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/roles/software_installer/tasks/repository_unavailable.yaml"
+        apply:
+          tags: [always]
+      vars:
+        repository_rechecked: true
+      tags: [always]

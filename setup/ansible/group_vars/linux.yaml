@@ -36,6 +36,13 @@ install_waydroid: false
 install_snapd: true
 install_putty: true
 
+# Arch Linux AUR helpers
+# yay, a second AUR helper beside paru. Off by default because nothing in this playbook uses it: every
+# Arch User Repository package goes through paru. The moment any task uses yay, yay becomes required,
+# this toggle must be removed and arch_core must build yay unconditionally, which
+# e2e/tier1/paru_consumers.sh enforces. Does nothing outside the Arch family.
+install_yay: false
+
 # Hardware/System Alternative Apps (Alternatives to Windows-only apps)
 install_hardinfo: true    # Alt for HWMonitor
 install_lm_sensors: true  # Alt for HWInfo
@@ -54,12 +61,14 @@ install_virtualbox: false
 install_vmware: false
 
 # AI Tools - Linux specific
-# Off by your choice rather than by a limitation, and the reason it carried has changed. On Debian and
-# Ubuntu it now installs from Anthropic's own apt repository as an ordinary package, which is how the
-# vendor distributes it, so there is no source compile and no downloaded file. On Arch the AUR package
-# does still compile from source, which is the hour this comment used to describe. On Fedora the vendor
-# supports nothing today, recorded in e2e/tier1/documented_no_ops.txt.
-install_claude_desktop: false
+# On by default, the owner's choice since 2026-10-10. On Debian and Ubuntu it installs from Anthropic's
+# own apt repository as an ordinary package, which is how the vendor distributes it, so there is no
+# source compile and no downloaded file. On Arch the AUR package compiles nothing: it has no build()
+# and no makedepends, it downloads Anthropic's own .deb from downloads.claude.ai, checks a pinned
+# SHA-256 that matches Anthropic's signed Packages index and unpacks it, about 181 MB, read out of
+# its PKGBUILD on 2026-10-10. It does need paru, like every AUR package. On Fedora the vendor supports nothing today, so the toggle does nothing
+# there, recorded in e2e/tier1/documented_no_ops.txt.
+install_claude_desktop: true
 
 # Btrfs Snapshots with Snapper
 install_snapper: true

@@ -1,0 +1,5 @@
+---
+# Where the Pyenv installer is fetched from. A variable only so that the forced-failure scenario,
+# e2e/tier3/scenarios/07-forced-failure.yaml, can point it at a path on the same host that answers 404
+# and prove that one SDK that fails is reported, and that the SDKs after it still install.
+sdk_manager_pyenv_installer_url: https://pyenv.run

@@ -820,6 +820,219 @@ Describe 'Get-TemurinMajor' {
     }
 }
 
+Describe 'Install-NpmToolPackage removes the package a tool replaces' {
+
+    # A global npm function rather than a Pester mock of the executable, because a function wins over
+    # an application of the same name for `& npm`, which is exactly how the code under test calls it,
+    # and because the function can set LASTEXITCODE the way the real npm does. The call log is the
+    # observable: it says which npm verbs ran and in what order.
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsNpmTools.ps1')
+
+        $script:SavedUserProfile = $env:USERPROFILE
+        $env:USERPROFILE = $TestDrive
+
+        function global:npm {
+            $global:NpmStubCalls.Add(($args -join ' '))
+            $verb = $args[0]
+            if ($verb -eq 'list') {
+                $global:LASTEXITCODE = 1
+                return ''
+            }
+            if ($verb -eq 'uninstall') {
+                $global:LASTEXITCODE = $global:NpmStubUninstallExit
+                return $global:NpmStubUninstallOutput
+            }
+            if ($global:NpmStubInstallExits.ContainsKey($args[2])) {
+                $global:LASTEXITCODE = $global:NpmStubInstallExits[$args[2]]
+                if ($global:LASTEXITCODE -ne 0) { return 'npm error code E404' }
+                return 'added 3 packages in 6s'
+            }
+            $global:LASTEXITCODE = 0
+            return 'added 3 packages in 6s'
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:npm -ErrorAction SilentlyContinue
+        $env:USERPROFILE = $script:SavedUserProfile
+    }
+
+    BeforeEach {
+        $global:NpmStubCalls = [System.Collections.Generic.List[string]]::new()
+        $global:NpmStubUninstallExit = 0
+        $global:NpmStubUninstallOutput = 'removed 3 packages in 1s'
+        $global:NpmStubInstallExits = @{}
+        Mock Start-Sleep { }
+    }
+
+    It 'uninstalls the replaced package before installing, and says so' {
+        $result = Install-NpmToolPackage -PackageName '@opencode/cli' -DisplayName 'OpenCode' -ReplacesPackage 'opencode-ai'
+
+        $result.Status | Should -Be 'installed'
+        $result.Detail | Should -Be 'removed opencode-ai, which it replaces'
+        $global:NpmStubCalls[1] | Should -Be 'uninstall -g opencode-ai'
+        $global:NpmStubCalls[2] | Should -Be 'install -g @opencode/cli'
+    }
+
+    It 'reports nothing replaced when the old package was not there' {
+        $global:NpmStubUninstallOutput = 'up to date in 932ms'
+
+        $result = Install-NpmToolPackage -PackageName '@opencode/cli' -DisplayName 'OpenCode' -ReplacesPackage 'opencode-ai'
+
+        $result.Status | Should -Be 'installed'
+        $result.Detail | Should -BeNullOrEmpty
+    }
+
+    It 'fails without attempting the install when the uninstall fails' {
+        $global:NpmStubUninstallExit = 1
+        $global:NpmStubUninstallOutput = 'npm error code EPERM'
+
+        $result = Install-NpmToolPackage -PackageName '@opencode/cli' -DisplayName 'OpenCode' -ReplacesPackage 'opencode-ai'
+
+        $result.Status | Should -Be 'failed'
+        $result.Detail | Should -Match 'npm uninstall -g opencode-ai exited 1'
+        @($global:NpmStubCalls | Where-Object { $_ -like 'install *' }).Count | Should -Be 0
+    }
+
+    It 'runs no uninstall for a tool that replaces nothing' {
+        $result = Install-NpmToolPackage -PackageName '@fission-ai/openspec' -DisplayName 'OpenSpec'
+
+        $result.Status | Should -Be 'installed'
+        @($global:NpmStubCalls | Where-Object { $_ -like 'uninstall *' }).Count | Should -Be 0
+    }
+
+    # Until 2026-10-10 the replaced package was removed and nothing put it back, so a failed
+    # @opencode/cli install left no OpenCode CLI at all on a machine that had a working one.
+    It 'installs the replaced package again when the new one fails, and says the old one is still there' {
+        $global:NpmStubInstallExits = @{ '@opencode/cli' = 1 }
+
+        $result = Install-NpmToolPackage -PackageName '@opencode/cli' -DisplayName 'OpenCode' -ReplacesPackage 'opencode-ai'
+
+        $result.Status | Should -Be 'failed'
+        $result.Detail | Should -Match 'opencode-ai had been removed to make room and was installed again'
+        $result.Detail | Should -Match 'the earlier OpenCode is still on this machine'
+        $global:NpmStubCalls[-1] | Should -Be 'install -g opencode-ai'
+        @($global:NpmStubCalls | Where-Object { $_ -eq 'install -g @opencode/cli' }).Count | Should -Be 2
+    }
+
+    It 'says there is no CLI left when the replaced package cannot be installed again either' {
+        $global:NpmStubInstallExits = @{ '@opencode/cli' = 1; 'opencode-ai' = 1 }
+
+        $result = Install-NpmToolPackage -PackageName '@opencode/cli' -DisplayName 'OpenCode' -ReplacesPackage 'opencode-ai'
+
+        $result.Status | Should -Be 'failed'
+        $result.Detail | Should -Match 'could not be installed again either'
+        $result.Detail | Should -Match 'there is no OpenCode on this machine now'
+    }
+
+    It 'installs nothing back when the replaced package was not there to begin with' {
+        $global:NpmStubUninstallOutput = 'up to date in 932ms'
+        $global:NpmStubInstallExits = @{ '@opencode/cli' = 1 }
+
+        $result = Install-NpmToolPackage -PackageName '@opencode/cli' -DisplayName 'OpenCode' -ReplacesPackage 'opencode-ai'
+
+        $result.Status | Should -Be 'failed'
+        $result.Detail | Should -Not -Match 'installed again'
+        $global:NpmStubCalls | Should -Not -Contain 'install -g opencode-ai'
+    }
+
+    It 'passes the replaced package from the table through Invoke-WindowsNpmToolInstall' {
+        Mock Test-NpmAvailable { $true }
+
+        $summary = Invoke-WindowsNpmToolInstall -Toggles @{ opencode = $true } -OnlyKeys @('opencode')
+
+        @($summary.Installed).Count | Should -Be 1
+        $global:NpmStubCalls | Should -Contain 'uninstall -g opencode-ai'
+        $global:NpmStubCalls | Should -Contain 'install -g @opencode/cli'
+    }
+}
+
+Describe 'Install-ConsoleGuiTools in setup.ps1' {
+
+    # Until 2026-10-10 a failed install of the picker module threw, and setup.ps1 runs with
+    # $ErrorActionPreference = 'Stop', so the wizard ended before it had installed anything although
+    # only the customise screen needs the module. It now returns whether the module is available, and
+    # Invoke-Main falls back to the default software list when it is not.
+    #
+    # setup.ps1 runs Invoke-Main when it is loaded, so it cannot be dot-sourced the way the module
+    # files are. The functions under test are lifted out of its syntax tree instead, which still tests
+    # the code that ships rather than a copy of it.
+    BeforeAll {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $script:SetupAst = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+
+        $wanted = @('Install-ConsoleGuiTools', 'Write-Status', 'Write-Hint')
+        $definitions = @($script:SetupAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in setup.ps1 and found $($definitions.Count)."
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+
+        # A function shadows the cmdlet of the same name, so every test below mocks this one and none
+        # of them can reach the PowerShell Gallery, whether or not PowerShellGet is installed here.
+        function Install-Module {
+            param([string] $Name, [string] $Scope, [switch] $Force, [switch] $AcceptLicense)
+        }
+    }
+
+    It 'returns true without installing anything when the module is already there' {
+        Mock Get-Module { [PSCustomObject]@{ Name = 'Microsoft.PowerShell.ConsoleGuiTools' } }
+        Mock Install-Module { }
+
+        Install-ConsoleGuiTools | Should -BeTrue
+        Should -Invoke Install-Module -Times 0 -Exactly
+    }
+
+    It 'returns true after installing a module that was missing' {
+        Mock Get-Module { }
+        Mock Install-Module { }
+        Mock Write-Host { }
+
+        Install-ConsoleGuiTools | Should -BeTrue
+        Should -Invoke Install-Module -Times 1 -Exactly
+    }
+
+    It 'returns false instead of throwing when the install fails, and says what the run does instead' {
+        Mock Get-Module { }
+        Mock Install-Module { throw 'No match was found for the specified search criteria and module name' }
+        Mock Write-Host { }
+
+        { Install-ConsoleGuiTools } | Should -Not -Throw
+        Install-ConsoleGuiTools | Should -BeFalse
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*Could not install Microsoft.PowerShell.ConsoleGuiTools*No match was found*' }
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*default software list*-NonInteractive*' }
+    }
+
+    It 'makes Invoke-Main ask for a software selection only when the picker module is available' {
+        $main = $script:SetupAst.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-Main'
+        }, $true)
+        $main | Should -Not -BeNullOrEmpty
+
+        $selectionCalls = @($main.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Get-SoftwareSelection'
+        }, $true))
+        $selectionCalls.Count | Should -Be 1
+
+        $guard = $selectionCalls[0].Parent
+        while ($guard -and -not ($guard -is [System.Management.Automation.Language.IfStatementAst])) {
+            $guard = $guard.Parent
+        }
+        $guard | Should -Not -BeNullOrEmpty -Because 'the selection must sit inside an if that asks whether the picker module is available'
+        $guard.Clauses[0].Item1.Extent.Text | Should -Match 'Install-ConsoleGuiTools'
+    }
+}
+
 Describe 'Chocolatey bootstrap' -Tag 'Slow', 'Network' {
 
     # The one install path a Windows container can genuinely exercise, because Chocolatey is

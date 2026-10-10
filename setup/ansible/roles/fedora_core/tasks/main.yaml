@@ -9,7 +9,9 @@
 # Found by the first Fedora idempotency run this repository has ever done, on 2026-08-21. The lesson
 # is not about descriptions: two definitions of one thing drift, and the only question is when.
 #
-# The remaining repository here, antigravity-rpm, is not duplicated anywhere.
+# antigravity-rpm, the last repository that was still defined here, moved there too on 2026-10-10. Here
+# it had no rescue, so one repository that could not be added stopped the whole run, and there it is
+# its own block with a rescue like every other third-party repository.
 
 - name: Ensure Snap plugin is installed
   become: yes
@@ -38,16 +40,3 @@
     dest: /snap
     state: link
   when: install_snapd | default(false) | bool
-
-# --- Antigravity YUM repository ---
-
-- name: Add Antigravity YUM repository (Fedora)
-  become: yes
-  ansible.builtin.yum_repository:
-    name: antigravity-rpm
-    description: Antigravity RPM Repository
-    baseurl: "{{ antigravity_yum_repo }}"
-    gpgkey: https://us-central1-yum.pkg.dev/doc/repo-signing-key.gpg
-    gpgcheck: yes
-    enabled: yes
-  when: install_antigravity | default(false) | bool

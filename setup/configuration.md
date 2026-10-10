@@ -109,7 +109,7 @@ Windows is not provisioned by Ansible at all. `setup/setup.ps1` runs natively an
 |------|------|-------------|
 | Claude Code | ai_tools | Claude CLI tool via NPM |
 | Claude Desktop | ai_tools | Claude Desktop app |
-| OpenCode | ai_tools | OpenCode CLI |
+| OpenCode | ai_tools | OpenCode CLI, version 2 from the npm package `@opencode/cli` |
 | OpenSpec | ai_tools | OpenSpec CLI |
 
 ### Local LLM Tools
@@ -142,12 +142,13 @@ Configuration is controlled via Ansible group variables in `group_vars/`:
 - `setup_tmpfs`
 - `setup_zsh`
 - `install_podman_desktop` (GUI front end for `install_docker`, see the per-OS caveats table above)
+- `install_yay` (Arch family only, off by default: a second AUR helper beside paru that nothing in the playbook uses. If a task ever starts using yay, this toggle is removed and yay is always built, see the helper rule in [software.md](software.md#arch-linux-helpers))
 
 ### All OS (`group_vars/all.yaml`)
 
 The cross-platform toggle file has 50+ entries grouped by category — see the file directly for the authoritative list. Highlights:
 
-- **AI tools:** `install_claude_code`, `install_claude_desktop`, `install_opencode`, `install_openspec`, `install_codex`, `install_grok`, `install_chatgpt` (desktop app, Windows and macOS only), `install_bruno_cli`, `install_stable_diffusion`, `install_lm_studio`
+- **AI tools:** `install_claude_code`, `install_claude_desktop`, `install_opencode`, `install_opencode_desktop` (desktop app, Flathub on Linux), `install_openspec`, `install_codex`, `install_grok`, `install_chatgpt` (desktop app, Windows and macOS only), `install_bruno_cli`, `install_stable_diffusion`, `install_lm_studio`
 - **Browsers/Dev:** `install_chrome`, `install_brave`, `install_tor`, `install_vscode`, `install_sublime`, `install_kubectl`, `install_minikube`, `install_k3d`, `install_helm`, `install_terraform`, `install_gh`, `install_jq`, `install_fzf`, `install_ripgrep`, `install_lens`, `install_postman`, `install_docker`
 - **Comms:** `install_discord`, `install_slack`, `install_telegram`, `install_whatsapp`, `install_signal`
 - **Productivity:** `install_obsidian`, `install_bitwarden`, `install_keepassxc`, `install_onlyoffice`

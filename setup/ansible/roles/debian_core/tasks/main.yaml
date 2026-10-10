@@ -44,10 +44,12 @@
 
 # curl and gpg, for the whole Debian family, before anything reaches for them.
 #
-# This task installed curl only, gated on the distribution being Debian, and the very next block
-# fetches the Antigravity signing key with `curl | gpg` on every Debian-family machine. So on Ubuntu
-# neither tool was installed and the key task died with "curl: command not found" followed by "gpg:
-# command not found", 58 seconds into a run that then abandoned every remaining role. Measured on the
+# This task installed curl only, gated on the distribution being Debian, and the next block in this
+# role then fetched the Antigravity signing key with `curl | gpg` on every Debian-family machine. That
+# key now lives in software_installer/tasks/debian_repos.yaml, and every repository key there still
+# needs gpg. So on Ubuntu neither tool was installed and the key task died with "curl: command not
+# found" followed by "gpg: command not found", 58 seconds into a run that then abandoned every
+# remaining role. Measured on the
 # ubuntu:26.04 container in the sweep of 2026-08-17, where 18 tasks ran out of 239 on Debian, and the
 # verification correctly reported more than twenty packages missing.
 #
@@ -102,46 +104,7 @@
       fi
     mode: '0644'
 
-# --- Antigravity APT repository ---
-
-- name: Create APT keyrings directory
-  become: yes
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: '0755'
-  when: install_antigravity | default(false) | bool
-
-- name: Download Antigravity APT signing key
-  become: yes
-  ansible.builtin.shell: |
-    set -o pipefail
-    curl -fsSL https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg | gpg --dearmor --yes -o /etc/apt/keyrings/antigravity-repo-key.gpg
-  args:
-    creates: /etc/apt/keyrings/antigravity-repo-key.gpg
-    executable: /bin/bash
-  register: antigravity_key
-  retries: 3
-  delay: 10
-  until: antigravity_key is succeeded
-  when: install_antigravity | default(false) | bool
-
-- name: Add Antigravity APT repository
-  become: yes
-  ansible.builtin.copy:
-    dest: /etc/apt/sources.list.d/antigravity.list
-    content: |
-      deb [signed-by=/etc/apt/keyrings/antigravity-repo-key.gpg] {{ antigravity_apt_repo }}/ antigravity-debian main
-    mode: '0644'
-  when: install_antigravity | default(false) | bool
-
-- name: Update APT cache after adding Antigravity repo
-  become: yes
-  ansible.builtin.apt:
-    update_cache: yes
-  register: apt_cache_antigravity
-  retries: 3
-  delay: 10
-  until: apt_cache_antigravity is succeeded
-  when: install_antigravity | default(false) | bool
-  changed_when: false
+# The Antigravity apt repository used to be set up here, as critical bootstrap with no rescue, so a key
+# host that did not answer stopped the whole run before a single package was installed. It lives in
+# software_installer/tasks/debian_repos.yaml now, as its own block with a rescue like every other
+# third-party repository, and that is the only place it is defined.

@@ -1,54 +1,66 @@
 ---
-- name: Create Antigravity install directory (Linux, non-Arch)
-  ansible.builtin.file:
-    path: /opt/antigravity
-    state: directory
-    mode: '0755'
-  become: true
+# Every vendor download in this file is its own block with a rescue, and the rescue is the same three
+# lines each time: record the failure, add the application to the NOT installed list the terminal
+# summary in site.yaml prints, and name the step that failed with an [ERROR] line, which is what
+# reaches ~/installation_errors.log. Until 2026-10-10 none of them had one, and this file runs inside
+# the software installer block, so one vendor host that did not answer ended the installer there and
+# every custom install after it was skipped without a word. It is the shape dynamic_install.yaml has
+# used for the vendor .deb downloads since 2026-08-21: the failure is named, the rest continue, and
+# the run ends failed. e2e/tier1/rescue_coverage.sh fails the gate for a download here without one.
+- name: Install Antigravity from the official tarball (Linux, non-Arch)
   when:
     - ansible_facts['system'] == 'Linux'
     - ih_family != 'Archlinux'
     - install_antigravity | default(false) | bool
+  block:
+    - name: Create Antigravity install directory (Linux, non-Arch)
+      ansible.builtin.file:
+        path: /opt/antigravity
+        state: directory
+        mode: '0755'
+      become: true
 
-- name: Download Antigravity Linux tarball
-  ansible.builtin.get_url:
-    url: "{{ antigravity_linux_tarball_url }}"
-    dest: "{{ non_root_home }}/.lukkInstall/antigravity.tar.gz"
-    mode: '0644'
-    checksum: "{{ download_checksums.antigravity_linux | default(omit) }}"
-    timeout: 60
-  register: antigravity_download
-  retries: 3
-  delay: 10
-  until: antigravity_download is succeeded
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - ih_family != 'Archlinux'
-    - install_antigravity | default(false) | bool
+    - name: Download Antigravity Linux tarball
+      ansible.builtin.get_url:
+        url: "{{ antigravity_linux_tarball_url }}"
+        dest: "{{ non_root_home }}/.lukkInstall/antigravity.tar.gz"
+        mode: '0644'
+        checksum: "{{ download_checksums.antigravity_linux | default(omit) }}"
+        timeout: 60
+      register: antigravity_download
+      retries: 3
+      delay: 10
+      until: antigravity_download is succeeded
 
-- name: Extract Antigravity tarball
-  ansible.builtin.unarchive:
-    src: "{{ non_root_home }}/.lukkInstall/antigravity.tar.gz"
-    dest: /opt/antigravity
-    remote_src: true
-    extra_opts: ['--strip-components=1']
-    creates: /opt/antigravity/antigravity
-  become: true
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - ih_family != 'Archlinux'
-    - install_antigravity | default(false) | bool
+    - name: Extract Antigravity tarball
+      ansible.builtin.unarchive:
+        src: "{{ non_root_home }}/.lukkInstall/antigravity.tar.gz"
+        dest: /opt/antigravity
+        remote_src: true
+        extra_opts: ['--strip-components=1']
+        creates: /opt/antigravity/antigravity
+      become: true
 
-- name: Symlink Antigravity to /usr/local/bin
-  ansible.builtin.file:
-    src: /opt/antigravity/antigravity
-    dest: /usr/local/bin/antigravity
-    state: link
-  become: true
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - ih_family != 'Archlinux'
-    - install_antigravity | default(false) | bool
+    - name: Symlink Antigravity to /usr/local/bin
+      ansible.builtin.file:
+        src: /opt/antigravity/antigravity
+        dest: /usr/local/bin/antigravity
+        state: link
+      become: true
+  rescue:
+    - name: Record that Antigravity could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['antigravity (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Antigravity step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Antigravity is NOT installed. Every other install continues, and the run is marked failed.
 
 # --- AppImageLauncher (Fedora only): rpm -i --nodigest bypass ---
 # The 2020-vintage upstream RPM (last release) was built without file digests
@@ -72,53 +84,64 @@
 # today, so `| default(omit)` leaves behaviour unchanged until someone populates it. The timeout
 # bounds a socket operation that otherwise has none, and the retries stop a single vendor blip
 # costing the install outright.
-- name: Download AppImageLauncher RPM (Fedora)
-  ansible.builtin.get_url:
-    url: "{{ appimage_launcher_rpm_url }}"
-    dest: "{{ software_installer_stage_dir }}/appimagelauncher.rpm"
-    force: true
-    mode: '0600'
-    checksum: "{{ download_checksums.appimagelauncher_rpm | default(omit) }}"
-    timeout: 60
-  become: true
-  register: appimagelauncher_download
-  retries: 3
-  delay: 10
-  until: appimagelauncher_download is succeeded
+- name: Install AppImageLauncher from the vendor RPM (Fedora)
   when:
     - ih_family == 'RedHat'
     - install_appimagelauncher | default(false) | bool
+  block:
+    - name: Download AppImageLauncher RPM (Fedora)
+      ansible.builtin.get_url:
+        url: "{{ appimage_launcher_rpm_url }}"
+        dest: "{{ software_installer_stage_dir }}/appimagelauncher.rpm"
+        force: true
+        mode: '0600'
+        checksum: "{{ download_checksums.appimagelauncher_rpm | default(omit) }}"
+        timeout: 60
+      become: true
+      register: appimagelauncher_download
+      retries: 3
+      delay: 10
+      until: appimagelauncher_download is succeeded
 
-# creates names /usr/bin/AppImageLauncher, with the capitals, because that is what the package
-# actually installs. The lowercase spelling was never written by anything, so the guard could not fire
-# and rpm --replacepkgs reinstalled the package on every run, reporting changed for ever. Read out of
-# the package rather than guessed: rpm -qlp on the pinned 2.2.0 RPM lists /usr/bin/AppImageLauncher,
-# /usr/bin/AppImageLauncherSettings, /usr/bin/ail-cli and /usr/bin/appimagelauncherd, and no lowercase
-# appimagelauncher at all.
-#
-# Third guard of this exact shape found today, after FVM looking in ~/.fvm when the installer writes
-# ~/fvm, and LM Studio looking in ~/.local/bin when it writes ~/.lmstudio/bin. A path a guard checks
-# has to come from the thing that creates it, and on Linux the case matters.
-- name: Install AppImageLauncher via rpm with --nodigest (Fedora)
-  ansible.builtin.command:
-    cmd: rpm --install --upgrade --replacepkgs --nodigest {{ software_installer_stage_dir }}/appimagelauncher.rpm
-    creates: /usr/bin/AppImageLauncher
-  become: true
-  when:
-    - ih_family == 'RedHat'
-    - install_appimagelauncher | default(false) | bool
+    # creates names /usr/bin/AppImageLauncher, with the capitals, because that is what the package
+    # actually installs. The lowercase spelling was never written by anything, so the guard could not
+    # fire and rpm --replacepkgs reinstalled the package on every run, reporting changed for ever. Read
+    # out of the package rather than guessed: rpm -qlp on the pinned 2.2.0 RPM lists
+    # /usr/bin/AppImageLauncher, /usr/bin/AppImageLauncherSettings, /usr/bin/ail-cli and
+    # /usr/bin/appimagelauncherd, and no lowercase appimagelauncher at all.
+    #
+    # Third guard of this exact shape found today, after FVM looking in ~/.fvm when the installer writes
+    # ~/fvm, and LM Studio looking in ~/.local/bin when it writes ~/.lmstudio/bin. A path a guard checks
+    # has to come from the thing that creates it, and on Linux the case matters.
+    - name: Install AppImageLauncher via rpm with --nodigest (Fedora)
+      ansible.builtin.command:
+        cmd: rpm --install --upgrade --replacepkgs --nodigest {{ software_installer_stage_dir }}/appimagelauncher.rpm
+        creates: /usr/bin/AppImageLauncher
+      become: true
+  rescue:
+    - name: Record that AppImageLauncher could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['appimagelauncher (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
 
-# Removed once installed, in the shape dynamic_install.yaml uses for the vendor .deb files. The
-# staging directory is permanent now that it is not /tmp, so an artifact left in it is both a file
-# that grows /var/cache on every run and a file a later run could be made to trust.
-- name: Remove the staged AppImageLauncher RPM (Fedora)
-  ansible.builtin.file:
-    path: "{{ software_installer_stage_dir }}/appimagelauncher.rpm"
-    state: absent
-  become: true
-  when:
-    - ih_family == 'RedHat'
-    - install_appimagelauncher | default(false) | bool
+    - name: Name the AppImageLauncher step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          AppImageLauncher is NOT installed. Every other install continues, and the run is marked failed.
+  # Removed once installed, in the shape dynamic_install.yaml uses for the vendor .deb files, and in
+  # always so a download that arrived and then failed to install is not left behind either. The
+  # staging directory is permanent now that it is not /tmp, so an artifact left in it is both a file
+  # that grows /var/cache on every run and a file a later run could be made to trust.
+  always:
+    - name: Remove the staged AppImageLauncher RPM (Fedora)
+      ansible.builtin.file:
+        path: "{{ software_installer_stage_dir }}/appimagelauncher.rpm"
+        state: absent
+      become: true
 
 # --- k3d: lightweight Kubernetes-in-Docker (all Linux distros) ---
 # k3d has no stable package across apt/dnf (only AUR on Arch), so every Linux
@@ -126,118 +149,124 @@
 # The stat guard keeps it idempotent; `{{ ih_timeout }} 300` bounds the piped bash so a
 # stalled download can't hang the run.
 
-- name: Check if k3d is already installed (Linux)
-  ansible.builtin.stat:
-    path: /usr/local/bin/k3d
-  register: k3d_installed
+- name: Install k3d via its official script (Linux)
   when:
     - ansible_facts['system'] == 'Linux'
     - install_k3d | default(false) | bool
+  block:
+    - name: Check if k3d is already installed (Linux)
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3d
+      register: k3d_installed
 
-- name: Install k3d via official script (Linux)
-  ansible.builtin.shell: |
-    set -o pipefail
-    {{ ih_timeout }} 300 bash -c 'curl -s --max-time 120 https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash'
-  args:
-    executable: /bin/bash
-  become: true
-  register: k3d_install
-  retries: 2
-  delay: 10
-  until: k3d_install is succeeded
-  changed_when: true
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - install_k3d | default(false) | bool
-    - not (k3d_installed.stat.exists | default(false))
+    - name: Install k3d via official script (Linux)
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ ih_timeout }} 300 bash -c 'curl -s --max-time 120 https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash'
+      args:
+        executable: /bin/bash
+      become: true
+      register: k3d_install
+      retries: 2
+      delay: 10
+      until: k3d_install is succeeded
+      changed_when: true
+      when: not (k3d_installed.stat.exists | default(false))
+  rescue:
+    - name: Record that k3d could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['k3d (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
 
-# --- Docker CE: Official Docker repository (Fedora) ---
+    - name: Name the k3d step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          k3d is NOT installed. Every other install continues, and the run is marked failed.
 
-- name: Add Docker CE repository (Fedora)
-  ansible.builtin.get_url:
-    url: https://download.docker.com/linux/fedora/docker-ce.repo
-    dest: /etc/yum.repos.d/docker-ce.repo
-    mode: '0644'
-  become: true
-  when:
-    - ih_family == 'RedHat'
-    - install_docker | default(false) | bool
+# The Fedora Docker CE repository used to be added a second time here, after fedora_repos.yaml had
+# already added the same file, which is one rule in two places. It is added there only now, as its own
+# block with a rescue.
 
 # --- Gridcoin: official flatpak bundle on ALL Linux distros ---
 # We previously tried the Gridcoin PPA on Debian, but PPAs are Ubuntu-only
 # and add-apt-repository fails on plain Debian. The OpenSUSE Fedora_Rawhide
 # repo is also fragile across Fedora releases. Using the upstream-published
 # flatpak bundle gives us a single install path that works everywhere.
-  # Retried, because this reaches the network and a single dropped connection must not cost the
-  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
-  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
-  # eof from python.org.
-  register: docker_repo_fedora
-  until: docker_repo_fedora is succeeded
-  retries: 3
-  delay: 10
-
-- name: Download Gridcoin flatpak bundle (Linux)
-  ansible.builtin.get_url:
-    url: "{{ gridcoin_flatpak_url }}"
-    dest: "{{ software_installer_stage_dir }}/gridcoin.flatpak"
-    force: true
-    mode: '0600'
-    checksum: "{{ download_checksums.gridcoin_flatpak | default(omit) }}"
-    timeout: 60
-  become: true
-  register: gridcoin_download
-  retries: 3
-  delay: 10
-  until: gridcoin_download is succeeded
+- name: Install Gridcoin from the official flatpak bundle (Linux)
   when:
     - ansible_facts['system'] == 'Linux'
     - install_gridcoin | default(false) | bool
+  block:
+    - name: Download Gridcoin flatpak bundle (Linux)
+      ansible.builtin.get_url:
+        url: "{{ gridcoin_flatpak_url }}"
+        dest: "{{ software_installer_stage_dir }}/gridcoin.flatpak"
+        force: true
+        mode: '0600'
+        checksum: "{{ download_checksums.gridcoin_flatpak | default(omit) }}"
+        timeout: 60
+      become: true
+      register: gridcoin_download
+      retries: 3
+      delay: 10
+      until: gridcoin_download is succeeded
 
-# There used to be a guard task here that ran `flatpak info org.gridcoin.Gridcoin` and only installed
-# when that came back non-zero. It never once guarded anything, because the bundle does not carry that
-# application id. Installing it in a debian:trixie container and then asking flatpak what it had got
-# named `us.gridcoin.GridcoinResearch/x86_64/master`, so the guard's `flatpak info` always answered
-# "error: org.gridcoin.Gridcoin/*unspecified*/*unspecified* not installed" at rc 1, the install always
-# ran, and the second time it ran it failed the play with:
-#
-#   error: Failed to install bundle us.gridcoin.GridcoinResearch: us.gridcoin.GridcoinResearch
-#   already installed
-#
-# Correcting the id in the guard would have hidden a second problem rather than fixed it: the bundle
-# is pinned by version in pinned_values.toml, the ref inside it is a single branch called master, and
-# a guard that skips whenever any version is present would never apply a pin that has been bumped. So
-# the install is attempted every time and the result is classified instead, which is the only form
-# that gets both cases right.
-#
-# rc 0 means flatpak installed the bundle, so the task is changed. rc non-zero carrying the
-# already-installed message means the machine is already at this bundle, so the task is neither
-# changed nor failed. Any other non-zero result still fails the play, which is the whole point: the
-# phrase matched is flatpak's own wording for this one outcome and nothing else, so a corrupt bundle,
-# a missing runtime or an out-of-space install stays as loud as it was before. Both spellings flatpak
-# uses contain it, the plain one being "This version of us.gridcoin.GridcoinResearch is already
-# installed" and the --noninteractive one being "us.gridcoin.GridcoinResearch already installed",
-# which was checked by running the bundle install twice rather than by reading about it.
-- name: Install Gridcoin flatpak bundle (Linux)
-  ansible.builtin.command: flatpak install --system --noninteractive --bundle --assumeyes {{ software_installer_stage_dir }}/gridcoin.flatpak
-  become: true
-  register: gridcoin_bundle_install
-  changed_when: gridcoin_bundle_install.rc == 0
-  failed_when: "gridcoin_bundle_install.rc != 0 and 'already installed' not in ((gridcoin_bundle_install.stdout | default('')) ~ (gridcoin_bundle_install.stderr | default('')))"
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - install_gridcoin | default(false) | bool
+    # There used to be a guard task here that ran `flatpak info org.gridcoin.Gridcoin` and only installed
+    # when that came back non-zero. It never once guarded anything, because the bundle does not carry that
+    # application id. Installing it in a debian:trixie container and then asking flatpak what it had got
+    # named `us.gridcoin.GridcoinResearch/x86_64/master`, so the guard's `flatpak info` always answered
+    # "error: org.gridcoin.Gridcoin/*unspecified*/*unspecified* not installed" at rc 1, the install always
+    # ran, and the second time it ran it failed the play with:
+    #
+    #   error: Failed to install bundle us.gridcoin.GridcoinResearch: us.gridcoin.GridcoinResearch
+    #   already installed
+    #
+    # Correcting the id in the guard would have hidden a second problem rather than fixed it: the bundle
+    # is pinned by version in pinned_values.toml, the ref inside it is a single branch called master, and
+    # a guard that skips whenever any version is present would never apply a pin that has been bumped. So
+    # the install is attempted every time and the result is classified instead, which is the only form
+    # that gets both cases right.
+    #
+    # rc 0 means flatpak installed the bundle, so the task is changed. rc non-zero carrying the
+    # already-installed message means the machine is already at this bundle, so the task is neither
+    # changed nor failed. Any other non-zero result still fails the play, which is the whole point: the
+    # phrase matched is flatpak's own wording for this one outcome and nothing else, so a corrupt bundle,
+    # a missing runtime or an out-of-space install stays as loud as it was before. Both spellings flatpak
+    # uses contain it, the plain one being "This version of us.gridcoin.GridcoinResearch is already
+    # installed" and the --noninteractive one being "us.gridcoin.GridcoinResearch already installed",
+    # which was checked by running the bundle install twice rather than by reading about it.
+    - name: Install Gridcoin flatpak bundle (Linux)
+      ansible.builtin.command: flatpak install --system --noninteractive --bundle --assumeyes {{ software_installer_stage_dir }}/gridcoin.flatpak
+      become: true
+      register: gridcoin_bundle_install
+      changed_when: gridcoin_bundle_install.rc == 0
+      failed_when: "gridcoin_bundle_install.rc != 0 and 'already installed' not in ((gridcoin_bundle_install.stdout | default('')) ~ (gridcoin_bundle_install.stderr | default('')))"
+  rescue:
+    - name: Record that Gridcoin could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['gridcoin (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
 
-# Removed whether or not the install above changed anything, because the download runs whenever the
-# toggle is on.
-- name: Remove the staged Gridcoin flatpak bundle (Linux)
-  ansible.builtin.file:
-    path: "{{ software_installer_stage_dir }}/gridcoin.flatpak"
-    state: absent
-  become: true
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - install_gridcoin | default(false) | bool
+    - name: Name the Gridcoin step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Gridcoin is NOT installed. Every other install continues, and the run is marked failed.
+  always:
+    # Removed whether or not the install above changed anything, and in always so a failed install does
+    # not leave the bundle behind either, because the download runs whenever the toggle is on.
+    - name: Remove the staged Gridcoin flatpak bundle (Linux)
+      ansible.builtin.file:
+        path: "{{ software_installer_stage_dir }}/gridcoin.flatpak"
+        state: absent
+      become: true
 
 # Lens is installed via the official apt/dnf repo on Debian/Fedora (configured
 # in debian_repos.yaml / fedora_repos.yaml) and via AUR `lens-bin` on Arch.
@@ -247,87 +276,89 @@
 
 # --- GpuTest: binary zip download (Debian/Fedora only, Arch uses AUR) ---
 
-- name: Create GpuTest directory
-  ansible.builtin.file:
-    path: /opt/gputest
-    state: directory
-    mode: '0755'
-  become: true
+- name: Install GpuTest from the binary archive (Linux, non-Arch)
   when:
     - ansible_facts['system'] == 'Linux'
     - ih_family != 'Archlinux'
     - install_gputest | default(false) | bool
+  block:
+    - name: Create GpuTest directory
+      ansible.builtin.file:
+        path: /opt/gputest
+        state: directory
+        mode: '0755'
+      become: true
 
-- name: Download GpuTest binary archive
-  ansible.builtin.get_url:
-    url: "{{ gputest_url }}"
-    dest: "{{ software_installer_stage_dir }}/gputest.zip"
-    force: true
-    mode: '0600'
-    checksum: "{{ download_checksums.gputest | default(omit) }}"
-    timeout: 60
-  become: true
-  register: gputest_download
-  retries: 3
-  delay: 10
-  until: gputest_download is succeeded
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - ih_family != 'Archlinux'
-    - install_gputest | default(false) | bool
+    - name: Download GpuTest binary archive
+      ansible.builtin.get_url:
+        url: "{{ gputest_url }}"
+        dest: "{{ software_installer_stage_dir }}/gputest.zip"
+        force: true
+        mode: '0600'
+        checksum: "{{ download_checksums.gputest | default(omit) }}"
+        timeout: 60
+      become: true
+      register: gputest_download
+      retries: 3
+      delay: 10
+      until: gputest_download is succeeded
 
-- name: Extract GpuTest archive
-  ansible.builtin.unarchive:
-    src: "{{ software_installer_stage_dir }}/gputest.zip"
-    dest: /opt/gputest
-    remote_src: true
-    creates: /usr/local/bin/GpuTest
-  become: true
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - ih_family != 'Archlinux'
-    - install_gputest | default(false) | bool
+    - name: Extract GpuTest archive
+      ansible.builtin.unarchive:
+        src: "{{ software_installer_stage_dir }}/gputest.zip"
+        dest: /opt/gputest
+        remote_src: true
+        creates: /usr/local/bin/GpuTest
+      become: true
 
-# Same as the two above: extracted, so the archive itself is of no further use, and the staging
-# directory is permanent.
-- name: Remove the staged GpuTest archive
-  ansible.builtin.file:
-    path: "{{ software_installer_stage_dir }}/gputest.zip"
-    state: absent
-  become: true
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - ih_family != 'Archlinux'
-    - install_gputest | default(false) | bool
+    # The ozone3d zip extracts to a versioned subdirectory
+    # (e.g. GpuTest_Linux_x64_0.7.0/GpuTest), not directly to /opt/gputest/GpuTest.
+    # Locate the actual binary before symlinking.
+    - name: Locate GpuTest binary inside /opt/gputest
+      ansible.builtin.find:
+        paths: /opt/gputest
+        patterns: GpuTest
+        file_type: file
+        recurse: true
+      register: gputest_binary
 
-# The ozone3d zip extracts to a versioned subdirectory
-# (e.g. GpuTest_Linux_x64_0.7.0/GpuTest), not directly to /opt/gputest/GpuTest.
-# Locate the actual binary before symlinking.
-- name: Locate GpuTest binary inside /opt/gputest
-  ansible.builtin.find:
-    paths: /opt/gputest
-    patterns: GpuTest
-    file_type: file
-    recurse: true
-  register: gputest_binary
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - ih_family != 'Archlinux'
-    - install_gputest | default(false) | bool
+    - name: Create GpuTest symlink
+      ansible.builtin.file:
+        src: "{{ gputest_binary.files[0].path }}"
+        dest: /usr/local/bin/GpuTest
+        state: link
+        force: true
+      become: true
+      when: gputest_binary.files | default([]) | length > 0
+  rescue:
+    - name: Record that GpuTest could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['gputest (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
 
-- name: Create GpuTest symlink
-  ansible.builtin.file:
-    src: "{{ gputest_binary.files[0].path }}"
-    dest: /usr/local/bin/GpuTest
-    state: link
-    force: true
-  become: true
-  when:
-    - ansible_facts['system'] == 'Linux'
-    - ih_family != 'Archlinux'
-    - install_gputest | default(false) | bool
-    - gputest_binary is defined
-    - gputest_binary.files | default([]) | length > 0
+    - name: Name the GpuTest step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          GpuTest is NOT installed. Every other install continues, and the run is marked failed.
+  always:
+    # Same as the two above: extracted, so the archive itself is of no further use, and the staging
+    # directory is permanent. In always, so a failed extract does not leave it behind either.
+    - name: Remove the staged GpuTest archive
+      ansible.builtin.file:
+        path: "{{ software_installer_stage_dir }}/gputest.zip"
+        state: absent
+      become: true
+
+# Everything from here down configures a package that Debian and Fedora install from a third-party
+# repository, so every task reads unavailable_repositories from setup/ansible/tasks/
+# repository_availability.yaml. When that repository could not be added the package is not there and
+# has already been named as NOT installed, and enabling a unit or joining a group that does not exist
+# would fail this whole block for every install after it. Arch and macOS have no entry, so nothing is
+# skipped there.
 
 # --- Syncthing autostart: enable the shipped systemd USER unit ---
 # Debian, Fedora and Arch all ship /usr/lib/systemd/user/syncthing.service but
@@ -342,6 +373,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_syncthing | default(false) | bool
+    - "'syncthing' not in unavailable_repositories | default({})"
 
 # `systemctl --user` needs a live D-Bus session. On a headless box or a live
 # USB there is none and the call fails with "Failed to connect to bus".
@@ -354,6 +386,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_syncthing | default(false) | bool
+    - "'syncthing' not in unavailable_repositories | default({})"
 
 - name: Enable Syncthing systemd user service (starts at login)
   ansible.builtin.systemd:
@@ -368,6 +401,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_syncthing | default(false) | bool
+    - "'syncthing' not in unavailable_repositories | default({})"
     - (syncthing_user_state.stdout | default('') | trim) == 'active'
 
 - name: Report skipped Syncthing autostart (no active login session)
@@ -376,6 +410,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_syncthing | default(false) | bool
+    - "'syncthing' not in unavailable_repositories | default({})"
     - (syncthing_user_state.stdout | default('') | trim) != 'active'
 
 # --- Tailscale daemon: enable the shipped systemd SYSTEM unit ---
@@ -395,6 +430,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_tailscale | default(false) | bool
+    - "'tailscale' not in unavailable_repositories | default({})"
 
 # --- OpenRazer: device access group and reboot notice ---
 # The OpenRazer daemon talks to devices through udev rules that grant one group
@@ -413,6 +449,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_openrazer | default(false) | bool
+    - "'openrazer' not in unavailable_repositories | default({})"
     - os_dict.openrazer_device_group is defined
 
 - name: Fail when the OpenRazer device group is absent
@@ -421,6 +458,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_openrazer | default(false) | bool
+    - "'openrazer' not in unavailable_repositories | default({})"
     - os_dict.openrazer_device_group is defined
     - getent_group[os_dict.openrazer_device_group] is none
 
@@ -433,6 +471,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_openrazer | default(false) | bool
+    - "'openrazer' not in unavailable_repositories | default({})"
     - os_dict.openrazer_device_group is defined
 
 # The driver is a DKMS module built against the running kernel. It cannot load
@@ -446,6 +485,7 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_openrazer | default(false) | bool
+    - "'openrazer' not in unavailable_repositories | default({})"
 
 - name: Report the OpenRazer reboot requirement
   ansible.builtin.debug:
@@ -453,4 +493,5 @@
   when:
     - ansible_facts['system'] == 'Linux'
     - install_openrazer | default(false) | bool
+    - "'openrazer' not in unavailable_repositories | default({})"
     - "'razer' not in (openrazer_lsmod.stdout | default(''))"

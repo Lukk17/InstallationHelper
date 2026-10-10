@@ -28,3 +28,9 @@ software_installer_stage_dir: "/var/cache/installation_helper"
 # health probe reports an ostree-corruption error. Off by default because
 # this is destructive — it removes every installed flatpak runtime.
 flatpak_force_repo_reset: false
+
+# Where both families fetch the Lens repository signing key. A variable only so that the
+# forced-failure scenario, e2e/tier3/scenarios/07-forced-failure.yaml, can point it at a path on the
+# same host that answers 404 and prove that one third-party repository that cannot be added is
+# reported, skips only what installs from it, and leaves the rest of the software phase running.
+software_installer_lens_key_url: https://downloads.k8slens.dev/keys/gpg

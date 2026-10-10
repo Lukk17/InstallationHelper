@@ -59,6 +59,9 @@ software_mapping:
   keepassxc: { manager: "pacman", package: "keepassxc" }
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
+  # AI
+  opencode_desktop: { manager: "flatpak", package: "ai.opencode.opencode" }   # Flathub, the desktop app. The CLI is the npm package, not this.
+
   # Media / Design
   vlc: { manager: "pacman", package: "vlc" }
   spotify: { manager: "flatpak", package: "com.spotify.Client" }

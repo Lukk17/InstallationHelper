@@ -11,6 +11,12 @@
 #   format_label        decides what the user is told a toggle does
 #   load_profiles       decides what the profile screen offers and what each profile claims to install
 #   assert_known_keys   the refusal that stops a typo installing something other than what was asked
+#   run_with_retries    the three attempts every system upgrade command gets before the run stops
+#   system_upgrade      driven with sudo, brew and sleep stubbed, so it changes nothing and waits for nothing
+#   apt_update_own_sources  every apt-get update before Ansible, which must read the distribution's
+#                       own sources and nothing else, so one broken third-party source cannot stop it
+#   debian_lineage      tells Ubuntu lineage from Debian lineage, driven over the os-release fixtures
+#   ensure_ansible      driven with sudo stubbed, so the Ansible PPA is only ever added on Ubuntu lineage
 #
 # Each function is lifted out of the shipped file rather than copied here, using the same sed
 # extraction e2e/tier1/wizard_parse.sh uses, so these tests exercise the code that ships. The whole
@@ -21,6 +27,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 SETUP_SH="${REPO_ROOT}/setup/setup.sh"
 GROUP_VARS_DIR="${ANSIBLE_DIR}/group_vars"
+DEBIAN_OS_VARS="${ANSIBLE_DIR}/vars/Debian.yaml"
 PROFILES_DIR="${ANSIBLE_DIR}/profiles"
 
 info "Tier 1: unit tests for the pure functions in setup.sh"
@@ -52,6 +59,13 @@ EXTRACTIONS=(
     "load_profiles|/^load_profiles()/,/^}/p"
     "split_key_list|/^split_key_list()/{p;q;}"
     "assert_known_keys|/^assert_known_keys()/,/^}/p"
+    "say|/^say()/{p;q;}"
+    "run_with_retries|/^run_with_retries()/,/^}/p"
+    "distribution_sources_files|/^distribution_sources_files()/,/^}/p"
+    "apt_update_own_sources|/^apt_update_own_sources()/,/^}/p"
+    "system_upgrade|/^system_upgrade()/,/^}/p"
+    "debian_lineage|/^debian_lineage()/,/^}/p"
+    "ensure_ansible|/^ensure_ansible()/,/^}/p"
 )
 
 IFS=$'\n\t'
@@ -347,5 +361,224 @@ else
         pass "the refusal does not name the key the wizard does offer"
     fi
 fi
+
+# --- run_with_retries and system_upgrade --------------------------------------------------------
+#
+# Until 2026-10-10 every command in system_upgrade had one attempt, so one dropped connection to a
+# mirror stopped the run before Ansible started. The fix has two halves and both are asserted: three
+# attempts, and still stopping when all three fail, because on Arch carrying on after a half-finished
+# upgrade is a partial upgrade. sleep is stubbed so the twenty second waits cost nothing, and sudo and
+# brew are stubbed so nothing on this machine is touched. Every stub counts its calls in a file rather
+# than a variable, because the command under test runs some of them in a subshell.
+retry_calls_file="$(mktemp)"
+trap 'rm -f "${retry_calls_file}"' EXIT
+sleep() { :; }
+count_call() { echo x >> "${retry_calls_file}"; }
+call_count() { wc -l < "${retry_calls_file}" | tr -d ' '; }
+reset_calls() { : > "${retry_calls_file}"; }
+
+reset_calls
+retry_status=0
+run_with_retries 0 count_call >/dev/null || retry_status=$?
+assert_eq "run_with_retries returns 0 when the first attempt succeeds" "0" "${retry_status}"
+assert_eq "run_with_retries does not repeat a command that succeeded" "1" "$(call_count)"
+
+fail_twice() { count_call; [[ "$(call_count)" -ge 3 ]]; }
+reset_calls
+retry_status=0
+run_with_retries 0 fail_twice >/dev/null || retry_status=$?
+assert_eq "run_with_retries returns 0 when the third attempt succeeds" "0" "${retry_status}"
+assert_eq "run_with_retries made exactly three attempts to get there" "3" "$(call_count)"
+
+always_fail() { count_call; return 7; }
+reset_calls
+retry_status=0
+retry_output="$(run_with_retries 0 always_fail 2>&1)" || retry_status=$?
+assert_eq "run_with_retries returns the last attempt's own status when every attempt fails" "7" "${retry_status}"
+assert_eq "run_with_retries gives up after three attempts" "3" "$(call_count)"
+if grep -q 'Attempt 2 of 3 failed (exit 7)' <<<"${retry_output}"; then
+    pass "run_with_retries says which attempt failed and with what status"
+else
+    fail "run_with_retries does not say which attempt failed" "output was [${retry_output}]"
+fi
+
+# Every package manager command in system_upgrade goes through run_with_retries. Continuation lines
+# are joined first, so a command spread over several lines is judged as the one command it is.
+upgrade_body="$(sed -n '/^system_upgrade()/,/^}/p' "${SETUP_SH}" | awk '{ if (sub(/\\$/, "")) { printf "%s ", $0 } else { print } }')"
+unretried="$(grep -E '(apt-get|dnf|pacman|brew) ' <<<"${upgrade_body}" | grep -v '^ *#' | grep -v 'run_with_retries' || true)"
+retried_count="$(grep -cE 'run_with_retries .*(apt-get|dnf|pacman|brew) ' <<<"${upgrade_body}" || true)"
+if [[ -z "${unretried}" && "${retried_count}" -ge 6 ]]; then
+    pass "every one of the ${retried_count} package manager commands in system_upgrade goes through run_with_retries"
+else
+    fail "a system upgrade command has a single attempt, so one dropped connection stops the run" \
+         "found ${retried_count} retried, and these without retries: [${unretried}]"
+fi
+
+# Driven end to end. sudo and brew are functions here, so system_upgrade calls them instead of the
+# real commands.
+OPT_SKIP_SYSTEM_UPGRADE=false
+sudo() { count_call; return 1; }
+OS_FAMILY=Archlinux
+reset_calls
+upgrade_status=0
+upgrade_output="$(system_upgrade 2>&1)" || upgrade_status=$?
+assert_eq "system_upgrade still stops when every attempt fails, so Arch never gets a partial upgrade" "1" "${upgrade_status}"
+assert_eq "system_upgrade tried the Arch upgrade three times before stopping" "3" "$(call_count)"
+if grep -q 'partial upgrade' <<<"${upgrade_output}"; then
+    pass "system_upgrade says why it stops rather than carrying on"
+else
+    fail "system_upgrade stops without saying why" "output was [${upgrade_output}]"
+fi
+
+OS_FAMILY=Debian
+reset_calls
+upgrade_status=0
+system_upgrade >/dev/null 2>&1 || upgrade_status=$?
+assert_eq "system_upgrade stops on Debian when apt-get update fails every attempt" "1" "${upgrade_status}"
+assert_eq "system_upgrade does not go on to upgrade after the package lists failed to update" "3" "$(call_count)"
+
+sudo() { count_call; return 0; }
+reset_calls
+upgrade_status=0
+system_upgrade >/dev/null 2>&1 || upgrade_status=$?
+assert_eq "system_upgrade succeeds on Debian when every command succeeds" "0" "${upgrade_status}"
+assert_eq "system_upgrade runs update, full-upgrade and autoremove once each when they succeed" "3" "$(call_count)"
+
+brew() { count_call; [[ "$(call_count)" -ge 2 ]]; }
+OS_FAMILY=Darwin
+reset_calls
+upgrade_status=0
+system_upgrade >/dev/null 2>&1 || upgrade_status=$?
+assert_eq "system_upgrade carries on on macOS when brew update succeeds on its second attempt" "0" "${upgrade_status}"
+assert_eq "system_upgrade ran brew update twice and brew upgrade once" "3" "$(call_count)"
+
+# --- apt_update_own_sources ---------------------------------------------------------------------
+#
+# Until 2026-10-10 system_upgrade ran a plain `apt-get update`, which reads every sources file on the
+# machine, and one broken third-party source made it exit 100 three times in a row, so setup.sh
+# stopped before Ansible started. Measured on apt 2.8.3 in WSL Ubuntu 24.04 with a private apt state:
+# a charm.list with no key exits 100, a repository with no Release file for its codename exits 100,
+# and both exit 0 when only the distribution's own sources are read. ensure_prereqs, ensure_gum and
+# ensure_ansible had the same plain update. So every apt-get update in setup.sh must be the one inside
+# apt_update_own_sources, and that one must read only the files it was handed.
+stray_updates="$(awk '/^apt_update_own_sources\(\)/ { inside = 1 } inside && /^}/ { inside = 0; next }
+                     !inside && /apt-get update/ && !/^[[:space:]]*#/ { print NR": "$0 }' "${SETUP_SH}")"
+if [[ -z "${stray_updates}" ]]; then
+    pass "every apt-get update in setup.sh goes through apt_update_own_sources"
+else
+    fail "setup.sh runs apt-get update over every sources file, so one broken third-party source stops the run before Ansible" \
+         "${stray_updates}"
+fi
+
+own_sources="$(distribution_sources_files)"
+for own_file in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/ubuntu.sources; do
+    if grep -qxF "${own_file}" <<<"${own_sources}"; then
+        pass "distribution_sources_files names ${own_file}, read from vars/Debian.yaml"
+    else
+        fail "distribution_sources_files does not name ${own_file}" "it read [${own_sources}] from ${DEBIAN_OS_VARS}"
+    fi
+done
+
+own_dir="$(mktemp -d)"
+trap 'rm -f "${retry_calls_file}"; rm -rf "${own_dir}"' EXIT
+printf 'deb https://deb.debian.org/debian trixie main\n' > "${own_dir}/sources.list"
+printf 'Types: deb\n' > "${own_dir}/ubuntu.sources"
+printf 'deb https://repo.charm.sh/apt/ * *\n' > "${own_dir}/third-party.list"
+printf 'deb https://repo.charm.sh/apt/ * *\n' > "${own_dir}/charm.list"
+distribution_sources_files() { printf '%s\n' "${own_dir}/sources.list" "${own_dir}/ubuntu.sources" "${own_dir}/absent.sources"; }
+sudo() {
+    local arg parts=""
+    for arg in "$@"; do [[ "${arg}" == Dir::Etc::sourceparts=* ]] && parts="${arg#Dir::Etc::sourceparts=}"; done
+    printf '%s\n' "$*" > "${own_dir}/args"
+    ls "${parts}" > "${own_dir}/read" 2>/dev/null || : > "${own_dir}/read"
+    return "${own_status}"
+}
+own_status=100
+own_result=0
+apt_update_own_sources "${own_dir}/charm.list" >/dev/null 2>&1 || own_result=$?
+assert_eq "apt_update_own_sources returns apt-get's own status" "100" "${own_result}"
+assert_eq "apt_update_own_sources reads the distribution's own files and the extra one it was handed, and nothing else" \
+    "charm.list sources.list ubuntu.sources" "$(sort "${own_dir}/read" | tr '\n' ' ' | sed 's/ $//')"
+if grep -q 'Dir::Etc::sourcelist=/dev/null' "${own_dir}/args" && grep -q 'APT::Get::List-Cleanup=0' "${own_dir}/args"; then
+    pass "apt_update_own_sources reads no main sources list and keeps the lists of the sources it leaves out"
+else
+    fail "apt_update_own_sources still reads a main sources list or deletes the lists of the sources it leaves out" \
+         "arguments were [$(cat "${own_dir}/args")]"
+fi
+own_status=0
+own_result=0
+apt_update_own_sources >/dev/null 2>&1 || own_result=$?
+assert_eq "apt_update_own_sources succeeds when apt-get does" "0" "${own_result}"
+assert_eq "apt_update_own_sources leaves out a third-party file it was not handed" \
+    "sources.list ubuntu.sources" "$(sort "${own_dir}/read" | tr '\n' ' ' | sed 's/ $//')"
+
+# --- debian_lineage and the Ansible PPA ---------------------------------------------------------
+#
+# Until 2026-10-10 ensure_ansible added ppa:ansible/ansible on every Debian-family machine. That PPA
+# publishes only for Ubuntu release names, so on Debian it left a source with no Release file. The
+# expected lineage per fixture is read from the play behind e2e/tier1/os_family_derivation.sh, so the
+# shell rule and the playbook's ih_base are held to one answer.
+lineage_play="${E2E_ROOT}/tier1/os_family_derivation.yaml"
+lineage_fixtures="${E2E_ROOT}/tier1/os_release_fixtures"
+lineage_cases=0
+lineage_failures=()
+while IFS=$'\t' read -r lineage_fixture lineage_expected; do
+    lineage_cases=$((lineage_cases + 1))
+    lineage_actual="$(debian_lineage "${lineage_fixtures}/${lineage_fixture}")"
+    [[ "${lineage_actual}" == "${lineage_expected}" ]] \
+        || lineage_failures+=("${lineage_fixture}: expected ${lineage_expected}, got ${lineage_actual}")
+done < <(sed -nE 's/.*fixture:[[:space:]]*([a-z0-9._-]+),.*family:[[:space:]]*Debian,[[:space:]]*base:[[:space:]]*([a-z]+).*/\1\t\2/p' "${lineage_play}")
+assert_eq "debian_lineage is driven over every Debian-family fixture in the play" "6" "${lineage_cases}"
+if [[ ${#lineage_failures[@]} -eq 0 ]]; then
+    pass "debian_lineage gives the same lineage as the playbook's ih_base for all ${lineage_cases} Debian-family fixtures"
+else
+    fail "debian_lineage disagrees with the playbook's ih_base" "$(printf '%s | ' "${lineage_failures[@]}")"
+fi
+
+# ensure_ansible is driven with ansible-playbook reported missing and every command that would change
+# the machine stubbed, so each run only records what it would have done.
+ppa_log="$(mktemp)"
+trap 'rm -f "${retry_calls_file}" "${ppa_log}"; rm -rf "${own_dir}"' EXIT
+command() {
+    if [[ "${1:-}" == -v && "${2:-}" == ansible-playbook ]]; then
+        return 1
+    fi
+    builtin command "$@"
+}
+apt-cache() { return 0; }
+apt_update_own_sources() { local IFS=' '; printf 'apt_update_own_sources %s\n' "$*" >> "${ppa_log}"; }
+sudo() { local IFS=' '; printf '%s\n' "$*" >> "${ppa_log}"; }
+OS_FAMILY=Debian
+for ppa_lineage in ubuntu debian; do
+    : > "${ppa_log}"
+    DEBIAN_LINEAGE="${ppa_lineage}"
+    ppa_status=0
+    ensure_ansible >/dev/null 2>&1 || ppa_status=$?
+    assert_eq "ensure_ansible succeeds on ${ppa_lineage} lineage when every command does" "0" "${ppa_status}"
+    if grep -qx 'apt-get install -y ansible' "${ppa_log}"; then
+        pass "ensure_ansible installs the ansible package on ${ppa_lineage} lineage"
+    else
+        fail "ensure_ansible does not install ansible on ${ppa_lineage} lineage" "it ran [$(tr '\n' ';' < "${ppa_log}")]"
+    fi
+    ppa_added="$(grep -c 'add-apt-repository.*ppa:ansible/ansible' "${ppa_log}" || true)"
+    if [[ "${ppa_lineage}" == ubuntu ]]; then
+        assert_eq "ensure_ansible adds the Ansible PPA on Ubuntu lineage" "1" "${ppa_added}"
+        if grep -q 'add-apt-repository.*--update' "${ppa_log}"; then
+            fail "ensure_ansible passes --update to add-apt-repository, which Linux Mint's own add-apt-repository refuses" \
+                 "it ran [$(tr '\n' ';' < "${ppa_log}")]"
+        else
+            pass "ensure_ansible passes no --update to add-apt-repository, so the call also works on Linux Mint"
+        fi
+        if grep -q '^apt_update_own_sources .*ansible-' "${ppa_log}"; then
+            pass "ensure_ansible updates the package lists from the PPA it just added"
+        else
+            fail "ensure_ansible does not update the package lists from the PPA it added" "it ran [$(tr '\n' ';' < "${ppa_log}")]"
+        fi
+    else
+        assert_eq "ensure_ansible adds no Ansible PPA on Debian lineage, where the PPA has no release" "0" "${ppa_added}"
+    fi
+done
+unset -f command apt-cache
+unset -f sudo brew sleep
 
 finish "shell units"

@@ -7,157 +7,385 @@
 # defect in this repository and both cost a job of twenty minutes or more. The vendor downloads in
 # custom_installs.yaml already had this and the repository key downloads did not, which was an
 # inconsistency rather than a decision.
+#
+# Retries are not enough on their own, because a vendor host that is down stays down for all three
+# attempts. Until 2026-10-10 nothing here had a rescue, so one repository that could not be added
+# ended the whole software phase, and every package after it was skipped, from every manager. Each
+# repository is now its own block, and its rescue is repository_unavailable.yaml, which removes the
+# .repo file the block wrote, records the failure and names it.
+# setup/ansible/tasks/repository_availability.yaml then reads the disk, and dynamic_install.yaml,
+# custom_installs.yaml and virtualization_config skip and name only what needed that repository.
+# Every repository here has an entry of the same key in vars/RedHat.yaml under
+# third_party_repositories, and e2e/tier1/availability_facts.sh fails the gate when the two drift.
+#
+# Each block ends by fetching that one repository's metadata on its own through
+# fedora_repository_check.yaml, the counterpart of the package-list fetch debian_repos.yaml does. It
+# runs on every run, so a repository an earlier run added whose host does not answer on this one is
+# caught by its own block too. Fedora's dnf defaults skip a repository that does not answer, so
+# without it nothing noticed, and the check says how that was measured. The repository ids it hands
+# to dnf are repo_ids in vars/RedHat.yaml, read out of the three vendor .repo files on 2026-10-10.
 
 # Set up official DNF repositories before batched dnf installs.
 
 # --- Google Chrome ---
-- name: Add Google Chrome dnf repository
-  ansible.builtin.yum_repository:
-    name: google-chrome
-    description: google-chrome
-    baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
-    enabled: true
-    gpgcheck: true
-    gpgkey: https://dl.google.com/linux/linux_signing_key.pub
-  become: true
+- name: Add the Google Chrome repository
   when: install_chrome | default(false) | bool
+  block:
+    - name: Add Google Chrome dnf repository
+      ansible.builtin.yum_repository:
+        name: google-chrome
+        description: google-chrome
+        baseurl: https://dl.google.com/linux/chrome/rpm/stable/x86_64
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://dl.google.com/linux/linux_signing_key.pub
+      become: true
+
+    - name: Fetch the Google Chrome repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: chrome
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Google Chrome repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: chrome
+      tags: [always]
 
 # --- Brave Browser ---
-- name: Add Brave dnf repository
-  ansible.builtin.yum_repository:
-    name: brave-browser
-    description: Brave Browser
-    baseurl: https://brave-browser-rpm-release.s3.brave.com/x86_64/
-    enabled: true
-    gpgcheck: true
-    gpgkey: https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
-  become: true
+- name: Add the Brave repository
   when: install_brave | default(false) | bool
+  block:
+    - name: Add Brave dnf repository
+      ansible.builtin.yum_repository:
+        name: brave-browser
+        description: Brave Browser
+        baseurl: https://brave-browser-rpm-release.s3.brave.com/x86_64/
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
+      become: true
+
+    - name: Fetch the Brave repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: brave
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Brave repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: brave
+      tags: [always]
 
 # --- Microsoft VS Code ---
-- name: Import Microsoft GPG key
-  ansible.builtin.rpm_key:
-    key: https://packages.microsoft.com/keys/microsoft.asc
-    state: present
-  become: true
+- name: Add the Microsoft VS Code repository
   when: install_vscode | default(false) | bool
-  register: import_microsoft_gpg_key_fetch
-  retries: 3
-  delay: 10
-  until: import_microsoft_gpg_key_fetch is succeeded
+  block:
+    - name: Import Microsoft GPG key
+      ansible.builtin.rpm_key:
+        key: https://packages.microsoft.com/keys/microsoft.asc
+        state: present
+      become: true
+      register: import_microsoft_gpg_key_fetch
+      retries: 3
+      delay: 10
+      until: import_microsoft_gpg_key_fetch is succeeded
 
-- name: Add VS Code dnf repository
-  ansible.builtin.yum_repository:
-    name: vscode
-    description: Visual Studio Code
-    baseurl: https://packages.microsoft.com/yumrepos/vscode
-    enabled: true
-    gpgcheck: true
-    gpgkey: https://packages.microsoft.com/keys/microsoft.asc
-  become: true
-  when: install_vscode | default(false) | bool
+    - name: Add VS Code dnf repository
+      ansible.builtin.yum_repository:
+        name: vscode
+        description: Visual Studio Code
+        baseurl: https://packages.microsoft.com/yumrepos/vscode
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://packages.microsoft.com/keys/microsoft.asc
+      become: true
+
+    - name: Fetch the Microsoft VS Code repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: vscode
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Microsoft VS Code repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: vscode
+      tags: [always]
 
 # --- Sublime Text ---
-- name: Import Sublime Text GPG key
-  ansible.builtin.rpm_key:
-    key: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
-    state: present
-  become: true
+- name: Add the Sublime Text repository
   when: install_sublime | default(false) | bool
-  register: import_sublime_text_gpg_key_fetch
-  retries: 3
-  delay: 10
-  until: import_sublime_text_gpg_key_fetch is succeeded
+  block:
+    - name: Import Sublime Text GPG key
+      ansible.builtin.rpm_key:
+        key: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
+        state: present
+      become: true
+      register: import_sublime_text_gpg_key_fetch
+      retries: 3
+      delay: 10
+      until: import_sublime_text_gpg_key_fetch is succeeded
 
-- name: Add Sublime Text dnf repository
-  ansible.builtin.yum_repository:
-    name: sublime-text
-    description: Sublime Text
-    baseurl: https://download.sublimetext.com/rpm/stable/x86_64
-    enabled: true
-    gpgcheck: true
-    gpgkey: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
-  become: true
-  when: install_sublime | default(false) | bool
+    - name: Add Sublime Text dnf repository
+      ansible.builtin.yum_repository:
+        name: sublime-text
+        description: Sublime Text
+        baseurl: https://download.sublimetext.com/rpm/stable/x86_64
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://download.sublimetext.com/sublimehq-rpm-pub.gpg
+      become: true
+
+    - name: Fetch the Sublime Text repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: sublime
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Sublime Text repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: sublime
+      tags: [always]
 
 # --- Kubernetes (kubectl) ---
-- name: Add Kubernetes dnf repository
-  ansible.builtin.yum_repository:
-    name: kubernetes
-    description: Kubernetes
-    baseurl: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/rpm/"
-    enabled: true
-    gpgcheck: true
-    gpgkey: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/rpm/repodata/repomd.xml.key"
-  become: true
+- name: Add the Kubernetes repository
   when: install_kubectl | default(false) | bool
+  block:
+    - name: Add Kubernetes dnf repository
+      ansible.builtin.yum_repository:
+        name: kubernetes
+        description: Kubernetes
+        baseurl: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/rpm/"
+        enabled: true
+        gpgcheck: true
+        gpgkey: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_repo_minor | default('v1.34') }}/rpm/repodata/repomd.xml.key"
+      become: true
+
+    - name: Fetch the Kubernetes repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: kubectl
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Kubernetes repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: kubectl
+      tags: [always]
 
 # --- Terraform (HashiCorp) ---
-- name: Add HashiCorp dnf repository (terraform)
-  ansible.builtin.get_url:
-    url: https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
-    dest: /etc/yum.repos.d/hashicorp.repo
-    mode: '0644'
-  become: true
+- name: Add the HashiCorp repository
   when: install_terraform | default(false) | bool
+  block:
+    - name: Add HashiCorp dnf repository (terraform)
+      ansible.builtin.get_url:
+        url: https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+        dest: /etc/yum.repos.d/hashicorp.repo
+        mode: '0644'
+      become: true
+      register: add_hashicorp_dnf_repository_terraform_fetch
+      retries: 3
+      delay: 10
+      until: add_hashicorp_dnf_repository_terraform_fetch is succeeded
+
+    - name: Fetch the HashiCorp repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: terraform
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the HashiCorp repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: terraform
+      tags: [always]
 
 # --- Lens Desktop ---
-  register: add_hashicorp_dnf_repository_terraform_fetch
-  retries: 3
-  delay: 10
-  until: add_hashicorp_dnf_repository_terraform_fetch is succeeded
-- name: Import Lens GPG key
-  ansible.builtin.rpm_key:
-    key: https://downloads.k8slens.dev/keys/gpg
-    state: present
-  become: true
+- name: Add the Lens repository
   when: install_lens | default(false) | bool
-  register: import_lens_gpg_key_fetch
-  retries: 3
-  delay: 10
-  until: import_lens_gpg_key_fetch is succeeded
+  block:
+    # The key location is a role default only so that the forced-failure scenario,
+    # e2e/tier3/scenarios/07-forced-failure.yaml, can point it at a path that answers 404 and prove that
+    # one repository that cannot be added is reported, and costs only what installs from it.
+    - name: Import Lens GPG key
+      ansible.builtin.rpm_key:
+        key: "{{ software_installer_lens_key_url }}"
+        state: present
+      become: true
+      register: import_lens_gpg_key_fetch
+      retries: 3
+      delay: 10
+      until: import_lens_gpg_key_fetch is succeeded
 
-- name: Add Lens dnf repository
-  ansible.builtin.yum_repository:
-    name: lens
-    description: Lens Desktop
-    baseurl: https://downloads.k8slens.dev/rpm/packages
-    enabled: true
-    gpgcheck: true
-    gpgkey: https://downloads.k8slens.dev/keys/gpg
-  become: true
-  when: install_lens | default(false) | bool
+    - name: Add Lens dnf repository
+      ansible.builtin.yum_repository:
+        name: lens
+        description: Lens Desktop
+        baseurl: https://downloads.k8slens.dev/rpm/packages
+        enabled: true
+        gpgcheck: true
+        gpgkey: "{{ software_installer_lens_key_url }}"
+      become: true
 
-# Antigravity is intentionally NOT pre-registered here. The .rpm's postinst
-# adds its own /etc/yum.repos.d/antigravity.repo. Pre-adding ours produced
-# duplicate-source conflicts. We install via dnf_url and let the postinst
-# own the repo for future updates.
+    - name: Fetch the Lens repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: lens
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Lens repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: lens
+      tags: [always]
+
+# --- Antigravity ---
+# Moved here from fedora_core on 2026-10-10, where it was critical bootstrap with no rescue.
+# Antigravity itself installs from the official tarball in custom_installs.yaml, and this repository
+# only carries its later updates, which is why its entry in vars/RedHat.yaml says updates_only and
+# nothing is skipped when it could not be added. The failure is still recorded and named.
+- name: Add the Antigravity repository
+  when: install_antigravity | default(false) | bool
+  block:
+    - name: Add Antigravity YUM repository (Fedora)
+      become: yes
+      ansible.builtin.yum_repository:
+        name: antigravity-rpm
+        description: Antigravity RPM Repository
+        baseurl: "{{ antigravity_yum_repo }}"
+        gpgkey: https://us-central1-yum.pkg.dev/doc/repo-signing-key.gpg
+        gpgcheck: yes
+        enabled: yes
+
+    - name: Fetch the Antigravity repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: antigravity
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Antigravity repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: antigravity
+      tags: [always]
 
 # --- Docker CE ---
-- name: Add Docker CE dnf repository
-  ansible.builtin.get_url:
-    url: https://download.docker.com/linux/fedora/docker-ce.repo
-    dest: /etc/yum.repos.d/docker-ce.repo
-    mode: '0644'
-  become: true
+- name: Add the Docker repository
   when: install_docker | default(false) | bool
+  block:
+    - name: Add Docker CE dnf repository
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/fedora/docker-ce.repo
+        dest: /etc/yum.repos.d/docker-ce.repo
+        mode: '0644'
+      become: true
+      register: add_docker_ce_dnf_repository_fetch
+      retries: 3
+      delay: 10
+      until: add_docker_ce_dnf_repository_fetch is succeeded
+
+    - name: Fetch the Docker repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: docker
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Docker repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: docker
+      tags: [always]
 
 # --- OpenRazer ---
-  register: add_docker_ce_dnf_repository_fetch
-  retries: 3
-  delay: 10
-  until: add_docker_ce_dnf_repository_fetch is succeeded
-- name: Add OpenRazer dnf repository
-  ansible.builtin.get_url:
-    url: "{{ openrazer_fedora_repo_url }}"
-    dest: /etc/yum.repos.d/hardware:razer.repo
-    mode: '0644'
-  become: true
+- name: Add the OpenRazer repository
   when: install_openrazer | default(false) | bool
-  register: add_openrazer_dnf_repository_fetch
-  retries: 3
-  delay: 10
-  until: add_openrazer_dnf_repository_fetch is succeeded
+  block:
+    - name: Add OpenRazer dnf repository
+      ansible.builtin.get_url:
+        url: "{{ openrazer_fedora_repo_url }}"
+        dest: /etc/yum.repos.d/hardware:razer.repo
+        mode: '0644'
+      become: true
+      register: add_openrazer_dnf_repository_fetch
+      retries: 3
+      delay: 10
+      until: add_openrazer_dnf_repository_fetch is succeeded
+
+    - name: Fetch the OpenRazer repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: openrazer
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the OpenRazer repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: openrazer
+      tags: [always]
 
 - name: Install kernel headers for the OpenRazer DKMS module
   ansible.builtin.dnf:
@@ -170,14 +398,34 @@
 # The repo definition is Fedora-release independent, `$basearch` is expanded by
 # dnf itself when it reads the .repo file, so it is written out literally here.
 # Upstream signs both the packages and the repo metadata, hence repo_gpgcheck.
-- name: Add Tailscale dnf repository
-  ansible.builtin.yum_repository:
-    name: tailscale-stable
-    description: Tailscale stable
-    baseurl: https://pkgs.tailscale.com/stable/fedora/$basearch
-    enabled: true
-    repo_gpgcheck: true
-    gpgcheck: true
-    gpgkey: https://pkgs.tailscale.com/stable/fedora/repo.gpg
-  become: true
+- name: Add the Tailscale repository
   when: install_tailscale | default(false) | bool
+  block:
+    - name: Add Tailscale dnf repository
+      ansible.builtin.yum_repository:
+        name: tailscale-stable
+        description: Tailscale stable
+        baseurl: https://pkgs.tailscale.com/stable/fedora/$basearch
+        enabled: true
+        repo_gpgcheck: true
+        gpgcheck: true
+        gpgkey: https://pkgs.tailscale.com/stable/fedora/repo.gpg
+      become: true
+
+    - name: Fetch the Tailscale repository metadata on its own
+      ansible.builtin.include_tasks:
+        file: fedora_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: tailscale
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the Tailscale repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: tailscale
+      tags: [always]

@@ -111,7 +111,7 @@ done
 # only question that matters is which one the user is shown. site.yaml loads all.yaml as a vars_files
 # entry and the per-OS file through include_vars, and include_vars outranks play vars, so the per-OS
 # value is what the playbook acts on. Both wizards read all.yaml first and kept the first spelling, so
-# both showed the wrong state: install_claude_desktop reads true in all.yaml and false in linux.yaml, so
+# both showed the wrong state: install_claude_desktop read true in all.yaml and false in linux.yaml, so
 # the Linux checklist offered it as ON while a defaults run installed nothing, and the Windows checklist
 # did the same for two packages. Worse than a wrong label: opening the checklist and confirming passes
 # every state as an extra variable, which outranks everything, so the same toggle installed on one path

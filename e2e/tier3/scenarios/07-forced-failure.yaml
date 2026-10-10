@@ -9,31 +9,57 @@
 # machine by a person who was told everything went well.
 #
 # The injection. roles/software_installer/tasks/dynamic_install.yaml computes
-# software_installer_batches with a set_fact, one package list per batched manager, out of the
-# enabled toggles and the OS dictionary. Extra variables outrank a set_fact, so the value below is
-# what every batch task reads instead, and every batch then asks its manager for a package name that
-# no repository has ever carried.
+# software_installer_batches with a set_fact, one package list per manager, out of the enabled
+# toggles and the OS dictionary. The name is older than the behaviour: nothing is installed as a
+# batch any longer, and each manager's task loops over its list one package per call. Extra variables
+# outrank a set_fact, so the value below is what every per-package loop reads instead, and each loop
+# then asks its manager for a package name that no repository has ever carried.
 #
 # Why this injection and not another:
 #
-# 1. It fails inside a block that has a rescue, which is the entire point. A YAML parse error, or an
+# 1. It fails where the reporting path starts, which is the entire point. A YAML parse error, or an
 #    undefined variable in a pre_task, aborts the play before the callback plugin has anything to
 #    summarise and before post_tasks run, so it would prove nothing about the reporting path. This
-#    failure travels the whole length of that path instead: the batch task fails, the rescue in
-#    dynamic_install.yaml names the failing task and every application in the batch that is now
-#    missing, it sets any_role_failed, the cleanup in site.yaml still runs, and the terminal fail
-#    task turns the recorded failure into a non-zero exit code.
+#    failure travels the whole length of that path instead: the per-package install records a
+#    non-zero rc for the name, the collector after the loop in dynamic_install.yaml names every
+#    package that did not install in an [ERROR] line and sets any_role_failed, every other package in
+#    the list is still attempted, the cleanup in site.yaml still runs, and the terminal fail task
+#    turns the recorded failure into a non-zero exit code.
 # 2. It fails the same way on all five distributions. apt, dnf and pacman each answer "no such
 #    package" for a name nobody has published. An injection through apt_raw_flags would have been
 #    Debian only, and one through a vendor download location would have been silently skipped on
 #    Arch and CachyOS, which map nothing to apt_url or dnf_url.
-# 3. It leaves something the verification can see. Nothing from the batch gets installed, so
+# 3. It leaves something the verification can see. None of the injected names gets installed, so
 #    verify_install.yaml fails on "Assert every enabled native package is installed" and names them,
 #    rather than reporting a clean machine. That is the fourth reporting mechanism, and it is the one
 #    that decides whether a green run means anything.
 # 4. Nothing about it is flaky. The name cannot start resolving, and no outage is required to
 #    produce the failure. A real network problem during this scenario produces a different message
 #    and the same verdict, so the scenario degrades into still testing what it was written to test.
+#
+# A second injection, Arch and CachyOS only, for the one failure arch_core now survives. paru is
+# cloned from arch_core_paru_repository, a role default, and the name below holds nothing in the Arch
+# User Repository: cloning it succeeds with an empty repository and ansible.builtin.git then fails with
+# "Failed to checkout branch master", measured on 2026-10-10. That lands in the rescue around the paru
+# build in roles/arch_core/tasks/main.yaml, which is the path a real CachyOS machine took on that date
+# when its paru build failed. The run must carry on past it, every Arch User Repository package must be
+# named as NOT installed because paru could not be built, and the step must reach the exit code, the
+# summary and the error log like any other failure. On the other three families nothing reads the
+# variable.
+#
+# A third injection, for the third-party repositories, which stopped ending the whole software phase
+# on 2026-10-10. software_installer_lens_key_url is a role default, and the path below on the same
+# host answers 404, measured on 2026-10-10. On Debian, Ubuntu and Pop!_OS the key download fails, and
+# on Fedora the key import does, so the Lens block's rescue has to remove what it wrote, name the
+# repository, and leave Lens alone skipped and named as NOT installed while every other package goes
+# ahead. Arch and CachyOS install Lens from the Arch User Repository and never read the variable.
+#
+# A fourth, for the SDKs, each of which became its own block on the same date.
+# sdk_manager_pyenv_installer_url is a role default, and the path below on the same host answers 404,
+# measured on 2026-10-10, so `curl -f` fails the Pyenv install after its three attempts and the Pyenv
+# block lands in its rescue, while FVM and the Android SDK, which come after it, still have to run. It
+# is not a pinned value on purpose: e2e/tier1/pinned_values.sh refuses a scenario that shadows a pin.
+# It saves time rather than costing it, because no Python is compiled.
 #
 # All four manager keys are given even though only one of them is reached on any single
 # distribution. The fact is read as a whole dictionary, so a missing key fails as a template error
@@ -44,8 +70,9 @@
 # tooling prelude every other scenario pays before the software installer starts, and the SDK step
 # alone was 25 minutes of it. So the injected failure lands at about minute 41, the roles after the
 # software installer still run, and the play ends normally. 90 minutes is that measurement with
-# room for a distribution that pays more up front, which Arch and CachyOS do because arch_core
-# compiles paru. The real cost is still the lowest of any container scenario, because this is the
+# room for a distribution that pays more up front, which Arch and CachyOS do for their system upgrade.
+# Neither AUR helper is compiled in this scenario: yay is built only when install_yay is true, and it
+# is not set here, and paru is not built because the injection above makes its clone fail. The cost is still the lowest of any container scenario, because this is the
 # only one that never installs the software set, which is why the capability spec is numbered 30
 # even though its ceiling ties the 90 of kde-configure-only.
 e2e_scenario_name: "forced-failure"
@@ -59,3 +86,9 @@ software_installer_batches:
   dnf: ["ih-e2e-forced-failure-no-such-package"]
   pacman: ["ih-e2e-forced-failure-no-such-package"]
   flatpak: ["io.github.ih_e2e.ForcedFailureNoSuchApp"]
+
+arch_core_paru_repository: "https://aur.archlinux.org/ih-e2e-forced-failure-no-such-package.git"
+
+software_installer_lens_key_url: "https://downloads.k8slens.dev/keys/ih-e2e-forced-failure-no-such-key"
+
+sdk_manager_pyenv_installer_url: "https://pyenv.run/ih-e2e-forced-failure-no-such-installer"

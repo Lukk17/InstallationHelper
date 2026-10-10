@@ -164,6 +164,88 @@
              | selectattr('value.manager', 'equalto', 'flatpak')
              | map(attribute='key') | map('extract', ih_package_by_key) | list }}
 
+    # --- the Arch User Repository and paru --------------------------------------
+    # Every Arch User Repository package goes through paru, and the playbook no longer stops when paru
+    # cannot be built: it skips those packages and carries on. So a missing one has two possible causes,
+    # and the report has to say which. The answer comes from the same task file the playbook reads,
+    # setup/ansible/tasks/paru_availability.yaml, so the two cannot disagree about it.
+    - name: Ask whether paru is on this machine, the same way the playbook asks
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/paru_availability.yaml"
+
+    # Two Arch User Repository packages are installed by a role rather than through the software
+    # mapping, so nothing above expects them: snapd by arch_core and claude-desktop by ai_tools. They
+    # are listed here so that a skipped one is reported as missing rather than left out.
+    - name: Name the Arch User Repository packages a role installs outside the software mapping
+      ansible.builtin.set_fact:
+        ih_role_aur_packages: >-
+          {{ [{'key': 'snapd', 'toggle': 'install_snapd', 'package': 'snapd'},
+              {'key': 'claude_desktop', 'toggle': 'install_claude_desktop', 'package': 'claude-desktop'}]
+             if ih_family == 'Archlinux' else [] }}
+
+    - name: Determine which of those this run enabled
+      ansible.builtin.set_fact:
+        ih_role_aur_enabled: "{{ ih_role_aur_enabled | default([]) + [item] }}"
+      loop: "{{ ih_role_aur_packages }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: lookup('vars', item.toggle, default=false) | bool
+
+    - name: Expect every enabled Arch User Repository package among the native packages
+      ansible.builtin.set_fact:
+        expected_native: "{{ expected_native + (ih_role_aur_enabled | default([]) | map(attribute='package') | list) }}"
+        expected_aur: >-
+          {{ (os_dict.software_mapping | dict2items
+              | selectattr('key', 'in', enabled_mapped | default([]))
+              | selectattr('value.manager', 'equalto', 'aur')
+              | map(attribute='key') | map('extract', ih_package_by_key) | list)
+             + (ih_role_aur_enabled | default([]) | map(attribute='package') | list) }}
+        ih_aur_missing_reason: >-
+          {{ 'paru could not be built'
+             if (ih_family == 'Archlinux' and not (paru_available | default(false) | bool)) else '' }}
+
+    # --- what the playbook skipped on purpose, and why --------------------------
+    # Three more things the playbook no longer stops for. A third-party repository that could not be
+    # added skips only what installs from it, a CachyOS 32-bit graphics stack that could not be aligned
+    # skips only Steam, and an env_variables failure skips only sdk_manager. A package missing for one
+    # of those reasons is still MISSING here, and the report says which reason, from the same task files
+    # the playbook reads, so the two cannot disagree about it. Each asks the disk, because this play
+    # runs on its own, long after the run that decided.
+    - name: Ask which requested third-party repositories are on this machine, the same way the playbook asks
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/repository_availability.yaml"
+
+    - name: Ask whether the 32-bit graphics stack is aligned for Steam, the same way the playbook asks
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/steam_graphics_alignment.yaml"
+
+    - name: Ask whether the project's environment file is in place, the same way the playbook asks
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/env_variables_availability.yaml"
+
+    # One mapping of application to reason, so the per-application report and the assertion message
+    # read the same answer. updates_only repositories install nothing, so they explain nothing here.
+    - name: Name the reason each application skipped for a missing repository is missing
+      ansible.builtin.set_fact:
+        ih_missing_reasons: >-
+          {{ ih_missing_reasons | default({})
+             | combine({item.key: 'the ' ~ item.value.vendor ~ ' repository could not be added'}) }}
+      loop: "{{ unavailable_repositories | default({}) | dict2items | rejectattr('value.updates_only', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Name the reason Steam is missing when the 32-bit graphics stack could not be aligned
+      ansible.builtin.set_fact:
+        ih_missing_reasons: >-
+          {{ ih_missing_reasons | default({})
+             | combine({'steam': 'the CachyOS 32-bit graphics packages could not be aligned'}) }}
+      when: not (steam_graphics_stack_aligned | default(true) | bool)
+
+    # The five toggles sdk_manager installs from, the same five roles/sdk_manager/tasks/main.yaml gates
+    # its blocks on. e2e/tier1/rescue_coverage.sh fails the gate when the lists differ.
+    - name: Name the reason an SDK is missing when the project's environment file is not in place
+      ansible.builtin.set_fact:
+        ih_sdk_toggles: [install_nodejs, install_java, install_python, install_flutter, install_android_sdk]
+        ih_sdk_missing_reason: >-
+          {{ '' if (env_variables_available | default(true) | bool)
+             else 'the environment file ~/apps_config/env.sh is missing, so env_variables failed and sdk_manager was skipped' }}
+
     # The missing-package comparison below catches a URL install that did not happen, but it cannot
     # say why. This names the one cause that produces no output anywhere: a rendered download
     # location of zero length, which both dispatch paths treat as "nothing to do". The two candidate
@@ -279,6 +361,7 @@
       ansible.builtin.set_fact:
         missing_native: "{{ expected_native | difference(installed_native) }}"
         missing_flatpak: "{{ expected_flatpak | difference(installed_flatpak) }}"
+        missing_aur: "{{ (expected_aur | default([])) | difference(installed_native) }}"
 
     # Back from package names to the names a person recognises, computed from the same two missing
     # sets the assertions fail on, so the report and the verdict cannot disagree.
@@ -458,6 +541,12 @@
       ansible.builtin.set_fact:
         ih_bru_applies: "{{ (install_bruno_cli | default(false) | bool) and (ih_family != 'Darwin') }}"
 
+    # yay is built by arch_core only on the Arch family and only when install_yay is true, so the
+    # verification expects it under exactly those two conditions and never anywhere else.
+    - name: Decide whether the yay AUR helper was asked for on this machine
+      ansible.builtin.set_fact:
+        ih_yay_applies: "{{ (install_yay | default(false) | bool) and (ih_family == 'Archlinux') }}"
+
     # One entry per tool this playbook installs outside a package manager. shell_bin is the name a
     # login shell is asked to resolve; left empty for the four pinned Java majors and the four pinned
     # Python builds, because only one of each is ever the active java or python on PATH at a time,
@@ -520,10 +609,10 @@
           - key: opencode
             toggle: install_opencode
             shell_bin: opencode
-            how: "npm package opencode-ai under ~/.nvm/versions/node/*/bin"
+            how: "npm package @opencode/cli under ~/.nvm/versions/node/*/lib/node_modules"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name opencode 2>/dev/null | grep -q .
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/@opencode/cli/package.json' 2>/dev/null | grep -q .
           - key: openspec
             toggle: install_openspec
             shell_bin: openspec
@@ -552,6 +641,13 @@
             expected_path: ""
             disk_cmd: >-
               find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name bru 2>/dev/null | grep -q .
+          - key: yay
+            toggle: ih_yay_applies
+            shell_bin: yay
+            how: "AUR helper built by arch_core with makepkg and installed with pacman -U, only when install_yay is true"
+            expected_path: "/usr/bin/yay"
+            disk_cmd: >-
+              [ -x /usr/bin/yay ]
           - key: pyenv
             toggle: install_python
             shell_bin: pyenv
@@ -810,6 +906,7 @@
         ih_full_row:
           key: "{{ item.key }}"
           how: "{{ item.how }}"
+          sdk: "{{ item.toggle in ih_sdk_toggles }}"
           verdict: >-
             {{ 'not requested' if not (lookup('vars', item.toggle, default=false) | bool)
                else 'installed' if (ih_enabled_row.on_disk and ih_enabled_row.in_shell)
@@ -841,10 +938,19 @@
           [verify] --------------------------------------------------------------------------
           {% for key in ih_all_keys %}
           {% set verdict = 'MISSING' if key in ih_missing_keys else 'installed' if key in (enabled_mapped | default([])) else 'not requested' %}
-          [verify] {{ '%-30s %-14s %s' | format(key, verdict, os_dict.software_mapping[key].manager ~ ': ' ~ ih_package_by_key[key]) }}
+          {% set reason = ih_aur_missing_reason if (os_dict.software_mapping[key].manager == 'aur' and ih_aur_missing_reason) else (ih_missing_reasons | default({}))[key] | default('') %}
+          {% set why = ' (NOT installed: ' ~ reason ~ ')' if (verdict == 'MISSING' and reason) else '' %}
+          [verify] {{ '%-30s %-14s %s' | format(key, verdict, os_dict.software_mapping[key].manager ~ ': ' ~ ih_package_by_key[key] ~ why) }}
+          {% endfor %}
+          {% for row in ih_role_aur_packages | default([]) %}
+          {% set requested = row.key in (ih_role_aur_enabled | default([]) | map(attribute='key') | list) %}
+          {% set verdict = 'MISSING' if (requested and row.package in missing_native) else 'installed' if requested else 'not requested' %}
+          {% set why = ' (NOT installed: ' ~ ih_aur_missing_reason ~ ')' if (verdict == 'MISSING' and ih_aur_missing_reason) else '' %}
+          [verify] {{ '%-30s %-14s %s' | format(row.key, verdict, 'aur, by a role: ' ~ row.package ~ why) }}
           {% endfor %}
           {% for row in ih_outside_pm_report_all | default([]) %}
-          [verify] {{ '%-30s %-14s %s' | format(row.key, row.verdict, row.how) }}
+          {% set why = ' (NOT installed: ' ~ ih_sdk_missing_reason ~ ')' if (row.verdict == 'MISSING' and row.sdk and ih_sdk_missing_reason) else '' %}
+          [verify] {{ '%-30s %-14s %s' | format(row.key, row.verdict, row.how ~ why) }}
           {% endfor %}
           [verify] --------------------------------------------------------------------------
           {% if ih_expect_desktop in ['kde', 'gnome'] %}
@@ -854,7 +960,7 @@
           [verify] {{ '%-30s %-14s %s' | format('tailscaled.service', 'enabled' if tailscaled_enabled.rc == 0 else 'MISSING', 'systemctl is-enabled') }}
           {% endif %}
           {% if docker_enabled.rc is defined %}
-          [verify] {{ '%-30s %-14s %s' | format('docker.service', 'enabled' if docker_enabled.rc == 0 else 'MISSING', 'systemctl is-enabled') }}
+          [verify] {{ '%-30s %-14s %s' | format('docker.service', 'enabled' if docker_enabled.rc == 0 else 'MISSING', 'systemctl is-enabled' ~ ((' (NOT installed: the ' ~ unavailable_repositories.docker.vendor ~ ' repository could not be added)') if (docker_enabled.rc != 0 and 'docker' in unavailable_repositories | default({})) else '')) }}
           {% endif %}
           {% if flatpak_remotes is defined and not flatpak_remotes.skipped | default(false) %}
           [verify] {{ '%-30s %-14s %s' | format('flathub remote', 'present' if (flatpak_remotes.rc | default(1) | int == 0 and 'flathub' in flatpak_remotes.stdout | default('')) else 'MISSING' if flatpak_remotes.rc is defined else 'UNREADABLE', 'flatpak remotes') }}
@@ -879,6 +985,10 @@
           [verify] --------------------------------------------------------------------------
           [verify] requested {{ (enabled_mapped | default([])) | length }} of {{ ih_all_keys | length }} mapped applications: {{ ((enabled_mapped | default([])) | length) - (ih_missing_keys | length) }} installed, {{ ih_missing_keys | length }} missing
           [verify] missing: {{ ih_missing_keys | join(', ') | default('none', true) }}
+          {% if ih_family == 'Archlinux' %}
+          [verify] Arch User Repository packages expected {{ expected_aur | default([]) | length }}, missing {{ missing_aur | default([]) | length }}{{ ': ' ~ (missing_aur | join(', ')) if (missing_aur | default([]) | length > 0) else '' }}
+          [verify] paru {{ 'is on this machine' if not ih_aur_missing_reason else 'is NOT on this machine, because it could not be built, so every Arch User Repository package above that is MISSING was skipped for that reason' }}
+          {% endif %}
           [verify] native packages expected {{ expected_native | length }}, missing {{ missing_native | length }}; flatpak expected {{ expected_flatpak | length }}, missing {{ missing_flatpak | length }}
           [verify] URL-installed candidates examined {{ url_candidates | default([]) | length }}, without a download location {{ (url_without_location | default([])) | length }}
           [verify] outside-package-manager tools probed via {{ ih_user_shell }} as an interactive shell for {{ non_root_user }}, the shell a plain terminal opens, with a login-shell probe kept as a secondary, non-failing check{{ '' if ih_user_shell_known | default(false) else ' (login shell unknown, /bin/bash assumed)' }}
@@ -929,7 +1039,16 @@
       ansible.builtin.assert:
         that: missing_native | length == 0
         success_msg: "PASS native packages: all {{ expected_native | length }} present"
-        fail_msg: "FAIL native packages missing: {{ missing_native | join(', ') }}"
+        fail_msg: >-
+          FAIL native packages missing: {{ missing_native | join(', ') }}{{
+          ('. Of these, ' ~ (missing_aur | join(', ')) ~ ' are Arch User Repository packages, NOT installed because '
+           ~ ih_aur_missing_reason ~ '.') if (ih_aur_missing_reason and (missing_aur | default([]) | length > 0)) else '' }}{{
+          ('. Skipped by the run on purpose: '
+           ~ (ih_missing_keys | select('in', ih_missing_reasons | default({}))
+              | zip(ih_missing_keys | select('in', ih_missing_reasons | default({}))
+                    | map('extract', ih_missing_reasons | default({})))
+              | map('join', ' because ') | join(', ')) ~ '.')
+          if (ih_missing_keys | select('in', ih_missing_reasons | default({})) | list | length > 0) else '' }}
         quiet: true
 
     # The second condition asks about the manager list rather than about the candidate count, and

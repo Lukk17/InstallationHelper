@@ -10,11 +10,15 @@
 #
 # Optional vars:
 #   npm_install_extra_args — string appended to `npm install -g` (e.g. "--no-audit")
+#   npm_replaced_pkg       : an older npm package this one replaces, removed before the install
+#                            because both claim the same bin and npm refuses the second with EEXIST
 #
 # Behaviour:
 #   1. Probe ~/.nvm/nvm.sh. If absent, emit a [WARN] and skip the install.
 #   2. Check `npm list -g <pkg>` to keep the task idempotent.
-#   3. Install under `nvm use --lts` with a 600s wall-clock timeout, run
+#   3. When npm_replaced_pkg is set and <pkg> is absent, `npm uninstall -g` it first, and install it
+#      again when <pkg> then fails to install, so a failure never leaves neither of them.
+#   4. Install under `nvm use --lts` with a 600s wall-clock timeout, run
 #      async with 2 retries to absorb npm-registry flakes.
 #
 # `chdir: {{ non_root_home }}` on the shell tasks prevents an attacker-controlled
@@ -29,7 +33,9 @@
   ansible.builtin.set_fact:
     nvm_script_stat: {}
     npm_pkg_check: {}
+    npm_replaced_removal: {}
     npm_pkg_install: {}
+    npm_replaced_restore: {}
 
 - name: "Probe NVM installation for {{ npm_display_name }} (Unix)"
   ansible.builtin.stat:
@@ -56,6 +62,8 @@
 - name: "Record the missing {{ npm_display_name }} in the play summary"
   ansible.builtin.set_fact:
     any_role_failed: true
+    not_installed_with_reason: >-
+      {{ (not_installed_with_reason | default([])) + [npm_display_name ~ ' (NVM is not installed)'] }}
   when: not nvm_script_stat.stat.exists
 
 # The check MUST activate the same Node version that the install task will use
@@ -79,21 +87,81 @@
   failed_when: false
   when: nvm_script_stat.stat.exists
 
-- name: "Install {{ npm_display_name }} via NVM (Unix)"
+# Measured on 2026-10-10 with npm 11.13.0 under Node 24 in a throwaway prefix: with opencode-ai
+# installed, `npm install -g @opencode/cli` exits 1 with "EEXIST: file already exists" on bin/opencode
+# and changes nothing, so the old package has to go first. `npm uninstall -g` prints
+# "removed <n> packages" on stdout when it removed something and "up to date" when the package was
+# not there, rc 0 both times, so the stdout line is what says whether this task changed anything.
+- name: "Remove {{ npm_replaced_pkg | default('') }}, which {{ npm_display_name }} replaces (Unix)"
   ansible.builtin.shell: |
     set -o pipefail
-    {{ ih_timeout }} 600 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g {% if npm_install_extra_args is defined and npm_install_extra_args | length > 0 %}{{ npm_install_extra_args }} {% endif %}{{ npm_pkg }} </dev/null'
+    source {{ non_root_home }}/.nvm/nvm.sh
+    nvm use --lts >/dev/null 2>&1
+    npm uninstall -g {{ npm_replaced_pkg | quote }} </dev/null
   args:
     executable: /bin/bash
     chdir: "{{ non_root_home }}"
   become: yes
   become_user: "{{ non_root_user }}"
-  register: npm_pkg_install
-  async: 900
-  poll: 15
-  retries: 2
-  delay: 15
-  until: npm_pkg_install is succeeded
+  register: npm_replaced_removal
+  changed_when: "'removed ' in (npm_replaced_removal.stdout | default(''))"
+  when:
+    - npm_replaced_pkg | default('') | length > 0
+    - nvm_script_stat.stat.exists
+    - npm_pkg_check.rc | default(1) != 0
+
+# The replaced package is removed before the new one is proven to install, because npm refuses the
+# new one while the old one holds the bin. So when the install fails after a removal, the rescue
+# installs the replaced package again, and the failure is raised again with what happened to it, so
+# the caller's rescue names the step and says whether the earlier CLI is still there. Without this, a
+# failed @opencode/cli install left no OpenCode CLI at all on a machine that had a working one.
+- name: "Install {{ npm_display_name }} via NVM, and restore what it replaces if it fails (Unix)"
   when:
     - nvm_script_stat.stat.exists
     - npm_pkg_check.rc | default(1) != 0
+  block:
+    - name: "Install {{ npm_display_name }} via NVM (Unix)"
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ ih_timeout }} 600 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g {% if npm_install_extra_args is defined and npm_install_extra_args | length > 0 %}{{ npm_install_extra_args }} {% endif %}{{ npm_pkg }} </dev/null'
+      args:
+        executable: /bin/bash
+        chdir: "{{ non_root_home }}"
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: npm_pkg_install
+      async: 900
+      poll: 15
+      retries: 2
+      delay: 15
+      until: npm_pkg_install is succeeded
+  rescue:
+    - name: "Install {{ npm_replaced_pkg | default('') }} again, because {{ npm_display_name }} did not install (Unix)"
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ ih_timeout }} 600 bash -c 'source {{ non_root_home }}/.nvm/nvm.sh && nvm use --lts >/dev/null && npm install -g {{ npm_replaced_pkg | quote }} </dev/null'
+      args:
+        executable: /bin/bash
+        chdir: "{{ non_root_home }}"
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: npm_replaced_restore
+      failed_when: false
+      retries: 2
+      delay: 15
+      until: npm_replaced_restore.rc == 0
+      when: npm_replaced_removal is changed
+
+    - name: "Stop {{ npm_display_name }} with what happened to the package it replaces (Unix)"
+      ansible.builtin.fail:
+        msg: >-
+          {{ npm_display_name }} did not install: {{ npm_pkg_install.msg | default('no message given') }}
+          {{ npm_pkg_install.stderr | default('') | trim }}
+          {% if npm_replaced_removal is changed and (npm_replaced_restore.rc | default(1)) == 0 %}
+          {{ npm_replaced_pkg }} had been removed to make room and was installed again, so the earlier
+          {{ npm_display_name }} is still on this machine.
+          {% elif npm_replaced_removal is changed %}
+          {{ npm_replaced_pkg }} had been removed to make room and could not be installed again either,
+          so there is no {{ npm_display_name }} on this machine now. npm said:
+          {{ (npm_replaced_restore.stderr | default('') ~ ' ' ~ npm_replaced_restore.stdout | default('')) | trim | default('nothing', true) }}
+          {% endif %}

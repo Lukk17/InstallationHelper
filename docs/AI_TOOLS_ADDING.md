@@ -170,6 +170,7 @@ sits under `software_installer` tags, not `ai_tools` tags. This is intentional
 | `npm_pkg` | yes | Full npm package spec, e.g. `@anthropic-ai/claude-code` |
 | `npm_display_name` | yes | Human label used in task names and the warn message |
 | `npm_install_extra_args` | no | Extra args appended to `npm install -g`, e.g. `--no-audit` |
+| `npm_replaced_pkg` | no | An older package that claims the same command, removed with `npm uninstall -g` before the install, because npm refuses the new package with `EEXIST` while the old one is there. The Windows table carries the same name as `Replaces = '<old-package>'`, and the parity check compares the two |
 
 Behaviour:
 
@@ -223,7 +224,7 @@ Windows run instructions.
 | Tool | Toggle | npm package | macOS brew formula |
 |---|---|---|---|
 | Claude Code | `install_claude_code` | `@anthropic-ai/claude-code` | none (npm on macOS too) |
-| OpenCode | `install_opencode` | `opencode-ai` | none |
+| OpenCode | `install_opencode` | `@opencode/cli`, replacing `opencode-ai` | none |
 | OpenSpec | `install_openspec` | `openspec` | none |
 | Bruno CLI | `install_bruno_cli` | `@usebruno/cli` | `bruno-cli` |
 | Codex | `install_codex` | `@openai/codex` | none (a `codex` cask exists, npm chosen for one code path) |

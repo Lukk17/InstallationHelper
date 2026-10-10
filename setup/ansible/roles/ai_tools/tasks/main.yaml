@@ -1,39 +1,160 @@
 ---
+# Every tool is its own block with a rescue. Until 2026-10-10 they were seven imports in a row with
+# only the role-level rescue in site.yaml around them, so one that failed skipped every one after it:
+# a Claude install that broke also cost OpenCode, OpenSpec, Codex, Grok, Bruno CLI and the local LLM
+# tools. Now each failure records any_role_failed, adds the tool to the NOT installed list the terminal
+# summary in site.yaml prints, and names the step with an [ERROR] line, which is what reaches
+# ~/installation_errors.log. The next tool still runs, and the run still ends failed.
+# e2e/tier1/rescue_coverage.sh fails the gate for an import here that has no rescue of its own.
 - name: Install Claude Code / Desktop
-  ansible.builtin.import_tasks: claude.yaml
   when:
     - install_claude_code | default(false) | bool
       or install_claude_desktop | default(false) | bool
   tags: [claude]
+  block:
+    - name: Import the Claude Code and Claude Desktop tasks
+      ansible.builtin.import_tasks: claude.yaml
+  rescue:
+    - name: Record that Claude Code or Claude Desktop could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['Claude Code / Desktop (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Claude step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Claude Code or Claude Desktop is NOT installed. Every other AI tool continues, and the run is
+          marked failed.
 
 - name: Install OpenCode
-  ansible.builtin.import_tasks: opencode.yaml
   when: install_opencode | default(false) | bool
   tags: [opencode]
+  block:
+    - name: Import the OpenCode tasks
+      ansible.builtin.import_tasks: opencode.yaml
+  rescue:
+    - name: Record that OpenCode could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['OpenCode (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the OpenCode step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          OpenCode is NOT installed. Every other AI tool continues, and the run is marked failed.
 
 - name: Install OpenSpec
-  ansible.builtin.import_tasks: openspec.yaml
   when: install_openspec | default(false) | bool
   tags: [openspec]
+  block:
+    - name: Import the OpenSpec tasks
+      ansible.builtin.import_tasks: openspec.yaml
+  rescue:
+    - name: Record that OpenSpec could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['OpenSpec (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the OpenSpec step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          OpenSpec is NOT installed. Every other AI tool continues, and the run is marked failed.
 
 - name: Install Codex
-  ansible.builtin.import_tasks: codex.yaml
   when: install_codex | default(false) | bool
   tags: [codex]
+  block:
+    - name: Import the Codex tasks
+      ansible.builtin.import_tasks: codex.yaml
+  rescue:
+    - name: Record that Codex could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['Codex (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Codex step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Codex is NOT installed. Every other AI tool continues, and the run is marked failed.
 
 - name: Install Grok
-  ansible.builtin.import_tasks: grok.yaml
   when: install_grok | default(false) | bool
   tags: [grok]
+  block:
+    - name: Import the Grok tasks
+      ansible.builtin.import_tasks: grok.yaml
+  rescue:
+    - name: Record that Grok could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['Grok (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Grok step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Grok is NOT installed. Every other AI tool continues, and the run is marked failed.
 
 - name: Install Bruno CLI
-  ansible.builtin.import_tasks: bruno_cli.yaml
   when: install_bruno_cli | default(false) | bool
   tags: [bruno_cli]
+  block:
+    - name: Import the Bruno CLI tasks
+      ansible.builtin.import_tasks: bruno_cli.yaml
+  rescue:
+    - name: Record that Bruno CLI could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['Bruno CLI (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Bruno CLI step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Bruno CLI is NOT installed. Every other AI tool continues, and the run is marked failed.
 
 - name: Install local LLM tools
-  ansible.builtin.import_tasks: local_llm.yaml
   when:
     - install_lm_studio | default(false) | bool
       or install_stable_diffusion | default(false) | bool
   tags: [local_llm]
+  block:
+    - name: Import the LM Studio and Stable Diffusion tasks
+      ansible.builtin.import_tasks: local_llm.yaml
+  rescue:
+    - name: Record that a local LLM tool could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['LM Studio or Stable Diffusion (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the local LLM step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          LM Studio or Stable Diffusion, whichever that step belongs to, is NOT installed, and the
+          other one may not be either. Every other AI tool continues, and the run is marked failed.

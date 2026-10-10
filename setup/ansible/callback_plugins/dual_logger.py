@@ -36,16 +36,14 @@ from ansible.plugins.callback import CallbackBase
 # match wins (see _heartbeat_lookup_log) so order doesn't matter, but more
 # specific prefixes still need to be unique enough to not collide.
 HEARTBEAT_LOG_FILES = {
-    "Install APT packages (batched":          "/var/log/installation-apt-batch.log",
-    "Install Flatpak packages (Debian":       "/var/log/installation-flatpak-batch.log",
+    "Install APT packages, one at a time":    "/var/log/installation-apt.log",
+    "Install Flatpak applications, one at a time": "/var/log/installation-flatpak.log",
     "Full system upgrade and autoremove (Debian, via raw)": "/var/log/installation-apt-upgrade.log",
     # virtualization_config Debian apt installs (QEMU/KVM, virt-manager, spice-vdagent)
     "Install QEMU/KVM and virt-manager packages (Debian)": "/var/log/installation-virt-apt.log",
     "Install spice-vdagent (Debian guest)":   "/var/log/installation-virt-apt.log",
     # Docker CE on Debian
     "Install Docker CE (Debian)":             "/var/log/installation-docker-apt.log",
-    # Claude Desktop .deb (Debian)
-    "Install Claude Desktop .deb (Linux Debian)": "/var/log/installation-claude-desktop-apt.log",
 }
 
 
@@ -127,6 +125,9 @@ IGNORE_PATTERNS = [
     "Do you want to remove all other packages from cache?",
     "Do you want to remove unused repositories?",
 ]
+# Level markers this playbook writes at the start of a deliberate message. A line opening with one
+# is never filtered by the patterns above.
+LEVEL_MARKERS = ("[ERROR]", "[FATAL]", "[WARN]")
 # Progress bars come in many shapes: pure-hash rows, curl/wget headers, and
 # the "######### NN.N%" pattern that NVM/curl emit.
 PROGRESS_REGEX = re.compile(
@@ -344,8 +345,17 @@ class CallbackModule(CallbackBase):
         return f"[+{h}h {m:02d}m {s:02d}s]" if h else f"[+{m}m {s:02d}s]"
 
     def _should_skip_line(self, line: str) -> bool:
-        """Return True if a captured stdout line is noise that should be dropped."""
+        """Return True if a captured stdout line is noise that should be dropped.
+
+        A line that opens with a level marker was written by this playbook on purpose and is never
+        noise, whatever words it holds. The exemption lives here rather than in one caller because
+        a repository rescue's [ERROR] line said "the copy already installed", and exempting it only
+        in _render_message kept it on the console while _write_log, which asks this method again,
+        still dropped it from installation_full.log and installation_errors.log.
+        """
         if not line:
+            return False
+        if line.strip().startswith(LEVEL_MARKERS):
             return False
         if PROGRESS_REGEX.match(line):
             return True
