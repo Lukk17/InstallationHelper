@@ -3638,7 +3638,7 @@ the config file or the output folder. The output folder's own fix is
 `sudo chown -R 1000:1000 /opt/docker-stack/syncthing/data/network-watch` then `docker restart telegraf`, both
 documented in the same section of [network_watch.md](../homelab/network_watch.md).
 
-Mechanical check: none added yet, decision pending with the owner.
+Mechanical check: none. A check that fails when a file the Compose file mounts has no setup step in the guide was proposed, and the owner decided against it on 2026-10-10.
 
 #### Ignore Delete placed on a tab that does not have it
 
@@ -3707,7 +3707,7 @@ fresh VM after the folder ownership step in [proxmox_docker_vm.md](../homelab/pr
 Fix: [perlite_notes.md](../homelab/perlite_notes.md), "Prepare the directories". Both commands run without
 `sudo`, with one sentence saying `/opt/docker-stack` already belongs to the login user.
 
-Mechanical check: none added yet, decision pending with the owner.
+Mechanical check: none. The owner decided on 2026-10-10 not to add automatic checks for this set of homelab defects.
 
 #### memory_saving_mode read backwards from the README's own warning
 
@@ -3745,7 +3745,7 @@ Fix: [telegraf.conf](../homelab/telegraf/telegraf.conf), the `[[inputs.internet_
 `memory_saving_mode` line is removed, leaving it at its own default, off, and
 [network_watch.md](../homelab/network_watch.md) now says why, in the Speed test section.
 
-Mechanical check: none added yet, decision pending with the owner.
+Mechanical check: none. The owner decided on 2026-10-10 not to add automatic checks for this set of homelab defects.
 
 #### A ten minute wait measured as the test's own duration
 
@@ -3783,4 +3783,4 @@ Fix: [network_watch.md](../homelab/network_watch.md), Speed test section. The du
 warning and the data volume estimate are rewritten with the `--test` measurements above, state which numbers are
 measured and where, and the wrong 10 minute and 8 minute figures are named as wrong rather than quietly replaced.
 
-Mechanical check: none added yet, decision pending with the owner.
+Mechanical check: none. The owner decided on 2026-10-10 not to add automatic checks for this set of homelab defects.
