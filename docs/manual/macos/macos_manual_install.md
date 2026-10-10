@@ -195,8 +195,9 @@ Need Node from NVM above first.
 |---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
 | Claude Desktop | `brew install --cask claude` |
-| OpenCode | `npm install -g opencode-ai` |
-| OpenSpec | `npm install -g openspec` |
+| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
+| OpenCode desktop | `brew install --cask opencode-desktop` |
+| OpenSpec | `npm install -g @fission-ai/openspec` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` |
 
 **Stable Diffusion WebUI** (pinned `v1.10.1`):

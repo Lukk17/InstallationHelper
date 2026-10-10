@@ -140,6 +140,22 @@ sudo curl -fsSLo /etc/apt/keyrings/tailscale-archive-keyring.gpg "https://pkgs.t
 echo "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${TAILSCALE_DISTRO} $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/tailscale.list
 ```
 
+Claude Desktop: Anthropic publishes the Linux build only through its own apt repository, for amd64 and arm64. These are the steps the playbook runs in [setup/ansible/roles/software_installer/tasks/debian_repos.yaml](../../../setup/ansible/roles/software_installer/tasks/debian_repos.yaml). The key is published already armoured, so it is kept as `.asc` and not dearmoured:
+
+```bash
+sudo curl -fsSLo /usr/share/keyrings/claude-desktop-archive-keyring.asc https://downloads.claude.ai/claude-desktop/key.asc
+```
+
+Confirm it is Anthropic's key. The command must print a line containing the fingerprint `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`. If it prints nothing, the download returned the wrong content and apt would later fail with `NO_PUBKEY BAA929FF1A7ECACE`:
+
+```bash
+gpg --show-keys --with-colons /usr/share/keyrings/claude-desktop-archive-keyring.asc | grep 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
+```
+
+```bash
+echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main" | sudo tee /etc/apt/sources.list.d/claude-desktop.list
+```
+
 After adding any repo, refresh the cache once:
 
 ```bash
@@ -373,8 +389,10 @@ Need Node from NVM above first.
 | Tool | Install command |
 |---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
-| OpenCode | `npm install -g opencode-ai` |
-| OpenSpec | `npm install -g openspec` |
+| Claude Desktop | `sudo apt-get install -y claude-desktop`, after the Claude Desktop repository in [Repository setup](#repository-setup) |
+| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
+| OpenCode desktop | `flatpak install -y flathub ai.opencode.opencode` |
+| OpenSpec | `npm install -g @fission-ai/openspec` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` |
 
 **Stable Diffusion WebUI** (pinned `v1.10.1`):
@@ -438,5 +456,4 @@ These are **not** in `install.sh` — no package-manager path exists. Install by
 
 - **Ledger Live** — download the AppImage from [ledger.com/ledger-live](https://www.ledger.com/ledger-live).
 - Trezor Suite: download the AppImage from [trezor.io/trezor-suite](https://trezor.io/trezor-suite). The playbook installs the udev rules only, so the application itself is a manual download and carries no pinned version.
-- **Claude Desktop** — Anthropic no longer publishes a Linux build (macOS/Windows only as of 2026-05). Skip on Linux until upstream restores it.
 - **VMware Workstation Player** — downloads now require a Broadcom Support Portal login. Use VirtualBox or QEMU/KVM instead.

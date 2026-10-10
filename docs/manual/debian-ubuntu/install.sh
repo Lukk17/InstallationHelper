@@ -17,7 +17,6 @@ SKIPPED=(
   "GpuTest (zip from ozone3d.net -> /opt/gputest)"
   "Ledger Live (AppImage)"
   "Trezor Suite (AppImage)"
-  "Claude Desktop (no Linux build published)"
   "VMware Workstation Player (Broadcom login required)"
 )
 
@@ -58,7 +57,7 @@ APT_PACKAGES=(
 )
 
 # apt packages that require a third-party repo (added below).
-APT_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens helm terraform gh syncthing tailscale)
+APT_REPO_PACKAGES=(google-chrome-stable brave-browser code sublime-text kubectl lens helm terraform gh syncthing tailscale claude-desktop)
 
 # Flatpak application IDs (Flathub).
 FLATPAK_APPS=(
@@ -122,6 +121,14 @@ echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://ap
 if [ "$(lsb_release -is)" = "Ubuntu" ]; then TAILSCALE_DISTRO=ubuntu; else TAILSCALE_DISTRO=debian; fi
 sudo curl -fsSLo /etc/apt/keyrings/tailscale-archive-keyring.gpg "https://pkgs.tailscale.com/stable/${TAILSCALE_DISTRO}/$(lsb_release -cs).noarmor.gpg"
 echo "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${TAILSCALE_DISTRO} $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+# Claude Desktop (amd64 and arm64 only). The key is published already armoured, so it stays .asc with no dearmor,
+# and its fingerprint is checked before the repository is trusted, exactly as debian_repos.yaml does.
+sudo curl -fsSLo /usr/share/keyrings/claude-desktop-archive-keyring.asc https://downloads.claude.ai/claude-desktop/key.asc
+if ! gpg --show-keys --with-colons /usr/share/keyrings/claude-desktop-archive-keyring.asc | grep -q 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE; then
+  printf 'ERROR: the Claude Desktop signing key does not carry fingerprint 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE.\n' >&2
+  exit 1
+fi
+echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main" | sudo tee /etc/apt/sources.list.d/claude-desktop.list >/dev/null
 
 log "Refreshing apt after repo changes"
 sudo apt-get update

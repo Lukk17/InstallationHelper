@@ -171,8 +171,9 @@ On Windows the playbook runs the Linux dev toolchain (NVM, SDKMAN, Pyenv, FVM) *
 |---|---|
 | Node.js LTS | `winget install -e --id OpenJS.NodeJS.LTS` |
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` *(needs Node)* |
-| OpenCode | `npm install -g opencode-ai` |
-| OpenSpec | `npm install -g openspec` |
+| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
+| OpenCode desktop | `winget install -e --id SST.OpenCodeDesktop` |
+| OpenSpec | `npm install -g @fission-ai/openspec` |
 
 ## Manual install required
 

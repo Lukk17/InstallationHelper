@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-AUR_PACKAGES="google-chrome brave-bin lens-bin jetbrains-toolbox visual-studio-code-bin sublime-text-4 antigravity teamviewer appimagelauncher chkrootkit gputest claude-desktop-bin"
+AUR_PACKAGES="google-chrome brave-bin lens-bin jetbrains-toolbox visual-studio-code-bin sublime-text-4 antigravity teamviewer appimagelauncher chkrootkit gputest claude-desktop"
 
 SKIPPED=(
   "AUR packages (need yay/paru): $AUR_PACKAGES"

@@ -258,9 +258,10 @@ Need Node from NVM above first.
 | Tool | Install command |
 |---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
-| Claude Desktop | AUR `yay -S claude-desktop-bin` |
-| OpenCode | `npm install -g opencode-ai` |
-| OpenSpec | `npm install -g openspec` |
+| Claude Desktop | AUR `paru -S claude-desktop`, which is what the playbook runs. `yay -S claude-desktop` installs the same package with the `yay` bootstrap below |
+| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
+| OpenCode desktop | `flatpak install -y flathub ai.opencode.opencode` |
+| OpenSpec | `npm install -g @fission-ai/openspec` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` |
 
 **Stable Diffusion WebUI** (pinned `v1.10.1`):
