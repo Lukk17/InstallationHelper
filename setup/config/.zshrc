@@ -7,9 +7,12 @@ fi
 
 # This file gets copied straight over ~/.zshrc on every Oh My Zsh install, which is exactly what
 # used to destroy the environment env_variables, nvm_unix.yaml and pyenv_unix.yaml write. All three
-# now write into apps_config/env.sh instead of into this file, so this one line, baked into the
-# checked-in copy itself, is what survives the overwrite and keeps sourcing them.
+# now write into apps_config/env.sh instead of into this file, so this one block, baked into the
+# checked-in copy itself, is what survives the overwrite and keeps sourcing them. It carries exactly
+# the markers and body env_unix.yaml writes, so the next run finds its block already here.
+# BEGIN ANSIBLE PROJECT ENV SOURCE
 [ -f "$HOME/apps_config/env.sh" ] && . "$HOME/apps_config/env.sh"
+# END ANSIBLE PROJECT ENV SOURCE
 
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:/usr/local/bin:$PATH
