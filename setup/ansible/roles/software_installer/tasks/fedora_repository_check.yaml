@@ -18,10 +18,18 @@
 # skip_if_unavailable=1, and --setopt=<id>.skip_if_unavailable=False exited 1 for it. Measured exit
 # codes: 1 for a host that does not resolve, 0 for docker-ce-stable, which answers, and 2 for an id
 # that no file defines.
+#
+# -y is what lets a repository with repo_gpgcheck fetch its metadata at all. dnf5 imports the key that
+# signs repomd.xml into a keyring of that repository's own, through the repokey_import callback in
+# dnf5/context.cpp, which asks the user and is answered only by --assumeyes. Without it GitHub sweep run
+# 38107292439 failed every Fedora scenario on the Tailscale repository with "Is this ok [y/N]:" and
+# "repomd.xml GPG signature verification error: Signing key not found". -y accepts whatever key the
+# .repo file's gpgkey names, so a repository with repo_gpgcheck must name a local key file whose
+# fingerprint its block has verified against a pin, which e2e/tier1/repo_metadata_keys.sh enforces.
 - name: Fetch the metadata of one third-party repository on its own
   ansible.builtin.command:
     argv: >-
-      {{ ['dnf', 'makecache']
+      {{ ['dnf', 'makecache', '-y']
          + (os_dict.third_party_repositories[repository_key].repo_ids | map('regex_replace', '^', '--repo=') | list)
          + (os_dict.third_party_repositories[repository_key].repo_ids
             | map('regex_replace', '$', '.skip_if_unavailable=False')

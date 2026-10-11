@@ -66,6 +66,14 @@ gputest_url = "https://ozone3d.net/gputest/dl/GpuTest_Linux_x64_{{ gputest_versi
 razer_synapse_macos_pkg_url = "https://dl.razerzone.com/drivers/Synapse4/mac/RazerSynapseInstaller.pkg"
 # Fedora has no OpenRazer package; upstream ships it from the openSUSE Build Service.
 openrazer_fedora_repo_url = "https://openrazer.github.io/hardware:razer.repo"
+# The key that signs both the Tailscale Fedora packages and the repository metadata. fedora_repos.yaml
+# downloads it and refuses it unless its one primary key has this fingerprint, because the metadata
+# check runs dnf with -y, which would otherwise accept whatever the URL served. Measured on 2026-10-11
+# with `gpg --show-keys --with-colons` on the downloaded file: one primary key,
+# "Tailscale Inc. (Package repository signing key) <info@tailscale.com>", created 2020-02-25. Before
+# changing either value, download the key again and read its fingerprint the same way.
+tailscale_fedora_key_url = "https://pkgs.tailscale.com/stable/fedora/repo.gpg"
+tailscale_fedora_key_fingerprint = "2596A99EAAB33821893C0A79458CA832957F5868"
 balena_etcher_version = "2.1.6"
 balena_etcher_url = "https://github.com/balena-io/etcher/releases/download/v{{ balena_etcher_version }}/balena-etcher_{{ balena_etcher_version }}_amd64.deb"
 balena_etcher_rpm_url = "https://github.com/balena-io/etcher/releases/download/v{{ balena_etcher_version }}/balena-etcher-{{ balena_etcher_version }}-1.x86_64.rpm"

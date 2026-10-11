@@ -18,7 +18,9 @@ docker_group: "docker"
 # files is the .repo file that defines the repository, and setup/ansible/tasks/
 # repository_availability.yaml reads it to decide whether the repository is on this machine, for the
 # playbook and for verify_install.yaml alike. A key rpm_key imported stays imported when the rescue
-# runs, because a trusted vendor key with no repository behind it installs nothing.
+# runs, because a trusted vendor key with no repository behind it installs nothing. keyrings is a key
+# file the block downloads to disk and verifies, which the rescue removes with the .repo file, so a key
+# that failed its fingerprint check is fetched and checked again next time rather than left in place.
 #
 # repo_ids is the id of every enabled repository inside that file, the name dnf knows it by, which
 # software_installer/tasks/fedora_repository_check.yaml hands to `dnf makecache --repo`. For a file
@@ -73,6 +75,7 @@ third_party_repositories:
   tailscale:
     vendor: "Tailscale"
     files: ["/etc/yum.repos.d/tailscale-stable.repo"]
+    keyrings: ["/etc/pki/rpm-gpg/RPM-GPG-KEY-tailscale-stable"]
     repo_ids: ["tailscale-stable"]
   # Written by ensure_gum in setup/setup.sh rather than by fedora_repos.yaml, so it has no repository
   # block. The id is the [charm] section that function writes. Nothing reads this entry before a dnf

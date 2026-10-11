@@ -398,9 +398,52 @@
 # The repo definition is Fedora-release independent, `$basearch` is expanded by
 # dnf itself when it reads the .repo file, so it is written out literally here.
 # Upstream signs both the packages and the repo metadata, hence repo_gpgcheck.
+#
+# The metadata check runs dnf with -y, which accepts the key gpgkey names without asking, so gpgkey is a
+# local copy whose fingerprint is checked against tailscale_fedora_key_fingerprint in
+# setup/pinned_values/pinned_values.toml first. A download that fails or a key that does not match lands
+# in the rescue like any other failure of this block, which removes the key file with the .repo file.
 - name: Add the Tailscale repository
   when: install_tailscale | default(false) | bool
   block:
+    - name: Download the Tailscale repository signing key
+      ansible.builtin.get_url:
+        url: "{{ tailscale_fedora_key_url }}"
+        dest: /etc/pki/rpm-gpg/RPM-GPG-KEY-tailscale-stable
+        mode: '0644'
+        force: true
+      become: true
+      register: tailscale_key_fetch
+      retries: 3
+      delay: 10
+      until: tailscale_key_fetch is succeeded
+
+    - name: Read the fingerprint of the Tailscale signing key
+      ansible.builtin.command:
+        argv: [gpg, --show-keys, --with-colons, /etc/pki/rpm-gpg/RPM-GPG-KEY-tailscale-stable]
+      register: tailscale_key_listing
+      changed_when: false
+
+    # Exactly one primary key, and its fingerprint, which gpg prints on the first fpr line after pub,
+    # is the pinned one. A file holding the real key beside another would pass a substring test.
+    - name: Confirm the Tailscale signing key is the pinned one
+      ansible.builtin.assert:
+        that:
+          - tailscale_key_listing.stdout_lines | select('match', '^pub:') | list | length == 1
+          - tailscale_key_found_fingerprint == tailscale_fedora_key_fingerprint
+        fail_msg: >-
+          The key downloaded from {{ tailscale_fedora_key_url }} has the fingerprint
+          {{ tailscale_key_found_fingerprint | default('none', true) }} and
+          {{ tailscale_key_listing.stdout_lines | select('match', '^pub:') | list | length }} primary key(s),
+          not the single key {{ tailscale_fedora_key_fingerprint }} that the pin tailscale_fedora_key_fingerprint
+          names, so the Tailscale repository is not added.
+        quiet: true
+      vars:
+        tailscale_key_found_fingerprint: >-
+          {{ tailscale_key_listing.stdout_lines
+             | map('regex_findall', '^fpr:+([0-9A-F]{40}):') | flatten
+             | first | default('') }}
+
     - name: Add Tailscale dnf repository
       ansible.builtin.yum_repository:
         name: tailscale-stable
@@ -409,7 +452,7 @@
         enabled: true
         repo_gpgcheck: true
         gpgcheck: true
-        gpgkey: https://pkgs.tailscale.com/stable/fedora/repo.gpg
+        gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-tailscale-stable
       become: true
 
     - name: Fetch the Tailscale repository metadata on its own
