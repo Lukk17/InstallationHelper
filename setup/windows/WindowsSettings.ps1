@@ -140,8 +140,9 @@ function Enable-WindowsFeatureSet {
     .DESCRIPTION
         DISM against the running image needs administrator rights even to read a feature's state,
         and setup.ps1 deliberately refuses to run elevated, so all nine are batched into one
-        elevated child process. That is one consent prompt for the batch rather than one per
-        feature, which is the same trade Install-ChocolateyPackageBatch makes.
+        elevated child process, run through Invoke-ElevatedPowerShell. That is one consent prompt
+        for the batch rather than one per feature, the same trade and the same route
+        Install-ChocolateyPackageBatch takes.
 
         The child writes one line per feature into a file rather than to stdout, because
         Start-Process -Verb RunAs goes through ShellExecute and ShellExecute cannot redirect a
@@ -212,43 +213,21 @@ foreach (`$name in @($featureLiterals)) {
 Set-Content -LiteralPath '$resultFile' -Value `$lines -Encoding utf8
 "@
 
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))
-
-    # Already-administrator is the normal case in CI, and there -Verb RunAs fails outright because
-    # it needs an interactive desktop to prompt on. Same check, same reason, as the Chocolatey batch.
-    $isElevated = Test-IsAdministrator
-
     try {
-        try {
-            $startArgs = @{
-                FilePath     = 'pwsh.exe'
-                ArgumentList = @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
-                PassThru     = $true
-                ErrorAction  = 'Stop'
-            }
-            if ($isElevated) {
-                Write-Verbose 'Already elevated, running DISM in this process'
-                $startArgs['NoNewWindow'] = $true
-            } else {
-                $startArgs['Verb'] = 'RunAs'
-            }
-            $proc = Start-Process @startArgs
+        $child = Invoke-ElevatedPowerShell -Script $inner -TimeoutSeconds ($TimeoutMinutes * 60)
 
-            # A timeout rather than -Wait, for the reason the Chocolatey batch documents: -Wait offers
-            # no bound at all, and an unanswered consent dialog would otherwise hold the wizard forever.
-            if (-not $proc.WaitForExit($TimeoutMinutes * 60 * 1000)) {
-                try { $proc.Kill($true) } catch { Write-Verbose "could not kill $($proc.Id): $($_.Exception.Message)" }
-                foreach ($name in $FeatureName) {
-                    $results.Add((New-SettingResult -Key 'enable_hyperv' -Package $name -Status 'failed' `
-                        -Detail "the elevated feature child was still running after $TimeoutMinutes minutes and was killed, so this feature's state is unknown. Run 'Enable-WindowsOptionalFeature -Online -FeatureName $name -All' from an elevated shell to see it."))
-                }
-                return $results
-            }
-        } catch {
-            # A refused consent prompt lands here, and is a user decision rather than a fault.
+        # A refused consent prompt lands here, and is a user decision rather than a fault.
+        if ($child.StartError) {
             foreach ($name in $FeatureName) {
                 $results.Add((New-SettingResult -Key 'enable_hyperv' -Package $name -Status 'failed' `
-                    -Detail "could not run the elevated feature child: $($_.Exception.Message)"))
+                    -Detail "could not run the elevated feature child: $($child.StartError)"))
+            }
+            return $results
+        }
+        if ($child.TimedOut) {
+            foreach ($name in $FeatureName) {
+                $results.Add((New-SettingResult -Key 'enable_hyperv' -Package $name -Status 'failed' `
+                    -Detail "the elevated feature child was still running after $TimeoutMinutes minutes and was killed, so this feature's state is unknown. Run 'Enable-WindowsOptionalFeature -Online -FeatureName $name -All' from an elevated shell to see it."))
             }
             return $results
         }

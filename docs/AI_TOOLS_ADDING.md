@@ -210,9 +210,10 @@ Behaviour:
 an unprivileged shell, and to `%ProgramFiles%\nodejs\node_modules` when run
 elevated. Lifecycle scripts in transitive dependencies execute with the
 invoking shell's privileges. **Always run `setup.ps1` from a non-elevated
-PowerShell.** The npm path needs no Administrator at all, and the two phases
-that genuinely do, the Chocolatey batch and the optional features, raise their
-own consent prompt for one elevated child rather than elevating the wizard.
+PowerShell.** The npm path needs no Administrator at all, and the steps that
+genuinely do, the Chocolatey batch, the optional features and the machine-wide
+msix and portable winget installs, each raise their own consent prompt for one
+elevated child rather than elevating the wizard.
 
 See [setup/README_SETUP.md](../setup/README_SETUP.md) for the canonical
 Windows run instructions.

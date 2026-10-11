@@ -218,7 +218,7 @@ software_mapping:
   # It replaced BillStewart.SyncthingWindowsSetup, whose all users mode always installs a Windows
   # service under its own SyncthingServiceAcct account, with folder permissions to grant by hand, and
   # whose current user mode puts the binaries in the user's profile. The per-user start that package
-  # gave is now a Startup folder shortcut, made by Set-SyncthingUserStartup in
+  # gave is now a Startup folder shortcut, made by Invoke-SyncthingUserSetup in
   # setup/windows/WindowsSoftware.ps1, which also opens the firewall ports and reports a leftover
   # BillStewart install rather than removing it.
   syncthing: { manager: "winget", package: "Syncthing.Syncthing", scope: "machine", installer_type: "portable" }

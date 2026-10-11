@@ -279,10 +279,11 @@ function Get-WingetPath {
     throw 'winget was not found. Install App Installer from the Microsoft Store, then rerun.'
 }
 
-function Test-WingetPackageInstalled {
+function Get-WingetPackagePresence {
     <#
     .SYNOPSIS
-        Whether winget lists the package as installed, optionally in one scope only.
+        Whether winget lists the package as installed, optionally in one scope only, and whether it
+        could be asked at all.
     .DESCRIPTION
         Scope narrows the question with `winget list --scope`, measured with winget v1.29.380 on
         2026-10-11: Git.Git installed machine-wide answers 0 for machine and 0x8A150014, no package
@@ -295,9 +296,13 @@ function Test-WingetPackageInstalled {
         its own source says has historically not been accessible unelevated
         (PredefinedInstalledSourceFactory.cpp, v1.29.380), and which answered "Access is denied"
         unelevated when measured, see $script:WingetProvisionedInstallerTypes.
+
+        Answered is false when the elevated child never ran winget, a refused consent prompt above
+        all. That is not "not installed": an already provisioned Slack then fell through to the
+        per-user check, which finds the copy registered for this user, and the wizard reported it as
+        installed for this user only. Refused says which of the two it was, Reason says why in words.
     #>
     [CmdletBinding()]
-    [OutputType([bool])]
     param(
         [Parameter(Mandatory)] [string] $WingetPath,
         [Parameter(Mandatory)] [string] $PackageId,
@@ -307,9 +312,9 @@ function Test-WingetPackageInstalled {
 
     # Bounded like the install below it, and for the same reason. This runs once per package before
     # anything is installed, it talks to a remote source, and an unbounded call here hangs the run
-    # just as thoroughly as an unbounded install does. A probe that runs out of time answers false,
-    # which is the safe direction: the worst case is that winget is asked to install something that
-    # is already there, and it says so and exits.
+    # just as thoroughly as an unbounded install does. A probe whose winget runs out of time answers
+    # false, which is the safe direction: the worst case is that winget is asked to install something
+    # that is already there, and it says so and exits.
     $arguments = @('list', '--exact', '--id', $PackageId, '--accept-source-agreements')
     if ($Scope) { $arguments += @('--scope', $Scope) }
     $run = if ($Elevated) {
@@ -317,11 +322,42 @@ function Test-WingetPackageInstalled {
     } else {
         Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds 180 -Arguments $arguments
     }
+
+    $notRun = if ($run.PSObject.Properties['ElevationFailure']) { [string]$run.ElevationFailure } else { '' }
+    if ($notRun) {
+        return [PSCustomObject]@{
+            Answered  = $false
+            Installed = $false
+            Refused   = [bool]($run.PSObject.Properties['Refused'] -and $run.Refused)
+            Reason    = $notRun
+        }
+    }
     if ($run.TimedOut) {
         Write-Verbose "winget list for $PackageId ran out of time, treating it as not installed"
-        return $false
     }
-    return ($run.ExitCode -eq 0)
+    return [PSCustomObject]@{
+        Answered  = $true
+        Installed = (-not $run.TimedOut -and $run.ExitCode -eq 0)
+        Refused   = $false
+        Reason    = ''
+    }
+}
+
+function Test-WingetPackageInstalled {
+    <#
+    .SYNOPSIS
+        Whether winget lists the package as installed, optionally in one scope only, asked from this
+        process, which always gets an answer.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)] [string] $WingetPath,
+        [Parameter(Mandatory)] [string] $PackageId,
+        [ValidateSet('', 'machine', 'user')] [string] $Scope = ''
+    )
+
+    return (Get-WingetPackagePresence -WingetPath $WingetPath -PackageId $PackageId -Scope $Scope).Installed
 }
 
 function Test-WingetElevationRequired {
@@ -360,25 +396,48 @@ function ConvertTo-PowerShellLiteral {
     return "'" + ($Value -replace "'", "''") + "'"
 }
 
+function Test-ConsentRefusal {
+    <#
+    .SYNOPSIS
+        Whether an exception from Start-Process -Verb RunAs is the user saying no to the consent prompt.
+    .DESCRIPTION
+        ShellExecuteEx reports a refused prompt as ERROR_CANCELLED, 1223, which Start-Process wraps
+        in a Win32Exception. The message is matched as well, for a host that rethrows it without the
+        inner exception.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)] [System.Exception] $Exception)
+
+    for ($e = $Exception; $e; $e = $e.InnerException) {
+        if ($e -is [System.ComponentModel.Win32Exception] -and $e.NativeErrorCode -eq 1223) { return $true }
+        if ($e.Message -match 'canceled by the user|cancelled by the user') { return $true }
+    }
+    return $false
+}
+
 function Invoke-ElevatedPowerShell {
     <#
     .SYNOPSIS
         Runs a script in an elevated pwsh child and reports how it ended.
     .DESCRIPTION
-        The shape Install-ChocolateyPackageBatch and Enable-WindowsFeatureSet already use: the script
-        goes in as -EncodedCommand, through -Verb RunAs when this process is not elevated and in this
-        console when it is, because RunAs needs an interactive desktop to prompt on and a runner has
-        none. -Verb RunAs cannot redirect a stream, so the script writes its own answer into a file
-        the caller names. Bounded by WaitForExit rather than -Wait, so an unanswered consent dialog
-        cannot hold the wizard forever.
+        The one route to administrator rights for the wizard, which refuses to run elevated itself:
+        the Chocolatey batch, the optional features, the elevated winget calls and the Syncthing
+        firewall rules all come through here, so each call is one consent prompt of its own. The
+        script goes in as -EncodedCommand, through -Verb RunAs when this process is not elevated and
+        in this console when it is, because RunAs needs an interactive desktop to prompt on and a
+        runner has none. -Verb RunAs cannot redirect a stream, so the script writes its own answer
+        into a file the caller names. Bounded by WaitForExit rather than -Wait, so an unanswered
+        consent dialog cannot hold the wizard forever, and Kill($true) takes the tree, because choco
+        and DISM start installer children that would otherwise outlive the deadline.
 
-        Returns ExitCode, TimedOut and StartError. StartError is the message when the child never
-        started, which is what a refused consent prompt looks like.
+        Returns ExitCode, TimedOut, StartError and Refused. StartError is the message when the child
+        never started, and Refused is true when that was a refused consent prompt.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Script,
-        [ValidateRange(30, 14400)] [int] $TimeoutSeconds = 900
+        [ValidateRange(30, 86400)] [int] $TimeoutSeconds = 900
     )
 
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Script))
@@ -397,14 +456,16 @@ function Invoke-ElevatedPowerShell {
     try {
         $proc = Start-Process @startArgs
     } catch {
-        return [PSCustomObject]@{ ExitCode = -1; TimedOut = $false; StartError = $_.Exception.Message }
+        $refused = Test-ConsentRefusal -Exception $_.Exception
+        $message = if ($refused) { "the administrator consent prompt was refused ($($_.Exception.Message))" } else { $_.Exception.Message }
+        return [PSCustomObject]@{ ExitCode = -1; TimedOut = $false; StartError = $message; Refused = $refused }
     }
 
     if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
         try { $proc.Kill($true) } catch { Write-Verbose "could not kill $($proc.Id): $($_.Exception.Message)" }
-        return [PSCustomObject]@{ ExitCode = -1; TimedOut = $true; StartError = '' }
+        return [PSCustomObject]@{ ExitCode = -1; TimedOut = $true; StartError = ''; Refused = $false }
     }
-    return [PSCustomObject]@{ ExitCode = $proc.ExitCode; TimedOut = $false; StartError = '' }
+    return [PSCustomObject]@{ ExitCode = $proc.ExitCode; TimedOut = $false; StartError = ''; Refused = $false }
 }
 
 function Invoke-ElevatedWinget {
@@ -417,6 +478,10 @@ function Invoke-ElevatedWinget {
         result as JSON for this process to read back. The child's own deadline is the one asked for,
         and this process waits five minutes longer, which is the time a person gets to answer the
         consent prompt.
+
+        ElevationFailure is empty when winget ran in the child, and otherwise says why it did not,
+        with Refused true for a refused consent prompt. A caller must not read the exit code of a
+        winget that never ran as an answer about the package.
     #>
     [CmdletBinding()]
     param(
@@ -440,34 +505,28 @@ try {
 `$run | ConvertTo-Json -Compress | Set-Content -LiteralPath $resultLiteral -Encoding utf8
 "@
 
+    $notRun = { param($output, $timedOut, $refused)
+        [PSCustomObject]@{ Output = $output; ExitCode = -1; TimedOut = $timedOut; ElevationFailure = $output; Refused = $refused } }
+
     try {
         $child = Invoke-ElevatedPowerShell -Script $inner -TimeoutSeconds ($TimeoutSeconds + 300)
+        $refused = [bool]($child.PSObject.Properties['Refused'] -and $child.Refused)
         if ($child.StartError) {
-            return [PSCustomObject]@{
-                Output   = "could not start winget elevated, which a machine-wide install of this package needs: $($child.StartError)"
-                ExitCode = -1
-                TimedOut = $false
-            }
+            return (& $notRun "could not start winget elevated, which a machine-wide install of this package needs: $($child.StartError)" $false $refused)
         }
         if ($child.TimedOut) {
-            return [PSCustomObject]@{
-                Output   = 'the elevated winget child did not finish, most likely an unanswered consent prompt'
-                ExitCode = -1
-                TimedOut = $true
-            }
+            return (& $notRun 'the elevated winget child did not finish, most likely an unanswered consent prompt' $true $false)
         }
         if (-not (Test-Path -LiteralPath $resultFile)) {
-            return [PSCustomObject]@{
-                Output   = "the elevated winget child exited $($child.ExitCode) without writing a result, so what winget did is unknown"
-                ExitCode = -1
-                TimedOut = $false
-            }
+            return (& $notRun "the elevated winget child exited $($child.ExitCode) without writing a result, so what winget did is unknown" $false $false)
         }
         $read = Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json
         return [PSCustomObject]@{
-            Output   = [string]$read.Output
-            ExitCode = [int]$read.ExitCode
-            TimedOut = [bool]$read.TimedOut
+            Output           = [string]$read.Output
+            ExitCode         = [int]$read.ExitCode
+            TimedOut         = [bool]$read.TimedOut
+            ElevationFailure = ''
+            Refused          = $false
         }
     } finally {
         Remove-Item -LiteralPath $resultFile -Force -ErrorAction SilentlyContinue
@@ -696,7 +755,18 @@ function Install-WingetPackage {
         # Asked by scope, because an unscoped `winget list` reports a per-user copy as installed, and
         # then the machine-wide install this mapping asks for never runs on any machine that already
         # had the per-user one. That was every package moved from user to machine on 2026-10-11.
-        if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId -Scope 'machine' -Elevated:$probeElevated) {
+        $machine = Get-WingetPackagePresence -WingetPath $WingetPath -PackageId $PackageId -Scope 'machine' -Elevated:$probeElevated
+        # An unanswered machine check is reported as exactly that. Falling through to the per-user
+        # check would find the copy a provisioned msix registers for every user and call it per-user.
+        if (-not $machine.Answered) {
+            $detail = if ($machine.Refused) {
+                "the machine-wide check was refused, so whether $PackageId is installed for all users is unknown. Run the wizard again and accept the administrator prompt to check it and install it."
+            } else {
+                "the machine-wide check could not run, so whether $PackageId is installed for all users is unknown: $($machine.Reason)"
+            }
+            return [PSCustomObject]@{ Package = $PackageId; Status = 'failed'; Detail = $detail }
+        }
+        if ($machine.Installed) {
             Write-Verbose "$PackageId already installed machine-wide"
             return [PSCustomObject]@{ Package = $PackageId; Status = 'present'; Detail = '' }
         }
@@ -751,6 +821,12 @@ function Install-WingetPackage {
             }
         }
 
+        # Not retried. winget never ran, so there is no flaky installer to give a second chance, and
+        # after a refused prompt a retry would only put the same question to the same person again.
+        if ($run.PSObject.Properties['ElevationFailure'] -and $run.ElevationFailure) {
+            return [PSCustomObject]@{ Package = $PackageId; Status = 'failed'; Detail = $run.ElevationFailure }
+        }
+
         # winget reports an already-installed package as a failure code with a specific
         # message, so treat that text as success rather than reporting a false failure.
         if ($run.ExitCode -eq 0 -or $run.Output -match 'already installed') {
@@ -784,8 +860,8 @@ function Install-ChocolateyPackageBatch {
         Chocolatey writes under C:\ProgramData and needs administrator rights, while winget
         installs per user and does not. setup.ps1 deliberately refuses to run elevated, so
         rather than demanding the whole wizard be elevated, the Chocolatey packages are
-        batched into a single elevated child process. That is one consent prompt for the
-        whole batch instead of one per package.
+        batched into a single elevated child process, run through Invoke-ElevatedPowerShell. That
+        is one consent prompt for the whole batch instead of one per package.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -842,18 +918,9 @@ Stop-Transcript | Out-Null
 exit `$worst
 "@
 
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($inner))
-
-    # Already-administrator is the normal case in a container and in CI, and there
-    # -Verb RunAs fails outright because it needs an interactive desktop to prompt on. Asking
-    # to elevate when already elevated is also just wasted work, so check first.
-    $isElevated = Test-IsAdministrator
-
-    # -PassThru with an explicit WaitForExit rather than -Wait, so this cannot block forever. It was
-    # the last unbounded blocking call in the Windows path, and it is now on the critical path for
-    # install_nodejs and install_flutter as well as the mapped Chocolatey packages. Two ways it hangs:
-    # choco prompting inside the elevated child despite -y, or a consent dialog nobody answers.
-    # -Wait offers no timeout at all, which is why it had to go.
+    # Bounded, never -Wait, so this cannot block forever. It is on the critical path for
+    # install_nodejs and install_flutter as well as the mapped Chocolatey packages, and it hangs when
+    # choco prompts inside the elevated child despite -y.
     # Sized against the loop inside the child rather than picked. Each package there gets
     # --execution-timeout=600, ten minutes, so a child with n packages can legitimately take ten
     # minutes times n plus Chocolatey's own start-up. 30 minutes covered three packages, and both
@@ -864,30 +931,19 @@ exit `$worst
     # Ten minutes per package plus ten for the bootstrap, and never less than 30.
     $timeoutMinutes = [Math]::Max(30, ($PackageId.Count * 10) + 10)
     try {
-        $startArgs = @{
-            FilePath     = 'pwsh.exe'
-            ArgumentList = @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
-            PassThru     = $true
-            ErrorAction  = 'Stop'
-        }
-        if ($isElevated) {
-            Write-Verbose 'Already elevated, running choco in this process'
-            $startArgs['NoNewWindow'] = $true
-        } else {
-            $startArgs['Verb'] = 'RunAs'
-        }
-        $proc = Start-Process @startArgs
+        $child = Invoke-ElevatedPowerShell -Script $inner -TimeoutSeconds ($timeoutMinutes * 60)
 
-        if (-not $proc.WaitForExit($timeoutMinutes * 60 * 1000)) {
-            # Kill($true) takes the tree, because choco spawns msiexec and installer children that
-            # would otherwise survive the parent and keep holding their locks.
-            try { $proc.Kill($true) } catch { Write-Verbose "could not kill $($proc.Id): $($_.Exception.Message)" }
+        # A refused consent prompt lands here, and is a user decision rather than a fault.
+        if ($child.StartError) {
+            return [PSCustomObject]@{ Status = 'failed'; Detail = "could not run choco: $($child.StartError)" }
+        }
+        if ($child.TimedOut) {
             return [PSCustomObject]@{
                 Status = 'failed'
                 Detail = "the Chocolatey batch was still running after $timeoutMinutes minutes and was killed, so those packages are NOT installed. Most likely a prompt inside the elevated child, or an unanswered consent dialog. Run 'choco install $($PackageId -join ' ') -y' by hand to see it."
             }
         }
-        if ($proc.ExitCode -eq 0) {
+        if ($child.ExitCode -eq 0) {
             return [PSCustomObject]@{ Status = 'installed'; Detail = "$($PackageId.Count) package(s)" }
         }
         # The last lines of the child's own transcript, because an exit code alone has never once
@@ -901,10 +957,9 @@ exit `$worst
         }
         return [PSCustomObject]@{
             Status = 'failed'
-            Detail = "choco exited $($proc.ExitCode)$(if ($tail) { ". It said: $tail" } else { '. Its transcript is missing, so there is nothing more to report.' })"
+            Detail = "choco exited $($child.ExitCode)$(if ($tail) { ". It said: $tail" } else { '. Its transcript is missing, so there is nothing more to report.' })"
         }
     } catch {
-        # A refused consent prompt lands here, and is a user decision rather than a fault.
         return [PSCustomObject]@{ Status = 'failed'; Detail = "could not run choco: $($_.Exception.Message)" }
     }
 }

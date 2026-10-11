@@ -4836,3 +4836,69 @@ How it was proven: the Pester run before the fix, quoted above, and the same tes
 Fix: `@(& $missingRules)` at both call sites, with a comment naming the class.
 
 Mechanical check: the two Pester tests that caught it. Nothing generic, for the reason the class itself gives: the call site has to wrap, and no check can tell from a call site which function returns an array.
+
+### Found while closing what commit 1ddb58d left open, on 2026-10-11
+
+Commit 1ddb58d moved Slack, Claude Desktop and Syncthing to machine scope behind an elevated winget child and left things unfinished. The entries below are what the owner kept on 2026-10-11, and the first is a defect that commit's own verdicts carried. Windows still asks for consent once per elevated step, as 1ddb58d does.
+
+Two more pieces of work from the same session were removed by the owner on 2026-10-11, and are noted here only so that nobody builds them again by accident. One elevated session per wizard run, started by a single consent prompt and fed requests through files in the user's temporary folder, was taken out of the wizard and moved to the plan for the desktop application, decision 9 in [openspec/changes/add-flutter-desktop-frontend/design.md](../openspec/changes/add-flutter-desktop-frontend/design.md). A PSScriptAnalyzer gate in tier 1, with the function renames, the test scope rewrites and the other changes made only to satisfy it, was dropped by the owner and reverted.
+
+#### 10.5 A refused machine-wide check of an already provisioned msix reported Slack as installed for this user only
+
+Cause: `Test-WingetPackageInstalled` in [WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) answered a boolean, and when the elevated child never ran winget, a refused consent prompt above all, `Invoke-ElevatedWinget` returned exit -1, which read as "not installed". `Install-WingetPackage` then asked `--scope user`, and a machine-wide msix provisioned with `Add-AppxProvisionedPackage` is registered for every user who signs in, this one included, so the user check found it. Introduced by commit 1ddb58d, written by an agent in this repository.
+
+Effect: on a machine that already has Slack or Claude Desktop machine-wide, saying no to the prompt produced `skipped` with the detail `installed for this user only, the machine-wide install was skipped. To install it machine-wide, remove the per-user copy with 'winget uninstall --exact --id SlackTechnologies.Slack --scope user' and run the wizard again.`, which is the wrong verdict and a command that would remove the user's registration of a machine-wide install. Measured in Pester rather than on a real machine: the new test "says the machine-wide check of an already provisioned msix was refused, never that it is installed for this user only", run against the WindowsSoftware.ps1 of 1ddb58d in a scratch copy, failed with exactly that detail.
+
+How it was proven: the three tests under "Install-WingetPackage reports an unanswered machine-wide check as unknown" in [WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1), and the three refusal tests under "Invoke-ElevatedWinget and Invoke-ElevatedPowerShell", were run with Pester against a copy of the tree at 1ddb58d with only the test file replaced, on 2026-10-11 after the single-session work was removed. All six failed: the refusal gave the per-user verdict above, a child that wrote no result gave `skipped` instead of `failed`, a refused install was retried, `exit -1 ... (attempt 2 of 2; the first said exit -1. could not start winget elevated ...)`, which on a real machine is a second consent prompt for the same refusal, `Invoke-ElevatedPowerShell` returned the bare `The operation was canceled by the user.` with no `Refused` property, and `Test-ConsentRefusal` did not exist. Against the fixed tree the whole suite passes.
+
+Fix: `Get-WingetPackagePresence` answers `Answered`, `Installed`, `Refused` and `Reason`, and `Test-WingetPackageInstalled` is its boolean wrapper for the callers that ask from this process, which always get an answer. `Invoke-ElevatedPowerShell` still opens one consent prompt per call, as in 1ddb58d, and now also returns `Refused`, which `Test-ConsentRefusal` decides from `ERROR_CANCELLED`, 1223, or the cancelled message, and a refused start reads `the administrator consent prompt was refused (...)`. `Invoke-ElevatedWinget` returns `ElevationFailure`, empty when winget ran, and `Refused`. When the machine check was not answered, `Install-WingetPackage` reports `failed` with `the machine-wide check was refused, so whether SlackTechnologies.Slack is installed for all users is unknown. Run the wizard again and accept the administrator prompt to check it and install it.`, or `the machine-wide check could not run, so whether <id> is installed for all users is unknown: <reason>`, and it does not ask the per-user question at all. An elevated install whose winget never ran is not retried, so a refused prompt is not asked again for the same package.
+
+Mechanical check: those six Pester tests, run by the tier 1 `windows_pester` check and the stage 1 CI job.
+
+#### 10.6 The Chocolatey batch and the optional features each carried their own copy of the RunAs start, defect class 2
+
+Cause: `Install-ChocolateyPackageBatch` in [WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) and `Enable-WindowsFeatureSet` in [WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1) each built the same `Start-Process pwsh.exe -Verb RunAs -PassThru` and its `WaitForExit` and `Kill($true)` inline, and 1ddb58d added a third copy as `Invoke-ElevatedPowerShell` beside them instead of moving them onto it.
+
+Effect: three implementations of one elevation, each with its own handling of a refusal and a deadline, so the refusal detection of 10.5 would have reached only one of the three.
+
+How it was proven: the new static test "finds no RunAs under setup/ outside Invoke-ElevatedPowerShell", run against the 1ddb58d copy on 2026-10-11, failed and named `setup\windows\WindowsSettings.ps1:233 'RunAs'` and `setup\windows\WindowsSoftware.ps1:877 'RunAs'`.
+
+Fix: both call `Invoke-ElevatedPowerShell` and map its `StartError`, `TimedOut` and `ExitCode` onto the same results and the same sentences they produced before, so a refusal still reads `could not run choco: ...` and `could not run the elevated feature child: ...`. Each is still one consent prompt for its whole batch, exactly as before. The upper bound of its `TimeoutSeconds` went from 14400 to 86400, because the Chocolatey batch sizes its deadline at ten minutes per package, and more than 23 packages would have gone past the old bound.
+
+Mechanical check: that static test, which reads the PowerShell tokens of every file under `setup/`, skips comments, and fails on any token containing RunAs outside the one `Invoke-ElevatedPowerShell`, and also fails when it finds none inside it.
+
+#### 10.7 The manual Windows install script and page had drifted from vars/Windows.yaml in every direction
+
+Cause: nothing compared [docs/manual/windows/install.ps1](manual/windows/install.ps1) and [windows_manual_install.md](manual/windows/windows_manual_install.md) with [vars/Windows.yaml](../setup/ansible/vars/Windows.yaml), so each mapping change since they were written left them behind.
+
+Effect: the script still installed `BillStewart.SyncthingWindowsSetup`, which 1ddb58d replaced, `ShiningLight.OpenSSL.Light`, whose download answers 404 and which the mapping replaced with FireDaemon.OpenSSL on 2026-08-25, and `9PK9W5QV2PKX`, the Razer Cortex Store widget discontinued on 2026-07-01. It installed HWiNFO and GlassWire through winget manifests whose downloads answer 404 and 403, which the mapping had moved to Chocolatey. It missed fourteen mapped packages that are on by default: PowerShell 7, ChatGPT, Claude Desktop, AppControl, LM Studio, Android Studio, JetBrains Toolbox, Python 3.11, OpenCode desktop, Angry IP Scanner, the Dart SDK, k3d, the NVIDIA App and Razer Synapse 4. It pinned no scope, so every machine and user pin the wizard honours was left to winget, which is how Lens, Bruno and CurseForge failed. And it carried `#Requires -RunAsAdministrator`, so every user-scope package would have gone into an elevated context, and Spotify's installer refuses one. The page had the same ids, no scopes, and a toolchain section that still said the Linux toolchain runs inside WSL on Windows.
+
+How it was proven: the new check, run through `E2E_REPO_ROOT` against a copy carrying the script and page from 1ddb58d, failed all seven of its assertions, and the lists above are its output compared by id.
+
+Fix: install.ps1 is a table of the default-on mappings in vars/Windows.yaml order, with the source, scope, installer type and machine conditions each names. It runs as the normal user and refuses an elevated shell, installs the unelevated winget packages there, then opens one elevated window, and so one consent prompt, per step that needs an administrator, the way the wizard does: one for the Chocolatey packages, one for each machine-wide msix and portable install, and one for Syncthing's firewall rules. A refused prompt fails only its own step. Then it writes Syncthing's Startup shortcut. A first version ran all of those in one elevated window, and was changed to one window per step when the owner kept one prompt per elevated step on 2026-10-11. The page gives every mapping's exact command, scope and source included, says which three need an elevated PowerShell and why, documents the Syncthing shortcut and firewall commands and the BillStewart removal, and describes the toolchain the wizard installs natively. The comment in vars/Windows.yaml that named a function `Set-SyncthingUserStartup`, which never existed, now names `Invoke-SyncthingUserSetup`.
+
+Mechanical check: [e2e/tier1/manual_windows_install.sh](../e2e/tier1/manual_windows_install.sh), run by tier 1. Besides the copy from 1ddb58d, it failed against a copy of the new script with Syncthing swapped back to BillStewart, Slack's scope removed and FireDaemon swapped back to Shining Light, and named all three.
+
+#### 10.8 setup/software.md still gave three Windows commands for packages the mapping had left, found while doing 10.7
+
+Cause: the same as 10.7. The Windows column of [setup/software.md](../setup/software.md) is a third copy of the package ids and nothing compared it with vars/Windows.yaml either.
+
+Effect: OpenSSL read `winget install -e --id ShiningLight.OpenSSL.Light`, whose download answers 404, HWiNFO read `winget install -e --id REALiX.HWiNFO`, whose manifest's mirror answers 404, and GlassWire read `winget install -e --id GlassWire.GlassWire`, whose S3 object answers 403, while the mapping installs FireDaemon.OpenSSL, `hwinfo.install` and `glasswire` from Chocolatey. The same page's phase list still said packages install in one batched call per manager, which stopped being true on 2026-08-25.
+
+How it was proven: every `winget install -e --id` in software.md was compared with every `package:` in vars/Windows.yaml, and the four ids left over were these three and CoreyButler.NVMforWindows, which WindowsCustomInstalls.ps1 installs and is correct.
+
+Fix: the three cells give the mapping's commands, and the phase list says one call per package for every manager.
+
+Mechanical check: a fifth assertion in [manual_windows_install.sh](../e2e/tier1/manual_windows_install.sh): every Windows command in software.md must name a package the mapping file maps or WindowsCustomInstalls.ps1 installs by id. Proven against a copy carrying software.md from 1ddb58d, where it failed and named the three.
+
+#### 10.9 SDKMAN's selfupdate broker answered 503 for half a minute, and the install gave up after four attempts
+
+Cause: the SDKMAN install task in [sdkman_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/sdkman_unix.yaml) retried 3 times with a 10 second delay, so it covered about 32 seconds of an outage at SDKMAN's own download service. Entry 9.4 sized that retry against a half-finished install, not against the service being down. Not introduced by this session.
+
+Effect: GitHub sweep run 38130934506, Fedora GNOME full, failed the task on 2026-10-11 on all four attempts, at 10:59:44, 10:59:54, 11:00:05 and 11:00:15 in the scenario's own clock, each with `curl: (22) The requested URL returned error: 503` from `curl --fail --location --progress-bar "${SDKMAN_SERVICE}/broker/download/native/selfupdate/${SDKMAN_NATIVE_VERSION}/${SDKMAN_PLATFORM}"`, the native archive step of `sdk selfupdate force`. Every SDKMAN Java and `sdk` itself then went missing in the verification: `FAIL outside-package-manager tools missing or unreachable: java, java 11.0.31-tem, java 17.0.19-tem, java 21.0.11-tem, java 25.0.3-tem, adb, sdk`. Fedora KDE full in the same sweep ran the same task at 11:02:42 and it passed first time, 2.5 minutes after the last failure, so the broker came back on its own.
+
+How it was proven: the `e2e-stage2-gnome-full-fedora-38130934506` and `e2e-stage2-kde-full-fedora-38130934506` artifacts of that run, downloaded with `gh run download` and read from their `playbook.log`, which is where the times and the error text above come from. The failure was not reproduced, because nothing here can make the broker answer 503 on demand.
+
+Fix: the task retries 5 times with a 15 second delay, six attempts across about 75 seconds of waiting, more than twice the window that failed. It does not cover an outage of 2.5 minutes, and a longer wait would hold every run that meets a real fault for longer, so a broker down for minutes still fails the run and names this task.
+
+Mechanical check: none. Whether a vendor service answers is not something an offline check can decide, and the retry count is not a rule that has a right value to assert.

@@ -26,7 +26,7 @@ The playbook runs in this order. Each phase must succeed before the next can sta
 2. APT / DNF repo provisioning: `roles/software_installer/tasks/debian_repos.yaml` and `fedora_repos.yaml` write keyrings under `/etc/apt/keyrings/` and `*.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Helm, Terraform, GitHub CLI, Syncthing, Tailscale, Docker before any package install runs.
 3. SDK / runtime managers: JVM, Pyenv, NVM, SDKMAN (Java, Gradle), FVM.
 4. Snapd and Flatpak with the Flathub remote (Linux).
-5. Batched package installs: one call per manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`) so dependency resolution happens once per OS.
+5. Package installs: one call per package for every manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`), so one failure names the package that broke and costs only that package. `e2e/tier1/batched_managers.sh` fails on any manager that hands its whole set to one call.
 Razer Cortex was removed on 2026-08-22 at the owner's request. It is a game launcher rather than
 device software, its installer exited 0 without installing anything under `/S`, and Razer ships
 no switch it will admit to. Razer Synapse 4 stays and is what configures the devices, through the
@@ -54,7 +54,7 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | Maven | `sudo apt-get install -y maven` | `sudo dnf install -y maven` | `sudo pacman -S --needed maven` | `brew install maven` | `choco install maven -y` |
 | Gradle | `sdk install gradle` (SDKMAN) | `sdk install gradle` (SDKMAN) | `sudo pacman -S --needed gradle` | `brew install gradle` | `choco install gradle -y` |
 | Postman | `flatpak install -y flathub com.getpostman.Postman` | `flatpak install -y flathub com.getpostman.Postman` | `flatpak install -y flathub com.getpostman.Postman` | `brew install --cask postman` | `winget install -e --id Postman.Postman` |
-| OpenSSL | `sudo apt-get install -y openssl` | `sudo dnf install -y openssl` | `sudo pacman -S --needed openssl` | `brew install openssl@3` | `winget install -e --id ShiningLight.OpenSSL.Light` |
+| OpenSSL | `sudo apt-get install -y openssl` | `sudo dnf install -y openssl` | `sudo pacman -S --needed openssl` | `brew install openssl@3` | `winget install -e --id FireDaemon.OpenSSL` |
 | DBeaver CE | `flatpak install -y flathub io.dbeaver.DBeaverCommunity` | `flatpak install -y flathub io.dbeaver.DBeaverCommunity` | `flatpak install -y flathub io.dbeaver.DBeaverCommunity` | `brew install --cask dbeaver-community` | `winget install -e --id DBeaver.DBeaver.Community` |
 | kubectl | `sudo apt-get install -y kubectl` (repo) | `sudo dnf install -y kubectl` (repo) | `sudo pacman -S --needed kubectl` | `brew install kubernetes-cli` | `winget install -e --id Kubernetes.kubectl` |
 | Minikube | `curl -fsSLo /tmp/minikube.deb https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube_1.38.1-0_amd64.deb && sudo apt-get install -y /tmp/minikube.deb` | `sudo dnf install -y https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube-1.38.1-0.x86_64.rpm` | `sudo pacman -S --needed minikube` | `brew install minikube` | `winget install -e --id Kubernetes.minikube` |
@@ -393,14 +393,14 @@ Podman Desktop is installed purely as a graphical front end for the Docker engin
 |---|---|---|---|---|
 | PowerShell 7 | shell | bash / zsh | zsh | `winget install -e --id 9MZ1SNWT0N5D --source msstore` |
 | HWMonitor | hardware | HardInfo | Stats | `winget install -e --id CPUID.HWMonitor` |
-| HWiNFO | hardware | lm_sensors | Stats | `winget install -e --id REALiX.HWiNFO` |
+| HWiNFO | hardware | lm_sensors | Stats | `choco install -y hwinfo.install` |
 | CrystalDiskInfo | disk health | not available | not available | `winget install -e --id CrystalDewWorld.CrystalDiskInfo` |
 | CrystalDiskMark | disk benchmark | not available | not available | `winget install -e --id CrystalDewWorld.CrystalDiskMark` |
 | MSI Afterburner | GPU OC | GreenWithEnvy | not available | `winget install -e --id Guru3D.Afterburner` |
 | WizTree | disk space | Baobab | GrandPerspective | `winget install -e --id AntibodySoftware.WizTree` |
 | Angry IP Scanner | network | not available | not available | `winget install -e --id angryziber.AngryIPScanner` |
 | Advanced IP Scanner | network | not available | not available | `winget install -e --id Famatech.AdvancedIPScanner` |
-| GlassWire | firewall | ufw / iptables | LuLu | `winget install -e --id GlassWire.GlassWire` |
+| GlassWire | firewall | ufw / iptables | LuLu | `choco install -y glasswire` |
 | TCPView | network | not available | not available | `winget install -e --id Microsoft.Sysinternals.TCPView` |
 | Autoruns | system | not available | not available | `winget install -e --id Microsoft.Sysinternals.Autoruns` |
 | Rufus | USB creator | Balena Etcher | Balena Etcher | `winget install -e --id Rufus.Rufus` |

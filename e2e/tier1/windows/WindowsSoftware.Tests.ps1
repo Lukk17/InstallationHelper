@@ -840,10 +840,82 @@ exit /b 7
         Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $NoNewWindow -and -not $Verb }
     }
 
-    It 'reports a refused prompt as a start error rather than throwing' {
+    It 'reports a refused prompt as a refused start rather than throwing' {
         Mock Test-IsAdministrator { $false }
         Mock Start-Process { throw 'The operation was canceled by the user.' }
-        (Invoke-ElevatedPowerShell -Script 'exit 0' -TimeoutSeconds 30).StartError | Should -BeLike '*canceled by the user*'
+        $r = Invoke-ElevatedPowerShell -Script 'exit 0' -TimeoutSeconds 30
+        $r.StartError | Should -BeLike 'the administrator consent prompt was refused*canceled by the user*'
+        $r.Refused    | Should -BeTrue
+    }
+
+    It 'reports any other failure to start as a start error that is not a refusal' {
+        Mock Test-IsAdministrator { $false }
+        Mock Start-Process { throw [System.ComponentModel.Win32Exception]::new(2) }
+        $r = Invoke-ElevatedPowerShell -Script 'exit 0' -TimeoutSeconds 30
+        $r.StartError | Should -Not -BeNullOrEmpty
+        $r.Refused    | Should -BeFalse
+    }
+
+    It 'tells a refused consent prompt from any other failure to start' {
+        Test-ConsentRefusal -Exception ([System.ComponentModel.Win32Exception]::new(1223)) | Should -BeTrue
+        Test-ConsentRefusal -Exception ([System.InvalidOperationException]::new('outer', [System.ComponentModel.Win32Exception]::new(1223))) | Should -BeTrue
+        Test-ConsentRefusal -Exception ([System.ComponentModel.Win32Exception]::new(2)) | Should -BeFalse
+    }
+}
+
+# A machine-scope msix already provisioned for every user is also registered for this one, so
+# winget list --scope user finds it. When the elevated machine check never ran, falling through to
+# that user check reported Slack as "installed for this user only", which is the wrong verdict about
+# a machine-wide install.
+Describe 'Install-WingetPackage reports an unanswered machine-wide check as unknown' {
+
+    BeforeEach {
+        $global:BoundedCalls = [System.Collections.Generic.List[string]]::new()
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        Mock Test-IsAdministrator { $false }
+        Mock Invoke-BoundedWinget {
+            $global:BoundedCalls.Add(($Arguments -join ' '))
+            # The provisioned copy is registered for this user, so every unelevated list finds it.
+            [PSCustomObject]@{ Output = ''; ExitCode = 0; TimedOut = $false }
+        }
+    }
+
+    It 'says the machine-wide check of an already provisioned msix was refused, never that it is installed for this user only' {
+        Mock Invoke-ElevatedPowerShell {
+            [PSCustomObject]@{ ExitCode = -1; TimedOut = $false; StartError = 'the administrator consent prompt was refused (The operation was canceled by the user.)'; Refused = $true }
+        }
+
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'machine' -InstallerType 'msix' -RetryPauseSeconds 0
+
+        $r.Detail | Should -Not -BeLike '*installed for this user only*'
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'the machine-wide check was refused, so whether SlackTechnologies.Slack is installed for all users is unknown*'
+        Should -Invoke Invoke-ElevatedPowerShell -Times 1 -Exactly -Because 'nothing is installed and nothing is asked again after a refusal'
+        $global:BoundedCalls.Count | Should -Be 0 -Because 'the per-user answer cannot tell a provisioned copy from a per-user one'
+    }
+
+    It 'says the machine-wide check could not run, and why, when the elevated child failed for another reason' {
+        Mock Invoke-ElevatedPowerShell { [PSCustomObject]@{ ExitCode = 3; TimedOut = $false; StartError = ''; Refused = $false } }
+
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Anthropic.Claude' -Scope 'machine' -InstallerType 'msix' -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'the machine-wide check could not run, so whether Anthropic.Claude is installed for all users is unknown*exited 3 without writing a result*'
+        $global:BoundedCalls.Count | Should -Be 0
+    }
+
+    It 'does not retry an elevated install that never ran, because a retry would only ask again after a refusal' {
+        Mock Invoke-BoundedWinget { [PSCustomObject]@{ Output = ''; ExitCode = -1978335212; TimedOut = $false } }
+        Mock Invoke-ElevatedPowerShell {
+            [PSCustomObject]@{ ExitCode = -1; TimedOut = $false; StartError = 'the administrator consent prompt was refused (The operation was canceled by the user.)'; Refused = $true }
+        }
+
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Syncthing.Syncthing' -Scope 'machine' -InstallerType 'portable' -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'could not start winget elevated*consent prompt was refused*'
+        Should -Invoke Invoke-ElevatedPowerShell -Times 1 -Exactly
     }
 }
 
@@ -1488,6 +1560,44 @@ Describe 'Test-IsAdministrator is the only elevation check' {
             }
         }
         $stray | Should -BeNullOrEmpty -Because 'a second elevation check can disagree with Test-IsAdministrator, so call it instead'
+    }
+}
+
+Describe 'Invoke-ElevatedPowerShell is the only route to elevation' {
+
+    # The Chocolatey batch and the optional features step each carried their own copy of the RunAs
+    # start until 2026-10-11, which is defect class 2 in AGENTS.md: three implementations of one
+    # elevation, and three places a refusal or a deadline could be handled differently. Every RunAs
+    # under setup/ must sit inside the one Invoke-ElevatedPowerShell in WindowsSoftware.ps1. Comments
+    # are not code and are not counted.
+    It 'finds no RunAs under setup/ outside Invoke-ElevatedPowerShell' {
+        $owner = Join-Path $script:RepoRoot 'setup\windows\WindowsSoftware.ps1'
+        $ownerAst = [System.Management.Automation.Language.Parser]::ParseFile($owner, [ref]$null, [ref]$null)
+        $definitions = @($ownerAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-ElevatedPowerShell'
+        }, $true))
+        $definitions.Count | Should -Be 1 -Because 'WindowsSoftware.ps1 must define Invoke-ElevatedPowerShell exactly once'
+        $extent = $definitions[0].Extent
+
+        $files = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'setup') -Recurse -File -Include '*.ps1', '*.psm1')
+        $files.Count | Should -BeGreaterThan 0 -Because 'a scan of no files proves nothing'
+
+        $inOwner = 0
+        $stray = [System.Collections.Generic.List[string]]::new()
+        foreach ($file in $files) {
+            $tokens = $null
+            $null = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$null)
+            foreach ($token in $tokens) {
+                if ($token.Kind -eq [System.Management.Automation.Language.TokenKind]::Comment) { continue }
+                if ($token.Text -notmatch 'RunAs') { continue }
+                $inside = $file.FullName -eq $owner -and
+                    $token.Extent.StartOffset -ge $extent.StartOffset -and $token.Extent.EndOffset -le $extent.EndOffset
+                if ($inside) { $inOwner++ } else { $stray.Add("$($file.FullName):$($token.Extent.StartLineNumber) $($token.Text)") }
+            }
+        }
+        $inOwner | Should -BeGreaterThan 0 -Because 'a check that cannot find the one RunAs it allows would pass on anything'
+        $stray | Should -BeNullOrEmpty -Because 'a second RunAs is a second way to handle a refusal or a deadline, so call Invoke-ElevatedPowerShell instead'
     }
 }
 
