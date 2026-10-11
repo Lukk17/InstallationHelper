@@ -409,7 +409,7 @@ After that, one command per run. It writes the sandbox configuration from where 
 pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1
 ```
 
-A real install on a hosted Windows Server 2025 runner, which is the automated one. Dispatch [../.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) at its `windows` target, or run the full sweep, whose four Windows cells install the whole set for real. Measured at 87 minutes for the defaults set and 122 with every toggle on, in [run_durations.md](run_durations.md).
+A real install on a hosted Windows Server 2025 runner, which is the automated one. Dispatch [../.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) at its `windows` target, or run the full sweep, whose four Windows cells install the whole set for real. Measured over three sweeps at an average of 82 minutes for the defaults set and 98 with every toggle on, the slowest of them 122, in [run_durations.md](run_durations.md).
 
 What none of the three can do is in [manual_test_matrix.md](manual_test_matrix.md), and the short version is that the runner is Server rather than client, and a sandbox can neither reboot nor run a hypervisor. Between them that leaves the client-edition packages, the seven Microsoft Store ids, `enable_hyperv`, WSL end to end and every hardware row for a real machine.
 
