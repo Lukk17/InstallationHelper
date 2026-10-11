@@ -22,8 +22,8 @@
   become: yes
   become_user: "{{ non_root_user }}"
   register: sdkman_bootstrap
-  retries: 3
-  delay: 10
+  retries: 5
+  delay: 15
   until: sdkman_bootstrap is succeeded
 
 # The vendor installer writes its init snippet into .bashrc and .zshrc only on the one run that
