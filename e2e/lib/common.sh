@@ -212,6 +212,140 @@ assert_python_ran() {
     finish "$2"
 }
 
+# sha256_of <file>  ->  the file's SHA-256 in lowercase hex. sha256sum on Linux and Git Bash,
+#                       shasum on stock macOS, which ships no sha256sum.
+sha256_of() {
+    if command -v sha256sum &>/dev/null; then
+        sha256sum "$1" | cut -d' ' -f1
+    elif command -v shasum &>/dev/null; then
+        shasum -a 256 "$1" | cut -d' ' -f1
+    else
+        printf 'e2e: neither sha256sum nor shasum is on PATH, so %s cannot be verified\n' "$1" >&2
+        return 2
+    fi
+}
+
+# The version a shellcheck binary reports, or nothing. Not written in the `name <args>  ->` form the
+# other helpers use, because ShellCheck reads a comment that opens with its own name as a directive
+# and stops analysing the file. The Windows build ends its lines with a carriage return.
+shellcheck_version_of() {
+    "$1" --version 2>/dev/null | tr -d '\r' | sed -n 's/^version: //p'
+}
+
+# pinned_shellcheck  ->  prints the path of a shellcheck at the version setup/pinned_values pins
+#
+# A shellcheck on PATH is used only when it reports that exact version, because a different release
+# warns about different things and the same tree would pass on one machine and fail on another. That
+# happened: shellcheck was installed on the GitHub runner and nowhere on the owner's machine, so four
+# warnings passed every local run and failed the sweep. Otherwise the release asset for this shell's
+# platform is downloaded once into e2e/.cache/shellcheck/<version>/<platform>/ and kept there. Git
+# Bash takes the Windows build, WSL and Linux the Linux one, macOS its own.
+#
+# The archive is checked against its pinned SHA-256 on every call, not only after the download, and
+# the binary is extracted from it afresh each time, so nothing runs that did not come out of an
+# archive that matched. A cached archive that stops matching is reported and left in place rather
+# than replaced, because a file that changed after it was verified is something to look at.
+# Returns 2, with the reason on stderr and nothing on stdout, when no such binary can be had.
+pinned_shellcheck() {
+    find_runnable_python >/dev/null || return 2
+
+    local version
+    version="$(pinned_value shellcheck_version)" || return 2
+
+    local on_path
+    if on_path="$(command -v shellcheck 2>/dev/null)" \
+        && [[ "$(shellcheck_version_of "${on_path}")" == "${version}" ]]; then
+        printf '%s\n' "${on_path}"
+        return 0
+    fi
+
+    local url_pin sha_pin binary_name=shellcheck
+    case "$(uname -s)-$(uname -m)" in
+        Linux-x86_64)
+            url_pin=shellcheck_linux_x86_64_url;    sha_pin=shellcheck_linux_x86_64_sha256 ;;
+        Linux-aarch64|Linux-arm64)
+            url_pin=shellcheck_linux_aarch64_url;   sha_pin=shellcheck_linux_aarch64_sha256 ;;
+        Darwin-x86_64)
+            url_pin=shellcheck_macos_x86_64_url;    sha_pin=shellcheck_macos_x86_64_sha256 ;;
+        Darwin-arm64)
+            url_pin=shellcheck_macos_aarch64_url;   sha_pin=shellcheck_macos_aarch64_sha256 ;;
+        MINGW*-x86_64|MSYS*-x86_64|CYGWIN*-x86_64)
+            url_pin=shellcheck_windows_x86_64_url;  sha_pin=shellcheck_windows_x86_64_sha256
+            binary_name=shellcheck.exe ;;
+        *)
+            printf 'e2e: no ShellCheck release is pinned for %s %s\n' "$(uname -s)" "$(uname -m)" >&2
+            return 2 ;;
+    esac
+
+    local url expected
+    url="$(pinned_value "${url_pin}")" || return 2
+    expected="$(pinned_value "${sha_pin}")" || return 2
+
+    local platform="${url_pin#shellcheck_}"
+    platform="${platform%_url}"
+    local cache_dir="${REPO_ROOT}/e2e/.cache/shellcheck/${version}/${platform}"
+    local archive="${cache_dir}/${url##*/}"
+    local fetched=false
+
+    if [[ ! -f "${archive}" ]]; then
+        if ! command -v curl &>/dev/null; then
+            printf 'e2e: ShellCheck %s is not cached at %s and curl is not on PATH to fetch it\n' \
+                "${version}" "${cache_dir}" >&2
+            return 2
+        fi
+        mkdir -p "${cache_dir}" || return 2
+        printf 'e2e: fetching ShellCheck %s for %s from %s\n' "${version}" "${platform}" "${url}" >&2
+        local curl_status=0
+        curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 -o "${archive}.part" "${url}" \
+            || curl_status=$?
+        if [[ ${curl_status} -ne 0 ]]; then
+            rm -f "${archive}.part"
+            printf 'e2e: downloading %s failed, curl exited %d. It is needed once, after which it is kept in %s\n' \
+                "${url}" "${curl_status}" "${cache_dir}" >&2
+            return 2
+        fi
+        mv -f "${archive}.part" "${archive}" || return 2
+        fetched=true
+    fi
+
+    local actual
+    actual="$(sha256_of "${archive}")" || return 2
+    if [[ "${actual}" != "${expected}" ]]; then
+        if [[ "${fetched}" == true ]]; then
+            rm -f "${archive}"
+            printf 'e2e: the download of %s does not match its pinned SHA-256, so it was deleted unused.\n' \
+                "${url}" >&2
+        else
+            printf 'e2e: the cached %s does not match its pinned SHA-256 and was not used. Delete it to fetch it again.\n' \
+                "${archive}" >&2
+        fi
+        printf '     expected %s (%s in setup/pinned_values/pinned_values.toml)\n     actual   %s\n' \
+            "${expected}" "${sha_pin}" "${actual}" >&2
+        return 2
+    fi
+
+    local binary="${cache_dir}/${binary_name}"
+    rm -f "${binary}"
+    case "${archive}" in
+        *.zip)    unzip -o -q "${archive}" "${binary_name}" -d "${cache_dir}" || return 2 ;;
+        *.tar.gz) tar -xzf "${archive}" -C "${cache_dir}" --strip-components=1 \
+                      "shellcheck-v${version}/${binary_name}" || return 2 ;;
+        *)
+            printf 'e2e: %s is neither a zip nor a tar.gz, so it cannot be unpacked\n' "${archive}" >&2
+            return 2 ;;
+    esac
+    chmod +x "${binary}" || return 2
+
+    local reported
+    reported="$(shellcheck_version_of "${binary}")"
+    if [[ "${reported}" != "${version}" ]]; then
+        printf 'e2e: %s reports version [%s] where %s is pinned\n' "${binary}" "${reported}" "${version}" >&2
+        return 2
+    fi
+
+    printf '%s\n' "${binary}"
+}
+
 # The container tiers need two things, and neither of them is an operating system: a Docker daemon
 # that answers, and a shell that can spell a host path the way that daemon expects. This asks those
 # two questions directly.

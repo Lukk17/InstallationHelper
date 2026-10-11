@@ -367,7 +367,7 @@ detect_os() {
             esac ;;
     esac
     if [[ "${OS_FAMILY}" == Debian ]]; then
-        DEBIAN_LINEAGE="$(debian_lineage)"
+        DEBIAN_LINEAGE="$(debian_lineage /etc/os-release)"
     fi
     OS_VARS_FILE="${LINUX_VARS}"
 }
@@ -1486,6 +1486,16 @@ prepare_become_password() {
 
 parse_args "$@"
 
+# Directly after the arguments are read and before anything else, so a run started as root or through
+# sudo stops before it detects the OS, reads a file, asks for a password or touches the machine. Only
+# --help answers first, inside parse_args, because printing this script's own header changes nothing
+# and is what a person refused here is likely to ask for next. e2e/tier1/wizard_root_refusal.sh runs
+# this file as uid 0 and fails when such a run prints anything past this point or calls sudo.
+if [[ "${EUID}" == "0" ]]; then
+    echo "ERROR: Do not run this script as root or with sudo. Run it as your normal user: ./setup.sh. It asks for your sudo password itself when a step needs it." >&2
+    exit 1
+fi
+
 # The starting value, built once so the interactive path and the non-interactive path cannot
 # disagree about how Ansible is told to become root. prepare_become_password replaces it further
 # down, once the machine has been asked whether it even wants a password, and the two entrypoints
@@ -1503,11 +1513,6 @@ fi
 echo
 echo "Installation Helper - bootstrap wizard"
 echo "======================================"
-
-if [[ "${EUID}" == "0" ]]; then
-    echo "ERROR: Do not run as root - the script will prompt for sudo when needed." >&2
-    exit 1
-fi
 
 check_requirements
 detect_os

@@ -210,11 +210,10 @@ def _resolve(name: str, raw: dict[str, str], resolved: dict[str, str], chain: li
 
 def _usage() -> str:
     return (
-        f"usage: {Path(sys.argv[0]).name} --json | --get <name> | --sh | --checksum <name>\n"
-        "  --json            every pinned value as a JSON object\n"
-        "  --get <name>      one value, exit 3 when nothing pins that name\n"
-        "  --sh              PIN_<NAME>='<value>' lines for eval\n"
-        "  --checksum <name> one checksum, exit 3 when nothing pins that name\n"
+        f"usage: {Path(sys.argv[0]).name} --json | --get <name> | --sh\n"
+        "  --json        every pinned value as a JSON object\n"
+        "  --get <name>  one value, exit 3 when nothing pins that name\n"
+        "  --sh          PIN_<NAME>='<value>' lines for eval\n"
     )
 
 

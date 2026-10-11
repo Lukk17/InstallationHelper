@@ -14,11 +14,12 @@
 # has run yet. Finding nothing is a failure rather than a pass, since a scan over an empty set is
 # indistinguishable from a scan that found no problem.
 #
-# ShellCheck is the second half and is optional, reported the way ansible_static.sh reports yamllint
-# and ansible-lint. It catches the class `bash -n` cannot see, an unquoted expansion or a read of a
-# variable that was never set, and both of those have cost this repository a run. Making the gate
-# depend on a tool that may not be installed would mean the gate quietly stops running, so its
-# absence is named as a SKIP instead of being counted as a pass.
+# ShellCheck is the second half. It catches the class `bash -n` cannot see, an unquoted expansion or
+# a read of a variable that was never set, and both of those have cost this repository a run. It used
+# to be optional and reported SKIP when not installed, which is how four warnings passed every run on
+# the owner's machine and failed the GitHub sweep. Nobody has to install it now: pinned_shellcheck in
+# lib/common.sh fetches the pinned release into e2e/.cache/ and verifies it, and when it cannot, the
+# assertion fails rather than skipping.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -128,9 +129,10 @@ else
     done
 fi
 
-# --- ShellCheck, when it is installed -----------------------------------------
-if command -v shellcheck &>/dev/null; then
-    findings="$(shellcheck --severity=warning --format=gcc "${SCRIPTS[@]}" 2>&1 || true)"
+# --- ShellCheck, at the pinned version ----------------------------------------
+if SHELLCHECK="$(pinned_shellcheck)"; then
+    dim "shellcheck $(shellcheck_version_of "${SHELLCHECK}"): ${SHELLCHECK}"
+    findings="$("${SHELLCHECK}" --severity=warning --format=gcc "${SCRIPTS[@]}" 2>&1 | tr -d '\r' || true)"
     if [[ -z "${findings}" ]]; then
         pass "shellcheck reports nothing at severity warning across ${#SCRIPTS[@]} scripts"
     else
@@ -138,8 +140,8 @@ if command -v shellcheck &>/dev/null; then
              "$(grep -c . <<<"${findings}") line(s), first five: $(head -5 <<<"${findings}" | tr '\n' ' ')"
     fi
 else
-    skip "shellcheck runs at severity warning over every shell script" \
-         "shellcheck is not installed, so the half of this check that catches an unquoted expansion did not run. Install with: sudo apt-get install shellcheck, or dnf install ShellCheck, or brew install shellcheck, or winget install koalaman.shellcheck"
+    fail "shellcheck runs at severity warning over every shell script" \
+         "no shellcheck at the version setup/pinned_values pins could be found or fetched, and the reason is above"
 fi
 
 finish "shell syntax"

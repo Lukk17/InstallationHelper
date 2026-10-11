@@ -416,8 +416,12 @@ fi
 
 # Driven end to end. sudo and brew are functions here, so system_upgrade calls them instead of the
 # real commands.
+# OPT_SKIP_SYSTEM_UPGRADE and every OS_FAMILY below are read by system_upgrade, which is eval'd out
+# of setup.sh above, so shellcheck sees assignments with no reader.
+# shellcheck disable=SC2034
 OPT_SKIP_SYSTEM_UPGRADE=false
 sudo() { count_call; return 1; }
+# shellcheck disable=SC2034
 OS_FAMILY=Archlinux
 reset_calls
 upgrade_status=0
@@ -430,6 +434,7 @@ else
     fail "system_upgrade stops without saying why" "output was [${upgrade_output}]"
 fi
 
+# shellcheck disable=SC2034
 OS_FAMILY=Debian
 reset_calls
 upgrade_status=0
@@ -445,6 +450,7 @@ assert_eq "system_upgrade succeeds on Debian when every command succeeds" "0" "$
 assert_eq "system_upgrade runs update, full-upgrade and autoremove once each when they succeed" "3" "$(call_count)"
 
 brew() { count_call; [[ "$(call_count)" -ge 2 ]]; }
+# shellcheck disable=SC2034
 OS_FAMILY=Darwin
 reset_calls
 upgrade_status=0
@@ -548,9 +554,13 @@ command() {
 apt-cache() { return 0; }
 apt_update_own_sources() { local IFS=' '; printf 'apt_update_own_sources %s\n' "$*" >> "${ppa_log}"; }
 sudo() { local IFS=' '; printf '%s\n' "$*" >> "${ppa_log}"; }
+# OS_FAMILY and DEBIAN_LINEAGE are read by ensure_ansible, which is eval'd out of setup.sh above,
+# so shellcheck sees assignments with no reader.
+# shellcheck disable=SC2034
 OS_FAMILY=Debian
 for ppa_lineage in ubuntu debian; do
     : > "${ppa_log}"
+    # shellcheck disable=SC2034
     DEBIAN_LINEAGE="${ppa_lineage}"
     ppa_status=0
     ensure_ansible >/dev/null 2>&1 || ppa_status=$?

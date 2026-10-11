@@ -123,6 +123,9 @@ Thumbs.db
 # End-to-end harness run records (logs and per-run variable files)
 e2e/runs/
 
+# Tools the end-to-end harness downloads for itself, such as the pinned ShellCheck
+e2e/.cache/
+
 # End-to-end capability test run records. The README in that directory stays tracked.
 e2e/testing/runs/*.md
 !e2e/testing/runs/README.md

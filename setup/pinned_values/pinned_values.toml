@@ -165,6 +165,24 @@ vmware_url = "https://support.broadcom.com/group/ecx/productdownloads?subfamily=
 minikube_url = "https://github.com/kubernetes/minikube/releases/download/{{ minikube_version }}/{{ minikube_file }}"
 minikube_rpm_url = "https://github.com/kubernetes/minikube/releases/download/{{ minikube_version }}/{{ minikube_rpm_file }}"
 
+# ShellCheck for the tier 1 gate, which downloads the asset for its own shell's platform into
+# e2e/.cache/ and refuses it unless the SHA-256 matches, so every machine checks with the same rules.
+# Verify the newest stable tag with `gh api repos/koalaman/shellcheck/releases/latest`. The release
+# publishes no checksum file, so each hash is measured with sha256sum on the downloaded asset and
+# compared with the `digest` GitHub's API reports for it. Both agreed for v0.11.0 on 2026-10-11.
+shellcheck_version = "0.11.0"
+shellcheck_release_base = "https://github.com/koalaman/shellcheck/releases/download/v{{ shellcheck_version }}"
+shellcheck_linux_x86_64_url = "{{ shellcheck_release_base }}/shellcheck-v{{ shellcheck_version }}.linux.x86_64.tar.gz"
+shellcheck_linux_x86_64_sha256 = "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"
+shellcheck_linux_aarch64_url = "{{ shellcheck_release_base }}/shellcheck-v{{ shellcheck_version }}.linux.aarch64.tar.gz"
+shellcheck_linux_aarch64_sha256 = "68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc"
+shellcheck_macos_x86_64_url = "{{ shellcheck_release_base }}/shellcheck-v{{ shellcheck_version }}.darwin.x86_64.tar.gz"
+shellcheck_macos_x86_64_sha256 = "c2c15e08df0e8fbc374c335b230a7ee958c313fa5714817a59aa59f1aa594f51"
+shellcheck_macos_aarch64_url = "{{ shellcheck_release_base }}/shellcheck-v{{ shellcheck_version }}.darwin.aarch64.tar.gz"
+shellcheck_macos_aarch64_sha256 = "339b930feb1ea764467013cc1f72d09cd6b869ebf1013296ba9055ab2ffbd26f"
+shellcheck_windows_x86_64_url = "{{ shellcheck_release_base }}/shellcheck-v{{ shellcheck_version }}.zip"
+shellcheck_windows_x86_64_sha256 = "8a4e35ab0b331c85d73567b12f2a444df187f483e5079ceffa6bda1faa2e740e"
+
 [checksums]
 # Download integrity checksums. Populate with `sha256:<hex>` strings to enforce verification on the
 # get_url tasks that fetch a vendor artifact. Empty or missing means no enforcement, which is where

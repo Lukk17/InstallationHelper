@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Sourceable helper, not a check of its own. Sourced by every tier 1 check that needs a working
-# ansible-playbook, currently ansible_static.sh and os_family_derivation.sh.
+# ansible-playbook, currently ansible_static.sh and os_family_derivation.sh, and by
+# wizard_root_refusal.sh, which needs a Linux kernel that can map the current user to root.
 #
 # Ansible does not run on Windows, so from Git Bash there is no ansible-playbook to call and a check
 # that needs one used to abort the whole gate with exit 2. That matters because on this machine
@@ -31,6 +32,18 @@ delegate_to_wsl_when_no_ansible() {
 
     command -v ansible-playbook &>/dev/null && return 0
 
+    delegate_to_wsl "${check_path}" "no ansible-playbook here" || true
+    require_cmd ansible-playbook
+}
+
+# delegate_to_wsl <repository-relative path of the calling check> <why this shell cannot run it>
+#
+# Replaces the current process with the same check running inside WSL. Returns 1 when there is no
+# WSL to hand it to, or WSL cannot see the repository, so the caller decides what that means.
+delegate_to_wsl() {
+    local check_path="${1:?delegate_to_wsl needs the repository-relative path of the calling check}"
+    local why="${2:?delegate_to_wsl needs the reason this shell cannot run the check}"
+
     if command -v wsl &>/dev/null && command -v cygpath &>/dev/null; then
         local win_repo drive wsl_repo wsl_visible=""
         win_repo="$(cygpath -w "${REPO_ROOT}")"
@@ -55,11 +68,11 @@ delegate_to_wsl_when_no_ansible() {
         done
 
         if [[ -n "${wsl_visible}" ]]; then
-            info "no ansible-playbook here, re-running this check inside WSL at ${wsl_repo}"
+            info "${why}, re-running this check inside WSL at ${wsl_repo}"
             exec wsl bash -c "cd '${wsl_repo}' && bash ${check_path}"
         fi
-        warn "no ansible-playbook here and ${wsl_repo} is not visible from WSL, so the playbook cannot be parsed from this shell"
+        warn "${why} and ${wsl_repo} is not visible from WSL, so this check cannot run from this shell"
     fi
 
-    require_cmd ansible-playbook
+    return 1
 }
