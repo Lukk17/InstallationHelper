@@ -619,8 +619,7 @@ function Assert-NotAdmin {
         guard would refuse on its first line, every time, with no way to comply. There is no user
         profile to pollute there, because the machine is destroyed after the job.
     #>
-    $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    if (-not (Test-IsAdministrator)) {
         return
     }
 
@@ -629,7 +628,7 @@ function Assert-NotAdmin {
         return
     }
 
-    Write-Err 'Do not run as Administrator. Run as your regular user, or pass -AllowAdministrator if this is a throwaway machine such as a CI runner.'
+    Write-Err 'Do not run this script as Administrator. Open a normal PowerShell 7 window and run it there. It asks for administrator rights itself, one Windows prompt per step that needs them. Pass -AllowAdministrator only on a throwaway machine such as a CI runner.'
 }
 
 function Assert-AnsibleDir {

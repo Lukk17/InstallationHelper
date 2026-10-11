@@ -1033,6 +1033,144 @@ Describe 'Install-ConsoleGuiTools in setup.ps1' {
     }
 }
 
+Describe 'Assert-NotAdmin in setup.ps1' {
+
+    # The Windows wizard refuses an elevated run unless -AllowAdministrator is passed, and until
+    # 2026-10-11 nothing had ever executed that refusal. The elevation question is asked through
+    # Test-IsAdministrator, which WindowsSoftware.ps1 defines and the top-level BeforeAll has already
+    # loaded, so it can be mocked here. The setup.ps1 functions are lifted out of the syntax tree for
+    # the same reason as the Describe above: setup.ps1 runs Invoke-Main when it is loaded.
+    BeforeAll {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $script:GuardAst = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+
+        $wanted = @('Assert-NotAdmin', 'Write-Err', 'Write-Hint')
+        $definitions = @($script:GuardAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in setup.ps1 and found $($definitions.Count)."
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+
+        $script:RefusalText = 'Do not run this script as Administrator. Open a normal PowerShell 7 window and run it there. It asks for administrator rights itself, one Windows prompt per step that needs them. Pass -AllowAdministrator only on a throwaway machine such as a CI runner.'
+    }
+
+    It 'refuses an elevated run with the message that says what to do instead' {
+        Mock Test-IsAdministrator { $true }
+        Mock Write-Host { }
+        $AllowAdministrator = $false
+
+        { Assert-NotAdmin } | Should -Throw -ExpectedMessage $script:RefusalText
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -eq "  [!] $($script:RefusalText)" }
+    }
+
+    It 'lets an elevated run through when -AllowAdministrator is passed, and says what that costs' {
+        Mock Test-IsAdministrator { $true }
+        Mock Write-Host { }
+        $AllowAdministrator = $true
+
+        { Assert-NotAdmin } | Should -Not -Throw
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*-AllowAdministrator was passed*' }
+    }
+
+    It 'says nothing and lets a normal run through' {
+        Mock Test-IsAdministrator { $false }
+        Mock Write-Host { }
+        $AllowAdministrator = $false
+
+        { Assert-NotAdmin } | Should -Not -Throw
+        Should -Invoke Write-Host -Times 0 -Exactly
+    }
+
+    It 'is the first thing Invoke-Main does, before anything can change the machine' {
+        $main = $script:GuardAst.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-Main'
+        }, $true)
+        $main | Should -Not -BeNullOrEmpty
+
+        $firstStatement = $main.Body.EndBlock.Statements[0]
+        $firstStatement.Extent.Text | Should -Be 'Assert-NotAdmin'
+    }
+}
+
+Describe 'Test-IsAdministrator is the only elevation check' {
+
+    # setup.ps1, WindowsSettings.ps1 and WindowsSoftware.ps1 each asked the WindowsPrincipal question
+    # on their own until 2026-10-11, which is defect class 2 in AGENTS.md waiting to happen. Every
+    # IsInRole call and every WindowsBuiltInRole Administrator reference under setup/ must sit inside
+    # the one Test-IsAdministrator in WindowsSoftware.ps1.
+    It 'finds no elevation check under setup/ outside Test-IsAdministrator' {
+        $owner = Join-Path $script:RepoRoot 'setup\windows\WindowsSoftware.ps1'
+        $ownerAst = [System.Management.Automation.Language.Parser]::ParseFile($owner, [ref]$null, [ref]$null)
+        $definitions = @($ownerAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-IsAdministrator'
+        }, $true))
+        $definitions.Count | Should -Be 1 -Because 'WindowsSoftware.ps1 must define Test-IsAdministrator exactly once'
+        $extent = $definitions[0].Extent
+
+        $files = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'setup') -Recurse -File -Include '*.ps1', '*.psm1')
+        $files.Count | Should -BeGreaterThan 0 -Because 'a scan of no files proves nothing'
+
+        $stray = [System.Collections.Generic.List[string]]::new()
+        foreach ($file in $files) {
+            $text = [System.IO.File]::ReadAllText($file.FullName)
+            foreach ($match in [regex]::Matches($text, 'IsInRole\s*\(|WindowsBuiltInRole\]::Administrator')) {
+                $inside = $file.FullName -eq $owner -and
+                    $match.Index -ge $extent.StartOffset -and $match.Index -lt $extent.EndOffset
+                if (-not $inside) {
+                    $line = $text.Substring(0, $match.Index).Split("`n").Count
+                    $stray.Add("$($file.FullName):$line $($match.Value)")
+                }
+            }
+        }
+        $stray | Should -BeNullOrEmpty -Because 'a second elevation check can disagree with Test-IsAdministrator, so call it instead'
+    }
+}
+
+Describe 'Get-WindowsInstallationType is the only edition check' {
+
+    # WindowsSoftware.ps1 and WindowsSettings.ps1 each read the InstallationType registry value in a
+    # function of their own until 2026-10-11, so whether a client-only package and a client-only
+    # optional feature are skipped was decided twice. Every read of that value under setup/, and
+    # every other way of asking client versus server, must sit inside the one
+    # Get-WindowsInstallationType in WindowsSoftware.ps1.
+    It 'finds no edition check under setup/ outside Get-WindowsInstallationType' {
+        $owner = Join-Path $script:RepoRoot 'setup\windows\WindowsSoftware.ps1'
+        $ownerAst = [System.Management.Automation.Language.Parser]::ParseFile($owner, [ref]$null, [ref]$null)
+        $definitions = @($ownerAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-WindowsInstallationType'
+        }, $true))
+        $definitions.Count | Should -Be 1 -Because 'WindowsSoftware.ps1 must define Get-WindowsInstallationType exactly once'
+        $extent = $definitions[0].Extent
+
+        $files = @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'setup') -Recurse -File -Include '*.ps1', '*.psm1')
+        $files.Count | Should -BeGreaterThan 0 -Because 'a scan of no files proves nothing'
+
+        $stray = [System.Collections.Generic.List[string]]::new()
+        foreach ($file in $files) {
+            $text = [System.IO.File]::ReadAllText($file.FullName)
+            foreach ($match in [regex]::Matches($text, "['""]InstallationType['""]|-Name\s+InstallationType\b|(?<!Get-)WindowsInstallationType|ProductType|OperatingSystemSKU|Win32_OperatingSystem|function\s+Get-WindowsInstallationType")) {
+                $inside = $file.FullName -eq $owner -and
+                    $match.Index -ge $extent.StartOffset -and $match.Index -lt $extent.EndOffset
+                if (-not $inside) {
+                    $line = $text.Substring(0, $match.Index).Split("`n").Count
+                    $stray.Add("$($file.FullName):$line $($match.Value)")
+                }
+            }
+        }
+        $stray | Should -BeNullOrEmpty -Because 'a second edition check can disagree with Get-WindowsInstallationType, so call it instead'
+    }
+}
+
 Describe 'Chocolatey bootstrap' -Tag 'Slow', 'Network' {
 
     # The one install path a Windows container can genuinely exercise, because Chocolatey is

@@ -49,7 +49,7 @@
 #     best-effort phase inside the script itself, not something this workflow drives.
 #
 #     ELEVATION, which used to block this job entirely: Invoke-Main's first call is
-#     Assert-NotAdmin, which throws "Do not run as Administrator" whenever
+#     Assert-NotAdmin, which throws "Do not run this script as Administrator" whenever
 #     [Security.Principal.WindowsPrincipal]::IsInRole(Administrator) is true. GitHub's hosted
 #     Windows runners execute the job as a member of the local Administrators group with User
 #     Account Control disabled (see the comment above the "Run the bootstrap wizard" step in

@@ -38,8 +38,8 @@
          loud, because a feature reported as enabled and not yet active is the same lie as a package
          reported as installed and absent.
 
-    Depends on Get-WindowsGroupVarToggle from WindowsSoftware.ps1, which setup.ps1 dot-sources
-    first.
+    Depends on Get-WindowsGroupVarToggle, Test-IsAdministrator and Get-WindowsInstallationType from
+    WindowsSoftware.ps1, which setup.ps1 dot-sources first.
 #>
 
 Set-StrictMode -Version Latest
@@ -133,34 +133,6 @@ function New-SettingResult {
     }
 }
 
-function Get-WindowsInstallationType {
-    <#
-    .SYNOPSIS
-        Says whether this Windows is a client edition, a server, or something else.
-
-    .DESCRIPTION
-        Windows records the edition family in the registry as InstallationType, and the value is
-        'Client' on Home, Pro and Enterprise, 'Server' on a full server, and 'Server Core' on one
-        without the desktop. Three of the nine optional features this file enables exist only on a
-        client edition, and DISM reports the rest as "Feature name <x> is unknown", which is a true
-        statement about the edition rather than a fault.
-
-        Client is the answer when the value cannot be read, on purpose. Not knowing the edition must
-        not turn a real failure into a skip, and only a non-Client answer is allowed to soften one.
-    #>
-    [CmdletBinding()]
-    param()
-
-    try {
-        $key = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' `
-            -Name 'InstallationType' -ErrorAction Stop
-        if ($key.InstallationType) { return [string]$key.InstallationType }
-    } catch {
-        Write-Verbose "InstallationType is unreadable, so this assumes Client: $($_.Exception.Message)"
-    }
-    return 'Client'
-}
-
 function Enable-WindowsFeatureSet {
     <#
     .SYNOPSIS
@@ -244,9 +216,7 @@ Set-Content -LiteralPath '$resultFile' -Value `$lines -Encoding utf8
 
     # Already-administrator is the normal case in CI, and there -Verb RunAs fails outright because
     # it needs an interactive desktop to prompt on. Same check, same reason, as the Chocolatey batch.
-    $identity   = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $isElevated = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    $isElevated = Test-IsAdministrator
 
     try {
         try {

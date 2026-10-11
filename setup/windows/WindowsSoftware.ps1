@@ -363,18 +363,24 @@ function Get-NvidiaGraphicsAdapter {
     }
 }
 
-function Get-WindowsInstallationTypeForSoftware {
+function Get-WindowsInstallationType {
     <#
     .SYNOPSIS
         Client, Server, or Server Core, read from the registry.
 
     .DESCRIPTION
-        The same question WindowsSettings.ps1 asks, asked here too. It is not shared because these
-        two files are dot-sourced independently and neither may assume the other is loaded, and the
-        answer is three lines of registry read. Client when it cannot be read, so an unknown edition
-        never turns a real failure into a skip.
+        The one place the edition question is asked. Get-WindowsMachineFact here and
+        Enable-WindowsFeatureSet in WindowsSettings.ps1 both call it, so a client-only package and a
+        client-only optional feature are decided from the same answer. setup.ps1 dot-sources this file
+        before WindowsSettings.ps1, the Pester suite and the windows_settings check load them in the
+        same order, and WindowsSettings.ps1 already depends on this file for its toggles. The
+        windows_pester check fails on a second InstallationType read under setup/.
+
+        Client when the value cannot be read, on purpose. Not knowing the edition must not turn a
+        real failure into a skip, and only a non-Client answer is allowed to soften one.
     #>
     [CmdletBinding()]
+    [OutputType([string])]
     param()
 
     try {
@@ -385,6 +391,24 @@ function Get-WindowsInstallationTypeForSoftware {
         Write-Verbose "InstallationType is unreadable, assuming Client: $($_.Exception.Message)"
     }
     return 'Client'
+}
+
+function Test-IsAdministrator {
+    <#
+    .SYNOPSIS
+        Whether this process runs with an administrator token.
+
+    .DESCRIPTION
+        The one place the elevation question is asked. setup.ps1, WindowsSettings.ps1 and this file
+        all call it, so they cannot disagree, and the Pester suite can mock the answer, which the
+        .NET call inside cannot be. The windows_pester check fails on a second IsInRole call.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
 function Get-WindowsMachineFact {
@@ -399,11 +423,9 @@ function Get-WindowsMachineFact {
     [CmdletBinding()]
     param()
 
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     return [PSCustomObject]@{
-        InstallationType = Get-WindowsInstallationTypeForSoftware
-        IsElevated       = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
-                               [Security.Principal.WindowsBuiltInRole]::Administrator)
+        InstallationType = Get-WindowsInstallationType
+        IsElevated       = Test-IsAdministrator
         NvidiaAdapters   = @(Get-NvidiaGraphicsAdapter)
     }
 }
@@ -600,9 +622,7 @@ exit `$worst
     # Already-administrator is the normal case in a container and in CI, and there
     # -Verb RunAs fails outright because it needs an interactive desktop to prompt on. Asking
     # to elevate when already elevated is also just wasted work, so check first.
-    $identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $isElevated = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    $isElevated = Test-IsAdministrator
 
     # -PassThru with an explicit WaitForExit rather than -Wait, so this cannot block forever. It was
     # the last unbounded blocking call in the Windows path, and it is now on the critical path for
