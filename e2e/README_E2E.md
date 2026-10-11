@@ -224,8 +224,10 @@ group rather than inserted into it, so adding them moved nothing that was alread
 | 41 to 45 | forced-failure | the same five | 90 minutes |
 
 Stage 3, the short real installs on the other two platforms. Seven jobs, each a real wizard run on a
-real machine, each ending in verification. Roughly 30 to 90 minutes. macOS sits at three, under its
-own cap of five concurrent macOS jobs.
+real machine, each ending in verification. The stage took 78, 95 and 123 minutes across the three full
+sweeps measured in [run_durations.md](run_durations.md), and Windows sets that pace: the slowest
+`Windows all apps` cell took 122 minutes against its 150 minute ceiling. macOS sits at three, under
+its own cap of five concurrent macOS jobs.
 
 | Order | Job | Runner | Selection |
 |---|---|---|---|
@@ -237,8 +239,9 @@ own cap of five concurrent macOS jobs.
 | 51 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
 | 52 | Windows settings only | windows-latest | the three native system settings, no software |
 
-Fifty-two jobs in total. Those ceilings are timeouts rather than measurements, and no scenario has
-ever run on a GitHub runner, so the real numbers will only exist after the first sweep.
+Fifty-two jobs in total. Those ceilings are timeouts rather than measurements. Three full sweeps have
+run on GitHub runners, and the measured time of every cell, with its average, fastest and slowest,
+is in [run_durations.md](run_durations.md).
 
 Pop!_OS is the sixth, and it is not what the other five are. System76 publishes no container image, so
 that one is Ubuntu carrying Pop's own identity, both `/etc/os-release` and the `/etc/lsb-release` that

@@ -367,7 +367,7 @@ function Test-WingetElevationRequired {
     .DESCRIPTION
         True only for a machine-scope install of a type in $script:WingetAdminInstallerTypes from a
         process that is not elevated. The wizard refuses to run elevated, so on a real machine that
-        is Slack, Claude Desktop and Syncthing, which winget would otherwise stop with
+        is Syncthing, which winget would otherwise stop with
         APPINSTALLER_CLI_ERROR_COMMAND_REQUIRES_ADMIN before downloading anything. Already elevated,
         which is the GitHub runner, winget runs in this process as it always has.
     #>
@@ -1538,7 +1538,8 @@ function Invoke-WindowsSoftwareInstall {
                     $detail = ''
                 } else {
                     $status = 'failed'
-                    $detail = "Chocolatey does not list it as installed after the batch. The batch reported $($batch.Status): $($batch.Detail)"
+                    $sessionOutcome = if ($batch.Status -eq 'installed') { 'choco exited 0' } else { $batch.Detail }
+                    $detail = "Chocolatey does not list $($item.Package) as installed after its install. The elevated Chocolatey session shared by all $($chocoItems.Count) Chocolatey package(s) of this run ended with: $sessionOutcome. That is the shared session's result, not a failure of every package in it"
                 }
                 $results.Add([PSCustomObject]@{
                     Key = $item.Key; Manager = 'choco'; Package = $item.Package

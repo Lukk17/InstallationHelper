@@ -11,8 +11,8 @@
     whoever runs winget, and Spotify's installer refuses an administrator outright. Each step that
     needs an administrator runs in an elevated window of its own, so Windows asks for consent once
     per such step, the way the wizard does: the Chocolatey packages together, each machine-wide
-    msix and portable package winget only installs from an elevated winget (Slack, Claude Desktop
-    and Syncthing), and Syncthing's firewall rules.
+    msix and portable package winget only installs from an elevated winget (Syncthing today), and
+    Syncthing's firewall rules.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -53,7 +53,7 @@ $Packages = @(
     @{ Manager = 'winget'; Id = 'Bruno.Bruno'; Scope = 'machine'; InstallerType = 'wix' }
     @{ Manager = 'winget'; Id = 'JetBrains.Toolbox'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'Discord.Discord'; Scope = 'user' }
-    @{ Manager = 'winget'; Id = 'SlackTechnologies.Slack'; Scope = 'machine'; InstallerType = 'msix' }
+    @{ Manager = 'winget'; Id = 'SlackTechnologies.Slack'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'Microsoft.Teams' }
     @{ Manager = 'winget'; Id = 'Telegram.TelegramDesktop'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'OpenWhisperSystems.Signal'; Scope = 'user' }
@@ -62,7 +62,7 @@ $Packages = @(
     @{ Manager = 'winget'; Id = 'Bitwarden.Bitwarden'; Scope = 'machine'; InstallerType = 'nullsoft' }
     @{ Manager = 'winget'; Id = 'KeePassXCTeam.KeePassXC' }
     @{ Manager = 'winget'; Id = '9PLM9XGG6VKS'; Source = 'msstore' }
-    @{ Manager = 'winget'; Id = 'Anthropic.Claude'; Scope = 'machine'; InstallerType = 'msix' }
+    @{ Manager = 'winget'; Id = 'Anthropic.Claude'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'ElementLabs.LMStudio'; Scope = 'machine'; InstallerType = 'nullsoft' }
     @{ Manager = 'winget'; Id = 'SST.OpenCodeDesktop'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'VideoLAN.VLC' }

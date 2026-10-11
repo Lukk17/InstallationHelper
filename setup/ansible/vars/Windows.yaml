@@ -113,12 +113,13 @@ software_mapping:
   # scope user, because no machine-wide route exists: manifest 1.0.9261, read 2026-10-11, offers a
   # user exe only, the Squirrel installer that updates itself inside the user's profile.
   discord: { manager: "winget", package: "Discord.Discord", scope: "user" }
-  # scope machine, which selects the unscoped msix (manifest 4.52.178, read 2026-10-11: user exe,
-  # unscoped msix) and provisions it for every user. That is the vendor's own route, "Install for all
-  # users" on Slack's deployment page, done through Add-AppxProvisionedPackage, and the app still
-  # updates itself. winget refuses a machine-scope msix unless it runs elevated, which the wizard
-  # does not, so installer_type msix sends this one through the elevated winget child.
-  slack: { manager: "winget", package: "SlackTechnologies.Slack", scope: "machine", installer_type: "msix" }
+  # scope user, although a machine-wide route exists: manifest 4.52.178, read 2026-10-11, carries a
+  # user exe and an unscoped msix, and Slack's deployment page offers "Install for all users" through
+  # Add-AppxProvisionedPackage. That msix route was refused on the Windows Server runner of GitHub
+  # sweep 38130934506, both attempts exiting -1978334957 with "The current system configuration does
+  # not support the installation of this package.", so this stays per user until a Windows 11 test,
+  # in Windows Sandbox or on a real PC, proves the machine route. See e2e/manual_test_matrix.md.
+  slack: { manager: "winget", package: "SlackTechnologies.Slack", scope: "user" }
   teams: { manager: "winget", package: "Microsoft.Teams" }
   # scope user, because the only machine route is the unscoped portable zip (manifest 7.3.1, read
   # 2026-10-11: user inno, unscoped zip). Telegram does not document that zip as an install, its
@@ -137,10 +138,12 @@ software_mapping:
 
   # AI
   chatgpt: { manager: "winget", package: "9PLM9XGG6VKS", source: "msstore" }   # MS Store — official OpenAI build. `9NT1R1C2HH7J` is the retired "ChatGPT Classic" and `9N8CJ4W95TBZ` is the beta channel.
-  # scope machine, the slack shape: manifest 2.19675.1, read 2026-10-11, carries a user exe and an
+  # scope user, the slack shape: manifest 2.19675.1, read 2026-10-11, carries a user exe and an
   # unscoped msix, and Anthropic's deployment page offers "Install for all users (provisions
-  # machine-wide)" through Add-AppxProvisionedPackage. The app updates itself either way.
-  claude_desktop: { manager: "winget", package: "Anthropic.Claude", scope: "machine", installer_type: "msix" }           # Publisher "Anthropic, PBC", verified with winget show. The ai_tools role has no Windows path, so this mapping is the only one.
+  # machine-wide)" through Add-AppxProvisionedPackage. That msix route was refused on the Windows
+  # Server runner of GitHub sweep 38130934506 with the same -1978334957 as slack, so this stays per
+  # user until a Windows 11 test, in Windows Sandbox or on a real PC, proves the machine route.
+  claude_desktop: { manager: "winget", package: "Anthropic.Claude", scope: "user" }           # Publisher "Anthropic, PBC", verified with winget show. The ai_tools role has no Windows path, so this mapping is the only one.
   lm_studio: { manager: "winget", package: "ElementLabs.LMStudio", scope: "machine", installer_type: "nullsoft" }            # Author "Element Labs, Inc.", verified with winget show. Manifest 0.4.26+4, read 2026-10-11: user (/currentuser) and machine (/allusers) nullsoft, the lens shape.
   # scope user, because no machine-wide route exists: manifest 1.19.0, read 2026-10-11, offers a
   # user nullsoft only.

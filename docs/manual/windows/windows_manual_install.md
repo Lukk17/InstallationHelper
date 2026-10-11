@@ -1,6 +1,6 @@
 # Manual install — Windows
 
-Install commands for every application [`setup/ansible/vars/Windows.yaml`](../../../setup/ansible/vars/Windows.yaml) maps, via winget and Chocolatey, with the scope each mapping pins. To install the whole default set at once, run [`install.ps1`](install.ps1) from a normal, not elevated, PowerShell 7. It asks for an administrator once per step that needs one: once for the Chocolatey packages, once for each of Slack, Claude Desktop and Syncthing, and once for Syncthing's firewall rules. `e2e/tier1/manual_windows_install.sh` fails when this page or the script disagrees with the mapping file.
+Install commands for every application [`setup/ansible/vars/Windows.yaml`](../../../setup/ansible/vars/Windows.yaml) maps, via winget and Chocolatey, with the scope each mapping pins. To install the whole default set at once, run [`install.ps1`](install.ps1) from a normal, not elevated, PowerShell 7. It asks for an administrator once per step that needs one: once for the Chocolatey packages, once for Syncthing, and once for Syncthing's firewall rules. `e2e/tier1/manual_windows_install.sh` fails when this page or the script disagrees with the mapping file.
 
 > winget ships with App Installer (Windows 10 1809+/11). Chocolatey is only needed for the `choco` rows below. MS Store apps install through winget's `msstore` source.
 
@@ -67,7 +67,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | App | Install command |
 |---|---|
 | Discord | `winget install -e --id Discord.Discord --scope user` |
-| Slack | `winget install -e --id SlackTechnologies.Slack --scope machine`, from an elevated PowerShell, because winget installs an msix for all users only when it runs elevated |
+| Slack | `winget install -e --id SlackTechnologies.Slack --scope user`. Slack's machine-wide msix was refused on Windows Server in GitHub sweep 38130934506, so it stays per user until a Windows 11 test proves that route |
 | Microsoft Teams | `winget install -e --id Microsoft.Teams` |
 | Telegram | `winget install -e --id Telegram.TelegramDesktop --scope user` |
 | Signal | `winget install -e --id OpenWhisperSystems.Signal --scope user` |
@@ -87,7 +87,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | App | Install command |
 |---|---|
 | ChatGPT | `winget install -e --id 9PLM9XGG6VKS --source msstore` |
-| Claude Desktop | `winget install -e --id Anthropic.Claude --scope machine`, from an elevated PowerShell, because winget installs an msix for all users only when it runs elevated |
+| Claude Desktop | `winget install -e --id Anthropic.Claude --scope user`. The machine-wide msix was refused on Windows Server in GitHub sweep 38130934506, so it stays per user until a Windows 11 test proves that route |
 | LM Studio | `winget install -e --id ElementLabs.LMStudio --scope machine` |
 | OpenCode desktop | `winget install -e --id SST.OpenCodeDesktop --scope user` |
 

@@ -609,7 +609,8 @@ exit 0
 
 
 # The owner's rule of 2026-10-11 moved Slack, Claude Desktop and Syncthing to machine scope, and
-# winget refuses a machine-scope msix or portable unless winget itself is elevated, while the wizard
+# GitHub sweep 38130934506 sent Slack and Claude Desktop back to user scope after Windows Server
+# refused their machine-wide msix. Syncthing stays machine-wide, and winget refuses a machine-scope msix or portable unless winget itself is elevated, while the wizard
 # refuses to run elevated. These are the decision and the route around it.
 Describe 'Test-WingetElevationRequired' {
 
@@ -638,13 +639,13 @@ Describe 'Test-WingetElevationRequired' {
         Test-WingetElevationRequired -Scope 'machine' -InstallerType 'msix' | Should -BeFalse
     }
 
-    It 'elevates exactly Slack, Claude Desktop and Syncthing out of the real mapping file' {
+    It 'elevates exactly Syncthing out of the real mapping file' {
         Mock Test-IsAdministrator { $false }
         $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
         $elevated = @($m.Keys | Where-Object {
                 $m[$_].Manager -eq 'winget' -and (Test-WingetElevationRequired -Scope $m[$_].Scope -InstallerType $m[$_].InstallerType)
             } | Sort-Object)
-        $elevated | Should -Be @('claude_desktop', 'slack', 'syncthing')
+        $elevated | Should -Be @('syncthing')
     }
 }
 

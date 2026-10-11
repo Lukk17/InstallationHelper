@@ -9,7 +9,9 @@
 # download answers 404, still installed the Razer Cortex Store id the mapping had dropped, missed
 # fourteen packages the mapping had gained, and pinned no scope at all, so every machine pin and
 # every user pin the wizard honours was left to winget on the manual route. Slack and Claude
-# Desktop also need an elevated winget for their machine-wide msix, which neither said.
+# Desktop also needed an elevated winget for their machine-wide msix at the time, which neither
+# said. Both are per user again since GitHub sweep 38130934506, and Syncthing's portable still
+# needs one.
 #
 # Asserted, with each side read by its own expression so one mistake cannot hide on both:
 #   1. the script installs exactly the mappings whose toggle is on by default, all.yaml overlaid by
@@ -182,7 +184,7 @@ for package in "${elevated_ids[@]}"; do
     grep -F -- "--id ${package} --scope machine\`" "${MANUAL_MD}" | grep -qF 'elevated PowerShell' || unsaid+=("${package}")
 done
 if [[ ${#elevated_ids[@]} -eq 0 ]]; then
-    fail "no mapping needs an elevated winget, which cannot be true while Slack, Claude Desktop and Syncthing are machine-wide" "${MAPPING_YAML}"
+    fail "no mapping needs an elevated winget, which cannot be true while Syncthing is a machine-wide portable" "${MAPPING_YAML}"
 elif [[ ${#unsaid[@]} -eq 0 ]]; then
     pass "every one of the ${#elevated_ids[@]} rows whose install needs an elevated winget says so"
 else
