@@ -175,18 +175,23 @@ On Linux and macOS the application SHALL recognise the wizard's sudo password pr
 
 ### Requirement: On Windows, administrator rights are asked for by Windows
 
-On Windows the application SHALL start `setup.ps1` as the normal user and MUST NOT show a password dialog or any dialog of its own for administrator rights, ask for, read or store an administrator password, or elevate itself. Each wizard step that needs administrator rights elevates itself, and Windows shows its own User Account Control prompt for it. When the user refuses that prompt, the application SHALL show the wizard's own report of the failed step and its exit code on the summary.
+On Windows the application SHALL start `setup.ps1` as the normal user and MUST NOT show a password dialog or any dialog of its own for administrator rights, ask for, read or store an administrator password, or elevate itself. The wizard elevates itself, and for a run the application starts, Windows SHALL show its own User Account Control prompt once per run: the first step that needs administrator rights starts one elevated helper, and every later such step of the run uses it. When the user refuses that prompt, the application SHALL show the wizard's own report of every failed step and its exit code on the summary.
 
 #### Scenario: A step needs administrator rights
 
-- WHEN a run on Windows reaches a step that needs administrator rights
+- WHEN a run on Windows reaches the first step that needs administrator rights
 - THEN Windows shows its User Account Control prompt, and the application shows no dialog of its own
 - AND the application's own process and the `pwsh` process it started stay unelevated for the whole run
+
+#### Scenario: Later steps need administrator rights
+
+- WHEN a run on Windows that has already shown the prompt reaches another step that needs administrator rights
+- THEN Windows shows no second prompt, and the step runs in the elevated helper the first prompt started
 
 #### Scenario: The user refuses the prompt
 
 - WHEN the user refuses the User Account Control prompt
-- THEN the run continues or ends as `setup.ps1` decides, and the summary shows the failed step and the wizard's exit code
+- THEN no second prompt appears in the same run, the run continues or ends as `setup.ps1` decides, and the summary shows every failed step and the wizard's exit code
 
 ### Requirement: A run can be cancelled
 
