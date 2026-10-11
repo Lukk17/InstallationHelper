@@ -22,6 +22,23 @@
 
 Set-StrictMode -Version Latest
 
+# This file's own path, captured while it is being dot-sourced, because the elevated winget child
+# dot-sources it again to run the same Invoke-BoundedWinget rather than a second copy of it.
+$script:WindowsSoftwarePath = $PSCommandPath
+
+# The installer types winget refuses to install machine-wide unless winget itself runs elevated:
+# winget-cli v1.29.380, src/AppInstallerCommonCore/Manifest/ManifestCommon.cpp,
+# DoesInstallerTypeRequireAdminForMachineScopeInstall, which InstallFlow.cpp's
+# EnsureRunningAsAdminForMachineScopeInstall applies when --scope machine was asked for. Every other
+# type starts an installer that asks for elevation itself.
+$script:WingetAdminInstallerTypes = @('font', 'portable', 'msstore', 'msix')
+
+# The two of those whose machine-wide copy is a provisioned package, which winget can only see from
+# an elevated process: its installed source reads them through PackageManager.FindProvisionedPackages,
+# and that call answered "Access is denied" from an unelevated shell on this machine on 2026-10-11. A
+# machine-wide portable or font is in the HKLM registry, which any user can read.
+$script:WingetProvisionedInstallerTypes = @('msstore', 'msix')
+
 # Reading a boolean toggle out of a group_vars file. Anchored on a bare true or false so a
 # line carrying a trailing comment cannot be half-parsed, which is exactly the defect the
 # bash wizard shipped for months.
@@ -33,7 +50,10 @@ $script:ToggleLinePattern = '^(?<key>[a-z0-9_]+):\s*(?<value>true|false)\s*(#.*)
 # installers for one package and the client picks by scope: Bruno ships a per-user nullsoft
 # installer and a machine-scope MSI, and the per-user one dies with an access violation when the
 # wizard runs elevated, which is how every Windows cell of 2026-08-22 lost it.
-$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?(,\s*client_only:\s*(?<clientonly>true|false)\s*)?(,\s*user_context:\s*(?<usercontext>true|false)\s*)?(,\s*requires_nvidia_gpu:\s*(?<nvidia>true|false)\s*)?(,\s*verify_path:\s*"(?<verifypath>[^"]*)"\s*)?\}'
+# installer_type follows scope, and only a machine pin carries it: the installer type winget selects
+# for --scope machine, which decides whether winget itself has to run elevated, see
+# Test-WingetElevationRequired.
+$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?(,\s*installer_type:\s*"(?<installertype>[a-z]+)"\s*)?(,\s*client_only:\s*(?<clientonly>true|false)\s*)?(,\s*user_context:\s*(?<usercontext>true|false)\s*)?(,\s*requires_nvidia_gpu:\s*(?<nvidia>true|false)\s*)?(,\s*verify_path:\s*"(?<verifypath>[^"]*)"\s*)?\}'
 
 function Get-WindowsGroupVarToggle {
     <#
@@ -164,6 +184,7 @@ function Get-WindowsSoftwareMapping {
             Package = $Matches['package']
             Source  = if ($Matches['source']) { $Matches['source'] } else { 'winget' }
             Scope   = if ($Matches['scope'])  { $Matches['scope'] }  else { '' }
+            InstallerType = if ($Matches['installertype']) { $Matches['installertype'] } else { '' }
             # Two facts about where a package can install, rather than about what it is. Both are
             # read here so the dispatch can report "skipped, and why" instead of a failure that is
             # true of the machine rather than of the run.
@@ -218,6 +239,7 @@ function Resolve-WindowsSoftwarePlan {
                 # "The property 'Scope' cannot be found on this object". Third time this session
                 # that an untested read of something optional has broken a run.
                 Scope       = if ($m.PSObject.Properties['Scope'])       { $m.Scope }       else { '' }
+                InstallerType = if ($m.PSObject.Properties['InstallerType']) { $m.InstallerType } else { '' }
                 ClientOnly  = if ($m.PSObject.Properties['ClientOnly'])  { $m.ClientOnly }  else { $false }
                 UserContext = if ($m.PSObject.Properties['UserContext']) { $m.UserContext } else { $false }
                 RequiresNvidiaGpu = if ($m.PSObject.Properties['RequiresNvidiaGpu']) { $m.RequiresNvidiaGpu } else { $false }
@@ -258,11 +280,29 @@ function Get-WingetPath {
 }
 
 function Test-WingetPackageInstalled {
+    <#
+    .SYNOPSIS
+        Whether winget lists the package as installed, optionally in one scope only.
+    .DESCRIPTION
+        Scope narrows the question with `winget list --scope`, measured with winget v1.29.380 on
+        2026-10-11: Git.Git installed machine-wide answers 0 for machine and 0x8A150014, no package
+        found, for user, and a per-user Visual Studio Code answers the other way round. Without a
+        scope a per-user copy counts as installed, which is right for a package pinned to user and
+        wrong for one pinned to machine.
+
+        Elevated runs the probe in the elevated winget child, because winget reads provisioned msix
+        packages, which is where a machine-scope msix lands, through FindProvisionedPackages, an API
+        its own source says has historically not been accessible unelevated
+        (PredefinedInstalledSourceFactory.cpp, v1.29.380), and which answered "Access is denied"
+        unelevated when measured, see $script:WingetProvisionedInstallerTypes.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)] [string] $WingetPath,
-        [Parameter(Mandatory)] [string] $PackageId
+        [Parameter(Mandatory)] [string] $PackageId,
+        [ValidateSet('', 'machine', 'user')] [string] $Scope = '',
+        [switch] $Elevated
     )
 
     # Bounded like the install below it, and for the same reason. This runs once per package before
@@ -270,13 +310,168 @@ function Test-WingetPackageInstalled {
     # just as thoroughly as an unbounded install does. A probe that runs out of time answers false,
     # which is the safe direction: the worst case is that winget is asked to install something that
     # is already there, and it says so and exits.
-    $run = Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds 180 -Arguments @(
-        'list', '--exact', '--id', $PackageId, '--accept-source-agreements')
+    $arguments = @('list', '--exact', '--id', $PackageId, '--accept-source-agreements')
+    if ($Scope) { $arguments += @('--scope', $Scope) }
+    $run = if ($Elevated) {
+        Invoke-ElevatedWinget -WingetPath $WingetPath -TimeoutSeconds 180 -Arguments $arguments
+    } else {
+        Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds 180 -Arguments $arguments
+    }
     if ($run.TimedOut) {
         Write-Verbose "winget list for $PackageId ran out of time, treating it as not installed"
         return $false
     }
     return ($run.ExitCode -eq 0)
+}
+
+function Test-WingetElevationRequired {
+    <#
+    .SYNOPSIS
+        Whether this winget install has to run in an elevated child rather than in this process.
+    .DESCRIPTION
+        True only for a machine-scope install of a type in $script:WingetAdminInstallerTypes from a
+        process that is not elevated. The wizard refuses to run elevated, so on a real machine that
+        is Slack, Claude Desktop and Syncthing, which winget would otherwise stop with
+        APPINSTALLER_CLI_ERROR_COMMAND_REQUIRES_ADMIN before downloading anything. Already elevated,
+        which is the GitHub runner, winget runs in this process as it always has.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [ValidateSet('', 'machine', 'user')] [string] $Scope = '',
+        [string] $InstallerType = ''
+    )
+
+    if ($Scope -ne 'machine') { return $false }
+    if ($script:WingetAdminInstallerTypes -notcontains $InstallerType) { return $false }
+    # Asked last, because it is the only question that reaches the operating system.
+    return (-not (Test-IsAdministrator))
+}
+
+function ConvertTo-PowerShellLiteral {
+    <#
+    .SYNOPSIS
+        A value as a single-quoted PowerShell string, for interpolating into a child's script text.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Value)
+
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function Invoke-ElevatedPowerShell {
+    <#
+    .SYNOPSIS
+        Runs a script in an elevated pwsh child and reports how it ended.
+    .DESCRIPTION
+        The shape Install-ChocolateyPackageBatch and Enable-WindowsFeatureSet already use: the script
+        goes in as -EncodedCommand, through -Verb RunAs when this process is not elevated and in this
+        console when it is, because RunAs needs an interactive desktop to prompt on and a runner has
+        none. -Verb RunAs cannot redirect a stream, so the script writes its own answer into a file
+        the caller names. Bounded by WaitForExit rather than -Wait, so an unanswered consent dialog
+        cannot hold the wizard forever.
+
+        Returns ExitCode, TimedOut and StartError. StartError is the message when the child never
+        started, which is what a refused consent prompt looks like.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Script,
+        [ValidateRange(30, 14400)] [int] $TimeoutSeconds = 900
+    )
+
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Script))
+    $startArgs = @{
+        FilePath     = 'pwsh.exe'
+        ArgumentList = @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
+        PassThru     = $true
+        ErrorAction  = 'Stop'
+    }
+    if (Test-IsAdministrator) {
+        $startArgs['NoNewWindow'] = $true
+    } else {
+        $startArgs['Verb'] = 'RunAs'
+    }
+
+    try {
+        $proc = Start-Process @startArgs
+    } catch {
+        return [PSCustomObject]@{ ExitCode = -1; TimedOut = $false; StartError = $_.Exception.Message }
+    }
+
+    if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
+        try { $proc.Kill($true) } catch { Write-Verbose "could not kill $($proc.Id): $($_.Exception.Message)" }
+        return [PSCustomObject]@{ ExitCode = -1; TimedOut = $true; StartError = '' }
+    }
+    return [PSCustomObject]@{ ExitCode = $proc.ExitCode; TimedOut = $false; StartError = '' }
+}
+
+function Invoke-ElevatedWinget {
+    <#
+    .SYNOPSIS
+        Invoke-BoundedWinget, run in an elevated child, with the same three answers.
+    .DESCRIPTION
+        The child dot-sources this file and calls Invoke-BoundedWinget itself, so the deadline, the
+        kill and the reading of both streams are one implementation rather than two, and writes the
+        result as JSON for this process to read back. The child's own deadline is the one asked for,
+        and this process waits five minutes longer, which is the time a person gets to answer the
+        consent prompt.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $WingetPath,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string[]] $Arguments,
+        [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900
+    )
+
+    $resultFile = Join-Path ([System.IO.Path]::GetTempPath()) ('installation-helper-winget-' + [guid]::NewGuid().ToString('N') + '.json')
+    $argumentLiterals = ($Arguments | ForEach-Object { ConvertTo-PowerShellLiteral -Value $_ }) -join ', '
+    $resultLiteral = ConvertTo-PowerShellLiteral -Value $resultFile
+
+    $inner = @"
+`$ErrorActionPreference = 'Stop'
+try {
+    . $(ConvertTo-PowerShellLiteral -Value $script:WindowsSoftwarePath)
+    `$run = Invoke-BoundedWinget -WingetPath $(ConvertTo-PowerShellLiteral -Value $WingetPath) -TimeoutSeconds $TimeoutSeconds -Arguments @($argumentLiterals)
+} catch {
+    `$run = [PSCustomObject]@{ Output = "the elevated winget child failed: `$(`$_.Exception.Message)"; ExitCode = -1; TimedOut = `$false }
+}
+`$run | ConvertTo-Json -Compress | Set-Content -LiteralPath $resultLiteral -Encoding utf8
+"@
+
+    try {
+        $child = Invoke-ElevatedPowerShell -Script $inner -TimeoutSeconds ($TimeoutSeconds + 300)
+        if ($child.StartError) {
+            return [PSCustomObject]@{
+                Output   = "could not start winget elevated, which a machine-wide install of this package needs: $($child.StartError)"
+                ExitCode = -1
+                TimedOut = $false
+            }
+        }
+        if ($child.TimedOut) {
+            return [PSCustomObject]@{
+                Output   = 'the elevated winget child did not finish, most likely an unanswered consent prompt'
+                ExitCode = -1
+                TimedOut = $true
+            }
+        }
+        if (-not (Test-Path -LiteralPath $resultFile)) {
+            return [PSCustomObject]@{
+                Output   = "the elevated winget child exited $($child.ExitCode) without writing a result, so what winget did is unknown"
+                ExitCode = -1
+                TimedOut = $false
+            }
+        }
+        $read = Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json
+        return [PSCustomObject]@{
+            Output   = [string]$read.Output
+            ExitCode = [int]$read.ExitCode
+            TimedOut = [bool]$read.TimedOut
+        }
+    } finally {
+        Remove-Item -LiteralPath $resultFile -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Invoke-BoundedWinget {
@@ -480,8 +675,12 @@ function Install-WingetPackage {
         [Parameter(Mandatory)] [string] $PackageId,
         [string] $Source = 'winget',
         # Passed through to winget when the mapping names one. Empty means winget chooses, which is
-        # what every package but Bruno wants.
+        # only allowed for a package whose manifest offers no choice of scope, enforced by
+        # e2e/tier1/winget_scope_pins.sh.
         [ValidateSet('', 'machine', 'user')] [string] $Scope = '',
+        # The mapping's installer_type, the type winget selects for --scope machine. Read only to
+        # decide whether winget has to run elevated, see Test-WingetElevationRequired.
+        [string] $InstallerType = '',
         [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900,
 
         # Two attempts, not three, and both are parameters so a test can run them with no pause.
@@ -489,7 +688,29 @@ function Install-WingetPackage {
         [ValidateRange(0, 300)] [int] $RetryPauseSeconds = 15
     )
 
-    if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) {
+    $elevated = Test-WingetElevationRequired -Scope $Scope -InstallerType $InstallerType
+    # One consent prompt fewer for a portable: only a provisioned package needs the elevated probe.
+    $probeElevated = $elevated -and ($script:WingetProvisionedInstallerTypes -contains $InstallerType)
+
+    if ($Scope -eq 'machine') {
+        # Asked by scope, because an unscoped `winget list` reports a per-user copy as installed, and
+        # then the machine-wide install this mapping asks for never runs on any machine that already
+        # had the per-user one. That was every package moved from user to machine on 2026-10-11.
+        if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId -Scope 'machine' -Elevated:$probeElevated) {
+            Write-Verbose "$PackageId already installed machine-wide"
+            return [PSCustomObject]@{ Package = $PackageId; Status = 'present'; Detail = '' }
+        }
+        # A per-user copy is the user's, so it is reported rather than removed, and the machine-wide
+        # install is not run beside it: two copies of one application, each with its own shortcuts
+        # and its own updater, is worse than either one alone.
+        if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId -Scope 'user') {
+            return [PSCustomObject]@{
+                Package = $PackageId
+                Status  = 'skipped'
+                Detail  = "installed for this user only, the machine-wide install was skipped. To install it machine-wide, remove the per-user copy with 'winget uninstall --exact --id $PackageId --scope user' and run the wizard again."
+            }
+        }
+    } elseif (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) {
         Write-Verbose "$PackageId already installed"
         return [PSCustomObject]@{ Package = $PackageId; Status = 'present'; Detail = '' }
     }
@@ -516,7 +737,11 @@ function Install-WingetPackage {
     $earlier = ''
     while ($true) {
         $attempt++
-        $run = Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds $TimeoutSeconds -Arguments $arguments
+        $run = if ($elevated) {
+            Invoke-ElevatedWinget -WingetPath $WingetPath -TimeoutSeconds $TimeoutSeconds -Arguments $arguments
+        } else {
+            Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds $TimeoutSeconds -Arguments $arguments
+        }
 
         if ($run.TimedOut) {
             return [PSCustomObject]@{
@@ -942,6 +1167,168 @@ function Clear-WindowsPackageCache {
     }
 }
 
+# Syncthing's three ports, from docs.syncthing.net users/firewall.rst, "Local Firewall": 22000/TCP
+# for the sync protocol, 22000/UDP for the same over QUIC and 21027/UDP for local discovery. By port
+# and not by program, because winget extracts each Syncthing version into its own versioned folder,
+# so a program rule matches one version only, and a rule on the stable link in WinGet\Links matches
+# nothing: a process started through a symbolic link runs under the target's path, measured on
+# 2026-10-11 with Get-Process and Win32_Process, which both reported the target.
+$script:SyncthingFirewallRules = @(
+    [PSCustomObject]@{ Name = 'InstallationHelper-Syncthing-TCP-22000'; Protocol = 'TCP'; Port = 22000; Purpose = 'sync protocol' }
+    [PSCustomObject]@{ Name = 'InstallationHelper-Syncthing-UDP-22000'; Protocol = 'UDP'; Port = 22000; Purpose = 'sync protocol over QUIC' }
+    [PSCustomObject]@{ Name = 'InstallationHelper-Syncthing-UDP-21027'; Protocol = 'UDP'; Port = 21027; Purpose = 'local discovery' }
+)
+
+# The flags docs.syncthing.net users/autostart.rst gives for "Run at user log on using the Startup
+# folder", plus --no-upgrade, because a standard user cannot write the binary under Program Files
+# and winget upgrades it instead. All three are serve options in Syncthing v2.1.6, cmd/syncthing.
+$script:SyncthingStartupArguments = '--no-console --no-browser --no-upgrade'
+
+function New-ShellShortcut {
+    <#
+    .SYNOPSIS
+        The WScript.Shell shortcut object for a .lnk path, existing or not, so tests can replace it.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Path)
+
+    $shell = New-Object -ComObject WScript.Shell
+    return $shell.CreateShortcut($Path)
+}
+
+function Set-SyncthingStartupShortcut {
+    <#
+    .SYNOPSIS
+        Puts a Syncthing shortcut in this user's Startup folder, so Syncthing starts at their logon.
+    .DESCRIPTION
+        The shortcut points at the link winget keeps in %ProgramFiles%\WinGet\Links, which follows
+        every upgrade, and not at the versioned folder behind it. A shortcut to a link keeps the link
+        path and starts whatever the link points at now, measured on 2026-10-11 by moving a link to a
+        second target and starting it through the same shortcut. Configuration goes to the user's own
+        %LOCALAPPDATA%\Syncthing, which is Syncthing's default.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [string] $LinkPath = (Join-Path $env:ProgramFiles 'WinGet\Links\syncthing.exe'),
+        [string] $StartupDirectory = (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup')
+    )
+
+    $result = { param($status, $detail)
+        [PSCustomObject]@{ Key = 'syncthing'; Manager = 'winget'; Package = 'Startup folder shortcut'; Status = $status; Detail = $detail } }
+
+    if (-not (Test-Path -LiteralPath $LinkPath)) {
+        return (& $result 'failed' "there is no $LinkPath, which is where winget links a machine-wide portable, so there is nothing to start at logon")
+    }
+
+    $shortcutPath = Join-Path $StartupDirectory 'Syncthing.lnk'
+    try {
+        if (Test-Path -LiteralPath $shortcutPath) {
+            $existing = New-ShellShortcut -Path $shortcutPath
+            if ($existing.TargetPath -eq $LinkPath -and $existing.Arguments -eq $script:SyncthingStartupArguments) {
+                return (& $result 'present' $shortcutPath)
+            }
+        }
+        if (-not $PSCmdlet.ShouldProcess($shortcutPath, 'create the Syncthing logon shortcut')) {
+            return (& $result 'skipped' 'WhatIf')
+        }
+        if (-not (Test-Path -LiteralPath $StartupDirectory)) {
+            New-Item -ItemType Directory -Path $StartupDirectory -Force -ErrorAction Stop | Out-Null
+        }
+        $shortcut = New-ShellShortcut -Path $shortcutPath
+        $shortcut.TargetPath  = $LinkPath
+        $shortcut.Arguments   = $script:SyncthingStartupArguments
+        $shortcut.Description = 'Syncthing, started at logon with no console and no browser'
+        # 7 is a minimised window, so nothing flashes up at logon even before --no-console hides it.
+        $shortcut.WindowStyle = 7
+        $shortcut.Save()
+        return (& $result 'installed' "$shortcutPath, which starts Syncthing at your next logon. Its web interface is http://localhost:8384")
+    } catch {
+        return (& $result 'failed' "could not write $shortcutPath ($($_.Exception.Message)), so Syncthing will not start at logon")
+    }
+}
+
+function Set-SyncthingFirewallRule {
+    <#
+    .SYNOPSIS
+        Opens Syncthing's three ports inbound on the Private and Domain profiles.
+    .DESCRIPTION
+        Reading the rules needs no elevation, so a machine that has them is never asked for consent.
+        Creating them does, so the missing ones are made in one elevated child and then read back,
+        and the result is what the read says rather than what the child believed. Not on the Public
+        profile, so a laptop on a public network does not accept sync connections from strangers.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+
+    $result = { param($status, $detail)
+        [PSCustomObject]@{ Key = 'syncthing'; Manager = 'winget'; Package = 'Windows Firewall ports'; Status = $status; Detail = $detail } }
+    $missingRules = { @($script:SyncthingFirewallRules | Where-Object { -not (Get-NetFirewallRule -Name $_.Name -ErrorAction SilentlyContinue) }) }
+    $describe = { param($rules) (@($rules) | ForEach-Object { "$($_.Protocol) $($_.Port)" }) -join ', ' }
+
+    # @( ) at the call site, AGENTS.md defect class 4: the block's own @( ) does not survive the
+    # return, and the first draft of this function died on .Count exactly that way.
+    $missing = @(& $missingRules)
+    if ($missing.Count -eq 0) {
+        return (& $result 'present' "inbound $(& $describe $script:SyncthingFirewallRules) already allowed")
+    }
+    if (-not $PSCmdlet.ShouldProcess((& $describe $missing), 'allow inbound for Syncthing')) {
+        return (& $result 'skipped' 'WhatIf')
+    }
+
+    $lines = foreach ($rule in $missing) {
+        "New-NetFirewallRule -Name $(ConvertTo-PowerShellLiteral -Value $rule.Name) -DisplayName $(ConvertTo-PowerShellLiteral -Value "Syncthing $($rule.Purpose) ($($rule.Protocol) $($rule.Port))") -Group 'Syncthing (InstallationHelper)' -Direction Inbound -Action Allow -Protocol $($rule.Protocol) -LocalPort $($rule.Port) -Profile Private, Domain | Out-Null"
+    }
+    $inner = "`$ErrorActionPreference = 'Stop'`n" + ($lines -join "`n")
+    $child = Invoke-ElevatedPowerShell -Script $inner -TimeoutSeconds 300
+
+    $still = @(& $missingRules)
+    if ($still.Count -eq 0) {
+        return (& $result 'installed' "inbound $(& $describe $missing) allowed on the Private and Domain profiles, by port, so the rules survive every Syncthing upgrade")
+    }
+    $why = if ($child.StartError) { "the elevated child did not start: $($child.StartError)" }
+           elseif ($child.TimedOut) { 'the elevated child did not finish in five minutes' }
+           else { "the elevated child exited $($child.ExitCode)" }
+    return (& $result 'failed' "inbound $(& $describe $still) is still not allowed, because $why. Syncthing still syncs through its relays, more slowly, and other devices cannot connect to this one directly.")
+}
+
+function Get-SyncthingLegacyInstall {
+    <#
+    .SYNOPSIS
+        A result naming the BillStewart Syncthing package when it is still installed, or nothing.
+    .DESCRIPTION
+        That package was this wizard's Syncthing until 2026-10-11. It starts its own copy at logon
+        through a scheduled task, so leaving it beside the new one gives two Syncthing processes
+        fighting over the same ports and the same %LOCALAPPDATA%\Syncthing configuration. Nothing in
+        this wizard migrates or removes another package, so it is reported with the command that
+        removes it. Its uninstaller keeps the configuration folder, which the new Syncthing reads.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $WingetPath)
+
+    $legacy = 'BillStewart.SyncthingWindowsSetup'
+    if (-not (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $legacy)) { return $null }
+    return [PSCustomObject]@{
+        Key = 'syncthing'; Manager = 'winget'; Package = $legacy; Status = 'skipped'
+        Detail = "the older per-user Syncthing package is still installed and starts its own Syncthing at logon, which will fight the new one for the same ports and configuration. Remove it with 'winget uninstall --exact --id $legacy'. Its uninstaller keeps %LOCALAPPDATA%\Syncthing, so devices and folders carry over."
+    }
+}
+
+function Invoke-SyncthingUserSetup {
+    <#
+    .SYNOPSIS
+        What Syncthing needs after winget has installed it machine-wide, as one result per step.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)] [string] $WingetPath)
+
+    $results = [System.Collections.Generic.List[object]]::new()
+    $results.Add((Set-SyncthingStartupShortcut))
+    $results.Add((Set-SyncthingFirewallRule))
+    $legacy = Get-SyncthingLegacyInstall -WingetPath $WingetPath
+    if ($legacy) { $results.Add($legacy) }
+    return $results.ToArray()
+}
+
 function Invoke-WindowsSoftwareInstall {
     <#
     .SYNOPSIS
@@ -1017,7 +1404,7 @@ function Invoke-WindowsSoftwareInstall {
                 Write-Host ("  ... [{0}/{1}] {2} ({3})" -f $index, $wingetItems.Count, $item.Key, $item.Package)
                 $started = [datetime]::UtcNow
                 $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source `
-                    -Scope $item.Scope
+                    -Scope $item.Scope -InstallerType $item.InstallerType
                 $seconds = [int]([datetime]::UtcNow - $started).TotalSeconds
                 Write-Host ("      {0} after {1}s{2}" -f $r.Status, $seconds,
                     $(if ($r.Detail) { ": $($r.Detail)" } else { '' }))
@@ -1025,6 +1412,16 @@ function Invoke-WindowsSoftwareInstall {
                     Key = $item.Key; Manager = 'winget'; Package = $item.Package
                     Status = $r.Status; Detail = $r.Detail
                 })
+
+                # A machine-wide portable starts nowhere on its own, so Syncthing's per-user start
+                # and its firewall ports follow its install, and only once it is really there.
+                if ($item.Key -eq 'syncthing' -and $r.Status -in @('installed', 'present')) {
+                    foreach ($step in @(Invoke-SyncthingUserSetup -WingetPath $winget)) {
+                        Write-Host ("      {0}: {1}{2}" -f $step.Package, $step.Status,
+                            $(if ($step.Detail) { ": $($step.Detail)" } else { '' }))
+                        $results.Add($step)
+                    }
+                }
             }
         }
     }

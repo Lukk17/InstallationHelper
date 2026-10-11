@@ -188,6 +188,21 @@ Describe 'Get-WindowsSoftwareMapping' {
         }
     }
 
+    It 'reads installer_type after scope, and leaves it empty when the entry does not carry one' {
+        $tmp = Join-Path $TestDrive 'installertype.yaml'
+        @(
+            '---'
+            'software_mapping:'
+            '  plain: { manager: "winget", package: "Vendor.Plain", scope: "user" }'
+            '  packaged: { manager: "winget", package: "Vendor.Packaged", scope: "machine", installer_type: "msix" }'
+        ) | Set-Content -LiteralPath $tmp
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath $tmp
+
+        $m['plain'].InstallerType    | Should -BeNullOrEmpty
+        $m['packaged'].Scope         | Should -Be 'machine'
+        $m['packaged'].InstallerType | Should -Be 'msix'
+    }
+
     It 'carries requires_nvidia_gpu through on the real mapping file' {
         $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
         $m['nvidia_app'].RequiresNvidiaGpu | Should -BeTrue
@@ -592,6 +607,347 @@ exit 0
     }
 }
 
+
+# The owner's rule of 2026-10-11 moved Slack, Claude Desktop and Syncthing to machine scope, and
+# winget refuses a machine-scope msix or portable unless winget itself is elevated, while the wizard
+# refuses to run elevated. These are the decision and the route around it.
+Describe 'Test-WingetElevationRequired' {
+
+    It 'elevates a machine-scope install of every type winget refuses unelevated' {
+        Mock Test-IsAdministrator { $false }
+        foreach ($type in @('msix', 'portable', 'msstore', 'font')) {
+            Test-WingetElevationRequired -Scope 'machine' -InstallerType $type | Should -BeTrue -Because "$type is in DoesInstallerTypeRequireAdminForMachineScopeInstall"
+        }
+    }
+
+    It 'leaves every installer that elevates itself in this process' {
+        Mock Test-IsAdministrator { $false }
+        foreach ($type in @('exe', 'inno', 'nullsoft', 'wix', 'burn', 'msi')) {
+            Test-WingetElevationRequired -Scope 'machine' -InstallerType $type | Should -BeFalse -Because "$type asks for elevation itself"
+        }
+    }
+
+    It 'never elevates a user-scope or unscoped install' {
+        Mock Test-IsAdministrator { $false }
+        Test-WingetElevationRequired -Scope 'user' -InstallerType 'msix' | Should -BeFalse
+        Test-WingetElevationRequired -Scope '' -InstallerType 'msix' | Should -BeFalse
+    }
+
+    It 'never elevates when the wizard already is, which is the GitHub runner' {
+        Mock Test-IsAdministrator { $true }
+        Test-WingetElevationRequired -Scope 'machine' -InstallerType 'msix' | Should -BeFalse
+    }
+
+    It 'elevates exactly Slack, Claude Desktop and Syncthing out of the real mapping file' {
+        Mock Test-IsAdministrator { $false }
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
+        $elevated = @($m.Keys | Where-Object {
+                $m[$_].Manager -eq 'winget' -and (Test-WingetElevationRequired -Scope $m[$_].Scope -InstallerType $m[$_].InstallerType)
+            } | Sort-Object)
+        $elevated | Should -Be @('claude_desktop', 'slack', 'syncthing')
+    }
+}
+
+Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elevates winget when it must' {
+
+    BeforeAll {
+        # The winget calls are recorded rather than run, one entry per call with its route, so each
+        # test can say which question went where. A global list because Pester 5 runs the mocks in
+        # their own scope.
+        function global:Get-WingetVerb { param([string[]] $Arguments) $Arguments[0] }
+        function global:Get-WingetScope {
+            param([string[]] $Arguments)
+            $at = [array]::IndexOf($Arguments, '--scope')
+            if ($at -ge 0) { return $Arguments[$at + 1] }
+            return ''
+        }
+    }
+
+    BeforeEach {
+        $global:WingetCalls = [System.Collections.Generic.List[string]]::new()
+        $global:MachineCopy = $false
+        $global:UserCopy = $false
+        $global:InstallFailuresLeft = 0
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        Mock Test-IsAdministrator { $false }
+
+        function global:Invoke-WingetAnswer {
+            param([string] $Route, [string[]] $Arguments)
+            $verb = Get-WingetVerb -Arguments $Arguments
+            $scope = Get-WingetScope -Arguments $Arguments
+            $global:WingetCalls.Add("$Route $verb $scope".Trim())
+            if ($verb -eq 'list') {
+                $found = switch ($scope) {
+                    'machine' { $global:MachineCopy }
+                    'user'    { $global:UserCopy }
+                    default   { $global:MachineCopy -or $global:UserCopy }
+                }
+                return [PSCustomObject]@{ Output = ''; ExitCode = $(if ($found) { 0 } else { -1978335212 }); TimedOut = $false }
+            }
+            if ($global:InstallFailuresLeft -gt 0) {
+                $global:InstallFailuresLeft--
+                return [PSCustomObject]@{ Output = 'Installer failed with exit code: 3221225477'; ExitCode = 1; TimedOut = $false }
+            }
+            return [PSCustomObject]@{ Output = 'Successfully installed'; ExitCode = 0; TimedOut = $false }
+        }
+        Mock Invoke-BoundedWinget { Invoke-WingetAnswer -Route 'bounded' -Arguments $Arguments }
+        Mock Invoke-ElevatedWinget { Invoke-WingetAnswer -Route 'elevated' -Arguments $Arguments }
+    }
+
+    It 'runs the machine probe and the install of a machine-scope msix in the elevated child' {
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'machine' -InstallerType 'msix' -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine')
+    }
+
+    It 'elevates only the install of a machine-scope portable, whose machine copy any user can list' {
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Syncthing.Syncthing' -Scope 'machine' -InstallerType 'portable' -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'elevated install machine')
+    }
+
+    It 'keeps a machine-scope installer that elevates itself in this process' {
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Git.Git' -Scope 'machine' -InstallerType 'inno' -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        Should -Invoke Invoke-ElevatedWinget -Times 0 -Exactly
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine')
+    }
+
+    It 'runs everything in this process when the wizard is already elevated' {
+        Mock Test-IsAdministrator { $true }
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Syncthing.Syncthing' -Scope 'machine' -InstallerType 'portable' -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        Should -Invoke Invoke-ElevatedWinget -Times 0 -Exactly
+    }
+
+    It 'retries an elevated install the way it retries any other, and names the first failure' {
+        $global:InstallFailuresLeft = 1
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Anthropic.Claude' -Scope 'machine' -InstallerType 'msix' -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        $r.Detail | Should -BeLike '*attempt 2*3221225477*'
+        @($global:WingetCalls | Where-Object { $_ -eq 'elevated install machine' }).Count | Should -Be 2
+    }
+
+    It 'reports a machine-wide copy as present and installs nothing' {
+        $global:MachineCopy = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Git.Git' -Scope 'machine' -InstallerType 'inno'
+
+        $r.Status | Should -Be 'present'
+        @($global:WingetCalls) | Should -Be @('bounded list machine')
+    }
+
+    It 'reports a per-user copy of a machine-pinned package by name, with the uninstall command, and installs and removes nothing' {
+        $global:UserCopy = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Microsoft.VisualStudioCode' -Scope 'machine' -InstallerType 'inno'
+
+        $r.Status | Should -Be 'skipped'
+        $r.Detail | Should -BeLike 'installed for this user only, the machine-wide install was skipped*'
+        $r.Detail | Should -BeLike "*winget uninstall --exact --id Microsoft.VisualStudioCode --scope user*"
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user')
+    }
+
+    It 'still counts any copy as present for a package pinned to user or not pinned at all' {
+        $global:UserCopy = $true
+        (Install-WingetPackage -WingetPath 'winget' -PackageId 'Discord.Discord' -Scope 'user').Status | Should -Be 'present'
+        (Install-WingetPackage -WingetPath 'winget' -PackageId 'Google.Chrome').Status | Should -Be 'present'
+        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded list')
+    }
+}
+
+Describe 'Invoke-ElevatedWinget and Invoke-ElevatedPowerShell' {
+
+    BeforeEach {
+        $global:StubDir = Join-Path ([System.IO.Path]::GetTempPath()) ('elevstub-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $global:StubDir -Force | Out-Null
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $global:StubDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # The child's script is real and runs for real, in this process rather than behind a consent
+    # prompt: it dot-sources WindowsSoftware.ps1, runs Invoke-BoundedWinget against a stub winget and
+    # writes JSON back. Only the elevation is replaced.
+    It 'runs the bounded winget in the child and hands back its output, exit code and arguments' -Skip:(-not $IsWindows) {
+        $stub = Join-Path $global:StubDir 'winget.cmd'
+        $argsFile = Join-Path $global:StubDir 'args.txt'
+        Set-Content -LiteralPath $stub -Encoding ascii -Value @"
+@echo off
+echo %*>"$argsFile"
+echo Successfully installed
+exit /b 7
+"@
+        Mock Invoke-ElevatedPowerShell {
+            & ([scriptblock]::Create($Script))
+            [PSCustomObject]@{ ExitCode = 0; TimedOut = $false; StartError = '' }
+        }
+
+        $r = Invoke-ElevatedWinget -WingetPath $stub -TimeoutSeconds 60 -Arguments @('install', '--exact', '--id', "Vendor.It's", '--scope', 'machine')
+
+        $r.ExitCode | Should -Be 7
+        $r.TimedOut | Should -BeFalse
+        $r.Output   | Should -BeLike '*Successfully installed*'
+        (Get-Content -LiteralPath $argsFile -Raw) | Should -BeLike "*--id Vendor.It's --scope machine*"
+        Should -Invoke Invoke-ElevatedPowerShell -Times 1 -Exactly -ParameterFilter { $TimeoutSeconds -eq 360 }
+    }
+
+    It 'turns a refused consent prompt into a failed run that says why' {
+        Mock Invoke-ElevatedPowerShell { [PSCustomObject]@{ ExitCode = -1; TimedOut = $false; StartError = 'The operation was canceled by the user.' } }
+        $r = Invoke-ElevatedWinget -WingetPath 'winget' -Arguments @('install', '--id', 'X')
+        $r.ExitCode | Should -Be -1
+        $r.TimedOut | Should -BeFalse
+        $r.Output   | Should -BeLike '*could not start winget elevated*canceled by the user*'
+    }
+
+    It 'turns an unanswered prompt into a timeout, which Install-WingetPackage never retries' {
+        Mock Invoke-ElevatedPowerShell { [PSCustomObject]@{ ExitCode = -1; TimedOut = $true; StartError = '' } }
+        (Invoke-ElevatedWinget -WingetPath 'winget' -Arguments @('install', '--id', 'X')).TimedOut | Should -BeTrue
+    }
+
+    It 'says so when the child wrote nothing back' {
+        Mock Invoke-ElevatedPowerShell { [PSCustomObject]@{ ExitCode = 3; TimedOut = $false; StartError = '' } }
+        $r = Invoke-ElevatedWinget -WingetPath 'winget' -Arguments @('install', '--id', 'X')
+        $r.ExitCode | Should -Be -1
+        $r.Output   | Should -BeLike '*exited 3 without writing a result*'
+    }
+
+    It 'asks for elevation through RunAs when the wizard is not elevated' {
+        Mock Test-IsAdministrator { $false }
+        Mock Start-Process {
+            $p = [PSCustomObject]@{ ExitCode = 0; Id = 1 }
+            $p | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($ms) $true }
+            $p
+        }
+        $r = Invoke-ElevatedPowerShell -Script 'exit 0' -TimeoutSeconds 30
+        $r.StartError | Should -BeNullOrEmpty
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $Verb -eq 'RunAs' -and -not $NoNewWindow }
+    }
+
+    It 'runs in this console when the wizard is already elevated, because RunAs needs a desktop' {
+        Mock Test-IsAdministrator { $true }
+        Mock Start-Process {
+            $p = [PSCustomObject]@{ ExitCode = 0; Id = 1 }
+            $p | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($ms) $true }
+            $p
+        }
+        $null = Invoke-ElevatedPowerShell -Script 'exit 0' -TimeoutSeconds 30
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter { $NoNewWindow -and -not $Verb }
+    }
+
+    It 'reports a refused prompt as a start error rather than throwing' {
+        Mock Test-IsAdministrator { $false }
+        Mock Start-Process { throw 'The operation was canceled by the user.' }
+        (Invoke-ElevatedPowerShell -Script 'exit 0' -TimeoutSeconds 30).StartError | Should -BeLike '*canceled by the user*'
+    }
+}
+
+Describe 'Syncthing after its machine-wide install' {
+
+    BeforeAll {
+        # Windows has these cmdlets and a Linux pwsh does not, and Pester can only mock a command
+        # that exists, so the gaps are filled with empty functions for the mocks to replace.
+        if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) {
+            function global:Get-NetFirewallRule { [CmdletBinding()] param([string] $Name) }
+        }
+    }
+
+    BeforeEach {
+        $script:Link = Join-Path $TestDrive 'Links\syncthing.exe'
+        $script:Startup = Join-Path $TestDrive 'Startup'
+        New-Item -ItemType Directory -Path (Split-Path $script:Link) -Force | Out-Null
+        Set-Content -LiteralPath $script:Link -Value 'stub'
+        Remove-Item -LiteralPath $script:Startup -Recurse -Force -ErrorAction SilentlyContinue
+
+        $global:Saved = [System.Collections.Generic.List[object]]::new()
+        $global:Existing = $null
+        Mock New-ShellShortcut {
+            if ($global:Existing -and (Test-Path -LiteralPath $Path)) { return $global:Existing }
+            $lnk = [PSCustomObject]@{ Path = $Path; TargetPath = ''; Arguments = ''; Description = ''; WindowStyle = 1 }
+            $lnk | Add-Member -MemberType ScriptMethod -Name Save -Value { $global:Saved.Add($this); Set-Content -LiteralPath $this.Path -Value 'lnk' }
+            return $lnk
+        }
+    }
+
+    It 'puts a shortcut to the WinGet link in the Startup folder with the documented flags and --no-upgrade' {
+        $r = Set-SyncthingStartupShortcut -LinkPath $script:Link -StartupDirectory $script:Startup
+
+        $r.Status | Should -Be 'installed'
+        $global:Saved.Count | Should -Be 1
+        $global:Saved[0].Path        | Should -Be (Join-Path $script:Startup 'Syncthing.lnk')
+        $global:Saved[0].TargetPath  | Should -Be $script:Link
+        $global:Saved[0].Arguments   | Should -Be '--no-console --no-browser --no-upgrade'
+    }
+
+    It 'leaves a shortcut that already says the same thing alone' {
+        New-Item -ItemType Directory -Path $script:Startup -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:Startup 'Syncthing.lnk') -Value 'lnk'
+        $global:Existing = [PSCustomObject]@{ TargetPath = $script:Link; Arguments = '--no-console --no-browser --no-upgrade' }
+
+        (Set-SyncthingStartupShortcut -LinkPath $script:Link -StartupDirectory $script:Startup).Status | Should -Be 'present'
+        $global:Saved.Count | Should -Be 0
+    }
+
+    It 'fails by name and writes nothing when winget left no link to start' {
+        Remove-Item -LiteralPath $script:Link -Force
+        $r = Set-SyncthingStartupShortcut -LinkPath $script:Link -StartupDirectory $script:Startup
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike "*$($script:Link)*"
+        Should -Invoke New-ShellShortcut -Times 0 -Exactly
+    }
+
+    It 'asks for no elevation when all three firewall rules are already there' {
+        Mock Get-NetFirewallRule { [PSCustomObject]@{ Name = $Name } }
+        Mock Invoke-ElevatedPowerShell { throw 'must not be called' }
+
+        (Set-SyncthingFirewallRule).Status | Should -Be 'present'
+        Should -Invoke Invoke-ElevatedPowerShell -Times 0 -Exactly
+    }
+
+    It 'creates only the missing port rules, on Private and Domain, and believes the read-back rather than the child' {
+        $global:Created = $false
+        Mock Get-NetFirewallRule {
+            if ($Name -eq 'InstallationHelper-Syncthing-TCP-22000' -or $global:Created) { return [PSCustomObject]@{ Name = $Name } }
+        }
+        Mock Invoke-ElevatedPowerShell { $global:Created = $true; [PSCustomObject]@{ ExitCode = 0; TimedOut = $false; StartError = '' } }
+
+        $r = Set-SyncthingFirewallRule
+
+        $r.Status | Should -Be 'installed'
+        Should -Invoke Invoke-ElevatedPowerShell -Times 1 -Exactly -ParameterFilter {
+            $Script -notmatch 'TCP-22000' -and
+            $Script -match "InstallationHelper-Syncthing-UDP-22000'.*-Protocol UDP -LocalPort 22000 -Profile Private, Domain" -and
+            $Script -match "InstallationHelper-Syncthing-UDP-21027'.*-Protocol UDP -LocalPort 21027 -Profile Private, Domain"
+        }
+    }
+
+    It 'fails with the reason when the rules are still missing afterwards' {
+        Mock Get-NetFirewallRule { }
+        Mock Invoke-ElevatedPowerShell { [PSCustomObject]@{ ExitCode = -1; TimedOut = $false; StartError = 'The operation was canceled by the user.' } }
+
+        $r = Set-SyncthingFirewallRule
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike '*TCP 22000, UDP 22000, UDP 21027*canceled by the user*'
+    }
+
+    It 'reports a leftover BillStewart install with its uninstall command and removes nothing' {
+        Mock Test-WingetPackageInstalled { $PackageId -eq 'BillStewart.SyncthingWindowsSetup' }
+        $r = Get-SyncthingLegacyInstall -WingetPath 'winget'
+        $r.Status | Should -Be 'skipped'
+        $r.Detail | Should -BeLike "*winget uninstall --exact --id BillStewart.SyncthingWindowsSetup*"
+    }
+
+    It 'says nothing about BillStewart when it is not installed' {
+        Mock Test-WingetPackageInstalled { $false }
+        Get-SyncthingLegacyInstall -WingetPath 'winget' | Should -BeNullOrEmpty
+    }
+}
 
 Describe 'Get-ChocolateyCachePath' {
 

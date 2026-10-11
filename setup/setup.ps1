@@ -354,6 +354,12 @@ function Show-WindowsSoftwareResult {
 
     Write-Status "Windows packages: $($Result.Installed.Count) installed, $($Result.Present.Count) already present, $($Result.Skipped.Count) not attempted, $($Result.Failed.Count) failed"
 
+    # Each one with its reason, the way the settings phase prints them, because a skip here can be a
+    # per-user copy standing in for a machine-wide install, and the reason carries the command that
+    # fixes it. A count alone scrolled that away with the package lines above it.
+    foreach ($s in $Result.Skipped) {
+        Write-Hint "  $($s.Key) ($($s.Package)): $($s.Detail)"
+    }
     foreach ($f in $Result.Failed) {
         Write-Host "  [!] $($f.Key) ($($f.Package)) via $($f.Manager): $($f.Detail)" -ForegroundColor Red
     }

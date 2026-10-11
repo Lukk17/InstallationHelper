@@ -2,7 +2,17 @@
 software_mapping:
   # Browsers
   chrome: { manager: "winget", package: "Google.Chrome" }
-  brave: { manager: "winget", package: "Brave.Brave" }
+  # Every scope pinned below has its evidence in e2e/tier1/winget_scoped_packages.txt, which the
+  # tier 1 check winget_scope_pins enforces and tier 2 refreshes from winget-pkgs. The owner's rule
+  # of 2026-10-11: machine wherever a working machine-wide route exists, user only where none exists
+  # or the vendor advises per user, with the reason written next to each user pin.
+  #
+  # installer_type is the type winget selects for --scope machine, the third column of that list.
+  # msix, msstore, portable and font make winget refuse a machine install unless winget itself runs
+  # elevated (winget-cli v1.29.380, DoesInstallerTypeRequireAdminForMachineScopeInstall), so for
+  # those setup/windows/WindowsSoftware.ps1 runs winget in an elevated child. Every other type
+  # elevates itself through its own installer.
+  brave: { manager: "winget", package: "Brave.Brave", scope: "machine", installer_type: "exe" }   # Manifest 155.1.97.56, read 2026-10-11: user and machine exe.
   # verify_path, because winget installs this and then cannot list it back. Its manifest says
   # Scope: user with DefaultInstallLocation "Desktop\Tor Browser" and declares no
   # AppsAndFeaturesEntries, so there is nothing in Programs and Features for
@@ -16,17 +26,21 @@ software_mapping:
   # back "%USERPROFILE%\Desktop\Tor Browser" and Test-Path answered false against it, while a
   # single backslash cannot be written at all because it is an invalid YAML escape. Windows
   # accepts forward slashes in a path, so both parsers agree and neither needs an escape rule.
-  tor: { manager: "winget", package: "TorProject.TorBrowser", verify_path: "%USERPROFILE%/Desktop/Tor Browser" }
+  # scope user, because manifest 15.0.24, read 2026-10-11, offers only user-scope nullsoft installers,
+  # and a shared install has an open permission defect upstream, Tor Browser issue #45375 at
+  # gitlab.torproject.org/tpo/applications/tor-browser, "control_auth_cookie inherits BUILTIN\Users
+  # ACL", state opened when read on 2026-10-11.
+  tor: { manager: "winget", package: "TorProject.TorBrowser", scope: "user", verify_path: "%USERPROFILE%/Desktop/Tor Browser" }
 
   # Dev Tools
-  git: { manager: "winget", package: "Git.Git" }
+  git: { manager: "winget", package: "Git.Git", scope: "machine", installer_type: "inno" }   # Manifest 2.55.0.5, read 2026-10-11: user and machine inno.
   maven: { manager: "choco", package: "maven" }       # No winget manifest under Apache/; Chocolatey carries Maven (verified Apache Maven 3.9.x).
   gradle: { manager: "choco", package: "gradle" }     # No Gradle publisher in winget-pkgs; Chocolatey carries Gradle (verified 9.x).
   # Windows has no Pyenv equivalent worth carrying: pyenv-win exists on Chocolatey but installing it
   # leaves no Python behind, so the toggle would still install nothing usable. A single interpreter
   # matching default_python is the honest translation. e2e/tier1/windows_mapping.sh asserts the minor
   # version here still matches default_python in setup/pinned_values/pinned_values.toml.
-  python: { manager: "winget", package: "Python.Python.3.11" }
+  python: { manager: "winget", package: "Python.Python.3.11", scope: "machine", installer_type: "burn" }   # Manifest 3.11.9, read 2026-10-11: user (InstallAllUsers=0) and machine (InstallAllUsers=1) burn.
   # Dart on Windows arrives with Flutter through FVM as well, but the toggle is independent and
   # Chocolatey carries the standalone SDK (verified dart-sdk 3.13.0 on the community feed).
   dart: { manager: "choco", package: "dart-sdk" }
@@ -34,7 +48,11 @@ software_mapping:
   # bundles the same SDK, the platform tools and the manager itself, which is what the removed
   # Ansible Windows task also chose (verified Google.AndroidStudio with winget show).
   android_sdk: { manager: "winget", package: "Google.AndroidStudio" }
-  postman: { manager: "winget", package: "Postman.Postman" }
+  # scope user, because no machine-wide route exists for this edition: manifest 12.31.7, read
+  # 2026-10-11, offers a user exe only, and Postman's MSI for machine-wide deployment is offered to
+  # Postman Enterprise customers only, per learning.postman.com/docs/administration/enterprise/
+  # managing-enterprise-deployment, read 2026-10-11.
+  postman: { manager: "winget", package: "Postman.Postman", scope: "user" }
   # FireDaemon rather than Shining Light, because Shining Light's download is gone. Measured on
   # 2026-08-25 after the Windows all-apps run failed with 0x80190194, not found: the winget
   # manifest for ShiningLight.OpenSSL.Light 4.0.1 names
@@ -47,52 +65,86 @@ software_mapping:
   # 17,528,856 bytes, measured. Different vendor, different host, same version, and it is in
   # winget-pkgs so Microsoft's review accepted it.
   openssl: { manager: "winget", package: "FireDaemon.OpenSSL" }
-  dbeaver: { manager: "winget", package: "DBeaver.DBeaver.Community" }
+  dbeaver: { manager: "winget", package: "DBeaver.DBeaver.Community", scope: "machine", installer_type: "nullsoft" }   # Manifest 26.2.0, read 2026-10-11: user (/currentuser) and machine (/allusers) nullsoft.
   kubectl: { manager: "winget", package: "Kubernetes.kubectl" }
   minikube: { manager: "winget", package: "Kubernetes.minikube" }
   k3d: { manager: "winget", package: "k3d.k3d" }
   helm: { manager: "winget", package: "Helm.Helm" }
   terraform: { manager: "winget", package: "Hashicorp.Terraform" }
-  gh: { manager: "winget", package: "GitHub.cli" }
+  gh: { manager: "winget", package: "GitHub.cli", scope: "machine", installer_type: "wix" }   # Manifest 2.102.0, read 2026-10-11: machine wix beside an unscoped zip, the bruno shape.
   jq: { manager: "winget", package: "jqlang.jq" }
   fzf: { manager: "winget", package: "junegunn.fzf" }
   ripgrep: { manager: "winget", package: "BurntSushi.ripgrep.MSVC" }
-  lens: { manager: "winget", package: "Mirantis.Lens" }
+  # scope machine, because the manifest offers the same installer twice and differs only in scope,
+  # the shape bruno and curseforge already had. GitHub sweep run 38107292439 on 2026-10-11, job
+  # "Windows default apps", lost Lens on both attempts with exit -1978335226, 0x8A150006, and
+  # "Installer failed with exit code: 3221225477", 0xC0000005, an access violation, on a runner
+  # with 89 GB free.
+  #
+  # Manifest 2026.10.51501-latest, read 2026-10-11, carries one x64 nullsoft installer, the same
+  # URL twice: scope user with /currentuser and scope machine with /allusers. Without a scope in
+  # the mapping winget chooses, and the wizard runs elevated. Not proven to be the cause: the
+  # "Windows all apps" job of the same sweep installed Lens unscoped on the first attempt.
+  lens: { manager: "winget", package: "Mirantis.Lens", scope: "machine", installer_type: "nullsoft" }
   filezilla: { manager: "choco", package: "filezilla" }   # Winget manifest removed (FileZilla blocks third-party installers — winget-pkgs issues #65824/#89756/#131827/#154585). Chocolatey carries FileZilla Client (verified).
-  putty: { manager: "winget", package: "PuTTY.PuTTY" }
+  putty: { manager: "winget", package: "PuTTY.PuTTY", scope: "machine", installer_type: "wix" }   # Manifest 0.85.0.0, read 2026-10-11: machine wix beside an unscoped zip, the bruno shape.
   powershell: { manager: "winget", package: "9MZ1SNWT0N5D", source: "msstore" }   # PowerShell 7 — MS Store (MSIX) build; needs the msstore source.
 
   # IDEs / Editors
-  vscode: { manager: "winget", package: "Microsoft.VisualStudioCode" }
-  sublime: { manager: "winget", package: "SublimeHQ.SublimeText.4" }
-  arduino: { manager: "winget", package: "ArduinoSA.IDE.stable" }
-  antigravity: { manager: "winget", package: "Google.AntigravityIDE" }
+  vscode: { manager: "winget", package: "Microsoft.VisualStudioCode", scope: "machine", installer_type: "inno" }   # Manifest 1.141.0, read 2026-10-11: user and machine inno.
+  sublime: { manager: "winget", package: "SublimeHQ.SublimeText.4", scope: "machine", installer_type: "inno" }   # Manifest 4.0.0.421500, read 2026-10-11: machine inno beside an unscoped zip, the bruno shape.
+  # scope machine, the bruno shape: manifest 2.3.10, read 2026-10-11, carries an unscoped zip, an
+  # unscoped nullsoft and a machine wix. The same sweep as lens saw its first attempt exit
+  # 3221225477, an access violation, and the retry install it, so this one is a precaution.
+  arduino: { manager: "winget", package: "ArduinoSA.IDE.stable", scope: "machine", installer_type: "wix" }
+  # scope user, because no machine-wide route exists: manifest 2.5.5, read 2026-10-11, offers a
+  # user inno only, and Google ships no other Windows installer for it.
+  antigravity: { manager: "winget", package: "Google.AntigravityIDE", scope: "user" }
   # Machine scope on purpose. The manifest carries three installers and winget picks the
   # per-user nullsoft one by default, which exits 3221225477, an access violation, when the
   # wizard runs elevated. The MSI in the same manifest is declared Scope: machine and is the
   # one that installs. Verified against the 4.1.0 manifest in winget-pkgs on 2026-08-23.
-  bruno: { manager: "winget", package: "Bruno.Bruno", scope: "machine" }
-  jetbrains_toolbox: { manager: "winget", package: "JetBrains.Toolbox" }       # Publisher JetBrains, verified with winget show. The sdk_manager role installs this on Linux and macOS, and this mapping is the whole Windows path.
+  bruno: { manager: "winget", package: "Bruno.Bruno", scope: "machine", installer_type: "wix" }
+  # scope user, because no machine-wide route exists: manifest 3.8.1.0, read 2026-10-11, offers a
+  # user exe only, and Toolbox installs itself and the IDEs it manages under the user's profile.
+  jetbrains_toolbox: { manager: "winget", package: "JetBrains.Toolbox", scope: "user" }       # Publisher JetBrains, verified with winget show. The sdk_manager role installs this on Linux and macOS, and this mapping is the whole Windows path.
 
   # Communication
-  discord: { manager: "winget", package: "Discord.Discord" }
-  slack: { manager: "winget", package: "SlackTechnologies.Slack" }
+  # scope user, because no machine-wide route exists: manifest 1.0.9261, read 2026-10-11, offers a
+  # user exe only, the Squirrel installer that updates itself inside the user's profile.
+  discord: { manager: "winget", package: "Discord.Discord", scope: "user" }
+  # scope machine, which selects the unscoped msix (manifest 4.52.178, read 2026-10-11: user exe,
+  # unscoped msix) and provisions it for every user. That is the vendor's own route, "Install for all
+  # users" on Slack's deployment page, done through Add-AppxProvisionedPackage, and the app still
+  # updates itself. winget refuses a machine-scope msix unless it runs elevated, which the wizard
+  # does not, so installer_type msix sends this one through the elevated winget child.
+  slack: { manager: "winget", package: "SlackTechnologies.Slack", scope: "machine", installer_type: "msix" }
   teams: { manager: "winget", package: "Microsoft.Teams" }
-  telegram: { manager: "winget", package: "Telegram.TelegramDesktop" }
-  signal: { manager: "winget", package: "OpenWhisperSystems.Signal" }
+  # scope user, because the only machine route is the unscoped portable zip (manifest 7.3.1, read
+  # 2026-10-11: user inno, unscoped zip). Telegram does not document that zip as an install, its
+  # self-updater cannot write into Program Files, and a winget portable creates no Start menu entry.
+  telegram: { manager: "winget", package: "Telegram.TelegramDesktop", scope: "user" }
+  # scope user, because no machine-wide route exists: manifest 8.30.0, read 2026-10-11, offers a
+  # user nullsoft only, and Signal publishes no other Windows installer.
+  signal: { manager: "winget", package: "OpenWhisperSystems.Signal", scope: "user" }
   whatsapp: { manager: "winget", package: "9NKSQGP7F2NH", source: "msstore" }   # MS Store — a Store product id only resolves on the msstore source.
 
   # Productivity
-  obsidian: { manager: "winget", package: "Obsidian.Obsidian" }
-  bitwarden: { manager: "winget", package: "Bitwarden.Bitwarden" }
+  obsidian: { manager: "winget", package: "Obsidian.Obsidian", scope: "machine", installer_type: "nullsoft" }   # Manifest 1.14.4, read 2026-10-11: user (/currentuser) and machine (/allusers) nullsoft.
+  bitwarden: { manager: "winget", package: "Bitwarden.Bitwarden", scope: "machine", installer_type: "nullsoft" }   # Manifest 2026.9.1, read 2026-10-11: user and machine nullsoft, unscoped portable.
   keepassxc: { manager: "winget", package: "KeePassXCTeam.KeePassXC" }
   onlyoffice: { manager: "winget", package: "ONLYOFFICE.DesktopEditors" }
 
   # AI
   chatgpt: { manager: "winget", package: "9PLM9XGG6VKS", source: "msstore" }   # MS Store — official OpenAI build. `9NT1R1C2HH7J` is the retired "ChatGPT Classic" and `9N8CJ4W95TBZ` is the beta channel.
-  claude_desktop: { manager: "winget", package: "Anthropic.Claude" }           # Publisher "Anthropic, PBC", verified with winget show. The ai_tools role has no Windows path, so this mapping is the only one.
-  lm_studio: { manager: "winget", package: "ElementLabs.LMStudio" }            # Author "Element Labs, Inc.", verified with winget show.
-  opencode_desktop: { manager: "winget", package: "SST.OpenCodeDesktop" }      # Publisher "OpenCode", verified with winget show on 2026-10-10 (1.18.35, per-user nullsoft). SST.opencode is the CLI, which comes from npm instead.
+  # scope machine, the slack shape: manifest 2.19675.1, read 2026-10-11, carries a user exe and an
+  # unscoped msix, and Anthropic's deployment page offers "Install for all users (provisions
+  # machine-wide)" through Add-AppxProvisionedPackage. The app updates itself either way.
+  claude_desktop: { manager: "winget", package: "Anthropic.Claude", scope: "machine", installer_type: "msix" }           # Publisher "Anthropic, PBC", verified with winget show. The ai_tools role has no Windows path, so this mapping is the only one.
+  lm_studio: { manager: "winget", package: "ElementLabs.LMStudio", scope: "machine", installer_type: "nullsoft" }            # Author "Element Labs, Inc.", verified with winget show. Manifest 0.4.26+4, read 2026-10-11: user (/currentuser) and machine (/allusers) nullsoft, the lens shape.
+  # scope user, because no machine-wide route exists: manifest 1.19.0, read 2026-10-11, offers a
+  # user nullsoft only.
+  opencode_desktop: { manager: "winget", package: "SST.OpenCodeDesktop", scope: "user" }      # Publisher "OpenCode", verified with winget show on 2026-10-10 (1.18.35, per-user nullsoft). SST.opencode is the CLI, which comes from npm instead.
 
   # Media / Design
   vlc: { manager: "winget", package: "VideoLAN.VLC" }
@@ -101,8 +153,10 @@ software_mapping:
   # wizard itself was started elevated, which -AllowAdministrator does in the e2e cells. Reported as
   # skipped there with that reason, and installed normally on a machine where the wizard runs as the
   # user, which is how it is meant to run.
-  spotify: { manager: "winget", package: "Spotify.Spotify", user_context: true }
-  gimp: { manager: "winget", package: "GIMP.GIMP.3" }
+  # scope user as well, because no machine-wide route exists: manifest 1.3.4.258.gc60b10b0946a, read
+  # 2026-10-11, offers only user exe installers and declares ElevationRequirement: elevationProhibited.
+  spotify: { manager: "winget", package: "Spotify.Spotify", scope: "user", user_context: true }
+  gimp: { manager: "winget", package: "GIMP.GIMP.3", scope: "machine", installer_type: "inno" }   # Manifest 3.2.6.0, read 2026-10-11: user (/CURRENTUSER) and machine (/ALLUSERS) inno.
   krita: { manager: "winget", package: "KDE.Krita" }
   handbrake: { manager: "winget", package: "HandBrake.HandBrake" }
   audacity: { manager: "winget", package: "Audacity.Audacity" }
@@ -129,7 +183,7 @@ software_mapping:
   # /ALLUSERS and scope user with /CURRENTUSER. Without a scope in the mapping winget chooses,
   # and the wizard runs elevated, where a user-scope install is the one that fails. Same shape
   # as bruno above.
-  curseforge: { manager: "winget", package: "Overwolf.CurseForge", scope: "machine" }
+  curseforge: { manager: "winget", package: "Overwolf.CurseForge", scope: "machine", installer_type: "nullsoft" }
   # The MS Store id 9PK9W5QV2PKX was the Game Bar widget Razer discontinued on 2026-07-01 and resolves on
   # no winget source, and winget-pkgs carries no Cortex manifest under any Razer publisher.
 
@@ -149,14 +203,25 @@ software_mapping:
   synapse: { manager: "choco", package: "razer-synapse-4" }
 
   # CAD / 3D
-  freecad: { manager: "winget", package: "FreeCAD.FreeCAD" }
+  freecad: { manager: "winget", package: "FreeCAD.FreeCAD", scope: "machine", installer_type: "nullsoft" }   # Manifest 1.1.4, read 2026-10-11: user (/CurrentUser) and machine (/AllUsers) nullsoft.
   prusaslicer: { manager: "winget", package: "Prusa3D.PrusaSlicer" }
 
   # Utilities
   teamviewer: { manager: "winget", package: "TeamViewer.TeamViewer" }
   veracrypt: { manager: "winget", package: "IDRIX.VeraCrypt" }
   speedtest: { manager: "winget", package: "Ookla.Speedtest.CLI" }
-  syncthing: { manager: "winget", package: "BillStewart.SyncthingWindowsSetup" }   # Inno installer: per-user install + logon scheduled task. `Syncthing.Syncthing` is the bare portable zip with no autostart.
+  # Syncthing's own build, machine-wide, started per user. Manifest 2.1.6, read 2026-10-11, carries
+  # one unscoped zip around a portable syncthing.exe, which --scope machine extracts under
+  # %ProgramFiles%\WinGet\Packages with a link in %ProgramFiles%\WinGet\Links. A portable is one of
+  # the types winget installs machine-wide only when winget itself is elevated, hence installer_type.
+  #
+  # It replaced BillStewart.SyncthingWindowsSetup, whose all users mode always installs a Windows
+  # service under its own SyncthingServiceAcct account, with folder permissions to grant by hand, and
+  # whose current user mode puts the binaries in the user's profile. The per-user start that package
+  # gave is now a Startup folder shortcut, made by Set-SyncthingUserStartup in
+  # setup/windows/WindowsSoftware.ps1, which also opens the firewall ports and reports a leftover
+  # BillStewart install rather than removing it.
+  syncthing: { manager: "winget", package: "Syncthing.Syncthing", scope: "machine", installer_type: "portable" }
   tailscale: { manager: "winget", package: "Tailscale.Tailscale" }
 
   # Crypto
@@ -205,7 +270,7 @@ software_mapping:
   tcpview: { manager: "winget", package: "Microsoft.Sysinternals.TCPView" }
   autoruns: { manager: "winget", package: "Microsoft.Sysinternals.Autoruns" }
   rufus: { manager: "winget", package: "Rufus.Rufus" }
-  powertoys: { manager: "winget", package: "Microsoft.PowerToys" }
+  powertoys: { manager: "winget", package: "Microsoft.PowerToys", scope: "machine", installer_type: "burn" }   # Manifest 0.101.2362.0, read 2026-10-11: user and machine burn.
   appcontrol: { manager: "winget", package: "AppControlLabs.AppControlSetup" }   # Task Manager with long-term history, tracks CPU, memory, disk, temperature and GPU over time
 
   # Hardware / OEM companion apps

@@ -294,6 +294,153 @@ check_winget_downloads() {
     fi
 }
 
+# --- which winget manifests leave the installer to a scope ------------------
+# tier1/winget_scope_pins.sh requires every package in tier1/winget_scoped_packages.txt to pin a
+# scope in vars/Windows.yaml, offline. This is what keeps that list true. It reads the newest
+# installer manifest of every mapped winget id from microsoft/winget-pkgs and recomputes the list:
+# a package belongs on it when one of its installers declares Scope: user, or when its installers
+# declare more than one distinct scope, counting an installer that declares none as "none", or when
+# its mapping pins a scope. The first two are the shape Bruno.Bruno, Overwolf.CurseForge and
+# Mirantis.Lens failed with in the elevated wizard. Each line also carries the installer type winget
+# selects for --scope machine, which is what decides whether the wizard has to run winget elevated.
+#
+# Read through gh rather than winget, because `winget show` prints no scope at all, measured with
+# winget v1.29.380 on 2026-10-11: Mirantis.Lens shows the same nullsoft URL with no scope, with
+# --scope machine and with --scope user. Two API calls per package, the version folder listing and
+# the installer manifest, measured at about two minutes for the whole dictionary on 2026-10-11.
+#
+# The parser is deliberately the standard library over the manifest's text rather than PyYAML,
+# because PyYAML is not on every machine this tier runs on and the manifest format puts every
+# installer key at one indent below its list item.
+check_winget_scopes() {
+    local list="${REPO_ROOT}/e2e/tier1/winget_scoped_packages.txt"
+    local claim="winget packages that leave the installer to a scope match tier1/winget_scoped_packages.txt"
+
+    if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
+        skip "${claim}" "gh is not authenticated, and winget itself prints no scope, so the manifests cannot be read"
+        return
+    fi
+    local python
+    if ! python="$(find_runnable_python)"; then
+        skip "${claim}" "no Python 3.11 or newer on PATH (tried python3, python and py)"
+        return
+    fi
+
+    local pkgs=() live=() unread=() id first base version manifest scopes
+    mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Windows.yaml" winget)
+    # The winget ids whose mapping pins a scope, read the way tier1/winget_scope_pins.sh reads them.
+    # A pinned package is listed even when its manifest offers no choice, Syncthing.Syncthing's one
+    # unscoped zip for instance, because the list is also the evidence for the installer type a
+    # machine pin declares.
+    local -A pinned=()
+    while read -r id; do
+        [[ -n "${id}" ]] && pinned["${id}"]=1
+    done < <(sed -nE 's/^  [a-z0-9_]+: \{[[:space:]]*manager:[[:space:]]*"winget"[[:space:]]*,[[:space:]]*package:[[:space:]]*"([^"]+)"[[:space:]]*(,[[:space:]]*source:[[:space:]]*"[a-z]+"[[:space:]]*)?,[[:space:]]*scope:[[:space:]]*"[a-z]+".*/\1/p' \
+                 "${VARS_DIR}/Windows.yaml" | tr -d '\r')
+    dim "reading the newest installer manifest of every winget id from microsoft/winget-pkgs"
+
+    for id in "${pkgs[@]}"; do
+        [[ "${id}" != *.* ]] && continue
+        first="$(printf '%s' "${id:0:1}" | tr '[:upper:]' '[:lower:]')"
+        base="manifests/${first}/${id//./\/}"
+        manifest=""
+        # A package folder holds its version folders and sometimes the folders of longer ids that
+        # share its prefix, so only names starting with a digit are versions. Newest first, and a
+        # version folder without the installer manifest is passed over for the one before it.
+        while read -r version; do
+            manifest="$(gh api -H 'Accept: application/vnd.github.raw' \
+                "repos/microsoft/winget-pkgs/contents/${base}/${version}/${id}.installer.yaml" 2>/dev/null)" && break
+            manifest=""
+        done < <(gh api "repos/microsoft/winget-pkgs/contents/${base}" --jq '.[] | select(.type == "dir") | .name' 2>/dev/null \
+                    | tr -d '\r' | grep -E '^[0-9]' | sort -V -r | head -3)
+        if [[ -z "${manifest}" ]]; then
+            unread+=("${id}")
+            continue
+        fi
+
+        # Prints the scopes the manifest declares and the installer type winget selects for
+        # --scope machine, "-" when none applies. The selection follows winget-cli v1.29.380,
+        # src/AppInstallerCommonCore/Manifest/ManifestComparator.cpp: an installer applies to a
+        # required scope when it declares that scope or its effective type ignores the manifest's
+        # scope (msix, msstore, portable, font, DoesInstallerTypeIgnoreScopeFromManifest), then the
+        # architecture, then the default type precedence. The effective type of a zip is its nested
+        # type, and appx is msix, both as winget reads them. Checked against `winget show --scope
+        # machine` with winget v1.29.380 for all 21 machine pins on 2026-10-11, which agreed on
+        # every one.
+        scopes="$("${python}" -c '
+import re, sys
+root = {}
+installers = []
+inside = False
+item_indent = None
+key_line = re.compile(r"(Scope|InstallerType|NestedInstallerType|Architecture):\s*[\x22\x27]?([\w-]+)")
+names = {"Scope": "scope", "InstallerType": "type", "NestedInstallerType": "nested", "Architecture": "arch"}
+for raw in sys.stdin.read().splitlines():
+    line = "" if raw.lstrip().startswith("#") else raw.split(" #")[0].rstrip()
+    if not line.strip():
+        continue
+    indent = len(line) - len(line.lstrip())
+    text = line.strip()
+    if indent == 0 and not text.startswith("- "):
+        inside = text.startswith("Installers:")
+        found = key_line.match(text)
+        if found:
+            root[names[found.group(1)]] = found.group(2).lower()
+        continue
+    if not inside:
+        continue
+    if text.startswith("- ") and (item_indent is None or indent == item_indent):
+        item_indent = indent
+        installers.append({})
+        text = text[2:].strip()
+    elif item_indent is None or indent != item_indent + 2:
+        continue
+    found = key_line.match(text)
+    if found:
+        installers[-1][names[found.group(1)]] = found.group(2).lower()
+if not installers:
+    print("UNPARSED")
+    sys.exit(0)
+def get(i, key):
+    return i.get(key) or root.get(key) or ""
+def effective(i):
+    kind = get(i, "nested") if get(i, "type") == "zip" else get(i, "type")
+    return "msix" if kind == "appx" else kind
+scope_agnostic = {"msix", "msstore", "portable", "font"}
+arch_rank = {"x64": 0, "neutral": 1, "x86": 2}
+type_rank = ["msstore", "msix", "msi", "wix", "burn", "nullsoft", "inno", "exe", "portable"]
+declared = sorted({get(i, "scope") or "none" for i in installers})
+machine = [i for i in installers
+           if (get(i, "scope") == "machine" or effective(i) in scope_agnostic) and get(i, "arch") in arch_rank]
+machine.sort(key=lambda i: (arch_rank[get(i, "arch")],
+                            type_rank.index(effective(i)) if effective(i) in type_rank else len(type_rank)))
+print(",".join(declared), effective(machine[0]) if machine else "-")
+' <<<"${manifest}" | tr -d '\r')" || scopes="UNPARSED"
+
+        if [[ "${scopes}" == "UNPARSED" || -z "${scopes}" ]]; then
+            unread+=("${id}")
+        elif [[ "${scopes%% *}" == *user* || "${scopes%% *}" == *,* || -v "pinned[${id}]" ]]; then
+            live+=("${id} ${scopes}")
+        fi
+    done
+
+    if [[ ${#unread[@]} -gt 0 ]]; then
+        fail "winget scopes: ${#unread[@]} installer manifest(s) could not be read, so whether they need a scope is unproven" "${unread[*]}"
+    fi
+
+    local expected actual
+    expected="$(grep -vE '^[[:space:]]*(#|$)' "${list}" | tr -d '\r' | LC_ALL=C sort)"
+    actual="$(printf '%s\n' "${live[@]}" | grep -v '^$' | LC_ALL=C sort)"
+    if [[ "${expected}" == "${actual}" ]]; then
+        pass "winget scopes: the ${#live[@]} packages whose manifest leaves the installer to a scope or whose mapping pins one are exactly the ones tier1/winget_scoped_packages.txt lists, with the same machine installer types"
+    else
+        fail "winget scopes: tier1/winget_scoped_packages.txt no longer matches winget-pkgs. Replace its data lines with the live list below, then pin a scope for every new one in vars/Windows.yaml and give every machine pin the installer_type its line names" \
+             "$(diff <(echo "${expected}") <(echo "${actual}") | grep -E '^[<>]' | tr '\n' ' ')"
+        dim "live list:"
+        printf '%s\n' "${actual}" | while read -r line; do dim "${line}"; done
+    fi
+}
+
 # --- apt and dnf, inside the pinned base image -------------------------------
 # The image comes out of e2e/tier3/<distro>.Dockerfile, so this check and the scenarios
 # always talk about the same distribution release. Nothing is installed: apt-cache policy
@@ -402,6 +549,7 @@ check_brew brew_cask cask
 check_choco
 check_winget
 check_winget_downloads
+check_winget_scopes
 check_npm
 check_apt_and_dnf
 probe_report_forgiveness "no dictionary forgiveness in runtime_repo_packages.txt has become unnecessary"

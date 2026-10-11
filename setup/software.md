@@ -10,6 +10,8 @@ Cells marked `(repo)` install from an official third-party repository that has t
 
 Arch cells using `yay` are the commands to type by hand and need an AUR helper, so bootstrap `yay` first. The playbook itself installs every AUR package through `paru`, which `arch_core` builds, and builds `yay` only when `install_yay` is on.
 
+Windows cells leave out the scope. The wizard installs every program machine-wide where a working machine-wide route exists, and per user only where none exists or the vendor advises per user, so it adds `--scope machine` or `--scope user` from the `scope` of each mapping in `vars/Windows.yaml`, where the reason for every per-user one is written beside it. Add the same flag when you paste a command by hand, and run a `--scope machine` command from an elevated shell, because winget refuses a machine-wide msix or portable install from a shell that is not elevated. When a program the wizard installs machine-wide is already installed for your user only, the wizard reports that with the `winget uninstall` command for the per-user copy and installs nothing beside it.
+
 Flatpak cells assume the Flathub remote exists:
 
 ```bash
@@ -182,13 +184,13 @@ sudo gpasswd -a $USER plugdev
 | TeamViewer | `curl -fsSLo /tmp/teamviewer.deb https://download.teamviewer.com/download/linux/teamviewer_amd64.deb && sudo apt-get install -y /tmp/teamviewer.deb` | `sudo dnf install -y https://download.teamviewer.com/download/linux/teamviewer.x86_64.rpm` | `yay -S teamviewer` | `brew install --cask teamviewer` | `winget install -e --id TeamViewer.TeamViewer` |
 | VeraCrypt | `curl -fsSLo /tmp/veracrypt.deb https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-Ubuntu-24.04-amd64.deb && sudo apt-get install -y /tmp/veracrypt.deb` | `sudo dnf install -y https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-CentOS-8-x86_64.rpm` | `sudo pacman -S --needed veracrypt` | `brew install --cask veracrypt` | `winget install -e --id IDRIX.VeraCrypt` |
 | Speedtest CLI | `sudo apt-get install -y speedtest-cli` | `sudo dnf install -y speedtest-cli` | `sudo pacman -S --needed speedtest-cli` | `brew install speedtest-cli` | `winget install -e --id Ookla.Speedtest.CLI` |
-| Syncthing | `sudo apt-get install -y syncthing` (repo) | `sudo dnf install -y syncthing` | `sudo pacman -S --needed syncthing` | `brew install --cask syncthing-app` | `winget install -e --id BillStewart.SyncthingWindowsSetup` |
+| Syncthing | `sudo apt-get install -y syncthing` (repo) | `sudo dnf install -y syncthing` | `sudo pacman -S --needed syncthing` | `brew install --cask syncthing-app` | `winget install -e --id Syncthing.Syncthing` |
 | Tailscale | `sudo apt-get install -y tailscale` (repo) | `sudo dnf install -y tailscale` (repo) | `sudo pacman -S --needed tailscale` | `brew install --cask tailscale-app` | `winget install -e --id Tailscale.Tailscale` |
 | AppImageLauncher | `curl -fsSLo /tmp/appimagelauncher.deb https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb && sudo apt-get install -y /tmp/appimagelauncher.deb` | `curl -fsSLo /tmp/appimagelauncher.rpm https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher-2.2.0-travis995.0f91801.x86_64.rpm && sudo rpm --install --nodigest /tmp/appimagelauncher.rpm` | `yay -S appimagelauncher` | not available | not available |
 
 Fedora needs the `rpm --nodigest` bypass for AppImageLauncher because the 2020 upstream RPM ships no file digests and dnf5 refuses it.
 
-On Linux the Syncthing package ships `/usr/lib/systemd/user/syncthing.service` disabled. Enable it so Syncthing starts at login as the owner of the synced files, which matches the logon scheduled task the Windows installer registers:
+On Linux the Syncthing package ships `/usr/lib/systemd/user/syncthing.service` disabled. Enable it so Syncthing starts at login as the owner of the synced files, which matches the Startup folder shortcut the Windows wizard creates:
 
 ```bash
 systemctl --user enable --now syncthing.service
@@ -196,7 +198,13 @@ systemctl --user enable --now syncthing.service
 
 The playbook does this in `custom_installs.yaml` and skips it with a warning when there is no active login session, because `systemctl --user` needs a D-Bus session.
 
-The Windows winget package is the Inno installer, which does a per-user install plus a logon scheduled task. `Syncthing.Syncthing` is the bare portable zip with no autostart.
+On Windows the wizard installs Syncthing's own build, `Syncthing.Syncthing`, machine-wide: winget extracts the portable zip under `%ProgramFiles%\WinGet\Packages` and links `syncthing.exe` into `%ProgramFiles%\WinGet\Links`. winget installs a portable machine-wide only when winget itself runs elevated, so the wizard runs that one install in an elevated child and Windows asks for consent. Then, as your normal user, it does three things:
+
+1. Puts a `Syncthing` shortcut in `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup` that starts the link with `--no-console --no-browser --no-upgrade`, the Startup folder route from Syncthing's own autostart guide. `--no-upgrade` is there because a standard user cannot replace the binary under Program Files, so `winget upgrade` updates it instead. Syncthing starts at your next logon, and its web interface is at `http://localhost:8384`. Each user's configuration stays in their own `%LOCALAPPDATA%\Syncthing`.
+2. Allows inbound TCP 22000, UDP 22000 and UDP 21027 on the Private and Domain profiles, the ports Syncthing's firewall guide lists, through one more elevated step when they are missing. By port and not by program, because every Syncthing version lands in its own versioned folder and a process started through the link runs under that versioned path, so a rule on the program would stop matching at the first upgrade. Without the rules Syncthing still syncs through its relays, only more slowly.
+3. Reports the older `BillStewart.SyncthingWindowsSetup` if it is still installed, with the command that removes it, because it starts its own Syncthing at logon and the two fight over the same ports. Its uninstaller keeps `%LOCALAPPDATA%\Syncthing`, so your devices and folders carry over. The wizard removes nothing by itself.
+
+`winget configure` with `setup\manifests\configuration.winget` installs the same package without any of the three steps above, and the generated file names no scope, so winget chooses one there.
 
 On Linux the playbook enables and starts the `tailscaled` system service in `custom_installs.yaml`. It runs in system scope, not user scope like Syncthing, because the daemon owns a network interface and routing table entries and needs root. Joining a tailnet is deliberately not automated: `sudo tailscale up` opens a browser for interactive authentication, and the alternative, a pre-shared auth key, would be a credential committed to this repository. Run `sudo tailscale up` once by hand after the playbook finishes. On macOS the cask is `tailscale-app`, the graphical application. The bare `tailscale` Homebrew formula is the headless daemon plus the command line client, and the two conflict, so do not install both.
 

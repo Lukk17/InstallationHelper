@@ -1,0 +1,53 @@
+# Every winget package mapped in setup/ansible/vars/Windows.yaml whose newest manifest in
+# microsoft/winget-pkgs leaves the choice of installer to a scope: one that offers a user-scope
+# installer, or more than one distinct scope, counting an installer that declares none as "none".
+# Each one must pin a scope in its mapping, and the scope it pins must be one its manifest can
+# serve. A mapping that pins a scope is listed here as well, even when its manifest offers no
+# choice, because this list is also the evidence for its installer type.
+#
+# Format: <package id> <scopes the newest manifest declares, sorted, comma separated> <machine type>
+#
+# The machine type is the installer type winget selects for --scope machine, or "-" when no
+# installer in the manifest serves a machine install. Every machine pin carries it as installer_type
+# in its mapping, and setup/windows/WindowsSoftware.ps1 runs winget elevated when it is msix,
+# msstore, portable or font, the types winget refuses to install machine-wide from a process that
+# is not elevated.
+#
+# tier1/winget_scope_pins.sh enforces this offline. tier2/resolve_packages.sh reads every winget
+# manifest again and fails when the live answer differs from this file, printing the lines to put
+# here instead, because a manifest gains or loses a scope or an installer with no warning to anybody.
+#
+# Read from winget-pkgs on 2026-10-11, and every machine type agreed with
+# `winget show --exact --id <id> --scope machine` on winget v1.29.380 the same day. GitHub sweep run
+# 38107292439 lost Mirantis.Lens to an access violation while the mapping pinned no scope, the shape
+# Bruno.Bruno and Overwolf.CurseForge had already shown. See docs/regression_ledger.md.
+Anthropic.Claude none,user msix
+ArduinoSA.IDE.stable machine,none wix
+Bitwarden.Bitwarden machine,none,user nullsoft
+Brave.Brave machine,user exe
+Bruno.Bruno machine,none wix
+DBeaver.DBeaver.Community machine,user nullsoft
+Discord.Discord user -
+ElementLabs.LMStudio machine,user nullsoft
+FreeCAD.FreeCAD machine,user nullsoft
+GIMP.GIMP.3 machine,user inno
+Git.Git machine,user inno
+GitHub.cli machine,none wix
+Google.AntigravityIDE user -
+JetBrains.Toolbox user -
+Microsoft.PowerToys machine,user burn
+Microsoft.VisualStudioCode machine,user inno
+Mirantis.Lens machine,user nullsoft
+Obsidian.Obsidian machine,user nullsoft
+OpenWhisperSystems.Signal user -
+Overwolf.CurseForge machine,user nullsoft
+Postman.Postman user -
+PuTTY.PuTTY machine,none wix
+Python.Python.3.11 machine,user burn
+SST.OpenCodeDesktop user -
+SlackTechnologies.Slack none,user msix
+Spotify.Spotify user -
+SublimeHQ.SublimeText.4 machine,none inno
+Syncthing.Syncthing none portable
+Telegram.TelegramDesktop none,user portable
+TorProject.TorBrowser user -

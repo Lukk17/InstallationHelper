@@ -32,17 +32,19 @@ info "Tier 1: Windows mapping parse"
 
 # Independent extraction. Deliberately a different expression from the PowerShell one, so a
 # mistake in one is not reproduced by the other.
-# scope is matched and then dropped, deliberately. This check compares what the two parsers
-# agree a package is: its key, manager, package id and source. Scope changes how winget is
-# invoked rather than what is installed, and Bruno is the only entry carrying one, so folding it
-# into the comparison would mean teaching the PowerShell side to print a fifth column for one
-# row. What matters here is that a line carrying a scope still parses, which the assertion below
-# about every mapping-shaped line already covers.
+# Compared: the key, manager, package id, source and scope, with "-" for no scope. Scope was
+# matched and dropped while Bruno was the only entry carrying one. Thirty entries carry one since
+# 2026-10-11, each pinned so winget never chooses an installer for the elevated wizard, and a
+# scope the PowerShell reader lost would hand that choice straight back to winget with nothing
+# here noticing. Whether each package pins the scope it needs is winget_scope_pins.sh's question.
+# installer_type is compared for the same reason, with "-" for none: it decides whether winget runs
+# elevated, and a type the PowerShell reader lost would send a machine-scope msix or portable install
+# to an unelevated winget that refuses it.
 yaml_mappings="$(
     sed -E 's/[[:space:]]+$//' "${MAPPING_YAML}" \
         | grep -E '^  [a-z0-9_]+: \{' \
-        | sed -E 's/^  ([a-z0-9_]+): \{[[:space:]]*manager:[[:space:]]*"([a-z_]+)"[[:space:]]*,[[:space:]]*package:[[:space:]]*"([^"]*)"[[:space:]]*(,[[:space:]]*source:[[:space:]]*"([a-z]+)"[[:space:]]*)?(,[[:space:]]*scope:[[:space:]]*"([a-z]+)"[[:space:]]*)?(,[[:space:]]*client_only:[[:space:]]*(true|false)[[:space:]]*)?(,[[:space:]]*user_context:[[:space:]]*(true|false)[[:space:]]*)?(,[[:space:]]*requires_nvidia_gpu:[[:space:]]*(true|false)[[:space:]]*)?(,[[:space:]]*verify_path:[[:space:]]*"[^"]*"[[:space:]]*)?\}.*/\1 \2 \3 \5/' \
-        | awk '{ if ($4 == "") $4 = "winget"; print $1, $2, $3, $4 }' \
+        | sed -E 's/^  ([a-z0-9_]+): \{[[:space:]]*manager:[[:space:]]*"([a-z_]+)"[[:space:]]*,[[:space:]]*package:[[:space:]]*"([^"]*)"[[:space:]]*(,[[:space:]]*source:[[:space:]]*"([a-z]+)"[[:space:]]*)?(,[[:space:]]*scope:[[:space:]]*"([a-z]+)"[[:space:]]*)?(,[[:space:]]*installer_type:[[:space:]]*"([a-z]+)"[[:space:]]*)?(,[[:space:]]*client_only:[[:space:]]*(true|false)[[:space:]]*)?(,[[:space:]]*user_context:[[:space:]]*(true|false)[[:space:]]*)?(,[[:space:]]*requires_nvidia_gpu:[[:space:]]*(true|false)[[:space:]]*)?(,[[:space:]]*verify_path:[[:space:]]*"[^"]*"[[:space:]]*)?\}.*/\1\t\2\t\3\t\5\t\7\t\9/' \
+        | awk -F '\t' '{ if ($4 == "") $4 = "winget"; if ($5 == "") $5 = "-"; if ($6 == "") $6 = "-"; print $1 " " $2 " " $3 " " $4 " " $5 " " $6 }' \
         | sort
 )"
 
@@ -72,7 +74,7 @@ if (\$PSStyle) { \$PSStyle.OutputRendering = 'PlainText' }
 . '${win_ps_file}'
 \$m = Get-WindowsSoftwareMapping -WindowsMappingPath '${win_mapping}'
 \$m.GetEnumerator() | Sort-Object Key | ForEach-Object {
-    '{0} {1} {2} {3}' -f \$_.Key, \$_.Value.Manager, \$_.Value.Package, \$_.Value.Source
+    '{0} {1} {2} {3} {4} {5}' -f \$_.Key, \$_.Value.Manager, \$_.Value.Package, \$_.Value.Source, \$(if (\$_.Value.Scope) { \$_.Value.Scope } else { '-' }), \$(if (\$_.Value.InstallerType) { \$_.Value.InstallerType } else { '-' })
 }"
 
 ps_raw="$("${PWSH}" -NoProfile -NonInteractive -Command "${ps_script}" 2>&1 | tr -d '\r' || true)"
@@ -87,7 +89,7 @@ n_ps="$(grep -c . <<<"${ps_mappings}")"
 assert_eq "PowerShell parses the same number of mappings as the YAML has" "${n_yaml}" "${n_ps}"
 
 if [[ "${yaml_mappings}" == "${ps_mappings}" ]]; then
-    pass "PowerShell and the YAML agree on all ${n_yaml} mappings, including manager and source"
+    pass "PowerShell and the YAML agree on all ${n_yaml} mappings, including manager, source, scope and installer type"
 else
     fail "the PowerShell parser disagrees with the YAML" \
          "$(diff <(echo "${yaml_mappings}") <(echo "${ps_mappings}") | head -12 | tr '\n' ' ')"

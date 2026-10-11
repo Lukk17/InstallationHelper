@@ -499,10 +499,10 @@ properties:
     - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: syncthing
       directives:
-        description: Install syncthing (BillStewart.SyncthingWindowsSetup)
+        description: Install syncthing (Syncthing.Syncthing)
         allowPrerelease: false
       settings:
-        id: BillStewart.SyncthingWindowsSetup
+        id: Syncthing.Syncthing
         source: winget
     - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: tailscale
