@@ -37,7 +37,7 @@ Heading levels and the single horizontal rule follow the `e2e-runbooks` tasks-te
 - [ ] The harness reported `verification refused and named the missing packages`
 - [ ] On Arch and CachyOS only, the harness reported `the failed paru build was recorded, and the run carried on and named the skipped Arch User Repository packages`
 - [ ] The harness reported `the failed Pyenv build was recorded, and FVM and the Android SDK still ran after it`
-- [ ] On Debian, Ubuntu, Pop!_OS and Fedora only, the harness reported `the Lens repository that could not be added was recorded, and the software installer skipped Lens alone and named it`
+- [ ] On Debian, Ubuntu, Pop!_OS and Fedora only, the harness reported `the Lens repository that could not be added was recorded, and the software installer named Lens among the packages it skipped and went on`
 - [ ] `Assert the installed-package query returned a plausible list` passed, so the run failed because nothing was installed rather than because the query broke
 - [ ] `Assert every enabled native package is installed` failed, and the applications it named are recorded
 - [ ] The assertions after it were not reached, and that was recorded as not reached rather than as passed

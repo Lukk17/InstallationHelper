@@ -38,14 +38,21 @@
 #    and the same verdict, so the scenario degrades into still testing what it was written to test.
 #
 # A second injection, Arch and CachyOS only, for the one failure arch_core now survives. paru is
-# cloned from arch_core_paru_repository, a role default, and the name below holds nothing in the Arch
-# User Repository: cloning it succeeds with an empty repository and ansible.builtin.git then fails with
-# "Failed to checkout branch master", measured on 2026-10-10. That lands in the rescue around the paru
-# build in roles/arch_core/tasks/main.yaml, which is the path a real CachyOS machine took on that date
-# when its paru build failed. The run must carry on past it, every Arch User Repository package must be
-# named as NOT installed because paru could not be built, and the step must reach the exit code, the
-# summary and the error log like any other failure. On the other three families nothing reads the
-# variable.
+# cloned from arch_core_paru_repository, a role default, and the address below is on a host under
+# .invalid, a name RFC 2606 reserves so that it can never resolve. So "Clone paru AUR helper
+# repository" fails on every run, in the same way. Measured in WSL Ubuntu on 2026-10-11: `git clone
+# https://aur.invalid/paru.git` exits 128 in 38 ms with "Could not resolve host: aur.invalid", and the
+# same clone task with its retries 3 and delay 10, run by ansible-core 2.19.9, fails after about 34
+# seconds, which is nothing against the ceiling below. This used to be an empty Arch User Repository
+# name, which was not deterministic, because the answer was the third-party server's choice: on
+# 2026-10-10 the clone failed with "Failed to checkout branch master", and on 2026-10-11 the server
+# answered with an empty repository, the clone reported ok, and the failure moved to "Build paru
+# package (non-root)" with "==> ERROR: PKGBUILD does not exist.". Either way the run lands in the
+# rescue around the paru build in roles/arch_core/tasks/main.yaml, which is the path a real CachyOS
+# machine took on 2026-10-10 when its paru build failed. The run must carry on past it, every Arch
+# User Repository package must be named as NOT installed because paru could not be built, and the
+# step must reach the exit code, the summary and the error log like any other failure. On the other
+# three families nothing reads the variable.
 #
 # A third injection, for the third-party repositories, which stopped ending the whole software phase
 # on 2026-10-10. software_installer_lens_key_url is a role default, and the path below on the same
@@ -87,7 +94,7 @@ software_installer_batches:
   pacman: ["ih-e2e-forced-failure-no-such-package"]
   flatpak: ["io.github.ih_e2e.ForcedFailureNoSuchApp"]
 
-arch_core_paru_repository: "https://aur.archlinux.org/ih-e2e-forced-failure-no-such-package.git"
+arch_core_paru_repository: "https://aur.invalid/paru.git"
 
 software_installer_lens_key_url: "https://downloads.k8slens.dev/keys/ih-e2e-forced-failure-no-such-key"
 

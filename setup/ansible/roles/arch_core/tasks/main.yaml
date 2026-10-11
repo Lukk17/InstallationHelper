@@ -259,7 +259,7 @@
       when: not (paru_available | bool)
 
     # The repository is a role default only so that the forced-failure scenario can point it at an
-    # Arch User Repository name that holds nothing, which makes this clone fail every time and proves
+    # address on a host under .invalid, which can never resolve, so this clone fails every time and proves
     # the rescue below reports a paru failure rather than swallowing it.
     - name: Clone paru AUR helper repository
       become: yes

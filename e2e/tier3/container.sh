@@ -147,6 +147,37 @@ changed_task_names() {
     ' "$1"
 }
 
+# The words the software installer prints immediately before the comma-separated list of packages it
+# skipped because their repository could not be added. The list is the variable part: forced-failure
+# on Fedora in GitHub sweep run 38107292439 printed "lens, tailscale" there, not "lens" alone.
+REPOSITORY_SKIP_LIST_PREFIX="repository they come from could not be added: "
+
+# Succeeds when $2 is one whole entry of a comma-separated list that follows $1 on some line of $3.
+# The list ends at the first full stop followed by a space, or at a full stop that ends the line.
+log_list_names() {
+    local prefix="$1"
+    local wanted="$2"
+    local log_file="$3"
+    local line list entry
+    local -a entries
+
+    while IFS= read -r line; do
+        [[ "${line}" == *"${prefix}"* ]] || continue
+        list="${line#*"${prefix}"}"
+        list="${list%%. *}"
+        list="${list%.}"
+        IFS=',' read -r -a entries <<<"${list}"
+        for entry in "${entries[@]}"; do
+            entry="${entry#"${entry%%[![:space:]]*}"}"
+            entry="${entry%"${entry##*[![:space:]]}"}"
+            if [[ "${entry}" == "${wanted}" ]]; then
+                return 0
+            fi
+        done
+    done <"${log_file}"
+    return 1
+}
+
 # ---------------------------------------------------------------------------
 # Start phase
 # ---------------------------------------------------------------------------
@@ -1061,14 +1092,16 @@ collect_and_verify() {
         # answers 404. Lens is the one repository that should be lost: its block's rescue has to name
         # it in the error log, and the software installer has to skip Lens alone and say so, which it
         # only does if the repository failure did not end the software phase. Arch and CachyOS map Lens
-        # to the Arch User Repository, so nothing reads the variable there.
+        # to the Arch User Repository, so nothing reads the variable there. Lens has to be one entry of
+        # the skipped list rather than the whole of it, because a real repository failing on the same
+        # run adds its own package to that list, which tailscale did on Fedora in run 38107292439.
         if [[ "${OS}" != "arch" && "${OS}" != "cachyos" ]]; then
             if grep -qF "The Lens repository could not be added" "${ERRORS_LOG}" \
-                && grep -qF "could not be added: lens." "${PLAYBOOK_LOG}"; then
-                pass "${SCENARIO_NAME}: the Lens repository that could not be added was recorded, and the software installer skipped Lens alone and named it"
+                && log_list_names "${REPOSITORY_SKIP_LIST_PREFIX}" lens "${PLAYBOOK_LOG}"; then
+                pass "${SCENARIO_NAME}: the Lens repository that could not be added was recorded, and the software installer named Lens among the packages it skipped and went on"
             else
                 fail "${SCENARIO_NAME}: the Lens repository failure was not reported the way a skipped repository is" \
-                     "expected 'The Lens repository could not be added' in ${ERRORS_LOG} and 'could not be added: lens.' in ${PLAYBOOK_LOG}"
+                     "expected 'The Lens repository could not be added' in ${ERRORS_LOG} and lens as one entry of the list after '${REPOSITORY_SKIP_LIST_PREFIX}' in ${PLAYBOOK_LOG}"
             fi
         fi
 
@@ -1084,7 +1117,8 @@ collect_and_verify() {
                  "expected the Pyenv [ERROR] line in ${ERRORS_LOG} and fvm.yaml and android_sdk.yaml included in ${PLAYBOOK_LOG}"
         fi
 
-        # Arch and CachyOS carry a second injection, a paru clone that cannot succeed. The pacman
+        # Arch and CachyOS carry a second injection, a paru clone from a .invalid host, which no
+        # resolver answers, so it fails at the clone step on every run and the step can be named. The pacman
         # failure above would fail this scenario on its own, so without a check of its own a paru
         # failure that was swallowed, or one that stopped the run, would go unnoticed here. The step
         # has to be in the error log, and the run has to have gone on to name the skipped Arch User
