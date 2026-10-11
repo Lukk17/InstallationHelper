@@ -39,28 +39,25 @@ WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
 # --- which group_vars files the wizard would read ----------------------------
-# detect_os is taken out of setup.sh and run rather than reimplemented, so this check asks the same
-# question the wizard asks and gets the same answer on macOS as on Linux.
-# Both are read by detect_os, which is eval'd out of setup.sh below and which shellcheck
-# cannot see into.
-# shellcheck disable=SC2034
-LINUX_VARS="${GROUP_VARS_DIR}/linux.yaml"
-# shellcheck disable=SC2034
-MACOS_VARS="${GROUP_VARS_DIR}/macos.yaml"
-
-detect_os_text="$(sed -n '/^detect_os()/,/^}/p' "${SETUP_SH}")"
+# detect_os is taken out of setup.sh and run rather than reimplemented, through the shared
+# prepare_detect_os helper in common.sh, so this check asks the same question the wizard asks and
+# gets the same answer on macOS as on Linux.
 excluded_line="$(grep -m1 '^EXCLUDED_VARS=' "${SETUP_SH}" || true)"
 de_keys_line="$(grep -m1 '^DE_KEYS=' "${SETUP_SH}" || true)"
 
-if [[ -z "${detect_os_text}" || -z "${excluded_line}" || -z "${de_keys_line}" ]]; then
-    fail "setup.sh no longer defines detect_os, EXCLUDED_VARS and DE_KEYS, so the expected list cannot be built" \
-         "one of the three was not found in ${SETUP_SH}"
+if [[ -z "${excluded_line}" || -z "${de_keys_line}" ]]; then
+    fail "setup.sh no longer defines EXCLUDED_VARS and DE_KEYS, so the expected list cannot be built" \
+         "one of the two was not found in ${SETUP_SH}"
     finish "list-software"
 fi
 
 eval "${excluded_line}"
 eval "${de_keys_line}"
-eval "${detect_os_text}"
+prepare_detect_os "${GROUP_VARS_DIR}/linux.yaml" "${GROUP_VARS_DIR}/macos.yaml" || {
+    fail "setup.sh no longer defines detect_os and debian_lineage together, so the OS this check resolves to cannot be built" \
+         "one of the two was not found in ${SETUP_SH}"
+    finish "list-software"
+}
 detect_os
 
 de_pattern="$(printf '%s|' "${DE_KEYS[@]}")"

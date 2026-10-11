@@ -75,10 +75,29 @@ run_tier1() {
     # Bash on Windows process creation is what they spend nearly all of their time on. They are last
     # so that everything answerable from text has already reported by the time the slow tail starts.
     local rc=0
+    local tally_file
+    tally_file="$(mktemp)"
     for check in shell_syntax wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings windows_phase_contract windows_cache_cleanup windows_pester powershell_variables powershell_splat workflow_timeouts workflow_parity verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation pinned_values pinned_values_reader manifests compose_and_docs network_retries batched_managers sigpipe_pipelines unreachable_tasks desktop_settings become_password_file line_endings ansible_static control_characters keycloak_realm_import interactive_states list_software wizard_refusals wizard_root_refusal shell_units print_command_resolution selection_parity paru_consumers heartbeat_log_files availability_facts rescue_coverage; do
-        bash "${E2E_ROOT}/tier1/${check}.sh" || rc=1
+        local check_rc
+        set +e
+        bash "${E2E_ROOT}/tier1/${check}.sh" 2>&1 | tee "${tally_file}"
+        check_rc=${PIPESTATUS[0]}
+        set -e
         echo
+        [[ ${check_rc} -ne 0 ]] && rc=1
+        # A check that dies before finish() runs leaves no line matching this pattern at all: no
+        # script here prints it except finish() in common.sh, win or lose. Without this,
+        # list_software.sh and print_command_resolution.sh both died this way on 2026-10-11, each
+        # on an undefined debian_lineage call, and the only trace either left in the log was a
+        # bare "command not found" line with no FAIL and no name attached to it.
+        if ! grep -qE ': [0-9]+ (checks|passed)' "${tally_file}"; then
+            rc=1
+            printf '%sFAIL%s %s.sh exited %d with no PASS, FAIL or tally line in its output, which reads as a death rather than a named failure\n' \
+                "${C_RED}" "${C_OFF}" "${check}" "${check_rc}"
+            echo
+        fi
     done
+    rm -f "${tally_file}"
     return ${rc}
 }
 

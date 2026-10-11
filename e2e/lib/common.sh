@@ -408,6 +408,45 @@ yaml_bool_toggles() {
         | tr -d ':'
 }
 
+# prepare_detect_os <linux_vars_file> <macos_vars_file>  -> 0 and the real detect_os and
+#                                                            debian_lineage defined, or 1 and
+#                                                            neither defined
+#
+# Defines the wizard's own detect_os out of setup.sh rather than reimplementing its logic, the
+# same way wizard_toggle_keys above resolves the wizard's own toggles. The caller still has to
+# call detect_os itself, rather than this function calling it, and that is deliberate rather than
+# an oversight: a failure inside an eval'd function is only guaranteed to abort the script under
+# set -e, which is what run.sh's own tally-line check needs to catch a future version of this
+# exact regression, when that function is called from the top level of the script that sourced
+# common.sh. Calling it from inside a second function, as an earlier version of this helper did,
+# lets bash 5.2 (WSL, and the GitHub runner) quietly continue past the exact failure this helper
+# exists to surface, proven by running both shapes against the regression.
+#
+# detect_os calls a second helper, debian_lineage, on every Debian-family host, so both are
+# extracted and eval'd together. Defining only detect_os, which is what list_software.sh and
+# print_command_resolution.sh both did until 2026-10-11, calls an undefined function the moment
+# debian_lineage exists and dies with "command not found" on every Debian-family host, Ubuntu
+# included, and nowhere else, which is why it reached the GitHub runner before it reached either
+# check's own author: neither Git Bash nor macOS has an /etc/os-release, so OS_FAMILY never
+# resolves to Debian there and the call this check depends on never happens.
+prepare_detect_os() {
+    local linux_vars="$1" macos_vars="$2"
+    local setup_sh="${REPO_ROOT}/setup/setup.sh"
+    local detect_os_text debian_lineage_text
+    detect_os_text="$(sed -n '/^detect_os()/,/^}/p' "${setup_sh}")"
+    debian_lineage_text="$(sed -n '/^debian_lineage()/,/^}/p' "${setup_sh}")"
+    [[ -n "${detect_os_text}" && -n "${debian_lineage_text}" ]] || return 1
+
+    # Read only by detect_os and debian_lineage, which are eval'd below and which shellcheck
+    # cannot see into.
+    # shellcheck disable=SC2034
+    LINUX_VARS="${linux_vars}"
+    # shellcheck disable=SC2034
+    MACOS_VARS="${macos_vars}"
+    eval "${debian_lineage_text}"
+    eval "${detect_os_text}"
+}
+
 # The keys the wizard's checklist offers, one per line, in the wizard's own order.
 #
 # This is the harness's only route to that answer, and it evaluates the functions setup.sh ships

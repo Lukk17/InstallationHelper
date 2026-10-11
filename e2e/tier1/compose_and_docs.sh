@@ -16,11 +16,18 @@
 #      links are somebody else's problem and are not fetched here, that is what tier 2 is for.
 #
 # A missing docker binary is a skip rather than a pass, for the reason the rest of the harness gives:
-# silence and success have to be told apart.
+# silence and success have to be told apart. docker_usable asks more than command -v: with Docker
+# Desktop's WSL integration off, the docker on PATH is a stub that prints "The command 'docker'
+# could not be found in this WSL 2 distro." to stdout and keeps going rather than failing cleanly,
+# which read as a real but empty service name below and crashed the check with no FAIL and no
+# tally, caught only once run.sh started checking for one. docker info is the same reachability
+# test require_docker_host in common.sh uses for tier 2 and 3, asked here without exiting the gate.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 info "Tier 1: compose files and documentation links"
+
+docker_usable() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
 
 # --- compose files resolve ------------------------------------------------------------------------
 mapfile -t compose_files < <(
@@ -31,8 +38,8 @@ mapfile -t compose_files < <(
 if [[ ${#compose_files[@]} -eq 0 ]]; then
     fail "no compose files found under local-dev/ or homelab/, so this check proves nothing" \
          "${REPO_ROOT}"
-elif ! command -v docker >/dev/null 2>&1; then
-    skip "every compose file resolves" "no docker binary here, and only docker can answer this"
+elif ! docker_usable; then
+    skip "every compose file resolves" "no docker here that both exists and answers docker info, and only docker can answer this"
 else
     broken=()
     for f in "${compose_files[@]}"; do
@@ -64,9 +71,9 @@ services_seen=0
 # Both ways this cannot run are named. It used to be one `command -v docker` guard around the
 # loop, so a machine without docker walked no service at all and then printed the pass line for a
 # question nobody had asked.
-if ! command -v docker >/dev/null 2>&1; then
+if ! docker_usable; then
     skip "every service in those files names an image or a build context" \
-         "no docker binary here, and only docker knows what counts as a service"
+         "no docker here that both exists and answers docker info, and only docker knows what counts as a service"
 elif ! PYTHON="$(find_runnable_python)"; then
     skip "every service in those files names an image or a build context" \
          "no Python 3.11 or newer on PATH (tried python3, python and py), so compose's own JSON could not be read"
