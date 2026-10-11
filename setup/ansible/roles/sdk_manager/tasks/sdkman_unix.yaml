@@ -1,10 +1,23 @@
 ---
-- name: Install SDKMAN (Linux/Mac)
+# The vendor installer copies bin/sdkman-init.sh in its first archive step and writes var/version
+# only after the second, native archive is in place, so var/version is the mark of a finished
+# install. Guarding on sdkman-init.sh let a first attempt that failed between those two steps be
+# skipped by its own retry and reported ok, which is what CachyOS GNOME full hit in sweep
+# 38107292439. The installer itself exits 0 without doing anything once sdkman-init.sh exists, so a
+# half-finished directory is completed with `sdk selfupdate force`, SDKMAN's own repair, which keeps
+# every installed candidate. See docs/regression_ledger.md.
+- name: Install SDKMAN, or complete a half-finished install (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    curl -fsSL --max-time 120 "https://get.sdkman.io" | bash
+    export SDKMAN_DIR="{{ non_root_home }}/.sdkman"
+    if [ -f "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
+      bash -c 'source "$SDKMAN_DIR/bin/sdkman-init.sh" && sdk selfupdate force'
+    else
+      curl -fsSL --max-time 120 "https://get.sdkman.io" | bash
+    fi
+    [ -f "$SDKMAN_DIR/var/version" ] && [ -f "$SDKMAN_DIR/var/version_native" ]
   args:
-    creates: "{{ non_root_home }}/.sdkman/bin/sdkman-init.sh"
+    creates: "{{ non_root_home }}/.sdkman/var/version"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
@@ -12,6 +25,30 @@
   retries: 3
   delay: 10
   until: sdkman_bootstrap is succeeded
+
+# The vendor installer writes its init snippet into .bashrc and .zshrc only on the one run that
+# reaches its last step, so a machine where that run never finished, or where a later copy replaced
+# .zshrc, has SDKMAN on disk and `sdk` unreachable. Same reasoning and same file as the NVM block in
+# nvm_unix.yaml.
+- name: Ensure the project's own environment file directory exists (Linux/Mac)
+  ansible.builtin.file:
+    path: "{{ non_root_home }}/apps_config"
+    state: directory
+    owner: "{{ non_root_user }}"
+    group: "{{ ih_non_root_group }}"
+    mode: '0755'
+  become: yes
+
+- name: Ensure SDKMAN shell init is present in the project's environment file (Linux/Mac)
+  ansible.builtin.blockinfile:
+    path: "{{ non_root_home }}/apps_config/env.sh"
+    marker: "# {mark} ANSIBLE SDKMAN SHELL INIT"
+    create: yes
+    block: |
+      export SDKMAN_DIR="$HOME/.sdkman"
+      [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && . "$SDKMAN_DIR/bin/sdkman-init.sh"
+  become: yes
+  become_user: "{{ non_root_user }}"
 
 # SDKMAN's `sdk install` writes to shared state files (~/.sdkman/etc/config,
 # ~/.sdkman/var/, the installed-candidates registry under candidates/) without

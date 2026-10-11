@@ -1,0 +1,7 @@
+# Task files whose home-directory vendor installer needs no shell init block of its own, each with the reason.
+#
+# Read by e2e/tier1/vendor_installer_shell_init.sh. One entry per line, the task file path from the
+# repository root, then a pipe, then why. An entry whose file no longer holds such an installer fails
+# the check as well, so this file cannot quietly outlive what it excuses.
+
+setup/ansible/roles/sdk_manager/tasks/fvm_unix.yaml | fvm is a plain binary rather than a shell function, and $HOME/fvm/bin and $HOME/fvm/default/bin are already on PATH through the unconditional "Set Dev Apps Environment Variables (Linux/macOS)" block env_unix.yaml writes into apps_config/env.sh
