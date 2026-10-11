@@ -301,6 +301,89 @@ case "${render_probe}" in
     *) fail "the callback drops a line the playbook marked as an error" "${render_probe#FAIL }" ;;
 esac
 
+# --- the callback writes down every failed attempt of a retried task ---------
+# The callback had no v2_runner_retry, so an attempt that failed and was then retried left nothing in
+# any log. In sweep 38107292439 the SDKMAN installer died on its first attempt, its retry was skipped
+# by a creates guard, and the only trace was a ten second gap before an ok line. The real hook is
+# driven with a result shaped like the one ansible-core 2.19 hands it, and in-memory files stand in
+# for the three logs, so a hook that prints to the console alone, or to the errors log, fails here.
+retry_status=0
+retry_probe="$("${PYTHON}" - "${ANSIBLE_DIR}/callback_plugins/dual_logger.py" <<'PYEOF'
+import importlib.util, io, sys
+
+spec = importlib.util.spec_from_file_location("dual_logger_retry_probe", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(module)
+except Exception as exc:                      # ansible not importable here, for instance
+    print("SKIP {}".format(exc))
+    sys.exit(0)
+
+shown = []
+
+
+class Display:
+    def display(self, text):
+        shown.append(text)
+
+
+class Named:
+    def __init__(self, name):
+        self.name = name
+
+    def get_name(self):
+        return self.name
+
+
+class Result:
+    _host = Named("localhost")
+    _task = Named("sdk_manager : Install the probe tool")
+    _result = {
+        "attempts": 2,
+        "retries": 4,
+        "rc": 23,
+        "msg": "non-zero return code",
+        "stderr": "\n".join(["noise line {}".format(n) for n in range(20)]
+                            + ["curl: (56) probe archive connection reset"]),
+    }
+
+
+callback = module.CallbackModule.__new__(module.CallbackModule)
+callback._display = Display()
+callback.full_log = io.StringIO()
+callback.errors_log = io.StringIO()
+callback.warnings_log = io.StringIO()
+callback._log_initialized = True
+callback._pending_phase = None
+callback._pending_task = None
+callback._task_start_ts = None
+callback.v2_runner_retry(Result())
+console = "\n".join(shown)
+logs = {"the console": console,
+        "installation_full.log": callback.full_log.getvalue(),
+        "installation_warnings.log": callback.warnings_log.getvalue()}
+wanted = ["Install the probe tool", "attempt 2 of 4", "non-zero return code", "rc: 23",
+          "curl: (56) probe archive connection reset"]
+
+problems = []
+for where, text in logs.items():
+    missing = [needle for needle in wanted if needle not in text]
+    if missing:
+        problems.append("{} lacks {}".format(where, ", ".join(repr(m) for m in missing)))
+if "noise line 0" in console:
+    problems.append("printed the whole stderr instead of its tail")
+if callback.errors_log.getvalue():
+    problems.append("wrote a tolerated retry to installation_errors.log")
+print("FAIL " + "; ".join(problems) if problems else "OK")
+PYEOF
+)" || retry_status=$?
+assert_python_ran "${retry_status}" "Ansible static"
+case "${retry_probe}" in
+    OK) pass "the callback writes each failed attempt of a retried task to the console, the full log and the warnings log" ;;
+    SKIP*) skip "the callback writes each failed attempt of a retried task" "${retry_probe#SKIP }" ;;
+    *) fail "a failed attempt of a retried task leaves no trace where it should" "${retry_probe#FAIL }" ;;
+esac
+
 # --- optional linters --------------------------------------------------------
 # Reported, never required. Making the gate depend on a tool that may not be installed
 # would mean the gate silently stops running, which is its own failure mode.

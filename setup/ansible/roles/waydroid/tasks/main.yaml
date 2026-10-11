@@ -1,20 +1,70 @@
 ---
-- name: Add Waydroid repository (Debian)
-  ansible.builtin.shell: |
-    set -o pipefail
-    curl -fsSL https://repo.waydro.id | bash
-  args:
-    creates: /etc/apt/sources.list.d/waydroid.list
-    executable: /bin/bash
-  become: yes
+# The script at https://repo.waydro.id downloads the keyring to /usr/share/keyrings/waydroid.gpg,
+# writes /etc/apt/sources.list.d/waydroid.list and then runs apt update, read on 2026-10-11. The task
+# used to be guarded by creates on the list file, so an attempt that died in apt update was skipped by
+# its own retry and reported ok, and a plain apt update exits 0 with only a warning when one host does
+# not answer anyway. So the script runs when either file is missing, and a retry runs it again in full
+# because a when is decided once before the first attempt. Whether the repository really serves its
+# package lists is then asked on their own, through the same check and the same rescue every
+# repository block in software_installer uses, with the waydroid entry in vars/Debian.yaml, and the
+# block fails unless apt can name a candidate for waydroid. See docs/regression_ledger.md.
+- name: Add the Waydroid repository (Debian)
   when: ih_family == 'Debian'
-  # Retried for the reason written above the batched apt install: this fetches over the network,
-  # and one dropped connection during a provisioning run must not be the end of it. The creates
-  # guard above means a second attempt does nothing when the first one actually got there.
-  register: waydroid_repo
-  until: waydroid_repo is succeeded
-  retries: 3
-  delay: 10
+  vars:
+    repository_key: waydroid
+  block:
+    - name: Probe for the Waydroid keyring and sources file (Debian)
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: >-
+        {{ os_dict.third_party_repositories.waydroid.files
+           + os_dict.third_party_repositories.waydroid.keyrings }}
+      register: waydroid_repository_probe
+
+    - name: Add Waydroid repository (Debian)
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -fsSL https://repo.waydro.id | bash
+      args:
+        executable: /bin/bash
+      become: yes
+      when: waydroid_repository_probe.results | rejectattr('stat.exists') | list | length > 0
+      register: waydroid_repo
+      until: waydroid_repo is succeeded
+      retries: 3
+      delay: 10
+
+    - name: Fetch the Waydroid package lists on their own (Debian)
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/roles/software_installer/tasks/debian_repository_check.yaml"
+        apply:
+          tags: [always]
+      tags: [always]
+
+    - name: Ask apt whether the Waydroid repository offers waydroid (Debian)
+      ansible.builtin.command:
+        argv: [apt-cache, policy, waydroid]
+      environment:
+        LC_ALL: C
+      register: waydroid_candidate
+      changed_when: false
+      failed_when: >-
+        waydroid_candidate.rc != 0
+        or 'Candidate:' not in waydroid_candidate.stdout
+        or 'Candidate: (none)' in waydroid_candidate.stdout
+  rescue:
+    - name: Undo, record and name the Waydroid repository that could not be added (Debian)
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/roles/software_installer/tasks/repository_unavailable.yaml"
+        apply:
+          tags: [always]
+      tags: [always]
+
+    - name: Stop the Waydroid role, because its repository could not be added (Debian)
+      ansible.builtin.fail:
+        msg: >-
+          The Waydroid repository could not be added, so Waydroid cannot be installed in this run.
+          The step that failed and its message are named above.
 
 - name: Install Waydroid (Debian)
   ansible.builtin.apt:

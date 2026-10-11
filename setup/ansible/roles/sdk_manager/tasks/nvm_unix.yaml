@@ -1,10 +1,20 @@
 ---
-- name: Install NVM (Linux/Mac)
+# The vendor installer clones the default branch of nvm, which already holds nvm.sh, and only then
+# fetches and checks out the pinned tag, under install_nvm_from_git in install.sh, read for v0.40.4 on
+# 2026-10-11. Guarding on nvm.sh let an attempt that died between the clone and the checkout be
+# skipped by its own retry and reported ok, leaving whatever the default branch held instead of the
+# pin. nvm writes no file of its own once the pinned tag is in place, so this task writes one, named
+# after the pin, only after nvm itself answers with the pinned version. The installer updates an
+# existing ~/.nvm in place, so a half-finished install, or one from an earlier pin, is completed by
+# running it again. See docs/regression_ledger.md.
+- name: Install NVM, or complete a half-finished install (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
-    curl -fsSL --max-time 120 -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash
+    nvm_dir="{{ non_root_home }}/.nvm"
+    curl -fsSL --max-time 120 -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash || exit 1
+    . "$nvm_dir/nvm.sh" --no-use && [ "$(nvm --version)" = {{ nvm_version | quote }} ] && touch "$nvm_dir/.installation-helper-nvm-{{ nvm_version }}"
   args:
-    creates: "{{ non_root_home }}/.nvm/nvm.sh"
+    creates: "{{ non_root_home }}/.nvm/.installation-helper-nvm-{{ nvm_version }}"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"

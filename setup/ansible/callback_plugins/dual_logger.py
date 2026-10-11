@@ -85,6 +85,7 @@ DOCUMENTATION = """
 # --- Configuration ---------------------------------------------------------
 
 STDOUT_TRUNCATE_LINES = 30  # max lines of captured stdout/stderr per task
+RETRY_STDERR_TAIL_LINES = 5  # stderr lines kept from each failed attempt of a retried task
 
 # Patterns that filter noise from BOTH console and log files.
 IGNORE_PATTERNS = [
@@ -828,6 +829,41 @@ class CallbackModule(CallbackBase):
         dur = self._task_duration()
         prefix = f"{dur} " if dur else ""
         self._display_and_log(f"{prefix}unreachable: [{host}] TASK: {task_name}", "ERROR")
+
+    def v2_runner_retry(self, result) -> None:
+        """An attempt of a task with `until` failed and Ansible is about to run it again.
+
+        Without this hook a retry left nothing in any log, so a first attempt that failed and was then
+        skipped by its own `creates` guard read as one clean ok. That is how sweep 38107292439 hid the
+        SDKMAN installer dying halfway: the only trace was a ten second gap before the ok line. A
+        retry is a failure the run tolerated, so it is logged as a warning.
+        """
+        self._flush_pending()
+        host = result._host.get_name()
+        task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
+        rd = result._result if hasattr(result, "_result") else {}
+        item = f" ({self._extract_item_display(rd['item'])})" if "item" in rd else ""
+        dur = self._task_duration()
+        prefix = f"{dur} " if dur else ""
+        self._display_and_log(
+            f"{prefix}RETRYING: [{host}] => TASK: {task_name}{item}, attempt "
+            f"{rd.get('attempts', '?')} of {rd.get('retries', '?')} failed", "WARNING")
+        for detail in self._retry_details(rd):
+            self._display_and_log(detail, "WARNING")
+
+    @staticmethod
+    def _retry_details(rd: dict) -> List[str]:
+        details = []
+        if rd.get("msg"):
+            details.append(f"  msg: {rd['msg']}")
+        if "rc" in rd:
+            details.append(f"  rc: {rd['rc']}")
+        stderr = rd.get("stderr")
+        if isinstance(stderr, str) and stderr.strip():
+            lines = [ln for ln in stderr.strip().splitlines() if ln.strip()]
+            details.append(f"  stderr, last {min(len(lines), RETRY_STDERR_TAIL_LINES)} lines:")
+            details.extend(f"    {ln}" for ln in lines[-RETRY_STDERR_TAIL_LINES:])
+        return details
 
     # --- per-item (looped) results ---
     @staticmethod

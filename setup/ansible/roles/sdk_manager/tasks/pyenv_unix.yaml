@@ -64,12 +64,42 @@
     state: present
   when: ih_family == 'Archlinux'
 
-- name: Install Pyenv (Linux/Mac)
+# pyenv-installer, which pyenv.run hands to bash, clones pyenv into ~/.pyenv first and then
+# pyenv-doctor, pyenv-update and pyenv-virtualenv into its plugins directory, under set -e. Guarding
+# on ~/.pyenv/bin/pyenv, which the first of those four clones writes, let an attempt that died on a
+# later clone be skipped by its own retry and reported ok, the shape SDKMAN had in sweep 38107292439.
+# The guard is now the command the last clone writes. The vendor installer refuses to run at all once
+# ~/.pyenv exists, so a half-finished install is completed here instead, one missing checkout at a
+# time from sdk_manager_pyenv_components, and ~/.pyenv/versions, which pyenv's own .gitignore leaves
+# out, is never touched. The task fails unless all four commands exist, so a retry really retries.
+# See docs/regression_ledger.md.
+- name: Install Pyenv, or complete a half-finished install (Linux/Mac)
   ansible.builtin.shell: |
-    set -o pipefail
-    curl -fsSL --max-time 120 {{ sdk_manager_pyenv_installer_url | quote }} | bash
+    set -eo pipefail
+    export PYENV_ROOT="{{ non_root_home }}/.pyenv"
+    complete_checkout() {
+      local directory="$PYENV_ROOT/$2"
+      [ -x "$directory/bin/$3" ] && return 0
+      mkdir -p "$directory"
+      git -C "$directory" init -q
+      git -C "$directory" remote add origin "$1" 2>/dev/null || git -C "$directory" remote set-url origin "$1"
+      git -C "$directory" fetch -q --depth 1 origin master
+      git -C "$directory" -c advice.detachedHead=false -c core.autocrlf=false -c core.symlinks=true checkout -q -f -B master FETCH_HEAD
+      git -C "$directory" branch -q --set-upstream-to=origin/master master
+      git -C "$directory" config core.symlinks true
+    }
+    if [ -d "$PYENV_ROOT" ]; then
+    {% for component in sdk_manager_pyenv_components %}
+      complete_checkout {{ component.repository | quote }} {{ component.directory | quote }} {{ component.command | quote }}
+    {% endfor %}
+    else
+      curl -fsSL --max-time 120 {{ sdk_manager_pyenv_installer_url | quote }} | bash
+    fi
+    {% for component in sdk_manager_pyenv_components %}
+    [ -x "$PYENV_ROOT/{{ component.directory }}/bin/{{ component.command }}" ]
+    {% endfor %}
   args:
-    creates: "{{ non_root_home }}/.pyenv/bin/pyenv"
+    creates: "{{ non_root_home }}/.pyenv/plugins/pyenv-virtualenv/bin/pyenv-virtualenv"
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"

@@ -3,3 +3,13 @@
 # e2e/tier3/scenarios/07-forced-failure.yaml, can point it at a path on the same host that answers 404
 # and prove that one SDK that fails is reported, and that the SDKs after it still install.
 sdk_manager_pyenv_installer_url: https://pyenv.run
+
+# The four git checkouts pyenv-installer makes, in the order it makes them, read from
+# https://github.com/pyenv/pyenv-installer/blob/master/bin/pyenv-installer on 2026-10-11. Each one is
+# finished when bin/<command> under its directory exists. The install task completes a half-finished
+# install from this list, because the vendor installer refuses to run once ~/.pyenv exists.
+sdk_manager_pyenv_components:
+  - { repository: https://github.com/pyenv/pyenv.git, directory: "", command: pyenv }
+  - { repository: https://github.com/pyenv/pyenv-doctor.git, directory: plugins/pyenv-doctor, command: pyenv-doctor }
+  - { repository: https://github.com/pyenv/pyenv-update.git, directory: plugins/pyenv-update, command: pyenv-update }
+  - { repository: https://github.com/pyenv/pyenv-virtualenv.git, directory: plugins/pyenv-virtualenv, command: pyenv-virtualenv }
