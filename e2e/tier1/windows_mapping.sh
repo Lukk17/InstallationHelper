@@ -95,10 +95,14 @@ else
          "$(diff <(echo "${yaml_mappings}") <(echo "${ps_mappings}") | head -12 | tr '\n' ' ')"
 fi
 
-# A mapping with no toggle is dead data, and a toggle the installer will never see.
+# A mapping with no toggle is dead data, and a toggle the installer will never see. The one exception is a
+# mapping WindowsCustomInstalls.ps1 declares it installs itself, in $script:CustomInstallMappingKeys, read from
+# that declaration so the exception lasts only while the installer still names it.
+custom_mappings="$(sed -n 's/^\$script:CustomInstallMappingKeys = @(\(.*\))$/\1/p' "${REPO_ROOT}/setup/windows/WindowsCustomInstalls.ps1" | tr -d "' " | tr ',' '\n')"
 orphans=()
 while read -r key _ _ _; do
     [[ -z "${key}" ]] && continue
+    grep -qx "${key}" <<<"${custom_mappings}" && continue
     grep -qE "^install_${key}:" "${ANSIBLE_DIR}/group_vars/all.yaml" "${ANSIBLE_DIR}/group_vars/windows.yaml" \
         || orphans+=("${key}")
 done <<<"${yaml_mappings}"

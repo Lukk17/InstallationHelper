@@ -16,6 +16,8 @@
     the working directory looking for a .npmrc, so an .npmrc in any ancestor of wherever the wizard
     happened to be launched could redirect the registry to a hostile mirror. Every npm call here runs
     with the user profile root as its working directory, which anchors that lookup.
+
+    Depends on Invoke-PackageManagerRetry from WindowsSoftware.ps1, which setup.ps1 dot-sources first.
 #>
 
 Set-StrictMode -Version Latest
@@ -26,9 +28,15 @@ Set-StrictMode -Version Latest
 # reference now. Keyed by the group_vars toggle name without its install_ prefix, so it lines up
 # with the software mapping keys. Replaces names an older package that claims the same bin, which
 # Install-NpmToolPackage removes first, because npm refuses the new one with EEXIST while it is there.
+# OpenCode's two command line packages, by version. Get-OpenCodeVersion picks one, Get-NpmToolPackage puts it in
+# the opencode row and names the other as the package it replaces, because both claim the opencode command. The
+# same pair as ih_opencode_cli in setup/ansible/tasks/opencode_version.yaml, which windows_npm_parity.sh compares.
+$script:OpenCodeCliPackages = [ordered]@{ v2 = '@opencode/cli'; v1 = 'opencode-ai' }
+
 $script:NpmToolPackages = [ordered]@{
     claude_code = @{ Package = '@anthropic-ai/claude-code'; Display = 'Claude Code' }
-    opencode    = @{ Package = '@opencode/cli';             Display = 'OpenCode'; Replaces = 'opencode-ai' }
+    opencode    = @{ Display = 'OpenCode' }
+    kilo_code   = @{ Package = '@kilocode/cli';             Display = 'Kilo Code' }
     openspec    = @{ Package = '@fission-ai/openspec';      Display = 'OpenSpec' }
     codex       = @{ Package = '@openai/codex';             Display = 'Codex' }
     grok        = @{ Package = '@xai-official/grok';        Display = 'Grok' }
@@ -38,12 +46,24 @@ $script:NpmToolPackages = [ordered]@{
 function Get-NpmToolPackage {
     <#
     .SYNOPSIS
-        The npm package table, so the parity check and the installer read one definition.
+        The npm package table for one OpenCode version, so the installer, the plan and the verification read one definition.
+    .DESCRIPTION
+        A copy, with the opencode row filled in from $script:OpenCodeCliPackages: Package is the selected version's
+        package, Replaces the other one's, and ReplacedReason the words the result line uses when it removed it.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
-    param()
-    return $script:NpmToolPackages
+    param([ValidateSet('v1', 'v2')] [string] $OpenCodeVersion = 'v2')
+
+    $other = if ($OpenCodeVersion -eq 'v1') { 'v2' } else { 'v1' }
+    $table = [ordered]@{}
+    foreach ($key in $script:NpmToolPackages.Keys) {
+        $table[$key] = $script:NpmToolPackages[$key].Clone()
+    }
+    $table['opencode']['Package']        = $script:OpenCodeCliPackages[$OpenCodeVersion]
+    $table['opencode']['Replaces']       = $script:OpenCodeCliPackages[$other]
+    $table['opencode']['ReplacedReason'] = "OpenCode $other command line tool, $($script:OpenCodeCliPackages[$other]), because $OpenCodeVersion is selected"
+    return $table
 }
 
 function Test-NpmAvailable {
@@ -65,7 +85,9 @@ function Install-NpmToolPackage {
     param(
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $PackageName,
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $DisplayName,
-        [string] $ReplacesPackage = ''
+        [string] $ReplacesPackage = '',
+        # The words the result uses for what was removed and why. Empty means "<package>, which it replaces".
+        [string] $ReplacedReason = ''
     )
 
     $anchor = $env:USERPROFILE
@@ -105,24 +127,29 @@ function Install-NpmToolPackage {
                 }
             }
             if ($removal -match 'removed \d+ package') {
-                $replacedDetail = "removed $ReplacesPackage, which it replaces"
+                $replacedDetail = if ($ReplacedReason) { "removed $ReplacedReason" } else { "removed $ReplacesPackage, which it replaces" }
                 $replacedRemoved = $true
             }
         }
 
-        # Two attempts, because the npm registry flakes and a single transient failure should not
-        # lose the tool. Same shape as the retries on the Ansible helper.
-        $output = ''
-        $installExit = 0
-        for ($attempt = 1; $attempt -le 2; $attempt++) {
+        # The shared retry rule with no refresh step. npm keeps no package list to refresh: its cache
+        # verifies everything it stores and refetches what fails, and its own documentation says
+        # clearing it is only ever for reclaiming disk space (npm 11.19.0, docs/content/commands/npm-cache.md).
+        $installOnce = {
             $output = & npm install -g $PackageName 2>&1 | Out-String
             $installExit = $LASTEXITCODE
             if ($installExit -eq 0) {
-                return [PSCustomObject]@{ Display = $DisplayName; Package = $PackageName; Status = 'installed'; Detail = $replacedDetail }
+                return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
             }
-            if ($attempt -lt 2) { Start-Sleep -Seconds 15 }
+            return [PSCustomObject]@{ Succeeded = $false; Final = $false
+                Failure = "npm exited $installExit. $(($output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')" }
         }
-        $detail = "npm exited $installExit. $(($output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')"
+        $retry = Invoke-PackageManagerRetry -Package $PackageName -Attempt $installOnce
+        if ($retry.Succeeded) {
+            $installedDetail = (@($replacedDetail, $retry.Detail) | Where-Object { $_ }) -join ', '
+            return [PSCustomObject]@{ Display = $DisplayName; Package = $PackageName; Status = 'installed'; Detail = $installedDetail }
+        }
+        $detail = $retry.Detail
 
         # The replaced package was removed before the new one was proven to install, because npm
         # refuses the new one while the old one holds the bin. So a failed install after a removal
@@ -154,16 +181,20 @@ function Invoke-WindowsNpmToolInstall {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [hashtable] $Toggles,
-        [string[]] $OnlyKeys
+        [string[]] $OnlyKeys,
+        # From Get-OpenCodeVersion, the answer the custom installs and the verification are given too.
+        [ValidateSet('v1', 'v2')] [string] $OpenCodeVersion = 'v2'
     )
 
+    $packages = Get-NpmToolPackage -OpenCodeVersion $OpenCodeVersion
     $wanted = [System.Collections.Generic.List[object]]::new()
-    foreach ($key in $script:NpmToolPackages.Keys) {
+    foreach ($key in $packages.Keys) {
         if (-not ($Toggles.ContainsKey($key) -and $Toggles[$key])) { continue }
         if ($OnlyKeys -and $key -notin $OnlyKeys) { continue }
-        $entry = $script:NpmToolPackages[$key]
+        $entry = $packages[$key]
         $wanted.Add([PSCustomObject]@{ Key = $key; Package = $entry.Package; Display = $entry.Display
-                                       Replaces = if ($entry.ContainsKey('Replaces')) { $entry.Replaces } else { '' } })
+                                       Replaces = if ($entry.ContainsKey('Replaces')) { $entry.Replaces } else { '' }
+                                       ReplacedReason = if ($entry.ContainsKey('ReplacedReason')) { $entry.ReplacedReason } else { '' } })
     }
 
     if ($wanted.Count -eq 0) {
@@ -182,7 +213,7 @@ function Invoke-WindowsNpmToolInstall {
 
     $results = [System.Collections.Generic.List[object]]::new()
     foreach ($tool in $wanted) {
-        $results.Add((Install-NpmToolPackage -PackageName $tool.Package -DisplayName $tool.Display -ReplacesPackage $tool.Replaces))
+        $results.Add((Install-NpmToolPackage -PackageName $tool.Package -DisplayName $tool.Display -ReplacesPackage $tool.Replaces -ReplacedReason $tool.ReplacedReason))
     }
 
     return [PSCustomObject]@{

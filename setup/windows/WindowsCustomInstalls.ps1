@@ -4,22 +4,31 @@
     The Windows installs that a single package mapping cannot express.
 
 .DESCRIPTION
-    vars/Windows.yaml maps a toggle to one package, which covers 89 of them. Five toggles need
-    more than that, and every one of them had an Ansible task file for Windows that can never
-    run, because the playbook is invoked from inside WSL and reports os_family Debian. See
-    docs/regression_ledger.md.
+    vars/Windows.yaml maps a toggle to one package, which covers most of them. Seven toggles need
+    more than that. The first five had an Ansible task file for Windows that can never run,
+    because the playbook is invoked from inside WSL and reports os_family Debian. See
+    docs/regression_ledger.md. pipx never had one.
 
       install_java          four JDKs plus JAVA_HOME, not one package
       install_nodejs        a version manager, then a Node version inside it
       install_flutter       a version manager, then a channel inside it, then a global pin
+      install_android_sdk   the command line tools zip, then sdkmanager, beside the Studio package
       install_gridcoin      a direct installer download, no package anywhere
+      install_pipx          pip inside the pinned Python, because no package installs it cleanly
+      install_opencode_desktop  the vendor's signed installer, because winget and Chocolatey carry version 1 only,
+                                or winget's version 1 when opencode_use_v1 is true, removing the other version
+
+    It also moves the OpenCode data folder out of the selected version's way, see Move-OpenCodeData.
 
     Every version comes from the pinned values, read through setup/pinned_values, so the pins
     stay a single source of truth with the Unix path. Nothing here writes to the console: the
     caller renders, which keeps the functions testable.
 
-    Depends on Get-WingetPath, Install-WingetPackage and Install-ChocolateyPackageBatch from
-    WindowsSoftware.ps1, which setup.ps1 dot-sources first.
+    Every step that downloads something runs under Invoke-InstallStepWithRetry, the retry rule
+    every package manager follows. A step that only works on what is already on disk does not.
+
+    Depends on Get-WingetPath, Install-WingetPackage, Install-ChocolateyPackageBatch and
+    Invoke-InstallStepWithRetry from WindowsSoftware.ps1, which setup.ps1 dot-sources first.
 #>
 
 Set-StrictMode -Version Latest
@@ -34,7 +43,12 @@ Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'pinned_values\Pinne
 # it. Without that, an install_ toggle whose only consumer is an unreachable Windows Ansible task
 # counts as covered, which is how eleven toggles sat enabled and installing nothing while the gate
 # reported full coverage.
-$script:CustomInstallKeys = @('java', 'nodejs', 'flutter', 'android_sdk', 'gridcoin')
+$script:CustomInstallKeys = @('java', 'nodejs', 'flutter', 'android_sdk', 'gridcoin', 'pipx', 'opencode_desktop')
+
+# The vars/Windows.yaml mappings this file installs itself rather than the mapping pass, because no toggle names
+# them: opencode_desktop_v1 is what install_opencode_desktop installs when opencode_use_v1 is true. Declared for
+# the same reason as the list above, so the verification and e2e/tier1/toggle_coverage.sh read it.
+$script:CustomInstallMappingKeys = @('opencode_desktop_v1')
 
 # Where the Android SDK goes on Windows. Chosen by Lukk, and it works without elevation: the default
 # ACL on the root of C: grants Authenticated Users AppendData on the folder itself, so a standard
@@ -61,6 +75,17 @@ function Get-WindowsCustomInstallKey {
     [OutputType([string[]])]
     param()
     return $script:CustomInstallKeys
+}
+
+function Get-WindowsCustomInstallMappingKey {
+    <#
+    .SYNOPSIS
+        The vars/Windows.yaml mappings this file installs itself, which have no toggle of their own.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    return $script:CustomInstallMappingKeys
 }
 
 function Get-FlutterChannel {
@@ -110,7 +135,12 @@ function Get-WindowsCustomInstallProof {
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
-    param([Parameter(Mandatory)] [hashtable] $Versions)
+    param(
+        [Parameter(Mandatory)] [hashtable] $Versions,
+        # From Get-OpenCodeVersion. The opencode_desktop entry carries it, so the verification asks which version
+        # the app at the path is, through Test-OpenCodeDesktopVersion, the question the installer asks.
+        [ValidateSet('v1', 'v2')] [string] $OpenCodeVersion = 'v2'
+    )
 
     $adoptium = Join-Path $env:ProgramFiles 'Eclipse Adoptium'
 
@@ -156,6 +186,23 @@ function Get-WindowsCustomInstallProof {
             Path        = @(Join-Path $env:ProgramFiles 'Gridcoin')
             Mode        = 'All'
             Description = 'the Gridcoin installation directory'
+        }
+        # pip --user puts console scripts under %APPDATA%\Python\Python3XY\Scripts on a python.org
+        # build. The wildcard is the minor version, which is whichever Python `py` picked.
+        pipx = [PSCustomObject]@{
+            Path        = @(Join-Path $env:APPDATA 'Python\Python3*\Scripts\pipx.exe')
+            Mode        = 'All'
+            Description = 'pipx in the user scripts directory of the Python that pip installed it into'
+        }
+        # The installer is told this directory with /D, and winget's version 1 with --location, so the
+        # installers and this proof cannot disagree about it. OpenCode.exe is the productName of the Windows
+        # build, read from packages/desktop/electron-builder.config.ts at tag v2.0.29, which sets
+        # executableName for Linux only.
+        opencode_desktop = [PSCustomObject]@{
+            Path            = @(Join-Path $env:LOCALAPPDATA 'Programs\OpenCode\OpenCode.exe')
+            Mode            = 'All'
+            Description     = "the OpenCode desktop app, version $($OpenCodeVersion.Substring(1)), in the per-user programs directory"
+            OpenCodeVersion = $OpenCodeVersion
         }
     }
 }
@@ -337,7 +384,7 @@ function Invoke-ManagedTool {
 
     $label = "$FilePath $($ArgumentList -join ' ')"
     if (-not (Get-Command $FilePath -CommandType Application -ErrorAction SilentlyContinue)) {
-        return [PSCustomObject]@{ Key = $Key; Package = $label; Status = 'failed'
+        return [PSCustomObject]@{ Key = $Key; Package = $label; Status = 'failed'; Final = $true
                                   Detail = "$FilePath is not on PATH. Its installer may need a new shell before the command is visible, so rerun the wizard once." }
     }
 
@@ -359,7 +406,7 @@ function Invoke-ManagedTool {
             -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         if (-not $p.WaitForExit($TimeoutMinutes * 60 * 1000)) {
             try { $p.Kill($true) } catch { Write-Verbose "could not kill $($p.Id): $($_.Exception.Message)" }
-            return [PSCustomObject]@{ Key = $Key; Package = $label; Status = 'failed'
+            return [PSCustomObject]@{ Key = $Key; Package = $label; Status = 'failed'; Final = $true
                                       Detail = "still running after $TimeoutMinutes minutes and was killed, so it is NOT installed. Run it by hand to see what it was waiting for." }
         }
         if ($p.ExitCode -eq 0) {
@@ -500,7 +547,9 @@ function Install-NodeViaNvm {
 
     # By absolute path rather than by name. The environment has been refreshed above, and calling the
     # resolved path as well means a PATH entry that still has not landed cannot cost the install.
-    $results.Add((Invoke-ManagedTool -Key 'nodejs' -FilePath $nvm -ArgumentList @('install', 'lts') -TimeoutMinutes 15))
+    $results.Add((Invoke-InstallStepWithRetry -Package 'nvm install lts' -Step {
+        Invoke-ManagedTool -Key 'nodejs' -FilePath $nvm -ArgumentList @('install', 'lts') -TimeoutMinutes 15
+    }))
     $results.Add((Invoke-ManagedTool -Key 'nodejs' -FilePath $nvm -ArgumentList @('use', 'lts') -TimeoutMinutes 5))
     return $results
 }
@@ -576,8 +625,11 @@ function Install-FvmFromPub {
         return [PSCustomObject]@{ Status = 'skipped'; Detail = 'WhatIf' }
     }
 
-    $activate = Invoke-ManagedTool -Key 'flutter' -FilePath 'dart' `
-        -ArgumentList @('pub', 'global', 'activate', 'fvm') -TimeoutMinutes 10
+    # Only a wait before a retry: pub resolves against pub.dev on every activation, and reads its
+    # cached version listing only for advisories and under --offline.
+    $activate = Invoke-InstallStepWithRetry -Package 'dart pub global activate fvm' -Step {
+        Invoke-ManagedTool -Key 'flutter' -FilePath 'dart' -ArgumentList @('pub', 'global', 'activate', 'fvm') -TimeoutMinutes 10
+    }
     if ($activate.Status -eq 'failed') {
         return [PSCustomObject]@{ Status = 'failed'; Detail = $activate.Detail }
     }
@@ -639,7 +691,9 @@ function Install-FlutterViaFvm {
     if (Test-Path -LiteralPath $installed) {
         $results.Add([PSCustomObject]@{ Key = 'flutter'; Package = "fvm install $channel"; Status = 'present'; Detail = '' })
     } else {
-        $results.Add((Invoke-ManagedTool -Key 'flutter' -FilePath 'fvm' -ArgumentList @('install', $channel) -TimeoutMinutes 30 -Environment $fvmEnv))
+        $results.Add((Invoke-InstallStepWithRetry -Package "fvm install $channel" -Step {
+            Invoke-ManagedTool -Key 'flutter' -FilePath 'fvm' -ArgumentList @('install', $channel) -TimeoutMinutes 30 -Environment $fvmEnv
+        }))
     }
 
     $global = Invoke-ManagedTool -Key 'flutter' -FilePath 'fvm' -ArgumentList @('global', $channel) -TimeoutMinutes 5 -Environment $fvmEnv
@@ -650,12 +704,74 @@ function Install-FlutterViaFvm {
     return $results
 }
 
+function Install-PipxWithPip {
+    <#
+    .SYNOPSIS
+        Installs pipx into the user site of the Python the wizard installed, then puts it on PATH.
+    .DESCRIPTION
+        `py -m pip install --user pipx` followed by `pipx ensurepath` is pipx's own documented
+        Windows install. winget-pkgs carries no pipx manifest, checked on 2026-10-13. Chocolatey's
+        pipx 1.16.7 depends on python3, which is python315 installed with PrependPath=1, so it would
+        put a second Python ahead of the pinned 3.11 on PATH, the same shape as Chocolatey's fvm
+        dragging in a second Dart SDK.
+
+        `py` is the Python launcher, installed beside Python by install_python in the software phase
+        before this one. The App Execution Alias called `python` is never asked, because when no
+        Python is installed it opens the Store instead of running anything.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        # The pipx entry of Get-WindowsCustomInstallProof, so this and the verification ask about one path.
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ProofPath
+    )
+
+    $existing = @(Resolve-Path -Path $ProofPath -ErrorAction SilentlyContinue)
+    if ($existing.Count -gt 0) {
+        return [PSCustomObject]@{ Key = 'pipx'; Package = 'pipx'; Status = 'present'; Detail = $existing[0].Path }
+    }
+
+    if (-not (Get-Command py -CommandType Application -ErrorAction SilentlyContinue)) {
+        Update-ProcessPath
+    }
+    if (-not (Get-Command py -CommandType Application -ErrorAction SilentlyContinue)) {
+        return [PSCustomObject]@{ Key = 'pipx'; Package = 'pipx'; Status = 'failed'
+                                  Detail = 'py, the Python launcher, is not on PATH, so pip cannot install pipx. install_python is what puts it there, and it runs in the software phase before this one.' }
+    }
+
+    # The refresh before a retry. pip 26.2 and later keep the index's answer for as long as its
+    # Cache-Control header allows and refresh it for the packages PIP_REFRESH_PACKAGE names. Earlier
+    # pip, 24.0 in the Python 3.11.9 installer, asks the index again on every run and ignores the
+    # variable, because pip skips a PIP_ variable for an option it does not have.
+    $pipEnvironment = @{}
+    $pip = Invoke-InstallStepWithRetry -Package 'py -m pip install --user pipx' -Step {
+        Invoke-ManagedTool -Key 'pipx' -FilePath 'py' -ArgumentList @('-m', 'pip', 'install', '--user', 'pipx') -TimeoutMinutes 10 -Environment $pipEnvironment
+    } -Refresh {
+        $pipEnvironment['PIP_REFRESH_PACKAGE'] = 'pipx'
+        ''
+    }
+    if ($pip.Status -ne 'installed') {
+        return $pip
+    }
+
+    $ensure = Invoke-ManagedTool -Key 'pipx' -FilePath 'py' -ArgumentList @('-m', 'pipx', 'ensurepath') -TimeoutMinutes 5
+    if ($ensure.Status -ne 'installed') {
+        return $ensure
+    }
+
+    $installed = @(Resolve-Path -Path $ProofPath -ErrorAction SilentlyContinue)
+    if ($installed.Count -eq 0) {
+        return [PSCustomObject]@{ Key = 'pipx'; Package = 'pipx'; Status = 'failed'
+                                  Detail = "pip reported success and nothing matches $ProofPath, so nothing usable was installed" }
+    }
+    return [PSCustomObject]@{ Key = 'pipx'; Package = 'pipx'; Status = 'installed'; Detail = $installed[0].Path }
+}
+
 function Install-DirectInstaller {
     <#
     .SYNOPSIS
         Downloads an installer and runs it unattended.
     .DESCRIPTION
-        For the two products that have no package on any Windows source. The installer is fetched
+        For the products that have no usable package on any Windows source. The installer is fetched
         to a temporary file, run with the switch its framework understands, and deleted afterwards.
 
         A timeout is not optional here. An installer that ignores its silent switch puts up a
@@ -703,16 +819,22 @@ function Install-DirectInstaller {
     $stage = Join-Path ([System.IO.Path]::GetTempPath()) ("installation-helper-" + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $stage -Force
     $target = Join-Path $stage "$Key-installer.exe"
-    try {
-        # TimeoutSec is not optional. PowerShell 7 maps the default of 0 to an infinite timeout, so a
-        # server that completes the handshake and then stalls mid-body blocks here forever, and unlike
-        # the Start-Process below there is no watchdog to notice.
-        Invoke-WebRequest -Uri $Url -OutFile $target -UseBasicParsing `
-            -TimeoutSec $DownloadTimeoutSeconds -MaximumRedirection 5 -ErrorAction Stop
-    } catch {
+    # TimeoutSec is not optional. PowerShell 7 maps the default of 0 to an infinite timeout, so a
+    # server that completes the handshake and then stalls mid-body blocks here forever, and unlike
+    # the Start-Process below there is no watchdog to notice. A download that ran out of time is
+    # retried like any other failed one, because nothing is waiting on a person here.
+    $download = Invoke-InstallStepWithRetry -Package $Url -Step {
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $target -UseBasicParsing `
+                -TimeoutSec $DownloadTimeoutSeconds -MaximumRedirection 5 -ErrorAction Stop
+            [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'downloaded'; Detail = '' }
+        } catch {
+            [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'; Detail = "download failed: $($_.Exception.Message)" }
+        }
+    }
+    if ($download.Status -eq 'failed') {
         Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
-        return [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'failed'
-                                  Detail = "download failed: $($_.Exception.Message)" }
+        return $download
     }
 
     try {
@@ -853,7 +975,18 @@ function Install-AndroidSdk {
         try {
             New-Item -ItemType Directory -Path $cmdlineRoot -Force | Out-Null
             # A bounded download, because a stalled socket here would hang the wizard with no signal.
-            Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 900 -UseBasicParsing -ErrorAction Stop
+            $download = Invoke-InstallStepWithRetry -Package $url -Step {
+                try {
+                    Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 900 -UseBasicParsing -ErrorAction Stop
+                    [PSCustomObject]@{ Key = 'android_sdk'; Package = 'command line tools'; Status = 'downloaded'; Detail = '' }
+                } catch {
+                    [PSCustomObject]@{ Key = 'android_sdk'; Package = 'command line tools'; Status = 'failed'; Detail = "download failed: $($_.Exception.Message)" }
+                }
+            }
+            if ($download.Status -eq 'failed') {
+                $results.Add($download)
+                return $results
+            }
             Expand-Archive -LiteralPath $zip -DestinationPath $staging -Force -ErrorAction Stop
 
             $inner = Join-Path $staging 'cmdline-tools'
@@ -887,10 +1020,13 @@ function Install-AndroidSdk {
     $sdkEnv = @{ JAVA_HOME = $javaHome; ANDROID_HOME = $root; ANDROID_SDK_ROOT = $root }
 
     $results.Add((Invoke-AndroidSdkManager -Arguments @('--licenses') -Environment $sdkEnv -TimeoutMinutes 10 -AnswerYes))
-    $results.Add((Invoke-AndroidSdkManager -Arguments @(
+    $sdkPackages = @(
         "platforms;android-$($Versions['android_api_level'])",
         "build-tools;$($Versions['android_build_tools_version'])",
-        'platform-tools') -Environment $sdkEnv -TimeoutMinutes 30))
+        'platform-tools')
+    $results.Add((Invoke-InstallStepWithRetry -Package "sdkmanager $($sdkPackages -join ' ')" -Step {
+        Invoke-AndroidSdkManager -Arguments $sdkPackages -Environment $sdkEnv -TimeoutMinutes 30
+    }))
 
     return $results
 }
@@ -917,7 +1053,7 @@ function Invoke-AndroidSdkManager {
     $label = "sdkmanager $($Arguments -join ' ')"
 
     if (-not (Test-Path -LiteralPath $sdkmanager)) {
-        return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'failed'
+        return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'failed'; Final = $true
                                   Detail = "$sdkmanager is not there, so the command line tools install did not leave what it should have" }
     }
     if (-not $PSCmdlet.ShouldProcess($label, 'run')) {
@@ -943,7 +1079,7 @@ function Invoke-AndroidSdkManager {
             -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         if (-not $p.WaitForExit($TimeoutMinutes * 60 * 1000)) {
             try { $p.Kill($true) } catch { Write-Verbose "could not kill $($p.Id): $($_.Exception.Message)" }
-            return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'failed'
+            return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'failed'; Final = $true
                                       Detail = "still running after $TimeoutMinutes minutes and was killed, so the SDK is NOT complete." }
         }
         if ($p.ExitCode -eq 0) {
@@ -966,7 +1102,7 @@ function Set-WindowsDevEnvironment {
         Writes the development environment variables at user scope, the Windows half of what
         roles/env_variables does everywhere else.
     .DESCRIPTION
-        The five apps_config variables plus the Android ones. env_windows.yaml held these and could
+        The five apps_config variables plus the Android ones and PROJECTS_DIR. env_windows.yaml held these and could
         never run, because the playbook is invoked from inside WSL and reports os_family Debian, so
         on Windows they were never written at all.
 
@@ -988,6 +1124,13 @@ function Set-WindowsDevEnvironment {
 
     $results = [System.Collections.Generic.List[object]]::new()
     $appsConfig = Join-Path $env:USERPROFILE 'apps_config'
+    # The Windows half of projects_dir in group_vars/all.yaml. Declared here because that file is
+    # Ansible's and Ansible never runs on Windows. The repository has no earlier Windows convention to
+    # follow: its only projects path is the owner's own checkout in the docs, D:\Development\projekty-IT,
+    # a choice about one machine and not a default for the next. So the default has the same shape as
+    # the other two families, a Projects folder in the profile. A machine that keeps its code on
+    # another drive changes this one line.
+    $projectsDir = Join-Path $env:USERPROFILE 'Projects'
     $sdk = $script:AndroidSdkRoot
 
     # The same five names and the same layout the Unix shell block writes, so a machine configured
@@ -997,6 +1140,7 @@ function Set-WindowsDevEnvironment {
         DOCKER_CONFIG    = Join-Path $appsConfig '.docker'
         M2_HOME          = Join-Path $appsConfig '.m2'
         KUBECONFIG       = Join-Path $appsConfig '.kube\config'
+        PROJECTS_DIR     = $projectsDir
         # ANDROID_USER_HOME names the preferences directory. ANDROID_SDK_HOME is the legacy variable
         # Android Studio 4.3 and earlier read for the same purpose, and it names the PARENT the
         # .android directory is created under, which is why the two differ by one level.
@@ -1013,6 +1157,15 @@ function Set-WindowsDevEnvironment {
             New-Item -ItemType Directory -Path $appsConfig -Force -ErrorAction Stop | Out-Null
         } catch {
             $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'apps_config'; Status = 'failed'
+                                            Detail = $_.Exception.Message })
+        }
+    }
+
+    if ($PSCmdlet.ShouldProcess($projectsDir, 'create the projects directory')) {
+        try {
+            New-Item -ItemType Directory -Path $projectsDir -Force -ErrorAction Stop | Out-Null
+        } catch {
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'projects_dir'; Status = 'failed'
                                             Detail = $_.Exception.Message })
         }
     }
@@ -1063,6 +1216,306 @@ function Set-WindowsDevEnvironment {
     return $results
 }
 
+function Get-FileProductMajorVersion {
+    <#
+    .SYNOPSIS
+        The major number of a file's product version, or 0 when the file is absent or carries none.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return 0
+    }
+    $productVersion = (Get-Item -LiteralPath $Path).VersionInfo.ProductVersion
+    if ($productVersion -match '^(\d+)\.') {
+        return [int] $Matches[1]
+    }
+    return 0
+}
+
+function Test-OpenCodeDesktopVersion {
+    <#
+    .SYNOPSIS
+        Whether the OpenCode.exe at Path is the given version: major 1 for v1, 2 or later for v2.
+    .DESCRIPTION
+        Asked by Install-OpenCodeDesktop before and after it installs and by the verification, so the three
+        cannot disagree about which version is there. Both versions register the same uninstall entry and
+        install to the same directory here, so one file answers for both and only one version can be present.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Path,
+        [Parameter(Mandatory)] [ValidateSet('v1', 'v2')] [string] $Version
+    )
+
+    $major = Get-FileProductMajorVersion -Path $Path
+    if ($Version -eq 'v1') {
+        return $major -eq 1
+    }
+    return $major -ge 2
+}
+
+# The uninstall entry both desktop versions register, which is also the product code SST.OpenCodeDesktop
+# 1.19.0 declares, read 2026-10-15. electron-builder derives it from the app id ai.opencode.desktop.
+$script:OpenCodeDesktopProductCode = 'd074f30d-5f88-5885-b075-be1348cc7676'
+
+function Remove-OpenCodeDesktop {
+    <#
+    .SYNOPSIS
+        Uninstalls the OpenCode desktop app through its uninstall entry, and returns an empty string or why it failed.
+    .DESCRIPTION
+        winget uninstall by product code, so it finds the entry whichever installer wrote it. Asked again
+        afterwards through Test-OpenCodeDesktopVersion, because an uninstaller that exits 0 and leaves the app
+        behind is not a removal.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ProofPath,
+        [Parameter(Mandatory)] [ValidateSet('v1', 'v2')] [string] $Version
+    )
+
+    if (-not $PSCmdlet.ShouldProcess("OpenCode desktop $Version", 'winget uninstall')) {
+        return ''
+    }
+    $winget = Get-WingetPath
+    $run = Invoke-BoundedWinget -WingetPath $winget -TimeoutSeconds 600 -Arguments @(
+        'uninstall', '--product-code', $script:OpenCodeDesktopProductCode, '--exact', '--silent',
+        '--accept-source-agreements', '--disable-interactivity')
+    if ($run.TimedOut) {
+        return 'winget uninstall ran out of time'
+    }
+    if (Test-OpenCodeDesktopVersion -Path $ProofPath -Version $Version) {
+        $tail = (($run.Output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
+        return "winget uninstall exited $($run.ExitCode) and OpenCode $Version is still at $ProofPath. $tail"
+    }
+    return ''
+}
+
+function Install-OpenCodeDesktop {
+    <#
+    .SYNOPSIS
+        Installs the OpenCode desktop app of the selected version, removing the other one.
+    .DESCRIPTION
+        Version 2 comes from the vendor's own installer, because winget's SST.OpenCodeDesktop and Chocolatey's
+        opencode-desktop are version 1 only, read on 2026-10-15. It is an electron-builder one-click per-user
+        NSIS build: its manifest asks for asInvoker and the build sets oneClick true and perMachine false, so
+        /S installs for the user who runs the wizard without a consent prompt. It is signed by Anomaly
+        Innovations, Inc, so the Authenticode check stays on. /D names the directory, so the installer and the
+        proof cannot disagree about it.
+
+        Version 1, when opencode_use_v1 is true, comes from winget's SST.OpenCodeDesktop, the
+        opencode_desktop_v1 mapping, installed per user into the same directory with --location.
+
+        Both versions register the uninstall entry $script:OpenCodeDesktopProductCode. The version 2 installer
+        therefore replaces a version 1 install rather than sitting beside it, and winget would call version 2
+        an installed, newer SST.OpenCodeDesktop and refuse to install version 1 over it, so version 2 is
+        uninstalled first. The app updates itself, so a copy already at the proof path counts as present when
+        Test-OpenCodeDesktopVersion says it is the selected version, whatever its minor version.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [hashtable] $Versions,
+        # The opencode_desktop entry of Get-WindowsCustomInstallProof, so this and the verification ask about one path.
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ProofPath,
+        [ValidateSet('v1', 'v2')] [string] $Version = 'v2',
+        # The opencode_desktop_v1 entry of Get-WindowsSoftwareMapping, read only for version 1.
+        [PSCustomObject] $V1Mapping
+    )
+
+    $other = if ($Version -eq 'v1') { 'v2' } else { 'v1' }
+    if (Test-OpenCodeDesktopVersion -Path $ProofPath -Version $Version) {
+        return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = "OpenCode desktop $Version"; Status = 'present'; Detail = $ProofPath }
+    }
+    $otherWasHere = Test-OpenCodeDesktopVersion -Path $ProofPath -Version $other
+    $installDir = Split-Path -Parent $ProofPath
+
+    if ($Version -eq 'v2') {
+        $pin = Resolve-PinnedInstallerUrl -Versions $Versions -Name 'opencode_desktop_win_installer_url'
+        if (-not $pin.Url) {
+            return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = 'opencode_desktop_win_installer_url'; Status = 'failed'; Detail = $pin.Reason }
+        }
+        $result = Install-DirectInstaller -Key 'opencode_desktop' -Url $pin.Url -SilentArgument @('/S', "/D=$installDir") -ProofPath $ProofPath
+    } else {
+        if (-not $V1Mapping) {
+            return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = 'opencode_desktop_v1'; Status = 'failed'
+                                      Detail = 'vars/Windows.yaml maps no opencode_desktop_v1, so there is no version 1 to install' }
+        }
+        if ($otherWasHere) {
+            $why = Remove-OpenCodeDesktop -ProofPath $ProofPath -Version 'v2'
+            if ($why) {
+                return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = $V1Mapping.Package; Status = 'failed'
+                                          Detail = "OpenCode v2 desktop could not be removed, so version 1 was not installed: $why" }
+            }
+        }
+        $result = Install-WingetPackage -WingetPath (Get-WingetPath) -PackageId $V1Mapping.Package -Scope $V1Mapping.Scope -Location $installDir
+        $result = [PSCustomObject]@{ Key = 'opencode_desktop'; Package = $V1Mapping.Package; Status = $result.Status; Detail = $result.Detail }
+    }
+
+    if ($result.Status -ne 'installed') {
+        return $result
+    }
+    if (-not (Test-OpenCodeDesktopVersion -Path $ProofPath -Version $Version)) {
+        return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = $result.Package; Status = 'failed'
+                                  Detail = "the installer reported success and $ProofPath is not OpenCode $Version" }
+    }
+    if ($otherWasHere) {
+        $result.Detail = (@("removed OpenCode $other desktop because $Version is selected", $result.Detail) | Where-Object { $_ }) -join ', '
+    }
+    return $result
+}
+
+function Get-OpenCodeDataHome {
+    <#
+    .SYNOPSIS
+        The directory OpenCode's data folder sits in: XDG_DATA_HOME when it is set, else .local\share in the profile.
+    .DESCRIPTION
+        Both versions resolve it the way the xdg-basedir package does on every platform, Windows included,
+        read out of the Windows binaries of 2.0.29 and 1.19.1 on 2026-10-15: XDG_DATA_HOME first, then the
+        home directory joined with .local and share.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    if ($env:XDG_DATA_HOME) {
+        return $env:XDG_DATA_HOME
+    }
+    $profileDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+    return (Join-Path (Join-Path $profileDir '.local') 'share')
+}
+
+function Test-OpenCodeDatabaseTable {
+    <#
+    .SYNOPSIS
+        Whether OpenCode's database in Directory declares the named table.
+    .DESCRIPTION
+        SQLite keeps each table's CREATE TABLE statement as text, in opencode.db or, until a checkpoint, in
+        opencode.db-wal, so both files are searched for it rather than opened, which needs no SQLite on the
+        machine. roles/ai_tools/tasks/opencode_data.yaml searches for the same text the same way. Read in
+        blocks, each one overlapping the last by the length of the text, so a match across two blocks counts.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Directory,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Table
+    )
+
+    $needle = 'CREATE TABLE `' + $Table + '`'
+    $latin1 = [System.Text.Encoding]::Latin1
+    foreach ($name in @('opencode.db', 'opencode.db-wal')) {
+        $file = Join-Path $Directory $name
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+            continue
+        }
+        $stream = [System.IO.File]::Open($file, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        try {
+            $buffer = [byte[]]::new(1MB)
+            $carry = ''
+            while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $text = $carry + $latin1.GetString($buffer, 0, $read)
+                if ($text.IndexOf($needle, [System.StringComparison]::Ordinal) -ge 0) {
+                    return $true
+                }
+                $carry = $text.Substring([Math]::Max(0, $text.Length - $needle.Length + 1))
+            }
+        } finally {
+            $stream.Dispose()
+        }
+    }
+    return $false
+}
+
+function Get-OpenCodeDataVersion {
+    <#
+    .SYNOPSIS
+        v2 when the data folder's database has a session_v2 table, v1 when it has a session table and no session_v2, else empty.
+    .DESCRIPTION
+        Measured with @opencode/cli 2.0.29 and opencode-ai 1.19.1 on 2026-10-15: version 1 creates a table named
+        session, version 2 one named session_v2 and none named session, version 1 refuses a version 2 database
+        with "Database is not empty and has no session table", and version 2 migrates a version 1 database in
+        place by adding session_v2 beside session, which then counts as version 2 data.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Directory)
+
+    if (Test-OpenCodeDatabaseTable -Directory $Directory -Table 'session_v2') {
+        return 'v2'
+    }
+    if (Test-OpenCodeDatabaseTable -Directory $Directory -Table 'session') {
+        return 'v1'
+    }
+    return ''
+}
+
+function Move-OpenCodeData {
+    <#
+    .SYNOPSIS
+        Moves OpenCode data the selected version cannot open out of its way, and brings back the newest version 2 backup for version 2.
+    .DESCRIPTION
+        The rule roles/ai_tools/tasks/opencode_data.yaml applies on Linux and macOS, with the same folder names.
+        Switching to version 1 moves a folder holding version 2 data to opencode.v2-backup-<date>-<time> beside
+        it and brings no version 1 backup back, so version 1 starts clean. Switching to version 2 moves a folder
+        holding version 1 data to opencode.v1-backup-<date>-<time> only when a version 2 backup exists to come
+        back, because version 2 opens version 1 data by itself, and once the folder is free the newest version 2
+        backup is moved back into it. Nothing is deleted, and a move never lands on a path that exists. Returns
+        one row: Status installed when anything moved, present when nothing had to, failed when a move did not
+        happen, and Detail names every move.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)] [ValidateSet('v1', 'v2')] [string] $Version,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $DataHome,
+        # The stamp in a new backup's name. A parameter so a test can name it.
+        [ValidatePattern('^\d{8}-\d{6}$')] [string] $Stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+    )
+
+    $other = if ($Version -eq 'v1') { 'v2' } else { 'v1' }
+    $dir = Join-Path $DataHome 'opencode'
+    $moves = [System.Collections.Generic.List[string]]::new()
+    $row = { param($status, $detail) [PSCustomObject]@{ Key = 'opencode_data'; Package = $dir; Status = $status; Detail = $detail } }
+
+    $v2Backup = $null
+    if (Test-Path -LiteralPath $DataHome -PathType Container) {
+        $v2Backup = Get-ChildItem -LiteralPath $DataHome -Directory |
+            Where-Object { $_.Name -like 'opencode.v2-backup-*' } |
+            Sort-Object Name | Select-Object -Last 1
+    }
+
+    try {
+        $holdsOther = (Test-Path -LiteralPath $dir -PathType Container) -and ((Get-OpenCodeDataVersion -Directory $dir) -eq $other)
+        if ($holdsOther -and ($Version -eq 'v1' -or $v2Backup)) {
+            $target = Join-Path $DataHome "opencode.$other-backup-$Stamp"
+            if (Test-Path -LiteralPath $target) {
+                return (& $row 'failed' "refusing to move $dir to $target, which already exists")
+            }
+            if ($PSCmdlet.ShouldProcess($dir, "move to $target")) {
+                Move-Item -LiteralPath $dir -Destination $target -ErrorAction Stop
+                $moves.Add("moved $dir to $target, because it holds OpenCode $other data and $Version is selected")
+            }
+        }
+        if ($Version -eq 'v2' -and $v2Backup -and -not (Test-Path -LiteralPath $dir)) {
+            if ($PSCmdlet.ShouldProcess($v2Backup.FullName, "move back to $dir")) {
+                Move-Item -LiteralPath $v2Backup.FullName -Destination $dir -ErrorAction Stop
+                $moves.Add("moved $($v2Backup.FullName) back to $dir, the newest OpenCode v2 data, because v2 is selected")
+            }
+        }
+    } catch {
+        $done = if ($moves.Count) { " after $($moves -join '; ')" } else { '' }
+        return (& $row 'failed' "$($_.Exception.Message)$done")
+    }
+
+    if ($moves.Count -eq 0) {
+        return (& $row 'present' '')
+    }
+    return (& $row 'installed' ($moves -join '; '))
+}
+
 function Invoke-WindowsCustomInstall {
     <#
     .SYNOPSIS
@@ -1075,7 +1528,11 @@ function Invoke-WindowsCustomInstall {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [hashtable] $Toggles,
-        [string[]] $OnlyKeys
+        [string[]] $OnlyKeys,
+        # From Get-OpenCodeVersion, the answer the npm phase and the verification are given too.
+        [ValidateSet('v1', 'v2')] [string] $OpenCodeVersion = 'v2',
+        # From Get-WindowsSoftwareMapping, for the version 1 desktop app's winget package.
+        [hashtable] $Mappings = @{}
     )
 
     $results = [System.Collections.Generic.List[object]]::new()
@@ -1104,7 +1561,7 @@ function Invoke-WindowsCustomInstall {
 
     # The paths an install has to leave behind, held in one table so the proof this phase demands and
     # the proof the verification looks for after the run are the same paths.
-    $proofs = Get-WindowsCustomInstallProof -Versions $versions
+    $proofs = Get-WindowsCustomInstallProof -Versions $versions -OpenCodeVersion $OpenCodeVersion
 
     # [object[]]@( ) around each call, the same wrapper WindowsSettings.ps1 uses, and for a measured
     # reason. A function here returns a list of results normally and a single object when it gives
@@ -1117,6 +1574,7 @@ function Invoke-WindowsCustomInstall {
     if (& $wanted 'java')   { $results.AddRange([object[]]@(Install-TemurinJdk   -Versions $versions)) }
     if (& $wanted 'nodejs') { $results.AddRange([object[]]@(Install-NodeViaNvm)) }
     if (& $wanted 'flutter'){ $results.AddRange([object[]]@(Install-FlutterViaFvm -Versions $versions)) }
+    if (& $wanted 'pipx')   { $results.AddRange([object[]]@(Install-PipxWithPip -ProofPath (@($proofs['pipx'].Path)[0]))) }
 
     # After java on purpose. sdkmanager is a Java program and reads the JAVA_HOME the Temurin
     # install above writes, so running it first would fail on a machine with no other JDK.
@@ -1161,6 +1619,18 @@ function Invoke-WindowsCustomInstall {
             $results.Add([PSCustomObject]@{ Key = 'gridcoin'; Package = 'gridcoin_win_installer_url'; Status = 'failed'
                                             Detail = $pin.Reason })
         }
+    }
+
+    # Either OpenCode toggle, because the command line tool and the desktop app read the same data folder. Before
+    # the desktop app, which is the order the Linux and macOS role keeps as well.
+    if ((& $wanted 'opencode') -or (& $wanted 'opencode_desktop')) {
+        $results.Add((Move-OpenCodeData -Version $OpenCodeVersion -DataHome (Get-OpenCodeDataHome)))
+    }
+
+    if (& $wanted 'opencode_desktop') {
+        $v1Mapping = if ($Mappings.ContainsKey('opencode_desktop_v1')) { $Mappings['opencode_desktop_v1'] } else { $null }
+        $results.Add((Install-OpenCodeDesktop -Versions $versions -ProofPath (@($proofs['opencode_desktop'].Path)[0]) `
+            -Version $OpenCodeVersion -V1Mapping $v1Mapping))
     }
 
     return [PSCustomObject]@{

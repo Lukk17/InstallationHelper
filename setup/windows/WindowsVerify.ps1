@@ -66,6 +66,10 @@ $script:VerdictNotMapped    = 'not mapped'
 # absence it had just explained, which is the two-sources-of-truth shape this repository keeps
 # paying for.
 $script:VerdictNotApplicable = 'not applicable'
+# The other OpenCode version, which a run removes because the two cannot sit side by side. Absent is the pass,
+# STILL THERE fails the run like MISSING does, and is spelled differently because the fix is a removal.
+$script:VerdictAbsent     = 'absent'
+$script:VerdictStillThere = 'STILL THERE'
 
 function Get-NpmGlobalPackage {
     <#
@@ -175,16 +179,18 @@ function Format-WindowsVerificationReport {
         $lines.Add(('{0,-30} {1,-14} {2}' -f $entry.Key, $entry.Verdict, "$($entry.Source): $($entry.Package)"))
     }
 
-    $requested = @($Row | Where-Object { $_.Verdict -notin @($script:VerdictNotRequested, $script:VerdictNotMapped, $script:VerdictNotApplicable) })
+    $requested = @($Row | Where-Object { $_.Verdict -notin @($script:VerdictNotRequested, $script:VerdictNotMapped, $script:VerdictNotApplicable, $script:VerdictAbsent, $script:VerdictStillThere) })
     $notHere   = @($Row | Where-Object { $_.Verdict -eq $script:VerdictNotApplicable })
     $missing   = @($Row | Where-Object { $_.Verdict -eq $script:VerdictMissing })
     $unknown   = @($Row | Where-Object { $_.Verdict -eq $script:VerdictUnverifiable })
     $unmapped  = @($Row | Where-Object { $_.Verdict -eq $script:VerdictNotMapped })
+    $stillHere = @($Row | Where-Object { $_.Verdict -eq $script:VerdictStillThere })
 
     $lines.Add($rule)
     $lines.Add("requested $($requested.Count) of $($Row.Count) known items: $($requested.Count - $missing.Count - $unknown.Count) installed, $($missing.Count) missing, $($unknown.Count) unverifiable")
     $lines.Add("missing: $(if ($missing.Count) { ($missing.Key | Sort-Object) -join ', ' } else { 'none' })")
     $lines.Add("unverifiable: $(if ($unknown.Count) { ($unknown.Key | Sort-Object) -join ', ' } else { 'none' })")
+    $lines.Add("removed because another version is selected, and still there: $(if ($stillHere.Count) { ($stillHere.Key | Sort-Object) -join ', ' } else { 'none' })")
 
     # Named rather than counted away. Each one is a package the user asked for and will not get on
     # this machine, and the row above carries the reason, so a reader who wants to know why looks up
@@ -274,6 +280,10 @@ function Invoke-WindowsVerification {
         -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
         -ToggleOverride  $ToggleOverride
     $mappings = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $AnsibleDir 'vars\Windows.yaml')
+    $openCodeVersion = Get-OpenCodeVersion `
+        -AllVarsPath     (Join-Path $AnsibleDir 'group_vars\all.yaml') `
+        -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
+        -ToggleOverride  $ToggleOverride -OnlyKeys $OnlyKeys
 
     $rows = [System.Collections.Generic.List[object]]::new()
     $add = {
@@ -303,7 +313,9 @@ function Invoke-WindowsVerification {
             $script:VerdictUnverifiable 'the mapping file parsed to zero entries, so nothing could be checked against it'
     }
 
-    $mappedKeys = @($mappings.Keys | Sort-Object)
+    # Without the mappings WindowsCustomInstalls.ps1 installs itself, which no toggle names, so they would only
+    # ever read "not requested". Their verdict is the custom install's, below.
+    $mappedKeys = @($mappings.Keys | Where-Object { $_ -notin @(Get-WindowsCustomInstallMappingKey) } | Sort-Object)
 
     $wingetKeys = @($mappedKeys | Where-Object { $mappings[$_].Manager -eq 'winget' -and (& $wanted $_) })
     $winget     = $null
@@ -403,7 +415,7 @@ function Invoke-WindowsVerification {
     }
 
     # --- the npm CLI tools ---------------------------------------------------
-    $npmPackages = Get-NpmToolPackage
+    $npmPackages = Get-NpmToolPackage -OpenCodeVersion $openCodeVersion
     $npmKeys     = @(@($npmPackages.Keys) | Where-Object { & $wanted $_ })
     $npmGlobals  = $null
     if ($npmKeys.Count -gt 0) {
@@ -422,6 +434,17 @@ function Invoke-WindowsVerification {
         } else {
             & $add $key 'npm' $package $script:VerdictMissing 'npm ls -g does not list it among the global packages'
         }
+
+        # The package this one replaces, which the npm phase removed, the other OpenCode version.
+        $replaced = if ($npmPackages[$key].ContainsKey('Replaces')) { $npmPackages[$key].Replaces } else { '' }
+        if (-not $replaced -or $key -notin $npmKeys) { continue }
+        if ($null -eq $npmGlobals) {
+            & $add "$key, not selected" 'npm' $replaced $script:VerdictUnverifiable 'npm is not on PATH or did not answer, so whether it is gone is unknown'
+        } elseif ($npmGlobals -contains $replaced) {
+            & $add "$key, not selected" 'npm' $replaced $script:VerdictStillThere "npm ls -g still lists it, and it claims the same command as $package"
+        } else {
+            & $add "$key, not selected" 'npm' $replaced $script:VerdictAbsent ''
+        }
     }
 
     # --- the installs no package mapping can express -------------------------
@@ -435,7 +458,7 @@ function Invoke-WindowsVerification {
     } catch {
         $pinsWhy = $_.Exception.Message
     }
-    $proofs = Get-WindowsCustomInstallProof -Versions $versions
+    $proofs = Get-WindowsCustomInstallProof -Versions $versions -OpenCodeVersion $openCodeVersion
 
     foreach ($key in (Get-WindowsCustomInstallKey)) {
         if (-not (& $wanted $key)) {
@@ -464,6 +487,14 @@ function Invoke-WindowsVerification {
         $found = @($paths | Where-Object { Test-Path -Path $_ })
         $ok = if ($proof.Mode -eq 'Any') { $found.Count -gt 0 } else { $found.Count -eq $paths.Count }
 
+        # The OpenCode desktop app: both versions install to the same path, so the path alone cannot say which.
+        if ($ok -and $proof.PSObject.Properties['OpenCodeVersion'] -and
+                -not (Test-OpenCodeDesktopVersion -Path $paths[0] -Version $proof.OpenCodeVersion)) {
+            & $add $key 'custom' $proof.Description $script:VerdictMissing `
+                "$($paths[0]) is there and is not OpenCode $($proof.OpenCodeVersion), the version this run selected"
+            continue
+        }
+
         if ($ok) {
             & $add $key 'custom' $proof.Description $script:VerdictInstalled ($found -join '; ')
         } else {
@@ -484,7 +515,7 @@ function Invoke-WindowsVerification {
 
     # --- the verdict the caller acts on --------------------------------------
     $all     = $rows.ToArray()
-    $missing = @($all | Where-Object { $_.Verdict -eq $script:VerdictMissing })
+    $missing = @($all | Where-Object { $_.Verdict -in @($script:VerdictMissing, $script:VerdictStillThere) })
     $unknown = @($all | Where-Object { $_.Verdict -eq $script:VerdictUnverifiable })
 
     # Shaped like the Key, Package and Detail rows every install phase returns for its failures, so

@@ -44,9 +44,9 @@ Overwolf.CurseForge machine,user nullsoft
 Postman.Postman user -
 PuTTY.PuTTY machine,none wix
 Python.Python.3.11 machine,user burn
-SST.OpenCodeDesktop user -
 SlackTechnologies.Slack none,user msix
 Spotify.Spotify user -
+SST.OpenCodeDesktop user -
 SublimeHQ.SublimeText.4 machine,none inno
 Syncthing.Syncthing none portable
 Telegram.TelegramDesktop none,user portable

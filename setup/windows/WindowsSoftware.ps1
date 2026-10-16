@@ -39,6 +39,11 @@ $script:WingetAdminInstallerTypes = @('font', 'portable', 'msstore', 'msix')
 # machine-wide portable or font is in the HKLM registry, which any user can read.
 $script:WingetProvisionedInstallerTypes = @('msstore', 'msix')
 
+# The retry rule every package manager follows, read by Invoke-PackageManagerRetry. The same numbers
+# as retries and delay in setup/ansible/tasks/install_role_packages.yaml.
+$script:PackageRetryCount = 3
+$script:PackageRetryDelaySeconds = 20
+
 # Reading a boolean toggle out of a group_vars file. Anchored on a bare true or false so a
 # line carrying a trailing comment cannot be half-parsed, which is exactly the defect the
 # bash wizard shipped for months.
@@ -145,6 +150,40 @@ function Get-WindowsSoftwareToggle {
     }
     Write-Verbose "Read $($toggles.Count) install toggles"
     return $toggles
+}
+
+# The toggle that chooses which OpenCode version the installs take. A version choice rather than a system setting,
+# so WindowsSettings.ps1 does not apply it, and e2e/tier1/windows_settings.sh reads this line to tell the two apart.
+$script:OpenCodeVersionToggle = 'opencode_use_v1'
+
+function Get-OpenCodeVersion {
+    <#
+    .SYNOPSIS
+        v1 when opencode_use_v1 is on for this run, v2 otherwise.
+    .DESCRIPTION
+        One answer for the npm phase, the custom installs and the verification, the way
+        setup/ansible/tasks/opencode_version.yaml is the one answer on Linux and macOS. Read through
+        Get-WindowsGroupVarToggle, so the file layering and the scripted selection apply to it exactly as
+        to every other toggle, and narrowed by OnlyKeys like every other key the checklist offers.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $AllVarsPath,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $WindowsVarsPath,
+        [hashtable] $ToggleOverride,
+        [string[]] $OnlyKeys
+    )
+
+    $toggles = Get-WindowsGroupVarToggle -AllVarsPath $AllVarsPath -WindowsVarsPath $WindowsVarsPath -ToggleOverride $ToggleOverride
+    $useV1 = $toggles.ContainsKey($script:OpenCodeVersionToggle) -and $toggles[$script:OpenCodeVersionToggle]
+    if ($OnlyKeys -and $script:OpenCodeVersionToggle -notin $OnlyKeys) {
+        $useV1 = $false
+    }
+    if ($useV1) {
+        return 'v1'
+    }
+    return 'v2'
 }
 
 function Get-WindowsSoftwareMapping {
@@ -723,10 +762,144 @@ function Test-WindowsPackageSkip {
     return ''
 }
 
+function Invoke-PackageManagerRetry {
+    <#
+    .SYNOPSIS
+        Runs one package install under the retry rule every package manager on Windows shares.
+    .DESCRIPTION
+        The first attempt runs against whatever package list the manager already holds. After a
+        failure it waits, runs the manager's own refresh, then tries again, up to Retries more
+        times. $script:PackageRetryCount and $script:PackageRetryDelaySeconds are the same three
+        retries twenty seconds apart that setup/ansible/tasks/install_role_packages.yaml gives apt,
+        dnf and pacman, which ansible-core runs as one first attempt and up to three more.
+
+        Attempt is a script block returning Succeeded, Final and Failure. Final stops the retries,
+        for a failure a second try cannot change, such as a deadline or a refused consent prompt.
+        Refresh is an optional script block returning an empty string, or the reason it failed. A
+        failed refresh is reported and the retry still runs.
+
+        Returns Package, Succeeded, Attempts, MaxAttempts, Failures, RefreshFailures, Detail and
+        Outcome, the last object Attempt returned. Detail names every failure that is not the last.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Package,
+        [Parameter(Mandatory)] [scriptblock] $Attempt,
+        [scriptblock] $Refresh,
+        [ValidateRange(0, 10)] [int] $Retries = $script:PackageRetryCount,
+        [ValidateRange(0, 300)] [int] $DelaySeconds = $script:PackageRetryDelaySeconds
+    )
+
+    $retryMaxAttempts = $Retries + 1
+    $retryFailures = [System.Collections.Generic.List[string]]::new()
+    $retryRefreshFailures = [System.Collections.Generic.List[string]]::new()
+    $retryAttemptNumber = 0
+
+    while ($true) {
+        $retryAttemptNumber++
+        $retryOutcome = & $Attempt
+
+        if ($retryOutcome.Succeeded) {
+            break
+        }
+
+        $retryFailures.Add([string]$retryOutcome.Failure)
+        if ($retryOutcome.Final -or $retryAttemptNumber -ge $retryMaxAttempts) {
+            break
+        }
+
+        Write-Host ("      attempt {0} of {1} for {2} failed, retrying in {3}s{4}: {5}" -f
+            $retryAttemptNumber, $retryMaxAttempts, $Package, $DelaySeconds,
+            $(if ($Refresh) { ' after a refresh' } else { '' }), $retryOutcome.Failure)
+        if ($DelaySeconds -gt 0) { Start-Sleep -Seconds $DelaySeconds }
+
+        if ($Refresh) {
+            $retryRefreshWhy = [string](& $Refresh)
+            if ($retryRefreshWhy) {
+                $retryRefreshFailures.Add($retryRefreshWhy)
+                Write-Host "      the refresh before attempt $($retryAttemptNumber + 1) failed, retrying anyway: $retryRefreshWhy"
+            }
+        }
+    }
+
+    # Earlier failures grouped by what they said, so four identical failures read as one sentence.
+    $earlierCount = if ($retryOutcome.Succeeded) { $retryFailures.Count } else { $retryFailures.Count - 1 }
+    $saidBy = [ordered]@{}
+    for ($i = 0; $i -lt $earlierCount; $i++) {
+        if (-not $saidBy.Contains($retryFailures[$i])) { $saidBy[$retryFailures[$i]] = [System.Collections.Generic.List[int]]::new() }
+        $saidBy[$retryFailures[$i]].Add($i + 1)
+    }
+    $earlierText = (@(foreach ($said in $saidBy.Keys) {
+        $numbers = @($saidBy[$said])
+        $which = if ($numbers.Count -eq 1) { "attempt $($numbers[0])" } else { "attempts $(($numbers | Select-Object -SkipLast 1) -join ', ') and $($numbers[-1])" }
+        "$which said $said"
+    }) -join '; ')
+    $detail = if ($retryOutcome.Succeeded) {
+        if ($earlierCount -gt 0) { "installed on attempt $retryAttemptNumber of $retryMaxAttempts, after $earlierText" } else { '' }
+    } else {
+        $last = [string]$retryOutcome.Failure
+        if ($earlierCount -gt 0) { "$last (attempt $retryAttemptNumber of $retryMaxAttempts; $earlierText)" } else { $last }
+    }
+    if ($retryRefreshFailures.Count -gt 0) {
+        $detail = ("$detail The refresh before a retry failed: " + (@($retryRefreshFailures | Select-Object -Unique) -join '; ')).Trim()
+    }
+
+    return [PSCustomObject]@{
+        Package         = $Package
+        Succeeded       = [bool]$retryOutcome.Succeeded
+        Attempts        = $retryAttemptNumber
+        MaxAttempts     = $retryMaxAttempts
+        Failures        = $retryFailures.ToArray()
+        RefreshFailures = $retryRefreshFailures.ToArray()
+        Detail          = $detail
+        Outcome         = $retryOutcome
+    }
+}
+
+function Invoke-InstallStepWithRetry {
+    <#
+    .SYNOPSIS
+        Runs one install step that returns a result row under Invoke-PackageManagerRetry.
+    .DESCRIPTION
+        Step returns the Key, Package, Status and Detail row the custom installs and the settings
+        return. A failed row is retried unless it carries Final set to true, for a failure a second
+        try cannot change, such as a deadline or a missing command. Any other status ends the
+        retries. Returns the last row, its Detail replaced by the retry's account of every attempt
+        when there was more than one. Refresh is passed through unchanged.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Package,
+        [Parameter(Mandatory)] [scriptblock] $Step,
+        [scriptblock] $Refresh,
+        [ValidateRange(0, 10)] [int] $Retries = $script:PackageRetryCount,
+        [ValidateRange(0, 300)] [int] $RetryPauseSeconds = $script:PackageRetryDelaySeconds
+    )
+
+    $stepOnce = {
+        $stepRow = & $Step
+        $stepFailed = $stepRow.Status -eq 'failed'
+        $stepFinal = $stepFailed -and [bool]($stepRow.PSObject.Properties['Final'] -and $stepRow.Final)
+        [PSCustomObject]@{ Succeeded = -not $stepFailed; Final = $stepFinal; Failure = [string]$stepRow.Detail; Row = $stepRow }
+    }
+
+    $retry = Invoke-PackageManagerRetry -Package $Package -Attempt $stepOnce -Refresh $Refresh `
+        -Retries $Retries -DelaySeconds $RetryPauseSeconds
+    $row = $retry.Outcome.Row
+    if ($retry.Attempts -gt 1) { $row.Detail = $retry.Detail }
+    return $row
+}
+
 function Install-WingetPackage {
     <#
     .SYNOPSIS
         Installs one winget package, skipping it when already present.
+    .DESCRIPTION
+        Retried through Invoke-PackageManagerRetry, refreshing the package's own source with
+        `winget source update --name <source>` before each retry, the update subcommand documented
+        at https://learn.microsoft.com/en-us/windows/package-manager/winget/source. The refresh runs
+        in this process even when the install runs elevated, so it costs no consent prompt. Whether
+        an elevated install reads the source data an unelevated refresh wrote has not been measured.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -741,10 +914,12 @@ function Install-WingetPackage {
         # decide whether winget has to run elevated, see Test-WingetElevationRequired.
         [string] $InstallerType = '',
         [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900,
+        # The directory to install into, passed to winget as --location. Empty means the installer's own default.
+        [string] $Location = '',
 
-        # Two attempts, not three, and both are parameters so a test can run them with no pause.
-        [ValidateRange(1, 3)] [int] $Attempts = 2,
-        [ValidateRange(0, 300)] [int] $RetryPauseSeconds = 15
+        # Parameters so a test can run the retries with no pause, defaulting to the shared rule.
+        [ValidateRange(0, 10)] [int] $Retries = $script:PackageRetryCount,
+        [ValidateRange(0, 300)] [int] $RetryPauseSeconds = $script:PackageRetryDelaySeconds
     )
 
     $elevated = Test-WingetElevationRequired -Scope $Scope -InstallerType $InstallerType
@@ -793,20 +968,12 @@ function Install-WingetPackage {
         'install', '--exact', '--id', $PackageId, '--source', $Source, '--silent',
         '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
     if ($Scope) { $arguments += @('--scope', $Scope) }
-    # One retry, measured rather than precautionary. On 2026-08-26 the LM Studio installer exited
-    # 3221225477, an access violation, 42 seconds into package 42 of 78, on a runner with 53 GB free.
-    # The same package at the same version installed cleanly on the same runner image the day before,
-    # and its winget manifest had not moved since 2026-08-12, so nothing about the package, the disk
-    # or this repository was different between the two runs. That one crash took the run's exit code
-    # with it, and AGENTS.md already requires a retry on anything that reaches a network, which an
-    # install that downloads an installer does.
-    #
-    # A timeout is never retried. The deadline exists to stop a hang, and spending it twice on one
-    # package is the opposite of what it is for.
-    $attempt = 0
-    $earlier = ''
-    while ($true) {
-        $attempt++
+    if ($Location) { $arguments += @('--location', $Location) }
+    # A timeout is never retried. The deadline exists to stop a hang, and spending it again on one
+    # package is the opposite of what it is for. An elevated child that never ran winget is not
+    # retried either: there is no flaky installer to give a second chance, and after a refused prompt
+    # a retry would only put the same question to the same person again.
+    $installOnce = {
         $run = if ($elevated) {
             Invoke-ElevatedWinget -WingetPath $WingetPath -TimeoutSeconds $TimeoutSeconds -Arguments $arguments
         } else {
@@ -814,41 +981,97 @@ function Install-WingetPackage {
         }
 
         if ($run.TimedOut) {
-            return [PSCustomObject]@{
-                Package = $PackageId
-                Status  = 'failed'
-                Detail  = "gave up after $TimeoutSeconds seconds and killed winget, so this package is not installed and the run was not left hanging on it"
-            }
+            return [PSCustomObject]@{ Succeeded = $false; Final = $true
+                Failure = "gave up after $TimeoutSeconds seconds and killed winget, so this package is not installed and the run was not left hanging on it" }
         }
-
-        # Not retried. winget never ran, so there is no flaky installer to give a second chance, and
-        # after a refused prompt a retry would only put the same question to the same person again.
         if ($run.PSObject.Properties['ElevationFailure'] -and $run.ElevationFailure) {
-            return [PSCustomObject]@{ Package = $PackageId; Status = 'failed'; Detail = $run.ElevationFailure }
+            return [PSCustomObject]@{ Succeeded = $false; Final = $true; Failure = $run.ElevationFailure }
         }
 
         # winget reports an already-installed package as a failure code with a specific
         # message, so treat that text as success rather than reporting a false failure.
         if ($run.ExitCode -eq 0 -or $run.Output -match 'already installed') {
-            $detail = ''
-            if ($earlier) { $detail = "installed on attempt $attempt, after $earlier" }
-            return [PSCustomObject]@{ Package = $PackageId; Status = 'installed'; Detail = $detail }
+            return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
         }
 
         $tail = (($run.Output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
-        $failure = "exit $($run.ExitCode). $tail"
+        return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = "exit $($run.ExitCode). $tail" }
+    }
 
-        if ($attempt -ge $Attempts) {
-            $detail = $failure
-            if ($earlier) { $detail = "$failure (attempt $attempt of $Attempts; the first said $earlier)" }
-            return [PSCustomObject]@{ Package = $PackageId; Status = 'failed'; Detail = $detail }
+    $refreshSource = {
+        $refresh = Invoke-BoundedWinget -WingetPath $WingetPath -TimeoutSeconds 300 `
+            -Arguments @('source', 'update', '--name', $Source, '--disable-interactivity')
+        if ($refresh.TimedOut) { return "winget source update --name $Source ran out of time" }
+        if ($refresh.ExitCode -ne 0) { return "winget source update --name $Source exited $($refresh.ExitCode)" }
+        return ''
+    }
+
+    $retry = Invoke-PackageManagerRetry -Package $PackageId -Attempt $installOnce -Refresh $refreshSource `
+        -Retries $Retries -DelaySeconds $RetryPauseSeconds
+    $status = if ($retry.Succeeded) { 'installed' } else { 'failed' }
+    return [PSCustomObject]@{ Package = $PackageId; Status = $status; Detail = $retry.Detail }
+}
+
+function Install-ChocolateyPackage {
+    <#
+    .SYNOPSIS
+        Installs one Chocolatey package in this process, under the shared retry rule.
+    .DESCRIPTION
+        Runs inside the elevated child Install-ChocolateyPackageBatch starts, which dot-sources this
+        file for it. Chocolatey has no package index like apt's. What it keeps is an HTTP cache of
+        the feed's answers, valid for 30 minutes, which `choco cache remove` empties, the User HTTP
+        Cache always and the System HTTP Cache when elevated (choco 2.1.0 and later, see
+        https://docs.chocolatey.org/en-us/choco/commands/cache/ and
+        https://docs.chocolatey.org/en-us/choco/features/http-caching/). So that is the refresh
+        before a retry. On an older Chocolatey it fails, which is reported, and the retry still runs.
+
+        choco's output is written to the host as it arrives, so the child's transcript keeps it.
+        Returns Package, Status, ExitCode, Attempts and Detail.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $PackageId,
+        [ValidateRange(0, 10)] [int] $Retries = $script:PackageRetryCount,
+        [ValidateRange(0, 300)] [int] $RetryPauseSeconds = $script:PackageRetryDelaySeconds
+    )
+
+    $previousNative = $PSNativeCommandUseErrorActionPreference
+    try {
+        # A non-zero exit from choco is an answer to report, not a fault to throw on.
+        $PSNativeCommandUseErrorActionPreference = $false
+
+        $installOnce = {
+            Write-Host "  ... choco install $PackageId"
+            $lines = @(& choco install $PackageId -y --no-progress --limit-output --execution-timeout=600 2>&1 |
+                       ForEach-Object { "$_" })
+            $code = $LASTEXITCODE
+            foreach ($line in $lines) { Write-Host $line }
+            Write-Host "      choco exited $code for $PackageId"
+            if ($code -eq 0) {
+                return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = ''; ExitCode = 0 }
+            }
+            $tail = (($lines | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
+            return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = "choco exited $code. $tail"; ExitCode = $code }
         }
 
-        # Said out loud as it happens rather than only in the summary, so a reader watching the log
-        # can tell a retry from a hang.
-        Write-Host ("      attempt {0} of {1} failed, retrying in {2}s: {3}" -f $attempt, $Attempts, $RetryPauseSeconds, $failure)
-        $earlier = $failure
-        if ($RetryPauseSeconds -gt 0) { Start-Sleep -Seconds $RetryPauseSeconds }
+        $refreshCache = {
+            $said = (@(& choco cache remove -y --limit-output 2>&1 | ForEach-Object { "$_" }) | Where-Object { $_.Trim() } | Select-Object -Last 1)
+            if ($LASTEXITCODE -ne 0) { return "choco cache remove exited $LASTEXITCODE. $said".Trim() }
+            return ''
+        }
+
+        $retry = Invoke-PackageManagerRetry -Package $PackageId -Attempt $installOnce -Refresh $refreshCache `
+            -Retries $Retries -DelaySeconds $RetryPauseSeconds
+    } finally {
+        $PSNativeCommandUseErrorActionPreference = $previousNative
+    }
+
+    return [PSCustomObject]@{
+        Package  = $PackageId
+        Status   = $(if ($retry.Succeeded) { 'installed' } else { 'failed' })
+        ExitCode = [int]$retry.Outcome.ExitCode
+        Attempts = $retry.Attempts
+        Detail   = $retry.Detail
     }
 }
 
@@ -861,7 +1084,11 @@ function Install-ChocolateyPackageBatch {
         installs per user and does not. setup.ps1 deliberately refuses to run elevated, so
         rather than demanding the whole wizard be elevated, the Chocolatey packages are
         batched into a single elevated child process, run through Invoke-ElevatedPowerShell. That
-        is one consent prompt for the whole batch instead of one per package.
+        is one consent prompt for the whole batch instead of one per package. The child dot-sources
+        this file and installs each package through Install-ChocolateyPackage, so the retries follow
+        the same rule as every other package manager, and writes each package's result back as
+        JSON. Packages is that result by package id, for every package the child reached, and empty
+        when it reached none.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -871,7 +1098,7 @@ function Install-ChocolateyPackageBatch {
     )
 
     if (-not $PSCmdlet.ShouldProcess(($PackageId -join ', '), 'elevated choco install')) {
-        return [PSCustomObject]@{ Status = 'skipped'; Detail = 'WhatIf' }
+        return [PSCustomObject]@{ Status = 'skipped'; Detail = 'WhatIf'; Packages = @{} }
     }
 
     # Bootstraps Chocolatey when absent, then installs the batch. Runs in the child so the
@@ -887,14 +1114,24 @@ function Install-ChocolateyPackageBatch {
     # printed, not why. Start-Transcript inside the child is the one route that works in both the
     # elevated and the RunAs case, and the tail of it is quoted in the failure below.
     $childLog = Join-Path ([System.IO.Path]::GetTempPath()) ('installation-helper-choco-' + [guid]::NewGuid().ToString('N') + '.log')
+    $resultFile = Join-Path ([System.IO.Path]::GetTempPath()) ('installation-helper-choco-' + [guid]::NewGuid().ToString('N') + '.json')
 
     $inner = @"
 `$ErrorActionPreference = 'Stop'
 Start-Transcript -Path '$childLog' -Force | Out-Null
+. $(ConvertTo-PowerShellLiteral -Value $script:WindowsSoftwarePath)
 if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
     Set-ExecutionPolicy Bypass -Scope Process -Force
     [System.Net.ServicePointManager]::SecurityProtocol = 3072
-    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    `$bootstrap = Invoke-PackageManagerRetry -Package 'Chocolatey' -Attempt {
+        try {
+            Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')) | Out-Host
+            [PSCustomObject]@{ Succeeded = `$true; Final = `$false; Failure = '' }
+        } catch {
+            [PSCustomObject]@{ Succeeded = `$false; Final = `$false; Failure = "the Chocolatey install script failed: `$(`$_.Exception.Message)" }
+        }
+    }
+    if (-not `$bootstrap.Succeeded) { throw "Chocolatey is not installed, so none of its packages can be: `$(`$bootstrap.Detail)" }
 }
 # One package per call, each with its own deadline, rather than one call for the batch.
 #
@@ -906,14 +1143,15 @@ if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
 #
 # 600 seconds each. A Chocolatey package that has not finished in ten minutes on a machine with a
 # fast link is waiting on something, and the default of 2700 is longer than the wizard's own patience
-# for the whole phase, which is how one package ate the other five.
+# for the whole phase, which is how one package ate the other five. Install-ChocolateyPackage passes it.
 `$worst = 0
+`$results = [System.Collections.Generic.List[object]]::new()
 foreach (`$package in @($packageLiterals)) {
-    Write-Host "  ... choco install `$package"
-    choco install `$package -y --no-progress --limit-output --execution-timeout=600
-    Write-Host "      choco exited `$LASTEXITCODE for `$package"
-    if (`$LASTEXITCODE -ne 0) { `$worst = `$LASTEXITCODE }
+    `$result = Install-ChocolateyPackage -PackageId `$package
+    `$results.Add(`$result)
+    if (`$result.Status -ne 'installed') { `$worst = `$result.ExitCode }
 }
+ConvertTo-Json -InputObject @(`$results) -Depth 3 | Set-Content -LiteralPath $(ConvertTo-PowerShellLiteral -Value $resultFile) -Encoding utf8
 Stop-Transcript | Out-Null
 exit `$worst
 "@
@@ -928,23 +1166,34 @@ exit `$worst
     # nvm, geforce-experience and razer-synapse-4 all reported as not installed because the clock ran
     # out on the batch rather than because anything failed.
     #
-    # Ten minutes per package plus ten for the bootstrap, and never less than 30.
-    $timeoutMinutes = [Math]::Max(30, ($PackageId.Count * 10) + 10)
+    # Ten minutes for each attempt the shared retry rule allows a package, one more for its pauses
+    # and refreshes, plus ten for the bootstrap, and never less than 30.
+    $perPackageMinutes = (($script:PackageRetryCount + 1) * 10) + 1
+    $timeoutMinutes = [Math]::Max(30, ($PackageId.Count * $perPackageMinutes) + 10)
     try {
         $child = Invoke-ElevatedPowerShell -Script $inner -TimeoutSeconds ($timeoutMinutes * 60)
 
+        # What the child reported for each package it reached, read before any return below.
+        $packages = @{}
+        if (Test-Path -LiteralPath $resultFile) {
+            foreach ($entry in @(Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json)) {
+                $packages[[string]$entry.Package] = $entry
+            }
+        }
+
         # A refused consent prompt lands here, and is a user decision rather than a fault.
         if ($child.StartError) {
-            return [PSCustomObject]@{ Status = 'failed'; Detail = "could not run choco: $($child.StartError)" }
+            return [PSCustomObject]@{ Status = 'failed'; Detail = "could not run choco: $($child.StartError)"; Packages = $packages }
         }
         if ($child.TimedOut) {
             return [PSCustomObject]@{
-                Status = 'failed'
-                Detail = "the Chocolatey batch was still running after $timeoutMinutes minutes and was killed, so those packages are NOT installed. Most likely a prompt inside the elevated child, or an unanswered consent dialog. Run 'choco install $($PackageId -join ' ') -y' by hand to see it."
+                Status   = 'failed'
+                Packages = $packages
+                Detail   = "the Chocolatey batch was still running after $timeoutMinutes minutes and was killed, so those packages are NOT installed. Most likely a prompt inside the elevated child, or an unanswered consent dialog. Run 'choco install $($PackageId -join ' ') -y' by hand to see it."
             }
         }
         if ($child.ExitCode -eq 0) {
-            return [PSCustomObject]@{ Status = 'installed'; Detail = "$($PackageId.Count) package(s)" }
+            return [PSCustomObject]@{ Status = 'installed'; Detail = "$($PackageId.Count) package(s)"; Packages = $packages }
         }
         # The last lines of the child's own transcript, because an exit code alone has never once
         # been enough to act on. Chocolatey says what it could not do, and that sentence is what the
@@ -956,11 +1205,14 @@ exit `$worst
             Remove-Item -LiteralPath $childLog -Force -ErrorAction SilentlyContinue
         }
         return [PSCustomObject]@{
-            Status = 'failed'
-            Detail = "choco exited $($child.ExitCode)$(if ($tail) { ". It said: $tail" } else { '. Its transcript is missing, so there is nothing more to report.' })"
+            Status   = 'failed'
+            Packages = $packages
+            Detail   = "choco exited $($child.ExitCode)$(if ($tail) { ". It said: $tail" } else { '. Its transcript is missing, so there is nothing more to report.' })"
         }
     } catch {
-        return [PSCustomObject]@{ Status = 'failed'; Detail = "could not run choco: $($_.Exception.Message)" }
+        return [PSCustomObject]@{ Status = 'failed'; Detail = "could not run choco: $($_.Exception.Message)"; Packages = @{} }
+    } finally {
+        Remove-Item -LiteralPath $resultFile -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -1538,8 +1790,13 @@ function Invoke-WindowsSoftwareInstall {
                     $detail = ''
                 } else {
                     $status = 'failed'
-                    $sessionOutcome = if ($batch.Status -eq 'installed') { 'choco exited 0' } else { $batch.Detail }
-                    $detail = "Chocolatey does not list $($item.Package) as installed after its install. The elevated Chocolatey session shared by all $($chocoItems.Count) Chocolatey package(s) of this run ended with: $sessionOutcome. That is the shared session's result, not a failure of every package in it"
+                    $own = $batch.Packages[$item.Package]
+                    if ($own -and $own.Status -ne 'installed') {
+                        $detail = "Chocolatey does not list $($item.Package) as installed after its install, which failed on $($own.Attempts) attempt(s): $($own.Detail)"
+                    } else {
+                        $sessionOutcome = if ($batch.Status -eq 'installed') { 'choco exited 0' } else { $batch.Detail }
+                        $detail = "Chocolatey does not list $($item.Package) as installed after its install. The elevated Chocolatey session shared by all $($chocoItems.Count) Chocolatey package(s) of this run ended with: $sessionOutcome. That is the shared session's result, not a failure of every package in it"
+                    }
                 }
                 $results.Add([PSCustomObject]@{
                     Key = $item.Key; Manager = 'choco'; Package = $item.Package

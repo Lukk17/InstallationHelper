@@ -191,12 +191,20 @@ if [[ -z "${ps_excluded}" ]]; then
     finish "Windows system settings"
 fi
 
+# A toggle that chooses which version an install takes is not a system setting either. WindowsSoftware.ps1
+# declares each one as a $script:<name>VersionToggle line, read here so the exception lasts only as long as the
+# declaration, and its consumer is Get-OpenCodeVersion rather than this file.
+version_toggles="$(
+    sed -nE "s/^\\\$script:[A-Za-z]+VersionToggle = '([a-z0-9_]+)'$/\\1/p" "${REPO_ROOT}/setup/windows/WindowsSoftware.ps1" | sort -u
+)"
+
 visible_settings="$(
     {
         yaml_bool_toggles "${ALL_VARS}"
         yaml_bool_toggles "${WINDOWS_VARS}"
     } | awk '{ if ($1 !~ /^install_/) print $1 }' \
       | grep -vxF "${ps_excluded}" \
+      | grep -vxF "${version_toggles:-__none__}" \
       | sort -u || true
 )"
 

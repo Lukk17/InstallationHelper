@@ -27,22 +27,36 @@ info "Tier 1: Windows npm tool parity"
 [[ -f "${PS_FILE}" ]] || { fail "WindowsNpmTools.ps1 is missing" "${PS_FILE}"; finish "Windows npm parity"; }
 [[ -d "${AI_TASKS}" ]] || { fail "ai_tools task directory is missing" "${AI_TASKS}"; finish "Windows npm parity"; }
 
-# The Ansible side: every npm_pkg named by a *_unix.yaml consumer. The shared helper itself only
-# documents the variable, so it is excluded.
-ansible_pkgs="$(
-    for f in "${AI_TASKS}"/*_unix.yaml; do
-        [[ "$(basename "${f}")" == "npm_install_unix.yaml" ]] && continue
-        grep -hE '^\s*npm_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_pkg:\s*//; s/"//g; s/\s+$//'
-    done | sort -u
+# OpenCode is the one tool with two packages, version 2 by default and version 1 when opencode_use_v1 is true,
+# and each side declares the pair once: ih_opencode_cli in setup/ansible/tasks/opencode_version.yaml, which
+# opencode_unix.yaml reads as opencode_cli_package and opencode_other_cli_package, and $script:OpenCodeCliPackages
+# in WindowsNpmTools.ps1, which Get-NpmToolPackage reads. Both pairs are read here, as "<version> <package>" lines.
+ansible_opencode_pair="$(opencode_cli_pair)"
+ps_opencode_pair="$(
+    grep -E '^\$script:OpenCodeCliPackages = ' "${PS_FILE}" \
+        | grep -oE "v[12] = '[^']+'" | sed -E "s/ = '/ /; s/'$//" | sort
 )"
+if [[ -n "${ansible_opencode_pair}" && "${ansible_opencode_pair}" == "${ps_opencode_pair}" && "$(grep -c . <<<"${ps_opencode_pair}")" -eq 2 ]]; then
+    pass "both sides name the same two OpenCode command line packages: $(tr '\n' ' ' <<<"${ps_opencode_pair}")"
+else
+    fail "the two sides disagree about OpenCode's command line package per version, or one side declares no pair" \
+         "ai_tools [$(tr '\n' ' ' <<<"${ansible_opencode_pair}")] PowerShell [$(tr '\n' ' ' <<<"${ps_opencode_pair}")]"
+fi
 
-# The PowerShell side: every Package value in the table. Extracted with a different expression from
-# the one above on purpose, so a shared mistake cannot hide the difference.
+# The Ansible side: every npm_pkg named by a *_unix.yaml consumer, and both packages of the OpenCode pair for the
+# consumer that names the selected one, read by ai_tools_npm_packages in lib/common.sh, which tier 2 reads too.
+ansible_pkgs="$(ai_tools_npm_packages)"
+
+# The PowerShell side: every Package value in the table, and the pair Get-NpmToolPackage fills the opencode row
+# from. Extracted with a different expression from the one above on purpose, so a shared mistake cannot hide
+# the difference.
 ps_pkgs="$(
-    sed -n '/NpmToolPackages = \[ordered\]@{/,/^}/p' "${PS_FILE}" \
-        | grep -oE "Package = '[^']+'" \
-        | sed -E "s/Package = '//; s/'$//" \
-        | sort -u
+    {
+        sed -n '/NpmToolPackages = \[ordered\]@{/,/^}/p' "${PS_FILE}" \
+            | grep -oE "Package = '[^']+'" \
+            | sed -E "s/Package = '//; s/'$//"
+        awk '{print $2}' <<<"${ps_opencode_pair}"
+    } | sort -u
 )"
 
 n_ansible="$(grep -c . <<<"${ansible_pkgs}" || true)"
@@ -61,19 +75,39 @@ fi
 # because npm refuses a second package claiming the same bin with EEXIST, so a replacement named on
 # one platform and not the other leaves that platform failing the install on every machine that
 # still carries the old package.
+#
+# For OpenCode the replaced package is the other one of the pair, both ways round, on each side only while that
+# side still wires it so: opencode_unix.yaml passing opencode_other_cli_package, and Get-NpmToolPackage setting
+# Replaces from $script:OpenCodeCliPackages[$other].
+opencode_pairs_both_ways() {
+    local v1 v2
+    v1="$(awk '$1 == "v1" {print $2}' <<<"$1")"
+    v2="$(awk '$1 == "v2" {print $2}' <<<"$1")"
+    [[ -n "${v1}" && -n "${v2}" ]] && printf '%s %s\n%s %s\n' "${v1}" "${v2}" "${v2}" "${v1}"
+}
 ansible_replaced="$(
-    for f in "${AI_TASKS}"/*_unix.yaml; do
-        [[ "$(basename "${f}")" == "npm_install_unix.yaml" ]] && continue
-        pkg="$(grep -hE '^\s*npm_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_pkg:\s*//; s/"//g; s/\s+$//')"
-        old="$(grep -hE '^\s*npm_replaced_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_replaced_pkg:\s*//; s/"//g; s/\s+$//')"
-        if [[ -n "${old}" ]]; then echo "${pkg} ${old}"; fi
-    done | sort -u
+    {
+        for f in "${AI_TASKS}"/*_unix.yaml; do
+            [[ "$(basename "${f}")" == "npm_install_unix.yaml" ]] && continue
+            pkg="$(grep -hE '^\s*npm_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_pkg:\s*//; s/"//g; s/\s+$//')"
+            old="$(grep -hE '^\s*npm_replaced_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_replaced_pkg:\s*//; s/"//g; s/\s+$//')"
+            if [[ "${pkg}" == "{{ opencode_cli_package }}" && "${old}" == "{{ opencode_other_cli_package }}" ]]; then
+                opencode_pairs_both_ways "${ansible_opencode_pair}"
+            elif [[ -n "${old}" ]]; then
+                echo "${pkg} ${old}"
+            fi
+        done
+    } | sort -u
 )"
 ps_replaced="$(
-    sed -n '/NpmToolPackages = \[ordered\]@{/,/^}/p' "${PS_FILE}" \
-        | { grep -E "Replaces = '" || true; } \
-        | sed -E "s/.*Package = '([^']+)'.*Replaces = '([^']+)'.*/\1 \2/" \
-        | sort -u
+    {
+        sed -n '/NpmToolPackages = \[ordered\]@{/,/^}/p' "${PS_FILE}" \
+            | { grep -E "Replaces = '" || true; } \
+            | sed -E "s/.*Package = '([^']+)'.*Replaces = '([^']+)'.*/\1 \2/"
+        if grep -qF "\$table['opencode']['Replaces']       = \$script:OpenCodeCliPackages[\$other]" "${PS_FILE}"; then
+            opencode_pairs_both_ways "${ps_opencode_pair}"
+        fi
+    } | sort -u
 )"
 
 if [[ "${ansible_replaced}" == "${ps_replaced}" ]]; then

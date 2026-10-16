@@ -38,8 +38,8 @@
          loud, because a feature reported as enabled and not yet active is the same lie as a package
          reported as installed and absent.
 
-    Depends on Get-WindowsGroupVarToggle, Test-IsAdministrator and Get-WindowsInstallationType from
-    WindowsSoftware.ps1, which setup.ps1 dot-sources first.
+    Depends on Get-WindowsGroupVarToggle, Test-IsAdministrator, Get-WindowsInstallationType and
+    Invoke-InstallStepWithRetry from WindowsSoftware.ps1, which setup.ps1 dot-sources first.
 #>
 
 Set-StrictMode -Version Latest
@@ -349,40 +349,44 @@ function Install-WslDistribution {
         return $results
     }
 
-    $stdout = New-TemporaryFile
-    $stderr = New-TemporaryFile
-    try {
-        $proc = Start-Process -FilePath 'wsl.exe' -ArgumentList @('--install', '-d', $Distribution, '--no-launch') `
-            -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-        if (-not $proc.WaitForExit($TimeoutMinutes * 60 * 1000)) {
-            try { $proc.Kill($true) } catch { Write-Verbose "could not kill $($proc.Id): $($_.Exception.Message)" }
-            $results.Add((New-SettingResult -Key 'setup_wsl' -Package $Distribution -Status 'failed' `
-                -Detail "wsl --install was still running after $TimeoutMinutes minutes and was killed, so the distribution is NOT registered. Run 'wsl --install -d $Distribution --no-launch' by hand to see what it was waiting for."))
-            return $results
+    # Only a wait before a retry, because wsl has no command that refreshes the list it installs
+    # from. A run that outlived its deadline is not retried, the deadline exists to stop a hang.
+    $results.Add((Invoke-InstallStepWithRetry -Package $Distribution -Step {
+        $stdout = New-TemporaryFile
+        $stderr = New-TemporaryFile
+        try {
+            $proc = Start-Process -FilePath 'wsl.exe' -ArgumentList @('--install', '-d', $Distribution, '--no-launch') `
+                -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if (-not $proc.WaitForExit($TimeoutMinutes * 60 * 1000)) {
+                try { $proc.Kill($true) } catch { Write-Verbose "could not kill $($proc.Id): $($_.Exception.Message)" }
+                $timedOut = New-SettingResult -Key 'setup_wsl' -Package $Distribution -Status 'failed' `
+                    -Detail "wsl --install was still running after $TimeoutMinutes minutes and was killed, so the distribution is NOT registered. Run 'wsl --install -d $Distribution --no-launch' by hand to see what it was waiting for."
+                $timedOut | Add-Member -NotePropertyName Final -NotePropertyValue $true
+                return $timedOut
+            }
+
+            # wsl.exe writes UTF-16 to a redirected handle as well, so the nulls are stripped rather
+            # than the text being decoded twice.
+            $tail = @(Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
+                      Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue) |
+                    ForEach-Object { ("$_" -replace "`0", '').Trim() } |
+                    Where-Object { $_ } | Select-Object -Last 2
+
+            if ($proc.ExitCode -ne 0) {
+                return New-SettingResult -Key 'setup_wsl' -Package $Distribution -Status 'failed' `
+                    -Detail "wsl --install exited $($proc.ExitCode). $($tail -join ' ') Registering a distribution on a machine that has never had WSL also needs the optional features and a reboot, and it may need an elevated shell."
+            }
+
+            # Registered rather than usable: WSL asks for a reboot whenever it had to turn its own
+            # platform features on, and the distribution's first launch is what creates the user
+            # account. Saying "installed" without that is the lie this file exists to stop telling.
+            return New-SettingResult -Key 'setup_wsl' -Package $Distribution -Status 'installed' -RebootRequired `
+                -Detail "registered without launching it. Reboot, then run 'wsl -d $Distribution' once to create the Linux user account."
+        } finally {
+            Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
         }
-
-        # wsl.exe writes UTF-16 to a redirected handle as well, so the nulls are stripped rather
-        # than the text being decoded twice.
-        $tail = @(Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
-                  Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue) |
-                ForEach-Object { ("$_" -replace "`0", '').Trim() } |
-                Where-Object { $_ } | Select-Object -Last 2
-
-        if ($proc.ExitCode -ne 0) {
-            $results.Add((New-SettingResult -Key 'setup_wsl' -Package $Distribution -Status 'failed' `
-                -Detail "wsl --install exited $($proc.ExitCode). $($tail -join ' ') Registering a distribution on a machine that has never had WSL also needs the optional features and a reboot, and it may need an elevated shell."))
-            return $results
-        }
-
-        # Registered rather than usable: WSL asks for a reboot whenever it had to turn its own
-        # platform features on, and the distribution's first launch is what creates the user
-        # account. Saying "installed" without that is the lie this file exists to stop telling.
-        $results.Add((New-SettingResult -Key 'setup_wsl' -Package $Distribution -Status 'installed' -RebootRequired `
-            -Detail "registered without launching it. Reboot, then run 'wsl -d $Distribution' once to create the Linux user account."))
-        return $results
-    } finally {
-        Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
-    }
+    }))
+    return $results
 }
 
 function Get-DefaultWallpaperName {

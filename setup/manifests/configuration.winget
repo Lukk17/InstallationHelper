@@ -15,7 +15,7 @@
 # the shell is already elevated. No flag suppresses that dialog, so an already-elevated
 # session is the only unattended route.
 #
-# 72 packages from the winget community repository and 7 from the
+# 74 packages from the winget community repository and 7 from the
 # Microsoft Store. The Store entries are product identifiers rather than manifests, they need
 # the Store present and its agreement accepted, and they are the least portable thing here.
 #
@@ -241,6 +241,14 @@ properties:
         id: Git.Git
         source: winget
     - resource: Microsoft.WinGet.DSC/WinGetPackage
+      id: go
+      directives:
+        description: Install go (GoLang.Go)
+        allowPrerelease: false
+      settings:
+        id: GoLang.Go
+        source: winget
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: gog
       directives:
         description: Install gog (GOG.Galaxy)
@@ -359,14 +367,6 @@ properties:
         allowPrerelease: false
       settings:
         id: Obsidian.Obsidian
-        source: winget
-    - resource: Microsoft.WinGet.DSC/WinGetPackage
-      id: opencode_desktop
-      directives:
-        description: Install opencode_desktop (SST.OpenCodeDesktop)
-        allowPrerelease: false
-      settings:
-        id: SST.OpenCodeDesktop
         source: winget
     - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: openssl
@@ -561,6 +561,14 @@ properties:
         id: TorProject.TorBrowser
         source: winget
     - resource: Microsoft.WinGet.DSC/WinGetPackage
+      id: uv
+      directives:
+        description: Install uv (astral-sh.uv)
+        allowPrerelease: false
+      settings:
+        id: astral-sh.uv
+        source: winget
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: veracrypt
       directives:
         description: Install veracrypt (IDRIX.VeraCrypt)
@@ -599,6 +607,14 @@ properties:
         allowPrerelease: false
       settings:
         id: AntibodySoftware.WizTree
+        source: winget
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      id: zoom
+      directives:
+        description: Install zoom (Zoom.Zoom)
+        allowPrerelease: false
+      settings:
+        id: Zoom.Zoom
         source: winget
     - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: chatgpt

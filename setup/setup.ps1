@@ -34,9 +34,9 @@
     Do not upgrade the already-installed winget and Chocolatey packages first.
 .PARAMETER Software
     The starting point the checklist would have started from, for a run with no checklist.
-    defaults is the group_vars values as they are, all turns every selectable toggle on, and none
-    turns every selectable toggle off so -EnableKey can build a run up from nothing. Implies
-    -NonInteractive.
+    defaults is the group_vars values as they are, all turns every selectable toggle on except
+    opencode_use_v1, which stays off so OpenCode stays on version 2, and none turns every selectable
+    toggle off so -EnableKey can build a run up from nothing. Implies -NonInteractive.
 .PARAMETER EnableKey
     Toggle keys to turn on, whatever group_vars says. Comma separated, or a PowerShell array, and
     the keys are the ones -ListSoftware prints. A key the wizard does not offer is refused rather
@@ -135,18 +135,21 @@ $ExcludedVars = @(
     'remove_distro_grub', 'remove_distro_systemd_boot'
 )
 
+# Checklist keys -Software all leaves off rather than on, because turning one on is not more software but a
+# switch away from the default. opencode_use_v1 replaces OpenCode version 2 with version 1 and removes version
+# 2, so "install all" would downgrade OpenCode, which the owner ruled out on 2026-10-15. -EnableKey still turns
+# one on. Must stay identical to ALL_SOFTWARE_KEEPS_OFF in setup.sh, and e2e/tier1/wizard_parse.sh fails if the
+# two ever disagree.
+$AllSoftwareKeepsOff = @('opencode_use_v1')
+
 # System settings share the checklist with software, so their labels have to say what
-# they do. "Zsh" next to "Chrome" tells the user nothing about which one reconfigures
-# their shell. Keys not listed here fall through to the default prefix strip.
+# they do. "Wsl" next to "Chrome" tells the user nothing about what ticking it changes.
+# Keys not listed here fall through to the default prefix strip.
 $LabelOverrides = @{
-    'setup_zsh'             = 'System: zsh shell, with Powerlevel10k and Nerd Fonts'
-    'setup_tmpfs'           = 'System: mount /tmp in RAM as tmpfs'
     'set_custom_wallpaper'  = 'System: set the desktop wallpaper'
-    'toggle_wayland_nvidia' = 'System: force Wayland on NVIDIA, can break the session'
-    'setup_karabiner'       = 'System: Karabiner-Elements key remapping (macOS)'
-    'setup_finder_defaults' = 'System: Finder default settings (macOS)'
     'setup_wsl'             = 'System: install WSL and Ubuntu (Windows)'
-    'enable_hyperv'         = 'System: enable Hyper-V, WSL, .NET and Sandbox features, needs a reboot (Windows)'
+    'enable_hyperv'         = 'System: enable Hyper-V and the WSL and .NET and Sandbox features. Needs a reboot (Windows)'
+    'opencode_use_v1'       = 'Switch OpenCode from v2 to v1'
 }
 
 if ($env:NO_COLOR -or $NoColor) {
@@ -225,7 +228,9 @@ function Invoke-AndShowNpmTools {
         -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
         -ToggleOverride  $ToggleOverride
 
-    $r = Invoke-WindowsNpmToolInstall -Toggles $toggles -OnlyKeys $OnlyKeys
+    $openCodeVersion = Get-OpenCodeVersion -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars `
+        -ToggleOverride $ToggleOverride -OnlyKeys $OnlyKeys
+    $r = Invoke-WindowsNpmToolInstall -Toggles $toggles -OnlyKeys $OnlyKeys -OpenCodeVersion $openCodeVersion
 
     if ($r.NpmMissing) {
         Write-Hint '  npm is not on PATH, so the CLI tools below were NOT installed:'
@@ -314,7 +319,7 @@ function Invoke-AndShowCustomInstalls {
     .SYNOPSIS
         Runs the installs a package mapping cannot express and renders the outcome.
     .DESCRIPTION
-        Java, Node, Flutter and Gridcoin. Separate from the mapping pass because each
+        Java, Node, Flutter, the Android SDK, pipx, Gridcoin and OpenCode desktop. Separate from the mapping pass because each
         needs more than one package, or no package exists at all. See
         setup/windows/WindowsCustomInstalls.ps1 for what each one does and why.
     #>
@@ -328,7 +333,10 @@ function Invoke-AndShowCustomInstalls {
         -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
         -ToggleOverride  $ToggleOverride
 
-    $r = Invoke-WindowsCustomInstall -Toggles $toggles -OnlyKeys $OnlyKeys
+    $openCodeVersion = Get-OpenCodeVersion -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars `
+        -ToggleOverride $ToggleOverride -OnlyKeys $OnlyKeys
+    $mappings = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $AnsibleDir 'vars\Windows.yaml')
+    $r = Invoke-WindowsCustomInstall -Toggles $toggles -OnlyKeys $OnlyKeys -OpenCodeVersion $openCodeVersion -Mappings $mappings
 
     if ($r.Results.Count -eq 0) {
         Write-Status 'SDKs and standalone installers: none enabled'
@@ -336,6 +344,10 @@ function Invoke-AndShowCustomInstalls {
     }
 
     Write-Status "SDKs and standalone installers: $($r.Installed.Count) done, $($r.Present.Count) already present, $($r.Failed.Count) failed"
+    # The OpenCode rows name what they removed or moved, which nothing else on the screen would say.
+    foreach ($i in @($r.Installed | Where-Object { $_.Key -in @('opencode_desktop', 'opencode_data') -and $_.Detail })) {
+        Write-Hint "  [INFO] $($i.Key): $($i.Detail)"
+    }
     foreach ($f in $r.Failed) {
         Write-Host "  [!] $($f.Key) ($($f.Package)): $($f.Detail)" -ForegroundColor Red
     }
@@ -763,6 +775,13 @@ function Install-AnsibleInWsl {
         # and only because the distribution's own ansible is inside the version range setup.sh
         # accepts, so losing the PPA costs a newer ansible-core rather than costing Ansible. Every
         # other step is required, because without it nothing is installed at all.
+        # The refresh the shared retry rule runs before a retry, each family's own package list.
+        $refreshArgs = switch -Regex ($distroId) {
+            'debian|ubuntu'      { ,@('apt-get', 'update', '-q') }
+            'fedora|rhel|centos' { ,@('dnf', 'makecache', '--refresh') }
+            'arch'               { ,@('pacman', '-Syy', '--noconfirm') }
+            default              { $null }
+        }
         $steps = switch -Regex ($distroId) {
             'debian|ubuntu'      { ,@(
                                      @{ Args = @('apt-get', 'update', '-q'); Optional = $false },
@@ -788,29 +807,30 @@ function Install-AnsibleInWsl {
 
         Write-Status "Installing Ansible inside WSL ($distro, family $distroId)..."
         $skippedSteps = [System.Collections.Generic.List[string]]::new()
+        $refreshLabel = $refreshArgs -join ' '
+        $refreshOnce = {
+            wsl --distribution $distro --user root -- @($refreshArgs) | Out-Host
+            if ($LASTEXITCODE -ne 0) { return "'$refreshLabel' exited $LASTEXITCODE inside '$distro'" }
+            return ''
+        }
         foreach ($step in $steps) {
             $label = $step.Args -join ' '
-            $lastCode = 0
-            # Three attempts with a pause between them, because these are network operations and a
-            # single dropped connection must not cost the phase. The pause is short: apt keeps what it
-            # already fetched, so a retry costs only what was lost.
-            for ($attempt = 1; $attempt -le 3; $attempt++) {
-                if ($attempt -gt 1) {
-                    Write-Hint "  retrying '$label' inside '$distro', attempt $attempt of 3"
-                    Start-Sleep -Seconds 15
-                }
+            # These reach the network, so they follow the retry rule every package manager shares,
+            # through the one helper in setup/windows/WindowsSoftware.ps1.
+            $stepOnce = {
                 wsl --distribution $distro --user root -- @($step.Args) | Out-Host
-                $lastCode = $LASTEXITCODE
-                if ($lastCode -eq 0) { break }
+                $code = $LASTEXITCODE
+                [PSCustomObject]@{ Succeeded = ($code -eq 0); Final = $false; Failure = "'$label' exited $code" }
             }
-            if ($lastCode -ne 0) {
+            $retry = Invoke-PackageManagerRetry -Package $label -Attempt $stepOnce -Refresh $refreshOnce
+            if (-not $retry.Succeeded) {
                 if ($step.Optional) {
                     $skippedSteps.Add($label)
-                    Write-Hint ("  '$label' exited $lastCode after three attempts and is not required, " +
+                    Write-Hint ("  $($retry.Detail). It is not required, " +
                         "so the sequence continues with the distribution's own package instead")
                     continue
                 }
-                & $add 'failed' ("'$label' exited $lastCode inside '$distro' after three attempts, so " +
+                & $add 'failed' ("$($retry.Detail), inside '$distro', so " +
                     "Ansible is not installed in there. The whole sequence is: $rendered")
                 return New-WslResult -Results $results
             }
@@ -930,15 +950,23 @@ function Install-ConsoleGuiTools {
         return $true
     }
     Write-Status 'Installing Microsoft.PowerShell.ConsoleGuiTools (one-time)...'
-    try {
-        Install-Module -Name Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser -Force -AcceptLicense -ErrorAction Stop
-        return $true
-    } catch {
-        Write-Host "  [!] Could not install Microsoft.PowerShell.ConsoleGuiTools, so the software picker cannot open: $($_.Exception.Message)" -ForegroundColor Yellow
-        Write-Hint '  This run continues with the default software list from group_vars, the same list -NonInteractive installs.'
-        Write-Hint '  To choose individual applications, run: Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser, then run setup.ps1 again.'
-        return $false
+    # Under the retry rule every install follows, with only a wait before a retry, because
+    # Install-Module has no refresh step of its own to run first.
+    $gallery = Invoke-PackageManagerRetry -Package 'Microsoft.PowerShell.ConsoleGuiTools' -Attempt {
+        try {
+            Install-Module -Name Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser -Force -AcceptLicense -ErrorAction Stop
+            [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
+        } catch {
+            [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = $_.Exception.Message }
+        }
     }
+    if ($gallery.Succeeded) {
+        return $true
+    }
+    Write-Host "  [!] Could not install Microsoft.PowerShell.ConsoleGuiTools, so the software picker cannot open: $($gallery.Detail)" -ForegroundColor Yellow
+    Write-Hint '  This run continues with the default software list from group_vars, the same list -NonInteractive installs.'
+    Write-Hint '  To choose individual applications, run: Install-Module Microsoft.PowerShell.ConsoleGuiTools -Scope CurrentUser, then run setup.ps1 again.'
+    return $false
 }
 
 # ---------------------------------------------------------------------------
@@ -1088,6 +1116,8 @@ function Resolve-ToggleOverride {
         Here the phases read the files themselves, so an entry per toggle would be a second copy of a
         value nobody asked to change, and a second copy is a thing that can be wrong.
 
+        An all baseline leaves the keys in $AllSoftwareKeepsOff off, and -EnableKey still turns them on.
+
         -DisableKey is applied last so a key named in both ends up off. That order is the safe one.
     #>
     [CmdletBinding()]
@@ -1105,7 +1135,7 @@ function Resolve-ToggleOverride {
 
     $override = @{}
     switch ($Baseline) {
-        'all'  { foreach ($item in $Selectable) { $override[$item.Key] = $true } }
+        'all'  { foreach ($item in $Selectable) { $override[$item.Key] = $item.Key -notin $AllSoftwareKeepsOff } }
         'none' { foreach ($item in $Selectable) { $override[$item.Key] = $false } }
     }
     foreach ($key in $enable)  { $override[$key] = $true }
@@ -1199,9 +1229,10 @@ function Show-SoftwarePicker {
 function Get-SoftwareSelection {
     <#
     .SYNOPSIS
-        Asks which software to install, and returns the chosen keys, or null for the defaults.
+        Asks which software to install, and returns the ticked checklist keys, or null for the defaults.
     .DESCRIPTION
-        Null means "everything the group_vars files enable". Only the customise path narrows it.
+        Null means "everything the group_vars files enable". The customise path returns the keys as the
+        checklist names them, and Resolve-PickedSelection turns them into what the phases read.
         A cancelled picker exits the run from here rather than returning null, because null already
         means the defaults and the caller could not tell the two apart.
     #>
@@ -1223,12 +1254,37 @@ function Get-SoftwareSelection {
         exit 0
     }
 
-    # The native installers key off the bare name, without the install_ prefix the checklist
-    # carries. The four system settings have no prefix and pass through unchanged, which is what
-    # lets unticking one of them mean it is not applied.
-    return @($selectedKeys | ForEach-Object {
-        if ($_ -like 'install_*') { $_.Substring('install_'.Length) } else { $_ }
-    })
+    return @($selectedKeys)
+}
+
+function Resolve-PickedSelection {
+    <#
+    .SYNOPSIS
+        Turns the keys ticked on the checklist into the OnlyKeys and ToggleOverride every phase reads.
+    .DESCRIPTION
+        Ticked means on and unticked means off, whatever group_vars says, which is what the bash wizard's
+        checklist does by passing every state as an extra variable. Until 2026-10-15 the ticked keys were
+        handed over as OnlyKeys alone, which can only narrow: a key that group_vars has off stayed off
+        however it was ticked, so no toggle that ships off, opencode_use_v1 among them, could be turned on
+        from this checklist. The override carries every offered key, and OnlyKeys still narrows the same
+        set, so both readers agree.
+
+        OnlyKeys is the bare name, without the install_ prefix the checklist carries, because the native
+        installers key off it. The system settings have no prefix and pass through unchanged.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $PickedKeys,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [PSCustomObject[]] $Selectable
+    )
+
+    return [PSCustomObject]@{
+        OnlyKeys       = @($PickedKeys | ForEach-Object {
+            if ($_ -like 'install_*') { $_.Substring('install_'.Length) } else { $_ }
+        })
+        ToggleOverride = (Resolve-ToggleOverride -Selectable $Selectable -Baseline 'none' -EnableKey $PickedKeys)
+    }
 }
 
 function Invoke-WindowsRun {
@@ -1321,7 +1377,7 @@ function Show-ResolvedPlan {
     # The three later phases own their own key lists and each exposes it, so this asks them instead
     # of restating what they handle. A restated list is how a toggle comes to be reported as planned
     # by one file and ignored by another.
-    $npmPackages = Get-NpmToolPackage
+    $npmPackages = Get-NpmToolPackage -OpenCodeVersion (Get-OpenCodeVersion -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars -ToggleOverride $ToggleOverride)
 
     $wantedNpm     = @(@($npmPackages.Keys)             | Where-Object { $softwareToggles.ContainsKey($_) -and $softwareToggles[$_] })
     $wantedCustom  = @(@(Get-WindowsCustomInstallKey)   | Where-Object { $softwareToggles.ContainsKey($_) -and $softwareToggles[$_] })
@@ -1437,7 +1493,12 @@ function Invoke-Main {
         # needs no module and is still asked, because this is still a person at a prompt.
         if (Install-ConsoleGuiTools) {
             Write-Status 'Ready.'
-            $selectedSoftwareKeys = Get-SoftwareSelection -Selectable $selectable
+            $pickedKeys = Get-SoftwareSelection -Selectable $selectable
+            if ($null -ne $pickedKeys) {
+                $picked = Resolve-PickedSelection -PickedKeys $pickedKeys -Selectable $selectable
+                $selectedSoftwareKeys = $picked.OnlyKeys
+                $toggleOverride = $picked.ToggleOverride
+            }
         }
 
         Write-Section 'Step 2/2 — Confirm and Run'

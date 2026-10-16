@@ -419,13 +419,14 @@ Describe 'PinnedValues module' {
     }
 }
 
-Describe 'Install-WingetPackage retries a failed install once' {
+Describe 'Install-WingetPackage retries under the shared rule, refreshing its source first' {
 
     # A stub winget rather than a Pester mock, because the code under test never calls winget through
     # PowerShell: Invoke-BoundedWinget starts a process and reads two redirected files, so a mock
     # would prove nothing about the path that actually runs. The stub answers the `list` probe as
-    # "not installed" and appends a line per install attempt, so the line count is the attempt count,
-    # which is the only state that survives between two separate processes.
+    # "not installed", leaves a marker file per install attempt, so the file count is the attempt
+    # count, which is the only state that survives between two separate processes, and appends one
+    # line per install or `source update` to calls.log, so the order of the two can be read back.
     #
     # Defined as a global function in BeforeAll, and every It owns its own directory. Pester 5 runs
     # the Describe body at discovery and each It at run time, so a plain function in the body does not
@@ -442,6 +443,8 @@ Describe 'Install-WingetPackage retries a failed install once' {
             $marker1 = Join-Path $Directory 'a1'
             $marker2 = Join-Path $Directory 'a2'
             $marker3 = Join-Path $Directory 'a3'
+            $marker4 = Join-Path $Directory 'a4'
+            $callLog = Join-Path $Directory 'calls.log'
 
             if ($IsWindows) {
                 $stub = Join-Path $Directory 'winget.cmd'
@@ -458,15 +461,23 @@ exit /b 0
                     $body = @"
 @echo off
 if "%1"=="list" exit /b 1
+if "%1"=="source" (
+  echo refresh %2 %3 %4>>"$callLog"
+  exit /b 0
+)
+echo install>>"$callLog"
 if not exist "$marker1" (
   echo x>"$marker1"
   set ATTEMPT=1
 ) else if not exist "$marker2" (
   echo x>"$marker2"
   set ATTEMPT=2
-) else (
+) else if not exist "$marker3" (
   echo x>"$marker3"
   set ATTEMPT=3
+) else (
+  echo x>"$marker4"
+  set ATTEMPT=4
 )
 if %ATTEMPT% LEQ $FailFirstN (
   echo Installer failed with exit code: 3221225477
@@ -499,12 +510,16 @@ exit 0
                     $body = @"
 #!/usr/bin/env bash
 if [ "`$1" = "list" ]; then exit 1; fi
+if [ "`$1" = "source" ]; then echo "refresh `$2 `$3 `$4" >> "$callLog"; exit 0; fi
+echo install >> "$callLog"
 if [ ! -f "$marker1" ]; then
   echo x > "$marker1"; attempt=1
 elif [ ! -f "$marker2" ]; then
   echo x > "$marker2"; attempt=2
-else
+elif [ ! -f "$marker3" ]; then
   echo x > "$marker3"; attempt=3
+else
+  echo x > "$marker4"; attempt=4
 fi
 if [ "`$attempt" -le "$FailFirstN" ]; then
   echo "Installer failed with exit code: 3221225477"
@@ -536,36 +551,20 @@ exit 0
             param([Parameter(Mandatory)] [string] $Directory)
             return @(Get-ChildItem -LiteralPath $Directory -Filter 'a?' -File -ErrorAction SilentlyContinue).Count
         }
+
+        # The install and refresh calls in the order the stub saw them, trimmed of the trailing
+        # space a batch echo leaves.
+        function global:Get-StubCall {
+            param([Parameter(Mandatory)] [string] $Directory)
+            $log = Join-Path $Directory 'calls.log'
+            if (-not (Test-Path -LiteralPath $log)) { return @() }
+            return @(Get-Content -LiteralPath $log | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        }
+
+        Mock Write-Host { }
     }
 
-    It 'reports installed when the first attempt fails and the second succeeds' {
-        $dir = New-StubDirectory
-        try {
-            $stub = New-WingetStub -Directory $dir -FailFirstN 1
-
-            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -RetryPauseSeconds 0
-
-            $r.Status | Should -Be 'installed'
-            $r.Detail | Should -BeLike '*attempt 2*'
-            $r.Detail | Should -BeLike '*3221225477*' -Because 'the first failure stays visible even though the package landed'
-            Get-StubAttemptCount -Directory $dir | Should -Be 2
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
-    }
-
-    It 'stops at two attempts and names both when neither works' {
-        $dir = New-StubDirectory
-        try {
-            $stub = New-WingetStub -Directory $dir -FailFirstN 9
-
-            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -RetryPauseSeconds 0
-
-            $r.Status | Should -Be 'failed'
-            $r.Detail | Should -BeLike '*attempt 2 of 2*'
-            Get-StubAttemptCount -Directory $dir | Should -Be 2 -Because 'two attempts, never three'
-        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
-    }
-
-    It 'does not retry a package that installs first time' {
+    It 'never refreshes the source when the first attempt installs' {
         $dir = New-StubDirectory
         try {
             $stub = New-WingetStub -Directory $dir -FailFirstN 0
@@ -574,20 +573,50 @@ exit 0
 
             $r.Status | Should -Be 'installed'
             $r.Detail | Should -BeNullOrEmpty
-            Get-StubAttemptCount -Directory $dir | Should -Be 1
+            @(Get-StubCall -Directory $dir) | Should -Be @('install') -Because 'a first attempt runs against the source winget already holds'
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
-    It 'honours -Attempts 1, which is the no-retry behaviour this replaced' {
+    It 'refreshes the package source before the retry, and names the first failure once the retry installs it' {
+        $dir = New-StubDirectory
+        try {
+            $stub = New-WingetStub -Directory $dir -FailFirstN 1
+
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -Source 'winget' -RetryPauseSeconds 0
+
+            $r.Status | Should -Be 'installed'
+            $r.Detail | Should -BeLike 'installed on attempt 2 of 4, after attempt 1 said exit 1.*3221225477*'
+            @(Get-StubCall -Directory $dir) | Should -Be @('install', 'refresh update --name winget', 'install')
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'stops after the first attempt and three retries, refreshing before each retry, and counts them' {
         $dir = New-StubDirectory
         try {
             $stub = New-WingetStub -Directory $dir -FailFirstN 9
 
-            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -Attempts 1 -RetryPauseSeconds 0
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -RetryPauseSeconds 0
+
+            $r.Package | Should -Be 'Vendor.Thing'
+            $r.Status | Should -Be 'failed'
+            $r.Detail | Should -BeLike '*3221225477 (attempt 4 of 4; attempts 1, 2 and 3 said exit 1.*3221225477)'
+            Get-StubAttemptCount -Directory $dir | Should -Be 4
+            @(Get-StubCall -Directory $dir) | Should -Be @(
+                'install', 'refresh update --name winget', 'install', 'refresh update --name winget',
+                'install', 'refresh update --name winget', 'install')
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'honours -Retries 0, one attempt and no refresh' {
+        $dir = New-StubDirectory
+        try {
+            $stub = New-WingetStub -Directory $dir -FailFirstN 9
+
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -Retries 0 -RetryPauseSeconds 0
 
             $r.Status | Should -Be 'failed'
-            $r.Detail | Should -Not -BeLike '*the first said*'
-            Get-StubAttemptCount -Directory $dir | Should -Be 1
+            $r.Detail | Should -Not -BeLike '*said*'
+            @(Get-StubCall -Directory $dir) | Should -Be @('install')
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
@@ -596,7 +625,7 @@ exit 0
         try {
             $stub = New-WingetStub -Directory $dir -FailFirstN 0 -Hang
 
-            # 30 is the smallest deadline the parameter accepts. Two attempts would cost twice that,
+            # 30 is the smallest deadline the parameter accepts. A retry would cost that again,
             # which is exactly what a deadline is meant to prevent.
             $r = Install-WingetPackage -WingetPath $stub.Path -PackageId 'Vendor.Thing' -TimeoutSeconds 30 -RetryPauseSeconds 0
 
@@ -604,6 +633,243 @@ exit 0
             $r.Detail | Should -BeLike '*gave up after 30 seconds*'
             Get-StubAttemptCount -Directory $dir | Should -Be 1
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+
+Describe 'Invoke-PackageManagerRetry, the one retry rule every package manager follows' {
+
+    BeforeEach {
+        $global:RetryCalls = [System.Collections.Generic.List[string]]::new()
+        $global:RetryFailuresLeft = 0
+        Mock Start-Sleep { $global:RetryCalls.Add("wait $Seconds") }
+        Mock Write-Host { }
+        $script:FailingAttempt = {
+            $global:RetryCalls.Add('install')
+            if ($global:RetryFailuresLeft -gt 0) {
+                $global:RetryFailuresLeft--
+                return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = 'mirror answered 404' }
+            }
+            return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
+        }
+        $script:Refresh = { $global:RetryCalls.Add('refresh'); '' }
+    }
+
+    It 'uses the retries and the delay of the Ansible package helper' {
+        $helper = Get-Content -LiteralPath (Join-Path $script:AnsibleDir 'tasks\install_role_packages.yaml') -Raw
+
+        $helper | Should -Match "(?m)^\s+retries: $([regex]::Escape([string]$script:PackageRetryCount))\s*$" -Because 'one rule, so the Windows count must be one the Ansible helper uses'
+        $helper | Should -Match ([regex]::Escape("role_packages_retry_delay | default($script:PackageRetryDelaySeconds)"))
+    }
+
+    It 'never refreshes when the first attempt succeeds' {
+        $r = Invoke-PackageManagerRetry -Package 'pkg' -Attempt $script:FailingAttempt -Refresh $script:Refresh
+
+        $r.Succeeded | Should -BeTrue
+        $r.Attempts | Should -Be 1
+        $r.Detail | Should -BeNullOrEmpty
+        @($global:RetryCalls) | Should -Be @('install')
+    }
+
+    It 'waits the shared delay, then refreshes, then retries, in that order' {
+        $global:RetryFailuresLeft = 1
+
+        $r = Invoke-PackageManagerRetry -Package 'pkg' -Attempt $script:FailingAttempt -Refresh $script:Refresh
+
+        $r.Succeeded | Should -BeTrue
+        $r.Attempts | Should -Be 2
+        $r.Detail | Should -Be 'installed on attempt 2 of 4, after attempt 1 said mirror answered 404'
+        @($global:RetryCalls) | Should -Be @('install', 'wait 20', 'refresh', 'install')
+    }
+
+    It 'names and counts a package that fails every attempt, after the first attempt and three retries' {
+        $global:RetryFailuresLeft = 99
+
+        $r = Invoke-PackageManagerRetry -Package 'pkg' -Attempt $script:FailingAttempt -Refresh $script:Refresh
+
+        $r.Package | Should -Be 'pkg'
+        $r.Succeeded | Should -BeFalse
+        $r.Attempts | Should -Be 4
+        $r.MaxAttempts | Should -Be 4
+        @($r.Failures).Count | Should -Be 4
+        $r.Detail | Should -Be 'mirror answered 404 (attempt 4 of 4; attempts 1, 2 and 3 said mirror answered 404)'
+        @($global:RetryCalls | Where-Object { $_ -eq 'refresh' }).Count | Should -Be 3
+        $global:RetryCalls[-1] | Should -Be 'install' -Because 'there is no refresh after the last attempt'
+    }
+
+    It 'stops at a final failure without waiting or refreshing' {
+        $final = { $global:RetryCalls.Add('install'); [PSCustomObject]@{ Succeeded = $false; Final = $true; Failure = 'killed after its deadline' } }
+
+        $r = Invoke-PackageManagerRetry -Package 'pkg' -Attempt $final -Refresh $script:Refresh
+
+        $r.Attempts | Should -Be 1
+        $r.Detail | Should -Be 'killed after its deadline'
+        @($global:RetryCalls) | Should -Be @('install')
+    }
+
+    It 'reports a refresh that failed and still runs the retry' {
+        $global:RetryFailuresLeft = 1
+        $broken = { $global:RetryCalls.Add('refresh'); 'source update exited 2' }
+
+        $r = Invoke-PackageManagerRetry -Package 'pkg' -Attempt $script:FailingAttempt -Refresh $broken
+
+        $r.Succeeded | Should -BeTrue
+        @($r.RefreshFailures) | Should -Be @('source update exited 2')
+        $r.Detail | Should -BeLike '*The refresh before a retry failed: source update exited 2'
+    }
+
+    It 'only waits for a manager with no refresh step' {
+        $global:RetryFailuresLeft = 1
+
+        $r = Invoke-PackageManagerRetry -Package 'pkg' -Attempt $script:FailingAttempt
+
+        $r.Succeeded | Should -BeTrue
+        @($global:RetryCalls) | Should -Be @('install', 'wait 20', 'install')
+    }
+}
+
+Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the HTTP cache first' {
+
+    # A global choco function, for the reason the npm tests use one: `& choco` resolves a function
+    # before an application, and the function can set LASTEXITCODE the way choco does.
+    BeforeAll {
+        function global:choco {
+            $global:ChocoStubCalls.Add(($args -join ' '))
+            if ($args[0] -eq 'cache') {
+                $global:LASTEXITCODE = $global:ChocoStubCacheExit
+                return 'removed 3 cached items'
+            }
+            if ($global:ChocoStubFailuresLeft -gt 0) {
+                $global:ChocoStubFailuresLeft--
+                $global:LASTEXITCODE = 1
+                return 'The remote file either does not exist, is unauthorized, or is forbidden for url'
+            }
+            $global:LASTEXITCODE = 0
+            return 'The install of thing was successful.'
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:choco -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        $global:ChocoStubCalls = [System.Collections.Generic.List[string]]::new()
+        $global:ChocoStubFailuresLeft = 0
+        $global:ChocoStubCacheExit = 0
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+    }
+
+    It 'never empties the cache when the first attempt installs' {
+        $r = Install-ChocolateyPackage -PackageId 'thing'
+
+        $r.Status | Should -Be 'installed'
+        $r.Attempts | Should -Be 1
+        @($global:ChocoStubCalls) | Should -Be @('install thing -y --no-progress --limit-output --execution-timeout=600')
+    }
+
+    It 'empties the HTTP cache before the retry' {
+        $global:ChocoStubFailuresLeft = 1
+
+        $r = Install-ChocolateyPackage -PackageId 'thing'
+
+        $r.Status | Should -Be 'installed'
+        $r.Detail | Should -BeLike 'installed on attempt 2 of 4, after attempt 1 said choco exited 1.*'
+        @($global:ChocoStubCalls | ForEach-Object { ($_ -split ' ')[0] }) | Should -Be @('install', 'cache', 'install')
+        $global:ChocoStubCalls[1] | Should -Be 'cache remove -y --limit-output'
+    }
+
+    It 'names and counts a package that fails every attempt, with its exit code' {
+        $global:ChocoStubFailuresLeft = 99
+
+        $r = Install-ChocolateyPackage -PackageId 'thing'
+
+        $r.Package | Should -Be 'thing'
+        $r.Status | Should -Be 'failed'
+        $r.ExitCode | Should -Be 1
+        $r.Attempts | Should -Be 4
+        $r.Detail | Should -BeLike 'choco exited 1.*(attempt 4 of 4; attempts 1, 2 and 3 said choco exited 1.*)'
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'install *' }).Count | Should -Be 4
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'cache *' }).Count | Should -Be 3
+        Should -Invoke Start-Sleep -Times 3 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    It 'still retries when an older Chocolatey has no cache command, and says so' {
+        $global:ChocoStubFailuresLeft = 1
+        $global:ChocoStubCacheExit = 1
+
+        $r = Install-ChocolateyPackage -PackageId 'thing'
+
+        $r.Status | Should -Be 'installed'
+        $r.Detail | Should -BeLike '*The refresh before a retry failed: choco cache remove exited 1*'
+    }
+}
+
+Describe 'Install-ChocolateyPackageBatch runs the shared rule in its elevated child' {
+
+    # The child script is run for real, in a separate pwsh, with a choco function and a no-op
+    # Start-Sleep defined ahead of it, so what is tested is the text the wizard hands to the elevated
+    # process, including its dot-source of this file and the result file it writes back.
+    BeforeEach {
+        $global:ChildCallLog = Join-Path $TestDrive 'choco-calls.log'
+        Remove-Item -LiteralPath $global:ChildCallLog -Force -ErrorAction SilentlyContinue
+        Mock Invoke-ElevatedPowerShell {
+            $logLiteral = "'" + ($global:ChildCallLog -replace "'", "''") + "'"
+            $prelude = @"
+function Start-Sleep { }
+function choco {
+    Add-Content -LiteralPath $logLiteral -Value (`$args -join ' ')
+    if (`$args[0] -eq 'cache') { `$global:LASTEXITCODE = 0; return }
+    if (`$args[1] -eq 'broken-pkg') { `$global:LASTEXITCODE = 42; return 'ERROR: Running installer failed' }
+    `$global:LASTEXITCODE = 0
+}
+"@
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($prelude + "`n" + $Script))
+            & (Join-Path $PSHOME 'pwsh') -NoProfile -NonInteractive -EncodedCommand $encoded *> $null
+            [PSCustomObject]@{ ExitCode = $LASTEXITCODE; TimedOut = $false; StartError = ''; Refused = $false }
+        }
+    }
+
+    It 'installs each package through Install-ChocolateyPackage and hands back each one''s result' {
+        $batch = Install-ChocolateyPackageBatch -PackageId @('good-pkg', 'broken-pkg')
+
+        $batch.Status | Should -Be 'failed'
+        $batch.Detail | Should -BeLike 'choco exited 42*' -Because 'the child exits with the code of its last failed package'
+        $batch.Packages['good-pkg'].Status | Should -Be 'installed'
+        $batch.Packages['good-pkg'].Attempts | Should -Be 1
+        $batch.Packages['broken-pkg'].Status | Should -Be 'failed'
+        $batch.Packages['broken-pkg'].Attempts | Should -Be 4
+        $batch.Packages['broken-pkg'].Detail | Should -BeLike 'choco exited 42. ERROR: Running installer failed (attempt 4 of 4; attempts 1, 2 and 3 said*'
+        $calls = @(Get-Content -LiteralPath $global:ChildCallLog)
+        @($calls | Where-Object { $_ -like 'install broken-pkg *' }).Count | Should -Be 4
+        @($calls | Where-Object { $_ -like 'install good-pkg *' }).Count | Should -Be 1
+        @($calls | Where-Object { $_ -like 'cache remove*' }).Count | Should -Be 3
+    }
+
+    It 'names the failing package with its own attempts in the software phase result' {
+        Mock Get-WindowsMachineFact { [PSCustomObject]@{ InstallationType = 'Client'; IsElevated = $false; NvidiaAdapters = @() } }
+        $global:ChocoListed = @()
+        Mock Get-ChocolateyInstalledPackage { $global:ChocoListed }
+        Mock Install-ChocolateyPackageBatch {
+            $global:ChocoListed = @('maven')
+            [PSCustomObject]@{
+                Status   = 'failed'
+                Detail   = 'choco exited 1'
+                Packages = @{
+                    'maven'  = [PSCustomObject]@{ Package = 'maven'; Status = 'installed'; ExitCode = 0; Attempts = 1; Detail = '' }
+                    'gradle' = [PSCustomObject]@{ Package = 'gradle'; Status = 'failed'; ExitCode = 1; Attempts = 4; Detail = 'choco exited 1. 404 (attempt 4 of 4; attempts 1, 2 and 3 said choco exited 1. 404)' }
+                }
+            }
+        }
+
+        $summary = Invoke-WindowsSoftwareInstall -AnsibleDir $script:AnsibleDir -OnlyKeys @('maven', 'gradle') `
+            -ToggleOverride @{ install_maven = $true; install_gradle = $true }
+
+        @($summary.Installed).Package | Should -Be @('maven')
+        @($summary.Failed).Count | Should -Be 1
+        $summary.Failed[0].Package | Should -Be 'gradle'
+        $summary.Failed[0].Detail | Should -Be 'Chocolatey does not list gradle as installed after its install, which failed on 4 attempt(s): choco exited 1. 404 (attempt 4 of 4; attempts 1, 2 and 3 said choco exited 1. 404)'
     }
 }
 
@@ -1293,6 +1559,7 @@ Describe 'Install-NpmToolPackage removes the package a tool replaces' {
         $global:NpmStubUninstallOutput = 'removed 3 packages in 1s'
         $global:NpmStubInstallExits = @{}
         Mock Start-Sleep { }
+        Mock Write-Host { }
     }
 
     It 'uninstalls the replaced package before installing, and says so' {
@@ -1342,7 +1609,20 @@ Describe 'Install-NpmToolPackage removes the package a tool replaces' {
         $result.Detail | Should -Match 'opencode-ai had been removed to make room and was installed again'
         $result.Detail | Should -Match 'the earlier OpenCode is still on this machine'
         $global:NpmStubCalls[-1] | Should -Be 'install -g opencode-ai'
-        @($global:NpmStubCalls | Where-Object { $_ -eq 'install -g @opencode/cli' }).Count | Should -Be 2
+        @($global:NpmStubCalls | Where-Object { $_ -eq 'install -g @opencode/cli' }).Count | Should -Be 4 -Because 'the first attempt and the three retries of the shared rule'
+    }
+
+    It 'retries a failing install under the shared rule with no refresh step, and names and counts the failure' {
+        $global:NpmStubInstallExits = @{ '@fission-ai/openspec' = 1 }
+
+        $result = Install-NpmToolPackage -PackageName '@fission-ai/openspec' -DisplayName 'OpenSpec'
+
+        $result.Status | Should -Be 'failed'
+        $result.Package | Should -Be '@fission-ai/openspec'
+        $result.Detail | Should -Be 'npm exited 1. npm error code E404 (attempt 4 of 4; attempts 1, 2 and 3 said npm exited 1. npm error code E404)'
+        @($global:NpmStubCalls | Where-Object { $_ -eq 'install -g @fission-ai/openspec' }).Count | Should -Be 4
+        @($global:NpmStubCalls | Where-Object { $_ -like 'cache*' }).Count | Should -Be 0 -Because 'npm keeps no package list to refresh'
+        Should -Invoke Start-Sleep -Times 3 -Exactly -ParameterFilter { $Seconds -eq 20 }
     }
 
     It 'says there is no CLI left when the replaced package cannot be installed again either' {
@@ -1374,6 +1654,91 @@ Describe 'Install-NpmToolPackage removes the package a tool replaces' {
         @($summary.Installed).Count | Should -Be 1
         $global:NpmStubCalls | Should -Contain 'uninstall -g opencode-ai'
         $global:NpmStubCalls | Should -Contain 'install -g @opencode/cli'
+    }
+}
+
+Describe 'Install-AnsibleInWsl in setup.ps1 retries each step under the shared rule' {
+
+    # Lifted out of setup.ps1's syntax tree for the reason the Install-ConsoleGuiTools tests give.
+    # wsl is a global function, which `wsl ...` resolves before the application, recording each call
+    # and failing the steps a test names.
+    BeforeAll {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+        $wanted = @('Install-AnsibleInWsl', 'New-WslResult', 'Write-Status', 'Write-Hint')
+        $definitions = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in setup.ps1 and found $($definitions.Count)."
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+
+        function global:Get-WslDistributionName { 'Ubuntu' }
+        function global:wsl {
+            # PowerShell consumes the `--` of a function call, so the command starts after the four
+            # arguments that name the distribution and the user.
+            $command = (@($args | Select-Object -Skip 4) | ForEach-Object { "$_" }) -join ' '
+            $global:WslCalls.Add($command)
+            if ($command -eq 'cat /etc/os-release') { $global:LASTEXITCODE = 0; return 'ID=ubuntu' }
+            if ($command -eq 'which ansible-playbook') {
+                $global:LASTEXITCODE = $(if ($global:WslAnsibleThere) { 0 } else { 1 })
+                return
+            }
+            if ($global:WslFailuresLeft.ContainsKey($command) -and $global:WslFailuresLeft[$command] -gt 0) {
+                $global:WslFailuresLeft[$command]--
+                $global:LASTEXITCODE = 100
+                return 'E: Failed to fetch'
+            }
+            if ($command -eq 'apt-get install -y ansible') { $global:WslAnsibleThere = $true }
+            $global:LASTEXITCODE = 0
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:wsl, Function:\global:Get-WslDistributionName -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        $global:WslCalls = [System.Collections.Generic.List[string]]::new()
+        $global:WslFailuresLeft = @{}
+        $global:WslAnsibleThere = $false
+        Mock Get-Command { [PSCustomObject]@{ Source = 'wsl.exe' } } -ParameterFilter { $Name -eq 'wsl' }
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+    }
+
+    It 'runs every step once and refreshes nothing extra when each first attempt works' {
+        $r = Install-AnsibleInWsl
+
+        @($r.Installed).Count | Should -Be 1
+        @($global:WslCalls | Where-Object { $_ -eq 'apt-get update -q' }).Count | Should -Be 1 -Because 'only the first step itself updates the package list'
+    }
+
+    It 'refreshes the package list before retrying a failed install step' {
+        $global:WslFailuresLeft = @{ 'apt-get install -y ansible' = 1 }
+
+        $r = Install-AnsibleInWsl
+
+        @($r.Installed).Count | Should -Be 1
+        $at = $global:WslCalls.IndexOf('apt-get install -y ansible')
+        @($global:WslCalls)[$at..($at + 2)] | Should -Be @('apt-get install -y ansible', 'apt-get update -q', 'apt-get install -y ansible')
+    }
+
+    It 'names the step that failed every attempt, with its attempts, and installs nothing after it' {
+        $global:WslFailuresLeft = @{ 'apt-get install -y software-properties-common' = 99 }
+
+        $r = Install-AnsibleInWsl
+
+        @($r.Failed).Count | Should -Be 1
+        $r.Failed[0].Detail | Should -BeLike "'apt-get install -y software-properties-common' exited 100 (attempt 4 of 4; attempts 1, 2 and 3 said*), inside 'Ubuntu', so Ansible is not installed in there*"
+        @($global:WslCalls | Where-Object { $_ -eq 'apt-get install -y software-properties-common' }).Count | Should -Be 4
+        $global:WslCalls | Should -Not -Contain 'apt-get install -y ansible'
     }
 }
 
@@ -1420,23 +1785,39 @@ Describe 'Install-ConsoleGuiTools in setup.ps1' {
         Should -Invoke Install-Module -Times 0 -Exactly
     }
 
-    It 'returns true after installing a module that was missing' {
+    It 'returns true after installing a module that was missing, without waiting' {
         Mock Get-Module { }
         Mock Install-Module { }
         Mock Write-Host { }
+        Mock Start-Sleep { }
 
         Install-ConsoleGuiTools | Should -BeTrue
         Should -Invoke Install-Module -Times 1 -Exactly
+        Should -Invoke Start-Sleep -Times 0 -Exactly
     }
 
-    It 'returns false instead of throwing when the install fails, and says what the run does instead' {
+    It 'waits and tries the gallery again after a failed install' {
+        Mock Get-Module { }
+        $global:GalleryFailuresLeft = 1
+        Mock Install-Module { if ($global:GalleryFailuresLeft-- -gt 0) { throw 'Unable to resolve package source' } }
+        Mock Write-Host { }
+        Mock Start-Sleep { }
+
+        Install-ConsoleGuiTools | Should -BeTrue
+        Should -Invoke Install-Module -Times 2 -Exactly
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    It 'returns false instead of throwing when every attempt fails, and says what the run does instead' {
         Mock Get-Module { }
         Mock Install-Module { throw 'No match was found for the specified search criteria and module name' }
         Mock Write-Host { }
+        Mock Start-Sleep { }
 
         { Install-ConsoleGuiTools } | Should -Not -Throw
+        Should -Invoke Install-Module -Times 4 -Exactly
         Install-ConsoleGuiTools | Should -BeFalse
-        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*Could not install Microsoft.PowerShell.ConsoleGuiTools*No match was found*' }
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*Could not install Microsoft.PowerShell.ConsoleGuiTools*No match was found*attempt 4 of 4*' }
         Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*default software list*-NonInteractive*' }
     }
 
@@ -1650,5 +2031,1195 @@ Describe 'Chocolatey bootstrap' -Tag 'Slow', 'Network' {
         $result = Install-ChocolateyPackageBatch -PackageId @('7zip.install')
         $result.Status | Should -Be 'installed'
         Get-Command choco -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe 'Install-PipxWithPip' {
+
+    # Mocks rather than a real pip: the code under test decides what to run and what to believe, and a
+    # real pip would make this a network test of PyPI instead.
+    BeforeEach {
+        $script:PipxProof = Join-Path $TestDrive 'Python\Python3*\Scripts\pipx.exe'
+        $script:PipxExe   = Join-Path $TestDrive 'Python\Python311\Scripts\pipx.exe'
+        Remove-Item -LiteralPath (Join-Path $TestDrive 'Python') -Recurse -Force -ErrorAction SilentlyContinue
+        Mock Update-ProcessPath { }
+        Mock Get-Command { [PSCustomObject]@{ Source = 'py' } } -ParameterFilter { $Name -contains 'py' }
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        $global:PipCalls = [System.Collections.Generic.List[string]]::new()
+        $global:PipFailuresLeft = 0
+    }
+
+    It 'is one of the custom installs' {
+        Get-WindowsCustomInstallKey | Should -Contain 'pipx'
+    }
+
+    # Windows only, because the proof table joins paths under C:\, which no other platform has a drive for.
+    It 'has a proof entry the verification reads' -Skip:(-not $IsWindows) {
+        (Get-WindowsCustomInstallProof -Versions @{ unused = '' }).Contains('pipx') | Should -BeTrue
+    }
+
+    It 'reports present and runs nothing when pipx is already there' {
+        New-Item -ItemType File -Path $script:PipxExe -Force | Out-Null
+        Mock Invoke-ManagedTool { throw 'nothing should run' }
+
+        $r = Install-PipxWithPip -ProofPath $script:PipxProof
+
+        $r.Status | Should -Be 'present'
+        Should -Invoke Invoke-ManagedTool -Times 0
+    }
+
+    It 'fails, naming install_python, when the Python launcher is missing' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -contains 'py' }
+        Mock Invoke-ManagedTool { throw 'nothing should run' }
+
+        $r = Install-PipxWithPip -ProofPath $script:PipxProof
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike '*install_python*'
+        Should -Invoke Invoke-ManagedTool -Times 0
+    }
+
+    It 'installs with pip into the user site, then runs ensurepath, then proves the file exists' {
+        Mock Invoke-ManagedTool {
+            if ($ArgumentList -contains 'ensurepath') { New-Item -ItemType File -Path $script:PipxExe -Force | Out-Null }
+            [PSCustomObject]@{ Key = 'pipx'; Package = "py $($ArgumentList -join ' ')"; Status = 'installed'; Detail = '' }
+        }
+
+        $r = Install-PipxWithPip -ProofPath $script:PipxProof
+
+        $r.Status | Should -Be 'installed'
+        Should -Invoke Invoke-ManagedTool -Times 1 -Exactly -ParameterFilter { $FilePath -eq 'py' -and ($ArgumentList -join ' ') -eq '-m pip install --user pipx' }
+        Should -Invoke Invoke-ManagedTool -Times 1 -Exactly -ParameterFilter { $FilePath -eq 'py' -and ($ArgumentList -join ' ') -eq '-m pipx ensurepath' }
+    }
+
+    It 'names a pip install that fails every one of its four attempts, and does not run ensurepath' {
+        Mock Invoke-ManagedTool { [PSCustomObject]@{ Key = 'pipx'; Package = 'py -m pip install --user pipx'; Status = 'failed'; Detail = 'exit 1.' } }
+
+        $r = Install-PipxWithPip -ProofPath $script:PipxProof
+
+        $r.Status | Should -Be 'failed'
+        $r.Package | Should -Be 'py -m pip install --user pipx'
+        $r.Detail | Should -Be 'exit 1. (attempt 4 of 4; attempts 1, 2 and 3 said exit 1.)'
+        Should -Invoke Invoke-ManagedTool -Times 4 -Exactly -ParameterFilter { $ArgumentList -contains 'install' }
+        Should -Invoke Invoke-ManagedTool -Times 0 -Exactly -ParameterFilter { $ArgumentList -contains 'ensurepath' }
+        Should -Invoke Start-Sleep -Times 3 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    # pip 26.2 caches the index answers by their Cache-Control header and refreshes one package's with
+    # --refresh-package. The bundled pip of Python 3.11.9 is 24.0, which revalidates every index
+    # request and ignores a PIP_ variable for an option it does not have, so the variable is the one
+    # refresh both of them accept.
+    It 'asks pip to refresh the pipx index answer only on a retry, and waits first' {
+        Mock Invoke-ManagedTool {
+            if ($ArgumentList -contains 'ensurepath') {
+                New-Item -ItemType File -Path $script:PipxExe -Force | Out-Null
+                return [PSCustomObject]@{ Key = 'pipx'; Package = 'py -m pipx ensurepath'; Status = 'installed'; Detail = '' }
+            }
+            $global:PipCalls.Add($(if ($Environment.ContainsKey('PIP_REFRESH_PACKAGE')) { "install refresh=$($Environment['PIP_REFRESH_PACKAGE'])" } else { 'install' }))
+            if ($global:PipFailuresLeft -gt 0) {
+                $global:PipFailuresLeft--
+                return [PSCustomObject]@{ Key = 'pipx'; Package = 'py -m pip install --user pipx'; Status = 'failed'; Detail = 'exit 1. Connection reset by peer' }
+            }
+            [PSCustomObject]@{ Key = 'pipx'; Package = 'py -m pip install --user pipx'; Status = 'installed'; Detail = '' }
+        }
+        $global:PipFailuresLeft = 1
+
+        $r = Install-PipxWithPip -ProofPath $script:PipxProof
+
+        $r.Status | Should -Be 'installed'
+        @($global:PipCalls) | Should -Be @('install', 'install refresh=pipx')
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    It 'neither waits nor refreshes when the first pip install works' {
+        Mock Invoke-ManagedTool {
+            if ($ArgumentList -contains 'ensurepath') { New-Item -ItemType File -Path $script:PipxExe -Force | Out-Null }
+            else { $global:PipCalls.Add($(if ($Environment.ContainsKey('PIP_REFRESH_PACKAGE')) { 'install refresh' } else { 'install' })) }
+            [PSCustomObject]@{ Key = 'pipx'; Package = 'py'; Status = 'installed'; Detail = '' }
+        }
+
+        $r = Install-PipxWithPip -ProofPath $script:PipxProof
+
+        $r.Status | Should -Be 'installed'
+        @($global:PipCalls) | Should -Be @('install')
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'fails when pip and ensurepath both succeed and nothing is left behind' {
+        Mock Invoke-ManagedTool { [PSCustomObject]@{ Key = 'pipx'; Package = 'py'; Status = 'installed'; Detail = '' } }
+
+        $r = Install-PipxWithPip -ProofPath $script:PipxProof
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike '*nothing usable*'
+    }
+}
+
+Describe 'Install-OpenCodeDesktop' {
+
+    # Mocks rather than a real installer: the code under test decides whether to install and with which
+    # switches, and a real run would make this a network test of opencode.ai.
+    BeforeEach {
+        $script:OpenCodeExe = Join-Path $TestDrive 'Programs/OpenCode/OpenCode.exe'
+        $script:OpenCodePins = @{ opencode_desktop_win_installer_url = 'https://example.invalid/opencode-desktop-win-x64.exe' }
+        Mock Install-DirectInstaller { [PSCustomObject]@{ Key = $Key; Package = $Url; Status = 'installed'; Detail = $ProofPath } }
+    }
+
+    It 'is one of the custom installs' {
+        Get-WindowsCustomInstallKey | Should -Contain 'opencode_desktop'
+    }
+
+    # Windows only, because the proof table joins paths under LOCALAPPDATA, which no other platform sets.
+    It 'has a proof entry the verification reads' -Skip:(-not $IsWindows) {
+        (Get-WindowsCustomInstallProof -Versions @{ unused = '' }).Contains('opencode_desktop') | Should -BeTrue
+    }
+
+    It 'reports present and runs nothing when version 2 or later is already installed' {
+        Mock Get-FileProductMajorVersion { 2 }
+
+        $r = Install-OpenCodeDesktop -Versions $script:OpenCodePins -ProofPath $script:OpenCodeExe
+
+        $r.Status | Should -Be 'present'
+        Should -Invoke Install-DirectInstaller -Times 0 -Exactly
+    }
+
+    It 'runs the installer over version 1, which shares its uninstall entry, and says it removed version 1' {
+        $script:OpenCodeMajors = [System.Collections.Generic.Queue[int]]::new([int[]]@(1, 1, 2))
+        Mock Get-FileProductMajorVersion { $script:OpenCodeMajors.Dequeue() }
+
+        $r = Install-OpenCodeDesktop -Versions $script:OpenCodePins -ProofPath $script:OpenCodeExe
+
+        $r.Status | Should -Be 'installed'
+        $r.Detail | Should -BeLike 'removed OpenCode v1 desktop because v2 is selected*'
+        Should -Invoke Install-DirectInstaller -Times 1 -Exactly
+    }
+
+    It 'fails when the installer reports success and version 1 is still at the path' {
+        Mock Get-FileProductMajorVersion { 1 }
+
+        $r = Install-OpenCodeDesktop -Versions $script:OpenCodePins -ProofPath $script:OpenCodeExe
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike '*is not OpenCode v2'
+    }
+
+    It 'installs silently into the directory the proof names, with the signature check left on' {
+        Mock Get-FileProductMajorVersion { 0 }
+        $expectedDir = Split-Path -Parent $script:OpenCodeExe
+
+        Install-OpenCodeDesktop -Versions $script:OpenCodePins -ProofPath $script:OpenCodeExe | Out-Null
+
+        Should -Invoke Install-DirectInstaller -Times 1 -Exactly -ParameterFilter {
+            $Key -eq 'opencode_desktop' -and
+            $Url -eq 'https://example.invalid/opencode-desktop-win-x64.exe' -and
+            ($SilentArgument -join ' ') -eq "/S /D=$expectedDir" -and
+            $ProofPath -eq $script:OpenCodeExe -and
+            -not $AllowUnsigned
+        }
+    }
+
+    It 'names the missing pin instead of downloading anything' {
+        Mock Get-FileProductMajorVersion { 0 }
+
+        $r = Install-OpenCodeDesktop -Versions @{ unrelated = 'x' } -ProofPath $script:OpenCodeExe
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -Be 'nothing pins opencode_desktop_win_installer_url, so there is no installer to download'
+        Should -Invoke Install-DirectInstaller -Times 0 -Exactly
+    }
+}
+
+Describe 'Install-OpenCodeDesktop with opencode_use_v1' {
+
+    # The version 1 desktop app comes from winget, and winget calls an installed version 2 a newer copy of the
+    # same package because both register one uninstall entry, so version 2 has to be uninstalled first. Every
+    # winget call is mocked: this decides what runs, a real run would change the machine.
+    BeforeEach {
+        $script:OpenCodeExe = Join-Path $TestDrive 'Programs/OpenCode/OpenCode.exe'
+        $script:V1Mapping = [PSCustomObject]@{ Manager = 'winget'; Package = 'SST.OpenCodeDesktop'; Scope = 'user' }
+        Mock Get-WingetPath { 'winget.exe' }
+        Mock Invoke-BoundedWinget { [PSCustomObject]@{ Output = 'Successfully uninstalled'; ExitCode = 0; TimedOut = $false } }
+        Mock Install-WingetPackage { [PSCustomObject]@{ Package = $PackageId; Status = 'installed'; Detail = '' } }
+        Mock Install-DirectInstaller { throw 'the version 2 installer must not run when version 1 is selected' }
+    }
+
+    It 'uninstalls version 2, installs version 1 per user into the proof directory, and says so' {
+        # Version 2 before, 2 again for the "was the other one here" question, gone after the uninstall, 1 after the install.
+        $script:OpenCodeMajors = [System.Collections.Generic.Queue[int]]::new([int[]]@(2, 2, 0, 1))
+        Mock Get-FileProductMajorVersion { $script:OpenCodeMajors.Dequeue() }
+        $expectedDir = Split-Path -Parent $script:OpenCodeExe
+
+        $r = Install-OpenCodeDesktop -Versions @{} -ProofPath $script:OpenCodeExe -Version 'v1' -V1Mapping $script:V1Mapping
+
+        $r.Status | Should -Be 'installed'
+        $r.Detail | Should -Be 'removed OpenCode v2 desktop because v1 is selected'
+        Should -Invoke Invoke-BoundedWinget -Times 1 -Exactly -ParameterFilter {
+            ($Arguments -join ' ') -like 'uninstall --product-code d074f30d-5f88-5885-b075-be1348cc7676 *--silent*'
+        }
+        Should -Invoke Install-WingetPackage -Times 1 -Exactly -ParameterFilter {
+            $PackageId -eq 'SST.OpenCodeDesktop' -and $Scope -eq 'user' -and $Location -eq $expectedDir
+        }
+    }
+
+    It 'reports present and runs nothing when version 1 is already installed' {
+        Mock Get-FileProductMajorVersion { 1 }
+
+        $r = Install-OpenCodeDesktop -Versions @{} -ProofPath $script:OpenCodeExe -Version 'v1' -V1Mapping $script:V1Mapping
+
+        $r.Status | Should -Be 'present'
+        Should -Invoke Invoke-BoundedWinget -Times 0 -Exactly
+        Should -Invoke Install-WingetPackage -Times 0 -Exactly
+    }
+
+    It 'installs nothing when version 2 could not be removed' {
+        Mock Get-FileProductMajorVersion { 2 }
+
+        $r = Install-OpenCodeDesktop -Versions @{} -ProofPath $script:OpenCodeExe -Version 'v1' -V1Mapping $script:V1Mapping
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'OpenCode v2 desktop could not be removed, so version 1 was not installed:*'
+        Should -Invoke Install-WingetPackage -Times 0 -Exactly
+    }
+
+    It 'names the missing mapping instead of installing anything' {
+        Mock Get-FileProductMajorVersion { 0 }
+
+        $r = Install-OpenCodeDesktop -Versions @{} -ProofPath $script:OpenCodeExe -Version 'v1'
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike '*maps no opencode_desktop_v1*'
+    }
+
+    It 'reads the version 1 package from vars/Windows.yaml, which no toggle names' {
+        $mappings = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
+
+        $mappings['opencode_desktop_v1'].Package | Should -Be 'SST.OpenCodeDesktop'
+        $mappings['opencode_desktop_v1'].Scope | Should -Be 'user'
+        Get-WindowsCustomInstallMappingKey | Should -Contain 'opencode_desktop_v1'
+    }
+}
+
+Describe 'Get-OpenCodeVersion' {
+
+    BeforeAll {
+        $script:AllVarsFile     = Join-Path $script:AnsibleDir 'group_vars\all.yaml'
+        $script:WindowsVarsFile = Join-Path $script:AnsibleDir 'group_vars\windows.yaml'
+    }
+
+    It 'is v2 with group_vars as they ship' {
+        Get-OpenCodeVersion -AllVarsPath $script:AllVarsFile -WindowsVarsPath $script:WindowsVarsFile | Should -Be 'v2'
+    }
+
+    It 'is v1 when the selection turns opencode_use_v1 on' {
+        Get-OpenCodeVersion -AllVarsPath $script:AllVarsFile -WindowsVarsPath $script:WindowsVarsFile `
+            -ToggleOverride @{ opencode_use_v1 = $true } | Should -Be 'v1'
+    }
+
+    It 'is v2 when the checklist left opencode_use_v1 unticked' {
+        Get-OpenCodeVersion -AllVarsPath $script:AllVarsFile -WindowsVarsPath $script:WindowsVarsFile `
+            -ToggleOverride @{ opencode_use_v1 = $true } -OnlyKeys @('opencode', 'opencode_desktop') | Should -Be 'v2'
+    }
+}
+
+Describe 'The OpenCode command line tool follows the selected version' {
+
+    # The same global npm stub as the Install-NpmToolPackage tests above, so the call log says which verbs ran.
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsNpmTools.ps1')
+
+        $script:SavedUserProfile = $env:USERPROFILE
+        $env:USERPROFILE = $TestDrive
+
+        function global:npm {
+            $global:NpmStubCalls.Add(($args -join ' '))
+            if ($args[0] -eq 'list') {
+                $global:LASTEXITCODE = 1
+                return ''
+            }
+            $global:LASTEXITCODE = 0
+            if ($args[0] -eq 'uninstall') {
+                return 'removed 2 packages in 1s'
+            }
+            return 'added 3 packages in 6s'
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:npm -ErrorAction SilentlyContinue
+        $env:USERPROFILE = $script:SavedUserProfile
+    }
+
+    BeforeEach {
+        $global:NpmStubCalls = [System.Collections.Generic.List[string]]::new()
+        Mock Test-NpmAvailable { $true }
+        Mock Write-Host { }
+    }
+
+    It 'names @opencode/cli and replaces opencode-ai for v2, and the other way round for v1' {
+        $v2 = Get-NpmToolPackage -OpenCodeVersion 'v2'
+        $v1 = Get-NpmToolPackage -OpenCodeVersion 'v1'
+
+        $v2['opencode'].Package  | Should -Be '@opencode/cli'
+        $v2['opencode'].Replaces | Should -Be 'opencode-ai'
+        $v1['opencode'].Package  | Should -Be 'opencode-ai'
+        $v1['opencode'].Replaces | Should -Be '@opencode/cli'
+        (Get-NpmToolPackage)['opencode'].Package | Should -Be '@opencode/cli' -Because 'version 2 is the default'
+    }
+
+    It 'removes version 1 and installs version 2 by default, and says so' {
+        $summary = Invoke-WindowsNpmToolInstall -Toggles @{ opencode = $true }
+
+        ($global:NpmStubCalls -join ' | ') | Should -Be 'list -g @opencode/cli --depth=0 | uninstall -g opencode-ai | install -g @opencode/cli'
+        @($summary.Installed)[0].Detail | Should -Be 'removed OpenCode v1 command line tool, opencode-ai, because v2 is selected'
+    }
+
+    It 'removes version 2 and installs version 1 when it is selected, and says so' {
+        $summary = Invoke-WindowsNpmToolInstall -Toggles @{ opencode = $true } -OpenCodeVersion 'v1'
+
+        ($global:NpmStubCalls -join ' | ') | Should -Be 'list -g opencode-ai --depth=0 | uninstall -g @opencode/cli | install -g opencode-ai'
+        @($summary.Installed)[0].Detail | Should -Be 'removed OpenCode v2 command line tool, @opencode/cli, because v1 is selected'
+    }
+}
+
+Describe 'Move-OpenCodeData' {
+
+    # Fake data folders carrying only the text the real databases carry, CREATE TABLE `session` for version 1
+    # and CREATE TABLE `session_v2` for version 2, read out of the databases opencode-ai 1.19.1 and
+    # @opencode/cli 2.0.29 created on 2026-10-15. roles/ai_tools/tasks/opencode_data.yaml is held to the same
+    # cases by e2e/tier1/opencode_switch.sh.
+    BeforeAll {
+        function New-FakeOpenCodeData {
+            param([string] $Path, [ValidateSet('v1', 'v2', 'v2-wal', 'migrated')] [string] $Kind, [string] $Marker)
+            $null = New-Item -ItemType Directory -Path $Path -Force
+            switch ($Kind) {
+                'v1'     { Set-Content -LiteralPath (Join-Path $Path 'opencode.db') -Value 'SQLite format 3 CREATE TABLE `session` (' -NoNewline }
+                'v2'     { Set-Content -LiteralPath (Join-Path $Path 'opencode.db') -Value 'SQLite format 3 CREATE TABLE `session_v2` (' -NoNewline }
+                'migrated' { Set-Content -LiteralPath (Join-Path $Path 'opencode.db') -Value 'SQLite format 3 CREATE TABLE `session` ( CREATE TABLE `session_v2` (' -NoNewline }
+                'v2-wal' {
+                    Set-Content -LiteralPath (Join-Path $Path 'opencode.db') -Value 'SQLite format 3' -NoNewline
+                    Set-Content -LiteralPath (Join-Path $Path 'opencode.db-wal') -Value 'WAL CREATE TABLE `session_v2` (' -NoNewline
+                }
+            }
+            Set-Content -LiteralPath (Join-Path $Path 'marker') -Value $Marker
+        }
+    }
+
+    BeforeEach {
+        $script:DataHome = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $script:DataHome
+        $script:Folder = Join-Path $script:DataHome 'opencode'
+    }
+
+    It 'moves version 2 data aside when version 1 is selected, deleting nothing' {
+        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2' -Marker 'v2 data'
+
+        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000'
+
+        $r.Status | Should -Be 'installed'
+        $r.Detail | Should -BeLike "moved $script:Folder to *opencode.v2-backup-20261015-120000, because it holds OpenCode v2 data and v1 is selected"
+        Test-Path -LiteralPath $script:Folder | Should -BeFalse
+        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v2-backup-20261015-120000\marker') | Should -Be 'v2 data'
+    }
+
+    It 'brings no version 1 backup back when version 1 is selected, so version 1 starts clean' {
+        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2' -Marker 'v2 data'
+        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v1-backup-20260101-000000') -Kind 'v1' -Marker 'older v1'
+        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v1-backup-20260202-000000') -Kind 'v1' -Marker 'newer v1'
+
+        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000'
+
+        $r.Status | Should -Be 'installed'
+        @($r.Detail -split '; ').Count | Should -Be 1
+        Test-Path -LiteralPath $script:Folder | Should -BeFalse
+        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v2-backup-20261015-120000\marker') | Should -Be 'v2 data'
+        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v1-backup-20260101-000000\marker') | Should -Be 'older v1'
+        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v1-backup-20260202-000000\marker') | Should -Be 'newer v1'
+    }
+
+    It 'leaves a version 1 backup where it is when version 1 is selected and there is no data folder' {
+        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v1-backup-20260101-000000') -Kind 'v1' -Marker 'v1 backup'
+
+        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000'
+
+        $r.Status | Should -Be 'present'
+        Test-Path -LiteralPath $script:Folder | Should -BeFalse
+        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v1-backup-20260101-000000\marker') | Should -Be 'v1 backup'
+    }
+
+    It 'sets version 1 data aside and brings the newest version 2 backup back when version 2 is selected' {
+        New-FakeOpenCodeData -Path $script:Folder -Kind 'v1' -Marker 'v1 data'
+        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v2-backup-20260101-000000') -Kind 'v2-wal' -Marker 'older v2'
+        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v2-backup-20260202-000000') -Kind 'v2' -Marker 'newer v2'
+
+        $r = Move-OpenCodeData -Version 'v2' -DataHome $script:DataHome -Stamp '20261015-120000'
+
+        $r.Status | Should -Be 'installed'
+        Get-Content -LiteralPath (Join-Path $script:Folder 'marker') | Should -Be 'newer v2'
+        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v1-backup-20261015-120000\marker') | Should -Be 'v1 data'
+        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v2-backup-20260101-000000\marker') | Should -Be 'older v2'
+        @($r.Detail -split '; ').Count | Should -Be 2
+    }
+
+    It 'leaves version 1 data for version 2 to migrate when no version 2 backup exists' {
+        New-FakeOpenCodeData -Path $script:Folder -Kind 'v1' -Marker 'v1 data'
+
+        $r = Move-OpenCodeData -Version 'v2' -DataHome $script:DataHome -Stamp '20261015-120000'
+
+        $r.Status | Should -Be 'present'
+        Get-Content -LiteralPath (Join-Path $script:Folder 'marker') | Should -Be 'v1 data'
+    }
+
+    It 'keeps data version 2 migrated from version 1, which carries both tables, when version 2 is selected' {
+        New-FakeOpenCodeData -Path $script:Folder -Kind 'migrated' -Marker 'migrated data'
+        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v2-backup-20260101-000000') -Kind 'v2' -Marker 'older v2'
+
+        $r = Move-OpenCodeData -Version 'v2' -DataHome $script:DataHome -Stamp '20261015-120000'
+
+        $r.Status | Should -Be 'present'
+        Get-Content -LiteralPath (Join-Path $script:Folder 'marker') | Should -Be 'migrated data'
+    }
+
+    It 'reads a version 2 database whose tables are still in the write-ahead log' {
+        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2-wal' -Marker 'v2 data'
+
+        Get-OpenCodeDataVersion -Directory $script:Folder | Should -Be 'v2'
+    }
+
+    It 'finds the table text across the boundary between two blocks it reads' {
+        $null = New-Item -ItemType Directory -Path $script:Folder
+        $needle = [System.Text.Encoding]::ASCII.GetBytes('CREATE TABLE `session_v2`')
+        $bytes = [byte[]]::new(1MB + 64)
+        [Array]::Copy($needle, 0, $bytes, 1MB - 10, $needle.Length)
+        [System.IO.File]::WriteAllBytes((Join-Path $script:Folder 'opencode.db'), $bytes)
+
+        Test-OpenCodeDatabaseTable -Directory $script:Folder -Table 'session_v2' | Should -BeTrue
+        Test-OpenCodeDatabaseTable -Directory $script:Folder -Table 'session' | Should -BeFalse
+    }
+
+    It 'moves nothing the second time' {
+        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2' -Marker 'v2 data'
+        Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000' | Out-Null
+
+        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120001'
+
+        $r.Status | Should -Be 'present'
+        @(Get-ChildItem -LiteralPath $script:DataHome -Directory).Count | Should -Be 1
+    }
+
+    It 'refuses to move onto a backup that already exists, and moves nothing' {
+        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2' -Marker 'v2 data'
+        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v2-backup-20261015-120000') -Kind 'v2' -Marker 'earlier'
+
+        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000'
+
+        $r.Status | Should -Be 'failed'
+        Get-Content -LiteralPath (Join-Path $script:Folder 'marker') | Should -Be 'v2 data'
+        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v2-backup-20261015-120000\marker') | Should -Be 'earlier'
+    }
+}
+
+Describe 'Resolve-PickedSelection in setup.ps1' {
+
+    # Lifted out of the syntax tree for the reason the Install-ConsoleGuiTools tests give: setup.ps1 runs
+    # Invoke-Main when it is loaded. Until 2026-10-15 the ticked keys only narrowed the group_vars set, so a
+    # toggle that ships off, opencode_use_v1 among them, could not be turned on from the checklist.
+    BeforeAll {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+        $wanted = @('Resolve-PickedSelection', 'Resolve-ToggleOverride', 'Split-KeyList')
+        $definitions = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in setup.ps1 and found $($definitions.Count)."
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        # The list Resolve-ToggleOverride reads for -Software all, taken from setup.ps1 rather than restated.
+        $script:KeepsOffAssignment = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                $node.Left.Extent.Text -eq '$AllSoftwareKeepsOff'
+        }, $false))
+        if ($script:KeepsOffAssignment.Count -eq 1) {
+            . ([scriptblock]::Create($script:KeepsOffAssignment[0].Extent.Text))
+        }
+        $script:Offered = @(
+            [PSCustomObject]@{ Key = 'install_chrome'; Enabled = $true }
+            [PSCustomObject]@{ Key = 'install_opencode'; Enabled = $true }
+            [PSCustomObject]@{ Key = 'opencode_use_v1'; Enabled = $false }
+            [PSCustomObject]@{ Key = 'setup_wsl'; Enabled = $true }
+        )
+    }
+
+    It 'turns a ticked toggle that ships off on, and an unticked one that ships on off' {
+        $picked = Resolve-PickedSelection -PickedKeys @('install_opencode', 'opencode_use_v1') -Selectable $script:Offered
+
+        $picked.ToggleOverride['opencode_use_v1'] | Should -BeTrue
+        $picked.ToggleOverride['install_opencode'] | Should -BeTrue
+        $picked.ToggleOverride['install_chrome'] | Should -BeFalse
+        $picked.ToggleOverride['setup_wsl'] | Should -BeFalse
+        ($picked.OnlyKeys -join ' ') | Should -Be 'opencode opencode_use_v1'
+    }
+
+    It 'declares the list -Software all leaves off once, with opencode_use_v1 in it' {
+        $script:KeepsOffAssignment.Count | Should -Be 1
+        $AllSoftwareKeepsOff | Should -Contain 'opencode_use_v1'
+    }
+
+    It 'leaves opencode_use_v1 off under -Software all, so install all keeps OpenCode on version 2' {
+        $override = Resolve-ToggleOverride -Selectable $script:Offered -Baseline 'all'
+
+        $override['opencode_use_v1'] | Should -BeFalse
+        $override['install_opencode'] | Should -BeTrue
+        $override['install_chrome'] | Should -BeTrue
+        $override['setup_wsl'] | Should -BeTrue
+    }
+
+    It 'turns opencode_use_v1 on under -Software all when -EnableKey names it' {
+        $override = Resolve-ToggleOverride -Selectable $script:Offered -Baseline 'all' -EnableKey 'opencode_use_v1'
+
+        $override['opencode_use_v1'] | Should -BeTrue
+    }
+
+    It 'makes Get-OpenCodeVersion answer v2 under -Software all' {
+        $override = Resolve-ToggleOverride -Selectable $script:Offered -Baseline 'all'
+
+        Get-OpenCodeVersion -AllVarsPath (Join-Path $script:AnsibleDir 'group_vars\all.yaml') `
+            -WindowsVarsPath (Join-Path $script:AnsibleDir 'group_vars\windows.yaml') `
+            -ToggleOverride $override | Should -Be 'v2'
+    }
+
+    It 'makes Get-OpenCodeVersion answer v1 when the switch is ticked' {
+        $picked = Resolve-PickedSelection -PickedKeys @('install_opencode', 'opencode_use_v1') -Selectable $script:Offered
+
+        Get-OpenCodeVersion -AllVarsPath (Join-Path $script:AnsibleDir 'group_vars\all.yaml') `
+            -WindowsVarsPath (Join-Path $script:AnsibleDir 'group_vars\windows.yaml') `
+            -ToggleOverride $picked.ToggleOverride -OnlyKeys $picked.OnlyKeys | Should -Be 'v1'
+    }
+}
+
+Describe 'Get-FileProductMajorVersion' {
+
+    It 'answers 0 for a file that is not there' {
+        Get-FileProductMajorVersion -Path (Join-Path $TestDrive 'absent.exe') | Should -Be 0
+    }
+
+    It 'answers 0 for a file that carries no product version' {
+        $plain = Join-Path $TestDrive 'plain.exe'
+        Set-Content -LiteralPath $plain -Value 'MZ'
+
+        Get-FileProductMajorVersion -Path $plain | Should -Be 0
+    }
+}
+
+Describe 'Invoke-InstallStepWithRetry, the shared retry rule for an install step that returns a result row' {
+
+    BeforeEach {
+        $global:StepCalls = [System.Collections.Generic.List[string]]::new()
+        $global:StepFailuresLeft = 0
+        Mock Start-Sleep { $global:StepCalls.Add("wait $Seconds") }
+        Mock Write-Host { }
+        $script:Step = {
+            $global:StepCalls.Add('step')
+            if ($global:StepFailuresLeft -gt 0) {
+                $global:StepFailuresLeft--
+                return [PSCustomObject]@{ Key = 'k'; Package = 'tool install'; Status = 'failed'; Detail = 'exit 1.' }
+            }
+            [PSCustomObject]@{ Key = 'k'; Package = 'tool install'; Status = 'installed'; Detail = '' }
+        }
+        $script:StepRefresh = { $global:StepCalls.Add('refresh'); '' }
+    }
+
+    It 'returns the first result untouched, with no wait and no refresh, when the first attempt works' {
+        $r = Invoke-InstallStepWithRetry -Package 'tool install' -Step $script:Step -Refresh $script:StepRefresh
+
+        $r.Status | Should -Be 'installed'
+        $r.Detail | Should -BeNullOrEmpty
+        @($global:StepCalls) | Should -Be @('step')
+    }
+
+    It 'waits, refreshes, then retries a transient failure, and says so in the result' {
+        $global:StepFailuresLeft = 1
+
+        $r = Invoke-InstallStepWithRetry -Package 'tool install' -Step $script:Step -Refresh $script:StepRefresh
+
+        $r.Status | Should -Be 'installed'
+        $r.Detail | Should -Be 'installed on attempt 2 of 4, after attempt 1 said exit 1.'
+        @($global:StepCalls) | Should -Be @('step', 'wait 20', 'refresh', 'step')
+    }
+
+    It 'names a step that fails every one of its four attempts' {
+        $global:StepFailuresLeft = 99
+
+        $r = Invoke-InstallStepWithRetry -Package 'tool install' -Step $script:Step
+
+        $r.Status | Should -Be 'failed'
+        $r.Package | Should -Be 'tool install'
+        $r.Detail | Should -Be 'exit 1. (attempt 4 of 4; attempts 1, 2 and 3 said exit 1.)'
+        @($global:StepCalls | Where-Object { $_ -eq 'step' }).Count | Should -Be 4
+        @($global:StepCalls | Where-Object { $_ -eq 'wait 20' }).Count | Should -Be 3
+    }
+
+    It 'does not retry a failure the step marks Final, such as a deadline' {
+        $final = { $global:StepCalls.Add('step'); [PSCustomObject]@{ Key = 'k'; Package = 'p'; Status = 'failed'; Detail = 'killed after 15 minutes'; Final = $true } }
+
+        $r = Invoke-InstallStepWithRetry -Package 'p' -Step $final -Refresh $script:StepRefresh
+
+        $r.Detail | Should -Be 'killed after 15 minutes'
+        @($global:StepCalls) | Should -Be @('step')
+    }
+
+    It 'does not retry a step that was skipped' {
+        $skipped = { $global:StepCalls.Add('step'); [PSCustomObject]@{ Key = 'k'; Package = 'p'; Status = 'skipped'; Detail = 'WhatIf' } }
+
+        $r = Invoke-InstallStepWithRetry -Package 'p' -Step $skipped
+
+        $r.Status | Should -Be 'skipped'
+        $r.Detail | Should -Be 'WhatIf'
+        @($global:StepCalls) | Should -Be @('step')
+    }
+}
+
+Describe 'The steps that end a retry early say so' {
+
+    It 'marks a command that is not on PATH as Final' {
+        $r = Invoke-ManagedTool -Key 'k' -FilePath 'no-such-tool-installationhelper' -ArgumentList @('install')
+
+        $r.Status | Should -Be 'failed'
+        $r.Final | Should -BeTrue
+    }
+
+    It 'marks a missing sdkmanager as Final' {
+        $saved = $script:AndroidSdkRoot
+        try {
+            $script:AndroidSdkRoot = Join-Path $TestDrive 'android'
+            $r = Invoke-AndroidSdkManager -Arguments @('platform-tools')
+        } finally {
+            $script:AndroidSdkRoot = $saved
+        }
+
+        $r.Status | Should -Be 'failed'
+        $r.Final | Should -BeTrue
+    }
+}
+
+Describe 'Install-FvmFromPub retries the pub.dev activation' {
+
+    # pub resolves against pub.dev on every activation and reads its on-disk version listing only for
+    # advisories and --offline, so there is nothing to refresh, and the retry only waits.
+    BeforeEach {
+        $script:SavedLocalAppData = $env:LOCALAPPDATA
+        $env:LOCALAPPDATA = Join-Path $TestDrive 'local'
+        $script:FvmBat = Join-Path $env:LOCALAPPDATA 'Pub\Cache\bin\fvm.bat'
+        Remove-Item -LiteralPath $env:LOCALAPPDATA -Recurse -Force -ErrorAction SilentlyContinue
+        $global:PubFailuresLeft = 0
+        Mock Get-Command { [PSCustomObject]@{ Source = 'dart' } } -ParameterFilter { $Name -contains 'dart' }
+        Mock Add-ToUserPath { }
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        Mock Invoke-ManagedTool {
+            if ($global:PubFailuresLeft -gt 0) {
+                $global:PubFailuresLeft--
+                return [PSCustomObject]@{ Key = 'flutter'; Package = 'dart pub global activate fvm'; Status = 'failed'; Detail = 'exit 69. Got socket error trying to find package fvm' }
+            }
+            New-Item -ItemType File -Path $script:FvmBat -Force | Out-Null
+            [PSCustomObject]@{ Key = 'flutter'; Package = 'dart pub global activate fvm'; Status = 'installed'; Detail = '' }
+        }
+    }
+
+    AfterEach {
+        $env:LOCALAPPDATA = $script:SavedLocalAppData
+    }
+
+    It 'activates once and never waits when the first attempt works' {
+        (Install-FvmFromPub).Status | Should -Be 'installed'
+        Should -Invoke Invoke-ManagedTool -Times 1 -Exactly
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'waits and activates again after a transient failure' {
+        $global:PubFailuresLeft = 1
+
+        (Install-FvmFromPub).Status | Should -Be 'installed'
+        Should -Invoke Invoke-ManagedTool -Times 2 -Exactly
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    It 'names an activation that fails every one of its four attempts' {
+        $global:PubFailuresLeft = 99
+
+        $r = Install-FvmFromPub
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'exit 69. Got socket error trying to find package fvm (attempt 4 of 4; attempts 1, 2 and 3 said*'
+        Should -Invoke Invoke-ManagedTool -Times 4 -Exactly
+    }
+}
+
+Describe 'Install-NodeViaNvm and Install-FlutterViaFvm retry the download, not the local step after it' {
+
+    BeforeEach {
+        $global:ToolCalls = [System.Collections.Generic.List[string]]::new()
+        $global:ToolFailuresLeft = 0
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        Mock Invoke-ManagedTool {
+            $command = "$FilePath $($ArgumentList -join ' ')"
+            $global:ToolCalls.Add($command)
+            if ($ArgumentList[0] -eq 'install' -and $global:ToolFailuresLeft -gt 0) {
+                $global:ToolFailuresLeft--
+                return [PSCustomObject]@{ Key = $Key; Package = $command; Status = 'failed'; Detail = 'exit 1. download failed' }
+            }
+            [PSCustomObject]@{ Key = $Key; Package = $command; Status = 'installed'; Detail = '' }
+        }
+        Mock Get-WingetPath { 'winget' }
+        Mock Install-WingetPackage { [PSCustomObject]@{ Package = 'CoreyButler.NVMforWindows'; Status = 'present'; Detail = '' } }
+        Mock Update-ProcessEnvironment { }
+        Mock Update-ProcessPath { }
+        Mock Resolve-NvmExecutable { 'nvm' }
+        Mock Install-FvmFromPub { [PSCustomObject]@{ Status = 'present'; Detail = 'fvm.bat' } }
+        Mock Get-WindowsCustomInstallProof { @{ flutter = [PSCustomObject]@{ Path = @(Join-Path $TestDrive 'no-flutter-here') } } }
+    }
+
+    It 'runs nvm install lts once and never waits when it works' {
+        $r = @(Install-NodeViaNvm)
+
+        @($r | Where-Object Status -eq 'failed').Count | Should -Be 0
+        @($global:ToolCalls) | Should -Be @('nvm install lts', 'nvm use lts')
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'waits and runs nvm install lts again after a transient failure, then nvm use lts once' {
+        $global:ToolFailuresLeft = 1
+
+        $r = @(Install-NodeViaNvm)
+
+        @($r | Where-Object Status -eq 'failed').Count | Should -Be 0
+        @($global:ToolCalls) | Should -Be @('nvm install lts', 'nvm install lts', 'nvm use lts')
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    It 'names nvm install lts when it fails every one of its four attempts' {
+        $global:ToolFailuresLeft = 99
+
+        $r = @(Install-NodeViaNvm)
+
+        $failed = @($r | Where-Object Status -eq 'failed')
+        $failed.Count | Should -Be 1
+        $failed[0].Package | Should -Be 'nvm install lts'
+        $failed[0].Detail | Should -Be 'exit 1. download failed (attempt 4 of 4; attempts 1, 2 and 3 said exit 1. download failed)'
+        @($global:ToolCalls | Where-Object { $_ -eq 'nvm install lts' }).Count | Should -Be 4
+    }
+
+    It 'runs fvm install once and never waits when it works' {
+        $r = @(Install-FlutterViaFvm -Versions @{ flutter_channel = 'stable' })
+
+        @($r | Where-Object Status -eq 'failed').Count | Should -Be 0
+        @($global:ToolCalls) | Should -Be @('fvm install stable', 'fvm global stable')
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'waits and runs fvm install again after a transient failure, then fvm global once' {
+        $global:ToolFailuresLeft = 1
+
+        $r = @(Install-FlutterViaFvm -Versions @{ flutter_channel = 'stable' })
+
+        @($r | Where-Object Status -eq 'failed').Count | Should -Be 0
+        @($global:ToolCalls) | Should -Be @('fvm install stable', 'fvm install stable', 'fvm global stable')
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    It 'names fvm install when it fails every one of its four attempts' {
+        $global:ToolFailuresLeft = 99
+
+        $r = @(Install-FlutterViaFvm -Versions @{ flutter_channel = 'stable' })
+
+        $failed = @($r | Where-Object { $_.Status -eq 'failed' -and $_.Package -eq 'fvm install stable' })
+        $failed.Count | Should -Be 1
+        $failed[0].Detail | Should -BeLike '*(attempt 4 of 4; attempts 1, 2 and 3 said*'
+        @($global:ToolCalls | Where-Object { $_ -eq 'fvm install stable' }).Count | Should -Be 4
+    }
+}
+
+Describe 'Install-DirectInstaller retries the download, which has no index to refresh' {
+
+    # Get-AuthenticodeSignature exists only on Windows, so a function stands in for it everywhere and
+    # every test mocks it. Answering NotSigned without -AllowUnsigned stops each run right after the
+    # download, which is the part under test, before anything is executed.
+    BeforeAll {
+        function Get-AuthenticodeSignature { param([string] $LiteralPath) }
+    }
+
+    BeforeEach {
+        $global:DownloadFailuresLeft = 0
+        Mock Get-AuthenticodeSignature { [PSCustomObject]@{ Status = 'NotSigned'; SignerCertificate = $null } }
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        Mock Invoke-WebRequest {
+            if ($global:DownloadFailuresLeft -gt 0) {
+                $global:DownloadFailuresLeft--
+                throw 'The SSL connection could not be established'
+            }
+            Set-Content -LiteralPath $OutFile -Value 'MZ'
+        }
+        $script:Direct = @{ Key = 'gridcoin'; Url = 'https://example.invalid/setup.exe'; SilentArgument = @('/S'); ProofPath = (Join-Path $TestDrive 'nothing') }
+    }
+
+    It 'downloads once and never waits when the first download works' {
+        $r = Install-DirectInstaller @script:Direct
+
+        $r.Detail | Should -BeLike 'refusing to run it*' -Because 'the download succeeded, so the run reached the signature check'
+        Should -Invoke Invoke-WebRequest -Times 1 -Exactly
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'waits and downloads again after a transient failure' {
+        $global:DownloadFailuresLeft = 1
+
+        $r = Install-DirectInstaller @script:Direct
+
+        $r.Detail | Should -BeLike 'refusing to run it*'
+        Should -Invoke Invoke-WebRequest -Times 2 -Exactly
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    It 'names a download that fails every one of its four attempts' {
+        $global:DownloadFailuresLeft = 99
+
+        $r = Install-DirectInstaller @script:Direct
+
+        $r.Status | Should -Be 'failed'
+        $r.Package | Should -Be 'https://example.invalid/setup.exe'
+        $r.Detail | Should -Be 'download failed: The SSL connection could not be established (attempt 4 of 4; attempts 1, 2 and 3 said download failed: The SSL connection could not be established)'
+        Should -Invoke Invoke-WebRequest -Times 4 -Exactly
+        Should -Invoke Get-AuthenticodeSignature -Times 0 -Exactly
+    }
+}
+
+Describe 'Install-AndroidSdk retries the command line tools download' {
+
+    BeforeEach {
+        $script:SavedSdkRoot = $script:AndroidSdkRoot
+        $script:AndroidSdkRoot = Join-Path $TestDrive 'android'
+        Remove-Item -LiteralPath $script:AndroidSdkRoot -Recurse -Force -ErrorAction SilentlyContinue
+        $global:ZipFailuresLeft = 0
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        Mock Invoke-WebRequest {
+            if ($global:ZipFailuresLeft -gt 0) {
+                $global:ZipFailuresLeft--
+                throw 'Response status code does not indicate success: 503 (Service Unavailable).'
+            }
+            Set-Content -LiteralPath $OutFile -Value 'zip'
+        }
+        Mock Expand-Archive { New-Item -ItemType Directory -Path (Join-Path $DestinationPath 'cmdline-tools\bin') -Force | Out-Null }
+        $script:AndroidPins = @{ android_cmdline_tools_build = '1'; android_api_level = '36'; android_build_tools_version = '36.0.0' }
+    }
+
+    AfterEach {
+        $script:AndroidSdkRoot = $script:SavedSdkRoot
+    }
+
+    It 'downloads once and never waits when the first download works' {
+        $r = @(Install-AndroidSdk -Versions $script:AndroidPins)
+
+        $r[0].Status | Should -Be 'installed'
+        Should -Invoke Invoke-WebRequest -Times 1 -Exactly
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'waits and downloads again after a transient failure' {
+        $global:ZipFailuresLeft = 1
+
+        $r = @(Install-AndroidSdk -Versions $script:AndroidPins)
+
+        $r[0].Status | Should -Be 'installed'
+        Should -Invoke Invoke-WebRequest -Times 2 -Exactly
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    It 'names a download that fails every one of its four attempts' {
+        $global:ZipFailuresLeft = 99
+
+        $r = @(Install-AndroidSdk -Versions $script:AndroidPins)
+
+        $r.Count | Should -Be 1
+        $r[0].Status | Should -Be 'failed'
+        $r[0].Package | Should -Be 'command line tools'
+        $r[0].Detail | Should -BeLike 'download failed: Response status code does not indicate success: 503 (Service Unavailable). (attempt 4 of 4; attempts 1, 2 and 3 said*'
+        Should -Invoke Invoke-WebRequest -Times 4 -Exactly
+    }
+}
+
+Describe 'Install-WslDistribution retries wsl --install' {
+
+    # WindowsSettings.ps1 reads its toggles through WindowsSoftware.ps1, which the top-level BeforeAll
+    # has already loaded, so it is dot-sourced here in the order setup.ps1 uses.
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsSettings.ps1')
+    }
+
+    BeforeEach {
+        $global:WslExitCodes = [System.Collections.Generic.Queue[int]]::new()
+        $global:WslHangs = $false
+        Mock Get-Command { [PSCustomObject]@{ Source = 'wsl.exe' } } -ParameterFilter { $Name -contains 'wsl' }
+        Mock Get-WslDistributionName { @() }
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        Mock Start-Process {
+            $code = if ($global:WslExitCodes.Count -gt 0) { $global:WslExitCodes.Dequeue() } else { 0 }
+            $process = [PSCustomObject]@{ ExitCode = $code; Id = 1 }
+            $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($milliseconds) -not $global:WslHangs }
+            $process | Add-Member -MemberType ScriptMethod -Name Kill -Value { param($tree) }
+            $process
+        }
+    }
+
+    It 'runs wsl --install once and never waits when it works' {
+        $r = @(Install-WslDistribution)
+
+        $r[0].Status | Should -Be 'installed'
+        Should -Invoke Start-Process -Times 1 -Exactly
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'waits and runs wsl --install again after a transient failure' {
+        $global:WslExitCodes.Enqueue(1)
+
+        $r = @(Install-WslDistribution)
+
+        $r[0].Status | Should -Be 'installed'
+        $r[0].RebootRequired | Should -BeTrue
+        Should -Invoke Start-Process -Times 2 -Exactly
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+
+    It 'names wsl --install when it fails every one of its four attempts' {
+        foreach ($attempt in 1..4) { $global:WslExitCodes.Enqueue(1) }
+
+        $r = @(Install-WslDistribution)
+
+        $r[0].Status | Should -Be 'failed'
+        $r[0].Package | Should -Be 'Ubuntu'
+        $r[0].Detail | Should -BeLike 'wsl --install exited 1.*(attempt 4 of 4; attempts 1, 2 and 3 said*'
+        Should -Invoke Start-Process -Times 4 -Exactly
+    }
+
+    It 'does not retry a wsl --install that ran out of time' {
+        $global:WslHangs = $true
+
+        $r = @(Install-WslDistribution)
+
+        $r[0].Status | Should -Be 'failed'
+        $r[0].Detail | Should -BeLike '*still running after 20 minutes*'
+        Should -Invoke Start-Process -Times 1 -Exactly
+    }
+}
+
+Describe 'The Chocolatey bootstrap in the elevated child' {
+
+    It 'runs the install script under the shared retry rule, after the file that defines it is loaded' {
+        $body = (Get-Command Install-ChocolateyPackageBatch).Definition
+
+        $dotSource = $body.IndexOf('. $(ConvertTo-PowerShellLiteral -Value $script:WindowsSoftwarePath)')
+        $bootstrap = $body.IndexOf("DownloadString('https://community.chocolatey.org/install.ps1')")
+        $dotSource | Should -BeGreaterThan -1
+        $bootstrap | Should -BeGreaterThan $dotSource -Because 'Invoke-PackageManagerRetry is defined by the file the child dot-sources'
+        $body | Should -Match "Invoke-PackageManagerRetry -Package 'Chocolatey'"
+    }
+}
+
+Describe 'Every network install in the Windows wizard sits inside the shared retry rule' {
+
+    # Read from the syntax tree, so a new download or a new install step that forgets the retry fails
+    # here by name. A call that reaches the network must sit, inline, inside a script block handed to
+    # Invoke-InstallStepWithRetry or Invoke-PackageManagerRetry. A version manager or sdkmanager call
+    # outside one must be a local step, which is named here, so a new network step cannot pass as one.
+    BeforeAll {
+        $script:LocalSteps = @("@('use', 'lts')", "@('global', `$channel)", "@('-m', 'pipx', 'ensurepath')", "@('--licenses')")
+        $script:WizardFiles = @(
+            (Join-Path $script:RepoRoot 'setup\setup.ps1')
+            @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'setup\windows') -Filter '*.ps1' | ForEach-Object FullName)
+        )
+
+        function global:Test-InsideRetry {
+            param([Parameter(Mandatory)] $Node)
+
+            $retryCommands = @('Invoke-InstallStepWithRetry', 'Invoke-PackageManagerRetry')
+            $at = $Node.Parent
+            while ($at) {
+                if ($at -is [System.Management.Automation.Language.ScriptBlockExpressionAst] -and
+                    $at.Parent -is [System.Management.Automation.Language.CommandAst] -and
+                    $retryCommands -contains $at.Parent.GetCommandName()) {
+                    return $true
+                }
+                $at = $at.Parent
+            }
+            return $false
+        }
+
+        $script:Calls = foreach ($file in $script:WizardFiles) {
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors)
+            if ($errors) { throw "$file does not parse: $($errors[0].Message)" }
+            foreach ($call in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+                [PSCustomObject]@{ File = Split-Path -Leaf $file; Line = $call.Extent.StartLineNumber; Name = $call.GetCommandName(); Node = $call; Text = $call.Extent.Text }
+            }
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:Test-InsideRetry -ErrorAction SilentlyContinue
+    }
+
+    It 'finds the downloads and the gallery install it is meant to guard' {
+        @($script:Calls | Where-Object { $_.Name -in @('Invoke-WebRequest', 'Install-Module') }).Count | Should -BeGreaterOrEqual 3
+    }
+
+    It 'retries every download and every gallery install' {
+        $bare = @($script:Calls | Where-Object { $_.Name -in @('Invoke-WebRequest', 'Install-Module') -and -not (Test-InsideRetry -Node $_.Node) } |
+            ForEach-Object { "$($_.File):$($_.Line) $($_.Name)" })
+
+        $bare | Should -BeNullOrEmpty
+    }
+
+    It 'retries every version manager and sdkmanager step except the named local ones' {
+        $bare = foreach ($call in $script:Calls) {
+            if ($call.Name -notin @('Invoke-ManagedTool', 'Invoke-AndroidSdkManager')) { continue }
+            if (Test-InsideRetry -Node $call.Node) { continue }
+            if (@($script:LocalSteps | Where-Object { $call.Text.Contains($_) }).Count -gt 0) { continue }
+            "$($call.File):$($call.Line) $($call.Text)"
+        }
+
+        @($bare) | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'docs/manual/windows/install.ps1 follows the same retry rule' {
+
+    # The manual script cannot import the wizard's files, so it carries its own copy of the rule. Its
+    # functions are lifted out of its syntax tree, because loading the script would run it.
+    BeforeAll {
+        $script:ManualScript = Join-Path $script:RepoRoot 'docs\manual\windows\install.ps1'
+        $parseErrors = $null
+        $script:ManualAst = [System.Management.Automation.Language.Parser]::ParseFile($script:ManualScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "install.ps1 does not parse: $($parseErrors[0].Message)" }
+        $wanted = @('Invoke-InstallWithRetry', 'Format-Literal', 'Get-WingetArgument', 'Get-InstallExpression', 'New-ElevatedScript')
+        $definitions = @($script:ManualAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in install.ps1 and found $($definitions.Count): $(@($definitions | ForEach-Object Name) -join ', ')"
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+
+        # Stand-ins for both managers, defined as text so the same definitions can travel into the
+        # child process the elevated step starts. Each records its call and fails the first
+        # ManualFailures installs.
+        $script:ManagerStubs = @'
+$global:ManualCalls = [System.Collections.Generic.List[string]]::new()
+function winget { $global:ManualCalls.Add("winget $($args -join ' ')"); if ($args[0] -eq 'source') { $global:LASTEXITCODE = 0; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'Installer failed' }; $global:LASTEXITCODE = 0 }
+function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[0] -eq 'cache') { $global:LASTEXITCODE = 0; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'The remote file either does not exist' }; $global:LASTEXITCODE = 0 }
+'@
+    }
+
+    BeforeEach {
+        . ([scriptblock]::Create($script:ManagerStubs))
+        $global:ManualFailures = 0
+        Mock Start-Sleep { $global:ManualCalls.Add("wait $Seconds") }
+        Mock Write-Host { }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:winget, Function:\global:choco -ErrorAction SilentlyContinue
+    }
+
+    It 'uses the attempt count and the pause of the wizard' {
+        $defaults = @{}
+        foreach ($p in (Get-Command Invoke-InstallWithRetry).ScriptBlock.Ast.Body.ParamBlock.Parameters) {
+            if ($p.DefaultValue) { $defaults[$p.Name.VariablePath.UserPath] = $p.DefaultValue.Extent.Text }
+        }
+        $defaults['Retries'] | Should -Be ([string]$script:PackageRetryCount)
+        $defaults['DelaySeconds'] | Should -Be ([string]$script:PackageRetryDelaySeconds)
+    }
+
+    It 'installs a winget package once, with no wait and no refresh, when it works' {
+        $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Git.Git'; Scope = 'machine' })))
+
+        $code | Should -Be 0
+        @($global:ManualCalls) | Should -Be @("winget install --exact --id Git.Git --source winget --silent --accept-source-agreements --accept-package-agreements --disable-interactivity --scope machine")
+    }
+
+    It 'waits, updates the package source, then installs a winget package again after a failure' {
+        $global:ManualFailures = 1
+
+        $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = '9WZDNCRFJ3TJ'; Source = 'msstore' })))
+
+        $code | Should -Be 0
+        @($global:ManualCalls | ForEach-Object { ($_ -split ' ')[0..1] -join ' ' }) | Should -Be @('winget install', 'wait 20', 'winget source', 'winget install')
+        $global:ManualCalls[2] | Should -Be 'winget source update --name msstore --disable-interactivity'
+    }
+
+    It 'empties the Chocolatey HTTP cache before a Chocolatey retry' {
+        $global:ManualFailures = 1
+
+        $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'maven' })))
+
+        $code | Should -Be 0
+        @($global:ManualCalls) | Should -Be @('choco install maven -y --no-progress', 'wait 20', 'choco cache remove -y', 'choco install maven -y --no-progress')
+    }
+
+    It 'names a package that fails every one of its four attempts and returns its exit code' {
+        $global:ManualFailures = 99
+
+        $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Git.Git' })))
+
+        $code | Should -Be 1
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *' }).Count | Should -Be 4
+        @($global:ManualCalls | Where-Object { $_ -like 'winget source *' }).Count | Should -Be 3
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*Git.Git failed all 4 attempts*' }
+    }
+
+    It 'treats winget answering already installed as success, without a retry' {
+        function global:winget { $global:ManualCalls.Add("winget $($args -join ' ')"); $global:LASTEXITCODE = -1978335189 }
+
+        $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Git.Git' })))
+
+        $code | Should -Be 0
+        $global:ManualCalls.Count | Should -Be 1
+    }
+
+    It 'carries the retry into the elevated window, which counts a package that failed every attempt' {
+        $pwsh = (Get-Process -Id $PID).Path
+        $lines = @(
+            $script:ManagerStubs
+            'function Start-Sleep { param($Seconds) }'
+            '$global:ManualFailures = 1'
+            "if (($(Get-InstallExpression @{ Manager = 'choco'; Id = 'maven' })) -ne 0) { `$failed++ }"
+            '$global:ManualFailures = 99'
+            "if (($(Get-InstallExpression @{ Manager = 'choco'; Id = 'gradle' })) -ne 0) { `$failed++ }"
+        )
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes((New-ElevatedScript -Lines $lines)))
+
+        $out = & $pwsh -NoProfile -NonInteractive -EncodedCommand $encoded 2>&1
+
+        $LASTEXITCODE | Should -Be 1 -Because "maven succeeds on its retry and gradle fails all four attempts: $($out -join ' ')"
+        "$out" | Should -BeLike '*gradle failed all 4 attempts*'
+    }
+
+    It 'sends every install in the script through the retry' {
+        $text = Get-Content -LiteralPath $script:ManualScript -Raw
+        $text | Should -Not -Match '(?m)^\s*& winget @arguments' -Because 'the plain winget loop must go through Get-InstallExpression'
+        $text | Should -Not -Match 'choco install \$\(' -Because 'the Chocolatey lines must go through Get-InstallExpression'
+        $text | Should -Match "Invoke-InstallWithRetry -Package 'Chocolatey'" -Because 'the Chocolatey bootstrap is a download as well'
     }
 }
