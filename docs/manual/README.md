@@ -5,7 +5,7 @@ Copy-pasteable install commands for everything the Ansible playbook manages, one
 Each OS folder has two files:
 
 - **`<os>_manual_install.md`** — every app grouped exactly like [`setup/software.md`](../../setup/software.md), with the literal install command next to each one, plus repository-setup steps and a list of apps that need a manual install.
-- **`install.sh`** / **`install.ps1`** — a script that installs the package-manager-installable apps in one go (adds the official third-party repos, pulls the pinned `.deb`/`.rpm` files, enables Flathub). Each script prints, at the end, the apps it deliberately skipped because they need a manual download.
+- **`install.sh`** / **`install.ps1`** — a script that installs the package-manager-installable apps in one run (adds the official third-party repos, pulls the pinned `.deb`/`.rpm` files, enables Flathub), one package per package manager call, so a package that fails costs only itself. A package that fails is tried again after twenty seconds and a refresh of that package manager's package list, four attempts in all, the same rule the playbook follows. It lists every package that failed at the end and exits 1. Each script prints, at the end, the apps it deliberately skipped because they need a manual download.
 
 | OS / distro | Page | Script |
 |---|---|---|
@@ -21,9 +21,9 @@ Each OS folder has two files:
 
 **The scripts do NOT install** (each is listed in its page's *Manual install required* section, with commands):
 
-- Binary blobs with no package-manager path: Antigravity (Linux tarball / macOS DMG), Gridcoin, GpuTest, OpenLens, JetBrains Toolbox, Ledger Live / Trezor Suite AppImages.
+- Binary blobs with no package-manager path: Antigravity (Linux tarball), Gridcoin, GpuTest, OpenLens, JetBrains Toolbox on Debian, Ubuntu and Fedora, Ledger Live / Trezor Suite AppImages.
 - **Arch AUR packages** — they need an AUR helper (`yay` / `paru`); the page lists the exact `yay -S` commands and a one-time `yay` bootstrap.
-- **SDK / runtime managers** (NVM, SDKMAN, Pyenv, FVM, Android SDK), **AI tools** (Claude Code, OpenCode, OpenSpec, LM Studio, SD WebUI), and **shell setup** (zsh, Oh My Zsh, Powerlevel10k). These install via `curl | bash` into your shell rc and have ordering/sourcing dependencies, so each page documents them with exact commands to run by hand, in order.
+- **SDK / runtime managers** (NVM, SDKMAN, Pyenv, FVM, Android SDK), **AI tools** (Claude Code, OpenCode, OpenSpec, LM Studio on Linux, SD WebUI), and **shell setup** (zsh, Oh My Zsh, Powerlevel10k). These install via `curl | bash` into your shell rc and have ordering/sourcing dependencies, so each page documents them with exact commands to run by hand, in order.
 
 ## Source of truth
 

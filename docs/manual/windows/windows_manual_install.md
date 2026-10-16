@@ -1,6 +1,6 @@
 # Manual install — Windows
 
-Install commands for every application [`setup/ansible/vars/Windows.yaml`](../../../setup/ansible/vars/Windows.yaml) maps, via winget and Chocolatey, with the scope each mapping pins. To install the whole default set at once, run [`install.ps1`](install.ps1) from a normal, not elevated, PowerShell 7. It asks for an administrator once per step that needs one: once for the Chocolatey packages, once for Syncthing, and once for Syncthing's firewall rules. `e2e/tier1/manual_windows_install.sh` fails when this page or the script disagrees with the mapping file.
+Install commands for every application [`setup/ansible/vars/Windows.yaml`](../../../setup/ansible/vars/Windows.yaml) maps, via winget and Chocolatey, with the scope each mapping pins. To install the whole default set at once, run [`install.ps1`](install.ps1) from a normal, not elevated, PowerShell 7. It asks for an administrator once per step that needs one: once for the Chocolatey packages, once for Syncthing, and once for Syncthing's firewall rules. Every install in it follows the wizard's retry rule: four attempts twenty seconds apart, with `winget source update` before a winget retry and `choco cache remove` before a Chocolatey retry, and a package that fails all four is named at the end. `e2e/tier1/manual_windows_install.sh` fails when this page or the script disagrees with the mapping file.
 
 > winget ships with App Installer (Windows 10 1809+/11). Chocolatey is only needed for the `choco` rows below. MS Store apps install through winget's `msstore` source.
 
@@ -44,6 +44,8 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | jq | `winget install -e --id jqlang.jq` |
 | fzf | `winget install -e --id junegunn.fzf` |
 | ripgrep | `winget install -e --id BurntSushi.ripgrep.MSVC` |
+| uv | `winget install -e --id astral-sh.uv` |
+| Go | `winget install -e --id GoLang.Go` |
 | Lens | `winget install -e --id Mirantis.Lens --scope machine` |
 | FileZilla | `choco install -y filezilla` |
 | PuTTY | `winget install -e --id PuTTY.PuTTY --scope machine` |
@@ -69,6 +71,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | Discord | `winget install -e --id Discord.Discord --scope user` |
 | Slack | `winget install -e --id SlackTechnologies.Slack --scope user`. Slack's machine-wide msix was refused on Windows Server in GitHub sweep 38130934506, so it stays per user until a Windows 11 test proves that route |
 | Microsoft Teams | `winget install -e --id Microsoft.Teams` |
+| Zoom | `winget install -e --id Zoom.Zoom`, the machine-wide msi, which is the only installer its manifest offers |
 | Telegram | `winget install -e --id Telegram.TelegramDesktop --scope user` |
 | Signal | `winget install -e --id OpenWhisperSystems.Signal --scope user` |
 | WhatsApp | `winget install -e --id 9NKSQGP7F2NH --source msstore` |
@@ -89,7 +92,8 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | ChatGPT | `winget install -e --id 9PLM9XGG6VKS --source msstore` |
 | Claude Desktop | `winget install -e --id Anthropic.Claude --scope user`. The machine-wide msix was refused on Windows Server in GitHub sweep 38130934506, so it stays per user until a Windows 11 test proves that route |
 | LM Studio | `winget install -e --id ElementLabs.LMStudio --scope machine` |
-| OpenCode desktop | `winget install -e --id SST.OpenCodeDesktop --scope user` |
+| OpenCode desktop | Version 2 is in no Windows package source, `SST.OpenCodeDesktop` on winget is version 1. See [Manual install required](#manual-install-required) |
+| OpenCode desktop, version 1 | `winget install -e --id SST.OpenCodeDesktop --scope user`, only instead of version 2. See [OpenCode version 1](#opencode-version-1) |
 
 ## Media and design
 
@@ -212,14 +216,28 @@ The wizard installs these natively on Windows, from [`setup/windows/WindowsCusto
 | Java (Temurin JDK 11, 17, 21 and 25) | `winget install -e --id EclipseAdoptium.Temurin.21.JDK`, once per major version |
 | NVM for Windows | `winget install -e --id CoreyButler.NVMforWindows`, then `nvm install lts` and `nvm use lts` in a new shell |
 | Flutter | `dart pub global activate fvm` (needs the Dart SDK above), then `fvm install stable` and `fvm global stable` |
+| pipx | `py -m pip install --user pipx`, then `py -m pipx ensurepath` and a new shell. winget has no pipx, and Chocolatey's pulls in a second Python ahead of 3.11 |
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` *(needs Node)* |
 | OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
+| Kilo Code CLI | `npm install -g @kilocode/cli`, which provides the `kilo` command |
 | OpenSpec | `npm install -g @fission-ai/openspec` |
 | Codex | `npm install -g @openai/codex` |
 | Grok | `npm install -g @xai-official/grok` |
 | Bruno CLI | `npm install -g @usebruno/cli` |
 
 ## Manual install required
+
+**OpenCode desktop**, version 2 (pinned `2.0.29`), from the vendor's own signed installer, which installs for your user only. In a normal, not elevated, PowerShell:
+
+```powershell
+Invoke-WebRequest -Uri "https://opencode.ai/files/bin/2.0.29/opencode-desktop-win-x64.exe" -OutFile "$env:TEMP\OpenCode-Setup.exe"
+```
+
+```powershell
+Start-Process -FilePath "$env:TEMP\OpenCode-Setup.exe" -ArgumentList "/S", "/D=$env:LOCALAPPDATA\Programs\OpenCode" -Wait
+```
+
+It replaces a version 1 install from `SST.OpenCodeDesktop`, because both versions use the same uninstall entry.
 
 **Gridcoin** (pinned `5.5.0.0`) has no winget manifest, so install the NSIS `.exe` from GitHub releases. In an elevated PowerShell:
 
@@ -230,3 +248,29 @@ Invoke-WebRequest -Uri "https://github.com/gridcoin-community/Gridcoin-Research/
 ```powershell
 Start-Process -FilePath "$env:TEMP\Gridcoin-Setup.exe" -ArgumentList "/S" -Wait
 ```
+
+## OpenCode version 1
+
+Version 2 is the default. The wizard switches when `Switch OpenCode from v2 to v1` is ticked in its custom menu, or with `.\setup.ps1 -EnableKey opencode_use_v1`: it removes the version 2 command line tool and desktop app, installs version 1, and moves a data folder holding version 2 data to `%USERPROFILE%\.local\share\opencode.v2-backup-<date>-<time>`, because version 1 refuses to start on a version 2 database. Switching back moves version 1 data aside the same way and brings the newest version 2 backup back. Nothing is deleted. By hand, in a normal, not elevated, PowerShell:
+
+```powershell
+npm uninstall -g @opencode/cli
+```
+
+```powershell
+npm install -g opencode-ai
+```
+
+```powershell
+winget uninstall --product-code d074f30d-5f88-5885-b075-be1348cc7676
+```
+
+```powershell
+winget install -e --id SST.OpenCodeDesktop --scope user --location "$env:LOCALAPPDATA\Programs\OpenCode"
+```
+
+```powershell
+Move-Item "$HOME\.local\share\opencode" "$HOME\.local\share\opencode.v2-backup-$(Get-Date -Format yyyyMMdd-HHmmss)"
+```
+
+The `winget uninstall` removes version 2, because both versions register that product code and winget would otherwise call version 2 a newer copy of `SST.OpenCodeDesktop` and install nothing. The last command only when that folder exists.

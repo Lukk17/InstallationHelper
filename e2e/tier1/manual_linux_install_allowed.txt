@@ -1,0 +1,71 @@
+# Names the manual Linux scripts and guides under docs/manual install although no software_mapping
+# entry names them, with the reason. Read by e2e/tier1/manual_linux_install.sh.
+# Format: <os_family> <name, or pin:<pin name> for a downloaded file> <source> <reason>
+#
+# <source> is the file under setup/ansible that installs the same name outside the dictionary, and the
+# check fails when that file no longer names it. A source of - means only the manual route needs the
+# name, and the reason has to say why the playbook does not. A line neither a script nor a guide uses
+# any more fails too.
+#
+# Before adding a line, confirm the playbook really installs it, or really needs no equivalent. If a
+# mapping should carry it, add the mapping instead.
+
+# The Flatpak runtime every flatpak mapping needs, installed before any of them.
+Archlinux  flatpak          roles/system_core/tasks/base_utils.yaml                the Flatpak runtime the flatpak mappings need
+Debian     flatpak          roles/system_core/tasks/base_utils.yaml                the Flatpak runtime the flatpak mappings need
+RedHat     flatpak          roles/system_core/tasks/base_utils.yaml                the Flatpak runtime the flatpak mappings need
+
+# What the manual route needs to add repositories, which the playbook does with its own modules.
+Debian     ca-certificates  roles/debian_core/tasks/main.yaml                      needed to fetch the third-party apt repository keys
+Debian     curl             roles/debian_core/tasks/main.yaml                      the scripts download keys and vendor files with it
+Debian     gnupg            roles/debian_core/tasks/main.yaml                      dearmors the third-party apt repository keys
+RedHat     curl             -                                                      the script downloads the OpenRazer repository and the AppImageLauncher rpm with it, the playbook downloads through get_url
+RedHat     dnf5-plugins     -                                                      carries dnf config-manager addrepo, which the script and guide add repositories with, the playbook writes the repository files itself
+
+# install_virt_manager and install_docker install the KVM stack and the engine outside the dictionary.
+Archlinux  qemu-full        roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Archlinux  libvirt          roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Archlinux  dnsmasq          roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Archlinux  nftables         roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Archlinux  virtiofsd        roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Archlinux  docker           roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
+Debian     qemu-system-x86  roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Debian     libvirt-daemon-system roles/virtualization_config/tasks/main.yaml       the KVM stack install_virt_manager installs
+Debian     libvirt-clients  roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Debian     virtinst         roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Debian     bridge-utils     roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Debian     virtiofsd        roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+Debian     docker-ce        roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
+Debian     docker-ce-cli    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
+Debian     containerd.io    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
+Debian     docker-buildx-plugin roles/virtualization_config/tasks/main.yaml        the engine install_docker installs
+Debian     docker-compose-plugin roles/virtualization_config/tasks/main.yaml       the engine install_docker installs
+RedHat     qemu-kvm         roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+RedHat     libvirt          roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+RedHat     virt-install     roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+RedHat     bridge-utils     roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+RedHat     virtiofsd        roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
+RedHat     docker-ce        roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
+RedHat     docker-ce-cli    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
+RedHat     containerd.io    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
+RedHat     docker-buildx-plugin roles/virtualization_config/tasks/main.yaml        the engine install_docker installs
+RedHat     docker-compose-plugin roles/virtualization_config/tasks/main.yaml       the engine install_docker installs
+
+# The shell the shell_zsh role installs and configures.
+Archlinux  zsh              roles/shell_zsh/tasks/install_zsh.yaml                 the login shell shell_zsh installs
+Debian     zsh              roles/shell_zsh/tasks/install_zsh.yaml                 the login shell shell_zsh installs
+RedHat     zsh              roles/shell_zsh/tasks/install_zsh.yaml                 the login shell shell_zsh installs
+
+# The kernel headers the OpenRazer DKMS module builds against. Arch derives the names from each
+# kernel's pkgbase file at run time, so they are no literal here.
+RedHat     kernel-devel     roles/software_installer/tasks/fedora_repos.yaml       the headers the OpenRazer DKMS module builds against
+RedHat     kernel-headers   roles/software_installer/tasks/fedora_repos.yaml       the headers the OpenRazer DKMS module builds against
+
+# Installed by a dedicated task rather than a mapping on that family.
+Archlinux  claude-desktop   roles/ai_tools/tasks/claude_unix.yaml                  the AUR package ai_tools installs through paru, Arch maps no claude_desktop
+Archlinux  base-devel       roles/arch_core/tasks/main.yaml                        the build tools the guide's yay bootstrap needs, as arch_core installs them for paru
+Archlinux  mesa-git         tasks/steam_graphics_alignment.yaml                    the CachyOS graphics stack alignment Steam needs there
+Archlinux  lib32-mesa-git   tasks/steam_graphics_alignment.yaml                    the CachyOS graphics stack alignment Steam needs there
+Debian     uv               roles/software_installer/tasks/custom_installs.yaml    Astral's installer, because Debian trixie and Ubuntu 26.04 carry no uv package
+RedHat     appimagelauncher roles/software_installer/tasks/custom_installs.yaml    the upstream rpm carries no file digests, which dnf5 refuses, so it is installed with rpm --nodigest
+RedHat     pin:appimage_launcher_rpm_url roles/software_installer/tasks/custom_installs.yaml the same rpm, which the guide downloads before installing it with --nodigest

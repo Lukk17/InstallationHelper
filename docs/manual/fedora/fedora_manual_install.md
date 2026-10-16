@@ -1,13 +1,13 @@
 # Manual install — Fedora
 
-Install commands for every app the playbook manages on Fedora. To install the whole package-manager set at once, run [`install.sh`](install.sh) instead.
+Install commands for every app the playbook manages on Fedora. To install the whole package-manager set at once, run [`install.sh`](install.sh) instead. `e2e/tier1/manual_linux_install.sh` fails when this page or the script disagrees with the mapping file.
 
 > Tested against Fedora 42/43. All `dnf` commands need `sudo`. Direct `.rpm` versions are pinned in [`pinned_values.toml`](../../../setup/pinned_values/pinned_values.toml).
 
 ## Prerequisites
 
 ```bash
-sudo dnf install -y dnf-plugins-core flatpak
+for package in dnf5-plugins flatpak; do sudo dnf install -y "${package}" || echo "FAILED: ${package}"; done
 ```
 
 ```bash
@@ -148,6 +148,11 @@ sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stabl
 | jq | `sudo dnf install -y jq` |
 | fzf | `sudo dnf install -y fzf` |
 | ripgrep | `sudo dnf install -y ripgrep` |
+| uv | `sudo dnf install -y uv` |
+| pipx | `sudo dnf install -y pipx` |
+| Go | `sudo dnf install -y golang` |
+| PuTTY | `sudo dnf install -y putty` |
+| rclone | `sudo dnf install -y rclone` |
 
 > Gradle is installed via SDKMAN — see [Developer toolchain](#developer-toolchain-sdk--runtimes).
 
@@ -160,7 +165,7 @@ sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stabl
 | Arduino IDE 2.x | `flatpak install -y flathub cc.arduino.IDE2` |
 | Bruno | `flatpak install -y flathub com.usebruno.Bruno` |
 
-> Antigravity needs a manual install — see below.
+> JetBrains Toolbox and Antigravity need a manual install, see below.
 
 ## Communication
 
@@ -170,6 +175,7 @@ sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stabl
 | Slack | `flatpak install -y flathub com.slack.Slack` |
 | Telegram | `flatpak install -y flathub org.telegram.desktop` |
 | Signal | `flatpak install -y flathub org.signal.Signal` |
+| Zoom | `flatpak install -y flathub us.zoom.Zoom` |
 
 ## Productivity
 
@@ -197,8 +203,10 @@ sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stabl
 | App | Install command |
 |---|---|
 | Steam | `flatpak install -y flathub com.valvesoftware.Steam` |
+| Lutris | `flatpak install -y flathub net.lutris.Lutris` |
+| CurseForge | `flatpak install -y flathub com.overwolf.curseforge` |
 
-> GOG Galaxy, Epic, EA app and CurseForge have no official Linux client.
+> GOG Galaxy, Epic and EA app have no official Linux client.
 
 ## CAD and 3D
 
@@ -254,6 +262,23 @@ sudo rpm --install --upgrade --replacepkgs --nodigest /tmp/appimagelauncher.rpm
 | GreenWithEnvy | `flatpak install -y flathub com.leinardi.gwe` |
 | Baobab | `sudo dnf install -y baobab` |
 | Polychromatic | `flatpak install -y flathub app.polychromatic.controller` |
+| OpenRazer | `sudo dnf install -y openrazer-meta`, after its repository and the kernel headers below |
+
+OpenRazer is the driver and daemon Polychromatic talks to. It is not in Fedora proper, so add the openSUSE Build Service repository first, then the kernel headers its DKMS module builds against:
+
+```bash
+sudo curl -fsSLo /etc/yum.repos.d/hardware:razer.repo https://openrazer.github.io/hardware:razer.repo
+```
+
+```bash
+for package in kernel-devel kernel-headers; do sudo dnf install -y "${package}" || echo "FAILED: ${package}"; done
+```
+
+Then add yourself to the `plugdev` group the package creates, log out and back in, and reboot so the module loads. On a Secure Boot machine the unsigned module is refused unless you sign it or turn Secure Boot off:
+
+```bash
+sudo usermod -aG plugdev "${USER}"
+```
 
 ## Security
 
@@ -275,7 +300,7 @@ sudo rpm --install --upgrade --replacepkgs --nodigest /tmp/appimagelauncher.rpm
 
 | App | Install command |
 |---|---|
-| QEMU/KVM + virt-manager | `sudo dnf install -y qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd` |
+| QEMU/KVM + virt-manager | `for package in qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd; do sudo dnf install -y "${package}" \|\| echo "FAILED: ${package}"; done` |
 
 **Docker CE** (official repo):
 
@@ -284,7 +309,19 @@ sudo dnf config-manager addrepo --from-repofile=https://download.docker.com/linu
 ```
 
 ```bash
-sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo dnf install -y "${package}" || echo "FAILED: ${package}"; done
+```
+
+Add yourself to the `docker` group so `docker` runs without `sudo`. It takes effect only after you log out and back in, or reboot. A new terminal window is not enough, because it keeps the groups of the session you are already in:
+
+```bash
+sudo usermod -aG docker "${USER}"
+```
+
+**Podman Desktop**, a front end for the Docker engine above:
+
+```bash
+flatpak install -y flathub io.podman_desktop.PodmanDesktop
 ```
 
 ## Developer toolchain (SDK / runtimes)
@@ -335,11 +372,7 @@ curl -fsSL https://fvm.app/install.sh | bash
 fvm install stable
 ```
 
-**Dart SDK:**
-
-```bash
-sudo dnf install -y dart
-```
+Dart comes with the Flutter SDK FVM installs. The playbook installs no separate Dart SDK on Linux, because `install_dart` is a Windows-only toggle, see `setup/ansible/group_vars/all.yaml`.
 
 ## AI tools
 
@@ -349,9 +382,34 @@ Need Node from NVM above first.
 |---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
 | OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
-| OpenCode desktop | `flatpak install -y flathub ai.opencode.opencode` |
+| OpenCode desktop | `sudo dnf install -y https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-x86_64.rpm`, version 2. Version 1 of the desktop app, the Flathub `ai.opencode.opencode` the playbook installed before 2026-10-15, refuses to start once version 2 has created its database, so remove it with `flatpak uninstall ai.opencode.opencode` |
+| Kilo Code CLI | `npm install -g @kilocode/cli`, which provides the `kilo` command |
 | OpenSpec | `npm install -g @fission-ai/openspec` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` |
+
+OpenCode version 1 instead of version 2. Version 2 is the default. The wizard switches when `Switch OpenCode from v2 to v1` is ticked on its checklist, or with `./setup.sh --enable opencode_use_v1`: it removes the version 2 command line tool and desktop app, installs version 1, and moves a data folder holding version 2 data to `~/.local/share/opencode.v2-backup-<date>-<time>`, because version 1 refuses to start on a version 2 database. Switching back moves version 1 data aside the same way and brings the newest version 2 backup back. Nothing is deleted. By hand, the same steps, first removing version 2:
+
+```bash
+sudo dnf remove -y opencode
+```
+
+```bash
+npm uninstall -g @opencode/cli
+```
+
+```bash
+npm install -g opencode-ai
+```
+
+```bash
+flatpak install -y flathub ai.opencode.opencode
+```
+
+```bash
+mv ~/.local/share/opencode ~/.local/share/opencode.v2-backup-"$(date +%Y%m%d-%H%M%S)"
+```
+
+The last command only when `~/.local/share/opencode` exists. Version 1 of the desktop app is the Flathub application, 1.18.8 on 2026-10-15.
 
 **Stable Diffusion WebUI** (pinned `v1.10.1`):
 
@@ -377,6 +435,21 @@ git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-
 
 These are **not** in `install.sh` — no clean package-manager path exists. Install by hand:
 
+- **JetBrains Toolbox**: Toolbox 3.x has no install step of its own: unpack JetBrains' tarball into Toolbox's data directory, then start it from there. It adds its own menu entry on that first start.
+
+  ```bash
+  toolbox_tar="$(mktemp --suffix=.tar.gz)" && curl -fsSLo "$toolbox_tar" "https://data.services.jetbrains.com/products/download?platform=linux&code=TBA" && mkdir -p ~/.local/share/JetBrains/Toolbox && tar -xzf "$toolbox_tar" -C ~/.local/share/JetBrains/Toolbox --strip-components=1 && rm -f "$toolbox_tar"
+  ```
+
+  ```bash
+  ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox &
+  ```
+
+  Toolbox puts its IDE launchers (`idea`, `pycharm` and the rest) on PATH through a line in `~/.profile`, which zsh never reads. Add the directory to `~/.config/environment.d/50-dev.conf` instead, as described in [setup/configuration.md](../../../setup/configuration.md#shell-and-environment-layout):
+
+  ```bash
+  mkdir -p ~/.config/environment.d && printf 'PATH="${PATH}:%s"\n' "$HOME/.local/share/JetBrains/Toolbox/scripts" >> ~/.config/environment.d/50-dev.conf
+  ```
 - **Antigravity** — download the Linux tarball and extract to `/opt/antigravity`:
 
   ```bash

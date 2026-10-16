@@ -3,8 +3,9 @@
     Manual install script - Windows
 
     Installs every application setup/ansible/vars/Windows.yaml maps and the group_vars toggles turn
-    on by default, with the scope each mapping pins, the way the wizard does. Gridcoin installs from
-    a direct .exe and is not handled here, see windows_manual_install.md "Manual install required".
+    on by default, with the scope each mapping pins, the way the wizard does. Gridcoin and OpenCode
+    desktop install from a direct .exe and are not handled here, see windows_manual_install.md
+    "Manual install required".
     e2e/tier1/manual_windows_install.sh fails when this list and Windows.yaml disagree.
 
     Run it from a normal, not elevated, PowerShell 7. A user-scope install goes into the profile of
@@ -13,6 +14,10 @@
     per such step, the way the wizard does: the Chocolatey packages together, each machine-wide
     msix and portable package winget only installs from an elevated winget (Syncthing today), and
     Syncthing's firewall rules.
+
+    Every install follows the retry rule the wizard follows: four attempts twenty seconds apart,
+    with `winget source update` before a winget retry and `choco cache remove` before a Chocolatey
+    one, never before a first attempt. A package that fails all four is named at the end.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -42,6 +47,8 @@ $Packages = @(
     @{ Manager = 'winget'; Id = 'jqlang.jq' }
     @{ Manager = 'winget'; Id = 'junegunn.fzf' }
     @{ Manager = 'winget'; Id = 'BurntSushi.ripgrep.MSVC' }
+    @{ Manager = 'winget'; Id = 'astral-sh.uv' }
+    @{ Manager = 'winget'; Id = 'GoLang.Go' }
     @{ Manager = 'winget'; Id = 'Mirantis.Lens'; Scope = 'machine'; InstallerType = 'nullsoft' }
     @{ Manager = 'choco'; Id = 'filezilla' }
     @{ Manager = 'winget'; Id = 'PuTTY.PuTTY'; Scope = 'machine'; InstallerType = 'wix' }
@@ -55,6 +62,7 @@ $Packages = @(
     @{ Manager = 'winget'; Id = 'Discord.Discord'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'SlackTechnologies.Slack'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'Microsoft.Teams' }
+    @{ Manager = 'winget'; Id = 'Zoom.Zoom' }
     @{ Manager = 'winget'; Id = 'Telegram.TelegramDesktop'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'OpenWhisperSystems.Signal'; Scope = 'user' }
     @{ Manager = 'winget'; Id = '9NKSQGP7F2NH'; Source = 'msstore' }
@@ -64,7 +72,6 @@ $Packages = @(
     @{ Manager = 'winget'; Id = '9PLM9XGG6VKS'; Source = 'msstore' }
     @{ Manager = 'winget'; Id = 'Anthropic.Claude'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'ElementLabs.LMStudio'; Scope = 'machine'; InstallerType = 'nullsoft' }
-    @{ Manager = 'winget'; Id = 'SST.OpenCodeDesktop'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'VideoLAN.VLC' }
     @{ Manager = 'winget'; Id = 'Spotify.Spotify'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'GIMP.GIMP.3'; Scope = 'machine'; InstallerType = 'inno' }
@@ -148,6 +155,69 @@ function Get-WingetArgument($p) {
     return $arguments
 }
 
+function Format-Literal([string] $Text) { "'" + ($Text -replace "'", "''") + "'" }
+
+# The rule of Invoke-PackageManagerRetry in setup/windows/WindowsSoftware.ps1, written out because
+# this script cannot load the wizard's files. The Pester suite holds the two to the same numbers.
+# Install returns an exit code, and Refresh runs before every attempt after the first.
+function Invoke-InstallWithRetry {
+    param(
+        [Parameter(Mandatory)] [string] $Package,
+        [Parameter(Mandatory)] [scriptblock] $Install,
+        [scriptblock] $Refresh,
+        [int] $Retries = 3,
+        [int] $DelaySeconds = 20
+    )
+
+    $ErrorActionPreference = 'Stop'
+    $PSNativeCommandUseErrorActionPreference = $false
+    $attempts = $Retries + 1
+    $code = 1
+    for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+        if ($attempt -gt 1) {
+            Write-Host "    retrying $Package in $DelaySeconds seconds, attempt $attempt of $attempts"
+            Start-Sleep -Seconds $DelaySeconds
+            if ($Refresh) {
+                try {
+                    & $Refresh
+                    if ($LASTEXITCODE -ne 0) { Write-Host "    the refresh before attempt $attempt exited $LASTEXITCODE, retrying anyway" }
+                } catch {
+                    Write-Host "    the refresh before attempt $attempt failed, retrying anyway: $($_.Exception.Message)"
+                }
+            }
+        }
+        try {
+            $code = [int](& $Install)
+        } catch {
+            Write-Host "    ${Package}: $($_.Exception.Message)"
+            $code = 1
+        }
+        if ($code -eq 0) { return 0 }
+        Write-Host "    attempt $attempt of $attempts for $Package exited $code"
+    }
+    Write-Host "    $Package failed all $attempts attempts, the last one exited $code" -ForegroundColor Red
+    return $code
+}
+
+# One install as PowerShell text that evaluates to its exit code, so the same text runs here and in
+# an elevated window. 0x8A15002B is winget's "already installed, no newer version", not a failure.
+function Get-InstallExpression($p) {
+    $id = Format-Literal $p.Id
+    if ($p.Manager -eq 'choco') {
+        return "Invoke-InstallWithRetry -Package $id -Install { choco install $id -y --no-progress | Out-Host; `$LASTEXITCODE } -Refresh { choco cache remove -y | Out-Host }"
+    }
+    $arguments = (Get-WingetArgument $p | ForEach-Object { Format-Literal $_ }) -join ' '
+    $source = Format-Literal $(if ($p['Source']) { $p['Source'] } else { 'winget' })
+    return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } else { `$LASTEXITCODE } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
+}
+
+# The script an elevated window runs. It carries Invoke-InstallWithRetry with it, counts its own
+# failures into $failed, and exits with that count.
+function New-ElevatedScript([string[]] $Lines) {
+    $retry = "function Invoke-InstallWithRetry {$(${function:Invoke-InstallWithRetry})}"
+    return (@('$ErrorActionPreference = ''Continue''', '$failed = 0', $retry) + $Lines + @('exit $failed')) -join "`n"
+}
+
 $elevatedWinget = @($wanted | Where-Object { $_.Manager -eq 'winget' -and $_['Scope'] -eq 'machine' -and $WingetAdminInstallerTypes -contains $_['InstallerType'] })
 $plainWinget = @($wanted | Where-Object { $_.Manager -eq 'winget' -and $elevatedWinget -notcontains $_ })
 $choco = @($wanted | Where-Object { $_.Manager -eq 'choco' })
@@ -156,21 +226,16 @@ $failures = [System.Collections.Generic.List[string]]::new()
 Write-Step 'Installing winget packages'
 foreach ($p in $plainWinget) {
     Write-Host "  - $($p.Id)"
-    $arguments = Get-WingetArgument $p
-    & winget @arguments
-    # 0x8A15002B is "already installed, no newer version", which is not a failure here.
-    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) { $failures.Add("$($p.Id): winget exited $LASTEXITCODE") }
+    $code = & ([scriptblock]::Create((Get-InstallExpression $p)))
+    if ($code -ne 0) { $failures.Add("$($p.Id): winget exited $code on the last of its attempts") }
 }
 
 Write-Step 'Installing what needs an administrator, one elevated window and one consent prompt per step'
-$quote = { param($text) "'" + ($text -replace "'", "''") + "'" }
 
-# One elevated window for one step. Its lines count their own failures into $failed, and the window
-# exits with that count. A refused prompt fails only this step, and the next step asks again.
+# One elevated window for one step. A refused prompt fails only this step, and the next step asks again.
 function Invoke-ElevatedStep([string] $What, [string[]] $Lines) {
     Write-Host "  - $What"
-    $body = @('$ErrorActionPreference = ''Continue''', '$failed = 0') + $Lines + @('exit $failed')
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(($body -join "`n")))
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes((New-ElevatedScript -Lines $Lines)))
     try {
         $elevated = Start-Process -FilePath 'pwsh.exe' -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile', '-EncodedCommand', $encoded)
     } catch {
@@ -181,18 +246,26 @@ function Invoke-ElevatedStep([string] $What, [string[]] $Lines) {
 }
 
 if ($choco.Count -gt 0) {
-    $lines = @('if (-not (Get-Command choco -ErrorAction SilentlyContinue)) { Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = 3072; Invoke-Expression ((New-Object System.Net.WebClient).DownloadString(''https://community.chocolatey.org/install.ps1'')); $env:Path += '';'' + (Join-Path $env:ProgramData ''chocolatey\bin'') }')
+    $lines = @(@'
+if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    [System.Net.ServicePointManager]::SecurityProtocol = 3072
+    if ((Invoke-InstallWithRetry -Package 'Chocolatey' -Install { Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')) | Out-Host; 0 }) -ne 0) { $failed++ }
+    $env:Path += ';' + (Join-Path $env:ProgramData 'chocolatey\bin')
+}
+'@)
+    $lines += "if (-not (Get-Command choco -ErrorAction SilentlyContinue)) { Write-Host 'Chocolatey is not installed, so none of its packages can be' -ForegroundColor Red; exit (`$failed + $($choco.Count)) }"
     foreach ($p in $choco) {
-        $lines += "choco install $(& $quote $p.Id) -y --no-progress; if (`$LASTEXITCODE -ne 0) { `$failed++ }"
+        $lines += "if (($(Get-InstallExpression $p)) -ne 0) { `$failed++ }"
     }
     Invoke-ElevatedStep -What 'the Chocolatey packages' -Lines $lines
 }
 foreach ($p in $elevatedWinget) {
-    Invoke-ElevatedStep -What $p.Id -Lines @("winget $((Get-WingetArgument $p | ForEach-Object { & $quote $_ }) -join ' '); if (`$LASTEXITCODE -ne 0 -and `$LASTEXITCODE -ne -1978335189) { `$failed++ }")
+    Invoke-ElevatedStep -What $p.Id -Lines @("if (($(Get-InstallExpression $p)) -ne 0) { `$failed++ }")
 }
 if ($wanted | Where-Object { $_.Id -eq 'Syncthing.Syncthing' }) {
     $lines = foreach ($rule in $SyncthingFirewallRules) {
-        "if (-not (Get-NetFirewallRule -Name $(& $quote $rule.Name) -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name $(& $quote $rule.Name) -DisplayName $(& $quote "Syncthing $($rule.Purpose) ($($rule.Protocol) $($rule.Port))") -Group 'Syncthing (InstallationHelper)' -Direction Inbound -Action Allow -Protocol $($rule.Protocol) -LocalPort $($rule.Port) -Profile Private, Domain | Out-Null }"
+        "if (-not (Get-NetFirewallRule -Name $(Format-Literal $rule.Name) -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name $(Format-Literal $rule.Name) -DisplayName $(Format-Literal "Syncthing $($rule.Purpose) ($($rule.Protocol) $($rule.Port))") -Group 'Syncthing (InstallationHelper)' -Direction Inbound -Action Allow -Protocol $($rule.Protocol) -LocalPort $($rule.Port) -Profile Private, Domain | Out-Null }"
     }
     Invoke-ElevatedStep -What 'the Syncthing firewall rules' -Lines @($lines)
 }
@@ -214,8 +287,9 @@ if ($wanted | Where-Object { $_.Id -eq 'Syncthing.Syncthing' }) {
 
 Write-Step 'Done. NOT installed here:'
 Write-Host '   - Gridcoin (direct .exe from GitHub releases, see windows_manual_install.md)'
+Write-Host '   - OpenCode desktop, version 2 (direct .exe from opencode.ai, see windows_manual_install.md)'
 Write-Host '   - DBeaver and OnlyOffice (off by default on Windows, see windows_manual_install.md)'
-Write-Host '   - the JDKs, NVM for Windows and Node, Flutter, the Android SDK and the npm CLI tools, which the wizard installs, see windows_manual_install.md'
+Write-Host '   - the JDKs, NVM for Windows and Node, Flutter, pipx, the Android SDK and the npm CLI tools, which the wizard installs, see windows_manual_install.md'
 if ($failures.Count -gt 0) {
     Write-Host "`nFailed:" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host "   - $_" -ForegroundColor Red }

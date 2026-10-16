@@ -1,6 +1,6 @@
 # Manual install — Debian / Ubuntu
 
-Install commands for every app the playbook manages on Debian/Ubuntu. To install the whole package-manager set at once, run [`install.sh`](install.sh) instead.
+Install commands for every app the playbook manages on Debian/Ubuntu. To install the whole package-manager set at once, run [`install.sh`](install.sh) instead. `e2e/tier1/manual_linux_install.sh` fails when this page or the script disagrees with the mapping file.
 
 > Tested against Ubuntu 24.04. All `apt` commands need `sudo`. Direct `.deb` versions are pinned in [`pinned_values.toml`](../../../setup/pinned_values/pinned_values.toml).
 
@@ -126,18 +126,32 @@ sudo curl -fsSLo /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthi
 echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list
 ```
 
-**Tailscale** (key is already a binary keyring, no `gpg --dearmor` step). The keyring and the repo both live under a per-distribution, per-codename path. Upstream publishes `ubuntu` and `debian` paths only, so set the distribution segment first and a derivative's own name cannot leak into the URL:
+**Ubuntu or Debian repository path.** Tailscale and Docker publish `ubuntu` and `debian` paths only, each under that distribution's own codename. A derivative needs its lineage and its parent's codename, never its own name or codename: Linux Mint 22 is `wilma` on Ubuntu `noble`, and LMDE 6 is `faye` on Debian `bookworm`. The playbook decides the lineage the same way, in [setup/ansible/tasks/derive_os_facts.yaml](../../../setup/ansible/tasks/derive_os_facts.yaml). Set the lineage first:
 
 ```bash
-if [ "$(lsb_release -is)" = "Ubuntu" ]; then TAILSCALE_DISTRO=ubuntu; else TAILSCALE_DISTRO=debian; fi
+UPSTREAM_DISTRO="$(. /etc/os-release && if [[ -n "${UBUNTU_CODENAME:-}" || "${ID_LIKE:-}" == *ubuntu* || "${ID:-}" == ubuntu ]]; then echo ubuntu; else echo debian; fi)"
+```
+
+Then the codename of that lineage:
+
+```bash
+UPSTREAM_CODENAME="$(. /etc/os-release && if [ "${UPSTREAM_DISTRO}" = ubuntu ]; then echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; else echo "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}"; fi)"
+```
+
+Check both before going on. It prints `ubuntu noble` on Ubuntu 24.04 and on Linux Mint 22, and `debian trixie` on Debian 13. An empty codename means this machine does not name one, so stop here:
+
+```bash
+echo "${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME}"
+```
+
+**Tailscale** (key is already a binary keyring, no `gpg --dearmor` step). The keyring and the repo both live under the path set above:
+
+```bash
+sudo curl -fsSLo /etc/apt/keyrings/tailscale-archive-keyring.gpg "https://pkgs.tailscale.com/stable/${UPSTREAM_DISTRO}/${UPSTREAM_CODENAME}.noarmor.gpg"
 ```
 
 ```bash
-sudo curl -fsSLo /etc/apt/keyrings/tailscale-archive-keyring.gpg "https://pkgs.tailscale.com/stable/${TAILSCALE_DISTRO}/$(lsb_release -cs).noarmor.gpg"
-```
-
-```bash
-echo "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${TAILSCALE_DISTRO} $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/tailscale.list
+echo "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME} main" | sudo tee /etc/apt/sources.list.d/tailscale.list
 ```
 
 Claude Desktop: Anthropic publishes the Linux build only through its own apt repository, for amd64 and arm64. These are the steps the playbook runs in [setup/ansible/roles/software_installer/tasks/debian_repos.yaml](../../../setup/ansible/roles/software_installer/tasks/debian_repos.yaml). The key is published already armoured, so it is kept as `.asc` and not dearmoured:
@@ -187,10 +201,14 @@ sudo apt-get update
 | jq | `sudo apt-get install -y jq` |
 | fzf | `sudo apt-get install -y fzf` |
 | ripgrep | `sudo apt-get install -y ripgrep` |
+| pipx | `sudo apt-get install -y pipx` |
+| Go | `sudo apt-get install -y golang-go` |
 | FileZilla | `sudo apt-get install -y filezilla` |
 | PuTTY | `sudo apt-get install -y putty` |
+| rclone | `sudo apt-get install -y rclone` |
 | Minikube | `curl -fsSLo /tmp/minikube.deb https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube_1.38.1-0_amd64.deb && sudo apt-get install -y /tmp/minikube.deb` |
 | k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
+| uv | `curl -fsSL https://astral.sh/uv/install.sh \| sudo UV_UNMANAGED_INSTALL=/usr/local/bin sh` *(no apt package on Debian trixie or Ubuntu 26.04)* |
 
 > Gradle is installed via SDKMAN, not apt — see [Developer toolchain](#developer-toolchain-sdk--runtimes).
 
@@ -213,6 +231,7 @@ sudo apt-get update
 | Slack | `flatpak install -y flathub com.slack.Slack` |
 | Telegram | `flatpak install -y flathub org.telegram.desktop` |
 | Signal | `flatpak install -y flathub org.signal.Signal` |
+| Zoom | `flatpak install -y flathub us.zoom.Zoom` |
 
 ## Productivity
 
@@ -240,8 +259,10 @@ sudo apt-get update
 | App | Install command |
 |---|---|
 | Steam | `flatpak install -y flathub com.valvesoftware.Steam` |
+| Lutris | `flatpak install -y flathub net.lutris.Lutris` |
+| CurseForge | `flatpak install -y flathub com.overwolf.curseforge` |
 
-> GOG Galaxy, Epic, EA app and CurseForge have no official Linux client.
+> GOG Galaxy, Epic and EA app have no official Linux client.
 
 ## CAD and 3D
 
@@ -287,6 +308,13 @@ Joining a tailnet stays manual: run `sudo tailscale up` once by hand and authent
 | GreenWithEnvy | `flatpak install -y flathub com.leinardi.gwe` |
 | Baobab | `sudo apt-get install -y baobab` |
 | Polychromatic | `flatpak install -y flathub app.polychromatic.controller` |
+| OpenRazer | `sudo apt-get install -y openrazer-meta` |
+
+OpenRazer is the driver and daemon Polychromatic talks to, in Debian proper since bookworm and in Ubuntu universe. Add yourself to the `plugdev` group its udev rules grant device access to, log out and back in, and reboot so the DKMS module loads. On a Secure Boot machine the unsigned module is refused unless you sign it or turn Secure Boot off:
+
+```bash
+sudo usermod -aG plugdev "${USER}"
+```
 
 ## Security
 
@@ -308,16 +336,16 @@ Joining a tailnet stays manual: run `sudo tailscale up` once by hand and authent
 
 | App | Install command |
 |---|---|
-| QEMU/KVM + virt-manager | `sudo apt-get install -y qemu-kvm libvirt-daemon-system virt-manager virtinst bridge-utils virtiofsd` |
+| QEMU/KVM + virt-manager | `for package in qemu-system-x86 libvirt-daemon-system libvirt-clients virt-manager virtinst bridge-utils virtiofsd; do sudo apt-get install -y "${package}" \|\| echo "FAILED: ${package}"; done` |
 
-**Docker CE** (official repo):
+**Docker CE** (official repo). It uses `UPSTREAM_DISTRO` and `UPSTREAM_CODENAME`. In a new terminal, set them again first, as in the Ubuntu or Debian repository path step of [Repository setup](#repository-setup):
 
 ```bash
-curl -fsSL https://download.docker.com/linux/$(. /etc/os-release && echo "$ID")/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+curl -fsSL "https://download.docker.com/linux/${UPSTREAM_DISTRO}/gpg" | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 ```
 
 ```bash
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$(. /etc/os-release && echo "$ID") $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME} stable" | sudo tee /etc/apt/sources.list.d/docker.list
 ```
 
 ```bash
@@ -325,7 +353,19 @@ sudo apt-get update
 ```
 
 ```bash
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo apt-get install -y "${package}" || echo "FAILED: ${package}"; done
+```
+
+Add yourself to the `docker` group so `docker` runs without `sudo`. It takes effect only after you log out and back in, or reboot. A new terminal window is not enough, because it keeps the groups of the session you are already in:
+
+```bash
+sudo usermod -aG docker "${USER}"
+```
+
+**Podman Desktop**, a front end for the Docker engine above:
+
+```bash
+flatpak install -y flathub io.podman_desktop.PodmanDesktop
 ```
 
 ## Developer toolchain (SDK / runtimes)
@@ -376,11 +416,7 @@ curl -fsSL https://fvm.app/install.sh | bash
 fvm install stable
 ```
 
-**Dart SDK:**
-
-```bash
-sudo apt-get install -y dart
-```
+Dart comes with the Flutter SDK FVM installs. The playbook installs no separate Dart SDK on Linux, because `install_dart` is a Windows-only toggle, see `setup/ansible/group_vars/all.yaml`.
 
 ## AI tools
 
@@ -391,9 +427,34 @@ Need Node from NVM above first.
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
 | Claude Desktop | `sudo apt-get install -y claude-desktop`, after the Claude Desktop repository in [Repository setup](#repository-setup) |
 | OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
-| OpenCode desktop | `flatpak install -y flathub ai.opencode.opencode` |
+| OpenCode desktop | `curl -fsSLo /tmp/opencode-desktop.deb https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-amd64.deb && sudo apt-get install -y /tmp/opencode-desktop.deb`, version 2. Version 1 of the desktop app, the Flathub `ai.opencode.opencode` the playbook installed before 2026-10-15, refuses to start once version 2 has created its database, so remove it with `flatpak uninstall ai.opencode.opencode` |
+| Kilo Code CLI | `npm install -g @kilocode/cli`, which provides the `kilo` command |
 | OpenSpec | `npm install -g @fission-ai/openspec` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` |
+
+OpenCode version 1 instead of version 2. Version 2 is the default. The wizard switches when `Switch OpenCode from v2 to v1` is ticked on its checklist, or with `./setup.sh --enable opencode_use_v1`: it removes the version 2 command line tool and desktop app, installs version 1, and moves a data folder holding version 2 data to `~/.local/share/opencode.v2-backup-<date>-<time>`, because version 1 refuses to start on a version 2 database. Switching back moves version 1 data aside the same way and brings the newest version 2 backup back. Nothing is deleted. By hand, the same steps, first removing version 2:
+
+```bash
+sudo apt-get remove -y opencode
+```
+
+```bash
+npm uninstall -g @opencode/cli
+```
+
+```bash
+npm install -g opencode-ai
+```
+
+```bash
+flatpak install -y flathub ai.opencode.opencode
+```
+
+```bash
+mv ~/.local/share/opencode ~/.local/share/opencode.v2-backup-"$(date +%Y%m%d-%H%M%S)"
+```
+
+The last command only when `~/.local/share/opencode` exists. Version 1 of the desktop app is the Flathub application, 1.18.8 on 2026-10-15.
 
 **Stable Diffusion WebUI** (pinned `v1.10.1`):
 
@@ -419,7 +480,21 @@ git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-
 
 These are **not** in `install.sh` — no package-manager path exists. Install by hand:
 
-- **JetBrains Toolbox** — download the tarball from [jetbrains.com/toolbox-app](https://www.jetbrains.com/toolbox-app/), extract, and run the `jetbrains-toolbox` binary.
+- **JetBrains Toolbox**: Toolbox 3.x has no install step of its own: unpack JetBrains' tarball into Toolbox's data directory, then start it from there. It adds its own menu entry on that first start.
+
+  ```bash
+  toolbox_tar="$(mktemp --suffix=.tar.gz)" && curl -fsSLo "$toolbox_tar" "https://data.services.jetbrains.com/products/download?platform=linux&code=TBA" && mkdir -p ~/.local/share/JetBrains/Toolbox && tar -xzf "$toolbox_tar" -C ~/.local/share/JetBrains/Toolbox --strip-components=1 && rm -f "$toolbox_tar"
+  ```
+
+  ```bash
+  ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox &
+  ```
+
+  Toolbox puts its IDE launchers (`idea`, `pycharm` and the rest) on PATH through a line in `~/.profile`, which zsh never reads. Add the directory to `~/.config/environment.d/50-dev.conf` instead, as described in [setup/configuration.md](../../../setup/configuration.md#shell-and-environment-layout):
+
+  ```bash
+  mkdir -p ~/.config/environment.d && printf 'PATH="${PATH}:%s"\n' "$HOME/.local/share/JetBrains/Toolbox/scripts" >> ~/.config/environment.d/50-dev.conf
+  ```
 - **Antigravity** — download the Linux tarball and extract to `/opt/antigravity`:
 
   ```bash

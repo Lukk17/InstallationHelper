@@ -1,8 +1,8 @@
 # Manual install — macOS
 
-Install commands for every app the playbook manages on macOS, via Homebrew. To install the whole `brew` set at once, run [`install.sh`](install.sh).
+Install commands for every app the playbook manages on macOS, via Homebrew. To install the whole `brew` set at once, run [`install.sh`](install.sh). It installs one package per `brew` call, so a name that fails costs only that package. A package that fails is tried again after twenty seconds and a `brew update`, four attempts in all, and it lists every package that failed at the end and exits 1.
 
-> `brew install` = CLI formulae; `brew install --cask` = GUI apps. Direct DMG installs (Antigravity, Gridcoin) are in [Manual install required](#manual-install-required).
+> `brew install` = CLI formulae; `brew install --cask` = GUI apps. The one direct DMG install, Gridcoin, is in [Manual install required](#manual-install-required).
 
 ## Prerequisites
 
@@ -39,6 +39,9 @@ Install Homebrew if you don't have it:
 | jq | `brew install jq` |
 | fzf | `brew install fzf` |
 | ripgrep | `brew install ripgrep` |
+| uv | `brew install uv` |
+| pipx | `brew install pipx` |
+| Go | `brew install go` |
 | Lens | `brew install --cask lens` |
 | FileZilla → Cyberduck | `brew install --cask cyberduck` |
 | Bruno CLI | `brew install bruno-cli` |
@@ -49,13 +52,12 @@ Install Homebrew if you don't have it:
 
 | App | Install command |
 |---|---|
-| IntelliJ IDEA | `brew install --cask intellij-idea` |
+| JetBrains Toolbox | `brew install --cask jetbrains-toolbox`. IntelliJ IDEA and the other JetBrains IDEs install from Toolbox after you sign in |
 | VS Code | `brew install --cask visual-studio-code` |
 | Sublime Text | `brew install --cask sublime-text` |
 | Arduino IDE 2.x | `brew install --cask arduino-ide` |
 | Bruno | `brew install --cask bruno` |
-
-> Antigravity needs a manual DMG install — see below.
+| Antigravity | `brew install --cask antigravity`, macOS 13 or newer |
 
 ## Communication
 
@@ -63,6 +65,7 @@ Install Homebrew if you don't have it:
 |---|---|
 | Discord | `brew install --cask discord` |
 | Slack | `brew install --cask slack` |
+| Zoom | `brew install --cask zoom` |
 | Microsoft Teams | `brew install --cask microsoft-teams` |
 | Telegram | `brew install --cask telegram` |
 | Signal | `brew install --cask signal` |
@@ -135,7 +138,8 @@ Install Homebrew if you don't have it:
 |---|---|
 | UTM | `brew install --cask utm` |
 | Docker Desktop | `brew install --cask docker-desktop` |
-| VMware Fusion | `brew install --cask vmware-fusion` |
+| VirtualBox | `brew install --cask virtualbox`. On Apple Silicon it runs arm64 guests only |
+| VMware Fusion | not available from Homebrew, the `vmware-fusion` cask no longer exists. Download it from Broadcom's support portal after signing in, or use UTM |
 
 ## Developer toolchain (SDK / runtimes)
 
@@ -184,7 +188,7 @@ fvm install stable
 **Dart SDK:**
 
 ```bash
-brew install dart
+brew install dart-sdk
 ```
 
 ## AI tools
@@ -196,9 +200,47 @@ Need Node from NVM above first.
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
 | Claude Desktop | `brew install --cask claude` |
 | OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
-| OpenCode desktop | `brew install --cask opencode-desktop` |
+| OpenCode desktop | `brew install --cask opencode-desktop`, version 2 |
+| Kilo Code CLI | `npm install -g @kilocode/cli`, which provides the `kilo` command |
 | OpenSpec | `npm install -g @fission-ai/openspec` |
-| LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` |
+| ChatGPT | `brew install --cask chatgpt` |
+| LM Studio | `brew install --cask lm-studio`, Apple Silicon only, macOS 12 or newer |
+
+OpenCode version 1 instead of version 2. Version 2 is the default. The wizard switches when `Switch OpenCode from v2 to v1` is ticked on its checklist, or with `./setup.sh --enable opencode_use_v1`: it removes the version 2 command line tool and desktop app, installs version 1, and moves a data folder holding version 2 data to `~/.local/share/opencode.v2-backup-<date>-<time>`, because version 1 refuses to start on a version 2 database. Switching back moves version 1 data aside the same way and brings the newest version 2 backup back. Nothing is deleted. By hand, the same steps, first removing version 2:
+
+```bash
+brew uninstall --cask opencode-desktop
+```
+
+```bash
+npm uninstall -g @opencode/cli
+```
+
+```bash
+npm install -g opencode-ai
+```
+
+```bash
+curl -fsSLo /tmp/opencode-desktop-v1.dmg https://github.com/anomalyco/opencode/releases/download/v1.19.1/opencode-desktop-mac-arm64.dmg
+```
+
+```bash
+hdiutil attach -nobrowse /tmp/opencode-desktop-v1.dmg
+```
+
+```bash
+cp -R "<mount point>/OpenCode.app" /Applications/
+```
+
+```bash
+hdiutil detach "<mount point>"
+```
+
+```bash
+mv ~/.local/share/opencode ~/.local/share/opencode.v2-backup-"$(date +%Y%m%d-%H%M%S)"
+```
+
+Homebrew has no version 1 cask, so version 1 comes from the vendor's DMG on the GitHub release, pinned `1.19.1`. On an Intel Mac take `opencode-desktop-mac-x64.dmg` instead. `<mount point>` is the `/Volumes/...` path `hdiutil attach` prints. The last command only when `~/.local/share/opencode` exists.
 
 **Stable Diffusion WebUI** (pinned `v1.10.1`):
 
@@ -222,19 +264,7 @@ git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-
 
 ## Manual install required
 
-These are **not** in `install.sh` — the playbook installs them from a direct DMG. Install by hand:
-
-- **Antigravity** — download the DMG for your chip from Google's CDN, then drag `Antigravity.app` to `/Applications`. Apple Silicon:
-
-  ```bash
-  curl -fsSLo /tmp/Antigravity.dmg "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/1.13.3-4533425205018624/darwin-arm/Antigravity.dmg"
-  ```
-
-  Intel:
-
-  ```bash
-  curl -fsSLo /tmp/Antigravity.dmg "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/1.13.3-4533425205018624/darwin-x64/Antigravity.dmg"
-  ```
+This is **not** in `install.sh`, because the playbook installs it from a direct DMG. Install it by hand:
 
 - **Gridcoin** (pinned `5.5.0.0`) — download the DMG and drag the app to `/Applications`:
 
