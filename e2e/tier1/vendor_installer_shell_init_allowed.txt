@@ -4,4 +4,4 @@
 # repository root, then a pipe, then why. An entry whose file no longer holds such an installer fails
 # the check as well, so this file cannot quietly outlive what it excuses.
 
-setup/ansible/roles/sdk_manager/tasks/fvm_unix.yaml | fvm is a plain binary rather than a shell function, and $HOME/fvm/bin and $HOME/fvm/default/bin are already on PATH through the unconditional "Set Dev Apps Environment Variables (Linux/macOS)" block env_unix.yaml writes into apps_config/env.sh
+setup/ansible/roles/sdk_manager/tasks/fvm_unix.yaml | fvm is a plain binary rather than a shell function, and $HOME/fvm/bin and $HOME/fvm/default/bin are already on PATH through the unconditional "Set Dev Apps Environment Variables (Linux/macOS)" block env_unix.yaml writes into dev_env_file, ~/.config/environment.d/50-dev.conf

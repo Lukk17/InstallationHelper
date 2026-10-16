@@ -11,7 +11,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     nvm_dir="{{ non_root_home }}/.nvm"
-    curl -fsSL --max-time 120 -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash || exit 1
+    curl -fsSL --max-time 120 -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | PROFILE=/dev/null bash || exit 1
     . "$nvm_dir/nvm.sh" --no-use && [ "$(nvm --version)" = {{ nvm_version | quote }} ] && touch "$nvm_dir/.installation-helper-nvm-{{ nvm_version }}"
   args:
     creates: "{{ non_root_home }}/.nvm/.installation-helper-nvm-{{ nvm_version }}"
@@ -23,40 +23,54 @@
   delay: 10
   until: nvm_bootstrap is succeeded
 
-# The vendor installer above appends the three source lines to whatever profile file it detects
-# from $SHELL at the time it runs, and under `ansible.builtin.shell` with `executable: /bin/bash`
-# that is always .bashrc, regardless of the user's actual login shell. A real CachyOS run on
-# 2026-09-15 confirmed the gap: line 911 of that log shows "Appending nvm source string to
-# /home/lukk/.bashrc" and nothing was ever written to .zshrc, so nvm, npm and every npm-installed
-# tool were unreachable from the owner's zsh session even though they had installed correctly.
-#
-# This block now targets apps_config/env.sh, the one file env_unix.yaml has every rc file source,
-# rather than .zshrc directly, because shell_zsh's Oh My Zsh install replaces .zshrc wholesale on a
-# fresh install and would take a block written straight into it down too. See
-# docs/regression_ledger.md, "shell_zsh's Oh My Zsh install overwrites the PATH block env_variables
-# just wrote". Do not add this to .bashrc: the vendor installer already owns that file and a second
-# writer there would fight it on every rerun. It still writes its own copy there on its own, so a
-# bash login shell now sources nvm.sh twice: once from the vendor's line in .bashrc and once through
-# apps_config/env.sh. nvm.sh guards its own function definitions, so the second source is a harmless
-# no-op, at the cost of a few extra milliseconds at shell start. zsh only ever gets this one copy.
-- name: Ensure the project's own environment file directory exists (Linux/Mac)
-  ansible.builtin.file:
-    path: "{{ non_root_home }}/apps_config"
-    state: directory
-    owner: "{{ non_root_user }}"
-    group: "{{ ih_non_root_group }}"
-    mode: '0755'
-  become: yes
-
-- name: Ensure NVM shell init is present in the project's environment file (Linux/Mac)
+# The vendor installer appends its own three lines to whichever profile it detects, .bashrc under
+# this task's bash, which is how a machine ended up sourcing nvm.sh twice. PROFILE=/dev/null above
+# is nvm's own switch for leaving every profile alone, read in install.sh v0.40.4 (nvm_detect_profile
+# and the `[ "${PROFILE-}" = '/dev/null' ]` branch of nvm_do_install), so the project's two blocks
+# below are the only wiring. NVM_DIR is static and goes in the environment file every shell and the
+# desktop session read. Loading nvm.sh defines shell functions, which no environment file can carry,
+# so that goes in each interactive rc file instead.
+- name: Ensure NVM_DIR is in the project's environment file (Linux/Mac)
   ansible.builtin.blockinfile:
-    path: "{{ non_root_home }}/apps_config/env.sh"
+    path: "{{ dev_env_file }}"
+    marker: "# {mark} ANSIBLE NVM ENVIRONMENT"
+    create: yes
+    mode: '0644'
+    block: |
+      NVM_DIR=${HOME}/.nvm
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+- name: Ensure NVM shell init is present in every interactive rc file (Linux/Mac)
+  ansible.builtin.blockinfile:
+    path: "{{ item.path }}"
     marker: "# {mark} ANSIBLE NVM SHELL INIT"
     create: yes
+    mode: '0644'
     block: |
-      export NVM_DIR="$HOME/.nvm"
-      [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-      [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+      [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+  loop: "{{ interactive_rc_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+# What an earlier install, run before PROFILE=/dev/null, appended to a profile. The patterns match the
+# vendor's lines only: the block above carries no export and no trailing comment.
+- name: Remove the init lines the NVM installer appended before this project wired NVM itself (Linux/Mac)
+  ansible.builtin.lineinfile:
+    path: "{{ item.0 }}"
+    regexp: "{{ item.1 }}"
+    state: absent
+  loop: "{{ shell_startup_files | product(nvm_vendor_lines) | list }}"
+  loop_control:
+    label: "{{ item.0 }}"
+  vars:
+    nvm_vendor_lines:
+      - '^export NVM_DIR='
+      - '# This loads nvm$'
+      - '# This loads nvm bash_completion$'
   become: yes
   become_user: "{{ non_root_user }}"
 
@@ -110,7 +124,10 @@
   # Retried as a whole for the reason on the apt batch above: this fetches from the network,
   # and one dropped connection must not cost the run every application in the batch. What has
   # already installed is skipped on the second attempt, so a retry costs only what was lost.
+  # The retry rule every package manager follows, four attempts twenty seconds apart, with no refresh
+  # between them, because nvm reads the Node release index from nodejs.org on every install and keeps
+  # no copy a refresh could bring up to date.
   until: nvm_install.rc | default(1) == 0
-  retries: 2
+  retries: 3
   delay: 20
   when: (nvm_lts_installed.rc | default(1)) != 0

@@ -1,7 +1,7 @@
 ---
-# env_variables_available: whether the project's own environment file, ~/apps_config/env.sh, carries
-# the block env_variables writes. Every SDK sdk_manager installs is put on PATH through that file, so
-# without it they install where no shell can find them.
+# env_variables_available: whether the project's own environment file, dev_env_file, which is
+# ~/.config/environment.d/50-dev.conf, carries the block env_variables writes. Every SDK sdk_manager
+# installs is put on PATH through that file, so without it they install where no shell can find them.
 #
 # Until 2026-10-10 a failure in env_variables re-raised in site.yaml and stopped every role after it.
 # Now its rescue records the failure and sets this fact to false, site.yaml skips only sdk_manager and
@@ -11,7 +11,7 @@
 # e2e/tier1/availability_facts.sh fails the gate when the rescue, this file or the sdk_manager gate
 # drift apart.
 - name: Ask whether the project's environment file carries the env_variables block
-  ansible.builtin.command: grep -qF "# BEGIN ANSIBLE DEV APPS CONFIG" "{{ non_root_home }}/apps_config/env.sh"
+  ansible.builtin.command: grep -qF "# BEGIN ANSIBLE DEV APPS CONFIG" "{{ dev_env_file }}"
   register: env_variables_lookup
   changed_when: false
   failed_when: false

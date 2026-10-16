@@ -63,7 +63,7 @@
   become_user: "{{ non_root_user }}"
   ansible.builtin.git:
     repo: https://github.com/romkatv/powerlevel10k.git
-    dest: "{{ non_root_home }}/.oh-my-zsh/custom/themes/powerlevel10k"
+    dest: "{{ shell_zsh_oh_my_zsh_dir }}/custom/themes/powerlevel10k"
     depth: 1
   # Retried, because this reaches the network and a single dropped connection must not cost the
   # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,

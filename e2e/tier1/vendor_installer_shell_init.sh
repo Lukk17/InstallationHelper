@@ -8,18 +8,20 @@
 # 38107292439, CachyOS GNOME full: the SDKMAN installer's first attempt failed after copying
 # bin/sdkman-init.sh and before reaching its rc step, the retry was skipped because that file
 # existed, and verify_install.yaml found `sdk` and `java` on disk but UNREACHABLE from zsh. NVM and
-# pyenv had already been given an unconditional blockinfile into apps_config/env.sh for the same
-# reason, and SDKMAN had not.
+# pyenv had already been given an unconditional blockinfile of their own for the same reason, and
+# SDKMAN had not.
 #
 # So the rule: every task file holding a shell or command task whose body pipes curl or wget into a
-# shell and whose `creates` points under {{ non_root_home }} also holds a blockinfile task writing
-# apps_config/env.sh, with no `when` on it. A file whose tool is reached some other way is listed in
+# shell and whose `creates` points under {{ non_root_home }} also holds a blockinfile task, with no
+# `when` on it, writing either the environment file every shell and the desktop session read,
+# dev_env_file, or every interactive rc file, a loop over interactive_rc_files. Since 2026-10-15
+# those two replace apps_config/env.sh. A file whose tool is reached some other way is listed in
 # vendor_installer_shell_init_allowed.txt with the reason, and an entry that no longer names such a
 # file fails as well, so the list cannot outlive what it excuses.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-info "Tier 1: home-directory vendor installers have an unconditional shell init in apps_config/env.sh"
+info "Tier 1: home-directory vendor installers have an unconditional shell init of the project's own"
 
 cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; finish "vendor installer shell init"; }
 
@@ -36,9 +38,9 @@ ROLES = pathlib.Path('setup/ansible/roles')
 ALLOWLIST = pathlib.Path('e2e/tier1/vendor_installer_shell_init_allowed.txt')
 FREEFORM = ('ansible.builtin.shell', 'shell', 'ansible.builtin.command', 'command')
 BLOCKINFILE = ('ansible.builtin.blockinfile', 'community.general.blockinfile', 'blockinfile')
-PIPE_TO_SHELL = re.compile(r'\b(curl|wget)\b[^\n]*\|\s*(ba|z)?sh\b')
+PIPE_TO_SHELL = re.compile(r'\b(curl|wget)\b[^\n]*\|\s*(\w+=\S*\s+)*(ba|z)?sh\b')
 HOME_GUARD = re.compile(r'^\{\{\s*non_root_home\s*\}\}/')
-ENV_FILE = 'apps_config/env.sh'
+ENV_TARGETS = 'dev_env_file or every file in interactive_rc_files'
 
 
 def walk(tasks):
@@ -71,8 +73,10 @@ def home_installer(task):
 
 def env_init(task):
     name, args = module_args(task, BLOCKINFILE)
-    return name is not None and isinstance(args, dict) and str(args.get('path', '')).endswith(ENV_FILE) \
-        and 'when' not in task
+    if name is None or not isinstance(args, dict) or 'when' in task:
+        return False
+    path = str(args.get('path', ''))
+    return 'dev_env_file' in path or ('item' in path and 'interactive_rc_files' in str(task.get('loop', '')))
 
 
 allowed = {}
@@ -112,7 +116,7 @@ for path in files:
     installer_files.append(rel)
     if any(env_init(t) for t in flat):
         print('OK %s: "%s" has an unconditional shell init block in %s beside it'
-              % (rel, '", "'.join(installers), ENV_FILE))
+              % (rel, '", "'.join(installers), ENV_TARGETS))
     elif rel in allowed:
         print('OK %s: "%s" is allowlisted, %s' % (rel, '", "'.join(installers), allowed[rel]))
     else:
@@ -120,7 +124,7 @@ for path in files:
               'and nothing in the same file writes an unconditional blockinfile into %s. The vendor '
               'installer is then the only thing wiring the tool into the shell, and once its guard file '
               'exists it never runs again, which is how sweep 38107292439 left sdk and java unreachable '
-              'from zsh on CachyOS GNOME full.' % (rel, '", "'.join(installers), ENV_FILE))
+              'from zsh on CachyOS GNOME full.' % (rel, '", "'.join(installers), ENV_TARGETS))
 
 if not installer_files:
     print('FAIL no home-directory vendor installer was found at all, so this check proved nothing. '

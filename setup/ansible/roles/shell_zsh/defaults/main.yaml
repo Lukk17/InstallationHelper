@@ -1,0 +1,4 @@
+---
+# Where Oh My Zsh lives. setup/config/zsh/.zshrc names the same directory in its ZSH= line, and
+# e2e/tier1/zshrc_env_block.sh fails the gate when the two differ.
+shell_zsh_oh_my_zsh_dir: "{{ non_root_home }}/.local/share/oh-my-zsh"

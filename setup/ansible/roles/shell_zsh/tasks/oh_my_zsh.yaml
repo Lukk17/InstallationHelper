@@ -1,53 +1,160 @@
 ---
+# Through tasks/install_role_packages.yaml, the retry rule every package manager follows, with the
+# family's own manager. Oh-My-Zsh is cloned with git just below, so a git that did not install stops
+# the role here with the reason, as the package modules this replaced did.
 - name: Ensure git is installed (Debian)
-  become: yes
-  ansible.builtin.apt:
-    name: git
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [git]
+    role_packages_purpose: git, which Oh-My-Zsh is cloned with
   when: ih_family == 'Debian'
 
 - name: Ensure git is installed (Fedora)
-  become: yes
-  ansible.builtin.dnf:
-    name: git
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [git]
+    role_packages_purpose: git, which Oh-My-Zsh is cloned with
   when: ih_family == 'RedHat'
 
 - name: Ensure git is installed (Arch)
-  become: yes
-  community.general.pacman:
-    name: git
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [git]
+    role_packages_purpose: git, which Oh-My-Zsh is cloned with
   when: ih_family == 'Archlinux'
 
-- name: Check if Oh-My-Zsh is already installed
-  ansible.builtin.stat:
-    path: "{{ non_root_home }}/.oh-my-zsh"
-  register: omz_dir
+- name: Stop when git did not install
+  ansible.builtin.fail:
+    msg: git did not install, so Oh-My-Zsh cannot be cloned. What the package manager said is in the [ERROR] line above.
+  when:
+    - ih_family in ['Debian', 'RedHat', 'Archlinux']
+    - "'git' in (role_packages_missing | default([]))"
 
+# zsh's own files live in zsh_config_dir, ~/.config/zsh, and ~/.zshenv holds only the two lines that
+# point zsh there. zsh reads ~/.zshenv before anything else and then looks for .zshrc and .zprofile in
+# $ZDOTDIR, but it has already read its .zshenv by then, so the stub sources $ZDOTDIR/.zshenv itself.
+# That file, which env_variables writes, imports ~/.config/environment.d. A blockinfile rather than a
+# copy, so a line somebody else put in ~/.zshenv survives.
+- name: Ensure the zsh configuration directory exists
+  ansible.builtin.file:
+    path: "{{ zsh_config_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+- name: Point zsh at its configuration directory from ~/.zshenv
+  ansible.builtin.blockinfile:
+    path: "{{ non_root_home }}/.zshenv"
+    marker: "# {mark} ANSIBLE ZDOTDIR"
+    insertbefore: BOF
+    create: yes
+    mode: '0644'
+    block: |
+      export ZDOTDIR="{{ zsh_config_dir }}"
+      [ -r "$ZDOTDIR/.zshenv" ] && . "$ZDOTDIR/.zshenv"
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+# --- migration from the layout in the home directory ----------------------------------------------
+# A machine provisioned before 2026-10-15 has Oh My Zsh in ~/.oh-my-zsh and ~/.zshrc, ~/.p10k.zsh and
+# ~/.zshrc.pre-oh-my-zsh in the home directory. Oh My Zsh and the prompt configuration move, so
+# nothing is reinstalled and a `p10k configure` answer survives. ~/.zshrc is retired rather than
+# moved, because zsh stops reading it once ZDOTDIR is set and its replacement is written below, and
+# ~/.zshrc.pre-oh-my-zsh was a copy nothing ever read. Retired means moved into
+# shell_layout_backup_dir under a timestamped name, never deleted. Each task is guarded by the file it
+# moves, so a second run finds nothing to do.
+- name: Ensure the directory Oh My Zsh moves into exists
+  ansible.builtin.file:
+    path: "{{ shell_zsh_oh_my_zsh_dir | dirname }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+- name: Move Oh My Zsh out of the home directory
+  ansible.builtin.command: mv "{{ non_root_home }}/.oh-my-zsh" "{{ shell_zsh_oh_my_zsh_dir }}"
+  args:
+    creates: "{{ shell_zsh_oh_my_zsh_dir }}"
+    removes: "{{ non_root_home }}/.oh-my-zsh"
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+- name: Move the Powerlevel10k configuration into the zsh configuration directory
+  ansible.builtin.command: mv "{{ non_root_home }}/.p10k.zsh" "{{ zsh_config_dir }}/.p10k.zsh"
+  args:
+    creates: "{{ zsh_config_dir }}/.p10k.zsh"
+    removes: "{{ non_root_home }}/.p10k.zsh"
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+- name: Retire the zsh files left in the home directory into the shell layout backup
+  ansible.builtin.shell: |
+    set -eu
+    mkdir -p "{{ shell_layout_backup_dir }}"
+    mv "{{ non_root_home }}/{{ item }}" "{{ shell_layout_backup_dir }}/{{ item }}.$(date +%Y%m%d%H%M%S)"
+  args:
+    executable: /bin/bash
+    removes: "{{ non_root_home }}/{{ item }}"
+  loop:
+    - ".zshrc"
+    - ".zshrc.pre-oh-my-zsh"
+    - ".p10k.zsh"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: zsh_config_dir != non_root_home
+
+# The checked-in .zshrc is one marked block at the top of the file rather than a copy of the whole
+# file. The NVM, SDKMAN and Pyenv blocks sdk_manager appends below it then survive every run, a line a
+# person adds outside the block survives too, and a later change to the checked-in file reaches a
+# machine that already has one. Until 2026-10-15 the file was copied whole, once, and a copy without
+# the markers made blockinfile insert its block again on every second run, see docs/regression_ledger.md.
+- name: Write the checked-in zsh configuration into $ZDOTDIR/.zshrc
+  ansible.builtin.blockinfile:
+    path: "{{ zsh_config_dir }}/.zshrc"
+    marker: "# {mark} ANSIBLE ZSH BASE CONFIG"
+    insertbefore: BOF
+    create: yes
+    mode: '0644'
+    block: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../config/zsh/.zshrc') }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+# Copied only where none exists, because `p10k configure` rewrites this file and the answer is the
+# user's.
+- name: Copy the Powerlevel10k configuration where there is none
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../config/zsh/.p10k.zsh"
+    dest: "{{ zsh_config_dir }}/.p10k.zsh"
+    force: false
+    mode: '0644'
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+# ZSH and ZDOTDIR tell the installer where to install and which .zshrc is the user's, and
+# --keep-zshrc leaves that file alone, so it never writes its template or a .zshrc.pre-oh-my-zsh.
+# Read in tools/install.sh on 2026-10-15: `zdot="${ZDOTDIR:-$HOME}"`, `ZSH="${ZSH:-...}"` and
+# `--keep-zshrc) KEEP_ZSHRC=yes`.
 - name: Install Oh-My-Zsh
   ansible.builtin.shell: |
     set -o pipefail
-    sh -c "$(curl -fsSL --max-time 120 https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended </dev/null
+    export ZSH="{{ shell_zsh_oh_my_zsh_dir }}" ZDOTDIR="{{ zsh_config_dir }}"
+    sh -c "$(curl -fsSL --max-time 120 https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended --keep-zshrc </dev/null
   args:
     executable: /bin/bash
-    creates: "{{ non_root_home }}/.oh-my-zsh/oh-my-zsh.sh"
+    creates: "{{ shell_zsh_oh_my_zsh_dir }}/oh-my-zsh.sh"
   become: yes
   become_user: "{{ non_root_user }}"
   register: omz_install
   retries: 3
   delay: 10
   until: omz_install is succeeded
-  when: not omz_dir.stat.exists
-
-- name: Copy ZSH configuration files
-  become: yes
-  become_user: "{{ non_root_user }}"
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../config/{{ item }}"
-    dest: "{{ non_root_home }}/{{ item }}"
-  loop:
-    - ".p10k.zsh"
-    - ".zshrc.pre-oh-my-zsh"
-    - ".zshrc"
-  when: not omz_dir.stat.exists

@@ -13,7 +13,7 @@
     if [ -f "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
       bash -c 'source "$SDKMAN_DIR/bin/sdkman-init.sh" && sdk selfupdate force'
     else
-      curl -fsSL --max-time 120 "https://get.sdkman.io" | bash
+      curl -fsSL --max-time 120 "https://get.sdkman.io?rcupdate=false" | bash
     fi
     [ -f "$SDKMAN_DIR/var/version" ] && [ -f "$SDKMAN_DIR/var/version_native" ]
   args:
@@ -26,27 +26,60 @@
   delay: 15
   until: sdkman_bootstrap is succeeded
 
-# The vendor installer writes its init snippet into .bashrc and .zshrc only on the one run that
-# reaches its last step, so a machine where that run never finished, or where a later copy replaced
-# .zshrc, has SDKMAN on disk and `sdk` unreachable. Same reasoning and same file as the NVM block in
-# nvm_unix.yaml.
-- name: Ensure the project's own environment file directory exists (Linux/Mac)
-  ansible.builtin.file:
-    path: "{{ non_root_home }}/apps_config"
-    state: directory
-    owner: "{{ non_root_user }}"
-    group: "{{ ih_non_root_group }}"
-    mode: '0755'
-  become: yes
-
-- name: Ensure SDKMAN shell init is present in the project's environment file (Linux/Mac)
+# `?rcupdate=false` makes get.sdkman.io serve an installer without its rc file step, measured on
+# 2026-10-15 by diffing the two scripts: the only difference is the block that appends the init
+# snippet to .bashrc and "${ZDOTDIR:-${HOME}}/.zshrc". That step ran only on the one attempt that
+# finished, so a half-finished install had SDKMAN on disk and `sdk` unreachable, and on a finished
+# one it left a second copy of the init beside the project's own. The project's blocks below are now
+# the only wiring.
+#
+# JAVA_HOME and the PATH entry name SDKMAN's own `current` symlink, which `sdk default java` below
+# points at the default_java pin, so a desktop application and a terminal agree on one Java. A
+# terminal's sdkman-init.sh exports the same JAVA_HOME again, and `sdk use java` still switches a
+# single shell. On Arch the archlinux-java default stays installed, behind this entry on PATH.
+- name: Ensure SDKMAN_DIR and the default Java are in the project's environment file (Linux/Mac)
   ansible.builtin.blockinfile:
-    path: "{{ non_root_home }}/apps_config/env.sh"
+    path: "{{ dev_env_file }}"
+    marker: "# {mark} ANSIBLE SDKMAN ENVIRONMENT"
+    create: yes
+    mode: '0644'
+    block: |
+      SDKMAN_DIR=${HOME}/.sdkman
+      JAVA_HOME=${HOME}/.sdkman/candidates/java/current
+      PATH=${HOME}/.sdkman/candidates/java/current/bin:${PATH}
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+- name: Ensure SDKMAN shell init is present in every interactive rc file (Linux/Mac)
+  ansible.builtin.blockinfile:
+    path: "{{ item.path }}"
     marker: "# {mark} ANSIBLE SDKMAN SHELL INIT"
     create: yes
+    mode: '0644'
     block: |
-      export SDKMAN_DIR="$HOME/.sdkman"
       [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && . "$SDKMAN_DIR/bin/sdkman-init.sh"
+  loop: "{{ interactive_rc_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+# What an earlier install, run without rcupdate=false, appended to .bashrc and .zshrc. The block
+# above uses single brackets and `.`, so the third pattern, the vendor's `[[ -s ... ]] && source`,
+# never matches it.
+- name: Remove the init lines the SDKMAN installer appended before this project wired SDKMAN itself (Linux/Mac)
+  ansible.builtin.lineinfile:
+    path: "{{ item.0 }}"
+    regexp: "{{ item.1 }}"
+    state: absent
+  loop: "{{ shell_startup_files | product(sdkman_vendor_lines) | list }}"
+  loop_control:
+    label: "{{ item.0 }}"
+  vars:
+    sdkman_vendor_lines:
+      - '^#THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!$'
+      - '^export SDKMAN_DIR='
+      - '^\[\[ -s ".*/bin/sdkman-init\.sh" \]\] && source ".*/bin/sdkman-init\.sh"$'
   become: yes
   become_user: "{{ non_root_user }}"
 
@@ -76,9 +109,11 @@
   async: 1200
   poll: 30
   # Adoptium CDN occasionally flakes mid-download ("Download has failed,
-  # aborting!"). 2 retries with 30s delay absorbs the transient case.
-  retries: 2
-  delay: 30
+  # aborting!"). The retry rule every package manager follows, four attempts twenty seconds apart, with
+  # no refresh between them, because sdk install asks the SDKMAN service for the version on every call
+  # and keeps no package list a refresh could bring up to date.
+  retries: 3
+  delay: 20
   until: sdk_java_install is succeeded
   changed_when: "'is already installed' not in (sdk_java_install.stdout | default(''))"
   failed_when: >
@@ -103,8 +138,9 @@
   become: yes
   become_user: "{{ non_root_user }}"
   register: sdk_gradle_install
-  retries: 2
-  delay: 30
+  # The same retry rule and the same reason as the Java installs above.
+  retries: 3
+  delay: 20
   until: sdk_gradle_install is succeeded
   failed_when: >
     sdk_gradle_install.rc | default(0) != 0 and

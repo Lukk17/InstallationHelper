@@ -1,19 +1,16 @@
 ---
-# This block used to be written straight into every rc file a login shell might read, and that is
-# exactly what let it be destroyed: shell_zsh's Oh My Zsh install replaces ~/.zshrc with its own
-# template on a fresh install, and the "Copy ZSH configuration files" task right after it
-# unconditionally overwrites ~/.zshrc again with this project's own checked-in file. Both run after
-# this role in site.yaml, and neither preserves a block an earlier role wrote into the same file. A
-# real CachyOS run on 2026-09-15 and two container runs on 2026-09-17 hit variants of this. See
-# docs/regression_ledger.md, "shell_zsh's Oh My Zsh install overwrites the PATH block env_variables
-# just wrote".
+# Every static variable and every PATH entry a desktop application and a terminal both need lives in
+# one file, dev_env_file, ~/.config/environment.d/50-dev.conf. The systemd user manager reads it at
+# login, so an application Plasma or GNOME starts sees it, and every shell imports the same file at
+# start, so a terminal, an SSH login and a TTY login see it too. env_unix.yaml, nvm_unix.yaml,
+# sdkman_unix.yaml, pyenv_unix.yaml and local_llm.yaml each append their own marked block to it.
 #
-# The fix is one file this project owns, under the same apps_config directory these variables
-# already point into, that env_unix.yaml, nvm_unix.yaml and pyenv_unix.yaml can each append their
-# own marked block to. A copy over ~/.zshrc can still destroy whatever that file sources, so the
-# checked-in setup/config/.zshrc carries the one line that sources this file as a permanent part of
-# itself, and a copy of that file therefore carries the fix along with it.
-- name: Ensure the project's own environment file directory exists (Linux/macOS)
+# Until 2026-10-15 these were export lines in ~/apps_config/env.sh, sourced only from ~/.zshrc and
+# ~/.bashrc. Plasma starts its session through a non-interactive login zsh, which never reads .zshrc,
+# so /proc/<plasmashell>/environ carried none of them and an IDE started from the menu had no
+# ANDROID_HOME, JAVA_HOME or KUBECONFIG. See docs/regression_ledger.md and setup/configuration.md,
+# "Shell and environment layout".
+- name: Ensure the apps_config directory the variables below point into exists (Linux/macOS)
   ansible.builtin.file:
     path: "{{ non_root_home }}/apps_config"
     state: directory
@@ -22,74 +19,152 @@
     mode: '0755'
   become: yes
 
+- name: Ensure the projects directory exists (Linux/macOS)
+  ansible.builtin.file:
+    path: "{{ projects_dir }}"
+    state: directory
+    owner: "{{ non_root_user }}"
+    group: "{{ ih_non_root_group }}"
+    mode: '0755'
+  become: yes
+
+- name: Ensure the environment.d directory exists (Linux/macOS)
+  ansible.builtin.file:
+    path: "{{ dev_env_file | dirname }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+# KEY=VALUE lines only, because systemd reads this file as well as the shells: environment.d expands
+# ${HOME} and ${PATH} and strips a pair of double quotes, and a POSIX shell sourcing it under set -a
+# does the same, so one file serves both. No `export`, no `~`, no shell syntax beyond that.
 - name: Set Dev Apps Environment Variables (Linux/macOS)
   ansible.builtin.blockinfile:
-    path: "{{ non_root_home }}/apps_config/env.sh"
+    path: "{{ dev_env_file }}"
     marker: "# {mark} ANSIBLE DEV APPS CONFIG"
     create: yes
     mode: '0644'
     block: |
-      export GRADLE_USER_HOME="$HOME/apps_config/.gradle"
-      export DOCKER_CONFIG="$HOME/apps_config/.docker"
-      export M2_HOME="$HOME/apps_config/.m2"
-      export KUBECONFIG="$HOME/apps_config/.kube/config"
+      GRADLE_USER_HOME=${HOME}/apps_config/.gradle
+      DOCKER_CONFIG=${HOME}/apps_config/.docker
+      M2_HOME=${HOME}/apps_config/.m2
+      KUBECONFIG=${HOME}/apps_config/.kube/config
+      # Where source checkouts live, from projects_dir in group_vars/all.yaml. Quoted, so a path with
+      # a space survives both systemd and the shell.
+      PROJECTS_DIR="{{ projects_dir }}"
       # The SDK location, from the same android_home the installer writes to. ANDROID_HOME is the
       # current name and ANDROID_SDK_ROOT is the deprecated one, and both are set to the same path
       # because Android Studio and the Gradle plugin check the two for consistency when the old one
       # is present. https://developer.android.com/tools/variables
-      export ANDROID_HOME="{{ android_home }}"
-      export ANDROID_SDK_ROOT="{{ android_home }}"
+      ANDROID_HOME="{{ android_home }}"
+      ANDROID_SDK_ROOT="{{ android_home }}"
       # The user preferences directory, which is a different thing from the SDK. ANDROID_USER_HOME
-      # names it outright; ANDROID_SDK_HOME is the legacy variable Android Studio 4.3 and earlier
+      # names it outright. ANDROID_SDK_HOME is the legacy variable Android Studio 4.3 and earlier
       # read, and it names the PARENT the .android directory is created under, so it gets
       # apps_config rather than apps_config/.android.
-      export ANDROID_USER_HOME="$HOME/apps_config/.android"
-      export ANDROID_SDK_HOME="$HOME/apps_config"
-      # Pub (Dart/Flutter) installs user-level executables here; pin it to PATH
-      # so the "Pub installs executables into $HOME/.pub-cache/bin, which is
-      # not on your path" warning never reappears.
-      export PUB_CACHE="$HOME/.pub-cache"
-      # FVM's own global-version symlink. Confirmed against FVM's source, lib/src/utils/context.dart:
-      # globalCacheLink = join(fvmDir, 'default') and globalCacheBinPath = join(globalCacheLink,
-      # 'bin'), with fvmDir defaulting to "$HOME/fvm". fvm_unix.yaml's "Set FVM global version" task
-      # is what points this symlink at a real SDK. The per-channel versions directory it installs
-      # into, ~/fvm/versions/<channel>/bin, carries the channel name and so cannot be a fixed PATH
-      # entry the way this one can.
-      #
-      # $HOME/fvm/bin is FVM's own binary, not the SDK it manages, and is the gap this line had until
-      # 2026-09-18: fvm_unix.yaml's install script has put fvm there since installer version 2.0.0,
-      # measured again directly against 4.3.1 on 2026-09-18, but this PATH line never carried that
-      # directory, only the SDK's own default symlink above. Every non-Arch platform's CI (Debian,
-      # Ubuntu, Pop!_OS, Fedora, macOS) failed `outside-package-manager tools missing or unreachable:
-      # fvm` on 2026-09-18 for exactly that reason: `fvm` sat on disk and installed Flutter correctly
-      # inside the playbook's own shell, which builds its PATH from fvm_unix.yaml's own search rather
-      # than this file, and was UNREACHABLE from the login shell verify_install.yaml actually opens.
-      # Arch and CachyOS passed the same run by coincidence: their now-removed `dart pub global
-      # activate fvm` route put the binary in ~/.pub-cache/bin, which this line already carried for an
-      # unrelated reason. See docs/regression_ledger.md for the full account. One install route
-      # everywhere as of the same date means this is the one remaining directory to add.
-      export PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:$HOME/.pub-cache/bin:$HOME/fvm/bin:$HOME/fvm/default/bin:$PATH"
+      ANDROID_USER_HOME=${HOME}/apps_config/.android
+      ANDROID_SDK_HOME=${HOME}/apps_config
+      # Pub (Dart/Flutter) installs user-level executables into ${HOME}/.pub-cache/bin, on PATH below.
+      PUB_CACHE=${HOME}/.pub-cache
+      # ${HOME}/fvm/bin is FVM's own binary and ${HOME}/fvm/default/bin the SDK its `fvm global`
+      # symlink points at, both under FVM's default fvmDir (lib/src/utils/context.dart). The
+      # per-channel directory, ~/fvm/versions/<channel>/bin, carries the channel name and so cannot
+      # be a fixed entry. docs/regression_ledger.md has why ${HOME}/fvm/bin is here.
+      PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:${HOME}/.pub-cache/bin:${HOME}/fvm/bin:${HOME}/fvm/default/bin:${PATH}"
   become: yes
   become_user: "{{ non_root_user }}"
 
-# A Linux machine gets both .bashrc and .zshrc sourcing this file, because the login shell is a
-# per-user choice this playbook does not control, and a zsh user with nothing in .zshrc never sees
-# any of the above even though the packages it points at installed correctly. macOS keeps writing
-# only .zshrc, since zsh is the default and only shell there. `create: yes` matches the previous
-# behaviour: a missing rc file is created rather than skipped.
-- name: Determine target rc files that must source the project's environment file (Linux/macOS)
-  ansible.builtin.set_fact:
-    env_apps_rc_files: "{{ [non_root_home + '/.bashrc', non_root_home + '/.zshrc'] if ansible_facts['system'] == 'Linux' else [non_root_home + '/.zshrc'] if ih_family == 'Darwin' else [] }}"
+# zsh reads .zshenv for every shell it starts, login or not, interactive or not, so this is where it
+# imports the file above. With setup_zsh that is ~/.config/zsh/.zshenv, which the ~/.zshenv stub
+# shell_zsh writes sources, and without it zsh_config_dir is the home directory and this is
+# ~/.zshenv itself. `typeset -U` keeps PATH free of duplicates when a shell starts another one, which
+# prepends the same entries again, and it comes first so it covers the import. The `(N)` qualifier
+# makes an empty directory import nothing rather than fail on an unmatched glob. The last line drops
+# the entries that are not a directory yet, ${HOME}/.pub-cache/bin before the first `dart pub global
+# activate` and the Android emulator before Android Studio installs it, so a shell's PATH names only
+# what is there. The desktop session keeps them, since systemd cannot test a path.
+- name: Ensure the zsh configuration directory exists (Linux/macOS)
+  ansible.builtin.file:
+    path: "{{ zsh_config_dir }}"
+    state: directory
+    mode: '0755'
+  become: yes
+  become_user: "{{ non_root_user }}"
 
-# Guarded with `[ -f ... ]` so a shell started before this role has ever run, or a rc file restored
-# from some other source, does not error out sourcing a file that is not there yet.
-- name: Source the project's environment file from every rc file (Linux/macOS)
+- name: Import environment.d into every zsh (Linux/macOS)
   ansible.builtin.blockinfile:
-    path: "{{ item }}"
-    marker: "# {mark} ANSIBLE PROJECT ENV SOURCE"
+    path: "{{ zsh_config_dir }}/.zshenv"
+    marker: "# {mark} ANSIBLE ENVIRONMENT.D IMPORT"
     create: yes
+    mode: '0644'
     block: |
-      [ -f "$HOME/apps_config/env.sh" ] && . "$HOME/apps_config/env.sh"
-  loop: "{{ env_apps_rc_files }}"
+      typeset -U path PATH
+      for ih_env_conf in "$HOME"/.config/environment.d/*.conf(N); do
+        set -a; . "$ih_env_conf"; set +a
+      done
+      unset ih_env_conf
+      path=($^path(N-/))
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+# bash has no file it reads for every shell, so the import goes at the very top of ~/.bashrc, ahead of
+# the early return every distribution's .bashrc carries for a non-interactive shell. Every supported
+# distribution's login file, ~/.bash_profile on Arch and Fedora and ~/.profile on Debian, sources
+# ~/.bashrc, so a login bash reads it too. No ~/.bash_profile is created here, because on Debian and
+# Ubuntu one would make bash skip ~/.profile. bash has no `typeset -U`, so the loop after the import
+# rebuilds PATH the way the zsh block above leaves it: each directory once, and only the ones that
+# exist.
+- name: Import environment.d into every bash (Linux)
+  ansible.builtin.blockinfile:
+    path: "{{ non_root_home }}/.bashrc"
+    marker: "# {mark} ANSIBLE ENVIRONMENT.D IMPORT"
+    insertbefore: BOF
+    create: yes
+    mode: '0644'
+    block: |
+      for ih_env_conf in "$HOME"/.config/environment.d/*.conf; do
+        [ -r "$ih_env_conf" ] && { set -a; . "$ih_env_conf"; set +a; }
+      done
+      ih_path=
+      IFS=: read -r -a ih_dirs <<<"$PATH"
+      for ih_dir in "${ih_dirs[@]}"; do
+        [ -d "$ih_dir" ] || continue
+        case ":$ih_path:" in *":$ih_dir:"*) ;; *) ih_path="${ih_path:+$ih_path:}$ih_dir" ;; esac
+      done
+      PATH="$ih_path"
+      unset ih_env_conf ih_path ih_dirs ih_dir
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: ansible_facts['system'] == 'Linux'
+
+# --- migration from the ~/apps_config/env.sh layout -------------------------------------------
+# A machine provisioned before 2026-10-15 has ~/apps_config/env.sh and a marked line sourcing it in
+# ~/.bashrc and ~/.zshrc. Both lines go, wherever they are, and the file is moved into
+# shell_layout_backup_dir rather than deleted. lineinfile with state absent leaves a missing file
+# alone, which blockinfile does not, so a machine without one of these files reports ok.
+- name: Remove the line that sourced the retired ~/apps_config/env.sh (Linux/macOS)
+  ansible.builtin.lineinfile:
+    path: "{{ item.0 }}"
+    regexp: "{{ item.1 }}"
+    state: absent
+  loop: "{{ shell_startup_files | product(env_variables_retired_lines) | list }}"
+  loop_control:
+    label: "{{ item.0 }}"
+  vars:
+    env_variables_retired_lines:
+      - '^# (BEGIN|END) ANSIBLE PROJECT ENV SOURCE$'
+      - '^\[ -f "\$HOME/apps_config/env\.sh" \] && \. "\$HOME/apps_config/env\.sh"$'
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+- name: Move the retired ~/apps_config/env.sh into the shell layout backup (Linux/macOS)
+  ansible.builtin.shell: |
+    set -eu
+    mkdir -p "{{ shell_layout_backup_dir }}"
+    mv "{{ non_root_home }}/apps_config/env.sh" "{{ shell_layout_backup_dir }}/env.sh.$(date +%Y%m%d%H%M%S)"
+  args:
+    executable: /bin/bash
+    removes: "{{ non_root_home }}/apps_config/env.sh"
   become: yes
   become_user: "{{ non_root_user }}"

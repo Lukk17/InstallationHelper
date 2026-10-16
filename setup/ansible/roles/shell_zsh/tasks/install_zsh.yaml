@@ -1,49 +1,57 @@
 ---
+# One package per call through tasks/install_role_packages.yaml, for all three families, so one that
+# cannot install costs only itself and is named.
 - name: Install ZSH and curl (Debian)
-  ansible.builtin.apt:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - zsh
       - curl
-    state: present
-  become: yes
+    role_packages_purpose: ZSH and curl
   when: ih_family == 'Debian'
 
 - name: Install ZSH and curl (Fedora)
-  ansible.builtin.dnf:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - zsh
       - curl
-    state: present
-  become: yes
+    role_packages_purpose: ZSH and curl
   when: ih_family == 'RedHat'
 
 - name: Install ZSH and curl (Archlinux)
-  community.general.pacman:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - zsh
       - curl
-    state: present
-  become: yes
+    role_packages_purpose: ZSH and curl
   when: ih_family == 'Archlinux'
 
 - name: Install ZSH (macOS)
-  community.general.homebrew:
-    name: zsh
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [zsh]
+    role_packages_purpose: ZSH
+    role_packages_manager: brew
   when: ih_family == 'Darwin'
 
 # `command -v zsh` is a POSIX shell builtin, not an executable — must run
 # inside a shell (ansible.builtin.command invokes execve() directly with
 # no shell, so it fails with "Error executing command"). Using `shell:`
 # routes through bash where the builtin resolves correctly.
-  # Retried, because this reaches the network and a single dropped connection must not cost the
-  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
-  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
-  # eof from python.org.
-  register: zsh_brew
-  until: zsh_brew is succeeded
-  retries: 3
-  delay: 15
 - name: Find ZSH path
   ansible.builtin.shell: command -v zsh
   args:

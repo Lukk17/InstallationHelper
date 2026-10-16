@@ -1,24 +1,15 @@
-# Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
+# Enable Powerlevel10k instant prompt. Should stay close to the top of $ZDOTDIR/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
 # confirmations, etc.) must go above this block; everything else may go below.
 if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
-# This file gets copied straight over ~/.zshrc on every Oh My Zsh install, which is exactly what
-# used to destroy the environment env_variables, nvm_unix.yaml and pyenv_unix.yaml write. All three
-# now write into apps_config/env.sh instead of into this file, so this one block, baked into the
-# checked-in copy itself, is what survives the overwrite and keeps sourcing them. It carries exactly
-# the markers and body env_unix.yaml writes, so the next run finds its block already here.
-# BEGIN ANSIBLE PROJECT ENV SOURCE
-[ -f "$HOME/apps_config/env.sh" ] && . "$HOME/apps_config/env.sh"
-# END ANSIBLE PROJECT ENV SOURCE
-
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:/usr/local/bin:$PATH
 
 # Path to your oh-my-zsh installation.
-export ZSH="$HOME/.oh-my-zsh"
+ZSH="$HOME/.local/share/oh-my-zsh"
 
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time oh-my-zsh is loaded, in which case,
@@ -118,8 +109,6 @@ source $ZSH/oh-my-zsh.sh
 # Example aliases
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
-export PATH="$PATH:/usr/bin/brave-browser-stable"
-export PATH="$PATH:/opt/postman/postman"
 
-# To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
-[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+# To customize prompt, run `p10k configure` or edit $ZDOTDIR/.p10k.zsh.
+[[ ! -f "${ZDOTDIR:-$HOME}/.p10k.zsh" ]] || source "${ZDOTDIR:-$HOME}/.p10k.zsh"
