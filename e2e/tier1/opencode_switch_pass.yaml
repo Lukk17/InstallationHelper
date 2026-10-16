@@ -1,0 +1,56 @@
+---
+# One pass of one case of opencode_switch.yaml. The second pass of each case is the idempotency check.
+
+# One environment for the proof below and for every role file it guards, so the fakes the proof finds are the
+# ones the role files are given.
+- name: Put the fakes first on PATH, pass {{ ih_pass }} of {{ ih_case.name }}
+  ansible.builtin.set_fact:
+    ih_fake_environment:
+      PATH: "{{ ih_fake_bin }}:{{ ih_host_path }}"
+      IH_FAKE_STATE: "{{ ih_case.state }}"
+
+# Asked under that environment, so a fake directory that is wrong here, and not only one missing from
+# opencode_switch.sh, stops the play before anything can reach a real package manager.
+- name: Prove every command the switch can run is a fake, pass {{ ih_pass }} of {{ ih_case.name }}
+  ansible.builtin.shell: |
+    set -o pipefail
+    for name in flatpak dpkg-query apt-get pacman rpm dnf npm; do
+        found="$(command -v "${name}" || true)"
+        if [[ "${found}" != {{ (ih_fake_bin ~ '/') | quote }}* ]]; then
+            echo "${name} resolves to ${found:-nothing}, not to a fake in {{ ih_fake_bin }}"
+            exit 1
+        fi
+    done
+  args:
+    executable: /bin/bash
+  environment: "{{ ih_fake_environment }}"
+  changed_when: false
+
+- name: Remove the other desktop app, pass {{ ih_pass }} of {{ ih_case.name }}
+  ansible.builtin.include_tasks:
+    file: "{{ ih_role }}/opencode_desktop_other.yaml"
+    apply:
+      environment: "{{ ih_fake_environment }}"
+
+- name: Move the data folder, pass {{ ih_pass }} of {{ ih_case.name }}
+  ansible.builtin.include_tasks:
+    file: "{{ ih_role }}/opencode_data.yaml"
+    apply:
+      environment:
+        XDG_DATA_HOME: "{{ ih_case.data }}"
+
+- name: Install the selected command line tool, pass {{ ih_pass }} of {{ ih_case.name }}
+  ansible.builtin.include_tasks:
+    file: "{{ ih_role }}/opencode_unix.yaml"
+    apply:
+      environment: "{{ ih_fake_environment }}"
+  when: ih_case.cli | default(false) | bool
+
+- name: Report pass {{ ih_pass }} of {{ ih_case.name }}
+  ansible.builtin.debug:
+    msg: >-
+      IH_OC_PASS case={{ ih_case.name }} pass={{ ih_pass }}
+      removed={{ opencode_other_desktop_removal is changed }}
+      moves={{ opencode_data_moves.stdout_lines | select('match', '^\[INFO\] ') | list | length }}
+      cli_removed={{ (ih_case.cli | default(false) | bool) and (npm_replaced_removal | default({})) is changed }}
+      cli_installed={{ (ih_case.cli | default(false) | bool) and (npm_pkg_install | default({})) is changed }}

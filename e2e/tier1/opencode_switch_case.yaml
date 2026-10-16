@@ -1,0 +1,31 @@
+---
+# One case of opencode_switch.yaml. See that file.
+- name: Set the family and the switch for {{ ih_case.name }}
+  ansible.builtin.set_fact:
+    ih_family: "{{ ih_case.family }}"
+    ih_os_release_id: ""
+    opencode_use_v1: "{{ ih_case.use_v1 }}"
+    install_opencode_desktop: true
+
+- name: Load the dictionary the way the playbook does for {{ ih_case.name }}
+  ansible.builtin.include_tasks: "{{ ih_loader }}"
+
+- name: Decide the OpenCode version the way the playbook does for {{ ih_case.name }}
+  ansible.builtin.include_tasks: "{{ ih_version }}"
+
+- name: Report the decision for {{ ih_case.name }}
+  ansible.builtin.debug:
+    msg: >-
+      IH_OC_DECIDED case={{ ih_case.name }} version={{ opencode_version }} other={{ opencode_other_version }}
+      cli={{ opencode_cli_package }} other_cli={{ opencode_other_cli_package }}
+      route={{ opencode_desktop_route.manager | default('none') }}:{{ opencode_desktop_route.package | default('none') }}
+      other_route={{ opencode_other_desktop_route.manager | default('none') }}:{{ opencode_other_desktop_route.package | default('none') }}
+      mapped={{ (os_dict.software_mapping.opencode_desktop.manager ~ ':' ~ os_dict.software_mapping.opencode_desktop.package) if os_dict.software_mapping.opencode_desktop is defined else 'none' }}
+      v1key={{ 'present' if os_dict.software_mapping.opencode_desktop_v1 is defined else 'absent' }}
+
+- name: Run the switch twice for {{ ih_case.name }}
+  ansible.builtin.include_tasks: opencode_switch_pass.yaml
+  loop: [1, 2]
+  loop_control:
+    loop_var: ih_pass
+  when: ih_case.run | bool

@@ -1,4 +1,15 @@
 ---
+# OpenCode, version 2 by default and version 1 when opencode_use_v1 is true. tasks/opencode_version.yaml decides
+# which, for this play and verify_install.yaml alike, and names the other version, which this file removes. The
+# desktop app of the selected version is installed later by the software installer through the ordinary mapping,
+# or on macOS version 1 by macos_install.yaml, so the other one has to be gone before that runs.
+- name: Remove the OpenCode desktop app of the version not selected
+  ansible.builtin.include_tasks: opencode_desktop_other.yaml
+  when: install_opencode_desktop | default(false) | bool
+
+- name: Move OpenCode data the selected version cannot open out of its way
+  ansible.builtin.include_tasks: opencode_data.yaml
+
 - name: Include OpenCode Unix tasks
   ansible.builtin.include_tasks: opencode_unix.yaml
   when: install_opencode | default(false) | bool

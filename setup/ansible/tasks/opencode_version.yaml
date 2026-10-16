@@ -1,0 +1,92 @@
+---
+# Which OpenCode version this machine gets, version 2 by default and version 1 when opencode_use_v1 is true, and
+# which one has to go. Loaded here and nowhere else, after tasks/load_os_dict.yaml, because site.yaml installs and
+# verify_install.yaml checks, and two answers to the same question is AGENTS.md defect class 2.
+#
+# The two versions cannot sit side by side. Both command line packages claim the opencode command, so npm refuses
+# the second with EEXIST, and both keep their data in one folder, $XDG_DATA_HOME/opencode, where version 1 refuses
+# to start once version 2 has created its database. So the selected version is installed and the other removed,
+# which the owner approved on 2026-10-15.
+#
+# Sets:
+#   opencode_version, opencode_other_version     v1 or v2
+#   opencode_cli_package, opencode_other_cli_package
+#                                                the npm packages, @opencode/cli for v2 and opencode-ai for v1
+#   opencode_desktop_route, opencode_other_desktop_route
+#                                                { manager, package } for each desktop app on this family
+#   opencode_desktop_commands                    per manager, the probe that answers whether a desktop route is
+#                                                installed, the command that removes it, and whether either has to
+#                                                run as the user rather than root
+# and replaces os_dict.software_mapping.opencode_desktop with the selected route, so the software installer and
+# the verification install and expect that one through the ordinary mapping path. The version 1 entry,
+# opencode_desktop_v1, leaves the mapping here, because nothing toggles it by name.
+#
+# macOS has no version 1 in any package manager, so its version 1 route is the app bundle the vendor DMG leaves,
+# os_dict.opencode_desktop_app, installed by roles/software_installer/tasks/macos_install.yaml. Both versions use
+# the same bundle there, so the probe reads the bundle's major version.
+
+- name: Decide which OpenCode version this run installs and which one it removes
+  ansible.builtin.set_fact:
+    opencode_version: "{{ ih_opencode_selected }}"
+    opencode_other_version: "{{ ih_opencode_other }}"
+    opencode_cli_package: "{{ ih_opencode_cli[ih_opencode_selected] }}"
+    opencode_other_cli_package: "{{ ih_opencode_cli[ih_opencode_other] }}"
+    opencode_desktop_route: "{{ ih_opencode_desktop[ih_opencode_selected] }}"
+    opencode_other_desktop_route: "{{ ih_opencode_desktop[ih_opencode_other] }}"
+  vars:
+    ih_opencode_selected: "{{ 'v1' if (opencode_use_v1 | default(false) | bool) else 'v2' }}"
+    ih_opencode_other: "{{ 'v2' if ih_opencode_selected == 'v1' else 'v1' }}"
+    ih_opencode_cli:
+      v2: "@opencode/cli"
+      v1: "opencode-ai"
+    ih_opencode_desktop:
+      v2: "{{ os_dict.software_mapping.opencode_desktop | default({}) }}"
+      v1: >-
+        {{ os_dict.software_mapping.opencode_desktop_v1
+           if os_dict.software_mapping.opencode_desktop_v1 is defined
+           else ({'manager': 'macos_app', 'package': os_dict.opencode_desktop_app}
+                 if os_dict.opencode_desktop_app is defined else {}) }}
+  tags: always
+
+# Each probe exits 0 only when the route is installed. Measured on 2026-10-15 for a name that is absent and one that
+# is present: flatpak info --system 1 in debian:trixie, the dpkg-query line 1 and 0 there, pacman -Q 1 and 0 in
+# archlinux, rpm -q 1 and 0 in fedora:44. brew list --cask and the removals were not run here, there is no Mac and
+# no OpenCode package installed in those images. The app bundle answers with its CFBundleShortVersionString, 1.19.1
+# in the version 1 archive read on 2026-10-15.
+- name: Name the probe and the removal for every route an OpenCode desktop app can come from
+  ansible.builtin.set_fact:
+    opencode_desktop_commands:
+      apt_url:
+        probe: "dpkg-query -W -f='${Status}' PKG 2>/dev/null | grep -qx 'install ok installed'"
+        remove: "DEBIAN_FRONTEND=noninteractive apt-get remove -y PKG"
+        as_user: false
+      dnf_url:
+        probe: "rpm -q PKG"
+        remove: "dnf remove -y PKG"
+        as_user: false
+      aur:
+        probe: "pacman -Q PKG"
+        remove: "pacman -R --noconfirm PKG"
+        as_user: false
+      flatpak:
+        probe: "flatpak info --system PKG"
+        remove: "flatpak uninstall --system -y --noninteractive PKG"
+        as_user: false
+      brew_cask:
+        probe: 'export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"; brew list --cask PKG'
+        remove: 'export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"; brew uninstall --cask PKG'
+        as_user: true
+      macos_app:
+        probe: '[ "$(defaults read PKG/Contents/Info CFBundleShortVersionString 2>/dev/null | cut -d. -f1)" = 1 ]'
+        remove: "rm -rf PKG"
+        as_user: false
+  tags: always
+
+- name: Hand the software installer and the verification the selected OpenCode desktop route
+  ansible.builtin.set_fact:
+    os_dict: >-
+      {{ os_dict | combine({'software_mapping': (os_dict.software_mapping | dict2items
+           | rejectattr('key', 'in', ['opencode_desktop', 'opencode_desktop_v1']) | items2dict)
+           | combine({'opencode_desktop': opencode_desktop_route}
+                     if (opencode_desktop_route.manager | default('macos_app')) != 'macos_app' else {})}) }}
+  tags: always

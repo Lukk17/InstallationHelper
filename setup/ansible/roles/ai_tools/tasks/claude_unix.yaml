@@ -32,6 +32,12 @@
     use: paru
     extra_args: "--noconfirm --skipreview"
     state: present
+  # The retry rule every package manager follows, four attempts twenty seconds apart, with no refresh
+  # between them, because paru asks the AUR's /rpc endpoint on every call and keeps no index of it.
+  register: claude_desktop_aur
+  until: claude_desktop_aur is succeeded
+  retries: 3
+  delay: 20
   when:
     - install_claude_desktop | default(false) | bool
     - ih_family == 'Archlinux'
@@ -51,18 +57,17 @@
     - claude_desktop_arch_check.rc != 0
     - not (paru_available | default(false) | bool)
 
+# Through tasks/install_role_packages.yaml, the retry rule every package manager follows, so a cask
+# that fails is retried after brew update and named when it never installs.
 - name: Install Claude Desktop (macOS)
-  community.general.homebrew_cask:
-    name: claude
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [claude]
+    role_packages_purpose: Claude Desktop
+    role_packages_manager: brew_cask
   when:
     - install_claude_desktop | default(false) | bool
     - ih_family == 'Darwin'
-  # Retried, because this reaches the network and a single dropped connection must not cost the
-  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
-  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
-  # eof from python.org.
-  register: claude_desktop_cask
-  until: claude_desktop_cask is succeeded
-  retries: 3
-  delay: 15

@@ -1,0 +1,6 @@
+---
+- name: Install Kilo Code CLI via npm helper
+  ansible.builtin.include_tasks: npm_install_unix.yaml
+  vars:
+    npm_pkg: "@kilocode/cli"
+    npm_display_name: "Kilo Code"

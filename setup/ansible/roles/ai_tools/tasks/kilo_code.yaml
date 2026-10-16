@@ -1,0 +1,4 @@
+---
+- name: Include Kilo Code Unix tasks
+  ansible.builtin.include_tasks: kilo_code_unix.yaml
+  when: install_kilo_code | default(false) | bool

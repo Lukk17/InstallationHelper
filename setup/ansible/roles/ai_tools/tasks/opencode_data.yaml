@@ -1,0 +1,91 @@
+---
+# OpenCode keeps its data in $XDG_DATA_HOME/opencode, ~/.local/share/opencode when that is unset, on Linux and on
+# macOS alike: both versions resolve it the way the xdg-basedir package does, XDG_DATA_HOME first and then
+# ~/.local/share, read out of the 2.0.29 and 1.19.1 binaries on 2026-10-15. Both versions share the folder and
+# cannot share the database in it. Measured with @opencode/cli 2.0.29 and opencode-ai 1.19.1 in node:24-slim on
+# 2026-10-15:
+#
+#   version 1 creates opencode.db with a table named session
+#   version 2 creates opencode.db with a table named session_v2 and none named session
+#   version 1 on a version 2 database stops with "Database is not empty and has no session table"
+#   version 2 on a version 1 database migrates it in place, adding session_v2 beside session
+#
+# So a folder whose database has a session_v2 table holds version 2 data, and one whose database has a session
+# table and no session_v2 table holds version 1 data. SQLite stores each table's CREATE TABLE statement as text,
+# in opencode.db or, until a checkpoint, in opencode.db-wal, so the two files are searched for that text rather
+# than opened, which needs no sqlite3 and reads the same way setup/windows/WindowsCustomInstalls.ps1 reads it.
+#
+# Switching to version 1 moves a folder holding version 2 data to opencode.v2-backup-<date>-<time> beside it and
+# brings no version 1 backup back, so version 1 starts clean, which the owner decided on 2026-10-15. Switching to
+# version 2 moves a folder holding version 1 data to opencode.v1-backup-<date>-<time> only when a version 2 backup
+# exists to come back, because version 2 opens version 1 data by itself, and once the folder is free the newest
+# version 2 backup is moved back into it. Nothing is ever deleted, a move never lands on a path that exists, and
+# every move is named with an [INFO] line.
+
+- name: Move OpenCode data the selected version cannot open aside, and bring back its own
+  ansible.builtin.shell: |
+    set -euo pipefail
+    target={{ opencode_version | quote }}
+    other={{ opencode_other_version | quote }}
+    data_home="${XDG_DATA_HOME:-}"
+    if [[ -z "${data_home}" ]]; then
+        data_home={{ (non_root_home ~ '/.local/share') | quote }}
+    fi
+    dir="${data_home}/opencode"
+    stamp="$(date +%Y%m%d-%H%M%S)"
+
+    has_table() {
+        local f
+        for f in "${dir}/opencode.db" "${dir}/opencode.db-wal"; do
+            if [[ -f "${f}" ]] && LC_ALL=C grep -a -q -F "CREATE TABLE \`$1\`" "${f}"; then
+                return 0
+            fi
+        done
+        return 1
+    }
+
+    holds() {
+        case "$1" in
+            v2) has_table session_v2 ;;
+            v1) has_table session && ! has_table session_v2 ;;
+        esac
+    }
+
+    newest_backup() {
+        local backup newest=""
+        for backup in "${dir}.$1-backup-"*; do
+            if [[ -d "${backup}" ]]; then
+                newest="${backup}"
+            fi
+        done
+        printf '%s' "${newest}"
+    }
+
+    move() {
+        if [[ -e "$2" ]]; then
+            echo "refusing to move $1 to $2, which already exists" >&2
+            return 1
+        fi
+        mv "$1" "$2"
+    }
+
+    v2_backup="$(newest_backup v2)"
+    if [[ -d "${dir}" ]] && holds "${other}" && [[ "${target}" == v1 || -n "${v2_backup}" ]]; then
+        move "${dir}" "${dir}.${other}-backup-${stamp}"
+        echo "[INFO] moved ${dir} to ${dir}.${other}-backup-${stamp}, because it holds OpenCode ${other} data and ${target} is selected"
+    fi
+    if [[ "${target}" == v2 && ! -e "${dir}" && -n "${v2_backup}" ]]; then
+        move "${v2_backup}" "${dir}"
+        echo "[INFO] moved ${v2_backup} back to ${dir}, the newest OpenCode v2 data, because v2 is selected"
+    fi
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ non_root_user }}"
+  register: opencode_data_moves
+  changed_when: "'[INFO] ' in opencode_data_moves.stdout"
+
+- name: Name every OpenCode data folder move
+  ansible.builtin.debug:
+    msg: "{{ item }}"
+  loop: "{{ opencode_data_moves.stdout_lines | select('match', '^\\[INFO\\] ') | list }}"

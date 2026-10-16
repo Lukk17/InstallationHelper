@@ -30,8 +30,12 @@
           Claude Code or Claude Desktop is NOT installed. Every other AI tool continues, and the run is
           marked failed.
 
+# Either toggle, because the version switch in opencode.yaml removes the other version's desktop app and moves
+# the data folder for the desktop app as much as for the command line tool.
 - name: Install OpenCode
-  when: install_opencode | default(false) | bool
+  when:
+    - install_opencode | default(false) | bool
+      or install_opencode_desktop | default(false) | bool
   tags: [opencode]
   block:
     - name: Import the OpenCode tasks
@@ -50,6 +54,27 @@
           [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
           {{ ansible_failed_result.msg | default('no message given') }}
           OpenCode is NOT installed. Every other AI tool continues, and the run is marked failed.
+
+- name: Install Kilo Code
+  when: install_kilo_code | default(false) | bool
+  tags: [kilo_code]
+  block:
+    - name: Import the Kilo Code tasks
+      ansible.builtin.import_tasks: kilo_code.yaml
+  rescue:
+    - name: Record that Kilo Code could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['Kilo Code (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the Kilo Code step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          Kilo Code is NOT installed. Every other AI tool continues, and the run is marked failed.
 
 - name: Install OpenSpec
   when: install_openspec | default(false) | bool

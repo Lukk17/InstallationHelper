@@ -1,0 +1,32 @@
+---
+# Fixture play behind e2e/tier1/opencode_switch.sh. It drives the shipped OpenCode version switch, through
+# setup/ansible/tasks/load_os_dict.yaml, setup/ansible/tasks/opencode_version.yaml and the role task files
+# opencode_desktop_other.yaml and opencode_data.yaml, against fake package managers and a fake data folder, so
+# the removal of the version not selected and the data folder moves are run rather than read.
+#
+# opencode_switch.sh runs this from a temporary directory holding a link named vars to setup/ansible/vars,
+# because load_os_dict.yaml reads {{ playbook_dir }}/vars, and passes in with -e ih_loader, ih_version, ih_role,
+# ih_fake_bin, ih_host_path, non_root_user, non_root_home and ih_cases, a list of
+# { name, family, use_v1, run, cli, state, data }, and ih_timeout, which the npm helper reads. ansible_become is false, so the role's become keywords run the
+# commands as the account running the check, against the fakes in ih_fake_bin, which comes first on PATH.
+# opencode_switch.sh proves every command the switch can run resolves to a fake before this play starts, because
+# a fake that is not found falls through to the real package manager of the machine running the check.
+
+- name: Drive the OpenCode version switch against fakes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_become: false
+
+  tasks:
+    - name: Run one case
+      ansible.builtin.include_tasks: opencode_switch_case.yaml
+      loop: "{{ ih_cases }}"
+      loop_control:
+        loop_var: ih_case
+        label: "{{ ih_case.name }}"
+
+    - name: Report how many cases ran
+      ansible.builtin.debug:
+        msg: "IH_OC_DONE cases={{ ih_cases | length }}"

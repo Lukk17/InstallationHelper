@@ -27,13 +27,14 @@
   retries: 3
   delay: 10
 - name: Ask where LM Studio put its CLI, if it is installed (Linux)
-  ansible.builtin.shell: |
+  ansible.builtin.shell: &local_llm_lms_probe |
     set -o pipefail
     lms_home="{{ non_root_home }}/.lmstudio"
     pointer="{{ non_root_home }}/.lmstudio-home-pointer"
     if [ -f "$pointer" ]; then
       lms_home="$(cat "$pointer")"
     fi
+    printf '%s\n' "$lms_home"
     test -x "$lms_home/bin/lms"
   args:
     executable: /bin/bash
@@ -51,7 +52,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     export PATH="$PATH:/sbin:/usr/sbin"
-    {{ ih_timeout }} 600 bash -c 'curl -fsSL --max-time 120 https://lmstudio.ai/install.sh | bash' </dev/null
+    {{ ih_timeout }} 600 bash -c 'curl -fsSL --max-time 120 https://lmstudio.ai/install.sh | bash -s -- --no-modify-path' </dev/null
   args:
     executable: /bin/bash
   become: yes
@@ -64,3 +65,53 @@
     - ansible_facts['system'] == 'Linux'
     - install_lm_studio | bool
     - (lms_installed.rc | default(1)) != 0
+
+# `--no-modify-path` is the installer's own switch, read in https://lmstudio.ai/install.sh on
+# 2026-10-15: without it the installer runs `lms bootstrap -y`, which appended its PATH line to
+# .bashrc, .bash_profile and .zshrc on the owner's machine, three copies of one entry. The directory
+# goes in the environment file instead, read again after the install so the probe's answer about
+# ~/.lmstudio-home-pointer is the one used.
+- name: Ask again where LM Studio put its CLI (Linux)
+  ansible.builtin.shell: *local_llm_lms_probe
+  args:
+    executable: /bin/bash
+  become: yes
+  become_user: "{{ non_root_user }}"
+  register: lms_home_probe
+  changed_when: false
+  failed_when: false
+  when: ansible_facts['system'] == 'Linux' and install_lm_studio | bool
+
+- name: Ensure the LM Studio CLI directory is in the project's environment file (Linux)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file }}"
+    marker: "# {mark} ANSIBLE LM STUDIO ENVIRONMENT"
+    create: yes
+    mode: '0644'
+    block: |
+      PATH="{{ lms_home_probe.stdout_lines[0] }}/bin:${PATH}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_lm_studio | bool
+    - (lms_home_probe.rc | default(1)) == 0
+
+- name: Remove the PATH lines lms bootstrap appended before this project wired LM Studio itself (Linux)
+  ansible.builtin.lineinfile:
+    path: "{{ item.0 }}"
+    regexp: "{{ item.1 }}"
+    state: absent
+  loop: "{{ shell_startup_files | product(lm_studio_vendor_lines) | list }}"
+  loop_control:
+    label: "{{ item.0 }}"
+  vars:
+    lm_studio_vendor_lines:
+      - '^# Added by LM Studio CLI tool \(lms\)$'
+      - '^export PATH="\$PATH:{{ lms_home_probe.stdout_lines[0] | regex_escape }}/bin"$'
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_lm_studio | bool
+    - (lms_home_probe.rc | default(1)) == 0

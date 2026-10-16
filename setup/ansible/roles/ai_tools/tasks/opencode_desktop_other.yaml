@@ -1,0 +1,38 @@
+---
+# The OpenCode desktop app of the version not selected, removed when it is installed. The probe and the removal
+# come from opencode_desktop_commands in tasks/opencode_version.yaml, the table verify_install.yaml asks the same
+# probe from, so the removal and the check that it happened cannot disagree about what installed means.
+#
+# On macOS both versions are /Applications/OpenCode.app, so the version 2 cask has to go before the version 1 DMG
+# can be copied there. On Linux the two never share a path, version 1 is a Flathub application and version 2 a
+# native package, and on Windows setup/windows/WindowsCustomInstalls.ps1 does this job, because no playbook runs
+# there.
+- name: Ask whether the OpenCode {{ opencode_other_version }} desktop app is installed
+  ansible.builtin.shell: "{{ ih_other_commands.probe | replace('PKG', opencode_other_desktop_route.package | quote) }}"
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ non_root_user }}"
+  register: opencode_other_desktop_probe
+  changed_when: false
+  failed_when: false
+  when: ih_other_commands | length > 0
+  vars:
+    ih_other_commands: "{{ opencode_desktop_commands[opencode_other_desktop_route.manager | default('')] | default({}) }}"
+
+- name: Remove the OpenCode {{ opencode_other_version }} desktop app, because {{ opencode_version }} is selected
+  ansible.builtin.shell: "{{ ih_other_commands.remove | replace('PKG', opencode_other_desktop_route.package | quote) }}"
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ non_root_user if ih_other_commands.as_user else 'root' }}"
+  register: opencode_other_desktop_removal
+  changed_when: true
+  when: (opencode_other_desktop_probe.rc | default(1)) == 0
+  vars:
+    ih_other_commands: "{{ opencode_desktop_commands[opencode_other_desktop_route.manager | default('')] | default({}) }}"
+
+- name: Say that the OpenCode {{ opencode_other_version }} desktop app was removed
+  ansible.builtin.debug:
+    msg: "[INFO] removed OpenCode {{ opencode_other_version }} desktop because {{ opencode_version }} is selected"
+  when: opencode_other_desktop_removal is changed

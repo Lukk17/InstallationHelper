@@ -12,6 +12,7 @@
 #   npm_install_extra_args — string appended to `npm install -g` (e.g. "--no-audit")
 #   npm_replaced_pkg       : an older npm package this one replaces, removed before the install
 #                            because both claim the same bin and npm refuses the second with EEXIST
+#   npm_replaced_reason    : the words the [INFO] line uses for what was removed and why
 #
 # Behaviour:
 #   1. Probe ~/.nvm/nvm.sh. If absent, emit a [WARN] and skip the install.
@@ -19,7 +20,10 @@
 #   3. When npm_replaced_pkg is set and <pkg> is absent, `npm uninstall -g` it first, and install it
 #      again when <pkg> then fails to install, so a failure never leaves neither of them.
 #   4. Install under `nvm use --lts` with a 600s wall-clock timeout, run
-#      async with 2 retries to absorb npm-registry flakes.
+#      async, under the retry rule every package manager follows, four attempts twenty seconds
+#      apart, with no refresh between them: npm keeps no package list to refresh, its cache verifies
+#      what it stores and refetches what fails, and its own documentation, npm 11.19.0
+#      docs/content/commands/npm-cache.md, says clearing it is only ever for reclaiming disk space.
 #
 # `chdir: {{ non_root_home }}` on the shell tasks prevents an attacker-controlled
 # .npmrc in cwd from redirecting the npm registry — npm walks upward from cwd
@@ -42,7 +46,7 @@
     path: "{{ non_root_home }}/.nvm/nvm.sh"
   register: nvm_script_stat
 
-# Six command-line tools come through this helper, one include_tasks each, and without NVM every one
+# Seven command-line tools come through this helper, one include_tasks each, and without NVM every one
 # of them installs nothing. That used to be a debug message and nothing else: no exit code, no
 # summary entry, and until the dual_logger callback learned to render a debug msg, not even a console
 # line. So a run with a failed NVM install reported success and quietly delivered none of Claude
@@ -110,6 +114,11 @@
     - nvm_script_stat.stat.exists
     - npm_pkg_check.rc | default(1) != 0
 
+- name: "Say that {{ npm_replaced_pkg | default('') }} was removed (Unix)"
+  ansible.builtin.debug:
+    msg: "[INFO] removed {{ npm_replaced_reason | default(npm_replaced_pkg ~ ', which ' ~ npm_display_name ~ ' replaces') }}"
+  when: npm_replaced_removal is changed
+
 # The replaced package is removed before the new one is proven to install, because npm refuses the
 # new one while the old one holds the bin. So when the install fails after a removal, the rescue
 # installs the replaced package again, and the failure is raised again with what happened to it, so
@@ -132,8 +141,8 @@
       register: npm_pkg_install
       async: 900
       poll: 15
-      retries: 2
-      delay: 15
+      retries: 3
+      delay: 20
       until: npm_pkg_install is succeeded
   rescue:
     - name: "Install {{ npm_replaced_pkg | default('') }} again, because {{ npm_display_name }} did not install (Unix)"
@@ -147,8 +156,8 @@
       become_user: "{{ non_root_user }}"
       register: npm_replaced_restore
       failed_when: false
-      retries: 2
-      delay: 15
+      retries: 3
+      delay: 20
       until: npm_replaced_restore.rc == 0
       when: npm_replaced_removal is changed
 
