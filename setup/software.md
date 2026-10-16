@@ -26,13 +26,13 @@ The playbook runs in this order. Each phase must succeed before the next can sta
 2. APT / DNF repo provisioning: `roles/software_installer/tasks/debian_repos.yaml` and `fedora_repos.yaml` write keyrings under `/etc/apt/keyrings/` and `*.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Helm, Terraform, GitHub CLI, Syncthing, Tailscale, Docker before any package install runs.
 3. SDK / runtime managers: JVM, Pyenv, NVM, SDKMAN (Java, Gradle), FVM.
 4. Snapd and Flatpak with the Flathub remote (Linux).
-5. Package installs: one call per package for every manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`), so one failure names the package that broke and costs only that package. `e2e/tier1/batched_managers.sh` fails on any manager that hands its whole set to one call.
+5. Package installs: one call per package for every manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`), so one failure names the package that broke and costs only that package. The packages a role names in its own tasks, the desktops, QEMU/KVM, Docker and the build dependencies among them, go one per call too, through `setup/ansible/tasks/install_role_packages.yaml`. The software set's pacman packages go through that same file, so pacman tries each package once against the index the system was upgraded against and refreshes the index only before retrying a package that failed. The CachyOS graphics alignment installs `mesa-git` and then `lib32-mesa-git`, one per call, in the same shape. `e2e/tier1/batched_managers.sh` fails on any manager that hands its whole set to one call, with no exception.
 Razer Cortex was removed on 2026-08-22 at the owner's request. It is a game launcher rather than
 device software, its installer exited 0 without installing anything under `/S`, and Razer ships
 no switch it will admit to. Razer Synapse 4 stays and is what configures the devices, through the
 Chocolatey `razer-synapse-4` package on Windows.
 
-6. Custom installs: `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`), `macos_install.yaml` (Antigravity DMG when published, Gridcoin DMG). Windows takes none of this path. `setup/windows/WindowsSoftware.ps1` runs the Chocolatey and winget batches natively and `setup/windows/WindowsCustomInstalls.ps1` runs the Gridcoin silent install.
+6. Custom installs: `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`), `macos_install.yaml` (Razer Synapse PKG, Gridcoin DMG). Windows takes none of this path. `setup/windows/WindowsSoftware.ps1` runs the Chocolatey and winget batches natively and `setup/windows/WindowsCustomInstalls.ps1` runs the Gridcoin and OpenCode desktop silent installs.
 
 Gradle is managed via SDKMAN on every Linux distro, not the system package manager. The `pinned_values.toml` pin drives `sdk install gradle`.
 
@@ -65,11 +65,17 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | jq | `sudo apt-get install -y jq` | `sudo dnf install -y jq` | `sudo pacman -S --needed jq` | `brew install jq` | `winget install -e --id jqlang.jq` |
 | fzf | `sudo apt-get install -y fzf` | `sudo dnf install -y fzf` | `sudo pacman -S --needed fzf` | `brew install fzf` | `winget install -e --id junegunn.fzf` |
 | ripgrep | `sudo apt-get install -y ripgrep` | `sudo dnf install -y ripgrep` | `sudo pacman -S --needed ripgrep` | `brew install ripgrep` | `winget install -e --id BurntSushi.ripgrep.MSVC` |
+| uv | `curl -fsSL https://astral.sh/uv/install.sh \| sudo UV_UNMANAGED_INSTALL=/usr/local/bin sh` | `sudo dnf install -y uv` | `sudo pacman -S --needed uv` | `brew install uv` | `winget install -e --id astral-sh.uv` |
+| pipx | `sudo apt-get install -y pipx` | `sudo dnf install -y pipx` | `sudo pacman -S --needed python-pipx` | `brew install pipx` | `py -m pip install --user pipx` then `py -m pipx ensurepath` |
+| Go | `sudo apt-get install -y golang-go` | `sudo dnf install -y golang` | `sudo pacman -S --needed go` | `brew install go` | `winget install -e --id GoLang.Go` |
 | Lens | `sudo apt-get install -y lens` (repo) | `sudo dnf install -y lens` (repo) | `yay -S lens-bin` | `brew install --cask lens` | `winget install -e --id Mirantis.Lens` |
 | FileZilla | `sudo apt-get install -y filezilla` | `sudo dnf install -y filezilla` | `sudo pacman -S --needed filezilla` | `brew install --cask cyberduck` | `choco install filezilla -y` |
-| PuTTY | `sudo apt-get install -y putty` | not available | not available | not available | `winget install -e --id PuTTY.PuTTY` |
+| PuTTY | `sudo apt-get install -y putty` | `sudo dnf install -y putty` | `sudo pacman -S --needed putty` | not available | `winget install -e --id PuTTY.PuTTY` |
+| rclone | `sudo apt-get install -y rclone` | `sudo dnf install -y rclone` | `sudo pacman -S --needed rclone` | not installed, `install_rclone` is a Linux toggle | not installed, `install_rclone` is a Linux toggle |
 
 Terraform on macOS comes from the HashiCorp tap rather than Homebrew core, which dropped it after the BUSL relicense. The tap is added automatically by the fully qualified formula name.
+
+pipx on Windows comes from pip inside the Python the wizard installs, which is pipx's own documented Windows route, rather than from a package manager. winget has no pipx, and Chocolatey's `pipx` depends on `python3`, which installs a second, newer Python ahead of the pinned 3.11 on PATH. The KDE role installs the same pipx package on Linux for Konsave even when `install_pipx` is off, because it runs before the software installer.
 
 > Lens Desktop is free for personal use and for individuals with annual revenue below USD 10M (see [Lens pricing](https://lenshq.io/pricing)). The playbook installs it from the official apt/dnf repos at `downloads.k8slens.dev`, which give you the same auto-update path the upstream installer uses.
 
@@ -77,11 +83,11 @@ Terraform on macOS comes from the HashiCorp tap rather than Homebrew core, which
 
 | App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
 |---|---|---|---|---|---|
-| JetBrains Toolbox | manual tarball from [jetbrains.com/toolbox-app](https://www.jetbrains.com/toolbox-app/) | manual tarball | `yay -S jetbrains-toolbox` | `brew install --cask jetbrains-toolbox` | manual installer from [jetbrains.com/toolbox-app](https://www.jetbrains.com/toolbox-app/) |
+| JetBrains Toolbox | JetBrains' tarball from `data.services.jetbrains.com/products/download?platform=linux&code=TBA`, unpacked with `--strip-components=1` into `~/.local/share/JetBrains/Toolbox`, so it starts as `~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox` | same tarball as Debian | `yay -S jetbrains-toolbox` | `brew install --cask jetbrains-toolbox` | `winget install -e --id JetBrains.Toolbox` |
 | VS Code | `sudo apt-get install -y code` (repo) | `sudo dnf install -y code` (repo) | `yay -S visual-studio-code-bin` | `brew install --cask visual-studio-code` | `winget install -e --id Microsoft.VisualStudioCode` |
 | Sublime Text | `sudo apt-get install -y sublime-text` (repo) | `sudo dnf install -y sublime-text` (repo) | `yay -S sublime-text-4` | `brew install --cask sublime-text` | `winget install -e --id SublimeHQ.SublimeText.4` |
 | Arduino IDE 2.x | `flatpak install -y flathub cc.arduino.IDE2` | `flatpak install -y flathub cc.arduino.IDE2` | `flatpak install -y flathub cc.arduino.IDE2` | `brew install --cask arduino-ide` | `winget install -e --id ArduinoSA.IDE.stable` |
-| Antigravity | `curl -fsSLo /tmp/antigravity.tar.gz https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/1.13.3-4533425205018624/linux-x64/Antigravity.tar.gz` then extract to `/opt/antigravity` | same tarball as Debian | `yay -S antigravity` | direct DMG from the same CDN, architecture detected by `macos_install.yaml` | `winget install -e --id Google.AntigravityIDE` |
+| Antigravity | `curl -fsSLo /tmp/antigravity.tar.gz https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/1.13.3-4533425205018624/linux-x64/Antigravity.tar.gz` then extract to `/opt/antigravity` | same tarball as Debian | `yay -S antigravity` | `brew install --cask antigravity` | `winget install -e --id Google.AntigravityIDE` |
 | Bruno | `flatpak install -y flathub com.usebruno.Bruno` | `flatpak install -y flathub com.usebruno.Bruno` | `flatpak install -y flathub com.usebruno.Bruno` | `brew install --cask bruno` | `winget install -e --id Bruno.Bruno` |
 | Bruno CLI | `npm install -g @usebruno/cli` | `npm install -g @usebruno/cli` | `npm install -g @usebruno/cli` | `brew install bruno-cli` | `npm install -g @usebruno/cli` |
 
@@ -97,6 +103,7 @@ Terraform on macOS comes from the HashiCorp tap rather than Homebrew core, which
 | Signal | `flatpak install -y flathub org.signal.Signal` | `flatpak install -y flathub org.signal.Signal` | `sudo pacman -S --needed signal-desktop` | `brew install --cask signal` | `winget install -e --id OpenWhisperSystems.Signal` |
 | WhatsApp | not on Flathub | not on Flathub | not on Flathub | `brew install --cask whatsapp` | `winget install -e --id 9NKSQGP7F2NH` |
 | Microsoft Teams | web only on Linux | web only on Linux | web only on Linux | `brew install --cask microsoft-teams` | `winget install -e --id Microsoft.Teams` |
+| Zoom | `flatpak install -y flathub us.zoom.Zoom` | `flatpak install -y flathub us.zoom.Zoom` | `yay -S zoom` | `brew install --cask zoom` | `winget install -e --id Zoom.Zoom` |
 
 ### Productivity
 
@@ -113,7 +120,7 @@ Terraform on macOS comes from the HashiCorp tap rather than Homebrew core, which
 | App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
 |---|---|---|---|---|---|
 | ChatGPT desktop | no official build | no official build | no official build | `brew install --cask chatgpt` | `winget install -e --id 9PLM9XGG6VKS --source msstore` |
-| OpenCode desktop | `flatpak install -y flathub ai.opencode.opencode` | `flatpak install -y flathub ai.opencode.opencode` | `flatpak install -y flathub ai.opencode.opencode` | `brew install --cask opencode-desktop` | `winget install -e --id SST.OpenCodeDesktop` |
+| OpenCode desktop | `curl -fsSLo /tmp/opencode-desktop.deb https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-amd64.deb && sudo apt-get install -y /tmp/opencode-desktop.deb` | `sudo dnf install -y https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-x86_64.rpm` | `yay -S opencode-desktop-bin` | `brew install --cask opencode-desktop` | the vendor installer, `opencode-desktop-win-x64.exe` from `https://opencode.ai/files/bin/2.0.29/`, run with `/S` |
 
 OpenAI ships the desktop app for macOS and Windows only, so `install_chatgpt` has no mapping in the three Linux dictionaries and the dispatcher skips it there. Register for the Linux client at [openai.com/form/chatgpt-app](https://openai.com/form/chatgpt-app/). The Arch and Debian community packages that claim to provide it repackage OpenAI's macOS bundle, so they are deliberately not wired in.
 
@@ -121,7 +128,11 @@ The Windows entry needs `source: "msstore"` in `vars/Windows.yaml`, because the 
 
 The desktop app is the former Codex desktop app renamed, its bundle identifier is still `com.openai.codex` and it reads the same `~/.codex` configuration directory as the Codex command line tool, so one login covers both.
 
-OpenCode desktop is `install_opencode_desktop`, on by default, and always comes from a package manager so it updates with the system. `SST.OpenCodeDesktop` is the desktop app in winget, and `SST.opencode` is the command line tool, which this repository installs from npm instead, see AI tools below. Chocolatey is deliberately not used: its community package runs a per-user installer elevated, so the app lands in the wrong profile.
+OpenCode desktop is `install_opencode_desktop`, on by default, and installs version 2 everywhere. Version 2 is in no package manager on Debian, Ubuntu, Fedora or Windows, as read on 2026-10-15: Flathub's `ai.opencode.opencode` is version 1 (1.18.8), winget's `SST.OpenCodeDesktop` is version 1 (1.19.0), Chocolatey's `opencode-desktop` is version 1 (1.17.9), and there is no snap, apt or dnf repository. So those three take the vendor's own `.deb`, `.rpm` and signed installer, at the version `opencode_desktop_version` pins in [pinned_values.toml](pinned_values/pinned_values.toml). Arch takes the AUR `opencode-desktop-bin`, which repackages the same `.deb`, and macOS the `opencode-desktop` cask, which is version 2 as well. The `.deb` and `.rpm` do not update themselves, the playbook moves them when the pin moves, while the Windows and macOS builds update themselves. Version 1 and version 2 share `~/.local/share/opencode`, and version 1 refuses to start once version 2 has created its database. So whichever version is selected, the run removes the other one's command line tool and desktop app and moves a data folder the selected version cannot open aside, see the next paragraph. `SST.opencode` in winget is the command line tool, which this repository installs from npm instead, see AI tools below.
+
+OpenCode version 1 is `opencode_use_v1`, off by default and labelled `Switch OpenCode from v2 to v1` on both wizards' checklists. When it is on, every OS installs version 1 instead of version 2: the npm package `opencode-ai` for the command line tool, and for the desktop app Flathub's `ai.opencode.opencode` on Linux, winget's `SST.OpenCodeDesktop` on Windows and the vendor DMG from the GitHub release on macOS, pinned as `opencode_desktop_v1_version`, because Homebrew has no version 1 cask. The decision is made once, in [ansible/tasks/opencode_version.yaml](ansible/tasks/opencode_version.yaml) for Linux and macOS and by `Get-OpenCodeVersion` in [windows/WindowsSoftware.ps1](windows/WindowsSoftware.ps1) for Windows, and the install, the removal of the other version and the verification all read it. Removal is logged as `[INFO] removed OpenCode v1 desktop because v2 is selected`, and the verification fails while the other version is still installed. The data folder is `~/.local/share/opencode` on every OS, `XDG_DATA_HOME` when that is set: switching to version 1 moves a folder holding version 2 data to `opencode.v2-backup-<date>-<time>` beside it and brings no earlier version 1 backup back, so version 1 always starts clean. Switching back to version 2 moves version 1 data to `opencode.v1-backup-<date>-<time>` when a version 2 backup exists and brings the newest version 2 backup back. Nothing is deleted, so earlier version 1 sessions stay in their backup folders, and you can move one back into `opencode` by hand while version 1 is selected. Version 2 opens version 1 data by itself, migrating it in place, so with no version 2 backup that data stays where it is.
+
+`setup.sh --software all` and `setup.ps1 -Software all` leave `opencode_use_v1` off, so "install everything" keeps OpenCode on version 2. Turn it on with `--enable opencode_use_v1` or `-EnableKey opencode_use_v1`, or tick it on the checklist. The two wizards keep the keys "all" leaves off in `ALL_SOFTWARE_KEEPS_OFF` in [setup.sh](setup.sh) and `$AllSoftwareKeepsOff` in [setup.ps1](setup.ps1), and `e2e/tier1/wizard_parse.sh` fails when the two disagree.
 
 ### Media and design
 
@@ -143,7 +154,8 @@ OpenCode desktop is `install_opencode_desktop`, on by default, and always comes 
 | GOG Galaxy | no official Linux client | `brew install --cask gog-galaxy` | `winget install -e --id GOG.Galaxy` |
 | Epic Games Launcher | no official Linux client | `brew install --cask epic-games` | `winget install -e --id EpicGames.EpicGamesLauncher` |
 | EA app | no official Linux client | `brew install --cask ea` | `winget install -e --id ElectronicArts.EADesktop` |
-| CurseForge | no official Linux client | `brew install --cask curseforge` | `winget install -e --id Overwolf.CurseForge` |
+| CurseForge | `flatpak install -y flathub com.overwolf.curseforge` on every distribution | `brew install --cask curseforge` | `winget install -e --id Overwolf.CurseForge` |
+| Gaming suite (Lutris) | Arch: `sudo pacman -S --needed lutris`. CachyOS: `sudo pacman -S --needed cachyos-gaming-applications`, which also installs Steam, Heroic, Faugus, gamescope, MangoHud, GOverlay and `cachyos-gaming-meta`. Debian / Fedora: `flatpak install -y flathub net.lutris.Lutris` | not available | not available |
 | WoW Logs Companion / TSM | not available | not available | manual, from Overwolf or tradeskillmaster.com |
 
 
@@ -223,14 +235,14 @@ Installed by the `sdk_manager` role. All versions are pinned in [setup/pinned_va
 |---|---|---|---|
 | NVM | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | `winget install -e --id CoreyButler.NVMforWindows` |
 | Node.js LTS | `nvm install --lts` | `nvm install --lts` | `nvm install lts` |
-| SDKMAN | `curl -s https://get.sdkman.io \| bash` | `curl -s https://get.sdkman.io \| bash` | not supported, use WSL |
-| Java (Temurin) | `sdk install java 21.0.11-tem` | `sdk install java 21.0.11-tem` | `sdk install java 21.0.11-tem` inside WSL |
-| Pyenv | `curl https://pyenv.run \| bash` | `curl https://pyenv.run \| bash` | `choco install pyenv-win -y` |
-| Python | `pyenv install 3.11.15` | `pyenv install 3.11.15` | `pyenv install 3.11.15` |
+| SDKMAN | `curl -s https://get.sdkman.io \| bash` | `curl -s https://get.sdkman.io \| bash` | not used, SDKMAN needs bash |
+| Java (Temurin) | `sdk install java 21.0.11-tem` | `sdk install java 21.0.11-tem` | the winget packages `EclipseAdoptium.Temurin.11.JDK`, `EclipseAdoptium.Temurin.17.JDK`, `EclipseAdoptium.Temurin.21.JDK` and `EclipseAdoptium.Temurin.25.JDK`, one per pinned major, then `JAVA_HOME` at user scope |
+| Pyenv | `curl https://pyenv.run \| bash` | `curl https://pyenv.run \| bash` | not used, see Python |
+| Python | `pyenv install 3.11.15` | `pyenv install 3.11.15` | `winget install -e --id Python.Python.3.11` |
 | Dart SDK | not installed standalone, bundled with FVM's Flutter SDK below | not installed standalone, bundled with FVM's Flutter SDK below | `choco install dart-sdk`, needed only so `dart pub global activate fvm` can run: FVM's own install script has no Windows build |
-| FVM (Flutter) | `curl -fsSL https://fvm.app/install.sh \| bash` | `curl -fsSL https://fvm.app/install.sh \| bash` | manual from [fvm.app](https://fvm.app/documentation/getting-started/installation) |
+| FVM (Flutter) | `curl -fsSL https://fvm.app/install.sh \| bash` | `curl -fsSL https://fvm.app/install.sh \| bash` | `dart pub global activate fvm` |
 | Flutter (stable) | `fvm install stable` | `fvm install stable` | `fvm install stable` |
-| Android SDK | `sdkmanager "platform-tools" "build-tools;35.0.0"` | `sdkmanager "platform-tools" "build-tools;35.0.0"` | install Android Studio, which bundles the SDK manager |
+| Android SDK | `sdkmanager "platform-tools" "build-tools;35.0.0"` | `sdkmanager "platform-tools" "build-tools;35.0.0"` | `winget install -e --id Google.AndroidStudio`, and the wizard also unpacks the command line tools into `C:\tools\android` and runs `sdkmanager` there |
 
 Other pinned Java identifiers are `11.0.31-tem`, `17.0.19-tem` and `25.0.3-tem`. Other pinned Python versions are `3.10.20`, `3.12.13` and `3.13.13`. The defaults are `21.0.11-tem` and `3.11.15`.
 
@@ -242,14 +254,17 @@ Installed by the `ai_tools` role. Each toggle gates its own `import_tasks` so di
 |---|---|---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` | `npm install -g @anthropic-ai/claude-code` | `npm install -g @anthropic-ai/claude-code` |
 | Claude Desktop | On by default. Debian and Ubuntu: `apt install claude-desktop` from Anthropic's own apt repository. Arch: AUR `claude-desktop` through `paru`, which compiles nothing: it downloads Anthropic's own `.deb`, checks its pinned SHA-256 and unpacks it. Fedora: not installed, the vendor does not support it | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, installed natively by `setup/setup.ps1` from the `claude_desktop` mapping in `vars/Windows.yaml` |
-| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` removes version 1, which claims the same `opencode` command | same | same |
+| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` removes version 1, which claims the same `opencode` command. With `opencode_use_v1` the other way round: `npm uninstall -g @opencode/cli`, then `npm install -g opencode-ai` | same | same |
+| Kilo Code CLI | `npm install -g @kilocode/cli`, the `kilo` command | same | same |
 | OpenSpec | `npm install -g @fission-ai/openspec` | `npm install -g @fission-ai/openspec` | `npm install -g @fission-ai/openspec` |
 | Codex CLI | `npm install -g @openai/codex` | `npm install -g @openai/codex` | `npm install -g @openai/codex` |
 | Grok CLI | `npm install -g @xai-official/grok` | `npm install -g @xai-official/grok` | `npm install -g @xai-official/grok` |
-| LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` | `curl -fsSL https://lmstudio.ai/install.sh \| bash` | manual from [lmstudio.ai](https://lmstudio.ai/) |
+| LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash -s -- --no-modify-path` | `brew install --cask lm-studio`, Apple Silicon only. An Intel Mac skips it with a `[WARN]` line and the verification reports it as skipped, because the cask declares `depends_on arch: :arm64` | `winget install -e --id ElementLabs.LMStudio` |
 | Stable Diffusion WebUI | `git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui` | `git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui` | manual clone and run |
 
 Codex and Grok both publish a thin npm launcher plus per-platform binary packages as optional dependencies, covering Linux, macOS and Windows on x86-64 and arm64, so a single npm path serves every operating system. Native packages exist for some platforms (`extra/openai-codex` on Arch, the `codex` and `grok-build` Homebrew casks, `OpenAI.Codex` and `xAI.GrokBuild` on winget), but no apt or dnf repository exists for either tool, so mixing routes would mean four code paths for the same binary. Grok needs Node 20 or newer, which the `nvm use --lts` step in the helper already satisfies.
+
+Kilo Code follows the same reasoning. Kilo's own documentation at kilo.ai/docs/code-with-ai/platforms/cli names `npm install -g @kilocode/cli` as the install, and the package carries per-platform binaries for Linux, macOS and Windows on x86-64 and arm64. Native packages exist for two platforms only, `kilo-bin` on the AUR and `KiloCode.Kilo` on winget, both published by Kilo and both 7.8.12 on 2026-10-15, and there is no Homebrew formula, apt, dnf or snap package, so npm is the one route that covers every operating system. Kilo keeps its data in `~/.local/share/kilo`, apart from OpenCode's `~/.local/share/opencode`, although it is built on OpenCode.
 
 ### Codex CLI by hand
 
@@ -350,11 +365,11 @@ Fedora 42 and newer ship `hardinfo2`, the active fork. The legacy `hardinfo` pac
 
 | App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
 |---|---|---|---|---|---|
-| QEMU/KVM + virt-manager | `sudo apt-get install -y qemu-kvm libvirt-daemon-system virt-manager virtinst bridge-utils virtiofsd` | `sudo dnf install -y qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd` | `sudo pacman -S --needed virt-manager qemu-full libvirt dnsmasq nftables bridge-utils virtiofsd` | not available | not available |
-| Docker | `sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo) | `sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo) | `sudo pacman -S --needed docker` | `brew install --cask docker-desktop` | `winget install -e --id Docker.DockerDesktop` |
+| QEMU/KVM + virt-manager | `for package in qemu-system-x86 libvirt-daemon-system libvirt-clients virt-manager virtinst bridge-utils virtiofsd; do sudo apt-get install -y "${package}"; done` | `for package in qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd; do sudo dnf install -y "${package}"; done` | `for package in virt-manager qemu-full libvirt dnsmasq nftables virtiofsd; do sudo pacman -S --needed "${package}"; done` | not available | not available |
+| Docker | `for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo apt-get install -y "${package}"; done` (repo) | `for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo dnf install -y "${package}"; done` (repo) | `sudo pacman -S --needed docker` | `brew install --cask docker-desktop` | `winget install -e --id Docker.DockerDesktop` |
 | Podman Desktop | `flatpak install -y flathub io.podman_desktop.PodmanDesktop` | `flatpak install -y flathub io.podman_desktop.PodmanDesktop` | `flatpak install -y flathub io.podman_desktop.PodmanDesktop` | not available | not available |
-| VirtualBox | not available | not available | not available | not available | `winget install -e --id Oracle.VirtualBox` |
-| VMware | not available | not available | not available | `brew install --cask vmware-fusion` | `choco install vmware-workstation-player -y` |
+| VirtualBox | not available | not available | not available | `brew install --cask virtualbox`, which runs only arm64 guests on Apple Silicon | `winget install -e --id Oracle.VirtualBox` |
+| VMware | not available | not available | not available | not available, the `vmware-fusion` cask no longer exists | `choco install vmware-workstation-player -y` |
 | GParted | `sudo apt-get install -y gparted` | `sudo dnf install -y gparted` | `sudo pacman -S --needed gparted` | not available | not available |
 | KDE Partition Manager | `sudo apt-get install -y partitionmanager` | `sudo dnf install -y kde-partitionmanager` | `sudo pacman -S --needed partitionmanager` | not available | not available |
 | Boot repair (grubby) | not available | `sudo dnf install -y grubby` | not available | not available | not available |
@@ -385,7 +400,7 @@ Podman Desktop is installed purely as a graphical front end for the Docker engin
 | Balena Etcher | not available | Rufus | `brew install --cask balenaetcher` |
 | UTM | virt-manager | VirtualBox | `brew install --cask utm` |
 | Docker | docker-ce from Docker's own repository, running on the host kernel, command line only with no graphical tool installed | Docker Desktop | Docker Desktop. macOS has no Linux kernel, so the engine always runs in a virtual machine whichever tool provides it |
-| VMware Fusion | virt-manager | not available | `brew install --cask vmware-fusion` |
+| VMware Fusion | virt-manager | not available | not from Homebrew, the `vmware-fusion` cask no longer exists. Broadcom's support portal after signing in |
 
 ## Windows-only
 
@@ -424,9 +439,9 @@ These ship as Microsoft Store packages or have no maintained winget manifest. Th
 ## Per-OS install caveats
 
 - **Antigravity Linux**: the official Google APT pool URLs are not publicly addressable, so `custom_installs.yaml` downloads the official tarball from `edgedl.me.gvt1.com` and extracts it to `/opt/antigravity`. The Arch AUR slug `antigravity` works today.
-- **Antigravity macOS**: direct DMG from Google's official CDN `edgedl.me.gvt1.com` (Google Video Transcoding, the same CDN Chrome itself uses, owned by Google, not a third-party mirror). `macos_install.yaml` reads `ansible_facts['architecture']` and picks `antigravity_dmg_arm64_url` on Apple Silicon, `antigravity_dmg_x64_url` on Intel. Version pinned in `pinned_values.toml` (`antigravity_version`, `antigravity_build`), bump these when a new release ships at [antigravity.google/download](https://antigravity.google/download).
+- **Antigravity macOS**: the Homebrew cask `antigravity`, which picks the Apple Silicon or Intel build itself and needs macOS 13 or newer. Nothing is pinned for it, the app updates itself.
 - **VMware Workstation Player on Windows**: no winget manifest post-Broadcom. Falls back to Chocolatey (`vmware-workstation-player`, verified, installer functional, package itself marked deprecated by maintainer).
-- **VMware on macOS**: maps to `vmware-fusion` cask (the macOS-only product, Workstation Player is Windows and Linux).
+- **VMware on macOS**: not installed. The `vmware-fusion` cask no longer exists, because Broadcom moved the download behind a portal login, so `install_vmware` is off in `group_vars/macos.yaml` and UTM is the mapped alternative.
 - **FileZilla on Windows**: FileZilla blocks third-party installers, so winget removed the manifest. Falls back to Chocolatey (`filezilla`, verified).
 - **FileZilla on macOS**: no Homebrew cask exists. The `install_filezilla` toggle maps to Cyberduck (cask `cyberduck`), the standard free macOS FTP/SFTP/S3 client. To install FileZilla specifically, set `install_filezilla: false` and download from `filezilla-project.org`.
 - **Lens on Linux**: installed from the official `downloads.k8slens.dev` apt/dnf repo, package name `lens`. Lens Desktop is free for personal use.
@@ -441,7 +456,6 @@ The `[checksums]` table in [setup/pinned_values/pinned_values.toml](pinned_value
 [checksums]
 jetbrains_toolbox = "sha256:0123abcd..."
 gputest = "sha256:..."
-antigravity_macos = "sha256:..."
 gridcoin_macos = "sha256:..."
 gridcoin_flatpak = "sha256:..."
 ```

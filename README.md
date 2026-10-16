@@ -73,7 +73,7 @@ On Windows, [setup/setup.ps1](setup/setup.ps1) never drives the Ansible playbook
 |---|---|
 | **Language toolchains** | Python (Pyenv), Node.js (NVM), Java (SDKMAN), Dart and Flutter (FVM), Android SDK, Go, Rust |
 | **IDEs and editors** | IntelliJ IDEA, VS Code, Android Studio, Cursor, Zed |
-| **CLI tools** | git, zsh, oh-my-zsh, Docker, kubectl, k3d, Helm, Terraform, Ansible, gh, jq, fzf, ripgrep |
+| **CLI tools** | git, zsh, oh-my-zsh, Docker, kubectl, k3d, Helm, Terraform, Ansible, gh, jq, fzf, ripgrep, uv, pipx, Go |
 | **AI tools** | Claude Code, Claude Desktop, OpenCode, OpenCode desktop, OpenSpec |
 | **Apps** | Chrome, Firefox, Slack, Discord, Spotify, OBS, VLC, Postman |
 | **Fonts** | Nerd Fonts (FiraCode, JetBrainsMono, Hack, Meslo) |
@@ -213,10 +213,10 @@ To propose a change:
 1. Fork the repo and create a feature branch.
 2. For non-trivial changes, draft an OpenSpec proposal under [openspec/changes/](openspec/changes/). The workflow is
    documented in [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md).
-3. Run the syntax check before opening a PR:
+3. Run the tier 1 gate before opening a PR. It includes the playbook syntax check and runs inside the gate container, never on your machine, so the same command works from Linux, Git Bash and WSL with Docker running:
 
    ```bash
-   wsl -d Ubuntu bash -c "ansible-playbook --syntax-check setup/ansible/site.yaml"
+   bash e2e/run.sh
    ```
 
 4. Open a PR with a clear description of the change and the OS(es) it affects.
@@ -240,6 +240,8 @@ Released under the [MIT License](LICENSE).
 | [setup/software.md](setup/software.md)                                  | Full per-OS software catalogue with install methods               |
 | [docs/tool_usage.md](docs/tool_usage.md)                                  | How to use the installed tools that are not self-explanatory      |
 | [setup/version_sources.md](setup/version_sources.md)                    | Where to look up the latest version for every pinned package      |
+| [setup/bootstrap_machine_prompt.md](setup/bootstrap_machine_prompt.md)  | Post-install prompt: an agent records this machine in `MACHINE.md` |
+| [setup/MACHINE.md.example](setup/MACHINE.md.example)                    | Template for that machine record                                  |
 | [setup/ansible/tags.md](setup/ansible/tags.md)                          | Ansible `--tags` taxonomy for surgical partial runs               |
 | [local-dev/README_LOCAL_DEV.md](local-dev/README_LOCAL_DEV.md)          | Docker Compose stack: ports, credentials, image tags              |
 | [local-dev/auth/README.md](local-dev/auth/README.md)                    | Local auth: hosts file entries, local certificate authority, Let's Encrypt |
@@ -263,6 +265,7 @@ Released under the [MIT License](LICENSE).
 | [e2e/README_E2E.md](e2e/README_E2E.md)                                  | End-to-end harness: the pre-commit gate, and running the playbook in containers |
 | [docs/regression_ledger.md](docs/regression_ledger.md)                  | Every regression the playbook has suffered, grouped by failure mechanism, with a prevention checklist |
 | [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md)                          | Agent-standards, OpenSpec, per-agent integration notes            |
+| [docs/GLOBAL_SETUP.md](docs/GLOBAL_SETUP.md)                            | Machine-wide agent setup in `~/.config/agents`, shared by every project |
 | [docs/MCP_SETUP.md](docs/MCP_SETUP.md)                                  | MCP server setup (Context7 only in this project)                  |
 | [docs/AI_TOOLS_ADDING.md](docs/AI_TOOLS_ADDING.md)                      | How to add a new npm-based AI / CLI tool to the playbook          |
 | [docs/linux/virt_manager_setup.md](docs/linux/virt_manager_setup.md)    | virt-manager setup notes for Linux hosts                          |

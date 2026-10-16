@@ -81,7 +81,8 @@ Pass any of these to run just that subsystem. Inherits the parent role tag autom
 | Tag | What it runs | Hard dep |
 |---|---|---|
 | `claude` | Claude Code CLI (npm) + Claude Desktop (.deb / AUR / cask) | `nvm` (skips with warning if nvm.sh is missing) |
-| `opencode` | OpenCode CLI (npm) | `nvm` (skips with warning) |
+| `opencode` | OpenCode CLI (npm), plus the version switch: removing the other version's CLI and desktop app and moving a data folder the selected version cannot open | `nvm` (skips with warning) |
+| `kilo_code` | Kilo Code CLI, the `kilo` command, `@kilocode/cli` via npm on every OS | `nvm` (skips with warning) |
 | `openspec` | OpenSpec CLI (npm) | `nvm` (skips with warning) |
 | `codex` | Codex CLI — `@openai/codex` via npm on every OS | `nvm` (skips with warning) |
 | `grok` | Grok CLI — `@xai-official/grok` via npm on every OS | `nvm` (skips with warning) |

@@ -1167,7 +1167,7 @@ Six Pester tests cover it, including a mapping carrying none of the optional pro
 
 #### Batching to save time does not survive measurement
 
-Status: measured 2026-08-25. Homebrew formulae now loop, and the reasons in [e2e/tier1/batched_managers_allowed.txt](../e2e/tier1/batched_managers_allowed.txt) were rewritten because the ones written a day earlier claimed a benefit that is not there.
+Status: measured 2026-08-25. Homebrew formulae now loop, and the reasons in `e2e/tier1/batched_managers_allowed.txt` (deleted in 87f34dc) were rewritten because the ones written a day earlier claimed a benefit that is not there.
 
 The claim under test was mine: that apt, dnf and pacman earn their batch because the solver runs once instead of N times and because the trigger phase, rebuilding the manual page index and the desktop and icon caches, runs once per transaction rather than once per package.
 
@@ -2874,7 +2874,7 @@ or directory`, which is the document's own stated precondition about mounted loc
 [local-dev/auth/Keycloak/README.md](../local-dev/auth/Keycloak/README.md) introduced the `local-client` secret with
 "the secret below is part of the committed realm export". It is not. Counted with grep, the string
 `nZUMlOQZufa5ljWW5hHXOtGKLn0mpTkN` appears once in
-[local-dev/auth/Keycloak/export/database/keycloak-dump.sql](../local-dev/auth/Keycloak/export/database/keycloak-dump.sql)
+`local-dev/auth/Keycloak/export/database/keycloak-dump.sql` (deleted in e8d4821)
 and zero times in either file under `export/config`. That mattered more after the rename than before it, because an
 export that now declares the realm `local` while carrying `pharmaApp-client` instead of `local-client` is exactly the
 file a reader would go looking in. The fix names the dump, and both
@@ -3146,7 +3146,7 @@ against a non-zero count before it.
 
 Fix: fixed. See "The two PATH-loss defects above share one root cause" below,
 [env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml) and
-[setup/config/.zshrc](../setup/config/.zshrc).
+[setup/config/zsh/.zshrc](../setup/config/zsh/.zshrc).
 
 #### FVM's own Flutter SDK is never added to PATH, on any shell, on any OS
 
@@ -4659,13 +4659,13 @@ Mechanical check: the same tally-line check from 8.1, which is what found this o
 
 #### 9.1 shell_zsh copied a .zshrc over the block env_variables had just written, without the block's markers
 
-Cause: commit 1e6c1a4 on 2026-09-18 made `env_variables : Source the project's environment file from every rc file (Linux/macOS)` in [env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml) write a blockinfile block with `marker: "# {mark} ANSIBLE PROJECT ENV SOURCE"` into `~/.bashrc` and `~/.zshrc`, and gave the checked-in [setup/config/.zshrc](../setup/config/.zshrc) the same source line as a bare line with no markers. shell_zsh's one-time `Copy ZSH configuration files` in [oh_my_zsh.yaml](../setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml), guarded on the Oh My Zsh directory not existing yet, runs after env_variables in the same first pass and replaces `~/.zshrc` with that file. The markers are gone after the copy, so the next run cannot find its block and inserts it again.
+Cause: commit 1e6c1a4 on 2026-09-18 made `env_variables : Source the project's environment file from every rc file (Linux/macOS)` in [env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml) write a blockinfile block with `marker: "# {mark} ANSIBLE PROJECT ENV SOURCE"` into `~/.bashrc` and `~/.zshrc`, and gave the checked-in [setup/config/zsh/.zshrc](../setup/config/zsh/.zshrc) the same source line as a bare line with no markers. shell_zsh's one-time `Copy ZSH configuration files` in [oh_my_zsh.yaml](../setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml), guarded on the Oh My Zsh directory not existing yet, runs after env_variables in the same first pass and replaces `~/.zshrc` with that file. The markers are gone after the copy, so the next run cannot find its block and inserts it again.
 
 Effect: the Arch idempotency job, pass 2, reported one change with no reason in `e2e/tier3/idempotent_changes_allowed.txt`: that task, printing `INSTALLED: [localhost] /home/lukk/.zshrc` and `CHANGED` for `.zshrc` while `.bashrc` was `present`. The user's `.zshrc` also ends up sourcing `apps_config/env.sh` twice, which is harmless but is a file the playbook keeps editing. It applies on macOS as well, where the same task targets only `.zshrc`. A grep for `apps_config/env.sh` and `ANSIBLE PROJECT ENV SOURCE` across `setup/` found no other role or template writing these rc files.
 
 How it was proven: a scratch playbook run with ansible-core in WSL Ubuntu against a scratch home read the real task's `marker`, `block` and `create` out of `env_unix.yaml` with `from_yaml`, so nothing was copied by hand, and replayed pass 1 (the blockinfile, then a copy of the template over the file) and pass 2 (the blockinfile again). With the template as committed at HEAD, pass 2 reported `changed` (`PASS2_CHANGED=True`). With the fixed template it reported `ok` (`PASS2_CHANGED=False`), and `cmp` showed the scratch `.zshrc` identical to the template afterwards. Not proven here: a full idempotency scenario, because Docker was closed for this work.
 
-Fix: [setup/config/.zshrc](../setup/config/.zshrc) now carries the block exactly as blockinfile writes it, `# BEGIN ANSIBLE PROJECT ENV SOURCE`, the source line, `# END ANSIBLE PROJECT ENV SOURCE`, in place of the bare line. blockinfile finds its markers wherever they are in the file and compares the body, so the copied file already matches and the second run changes nothing. A machine whose `.zshrc` was copied from the old template gets the block appended once on its next run and is stable after that. The task was deliberately not added to `idempotent_changes_allowed.txt`.
+Fix: [setup/config/zsh/.zshrc](../setup/config/zsh/.zshrc) now carries the block exactly as blockinfile writes it, `# BEGIN ANSIBLE PROJECT ENV SOURCE`, the source line, `# END ANSIBLE PROJECT ENV SOURCE`, in place of the bare line. blockinfile finds its markers wherever they are in the file and compares the body, so the copied file already matches and the second run changes nothing. A machine whose `.zshrc` was copied from the old template gets the block appended once on its next run and is stable after that. The task was deliberately not added to `idempotent_changes_allowed.txt`.
 
 Mechanical check: [e2e/tier1/zshrc_env_block.sh](../e2e/tier1/zshrc_env_block.sh), run by tier 1. It renders the expected block from the task in `env_unix.yaml`, `{mark}` replaced by BEGIN and END around the block body, and fails unless `setup/config/.zshrc` carries it exactly once as whole lines. A missing task, a marker without `{mark}`, or a block with a template expression fails rather than passing. Proven from Git Bash on 2026-10-11 through `E2E_REPO_ROOT` against four scratch copies: the template from HEAD (0 copies of the block, FAIL with the expected text printed), the marker renamed in `env_unix.yaml` only (FAIL), the task renamed (FAIL naming the missing task), and the block present twice (FAIL, 2 copies). The real tree passes.
 
@@ -4701,7 +4701,7 @@ Effect: GitHub sweep run 38107292439, job "CachyOS GNOME full / install". The pl
 
 How it was proven: the open question was how `sdkman-init.sh` existed before the installer's only run. Every mention of `sdkman`, `.sdkman` and `sdk_manager` in the GNOME `playbook.log` was read in order: nothing before line 1016 touches `~/.sdkman`, no other role, package or GNOME step does, and a grep of `setup/` finds no other writer. The callback has no `v2_runner_retry`, so a retry prints nothing, but three facts in the log show one. The task took `[+10.9s]` to report `skipped, since /home/lukk/.sdkman/bin/sdkman-init.sh exists`, which is the 10 second `delay` plus a sub-second first attempt, where the same task took 1.3 to 1.9 seconds and printed the full installer output in the defaults, KDE full and idempotency artefacts. `Set default Java via SDKMAN` printed SDKMAN's `[Deprecation Notice]: This legacy 'default' command is replaced by a native implementation`, which `__sdk_default` in sdkman-cli prints only when `~/.sdkman/libexec/default` is absent, where KDE full printed the native `setting java 21.0.11-tem as the default version for all shells.`. So the native archive never arrived, and in the installer the script copy comes before it and the rc writes after it. What failed inside that first attempt stays unknown, because its output was never logged. The failure was then replayed in WSL Ubuntu with ansible-core 2.19.9 against a scratch home holding a real SDKMAN install cut back to that state (`bin/sdkman-init.sh` present, `libexec`, `var/version` and `var/version_native` removed, no SDKMAN line in either rc file, a `.zshrc` holding only the project's env source block). With the old file the install task reported `ok`, and `zsh -ic 'type sdk'`, the verification's `command -v java` at `candidates/java/current` and `bash -ic 'type sdk'` all exited 1. With the fixed file the same state gave `changed` with `Successfully upgraded SDKMAN!`, then `var/version` 5.23.2 and `libexec/default` present, and all three probes exited 0. A second application reported `ok` for the install task (`skipped, since .../var/version exists`), the directory task and the new blockinfile. `sdk selfupdate force` was measured first on its own against the same cut-back state with a candidate directory present: it restored `libexec`, both version files and kept the candidate. Sourcing `sdkman-init.sh` from both `env.sh` and a vendor snippet in `.zshrc` left `sdk` working and `candidates/java/current/bin` on `PATH` once. Not proven here: a tier 3 run, because Docker was closed for this work.
 
-Fix: the install task's `creates` is now `~/.sdkman/var/version`, the file the installer writes only after both archives are in place. When `sdkman-init.sh` exists without it, the task runs `sdk selfupdate force`, SDKMAN's own repair, because the vendor installer exits 0 doing nothing once `sdkman-init.sh` exists, and because removing the directory would take any installed candidate with it. The task then fails unless `var/version` and `var/version_native` exist, so a retry really retries, including the installer's own corrupt-archive branch, which ends with a bare `exit` and status 0. A new task, `Ensure SDKMAN shell init is present in the project's environment file (Linux/Mac)`, writes `export SDKMAN_DIR` and the guarded source of `sdkman-init.sh` into `apps_config/env.sh` under `# {mark} ANSIBLE SDKMAN SHELL INIT`, on every run and with no condition, the same shape as the NVM task in [nvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/nvm_unix.yaml). It does not touch `.zshrc`, so the markers 9.1 put into [setup/config/.zshrc](../setup/config/.zshrc) are unaffected.
+Fix: the install task's `creates` is now `~/.sdkman/var/version`, the file the installer writes only after both archives are in place. When `sdkman-init.sh` exists without it, the task runs `sdk selfupdate force`, SDKMAN's own repair, because the vendor installer exits 0 doing nothing once `sdkman-init.sh` exists, and because removing the directory would take any installed candidate with it. The task then fails unless `var/version` and `var/version_native` exist, so a retry really retries, including the installer's own corrupt-archive branch, which ends with a bare `exit` and status 0. A new task, `Ensure SDKMAN shell init is present in the project's environment file (Linux/Mac)`, writes `export SDKMAN_DIR` and the guarded source of `sdkman-init.sh` into `apps_config/env.sh` under `# {mark} ANSIBLE SDKMAN SHELL INIT`, on every run and with no condition, the same shape as the NVM task in [nvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/nvm_unix.yaml). It does not touch `.zshrc`, so the markers 9.1 put into [setup/config/zsh/.zshrc](../setup/config/zsh/.zshrc) are unaffected.
 
 Mechanical check: [e2e/tier1/vendor_installer_shell_init.sh](../e2e/tier1/vendor_installer_shell_init.sh), run by tier 1. Every task file under `setup/ansible/roles` holding a shell or command task that pipes curl or wget into a shell with a `creates` under `{{ non_root_home }}` must also hold a blockinfile into `apps_config/env.sh` with no `when`, or be listed with a reason in [vendor_installer_shell_init_allowed.txt](../e2e/tier1/vendor_installer_shell_init_allowed.txt), where `fvm_unix.yaml` is, because env_unix.yaml already puts FVM's directories on `PATH`. A stale entry fails, and finding no installer fails. Proven from Git Bash on 2026-10-11 through `E2E_REPO_ROOT` against three scratch copies: `sdkman_unix.yaml` from HEAD (FAIL naming `Install SDKMAN (Linux/Mac)`), the new block given `when: sdkman_bootstrap is changed` (FAIL), and a stale allowlist entry (FAIL). The real tree passes. It does not check what a `creates` guard points at. The same retry over a guard file written partway through a vendor script is also present in `pyenv_unix.yaml` (`creates: ~/.pyenv/bin/pyenv`, while pyenv-installer clones pyenv-doctor, pyenv-update and pyenv-virtualenv after the clone that creates it, read from the installer on 2026-10-11) and in `Add Waydroid repository (Debian)` (`creates: /etc/apt/sources.list.d/waydroid.list`, while `https://repo.waydro.id` writes that file and then runs `apt update`). Neither had been seen to fail when this entry was written, and both were left open by it. They were fixed later the same day, as 9.5 and 9.6, together with a third instance of the shape in `nvm_unix.yaml` that this entry did not name, 9.8, and the missing `v2_runner_retry` hook named above, 9.7.
 
@@ -4928,3 +4928,1157 @@ How it was proven: the old detail string read in the file at line 1541, and the 
 Fix: the detail now names the package and says the elevated Chocolatey session it shared with the other Chocolatey packages ended with that exit, and that this is the session's result rather than a failure of every package. README_E2E.md gives the measured stage times and points at run_durations.md.
 
 Mechanical check: none. No Pester test pinned the old text, and a number in prose is checked by reading it against run_durations.md.
+
+### Found on the owner's CachyOS machine on 2026-10-13
+
+#### 10.12 The pyenv global was a pyenv interpreter, so makepkg could not build any AUR package that needs a Python build backend
+
+Cause: [pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml) ran `pyenv global {{ default_python }}` (3.11.15) on every platform, and `pyenv init` in `~/.zshrc` puts the shims ahead of `/usr/bin`, so every `python` on the machine became pyenv's. pacman installs `python-build`, `python-installer` and the rest into the system interpreter, which a pyenv interpreter cannot see. Introduced by an earlier agent's design, which chose a global to give the shell a predictable Python and never asked what else resolves `python`.
+
+Effect: `paru -S konsave` printed `/home/lukk/.pyenv/versions/3.11.15/bin/python: No module named build` and then `error: failed to build 'konsave-2.3.0-1'`.
+
+How it was proven: after `pyenv global system` on the same machine the shim resolved to `/usr/bin/python`, 3.14.7. A wrong idea along the way: that the version number was the problem. A pyenv 3.14 as global would fail the same way, because the missing modules live in the system interpreter's site-packages, not in any pyenv one.
+
+Fix: the owner decided that on Linux the global is `system`. The new task `Choose the pyenv global version` sets `pyenv_global_target`, which both the guard and the `pyenv global` call read, so a second run compares against the value it sets and reports no change. macOS keeps `default_python`: its `/usr/bin/python3` is Apple's old Command Line Tools Python and it has no makepkg. The pinned versions are still installed and `default_python` is unchanged, so the Windows mapping and `windows_mapping.sh` are untouched.
+
+Mechanical check: none. The failure needs a real makepkg build against a real pyenv, which tier 3 does not run for AUR packages.
+
+#### 10.13 wizard_parse.sh died under en_US.UTF-8 because sort and join disagreed about the order of "install_bruno ON" and "install_bruno_cli ON"
+
+Cause: [wizard_parse.sh](../e2e/tier1/wizard_parse.sh) fed `join -j1` two inputs ordered by `sort` on whole lines, and `join` compares only the first field, so under a collating locale such as en_US.UTF-8 the space in `install_bruno ON` sorts after the underscore in `install_bruno_cli ON` while `join` expects `install_bruno` to come first.
+
+Effect: with the machine's default locale the check printed `join: /dev/fd/63:9: is not sorted: install_bruno ON` and `join: input is not in sorted order`, and the gate failed. Under `LC_ALL=C.utf8` it passed, which is why the sweep, whose runners use that locale, never saw it. It is pre-existing: it failed identically with the pyenv change of 10.12 removed.
+
+How it was proven: a three-line file of `install_brave ON`, `install_bruno ON`, `install_bruno_cli ON` sorts as brave, bruno_cli, bruno under `LC_ALL=en_US.UTF-8 sort` and as brave, bruno, bruno_cli under `LC_ALL=C sort`. The check then failed before the edit and passed after it under the default locale and under `LC_ALL=C.utf8` (25 checks, all passed). A wrong idea along the way: that the two sorts were being fed differently. They were not, both sides used the same locale and still disagreed with `join`.
+
+Fix: `LC_ALL=C` scoped to the `join` and to both `sort` calls feeding it, in [wizard_parse.sh](../e2e/tier1/wizard_parse.sh), so nothing else in the run changes locale. The `comm` users in list_software.sh, print_command_resolution.sh and selection_parity.sh do not have this defect: `comm` compares whole lines, and both of its inputs are sorted in the same locale as `comm` itself. Found on 2026-10-13 by an agent running the gate on the owner's CachyOS machine.
+
+Mechanical check: none new. The check itself is the guard, and it only bites under a collating locale. A separate static check would have to be registered in run.sh and named in the capability 10 spec for verify_spec_parity, which is out of proportion for one call site.
+
+#### 10.14 uv and uvx were never installed, so `uvx arch-ops-server` failed on a machine this playbook had provisioned
+
+Cause: a missing-software gap rather than a code defect. No `install_uv` toggle, no `uv` mapping in any `vars/<OS>.yaml` and no install task existed, so nothing in [setup/ansible](../setup/ansible) or [setup/windows](../setup/windows) ever installed Astral's uv.
+
+Effect: the MCP server declared as `uvx arch-ops-server` could not start on the owner's CachyOS machine on 2026-10-13, because there was no `uvx` on PATH.
+
+How it was proven: `grep -rn uv setup/ansible` returned nothing before the change. Package availability was measured per family rather than assumed. `pacman -Si uv` answered 0.13.0 from cachyos-extra-v3, `dnf info uv` on fedora:44 answered 0.12.19, and `apt-cache policy uv` on debian:trixie and ubuntu:26.04 answered nothing at all, which is why those two cannot take a mapping. Homebrew's formula API answered 0.13.0, the Chocolatey feed 0.13.0, and winget-pkgs holds `astral-sh.uv` 0.13.0 as one unscoped portable zip. Astral's installer run in both Debian-family images with `UV_UNMANAGED_INSTALL=/usr/local/bin` put `uv` and `uvx` there, both ran, and `/root` gained no profile edit.
+
+Fix: `install_uv: true` in [all.yaml](../setup/ansible/group_vars/all.yaml). Mappings for Arch, Fedora, macOS and Windows in `vars/`. On Debian and Ubuntu, [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) runs Astral's installer into /usr/local/bin, keyed on the Debian mapping being absent the way gradle is in sdkman_unix.yaml, with a rescue. [verify_install.yaml](../setup/ansible/verify_install.yaml) asks whether `uvx` is reachable from the login shell where the installer, not a package, supplied it. The generated manifests, software.md, configuration.md, README.md and the manual install pages and scripts were updated in step. A wrong idea along the way: that snap was the right route for Debian, because `astral-uv` exists on the Snap Store as a classic snap. No mapping in this project uses snap, and a container cannot run snapd, so it could not be proven by the gate.
+
+Mechanical check: none new. toggle_coverage.sh and the manual-install parity checks now cover the toggle on every family, and they were green after the change.
+
+### Found by measuring the imported agent tooling on 2026-10-13
+
+#### 10.15 The imported OpenCode and Kilo Code plugin treated the main thread as a subagent, so on OpenCode 1.x and Kilo Code no main-thread rule fired
+
+Cause: [hooks.js](../.agents/plugin/hooks.js) was imported from agent-standards on 2026-08-28 at contract 2 and never pulled again. It sent `is_subagent: Boolean(agent)` where `agent` was the session id, which is a non-empty string for every session, the main thread included. Its own comment said why: "will allow even main thread - currently no way to recognize subagents in kilo or opencode". That was wrong. The session object carries a `parentID`, and the current plugin reads it with `client.session.get` in `lookupSubagent`. Every gate rule fires only on a caller positively identified as the main thread, so with every caller marked a subagent every one of them allowed. The three other surfaces were stale too: the Claude Code, Codex and Copilot wiring ran `python`, which Debian and Ubuntu do not ship, and lacked the task list and markdown lint hooks, and on Codex and Copilot the reply formatting hook as well.
+
+Effect: measured on 2026-10-13 against the imported tree, a main-thread write and an em dash both went through ungated on OpenCode 1.x and on Kilo Code. I did not repeat that live measurement, I have no Kilo here and the OpenCode service on this machine is the owner's. What I did reproduce is the decision itself: the committed plugin and gate from HEAD, driven with a stub client and a `write` tool call from a root session, printed `old main-thread write of a repo file ALLOWED`, and the imported plugin printed `new main-thread write of a repo file DENIED: PREFLIGHT: the main thread may not write files directly.`
+
+How it was proven: the harness above, run against `git archive HEAD .agents` and then against the working tree, plus the new check below failing against the HEAD tree.
+
+Fix: the working-tree equivalent of the refresh in agent-standards `docs/AGENTS-UPDATE.md`, because the upstream changes are uncommitted and `git checkout agent-standards/master` cannot carry them. `.agents/hooks/` (all hooks, not two), `.agents/plugin/` (`hooks.js`, `index.js`), `.agents/instructions/reply-rules.md`, `.github/hooks/preflight.json`, the hook half of [.codex/config.toml](../.codex/config.toml) with the MCP half left alone, [.claude/settings.json](../.claude/settings.json), and `plugin` and `instructions` in [opencode.json](../opencode.json), whose `mcp` block was left alone. The skills the repo already held were refreshed from upstream too.
+
+Mechanical check: yes, and small. [imported_agent_artifacts.sh](../e2e/tier1/imported_agent_artifacts.sh) asserts the three properties whose absence was the staleness, and when Node is installed it runs the real plugin and asserts that a main-thread write is refused. It cannot ask upstream whether a copy is the newest, a hermetic gate has no upstream, and a hash of the file would go red on every legitimate upstream change. Proven by running it against a tree holding HEAD's `.agents`, `.claude/agents`, `.codex/agents`, `.github/agents` and `opencode.json`: `8 checks, 7 FAILED`, and `8 checks, all passed` against the imported tree. The one that passed on the old tree is the check that the four subagent trees hold the same agents.
+
+#### 10.16 Read-only subagents could edit files and run commands on every OpenCode runtime
+
+Cause: the OpenCode-format definitions of the ten read-only agents listed only `tools: read, grep, glob` and carried no `permission` key. OpenCode and Kilo Code read the `tools` map as overrides on top of every tool, so naming three tools disabled nothing. All ten, `code-archaeologist`, `code-reviewer`, `debugger`, `design-system-architect`, `devops-troubleshooter`, `error-detective`, `legal-advisor`, `performance-engineer`, `security-auditor` and `ui-ux-designer`, had `grep -c '^permission:'` of 0 at HEAD. Three Claude Code copies, `code-archaeologist`, `code-reviewer` and `security-auditor`, also lacked `permissionMode: plan`.
+
+Effect: measured on 2026-10-13, a read-only subagent could write on OpenCode 1.x, OpenCode 2.x and Kilo Code. The prose said "read-only" and the runtime did not agree, and the gate could not catch it because of 10.15, which hid the main thread and left subagent rules to a plugin that marked everyone a subagent. I did not repeat the live write.
+
+How it was proven: the `permission:` count above, read from `git show HEAD:.agents/agents/<name>.md` for all ten, and the same files after the import, where each carries `edit: deny` and `bash: deny` unless it lists the tool.
+
+Fix: the four generated subagent trees imported from upstream, where the generator emits `permission` with `edit: deny` unless `write` or `edit` is listed and `bash: deny` unless `bash` is, and `permissionMode: plan` on Claude Code. Those are generated artifacts and were not hand edited. Eight agents are not read-only, `devops-automator`, `docs-architect`, `e2e-runner`, `home-assistant-engineer`, `legacy-modernizer`, `observability-engineer`, `python-pro` and `test-automator`, and carry no `permission` block.
+
+Mechanical check: the same [imported_agent_artifacts.sh](../e2e/tier1/imported_agent_artifacts.sh), assertions "a subagent that lists no write or bash tool is not denied them" and "a read-only Claude Code subagent is not in plan mode". Both failed against the HEAD tree and both pass now.
+
+#### 10.17 The plugin did not load at all on OpenCode 2.0.26, because its default export was a bare function
+
+Cause: the imported `hooks.js` ended in `export default Preflight`, a function, and was declared by file path in [opencode.json](../opencode.json) as `./.agents/plugin/hooks.js`. OpenCode 2.x calls the `setup` of a default-exported object and never calls a function, so nothing registered. The current plugin default-exports `{ id, server, setup }`, where 1.x and Kilo Code call `server` and 2.x calls `setup`, and `.agents/plugin/index.js` re-exports it so the entry can name the directory.
+
+Effect: a 2.x session ran with no gate at all, so on that runtime even a correct `is_subagent` would not have helped. Upstream measured this on OpenCode 2.0.26 and records it in its CHANGELOG. I did not run a live 2.x session. What I measured here is the export shape, `old default export shape: bare function` against `new default export shape: id,server,setup`.
+
+How it was proven: the same harness as 10.15, which prints the shape of each plugin's default export.
+
+Fix: `index.js` imported and the `plugin` entry changed to `./.agents/plugin`, which Kilo Code resolves the same way. There is no separate Kilo config here: `.kilo/` holds only the `agents` symlink, and Kilo reads the plugin from `opencode.json`. OpenCode 2.x has no hook after a finished reply, so there the formatting check only blocks the next tool call. 2.x also ignores the `instructions` key, so the plugin adds the reply rules through its session `context` hook.
+
+Mechanical check: [imported_agent_artifacts.sh](../e2e/tier1/imported_agent_artifacts.sh), assertions "the plugin default export is an object with server and setup" and "opencode.json declares the plugin by its directory". Both failed against the HEAD tree.
+
+#### 10.18 A blanket chmod while testing the new check changed the mode of 42 tracked files
+
+Cause: I ran `chmod +x e2e/tier1/*.sh` to make the new check executable, and git tracks the executable bit. Forty-two tracked scripts that were committed as 100644 became 100755.
+
+Effect: none shipped. `git diff --summary` listed `mode change 100644 => 100755` for 42 files, including [wizard_parse.sh](../e2e/tier1/wizard_parse.sh), which the owner had already modified, so the noise would have sat in a diff the owner reviews.
+
+How it was proven: the 42 `mode change` lines of `git diff --summary` were the whole list, and `git diff --summary | grep -c mode` printed 0 after the revert.
+
+Fix: `chmod 644` on exactly the files that summary named, and the new check committed as 644 like the rest, because [run.sh](../e2e/run.sh) invokes every check through `bash`.
+
+Mechanical check: none, and none worth writing. `git diff --summary` is the check, and the habit it teaches is to name the one file rather than glob a directory of tracked ones.
+
+#### 10.19 Reply rules and reply-style checks reached subagents, which nobody reads
+
+Cause: the imported OpenCode 2.x `setup` added `.agents/instructions/reply-rules.md` to every model request of every session, and handed every session's newest prose to the reply checks, while [.claude/settings.json](../.claude/settings.json) ran `no_ai_markers_check.py` on `SubagentStop`. The owner's rule is that reply style matters on the main thread only.
+
+Effect: on OpenCode 2.x each request a subagent made carried the 4,689 byte rules file as one more system part, and on Claude Code, OpenCode 2.x and the Copilot CLI, which borrows the Claude wiring, a subagent report with a semicolon or a bold word was blocked and rewritten in full. Nothing the user sees changed, only tokens were spent.
+
+How it was proven: two new tests in agent-standards, `test_opencode_2_adds_no_reply_rules_to_a_subagent_session` and `test_opencode_2_hands_no_reply_text_from_a_subagent_session`, failed against the old plugin and pass now, and `test_claude_code_checks_reply_style_on_the_main_thread_only` failed against the old wiring. OpenCode 1.x and Kilo Code are left as they were on the owner's order: `instructions` in [opencode.json](../opencode.json) still loads the rules into every agent there.
+
+Fix: upstream in agent-standards, the plugin's `setup` skips a session whose `parentID` marks it as a subagent, both for the rules and for the text it hands the hooks, and the `SubagentStop` block is gone from the Claude wiring. [hooks.js](../.agents/plugin/hooks.js) and [.claude/settings.json](../.claude/settings.json) here are the imported result, not hand edits of logic.
+
+Mechanical check: [imported_agent_artifacts.sh](../e2e/tier1/imported_agent_artifacts.sh), assertions "no reply-style check is wired on SubagentStop in .claude/settings.json" and "OpenCode 2.x adds the reply rules to the main thread only". Both failed against the old wiring and plugin, and both pass now.
+
+### Found while adding pipx and Go and auditing the Windows and macOS package order, 2026-10-13
+
+#### 10.20 JetBrains Toolbox installs nothing on Debian, Fedora or macOS, and macOS is handed the Linux build
+
+Cause: [jetbrains_toolbox/tasks/main.yaml](../setup/ansible/roles/jetbrains_toolbox/tasks/main.yaml) downloads `products/download?platform=linux&code=TBA` on Linux and on Darwin alike, then runs `"$TOOLBOX_DIR/jetbrains-toolbox" --install` only `if [ -f "$TOOLBOX_DIR/jetbrains-toolbox" ]`. Toolbox 3.x moved the binary to `bin/jetbrains-toolbox`, so the test is false, the `if` does nothing and the shell exits 0. Not introduced by this change. Found by it.
+
+Effect: on Debian, Ubuntu, Fedora and macOS the task reports changed and leaves no Toolbox, every run, and nothing notices: `verify_install.yaml` has no Toolbox entry and `install_jetbrains_toolbox` is in `e2e/tier1/uncovered_toggles_allowed.txt`, so no container scenario runs it. On macOS a working path would still execute a Linux ELF. Arch is unaffected, it takes the AUR package. software.md says macOS uses `brew install --cask jetbrains-toolbox`, which is not what the code does.
+
+How it was proven: the URL redirected to `jetbrains-toolbox-3.8.1.88030.tar.gz`, 151,296,379 bytes. `tar -tzf` listed 917 entries, 916 of them under `jetbrains-toolbox-3.8.1.88030/bin/` and nothing else below the top directory, and `file` on `bin/jetbrains-toolbox` printed `ELF 64-bit LSB pie executable, x86-64 ... for GNU/Linux`. Homebrew's API answers the cask `jetbrains-toolbox` at 3.8.1 with a macOS DMG. Not run in a container.
+
+Fix, macOS half, 2026-10-15: `jetbrains_toolbox: { manager: "brew_cask", package: "jetbrains-toolbox" }` in vars/Darwin.yaml, and the three conditions in roles/jetbrains_toolbox/tasks/main.yaml are now `ansible_facts['system'] == 'Linux'`, so macOS no longer downloads a Linux ELF. The cask was checked on formulae.brew.sh: 3.8.1 with arm64 and Intel DMGs. Not run on a Mac. Proving it needs the GitHub `macos` dispatch.
+
+Fix, Linux half, 2026-10-15: 3.x has no self-install step (`bin/Install-linux-tar.txt`, and `lib/app.jar` contains no `--install` string), so [jetbrains_toolbox/tasks/main.yaml](../setup/ansible/roles/jetbrains_toolbox/tasks/main.yaml) unpacks the tarball with `--strip-components=1` into `jetbrains_toolbox_data_dir`, asserts that `jetbrains_toolbox_binary` is executable, and adds a menu entry until Toolbox writes its own. Proven by running the HEAD role and the new role as `ih_family=Debian` against scratch homes: HEAD green twice with `changed=3` then `changed=1` and no binary, new role `changed=7` then `changed=0` with the binary in place. The `install_jetbrains_toolbox` suppression in `e2e/tier3/container_limits.yaml` and its line in `uncovered_toggles_allowed.txt` are removed, because the IDEs they described have not been installed since 2026-08-21. Not yet run in a container.
+
+Mechanical check: the `jetbrains-toolbox` row in [verify_install.yaml](../setup/ansible/verify_install.yaml) for Linux families with no mapping, plus the role's own assert. Fires only once a tier 3 defaults run covers it.
+
+#### 10.21 LM Studio installs nothing on macOS while install_lm_studio is on by default
+
+Cause: [local_llm.yaml](../setup/ansible/roles/ai_tools/tasks/local_llm.yaml) gates both LM Studio tasks on `ansible_facts['system'] == 'Linux'`, and [vars/Darwin.yaml](../setup/ansible/vars/Darwin.yaml) has no `lm_studio` mapping, so nothing on macOS consumes the toggle. Not introduced by this change. Found by it.
+
+Effect: a Mac with the defaults gets no LM Studio and the run says nothing. [software.md](../setup/software.md) tells the reader macOS uses `curl -fsSL https://lmstudio.ai/install.sh | bash`.
+
+How it was proven: by reading the two `when` conditions and the absence of the key in Darwin.yaml. toggle_coverage.sh does not catch it, because it counts the role's textual use of the toggle as consumption on every OS. Homebrew's API answers the cask `lm-studio` at 0.4.26 with a macOS DMG. Not run on a Mac.
+
+Fix: the `lm_studio` cask mapping in vars/Darwin.yaml now carries `requires_architecture: "arm64"`. [tasks/architecture_availability.yaml](../setup/ansible/tasks/architecture_availability.yaml) is the one condition: dynamic_install.yaml skips the cask with a `[WARN]` line and verify_install.yaml reports it as `skipped`. The generated Brewfile reads `cask "lm-studio" if Hardware::CPU.arm?`. Proven on x86_64 with a stub mapping. Not run on a Mac.
+
+Mechanical check: none.
+
+#### 10.22 The package manager priority in AGENTS.md described the opposite of what the code does
+
+Cause: AGENTS.md said "Windows: Official installer > Chocolatey > Winget" and "macOS: DMG/PKG > Homebrew Cask (GUI) / Formula (CLI) > MAS". Nothing in the tree had ever followed either line.
+
+Effect: an agent following the page would prefer a vendor download over winget and Homebrew, the reverse of the owner's rule.
+
+How it was proven: every mapping in [vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) was counted before Go was added, 82 winget and 9 Chocolatey, and each Chocolatey line carries the measured reason winget could not be used. [vars/Darwin.yaml](../setup/ansible/vars/Darwin.yaml) had 17 formulae and 49 casks and no DMG. The vendor routes were listed from `WindowsCustomInstalls.ps1` and `macos_install.yaml`, and each was checked against a winget-pkgs tree listing taken with `git ls-tree` on a blobless clone and against formulae.brew.sh. Two Windows exceptions turned up: winget carries `Gridcoin.Client` 5.4.9 while the wizard installs the 5.5.0.0 release itself, and `Google.DartSDK` 3.13.4 while the mapping uses Chocolatey's `dart-sdk`. Nothing uses the Mac App Store.
+
+Fix: the two lines in [AGENTS.md](../AGENTS.md) now state the owner's order and name every exception, including 10.20 and 10.21. No package was changed.
+
+Mechanical check: none.
+
+#### 10.23 pipx was a KDE build dependency with its name written into three task lists
+
+Cause: [configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) carried `pipx`, `pipx` and `python-pipx` in the Debian, Fedora and Arch build dependency lists, the only place in the tree that installed it, against rule 1 above. There was no toggle.
+
+Effect: pipx existed only on a KDE machine. Adding the owner's default install as a mapping beside those lists would have made two places name the package, the shape of defect class 2.
+
+How it was proven: `git grep -n pipx` listed only those three lines, the Konsave task and one message in setup.sh. Package names were then measured per family: `apt-cache policy pipx golang-go` in debian:trixie (1.7.1, 2:1.24~2) and ubuntu:26.04 (1.8.0, 2:1.26~1), `dnf info pipx golang` in fedora:44 (1.15.0, 1.26.9), `pacman -Si python-pipx go` (1.15.0, 2:1.27.2). Homebrew answers `pipx` 1.17.14 and `go` 1.27.2. winget-pkgs holds `GoLang.Go` 1.27.0, machine wix only, and no pipx at all. Chocolatey's `pipx` 1.16.7 depends on `python3`, which is `python315`, whose install script passes `PrependPath=1`: the nupkg was unpacked and read rather than assumed. That would put Python 3.15 ahead of the pinned 3.11 on PATH, so Windows takes pipx's own documented route, `py -m pip install --user pipx` then `py -m pipx ensurepath`.
+
+Fix: `install_pipx` and `install_go` in [all.yaml](../setup/ansible/group_vars/all.yaml), `pipx` and `go` mappings in every `vars/<OS>.yaml` except pipx on Windows, and `Install-PipxWithPip` in [WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1) with a proof path the verification reads. The KDE lists lost pipx, and a task before Konsave installs `os_dict.software_mapping.pipx.package`, because kde_plasma_setup runs before software_installer and Konsave needs pipx even with the toggle off. The yay build dependency `go` in arch_core is untouched.
+
+Mechanical check: six Pester tests for `Install-PipxWithPip` in [WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1). In a `mcr.microsoft.com/powershell` container they failed six of six against HEAD's WindowsCustomInstalls.ps1 and pass five with one skipped, the proof-table test, which needs a `C:` drive, against the new one.
+
+### Found while verifying the package order and the pipx and Go work, 2026-10-15
+
+#### 10.24 VirtualBox installs nothing on macOS while install_virtualbox is on in group_vars/macos.yaml
+
+Cause: [group_vars/macos.yaml](../setup/ansible/group_vars/macos.yaml) sets `install_virtualbox: true`, [vars/Darwin.yaml](../setup/ansible/vars/Darwin.yaml) has no `virtualbox` mapping, and the only task that names the toggle is the `virtualization_config` import in [site.yaml](../setup/ansible/site.yaml), gated on `ansible_facts['system'] == 'Linux'`. Not introduced by this change. Found by it, the same shape as 10.21.
+
+Effect: a Mac with the defaults gets no VirtualBox and the run says nothing. software.md and README_SETUP.md said "not available" for macOS, which hid it, although Homebrew answers the cask `virtualbox` at 7.2.20 with an Apple Silicon DMG and an Intel variation.
+
+How it was proven: a script listing every `install_` key of all.yaml overlaid by macos.yaml that has no Darwin mapping printed `virtualbox` among them, and `grep -rn install_virtualbox setup/ansible/roles setup/ansible/site.yaml` found only the Linux-gated line. toggle_coverage.sh does not catch it for the reason given in 10.21: it counts any textual use of the toggle as consumption on every OS. Not run on a Mac.
+
+Fix: `virtualbox: { manager: "brew_cask", package: "virtualbox" }` in vars/Darwin.yaml. Cask 7.2.20 has Apple Silicon and Intel DMGs, and Apple Silicon runs arm64 guests only. software.md and AGENTS.md updated. README_SETUP.md followed on 2026-10-15: its macOS VirtualBox cell now reads `brew install --cask virtualbox`. Tier 2 resolved the name. Not run on a Mac.
+
+Mechanical check: none, for the reason given in 10.21. A check would have to read each `when` to know which OS a consuming task reaches.
+
+#### 10.25 The macOS manual install script installed nothing, because two names in its one brew call do not exist
+
+Cause: [docs/manual/macos/install.sh](../docs/manual/macos/install.sh) passes every formula to one `brew install` and every cask to one `brew install --cask`, under `set -euo pipefail`. The formula list held `dart`, which is not in homebrew-core (the formula is `dart-sdk`), and the cask list held `vmware-fusion`, which Homebrew removed after Broadcom moved the download behind a portal login, as [vars/Darwin.yaml](../setup/ansible/vars/Darwin.yaml) already said. Not introduced by this change: `dart` and `vmware-fusion` predate it.
+
+Effect: the first call fails, `set -e` ends the script, and no formula and no cask is installed. Measured in `homebrew/brew:latest`: `brew install hello dart` printed `No available formula with the name "dart"`, exited 1, and `brew list --formula` then had no `hello`, so one bad name costs the whole call. `brew install --cask vmware-fusion` printed `Error: No casks found for vmware-fusion.` This is defect class 9, a batch with one exit code, in a script the gate does not cover.
+
+How it was proven: the container run above, and every name in both lists checked against the Homebrew formula and cask indexes, including aliases and old names. Those two were the only misses. Every package in vars/Darwin.yaml was checked the same way and all resolve.
+
+Fix: All four shell scripts install one package per call through `install_one`. It records the failure, prints the failed packages at the end and exits 1. install.ps1 already did this.
+
+A wrong idea along the way, kept because it is the instructive part: the agent first wrote that mesa-git and lib32-mesa-git had to stay one transaction because each depended on an exact version. `pacman -Si` in `archlinux:latest` and `cachyos/cachyos-v3` showed unversioned `mesa` dependencies. Two calls, mesa-git first, then gave rc=0 and rc=0 with a clean `pacman -Dk`. The claim was removed and the call split before the work was finished.
+
+Mechanical check: e2e/tier1/batched_managers.sh now reads docs/manual. Against HEAD it named 15 batched calls. Against a copy of install.ps1 with `choco install vlc git` and `winget install @ids` added, it named both.
+
+Superseded on 2026-10-15 by 10.80 and 10.81: `install_one` now makes four attempts 20 seconds apart with a refresh before each retry, and batched_managers.sh also reads the fenced blocks and inline code of the markdown guides under docs/manual.
+
+#### 10.26 software.md, README_SETUP.md and two source comments described routes the code does not take
+
+Cause: documentation written for an earlier design and not updated when the code moved. In [software.md](../setup/software.md) the Windows column of the SDK table said Java comes from SDKMAN inside WSL, Python from `pyenv-win` on Chocolatey, FVM by hand and the Android SDK from Android Studio alone, and LM Studio by hand. The code installs four `EclipseAdoptium.Temurin.<major>.JDK` packages, `Python.Python.3.11`, `dart pub global activate fvm`, `Google.AndroidStudio` plus the command line tools zip into `C:\tools\android`, and `ElementLabs.LMStudio`. Four pages still offered `brew install --cask vmware-fusion`. [vars/Darwin.yaml](../setup/ansible/vars/Darwin.yaml) named `custom_installs_macos.yaml` as the home of Antigravity and Gridcoin, a file that does not exist, and the header of [WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1) said the mapping covers 89 toggles, when it holds 92 entries, and listed five of its six custom toggles without `install_android_sdk`.
+
+Effect: a reader following software.md on Windows would install a different Python and look for SDKMAN where there is none.
+
+How it was proven: each row read against the function that does the work, `Install-TemurinJdk`, `Install-FvmFromPub`, `Install-AndroidSdk` and the `python` and `lm_studio` lines of vars/Windows.yaml. `ls setup/ansible/roles/software_installer/tasks/` has no `custom_installs_macos.yaml`, and the Antigravity and Gridcoin tasks are in `macos_install.yaml`. The 92 is 83 `winget` and 9 `choco` lines in vars/Windows.yaml. Each package id written into the corrected rows was checked against a listing of winget-pkgs or the Homebrew index taken on 2026-10-15.
+
+Fix: the rows, the README_SETUP.md VMware and VirtualBox cells, both Darwin.yaml comments and the header, which no longer carries a count.
+
+Mechanical check: none. Nothing parses those rows, and the manual Windows check only covers the Windows manual guide.
+
+#### 10.27 The rewrite of the package priority lines in 10.22 named only part of the exceptions
+
+Cause: introduced by an agent on 2026-10-13. 10.22 listed the exceptions from vars/Windows.yaml, vars/Darwin.yaml, WindowsCustomInstalls.ps1 and macos_install.yaml, and never looked at the npm table in WindowsNpmTools.ps1, the SDK managers or the Android SDK, so the lines claimed to name every exception and did not.
+
+Effect: missing from [AGENTS.md](../AGENTS.md) were Claude Code, OpenCode, Codex and Grok from npm on both systems although winget carries `Anthropic.ClaudeCode`, `SST.opencode`, `OpenAI.Codex` and `xAI.GrokBuild`, and Homebrew carries the casks `claude-code`, `codex` and `grok-build` and the formula `opencode`, OpenSpec from npm although Homebrew carries the formula `openspec`, Java from SDKMAN on macOS although Homebrew carries the Temurin casks, the Android command line tools from Google's zip on both, although Homebrew carries `android-commandlinetools`, and VirtualBox on macOS, 10.24.
+
+How it was proven: every Windows toggle without a mapping and every macOS toggle without a mapping was listed by script from group_vars and vars, and each route was read in the code. Each package named above was found in a winget-pkgs tree listing or in the Homebrew API on 2026-10-15. `Google.AndroidCLI` in winget-pkgs is Google's new Android CLI, not the command line tools, so it does not count.
+
+Fix: both lines in AGENTS.md now name these. No package was changed.
+
+Mechanical check: none.
+
+### Found by the agent-standards subagent while measuring the global agent setup, 2026-10-15
+
+#### 10.28 The global OpenCode and Kilo Code plugin stood down in the home directory when ~/.agents was a link
+
+Cause: `standsDown` in [hooks.js](../.agents/plugin/hooks.js) compared paths with `path.resolve`, which does not follow links. With `~/.agents` linked to `~/.config/agents`, a session started in `~` took the global plugin for a project copy of itself and returned no hooks.
+
+Effect: on OpenCode 1.x, 2.x and Kilo Code started in `~`, there was no preflight gate and no reply check at all.
+
+How it was proven: by the agent-standards subagent, with `test_global_plugin_started_in_home_does_not_stand_down_for_a_linked_copy_of_itself` and its 2.x twin in agent-standards `tools/tests/test_hook_runner.py`, which failed on the old plugin with `assert [] != []`. I did not rerun them here, this machine has no pytest. What I measured is that the copy here is the fixed one: `md5sum .agents/plugin/hooks.js` printed `9297e08b2412389b579905b32702f535`, the same as the agent-standards file, and the file calls `realpathSync` inside `standsDown`.
+
+Fix: `standsDown` compares `fs.realpathSync` results and falls back to the written path, in agent-standards `.agents/plugin/hooks.js`, copied into [hooks.js](../.agents/plugin/hooks.js). The temporary `~/.agents` link was removed on 2026-10-15, and `ls ~/.agents` now answers that it does not exist.
+
+Mechanical check: the two upstream tests named above. Nothing in this repository's gate, which runs the plugin only from the repository root.
+
+#### 10.29 task_list_sync.py wrote tasks.md into the home directory
+
+Cause: `_install_directory` in [task_list_sync.py](../.agents/hooks/task_list_sync.py) trusted any working directory that held `.agents/hooks`, which a linked `~/.agents` gave to `~`, and the user-level copy fell back to `~` for every session outside a project.
+
+Effect: `tasks.md` landed in `~` and `tasks.widget.json` in `~/.config/agents`, outside any project and outside any `.gitignore`.
+
+How it was proven: by the agent-standards subagent, with six new cases in agent-standards `tools/tests/test_task_list_sync.py`: 6 failed and 39 passed on the old hook, 45 passed after. I did not rerun them here, for the reason in 10.28. `md5sum .agents/hooks/task_list_sync.py` printed `feb175d012b05745c52d235b64f2f456`, the same as the agent-standards file, and the file reads `XDG_STATE_HOME`.
+
+Fix: the home directory is never a project. A session outside a project keeps both files in its start directory, and a session started in `~` keeps them in `$XDG_STATE_HOME/agents`, which defaults to `~/.local/state/agents`. In agent-standards `.agents/hooks/task_list_sync.py`, copied into [task_list_sync.py](../.agents/hooks/task_list_sync.py).
+
+Mechanical check: the six upstream cases named above.
+
+### Introduced while fixing 10.26, 2026-10-15
+
+#### 10.30 A corrected software.md row named a winget id the manual Windows check cannot see
+
+Cause: introduced by me on 2026-10-15 while fixing 10.26. I wrote the Windows Java cell of [software.md](../setup/software.md) as `winget install -e --id EclipseAdoptium.Temurin.21.JDK`. [manual_windows_install.sh](../e2e/tier1/manual_windows_install.sh) accepts a Windows command there only when it names a mapped package or a literal `PackageId '...'` in WindowsCustomInstalls.ps1, and `Install-TemurinJdk` builds the id from the pinned major at run time.
+
+Effect: tier 1 exited 1 with `FAIL setup/software.md gives Windows commands for packages nothing installs` and `EclipseAdoptium.Temurin.21.JDK`. It never left the working tree.
+
+How it was proven: the gate run, then the check alone after the edit, `manual Windows install: 8 checks, all passed`.
+
+Fix: the cell lists the four package ids as names rather than as a `winget install` command, in [software.md](../setup/software.md). The packages are real, each was found in the winget-pkgs listing, so the check was right to ask and the cell was wrong to look like a mapping.
+
+Mechanical check: the existing [manual_windows_install.sh](../e2e/tier1/manual_windows_install.sh), which is what caught it.
+
+### Found while adding the gaming suite, 2026-10-15
+
+#### 10.31 install_curseforge installed nothing on any Linux distribution, because three files said CurseForge has no Linux client
+
+Cause: a support claim nobody measured, AGENTS.md defect class 3. The comment above the gaming toggles in [group_vars/all.yaml](../setup/ansible/group_vars/all.yaml) said GOG, Epic, EA and CurseForge have no official Linux client, [documented_no_ops.txt](../e2e/tier1/documented_no_ops.txt) forgave `curseforge` on Debian, RedHat and Archlinux with the reason `no official Linux client`, and the CurseForge row of [software.md](../setup/software.md) said the same. Overwolf publishes a Linux build of CurseForge on Flathub. Not introduced by this change.
+
+Effect: `install_curseforge: true` is the default in all.yaml, and on every Linux distribution, in every run, it installed nothing and the run reported success. The three manual install pages under [docs/manual/](../docs/manual/) repeated the claim, and so did the per-OS caveats table of [setup/configuration.md](../setup/configuration.md), which the first version of this fix missed and a code review found.
+
+How it was proven: `curl -s https://flathub.org/api/v2/verification/com.overwolf.curseforge/status` answered `{"verified":true,"timestamp":"1790840663","method":"website","website":"overwolf.com"}` on 2026-10-15, so the Flathub application is published by Overwolf itself rather than by a third party, and `https://flathub.org/api/v2/appstream/com.overwolf.curseforge` answered 200. The owner measured version 1.320.0 there. The AUR carries `curseforge` too, maintained by txtsd: the owner saw 1.322.0 and the AUR RPC answered `1.323.0_40840-1` on 2026-10-15. Either one alone disproves the claim.
+
+Fix: `curseforge: { manager: "flatpak", package: "com.overwolf.curseforge" }` in [vars/Archlinux.yaml](../setup/ansible/vars/Archlinux.yaml), [vars/Debian.yaml](../setup/ansible/vars/Debian.yaml) and [vars/RedHat.yaml](../setup/ansible/vars/RedHat.yaml), Flatpak on every distribution including Arch and CachyOS by the owner's choice. The three no-op lines are deleted, the all.yaml comment now says GOG, Epic and EA have no Linux client and CurseForge does, and software.md and the three Linux manual pages and install scripts give the Flatpak command. The caveats row in [setup/configuration.md](../setup/configuration.md) keeps EA app, GOG Galaxy and Epic as Linux no-ops and says CurseForge installs from Flathub as `com.overwolf.curseforge` on every Linux distribution. A last search of the whole repository for `no official Linux client` and `no Linux client` outside `.git` and `e2e/runs` found no other claim about CurseForge. `install_curseforge: false` joins the gaming block of [profiles/linux_live.yaml](../setup/ansible/profiles/linux_live.yaml).
+
+Mechanical check: none would have caught it, and none is added. Tier 1 has no network and [toggle_coverage.sh](../e2e/tier1/toggle_coverage.sh) accepts a documented no-op on its stated reason, which is the whole point of the file. Its stale entry check only fires once a mapping exists: with the three lines restored beside the new mappings it printed `FAIL documented_no_ops.txt forgives toggles that now have a real mapping` and `Debian/curseforge RedHat/curseforge Archlinux/curseforge`, so it guards the fix but could not find the defect. A tier 2 check asking Flathub about every Linux no-op would have to search by name, and a name search cannot tell a vendor's own build from a community one: `whatsapp` and `teams` have community clients there and are rightly no-ops. The reason column of a no-op is a claim, and only measuring it, as above, proves it.
+
+#### 10.32 The first version of the one-loader check passed over a file it should have named, because grep -q closed its pipe
+
+Cause: introduced by me on 2026-10-15 while making [os_family_derivation.sh](../e2e/tier1/os_family_derivation.sh) assert that only [load_os_dict.yaml](../setup/ansible/tasks/load_os_dict.yaml) loads `vars/{{ ih_family }}.yaml`. Each candidate file went through `grep -v '^[[:space:]]*#' "${f}" | grep -q ...` under the `pipefail` that [common.sh](../e2e/lib/common.sh) sets. `grep -q` exits at its first match, and on a file larger than the pipe buffer the `grep -v` still writing is killed by SIGPIPE, so the pipeline reports 141 and the file was dropped as if it had not matched. Checklist item 3a above, in a new place.
+
+Effect: [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml), 83477 bytes, names the path in two messages and the check printed `PASS tasks/load_os_dict.yaml is the only task file that loads vars/{{ ih_family }}.yaml` without looking at it. Here the two matches were messages rather than loads, so the verdict happened to be right, for the wrong reason. It never left the working tree.
+
+How it was proven: `bash -c 'set -uo pipefail; grep -v ... dynamic_install.yaml | grep -q ...; echo "${PIPESTATUS[*]}"'` printed `141 0`.
+
+Fix: the check reads one `grep -rnE` for a `file:` key naming the path, outside a comment, with no second grep in a pipe and no loop. Proven both ways: with an `include_vars` of `vars/{{ ih_family }}.yaml` added to site.yaml it printed `FAIL a task file loads vars/{{ ih_family }}.yaml itself` and named site.yaml line 35, and with it removed it passed.
+
+Mechanical check: none new. [sigpipe_pipelines.sh](../e2e/tier1/sigpipe_pipelines.sh) looks for a producer that never ends on its own, such as `yes`, and a `grep -q` reader is a different shape that would need its own rule.
+
+#### 10.33 unreachable_tasks.sh could no longer see the CachyOS alignment task, because the task is gated on a derived fact
+
+Cause: introduced by the gaming suite change on 2026-10-15. The CachyOS 32-bit graphics alignment block in [arch_core](../setup/ansible/roles/arch_core/tasks/main.yaml) and the lookup in [steam_graphics_alignment.yaml](../setup/ansible/tasks/steam_graphics_alignment.yaml) moved from `install_steam` to `ih_steam_requested`, a fact that file sets from `install_steam` and `install_gaming_suite`. [unreachable_tasks.sh](../e2e/tier1/unreachable_tasks.sh) finds toggles in a `when` with a regular expression for `install_`, `configure_`, `setup_` and `remove_` names, so it read no toggle on either task and skipped them. That task is the one the check was written for, after `install_steam` suppressed on the CachyOS image hid a defect that took down a real installation on 2026-08-28.
+
+Effect: with `install_steam: false` and `install_gaming_suite: false` in a scratch `e2e/tier3/container_limits.cachyos.yaml`, the version of the check before this fix printed `unreachable tasks: 1 checks, all passed`, so both tasks could have become unreachable in the whole suite again with the gate green. It never left the working tree.
+
+How it was proven: that run against a scratch copy of `e2e/` and `setup/` through `E2E_REPO_ROOT`, with the check taken from `git show HEAD:e2e/tier1/unreachable_tasks.sh`.
+
+Fix: the check carries a table, `DERIVED_FACTS`, mapping `ih_steam_requested` to `install_steam` and `install_gaming_suite`. A task gated on a derived fact is dead only when every toggle behind it is switched off on every image that can run the task. The check fails with `a derived fact no longer stands for the toggles this check maps it to` when the file that sets the fact stops reading exactly those toggles, so the table cannot drift. Proven three ways on the scratch copy: both toggles suppressed printed `FAIL ih_steam_requested, through every toggle behind it (install_gaming_suite, install_steam), is switched off by the container limits on every image that could run the 2 task(s) gated on it (cachyos)`, only `install_steam` suppressed passed, because the suite still reaches the task, and renaming `install_gaming_suite` in the scratch steam_graphics_alignment.yaml printed the drift failure. The real tree passes.
+
+Mechanical check: the fix is itself the check, named above.
+
+#### 10.34 The one-loader check missed the free-form include_vars and the unspaced braces
+
+Cause: introduced by the gaming suite change on 2026-10-15, in the fix for 10.32. [os_family_derivation.sh](../e2e/tier1/os_family_derivation.sh) looked for `'^[^#]*file:.*vars/\{\{ ih_family \}\}\.yaml'`, which needs a `file:` key and exactly one space inside each pair of braces. `include_vars: vars/{{ ih_family }}.yaml`, the module's free-form shape, and `{{ih_family}}` are both loads it could not see.
+
+Effect: a second loader of the family dictionary in either shape would hand its play the family's dictionary without the CachyOS overrides, AGENTS.md defect class 2, and the check would still print `PASS tasks/load_os_dict.yaml is the only task file that loads vars/{{ ih_family }}.yaml`. Code review found it before anything shipped.
+
+How it was proven: the old expression counted 0 matches on a scratch arch_core task file carrying `include_vars: vars/{{ ih_family }}.yaml`.
+
+Fix: the expression is `'^[^#]*(file|include_vars):.*vars/\{\{ *ih_family *\}\}\.yaml'`. Against a scratch copy carrying each of `include_vars: vars/{{ ih_family }}.yaml`, `ansible.builtin.include_vars: "{{ playbook_dir }}/vars/{{ih_family}}.yaml"` and `file: "vars/{{ih_family}}.yaml"` in turn, the check printed `FAIL a task file loads vars/{{ ih_family }}.yaml itself, without the derivative overrides tasks/load_os_dict.yaml merges` and named the line, and the real tree passes.
+
+Mechanical check: the widened expression in the same check.
+
+#### 10.35 A derivative dictionary could lose an entry or a key without a word
+
+Cause: introduced by the gaming suite change on 2026-10-15. [load_os_dict.yaml](../setup/ansible/tasks/load_os_dict.yaml) merges only `software_mapping` from `vars/derivatives/<id>.yaml`, so any other top-level key there was dropped silently. And the shell side of the harness recognised a derivative entry only as a two-space key followed by a flow mapping, a rule copied into [package_probe.sh](../e2e/lib/package_probe.sh), [toggle_coverage.sh](../e2e/tier1/toggle_coverage.sh) and [resolve_packages.sh](../e2e/tier2/resolve_packages.sh), so an entry written in block style was merged by Ansible and seen by no check, AGENTS.md defect class 2 in the harness.
+
+Effect: a block-style entry would install on CachyOS with no toggle coverage and no tier 2 resolution, and an extra top-level key would do nothing. Neither had happened: the one file holds one flow-style entry. Code review found both.
+
+How it was proven: a scratch play including the real load_os_dict.yaml with a `packages_extra` key added to a scratch copy of cachyos.yaml, and a scratch copy of the tree with a block-style `steam` entry, as below.
+
+Fix: load_os_dict.yaml asserts right after the derivative is loaded that it has no top-level key but `software_mapping`. The scratch play failed with `vars/derivatives/cachyos.yaml carries packages_extra beside software_mapping`, passed on the clean file, and skipped the assertion for Arch, Debian, Fedora and macOS. The entry rule is one pair of functions, `derivative_mapping_lines` and `derivative_mapping_keys` in [common.sh](../e2e/lib/common.sh), called from all three places, and toggle_coverage.sh fails when the PyYAML count of children under `software_mapping` differs from what that rule found. With the block-style entry it printed `FAIL cachyos: the YAML loader finds 2 entries under software_mapping and derivative_mapping_keys finds 1, so an entry is written in a form the shell checks cannot see`.
+
+Mechanical check: the assertion in load_os_dict.yaml and the count in toggle_coverage.sh, both named above.
+
+### Found while measuring the bash wizard checklist with gum, 2026-10-15
+
+#### 10.36 A toggle whose checklist label had a comma showed unticked although it was on, so setup_zsh was turned off by pressing Enter
+
+Cause: `pick_software` in [setup.sh](../setup/setup.sh) passes every toggle that starts ticked to `gum choose --no-limit` as one comma-joined `--selected` value, and gum splits that value on every comma, so a label with a comma never matched its own `<key> | <label>` line. Not introduced by this change.
+
+Effect: four labels in `LABEL_OVERRIDES` had a comma. `setup_zsh`, `System: zsh shell, with Powerlevel10k and Nerd Fonts`, is on by default in `group_vars/linux.yaml` and `group_vars/macos.yaml`, showed unticked on the checklist on Linux and on macOS, and pressing Enter without looking turned zsh setup off. `toggle_wayland_nvidia` and `install_yay` had the same shape on Linux but are off by default, so nothing visible changed for them. `enable_hyperv` is Windows only and setup.sh never shows it. The Windows wizard is not affected: `Show-SoftwarePicker` in [setup.ps1](../setup/setup.ps1) passes objects to `Out-ConsoleGridView` and reads back the `Key` property, with no string that is split.
+
+How it was proven: with gum 2.0.2 under `script -qec`, `gum choose --no-limit --selected="k1 | with, comma,k2 | plain" "k1 | with, comma" "k2 | plain"` with Enter pressed returned only `k2 | plain`. The same call with `k1 | with no comma` returned both lines. After the fix, the real `setup_zsh` and `toggle_wayland_nvidia` lines plus `install_chrome | Chrome` passed the same way all came back ticked.
+
+Fix: the labels in [setup.sh](../setup/setup.sh) carry no comma now. `setup_zsh` is `System: zsh shell with Powerlevel10k and Nerd Fonts`, `toggle_wayland_nvidia` is `System: force Wayland on NVIDIA (can break the session)`, `install_yay` is `Yay: a second AUR helper that nothing here uses (Arch only)`, and `enable_hyperv` is `System: enable Hyper-V and the WSL and .NET and Sandbox features. Needs a reboot (Windows)`. Labels built by `format_label` from a key cannot carry a comma, because `read_boolean_toggles` only accepts keys made of `[a-z0-9_]`. The owner chose to ban commas in labels rather than change how `--selected` is passed.
+
+Mechanical check: [checklist_labels.sh](../e2e/tier1/checklist_labels.sh), which checks every key the checklist lists for `linux.yaml` and `macos.yaml` through the shipped `format_label`, and every `LABEL_OVERRIDES` value. Before the rewrite it printed `FAIL linux.yaml: checklist labels contain a comma, so gum's --selected splits them and the toggle shows unticked` naming `toggle_wayland_nvidia`, `setup_zsh` and `install_yay`, the same for `macos.yaml` naming `setup_zsh`, and `FAIL LABEL_OVERRIDES values contain a comma, which gum's --selected splits` naming all four. After it, `checklist labels: 3 checks, all passed`.
+
+A wrong turn, kept because it is the instructive part: the rewrite changed [setup.sh](../setup/setup.sh) alone, `$LabelOverrides` in [setup.ps1](../setup/setup.ps1) still carried the old text for `setup_zsh`, `toggle_wayland_nvidia` and `enable_hyperv`, and that was recorded here as the two wizards naming the same toggle differently, defect class 2 in AGENTS.md. It was not that. No toggle was ever shown by both wizards with two different labels. `Get-SelectableToggle` in setup.ps1 reads `all.yaml` and `windows.yaml` only, so the Windows wizard never shows `setup_zsh` or `toggle_wayland_nvidia`, which live in `linux.yaml` and `macos.yaml`, and `wizard_toggle_keys` shows that setup.sh never offers `enable_hyperv` or `setup_wsl` on Linux or macOS, because they live in `windows.yaml`. The tables disagreed only in entries one of the two wizards cannot display. A fourth assertion was added to [checklist_labels.sh](../e2e/tier1/checklist_labels.sh) that compared every key both tables carried, it failed against the old `setup.ps1` naming those three keys, and the three `setup.ps1` labels were aligned with setup.sh, which changed nothing anybody could see.
+
+The real defect behind it, found by the final review of the gaming suite work on 2026-10-15: each table carried keys its own wizard can never show. `$LabelOverrides` in setup.ps1 held `setup_zsh`, `setup_tmpfs`, `toggle_wayland_nvidia`, `setup_karabiner` and `setup_finder_defaults`, and `LABEL_OVERRIDES` in setup.sh held `setup_wsl` and `enable_hyperv`. Dead entries are a second copy of a label that nothing displays and nothing keeps right. All seven were deleted. [checklist_labels.sh](../e2e/tier1/checklist_labels.sh) now fails naming any `LABEL_OVERRIDES` key that `wizard_toggle_keys` does not list for `linux.yaml` or `macos.yaml`, and any `$LabelOverrides` key that is not a toggle of `all.yaml` or `windows.yaml` left visible by `$ExcludedVars`, and it compares labels only for keys both wizards can show. Proven on the tree before the deletion, where it printed `FAIL LABEL_OVERRIDES carries keys the bash wizard never offers on Linux or macOS, so their labels are never shown` naming `enable_hyperv setup_wsl`, and `FAIL setup.ps1's $LabelOverrides carries keys the Windows wizard never offers, because they are in neither all.yaml nor windows.yaml or are hidden by $ExcludedVars` naming the five, and after it on scratch copies: `setup_wsl` put back into setup.sh, `setup_zsh` put back into setup.ps1, and `set_custom_wallpaper` relabelled in setup.ps1 each failed by name. [wizard_parse.sh](../e2e/tier1/wizard_parse.sh) used to demand a setup.sh label for every system setting of all four files, `windows.yaml` included, which is what kept `setup_wsl` and `enable_hyperv` in setup.sh. It now asks each wizard's own table for the files that wizard reads, and a scratch copy without `setup_wsl` in setup.ps1 printed `FAIL system settings reach the checklist with no descriptive label` naming `setup.ps1:setup_wsl`. The capability page and [e2e/README_E2E.md](../e2e/README_E2E.md) said the same thing as this entry did and were corrected with it.
+
+### Found by the tier 3 defaults scenario on arch and cachyos, 2026-10-15
+
+#### 10.37 snapd could not mount a squashfs image in a test container, because the container's /dev never gets the loop devices the kernel creates after it starts
+
+Cause: a privileged container gets a private `/dev` tmpfs that Docker fills from the host device nodes present at the moment the container starts, and a node the host kernel creates later never appears in it. This host's kernel creates loop devices only on demand: `/sys/module/loop/parameters/max_loop` reads `0` and the kernel configuration carries `CONFIG_BLK_DEV_LOOP_MIN_COUNT=0`. When the two scenarios started only `/dev/loop0` existed, and the host's own snapd holds it for `/var/lib/snapd/snaps/core_17292.snap`. snapd's startup check mounts a squashfs image, mount asks `/dev/loop-control` for a free device, the kernel creates `loop1` on the host, and the container has no `/dev/loop1` to open. A property of the host and of [container.sh](../e2e/tier3/container.sh), not of the playbook. Not introduced by a change to the tree. The hint the playbook printed beside the failure blamed something else, which is the second half of this entry.
+
+Effect: the tier 3 defaults scenario failed on arch and on cachyos, run folders `e2e/runs/2026-10-15T08-06-15Z_arch_defaults` and `e2e/runs/2026-10-15T08-06-15Z_cachyos_defaults`, both with playbook_rc 2 and the core snap in `arch_core` as the only error, snap saying `failed to set up loop device for /tmp/syscheck-squashfs-...`. Inside the container `losetup -f` printed `/dev/loop1 (lost)`. GitHub sweep 38130934506 passed the same step, because a hosted runner starts with a set of loop devices already created. The `[ERROR]` line in [arch_core](../setup/ansible/roles/arch_core/tasks/main.yaml) then said `The usual cause on Arch is snapd.socket not being reachable yet, which the enable and the pause above are meant to cover`, which pointed the reader at the socket, a cause entry "Package and repository facts that only held for one distribution" above records from an earlier run and that played no part here.
+
+How it was proven: measured by a debugging agent first, then again on 2026-10-15 with `cat /sys/module/loop/parameters/max_loop` answering `0`, `zcat /proc/config.gz | grep LOOP_MIN` answering `CONFIG_BLK_DEV_LOOP_MIN_COUNT=0`, and `losetup -a` naming the host's core snap on `/dev/loop0`. A node made with `mknod` inside the container for a loop device that already existed on the host made the mount work. Reproduced on 2026-10-15 in a throwaway container started from `installationhelper-e2e-arch:latest` with the flags [container.sh](../e2e/tier3/container.sh) uses, `--privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock`, with `squashfs-tools` installed inside it. Its `/dev` held `loop0` and `loop1`. With `loop1` attached to a scratch file so that every loop device present at start was busy, `losetup -f` printed `/dev/loop2 (lost)` and `mount -t squashfs -o loop /root/p/test.sqfs /root/p/mnt` printed `mount: /root/p/mnt: failed to set up loop device for /root/p/test.sqfs.` and exited 32, while the host now listed `/dev/loop2`.
+
+A wrong idea worth keeping: the hint blamed `snapd.socket`, and the reader it was written for would have checked the socket and the settle pause and found both fine.
+
+Fix: two parts. [container.sh](../e2e/tier3/container.sh) creates `/dev/loop0` to `/dev/loop63` with `mknod -m 0660 ... b 7 N` inside the container right after it starts, skipping a node that exists, and aborts the scenario through `abort_before_playbook` with the failing node in `loop-nodes.log` if one `mknod` fails. Nothing on the host changes. The comment above the step says why 64. Proven in a second throwaway container started the same way, running the step's script taken out of container.sh: its `/dev` held `loop0` to `loop2`, the step exited 0 and left 64 nodes, and with `loop1` and `loop2` attached to a scratch file `losetup -f` printed `/dev/loop3`, a device that did not exist on the host until that moment, and the same mount exited 0, `findmnt` showed `/dev/loop3 squashfs ro`, and the file inside it read back. So the kernel creates a new device on request behind a node made in advance, which had not been proven before. With `--cap-drop MKNOD` the step printed `mknod: /dev/loop0: Operation not permitted` and `mknod /dev/loop0 failed` and exited 1. Every loop device attached for the proof was detached and both containers removed. The second part is the hint in [arch_core](../setup/ansible/roles/arch_core/tasks/main.yaml): it now names snapd's startup check failing to mount a squashfs image through a loop device and says to check the loop module, `/dev/loop-control` and whether `losetup -f` names a free `/dev/loopN` that exists rather than one marked `(lost)`. The failure still fails the run, but not at that task: the role prints the `[ERROR]` line, sets `any_role_failed` and carries on, so the rest of the run goes ahead, and the final check in [site.yaml](../setup/ansible/site.yaml) fails the play at the end because `any_role_failed` is true. That is deliberate, because on a real machine a snap system that cannot mount anything is broken.
+
+Mechanical check: none in tier 1, which starts no container. The tier 3 defaults scenario on arch and cachyos is the check, and it is what found the defect.
+
+### Found by the final review of the gaming suite work, 2026-10-15
+
+#### 10.38 Four checks written with the gaming suite passed over cases they claimed to cover
+
+Cause: each check accepted a weaker form of what it said it proved, so the defect it was written for could come back in a slightly different shape and pass. All four were introduced by agents in this same piece of work.
+
+Effect: none had shipped a defect yet. One, [availability_facts.sh](../e2e/tier1/availability_facts.sh) passed the pacman loop as soon as its `when` named `steam_graphics_stack_aligned`, so a loop skipping only a literal `'steam'` passed, although on CachyOS the gaming suite brings Steam too and is named in `ih_steam_packages`. Two, `check_derivatives` in [resolve_packages.sh](../e2e/tier2/resolve_packages.sh) merged every derivative over `vars/Archlinux.yaml`, so a Debian or Fedora derivative would have been resolved against the wrong family without a word. Three, [checklist_labels.sh](../e2e/tier1/checklist_labels.sh) read `$LabelOverrides` in setup.ps1 with a pattern that accepts only single-quoted entries, so a double-quoted entry was skipped silently and never compared. Four, `derivative_package_names_for` in [package_probe.sh](../e2e/lib/package_probe.sh) restates the merge rule of [load_os_dict.yaml](../setup/ansible/tasks/load_os_dict.yaml) in bash and nothing compared the two, defect class 2 in AGENTS.md.
+
+How it was proven, each against a scratch copy of the tree through `E2E_REPO_ROOT`. One: with `item != 'steam'` in place of the `ih_steam_packages` test in `dynamic_install.yaml`, the check printed `Install Pacman packages, one at a time installs every pacman package without reading both steam_graphics_stack_aligned and ih_steam_packages`. Two: a scratch `vars/derivatives/popos.yaml` with one pacman entry printed `FAIL popos: vars/derivatives/popos.yaml is merged over vars/Archlinux.yaml, but e2e/tier3/popos.Dockerfile is missing or never runs pacman, so it is not an Arch image and its names would be checked against the wrong family`, a scratch `manjaro.yaml` with no Dockerfile failed the same way, and the real cachyos passed that step. That proof drove `check_derivatives` alone with no Docker daemon reachable, not the tier 2 run. Three: one entry rewritten in double quotes printed `FAIL setup.ps1's $LabelOverrides has 3 entry lines but only 2 could be read as 'key' = 'label', so the rest were never compared`. Four: a copy of `package_probe.sh` whose awk no longer drops the overridden family entries printed `FAIL cachyos: derivative_package_names_for disagrees with tasks/load_os_dict.yaml, so tier 2 resolves a package set no run installs` with `pacman: only the loader has [] only the shell has [lutris ]`.
+
+Fix: availability_facts.sh requires both `steam_graphics_stack_aligned` and `ih_steam_packages` in the loop's `when`. check_derivatives fails by name for a derivative whose `e2e/tier3/<id>.Dockerfile` is missing or never runs `pacman -S`. checklist_labels.sh counts every non-blank, non-comment line between `$LabelOverrides = @{` and `}` and fails when the count differs from what the pattern read. The new [derivative_merge.sh](../e2e/tier1/derivative_merge.sh) drives [derivative_merge.yaml](../e2e/tier1/derivative_merge.yaml), which derives a derivative's family from its os-release fixture through the shipped `derive_os_facts.yaml`, merges through the shipped `load_os_dict.yaml` and prints the names per manager, and fails for any manager where the bash merge gives different names.
+
+Mechanical check: the four checks named above. Each is the check.
+
+#### 10.39 Text that said the wrong thing about the gaming suite work
+
+Cause: sentences written from what the author expected rather than from what the code does.
+
+Effect: entry 10.37 above said the core snap failure "stays fatal", while the role prints `[ERROR]`, sets `any_role_failed` and carries on, and site.yaml fails the run at the end. The hint in [arch_core](../setup/ansible/roles/arch_core/tasks/main.yaml) called the loop device cause "measured on Arch" when it was measured in the Arch and CachyOS test containers, and the comment above it still named the snapd socket as the one cause the role had hit. The wayland-nvidia spec, the proposal and two comments in [toggle_coverage.sh](../e2e/tier1/toggle_coverage.sh) said `toggle_wayland_nvidia` is on both wizards' checklists, while it lives in `group_vars/linux.yaml` and setup.ps1 reads only `all.yaml` and `windows.yaml`. The tier 1 inputs list in `e2e/testing/10-wizard-toggle-parse-test.md` and the configuration table and "Adding a New Application" in AGENTS.md knew nothing of `vars/derivatives/`, and [e2e/README_E2E.md](../e2e/README_E2E.md) said nothing about the tier 3 step that makes `/dev/loop0` to `/dev/loop63`.
+
+How it was proven: by reading the code each sentence describes. `Get-SelectableToggle` in setup.ps1 calls `Read-Toggles $AllVars` and `Read-Toggles $WindowsVars` and nothing else, and `grep -n toggle_wayland_nvidia setup/ansible/group_vars/*.yaml` answers only `linux.yaml:21`. The snap tasks in arch_core end in `set_fact: any_role_failed: true`, and site.yaml fails on `any_role_failed` in its last task.
+
+Fix: each sentence corrected where it stands, and the missing rows and lines added.
+
+Mechanical check: none. These are claims in prose about behaviour, and no check here reads prose for truth. Entry 10.38 and the checks it names are where the mechanical half of this review went.
+
+#### 10.40 Whether the gaming suite brings Steam was decided by a distribution name and a key, not by the mapping that causes it
+
+Cause: [steam_graphics_alignment.yaml](../setup/ansible/tasks/steam_graphics_alignment.yaml) counted `install_gaming_suite` as asking for Steam only when `ih_os_release_id == 'cachyos'`, with the key `gaming_suite` written into the expression, while the real reason is that `vars/derivatives/cachyos.yaml` maps the suite to `cachyos-gaming-applications`, which depends on steam. Two places deciding one fact, defect class 2 in AGENTS.md. Introduced by this work.
+
+Effect: none shipped. A remapping in the vars file, or a second mapping that brings Steam, would have left the alignment decided by the wrong fact. With the suite remapped to lutris on CachyOS, the old expression still asked for the alignment.
+
+How it was proven: a scratch play including the shipped `derive_os_facts.yaml`, `load_os_dict.yaml` and `steam_graphics_alignment.yaml` against the os-release fixtures. CachyOS with only the suite on rendered `steam_requested=True keys=['gaming_suite'] packages=['cachyos-gaming-applications'] alignment_requested=True`. Arch with Steam and the suite on rendered `keys=['steam'] packages=['steam'] alignment_requested=False`. CachyOS with `gaming_suite` remapped to lutris without `brings_steam` rendered `steam_requested=False keys=[] alignment_requested=False`.
+
+Fix: the mapping carries the fact, `gaming_suite: { manager: "pacman", package: "cachyos-gaming-applications", brings_steam: true }`. The alignment file builds its keys from every os_dict mapping with `brings_steam` true whose `install_<key>` toggle is on, plus `steam` when `install_steam` is on. The `pacman -Q` probe and the alignment itself stay gated on `ih_os_release_id == 'cachyos'`.
+
+Mechanical check: [unreachable_tasks.sh](../e2e/tier1/unreachable_tasks.sh), whose `DERIVED_FACTS_DECLARED` now says `ih_steam_requested` reads `install_steam` literally plus the `brings_steam` attribute, and derives the toggles behind that attribute from the vars files. A scratch copy with both `install_steam` and `install_gaming_suite` suppressed in a `container_limits.cachyos.yaml` printed `ih_steam_requested, through every toggle behind it (install_gaming_suite, install_steam), is switched off by the container limits on every image that could run the 2 task(s) gated on it (cachyos)`, and a copy whose alignment file stopped reading `brings_steam` failed as drift.
+
+#### 10.41 Docker on Arch lost all four packages to one mirror's 404 for one dependency
+
+Cause: "Install Docker (Arch)" in [virtualization_config](../setup/ansible/roles/virtualization_config/tasks/main.yaml) handed docker, docker-buildx, docker-compose and iptables to one `community.general.pacman` call with no retry, defect class 9 in AGENTS.md in a role task. The software installer's dispatcher had been looped since 2026-08-25 and the roles had not, and [batched_managers.sh](../e2e/tier1/batched_managers.sh) read only the dispatcher.
+
+Effect: in round 2 of the tier 3 runs, run folder `e2e/runs/2026-10-15T09-30-25Z_cachyos_defaults`, pacman printed `error: failed retrieving file 'containerd-2.4.1-1.1-x86_64_v3.pkg.tar.zst' from cdn77.cachyos.org : The requested URL returned error: 404` and `error: failed retrieving file 'containerd-2.4.1-1.1-x86_64_v3.pkg.tar.zst.sig' from us.cachyos.org : The requested URL returned error: 404`, the whole call failed, all four packages were lost, and the verification failed with `[verify] docker group MISSING lukk` and `FAIL user is not in docker, groups are: lukk kvm openrazer libvirt`, playbook_rc 2.
+
+How it was proven: about 25 minutes after the run the main session asked `curl -I` for `us.cachyos.org/repo/x86_64_v3/cachyos-extra-v3/containerd-2.4.1-1.1-x86_64_v3.pkg.tar.zst` and got 200, while cdn77.cachyos.org and mirror.cachyos.org answered 404. That is a mirror catching up with a newly published version. Asked again from here at 10:55:56Z: the package answered 200 on us.cachyos.org and 404 on cdn77.cachyos.org and mirror.cachyos.org, and its `.sig` answered 404 on all three, while `docker-compose-5.6.0-1.1-x86_64_v3.pkg.tar.zst` and its `.sig` answered 200 on all three. So the publication was still incomplete nearly three hours after the run, and no retry inside one run would have installed docker that day. What a run can do is keep the other three packages and name the one that failed.
+
+Fix: the task installs one package per call, `pacman -Syy --noconfirm --needed <package>`, with `-Syy` on each attempt the way the CachyOS alignment in arch_core forces a refresh, `retries: 3` and `delay: 180`, which measured with a counting stand-in for pacman is four attempts, `changed_when` on ` there is nothing to do` in stdout, and no read of the result's failed key. A package still missing after that is named in an `[ERROR]` line with what pacman said, added to `not_installed_with_reason` and recorded in `any_role_failed`, so the run fails naming it. The service, group and session tasks after it are skipped when docker itself is missing. Exercised with a stand-in for pacman that failed one package: docker-buildx missing gave `[ERROR] docker-buildx did not install after every retry and is NOT present.`, `any_role_failed=True`, and the group task still ran. docker missing gave the line with `The Docker service and the docker group are skipped below`, and the group task was skipped. Not yet run in a container.
+
+Mechanical check: [batched_managers.sh](../e2e/tier1/batched_managers.sh) now reads every task file under `setup/ansible/`, roles included, and fails on a package module given a literal list of several names, or a command whose install verb is followed by several packages, with no loop. Against the old task it printed `FAIL a task outside the dispatcher installs several packages in one call` with `Install Docker (Arch) hands docker, docker-buildx, docker-compose, iptables to one call, so one unavailable package loses all 4`. It found 27 other tasks that batch, listed in `e2e/tier1/batched_role_tasks_pending.txt` pending the owner's decision, and an entry there whose task no longer batches fails, so the list can only shrink. That file was deleted on 2026-10-15, when the listed tasks were converted, 10.56.
+
+Superseded on 2026-10-15 by 10.58 and 10.77: the `-Syy` on every attempt was itself a partial upgrade, so the refresh now runs only before a retry, and the Docker packages go through the shared rule in `setup/ansible/tasks/install_role_packages.yaml`, four attempts 20 seconds apart instead of 180. The pending list is superseded by 10.56 and 10.67, which converted every listed task, the CachyOS Mesa alignment last.
+
+### Found by the agent-standards subagent while fixing the project root of the OpenCode 1.x and Kilo Code gate, 2026-10-15
+
+#### 10.42 Outside a git repository the OpenCode 1.x and Kilo Code gate took the whole disk as the project
+
+Cause: `Preflight` in [hooks.js](../.agents/plugin/hooks.js) took the runtime's `worktree` as the project root, and OpenCode 1.x and Kilo Code hand `/` as the worktree for any start folder outside a git repository. OpenCode 1.18.25 `packages/opencode/src/project/project.ts` sets `const worktree = data.id === ProjectV2.ID.make("global") && !data.vcs ? "/" : data.directory`.
+
+Effect: measured on 2026-10-13, the envelope `cwd` was `/` from every non-git directory, so the gate judged every path against the whole disk instead of the folder the session started in, and the hooks a non-git start folder shipped were never found. Claude Code, Codex and OpenCode 2.x already used the start folder.
+
+How it was proven: by the agent-standards subagent. Six new cases in agent-standards `tools/tests/test_hook_runner.py` failed on the old plugin, among them `test_a_session_started_outside_a_git_repository_uses_its_start_folder` (`assert '/' == '/tmp/pytest-.../machine-work'` in its global-hooks twin) and `test_the_shipped_gate_outside_git_protects_the_start_folder_and_not_the_whole_disk`, and all six pass on the new plugin. Three cases for a session inside a git repository pass on both. In the agent-standards container sandbox, with OpenCode 1.18.25 and Kilo Code 7.5.5 running real turns from a non-git start folder, the old plugin failed two assertions in the project suite (a write inside the start folder was not refused, file present: yes) and two in the global suite (a write beside the start folder was refused, file present: no). The new plugin passed 104 of 104 and 155 of 155. I did not rerun these here. What I measured here is that the copy is the fixed one: `md5sum .agents/plugin/hooks.js` printed `ccb26a1c63b1662025bc1a26933f363d`, the same as the agent-standards file.
+
+Fix: the root is the worktree only while it is a git root (a `.git` directory or file) holding the start folder, compared after links are followed, and the start folder otherwise. In agent-standards `.agents/plugin/hooks.js`, function `projectRoot`, copied into [hooks.js](../.agents/plugin/hooks.js) and into `~/.config/agents/plugin/hooks.js`.
+
+Mechanical check: the nine upstream cases named above, and `verify_start_folder_v1` in agent-standards `sandbox-agent/lib-opencode2.sh`, which runs in both sandbox suites. Nothing in this repository's gate, which runs the plugin only from the repository root.
+
+### Found while widening the documentation link check, 2026-10-15
+
+#### 10.43 The documentation link check read two directories of the whole tree, and six links to deleted files went unnoticed
+
+Cause: [compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh) checked links only under `local-dev/` and `homelab/`, with grep, so four commits that deleted a file (560878c `versions.yaml`, 68a1d84 the smoke spec and template, 87f34dc `batched_managers_allowed.txt`, e8d4821 `keycloak-dump.sql`) left links to it in `docs/` and `openspec/` and nothing failed.
+
+Effect: six dead links, `docs/pinned_values_adapter_design.md:26`, `openspec/changes/add-playbook-e2e-capability-tests/tasks-template.md:15` (two) and `test-spec.md:17`, `docs/regression_ledger.md:1170` and `2877`. On a scratch copy with dead links added to `README.md` and `docs/`, the old check said `PASS all 173 relative documentation links in local-dev/ and homelab/ point at something that exists`.
+
+How it was proven: the widened check on that copy reported `FAIL 5 of 1933 relative documentation links or anchors point at nothing`, naming each added link, the dead anchor `AGENTS.md#no-such-heading` among them. On the real tree it named the six links above.
+
+Fix: [compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh) now reads every markdown file git would ship and checks exact-case paths and heading anchors. Planned targets are excused only through [doc_links_allowed.txt](../e2e/tier1/doc_links_allowed.txt), where an entry that has come true or is no longer linked fails. The six links became code spans naming the deleting commit.
+
+Mechanical check: the documentation link assertion in [compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh), which is the fix itself.
+
+### Found while moving the macOS packages to Homebrew and splitting the manual install scripts, 2026-10-15
+
+#### 10.44 The macOS Antigravity install was a pinned 1.13.3 vendor DMG while Homebrew carried 2.23.1
+
+Cause: `macos_install.yaml` downloaded `antigravity_dmg_arm64_url` or `antigravity_dmg_x64_url`, built from the 1.13.3 pin in [pinned_values.toml](../setup/pinned_values/pinned_values.toml).
+
+Effect: every new Mac got 1.13.3, the old download location still answered 200, and Homebrew's `antigravity` cask was at 2.23.1,6348059836284928 on storage.googleapis.com.
+
+How it was proven: the formulae.brew.sh API and `curl -I` on both URLs, 2026-10-15.
+
+Fix: `antigravity` is a `brew_cask` mapping in [vars/Darwin.yaml](../setup/ansible/vars/Darwin.yaml), the DMG block and both pins are removed, and the Linux tarball pin stays.
+
+Mechanical check: tier 2 `check_brew` resolves the cask name.
+
+#### 10.45 The macOS manual script drifted from vars/Darwin.yaml
+
+Cause: nothing compares the two, unlike [manual_windows_install.sh](../e2e/tier1/manual_windows_install.sh) for Windows.
+
+Effect: [docs/manual/macos/install.sh](../docs/manual/macos/install.sh) lacked k3d, chatgpt and opencode-desktop, which are on by default in the generated Brewfile, and it installed `intellij-idea`, which no toggle or mapping names.
+
+How it was proven: `comm` of the Brewfile lists against the script arrays. The remaining differences, dart-sdk, zsh and claude, come from roles.
+
+Fix: the lists are corrected, and the guide row says JetBrains Toolbox.
+
+Mechanical check: none. A macOS counterpart of [manual_windows_install.sh](../e2e/tier1/manual_windows_install.sh) would catch it.
+
+#### 10.46 The Debian and Fedora manual scripts installed, as root, a file downloaded to a fixed path in /tmp
+
+Cause: `curl -o /tmp/<name>.deb` and `/tmp/appimagelauncher.rpm`, followed by `sudo apt-get install` or `sudo rpm --install`.
+
+Effect: another local account could pre-create the path, the shape the playbook already fixed in `macos_install.yaml` and `jetbrains_toolbox`.
+
+How it was proven: by reading the scripts.
+
+Fix: `mktemp --suffix=` in one `&&` chain, removed afterwards, in [docs/manual/debian-ubuntu/install.sh](../docs/manual/debian-ubuntu/install.sh) and [docs/manual/fedora/install.sh](../docs/manual/fedora/install.sh).
+
+Mechanical check: none.
+
+### Introduced while splitting the manual install scripts, 2026-10-15
+
+#### 10.47 The first version of the manual-script check printed PASS for a script it had just failed
+
+Cause: introduced by the agent writing the check on 2026-10-15. In [batched_managers.sh](../e2e/tier1/batched_managers.sh) the per-script verdict only tested whether any install call was read, not whether any call was batched.
+
+Effect: against HEAD, each of the four shell scripts showed FAIL lines followed by `PASS ... installs one package per call`. It never left the working tree.
+
+How it was proven: by running it against `git archive HEAD`.
+
+Fix: a per-script `batched` counter, so PASS prints only with zero batches.
+
+Mechanical check: the fix was proven by the rerun against HEAD, which then had no PASS for those four.
+
+### Found while moving the shell and environment layout to environment.d, 2026-10-15
+
+#### 10.48 The desktop session had no developer environment
+
+Cause: every development variable was an `export` in `~/apps_config/env.sh`, sourced only from `~/.zshrc` and `~/.bashrc`. Plasma's `wayland-session` (`/usr/share/plasmalogin/scripts/wayland-session`, `exec $SHELL --login`) starts a non-interactive login zsh, which never reads `.zshrc`, and the systemd user manager reads only `environment.d`.
+
+Effect: on 2026-10-13, `/proc/<plasmashell>/environ` lacked ANDROID_HOME, GRADLE_USER_HOME, DOCKER_CONFIG, KUBECONFIG, M2_HOME, PYENV_ROOT, NVM_DIR, SDKMAN_DIR and JAVA_HOME. On 2026-10-15 `zsh -lc` on a copy of the old home lacked all 11 checked variables, while every `-ic` and `-lic` probe in `verify_install.yaml` passed, and those probes could never catch this.
+
+How it was proven: the four new verify tasks were extracted and run against the old home and printed `FAIL desktop session environment missing: GRADLE_USER_HOME, DOCKER_CONFIG, ...`. The new layout passed, and the generator now lists all 14 variables.
+
+Fix: `~/.config/environment.d/50-dev.conf`, written by [env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml), [nvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/nvm_unix.yaml), [sdkman_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/sdkman_unix.yaml), [pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml) and [local_llm.yaml](../setup/ansible/roles/ai_tools/tasks/local_llm.yaml), imported by `~/.config/zsh/.zshenv` and the top of `~/.bashrc`.
+
+Mechanical check: [verify_install.yaml](../setup/ansible/verify_install.yaml), "Assert the desktop session environment carries every development variable".
+
+#### 10.49 Dead PATH entries in the checked-in .zshrc
+
+Cause: `setup/config/.zshrc:121-122` appended `/usr/bin/brave-browser-stable` and `/opt/postman/postman`, which are files or absent paths, not directories.
+
+Effect: both were missing PATH entries in `zsh -lic` and `zsh -ic` on the old layout, and three times each after three nested shells.
+
+How it was proven: a PATH scan of each shell mode on a copy of the old home.
+
+Fix: the lines are removed in [setup/config/zsh/.zshrc](../setup/config/zsh/.zshrc).
+
+Mechanical check: [zshrc_env_block.sh](../e2e/tier1/zshrc_env_block.sh) assertion 1 fails on any export or PATH assignment there. Proven against a copy with the brave line put back.
+
+#### 10.50 Vendor installers duplicated their shell init
+
+Cause: the SDKMAN, NVM and LM Studio installers append their own rc lines next to the project's blocks.
+
+Effect: SDKMAN initialised twice in zsh (`~/.zshrc:128-129` plus env.sh), NVM twice in bash, and the LM Studio PATH line was in `.bashrc`, `.bash_profile` and `.zshrc`. `bash -lic` had `~/.lmstudio/bin` twice.
+
+How it was proven: the `.bashrc`, `.bash_profile` and `.zshrc` lines on this machine, plus the PATH scan.
+
+Fix: `PROFILE=/dev/null` in [nvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/nvm_unix.yaml), `?rcupdate=false` in [sdkman_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/sdkman_unix.yaml) (measured by diffing the two served scripts, whose only difference is the rc-file step), `--no-modify-path` in [local_llm.yaml](../setup/ansible/roles/ai_tools/tasks/local_llm.yaml), and `lineinfile state: absent` cleanup in the three task files.
+
+Mechanical check: none new. After the run the PATH check shows no duplicates in seven shell modes.
+
+#### 10.51 PATH grew with every nested shell
+
+Cause: env.sh prepended with no check for repeats.
+
+Effect: three nested zsh shells reached 44 entries with 10 repeated, and three nested bash shells 39 entries with 8 repeated. After the fix: 20 entries, 0 repeated, 0 missing.
+
+How it was proven: the PATH scan.
+
+Fix: `typeset -U path PATH` before the import and `path=($^path(N-/))` after it in zsh, and a loop in bash that keeps each entry once, in [env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml).
+
+Mechanical check: [zshrc_env_block.sh](../e2e/tier1/zshrc_env_block.sh) assertion 4. Proven against a copy with `typeset -U` removed.
+
+#### 10.52 Two Java defaults
+
+Cause: SDKMAN set JAVA_HOME only in terminals, and `archlinux-java` (`/usr/bin/java`, OpenJDK 27) served anything without env.sh.
+
+Effect: the desktop ran OpenJDK 27 and terminals ran Temurin 21.
+
+How it was proven: the MACHINE.md Java row (2026-10-13) and the generator output, which now shows `.sdkman/candidates/java/current/bin` before `/usr/bin`.
+
+Fix: JAVA_HOME and `${HOME}/.sdkman/candidates/java/current/bin` set in the SDKMAN block of `50-dev.conf`, in [sdkman_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/sdkman_unix.yaml).
+
+Mechanical check: the session assertion in [verify_install.yaml](../setup/ansible/verify_install.yaml) checks for JAVA_HOME and that PATH entry.
+
+#### 10.53 A dead copy of .zshrc.pre-oh-my-zsh in every home
+
+Cause: `oh_my_zsh.yaml:51` copied `~/.zshrc.pre-oh-my-zsh`, a file nothing reads.
+
+Effect: a dead 1295-byte file in every home.
+
+How it was proven: a read of the task, and `grep` found no reader.
+
+Fix: the copy is removed from [oh_my_zsh.yaml](../setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml), the existing file is retired into the backup folder, the repository file is deleted, and `--keep-zshrc` stops the installer from creating one.
+
+Mechanical check: none.
+
+### Introduced while moving the shell and environment layout, 2026-10-15
+
+#### 10.54 The vendor installer check went blind to a changed command shape
+
+Cause: introduced by the agent doing 10.50. The `PIPE_TO_SHELL` regex in [vendor_installer_shell_init.sh](../e2e/tier1/vendor_installer_shell_init.sh) only matched `| bash`, and the change made NVM `| PROFILE=/dev/null bash`.
+
+Effect: the check dropped from 4 to 3 checks, `vendor installer shell init: 3 checks, all passed`, with NVM silently unchecked.
+
+How it was proven: the check's output listed fvm, pyenv and sdkman only.
+
+Fix: the regex now allows environment assignments before the shell, `\|\s*(\w+=\S*\s+)*(ba|z)?sh\b`, and the check is back to 4 rows.
+
+Mechanical check: the check itself. A copy of the tree where NVM had only a conditional block failed, naming `nvm_unix.yaml`.
+
+#### 10.55 Moving the .zshrc broke four links in this ledger
+
+Cause: introduced by the agent doing 10.48, by moving `setup/config/.zshrc` to `setup/config/zsh/.zshrc`.
+
+Effect: the tier 1 failure `6 of 1936 relative documentation links...`, four of them at ledger lines 3149, 4662, 4668 and 4704. It never left the working tree.
+
+How it was proven: the tier 1 `compose files and documentation links` check named those four lines.
+
+Fix: the four links now point at [setup/config/zsh/.zshrc](../setup/config/zsh/.zshrc), text and target. The prose mentions of `setup/config/.zshrc` elsewhere in this ledger are history and stay.
+
+Mechanical check: the documentation link assertion in [compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh), 10.43, which is what caught it.
+
+### Found while moving every role package list to one package per call, 2026-10-15
+
+#### 10.56 Three batches hidden in templates passed the batch check
+
+Cause: `e2e/tier1/batched_managers.sh` read only literal package lists, and three package module calls built their list in a Jinja template.
+
+Effect: "Install paru build dependencies (rust, which provides cargo, unless rustup does)" passed `{{ ['git', 'base-devel'] + ([] if paru_rustup_installed.rc == 0 else ['rust']) }}` to one `ansible.builtin.package` call. "Install matching kernel headers for DKMS modules (Arch)" passed every installed kernel's headers package to one `community.general.pacman` call. "Install kernel headers for the OpenRazer DKMS module" passed `{{ ['kernel-devel', 'kernel-headers'] }}` to one `ansible.builtin.dnf` call. The check passed all three.
+
+How it was proven: the extended check, run against `git archive HEAD setup/ansible`, names all three with "hands the list built by ...".
+
+Fix: all three go through `setup/ansible/tasks/install_role_packages.yaml`, together with the 27 tasks once listed in `e2e/tier1/batched_role_tasks_pending.txt`, which is deleted. The check counts a template that builds a list literal, ends in `| list`, or names a task var that does either.
+
+Mechanical check: `e2e/tier1/batched_managers.sh`.
+
+#### 10.57 The CachyOS Mesa alignment was kept as a batch on a wrong hypothesis
+
+Cause: the pending file stated that the CachyOS alignment "replaces mesa and lib32-mesa in one transaction on purpose", meaning it could not be two calls.
+
+Effect: the task was kept as a batch on that ground.
+
+How it was proven wrong: measured on 2026-10-15 in `cachyos/cachyos-v3:latest`, after `pacman -Syu --noconfirm`, with the playbook's own pair and its answers file, each case in a fresh container. Two calls in either order exit 0 with a clean `pacman -Dk`, with or without the stable `mesa 3:26.2.4-1` and `lib32-mesa 3:26.2.4-1` installed first, and every case ended with `mesa-git 26.3.0_devel.231096.74b69717c52-1` and `lib32-mesa-git` of the same version.
+
+Fix: none at the time, pending the owner's decision. It was the single written exception in `e2e/tier1/batched_managers.sh`.
+
+Superseded on 2026-10-15 by 10.67, which splits the alignment into one call per package and removes the exception.
+
+### Introduced while moving every role package list to one package per call, 2026-10-15
+
+#### 10.58 An index refresh on every attempt was a partial upgrade
+
+Cause: introduced by an agent on 2026-10-15 in the Docker task, and older in the alignment. "Install Docker (Arch), one package at a time" ran `pacman -Syy --noconfirm --needed <pkg>` and the CachyOS alignment ran `pacman -Syy --needed mesa-git lib32-mesa-git`. Both refreshed on every attempt, the first included.
+
+Effect: every run installed those packages against an index newer than the system arch_core had just upgraded, even when nothing failed. That is the `-Sy <package>` partial upgrade the Arch wiki warns against.
+
+How it was proven: a fake pacman that logs every call, run through the real helper and the real alignment tasks. Success on the first attempt calls no `Syy` at all. A failure puts `Syy` before each retry, with 3 retries after the first attempt. A package that never installs is named in `role_packages_missing`, `any_role_failed=True`, and the alignment block's rescue fired.
+
+Fix: `setup/ansible/tasks/install_role_packages.yaml` (pacman first attempt, pause, retry task) and the three alignment tasks in `setup/ansible/roles/arch_core/tasks/main.yaml`.
+
+Mechanical check: `e2e/tier1/pacman_partial_refresh.sh`. Shown failing on both old commands, naming `pacman -Syy --needed mesa-git lib32-mesa-g...` and `pacman -Syy --noconfirm --needed {{ item...`.
+
+#### 10.59 The Docker loop disappeared from tier 2
+
+Cause: introduced by an agent on 2026-10-15. Converting "Install Docker (Arch)" from `community.general.pacman` to a `command` loop took its names out of `e2e/tier2/resolve_role_packages.sh`, which reads only module `name:` lists.
+
+Effect: `docker`, `docker-buildx`, `docker-compose` and `iptables` were no longer resolved by any check. This is the same check that once caught `iptables-nft`.
+
+How it was proven: the extractor in pacman mode printed 0 lines for the loop. The new helper mode prints all four.
+
+Fix: the helper extraction in `e2e/tier2/extract_role_packages.awk` and `resolve_role_packages.sh`. A literal name in an include with no family fails the check. Shown failing with `docker-buildx-does-not-exist` and with a zsh include given no family. The same hole would have opened for all 27 converted lists, which is why the extractor was changed first. The shell-command minimum of 5 names would also have failed after the QEMU and Docker apt commands moved, and is now a check by name for `spice-vdagent`.
+
+Mechanical check: `e2e/tier2/resolve_role_packages.sh`, which on a copy of the tree with `docker-buildx` renamed and one zsh include given no family printed `FAIL Arch: 1 of 49 literal pacman names do not exist` and `FAIL a role installs packages through install_role_packages.yaml with no family in its when`.
+
+#### 10.60 Two of the agent's own check changes failed the gate
+
+Cause: introduced by the agent doing 10.56. The first version of the templated-list rule used the regex `^\{\{\s*([A-Za-z_]...)\s*\}\}$`, and `e2e/tier1/availability_facts.sh` found the alignment block by the exact text `pacman -Syy --needed mesa-git`, which 10.58 changed.
+
+Effect: `e2e/tier1/pinned_values.sh` failed with "e2e/tier1/batched_managers.sh carries a reference-capturing regular expression", and `availability_facts.sh` failed with "should hold exactly one block around the CachyOS alignment and holds 0". Neither left the working tree.
+
+How it was proven: the tier 1 gate named both.
+
+Fix: the regex is replaced by string slicing and `str.isidentifier()`. The search text in `availability_facts.sh` is now `--needed mesa-git lib32-mesa-git`.
+
+Mechanical check: the two checks themselves, which caught it.
+
+### Found while updating the e2e capability tests change, 2026-10-15
+
+#### 10.61 The OpenSpec capability tables drifted from the capability index
+
+Cause: the smoke capability was deleted in 68a1d84 and idempotency was added as 90, but the OpenSpec change `add-playbook-e2e-capability-tests`, which repeats the list of capabilities in its own tables (`test-spec.md`, `proposal.md`, `tasks-template.md`), was not updated in the same commit, and nothing compared those tables with `e2e/testing/README.md`.
+
+Effect: proposal.md lines 29, 46 and 79 described a scenario that no longer exists (`--scenario smoke`, 45 minute timeout). There was no row for 90, and the change still claimed eight capabilities from seven scenario files.
+
+How it was proven: `grep -n -i smoke` on the change folder, compared against `ls e2e/tier3/scenarios/` (eight files, 01 to 08) and the table in e2e/testing/README.md.
+
+Fix: the three change files, plus a rule in AGENTS.md "OpenSpec Project Conventions" saying the change is never archived and is updated with every capability change.
+
+Mechanical check: `e2e/tier1/capability_index_parity.sh`, added afterwards by another agent. Run against a copy of the tree holding the `HEAD` versions of the three files, it reports 13 failures, for example `test-spec.md:15: lists 30 smoke, which the index does not`, `lacks 90 idempotency, which the index lists` and `proposal.md:77: lacks capability 90`. On the current tree it passes, with 5 tables compared against 9 capabilities.
+
+### Found while fixing JetBrains Toolbox on Linux and LM Studio on Intel Macs, 2026-10-15
+
+#### 10.62 JetBrains Toolbox launchers were unreachable from zsh and Arch's login bash
+
+Cause: Toolbox appends `export PATH="$PATH:~/.local/share/JetBrains/Toolbox/scripts"` to `~/.profile`, which zsh never reads. On Arch, login bash reads `~/.bash_profile` instead.
+
+Effect: on 2026-10-15 `env -i HOME=$HOME zsh -lic 'command -v idea pycharm'` returned 1.
+
+How it was proven: that command gave rc 1 before the fix and rc 0 after, and the environment generator then listed the folder.
+
+Fix: a `JETBRAINS TOOLBOX ENVIRONMENT` block in `dev_env_file` and removal of Toolbox's two lines from `shell_startup_files`, in `jetbrains_toolbox/tasks/main.yaml`. Applied to the owner's machine, pass 2 `changed=0`. Not verified: whether Toolbox writes its `~/.profile` lines again on a later start, with moderate confidence that it will not.
+
+Mechanical check: `ih_session_path_entries` in verify_install.yaml now includes `jetbrains_toolbox_scripts_dir` when the toggle is on.
+
+#### 10.63 Leftover retry keys from the removed cask batch sat on an unrelated set_fact
+
+Cause: when the batch task was deleted, its `register: brew_cask_batch_result`, `until`, `retries` and `delay` lines stayed behind under the custom-installs comment in dynamic_install.yaml (defect class 1).
+
+Effect: a YAML parse showed them attached to "Propagate the cask failures to the play summary". The behaviour was harmless, but the file was misleading. They were also present in HEAD.
+
+How it was proven: a `yaml.safe_load` listing of that task's keys.
+
+Fix: the lines are removed.
+
+Mechanical check: none.
+
+### Introduced while fixing JetBrains Toolbox, 2026-10-15
+
+#### 10.64 A vendor GUI binary run only for --help acted on the owner's real home
+
+Cause: introduced by the agent fixing 10.20. Toolbox 3.8.1 ignores `HOME` and treats `--help` as a normal start.
+
+Effect: it started against `/home/lukk`, rewrote the Toolbox menu entry to point at a scratch path, regenerated its launchers, rewrote five `.vmoptions` files, then crashed with a SIGSEGV. The agent then deleted the scratch binary, so the menu entry is dead.
+
+How it was proven: its own log, `toolbox.0.log`, pid 3080538, and `find -newermt`.
+
+Fix: the menu entry's `Exec` line was restored to `/opt/jetbrains-toolbox/jetbrains-toolbox` on 2026-10-15, with the broken file kept at `/home/lukk/Backups/kde/jetbrains-toolbox.desktop.broken-2026-10-15`. The `ide.managed.by.toolbox` value in the five `.vmoptions` files was restored to `/opt/jetbrains-toolbox/jetbrains-toolbox` the same day, with the broken files kept in `/home/lukk/Backups/kde/vmoptions-2026-10-15/`. That value is the path of the installed Toolbox, owned by the pacman package `jetbrains-toolbox` 3.8.1.88030-1, and it is the `Executable:` line Toolbox's own log recorded for its normal start on 2026-10-11. The owner's mandatory rule "never run anything on the owner's computer for testing" now exists in `~/.config/agents/AGENTS.md` and in this repository's `AGENTS.md`.
+
+Lesson: inspect a vendor binary's options from its jars with `strings`, never by running it as the real user.
+
+Mechanical check: none.
+
+### Found while making the run summary and the tier 2 name lookups trust only definite answers, 2026-10-15
+
+#### 10.65 The summary listed a package that installed on a retry under both TOLERATED FAILURES and INSTALLED
+
+Cause: `setup/ansible/callback_plugins/dual_logger.py` put each install attempt into a bucket on its own. A failed first attempt went into the tolerated list. A successful retry went into the installed list only when its task name contained "Install", "Download" or "Add ". So a retry in an "Install ..." task showed the package under both headings. A retry in a "Retry ..." task, the name used by `setup/ansible/tasks/install_role_packages.yaml`, never reached INSTALLED, and a package that did install showed only as a tolerated failure.
+
+Effect: the owner saw one end-of-run summary say that the same package had failed and had installed.
+
+How it was proven: a new probe in `e2e/tier1/ansible_static.sh` drives the real hooks with results shaped like ansible-core's. Against the `HEAD` callback it printed `FAIL docker installed on a retry and is still listed under TOLERATED FAILURES; docker is not listed under INSTALLED as 'docker (after 2 retries)'; steam installed on a retry and is still listed under TOLERATED FAILURES; steam is not listed under INSTALLED as 'steam (after 1 retry)'; jq is not listed under INSTALLED as 'jq (after 2 retries)'`. Against the fixed callback it prints `OK`.
+
+Fix: failed attempts are counted per package from `v2_runner_retry` and from tolerated item failures. "Retry" is added to `INSTALLER_TASK_KEYWORDS`. A later success removes the package from the tolerated list, and the summary shows it under INSTALLED as `<name> (after N retries)`. A package that failed every attempt stays under TOLERATED FAILURES, once.
+
+Mechanical check: the "summary lists a package that installed on a retry once" assertion in `e2e/tier1/ansible_static.sh`.
+
+#### 10.66 Tier 2 called a name missing when one request failed
+
+Cause: `http_ok` in `e2e/tier2/resolve_packages.sh` made one request and treated any status other than 200, 301 or 302 as "does not exist". This applied to Homebrew, Flathub and Chocolatey. The AUR request had no retry, and an AUR request that failed reported every AUR name as missing. The two Arch lookups in `resolve_packages.sh` and `resolve_role_packages.sh` retried, but called a name missing once their retries ran out. The npm lookup had no retry either.
+
+Effect: found by the first tier 2 run of the JetBrains Toolbox work, 10.62: `FAIL Homebrew brew: 1 of 19 names do not exist / minikube`, while https://formulae.brew.sh/api/formula/minikube.json answered `200 3731` right after, and the rerun passed.
+
+How it was proven: `e2e/tier1/name_lookup_retries.sh` runs the real check functions against a fake curl. Against a copy of the tree holding the old `http_ok`, `check_brew` and `check_pacman`, the 503-then-200 case printed `FAIL Homebrew brew: 1 of 1 names do not exist / minikube`, and 6 of 10 assertions failed. With the fix all 10 pass. The 404 case fails as "do not exist" in both versions. The live not-found answers were measured on 2026-10-15: formulae.brew.sh, Flathub, Chocolatey and the npm registry answer 404, and archlinux.org answers 200 with `"results": []`.
+
+Fix: `e2e/lib/http_ask.sh`. Only 404, 410 or an empty Arch results list counts as missing. Every other answer is asked again, 4 attempts with a growing pause, and is then reported as `could not be checked`, naming the URL and what came back. This is used by every name check in `resolve_packages.sh` and by `check_arch` in `resolve_role_packages.sh`.
+
+Mechanical check: `e2e/tier1/name_lookup_retries.sh`.
+
+### Found while ending the last pacman batch and refreshing only before a retry, 2026-10-15
+
+#### 10.67 The CachyOS Mesa alignment was the last batch
+
+Cause: the CachyOS 32-bit graphics alignment in `roles/arch_core/tasks/main.yaml` handed `mesa-git lib32-mesa-git` to one pacman call in both its first attempt and its retry, and `e2e/tier1/batched_managers.sh` carried it as a written exception, 10.57.
+
+Effect: one exit code for two packages, so a 404 on one lost both and the run could not say which one.
+
+How it was proven: in cachyos/cachyos-v3 on 2026-10-15, two calls work in either order, with or without stable mesa and lib32-mesa installed first, each rc 0 with `pacman -Dk` clean. The exception-free check, run against a copy with the old call restored, names both tasks with `hands mesa-git, lib32-mesa-git to one call`.
+
+Fix: the tasks loop one package per call, mesa-git first, and the retry covers only the failed packages, refreshing before each. The EXCEPTIONS set is gone from the check.
+
+Mechanical check: `e2e/tier1/batched_managers.sh`, which now has no exception.
+
+#### 10.68 The software installer's pacman retries never refreshed
+
+Cause: `roles/software_installer/tasks/dynamic_install.yaml` had its own pacman loop that retried the same `pacman -S` three times against the same index, while `tasks/install_role_packages.yaml` already refreshed before a retry (defect class 2, one rule in two places that disagreed).
+
+Effect: a package a lagging mirror answered 404 for was lost after 4 identical attempts.
+
+How it was proven: with a fake pacman that serves a file only after `-Syy`. Before, `S flaky` x4 and `failed_pacman=['flaky']`. After, `S flaky, Syy, S flaky`, installed. A first-try success never calls `Syy`.
+
+Fix: the pacman list goes through `install_role_packages.yaml`, and the Steam filter moved into the include vars. `batched_managers.sh` now follows the include, and `availability_facts.sh` reads the vars.
+
+Mechanical check: `e2e/tier1/availability_facts.sh`, which fails when the Steam filter is removed from the include vars or `steam_graphics_stack_aligned: false` from the rescue, and `e2e/tier1/batched_managers.sh`, which fails on an unlooped install in the shared file.
+
+#### 10.69 The manual Arch guide and script did partial upgrades
+
+Cause: `docs/manual/arch/arch_manual_install.md` said `sudo pacman -Syy --needed mesa-git` and, after enabling multilib, `sudo pacman -Sy`. `docs/manual/arch/install.sh` ran a bare `sudo pacman -Syy` before the Mesa installs.
+
+Effect: installs ran against an index newer than the installed system, the partial upgrade the Arch wiki warns against.
+
+How it was proven: the extended `e2e/tier1/pacman_partial_refresh.sh` named `install.sh:79`, `arch_manual_install.md:22` and `arch_manual_install.md:132` against the old files, and passes after the fix (13 pacman calls in 10 files read). The `md:22` line was not in the owner's list. The check found it.
+
+Fix: `-Syu` after enabling multilib, plain `-S` for mesa-git, the bare `-Syy` removed from the script, and `-Syu`-then-retry advice for a persistent 404.
+
+Mechanical check: `e2e/tier1/pacman_partial_refresh.sh`, which now also reads `docs/manual/**/*.sh` and the fenced blocks of `docs/manual/**/*.md`.
+
+#### 10.70 batched_managers.sh cut a command at the filter pipe inside a template
+
+Cause: found by the agent doing 10.67. `batched_managers.sh` cut a command at the first `|`, which was also the filter pipe inside `{{ ... }}`, so `pacman -S {{ role_packages | join(' ') }}` was read as no package at all.
+
+Effect: an unlooped install of a whole joined list passed the role-task section.
+
+How it was proven: a planted copy of `install_role_packages.yaml` passed before and fails after, with `hands the list joined by {{ role_packages | join(' ') }} to one call`.
+
+Fix: templates are set aside before the shell-operator split, and a joined template counts as a batch.
+
+Mechanical check: `e2e/tier1/batched_managers.sh` itself.
+
+### Introduced while ending the last pacman batch, 2026-10-15
+
+#### 10.71 The tier 2 extractor read a block scalar indicator as a package name
+
+Cause: introduced by the agent doing 10.68. Its first form of the new pacman include passed `role_packages: >-`, and `e2e/tier2/extract_role_packages.awk` read the `>-` indicator as a package name.
+
+Effect: tier 2 `FAIL Arch: 1 of 50 literal pacman names in role tasks do not exist`, naming `>- (in dynamic_install.yaml)`.
+
+How it was proven: the awk printed `arch ... >-` before the fix and `{{ role_packages block scalar }}` after. A literal name with no family still comes out `none`, and tier 2 then exited 0.
+
+Fix: the extractor records a block scalar as a template, which is reported as not checked.
+
+Mechanical check: `e2e/tier2/resolve_role_packages.sh`, which caught it.
+
+### Found while giving the Windows package managers one retry rule, 2026-10-15
+
+#### 10.72 Three retry rules for one job on Windows
+
+Cause: winget, npm and the WSL Ansible install each wrote their own retry loop, and Chocolatey had none (defect class 2).
+
+Effect: winget made 2 attempts 15 s apart, npm 2 attempts 15 s apart, WSL 3 attempts 15 s apart, Chocolatey 1 attempt. None of them refreshed a package list, while the Ansible package helper made 4 attempts 20 s apart.
+
+How it was proven: the Pester case 'uses the retries and the delay of the Ansible package helper' fails with `$script:PackageRetryCount = 1`, along with nine other cases. The WSL cases fail against HEAD's setup.ps1 (`failed=2 passed=1`).
+
+Fix: `Invoke-PackageManagerRetry` in setup/windows/WindowsSoftware.ps1, called by Install-WingetPackage, Install-ChocolateyPackage, Install-NpmToolPackage and Install-AnsibleInWsl. Proven only in a Linux pwsh container. A real Windows Sandbox run is still needed.
+
+Mechanical check: the Pester Describe 'Invoke-PackageManagerRetry, the one retry rule every package manager follows', which reads setup/ansible/tasks/install_role_packages.yaml.
+
+#### 10.73 Chocolatey was believed to have no package index to refresh
+
+Cause: a wrong premise, caught by asking the tool's documentation (defect class 15). The brief said Chocolatey has no package index to refresh.
+
+Effect if believed: Chocolatey retries would have kept using feed answers cached for up to 30 minutes.
+
+How it was proven: docs.chocolatey.org/en-us/choco/features/http-caching says "Any created HTTP cache will be valid for 30 minutes", and choco/commands/cache says `choco cache remove` clears the User HTTP Cache and, when elevated, the System HTTP Cache (v2.1.0+). The hypothesis "nothing to refresh" was wrong for Chocolatey and right for npm (npm 11.19.0 docs/content/commands/npm-cache.md).
+
+Fix: `choco cache remove -y --limit-output` is the Chocolatey refresh in Install-ChocolateyPackage.
+
+Mechanical check: none.
+
+### Introduced while giving the Windows package managers one retry rule, 2026-10-15
+
+#### 10.74 The npm retry message claimed a refresh that never ran
+
+Cause: introduced by the agent doing 10.72. The first version of the helper printed "refreshing and retrying" for npm, which has no refresh step.
+
+Effect: the log said `attempt 1 of 4 for @opencode/cli failed, refreshing and retrying in 20s` when nothing was refreshed. It never left the working tree.
+
+How it was proven: seen in the first Pester run's output.
+
+Fix: the message now says "after a refresh" only when a refresh step is given.
+
+Mechanical check: none.
+
+### Found while extending the Windows retry rule to every install path, 2026-10-15
+
+#### 10.75 Windows install paths outside the package managers had no retry
+
+Cause: the retry rule of 10.72 (`Invoke-PackageManagerRetry`) reached winget, Chocolatey, npm and the WSL Ansible install only. These had no retry at all: pip for pipx, `dart pub global activate fvm`, `nvm install lts`, `fvm install <channel>`, the Gridcoin and Android command line tools downloads, sdkmanager's package install, `wsl --install`, `Install-Module` for ConsoleGuiTools, the Chocolatey bootstrap in the elevated child, and every install in docs/manual/windows/install.ps1.
+
+Effect: one dropped connection failed the item outright.
+
+How it was proven: new Pester cases and a syntax-tree guard ('Every network install in the Windows wizard sits inside the shared retry rule') failed against the old tree, 35 failures, the guard naming setup.ps1:937 Install-Module and WindowsCustomInstalls.ps1:771 and 917 Invoke-WebRequest, then passed, 169 of 176 with 4 skipped and 3 not run. Proven only on Linux pwsh 7.5 in a container, with stubs and mocks. A real Windows Sandbox run is still needed.
+
+Fix: `Invoke-InstallStepWithRetry` in setup/windows/WindowsSoftware.ps1, used by WindowsCustomInstalls.ps1, WindowsSettings.ps1 and setup.ps1, plus `Invoke-InstallWithRetry` in docs/manual/windows/install.ps1, held to the same numbers by Pester.
+
+Mechanical check: the syntax-tree guard in e2e/tier1/windows/WindowsSoftware.Tests.ps1.
+
+#### 10.76 pip was believed to query PyPI live, so a retry had nothing to refresh
+
+Cause: a wrong assumption, kept on purpose: "pip queries PyPI live, so a pip retry has nothing to refresh." True for pip 24.0, which revalidates every index request with `Cache-Control: max-age=0`. False since pip 26.2 (2026-07-29), which caches index responses by their Cache-Control header and refreshes them only with `--refresh-package`.
+
+Effect if believed: a pip retry on 26.2 or later would ask the same cached index response again.
+
+How it was proven: by reading pip's collector.py and NEWS.rst at both tags, then measured: `PIP_REFRESH_PACKAGE=pipx pip download pipx -vvv` printed 'Refreshing package index response' once on 26.2.1 and exited 0 on 24.0, which ignores the unknown option.
+
+Fix: Install-PipxWithPip sets PIP_REFRESH_PACKAGE=pipx before a retry only, in setup/windows/WindowsCustomInstalls.ps1.
+
+Mechanical check: the pipx Pester cases in e2e/tier1/windows/WindowsSoftware.Tests.ps1, which cover the refresh happening only on a retry.
+
+### Found while giving the playbook and the manual scripts one retry rule, 2026-10-15
+
+#### 10.77 Every retry asked the same stale package index again
+
+Cause: apt, dnf, flatpak, Homebrew and the vendor .deb and .rpm installs retried the same command through `until`, with no index refresh in between. Thirty-odd single-package module installs in the roles retried 4 times 10 to 15 seconds apart, or not at all.
+
+Effect: a package a lagging mirror answers 404 for fails on every attempt. Against a fake manager that serves a file only after a refresh, the old shape tried `flaky-x` 4 times and named it missing, while the new shape installs it on attempt 2. Failures in the module installs (dnf_url, snap) were fatal and sent software_installer into its rescue, skipping everything after them.
+
+How it was proven: `e2e/tier1/package_retry_rule.sh`, part 3, against a copy of the shared file whose retry skips the refresh. It failed 6 managers and passed snap, which is correct because snap has no refresh. Against the tree before the change it named 61 installs outside the shared file.
+
+Fix: `setup/ansible/tasks/install_role_packages.yaml` is the one rule, `retries: 3` and a delay of 20 seconds, refreshing only before a retry. dynamic_install.yaml and every role install through it. Docker on Arch drops from a 180 second wait to 20 seconds plus a `pacman -Syy` refresh, and AUR drops from 5 attempts 60 seconds apart to 4 attempts 20 seconds apart, wait only.
+
+Mechanical check: `e2e/tier1/package_retry_rule.sh`.
+
+#### 10.78 Batch-era task names were listed as installed packages
+
+Cause: `v2_runner_on_ok` in dual_logger.py recorded the aggregate result of any task whose name contained "Install APT packages", "Install DNF packages" and similar as an installed entry.
+
+Effect: `e2e/runs/2026-10-15T08-46-14Z_debian_defaults/result.txt` lists `software_installer: Install APT packages, one at a time, ai.opencode.opencode, ...`. The Arch and Fedora runs of the same day show "Install Pacman packages, one at a time" and "Install DNF packages, one at a time" the same way.
+
+How it was proven: those three result.txt files, plus the summary probe failing against a copy of the callback with the match restored: `the task name 'Install a package set one package at a time, first attempt without refreshing the package index' is listed under INSTALLED as if it were a package`.
+
+Fix: the match is removed. The per-item hooks summarise every package.
+
+Mechanical check: the INSTALLED assertion in the `e2e/tier1/ansible_static.sh` summary probe.
+
+#### 10.79 Retry keys left behind on the Flatpak set_fact
+
+Cause: an earlier deletion of a Homebrew module task left `register: flatpak_batch_module_result`, `until`, `retries: 3` and `delay: 20` indented under "Record missing Flatpak applications in the play summary". This is a second instance of the shape in 10.63, on a different task.
+
+Effect: per `git show HEAD:... | yaml.safe_load`, that set_fact carries the keys `['ansible.builtin.set_fact', 'delay', 'name', 'register', 'retries', 'tags', 'until', 'when']`. This is defect class 1.
+
+How it was proven: the YAML load quoted above.
+
+Fix: the lines were removed in dynamic_install.yaml.
+
+Mechanical check: none.
+
+#### 10.80 The manual guides installed several packages in one call
+
+Cause: table cells and fenced blocks under docs/manual handed QEMU/KVM, Docker and prerequisite sets to one `pacman -S`, `apt-get install` or `dnf install`.
+
+Effect: 7 calls. The Arch one included `bridge-utils`, which does not exist on Arch (search JSON 0 results, `pacman -Si` not found), so that call could only fail whole. The Debian and Ubuntu ones named `qemu-kvm`, which has no candidate on Ubuntu 26.04. The Arch install.sh carried the same bridge-utils name, so it failed and was named on every run.
+
+How it was proven: batched_managers.sh on the old guides named all 7 calls, including `docs/manual/arch/arch_manual_install.md:228 hands virt-manager qemu-full libvirt dnsmasq nftables bridge-utils virtiofsd to one pacman call`, and the archlinux.org lookup above.
+
+Fix: one-line loops in the three guides and setup/software.md, plus corrected names in arch and debian-ubuntu install.sh (`qemu-system-x86` and `libvirt-clients` instead of `qemu-kvm`).
+
+Mechanical check: `e2e/tier1/batched_managers.sh`, which now reads fenced blocks and inline code.
+
+#### 10.81 install_one in the manual scripts did not retry
+
+Cause: `install_one`, added for 10.25, ran the command once.
+
+Effect: one dropped connection lost the package. `INSTALL_ATTEMPTS` was unset in all four scripts.
+
+How it was proven: `package_retry_rule.sh` part 4 on the old scripts, which found `INSTALL_ATTEMPTS=unset INSTALL_RETRY_DELAY=unset` in all four.
+
+Fix: four attempts, 20 seconds apart, with a per-manager refresh. Arch uses `pacman -Syu`, never a bare `-Syy`.
+
+Mechanical check: `e2e/tier1/package_retry_rule.sh` part 4.
+
+### Introduced while giving the playbook and the manual scripts one retry rule, 2026-10-15
+
+#### 10.82 The core snap was resolved as a pacman name
+
+Cause: introduced by the agent doing 10.77, caught by tier 2. Routing `snap install core` through the shared file put `core` in a role_packages list whose `when` names Archlinux, and the tier 2 extractor labels by family.
+
+Effect: `FAIL Arch: 1 of 50 literal pacman names in role tasks do not exist` / `core (in main.yaml)`.
+
+How it was proven: the tier 2 run log.
+
+Fix: `extract_role_packages.awk` labels a list by its `role_packages_manager` when that is not apt, dnf or pacman.
+
+Mechanical check: `e2e/tier2/resolve_role_packages.sh`, which caught it.
+
+#### 10.83 The new retry rule check died silently under set -e
+
+Cause: introduced by the agent doing 10.77, caught before the gate. `first_refresh="$(grep ... | head | cut)"` in package_retry_rule.sh with no match, under `set -euo pipefail`.
+
+Effect: the mutation run printed one FAIL and stopped with no tally.
+
+How it was proven: the mutation run's output.
+
+Fix: `|| true` on those substitutions.
+
+Mechanical check: run.sh's "no tally line" guard. This is defect class 10.
+
+#### 10.84 Two checks keyed on the old install shape
+
+Cause: introduced by the agent doing 10.77, caught by tier 1. `timeout_indirection.sh` looked for `name: coreutils`, and `batched_managers.sh` judged a new debug task reading the apt_url list as an installer.
+
+Effect: `macos_core does not install coreutils, so gtimeout will not exist`, and `apt_url hands its whole set to one call ... Report vendor packages that apt reported installed and dpkg does not have`.
+
+How it was proven: the tier 1 log.
+
+Fix: both checks now read the new shapes. Debug tasks are not treated as installers.
+
+Mechanical check: the checks themselves.
+
+#### 10.85 A vendor .deb report blamed apt for downloads that never arrived
+
+Cause: introduced by the agent doing 10.77, found in review. The first version of the "apt reported installed and dpkg does not have" message listed every `apt_url_missing` package, which includes packages whose file never downloaded.
+
+Effect: it would have said apt installed a file it was never given. It never left the working tree.
+
+How it was proven: reading the list's definition, not a run.
+
+Fix: the list is restricted to keys whose file arrived and that the shared file did not name.
+
+Mechanical check: none. It needs tier 3 on Debian.
+
+### Found while adding Kilo, rclone, OpenCode desktop v2 and Zoom, 2026-10-15
+
+#### 10.86 Zoom was dropped in the move to Ansible and never installed anywhere
+
+Cause: commit a62a151 (2026-04-06) deleted ubuntu/ansible/roles/dev_tools/tasks/flatpaks.yaml, which installed `us.zoom.Zoom`. No `install_zoom` toggle or mapping was created in the new design, so nothing on any OS has installed Zoom since. It was not off by default and not mapped to a wrong name. It was simply absent. The commented-out Windows `msstore zoom` line went in the same commit.
+
+Effect: on the owner's CachyOS machine `pacman -Q zoom` answers `error: package 'zoom' was not found`. `grep -rni zoom` across setup/, docs/manual and e2e found nothing.
+
+How it was proven: `git log -S zoom -i` shows a62a151 as the last commit that touched it, and `git show a62a151` shows the removed line `- us.zoom.Zoom` in that file.
+
+Fix: `install_zoom` in setup/ansible/group_vars/all.yaml:51, plus mappings in vars/Archlinux.yaml:58, vars/Debian.yaml:164, vars/RedHat.yaml:138, vars/Darwin.yaml:48 and vars/Windows.yaml (the `zoom` line after `teams`). The live profile turns it off, setup/ansible/profiles/linux_live.yaml:82.
+
+Mechanical check: none. A toggle that was never declared cannot be caught by toggle coverage.
+
+#### 10.87 OpenCode desktop was mapped to version 1 on Linux and Windows while the CLI was version 2
+
+Cause: vars/Archlinux.yaml, vars/Debian.yaml and vars/RedHat.yaml mapped Flathub `ai.opencode.opencode`, and vars/Windows.yaml mapped winget `SST.OpenCodeDesktop`. Both are the version 1 app.
+
+Effect: flathub.org/api/v2/appstream/ai.opencode.opencode reports release 1.18.8. The newest winget manifest for SST.OpenCodeDesktop is 1.19.0, with its installer at github.com/anomalyco/opencode/releases/download/v1.19.0. Chocolatey `opencode-desktop` is 1.17.9. Version 1 refuses to start once version 2 has created ~/.local/share/opencode/opencode.db. The owner's CachyOS machine has `ai.opencode.opencode 1.18.8` installed by the playbook, alongside a hand-installed `opencode-desktop-bin 2.0.29-1`, and ~/.local/share/opencode/opencode.db exists.
+
+How it was proven: those API answers, plus `flatpak list` and `pacman -Q` on that machine.
+
+Fix: version 2 mappings in vars/Archlinux.yaml:72, vars/Debian.yaml:178 and vars/RedHat.yaml:151, and the Windows vendor install in setup/windows/WindowsCustomInstalls.ps1 (`Install-OpenCodeDesktop`), with the pins in setup/pinned_values/pinned_values.toml:85-89.
+
+Mechanical check: the Pester tests "Install-OpenCodeDesktop" in e2e/tier1/windows/WindowsSoftware.Tests.ps1 cover the Windows logic, and were proven failing against a broken copy (no `/D`, and version 1 treated as present): "total=184 passed=3 failed=2". Nothing compares a mapping's version with the CLI's.
+
+#### 10.88 The Linux manual scripts and guides had drifted from the dictionaries
+
+Cause: nothing compared docs/manual/{arch,debian-ubuntu,fedora}/install.sh or their guides with vars/*.yaml. Only e2e/tier1/manual_windows_install.sh guarded a manual route, the Windows one.
+
+Effect: none of the three scripts installed OpenCode desktop at all. Each guide said `flatpak install ... ai.opencode.opencode`, but FLATPAK_APPS in none of the three scripts listed it. PuTTY is mapped on Arch and Fedora, but the Arch and Fedora scripts and guides lacked it, and setup/software.md said "not available" for both. setup/configuration.md said "The five" custom installs while six existed (pipx was missing), and setup.ps1's custom-install help named four.
+
+How it was proven: grep of the arrays against vars/*.yaml at the time. Since then by the check below, run through `E2E_REPO_ROOT` against a copy carrying the three scripts from HEAD: all six script assertions failed, naming among others `opencode-desktop-bin`, `https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-amd64.deb`, `https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-x86_64.rpm` and `putty`. Against a copy carrying the three guides from HEAD, all six guide assertions failed, naming `ai.opencode.opencode` and `putty` among others.
+
+Fix: the scripts, the guides, setup/software.md, setup/configuration.md and setup/setup.ps1 as changed with 10.86 and 10.87.
+
+Mechanical check: [e2e/tier1/manual_linux_install.sh](../e2e/tier1/manual_linux_install.sh), run by tier 1, with its documented differences in [manual_linux_install_allowed.txt](../e2e/tier1/manual_linux_install_allowed.txt).
+
+#### 10.89 The dual_logger toggle attribution lacked Codex and Grok
+
+Cause: `ROLE_TOGGLE_MAPPING['ai_tools']` in setup/ansible/callback_plugins/dual_logger.py did not list `install_codex` or `install_grok`, so a skipped ai_tools step could not be attributed to those toggles.
+
+Effect: a skipped Codex or Grok step was reported without the toggle that skipped it.
+
+How it was proven: reading the file, not a run.
+
+Fix: dual_logger.py:208, which now lists `install_codex`, `install_grok` and `install_kilo_code`.
+
+Mechanical check: none.
+
+### Found while adding the manual Linux install check, 2026-10-15
+
+#### 10.90 No manual Linux route installed Podman Desktop or OpenRazer
+
+Cause: `install_podman_desktop` and `install_openrazer` are on by default in setup/ansible/group_vars/linux.yaml and mapped on all three families, and neither was ever written into docs/manual. `git log -S openrazer -- docs/manual` and `git log -S podman -- docs/manual` find nothing.
+
+Effect: the first run of the check named `io.podman_desktop.PodmanDesktop` and `openrazer-daemon` as missing from the Arch script and guide, and `io.podman_desktop.PodmanDesktop` and `openrazer-meta` from the Debian and Fedora ones.
+
+How it was proven: that run of e2e/tier1/manual_linux_install.sh against the working tree.
+
+Fix: Podman Desktop in FLATPAK_APPS of all three scripts and in each guide's virtualization section. OpenRazer as the playbook installs it: on Arch the headers of every installed kernel from its pkgbase file, then `openrazer-daemon` and the `openrazer` group, on Debian `openrazer-meta` and the `plugdev` group, on Fedora the hardware:razer repository from the `openrazer_fedora_repo_url` pin, `kernel-devel` and `kernel-headers`, then `openrazer-meta` and the `plugdev` group. The pkgbase files were measured world readable on the owner's CachyOS machine, and the repository location answered 200 with a `[hardware_razer]` repository file on 2026-10-15.
+
+Mechanical check: e2e/tier1/manual_linux_install.sh, which caught it.
+
+#### 10.91 The manual Linux route installed a Dart the playbook never installs on Linux
+
+Cause: all three scripts listed `dart` and all three guides had a "Dart SDK" block, while `install_dart` is a documented no-op on every family but Windows (setup/ansible/group_vars/all.yaml and e2e/tier1/documented_no_ops.txt). Dart reaches Linux only inside the Flutter SDK that FVM installs.
+
+Effect: the check named `dart` as a stray on all three scripts and guides. On Debian it is worse than a stray: Debian and Ubuntu carry no package named `dart`, so the Debian script recorded it as a failed package on every run.
+
+How it was proven: the check's first run, and for Debian `apt-get install -s dart` after `apt-get update` in `debian:trixie` and `ubuntu:26.04` on 2026-10-15, which both answered `E: Unable to locate package dart`, with an empty `apt-cache policy dart`.
+
+Fix: `dart` removed from the three scripts, and each guide's Dart SDK block replaced with one sentence pointing at FVM.
+
+Mechanical check: e2e/tier1/manual_linux_install.sh.
+
+#### 10.92 The Fedora script installed grubby although install_boot_repair is off
+
+Cause: DNF_PACKAGES in docs/manual/fedora/install.sh listed `grubby`, the `boot_repair` mapping, while `install_boot_repair: false` in setup/ansible/group_vars/linux.yaml.
+
+Effect: the manual route installed a package the playbook does not. The check named `grubby` as a stray on the Fedora script.
+
+How it was proven: the check's first run.
+
+Fix: `grubby` removed from the script. The guide keeps its row, because the guide lists every mapping, on or off.
+
+Mechanical check: e2e/tier1/manual_linux_install.sh.
+
+#### 10.93 The Fedora manual route installed the dnf4 plugins for a dnf5 command
+
+Cause: the Fedora script and guide installed `dnf-plugins-core` as the prerequisite for `dnf config-manager addrepo`. That syntax is dnf5's, and the command comes from `dnf5-plugins`.
+
+Effect: in `fedora:44` on 2026-10-15, `/usr/bin/dnf` resolves to `/usr/bin/dnf5`, `dnf5-plugins-5.4.3.0-2.fc44` is installed and `dnf config-manager --help` exits 0 before anything else is installed, and `dnf-plugins-core-4.10.1-9.fc44` carries only `/usr/lib/python3.14/site-packages/dnf-plugins/config_manager.py`, the dnf4 plugin. So the prerequisite installed something nothing used.
+
+How it was proven: those commands in a `fedora:44` container. I first meant to list `dnf-plugins-core` as a documented difference, and looking for the playbook file that justifies it is what showed nothing needs it.
+
+Fix: `dnf5-plugins` in the Fedora script and guide, listed in manual_linux_install_allowed.txt as a manual-route prerequisite.
+
+Mechanical check: e2e/tier1/manual_linux_install.sh fails on any name the allowance file does not explain, which is what made this one visible.
+
+#### 10.94 The Debian manual script never installed Docker
+
+Cause: docs/manual/debian-ubuntu/install.sh added no Docker repository and installed no Docker package, while its guide, the Fedora script and the Arch script all install the engine, and the playbook's virtualization_config installs `docker-ce` on Debian whenever `install_docker` is on, which it is by default.
+
+Effect: a Debian or Ubuntu machine set up with the script had no Docker engine, and so nothing for Podman Desktop to manage.
+
+How it was proven: reading the script against the guide's Docker CE section. Docker is not a mapping, so the check does not cover the omission itself.
+
+Fix: the script adds Docker's apt repository with the same ubuntu or debian normalisation it uses for Tailscale and installs the five packages the guide and virtualization_config name, one per call.
+
+Mechanical check: none for the omission. The check only refuses Docker names that manual_linux_install_allowed.txt does not tie to virtualization_config.
+
+### Introduced while adding the manual Linux install check, 2026-10-15
+
+#### 10.95 The new check could not read a single pin
+
+Cause: introduced by me, caught on the first run. The check relied on `require_python` to source setup/pinned_values/pinned_values.sh, but `require_python` calls `find_runnable_python` inside a command substitution, so the source happened in a subshell and `pinned_values_load` never existed in the check itself.
+
+Effect: `e2e/tier1/manual_linux_install.sh: line 68: pinned_values_load: command not found`, followed by its own FAIL that the pinned values could not be read.
+
+How it was proven: that run.
+
+Fix: the check sources the adapter itself, as windows_mapping.sh and toggle_coverage.sh do.
+
+Mechanical check: the check's own failure branch, which reported it rather than passing.
+
+#### 10.96 The new check quoted the pins file and read as a second parser
+
+Cause: introduced by me, caught by tier 1. The failure detail for an unreadable pin file quoted `setup/pinned_values/pinned_values.toml`, and e2e/tier1/pinned_values.sh treats a quoted mention of that file as a place that could read it.
+
+Effect: `FAIL 1 second parser(s) of the pinned values, which is how the three the reader replaced started` / `e2e/tier1/manual_linux_install.sh names the data file where it could read it`.
+
+How it was proven: the tier 1 log.
+
+Fix: the detail now names e2e/tier1/pinned_values.sh instead of the data file.
+
+Mechanical check: e2e/tier1/pinned_values.sh, which caught it.
+
+### Found while adding the OpenCode version switch, 2026-10-15
+
+#### 10.97 The Windows custom menu could only narrow the selection
+
+Cause: setup/setup.ps1 handed the ticked keys over as OnlyKeys and nothing else, and every phase's `$wanted` requires both the group_vars value to be true and the key to be in OnlyKeys.
+
+Effect: no toggle that ships off could be turned on from the Windows checklist. That includes `install_stable_diffusion`, `install_dbeaver` and `install_onlyoffice` on Windows, and the new `opencode_use_v1`. Ticking one installed nothing and nothing said so.
+
+How it was proven: by reading the four `$wanted` predicates, in Resolve-WindowsSoftwarePlan, Invoke-WindowsNpmToolInstall, Invoke-WindowsCustomInstall and WindowsSettings.ps1. It was not run interactively on Windows. The new Pester case "turns a ticked toggle that ships off on" fails with "Cannot index into a null array" when the override is taken out again.
+
+Fix: `Resolve-PickedSelection` in setup/setup.ps1. Invoke-Main now passes OnlyKeys plus a ToggleOverride carrying every offered key, ticked as on and unticked as off, the way the bash checklist does.
+
+Mechanical check: the Pester case "turns a ticked toggle that ships off on" in WindowsSoftware.Tests.ps1, proven to fail without the override.
+
+### Introduced while adding the OpenCode version switch, 2026-10-15
+
+#### 10.98 A fixture play reached the real pacman on the owner's machine
+
+Cause: introduced by an agent while writing e2e/tier1/opencode_switch.sh. The first version of e2e/tier1/opencode_switch_pass.yaml put `{{ ih_case.state }}/../bin` on PATH for its fakes, a directory that did not exist, so every fake fell through to the real command.
+
+Effect: on the owner's CachyOS machine the play ran `pacman -R --noconfirm opencode-desktop-bin` for real. It failed only because the check does not run as root: "error: you cannot perform this operation unless you are root."
+
+How it was proven: the fatal task output named `"cmd": "pacman -R --noconfirm opencode-desktop-bin"`. Afterwards `pacman -Q opencode-desktop-bin` still answered `opencode-desktop-bin 2.0.29-1` and `flatpak list --system` showed no OpenCode, so nothing on the machine changed.
+
+Fix: e2e/tier1/opencode_switch.sh and e2e/tier1/opencode_switch_pass.yaml. The fake directory is passed explicitly as `ih_fake_bin`. The shell refuses to start unless every command in `opencode_desktop_commands` resolves to a fake. The play builds one `ih_fake_environment` and proves, under that same environment, that each of flatpak, dpkg-query, apt-get, pacman, rpm, dnf and npm resolves inside the fake directory before any role file runs.
+
+Mechanical check: that guard, proven against the defect by putting the wrong directory back. The play then stopped with "flatpak resolves to /usr/bin/flatpak, not to a fake in ..." before any removal. The shape is recorded as defect class 16 in AGENTS.md.
+
+#### 10.99 The tier 2 npm check got a template instead of a package name
+
+Cause: introduced by an agent. roles/ai_tools/tasks/opencode_unix.yaml now names `{{ opencode_cli_package }}`, and tier 2 read `npm_pkg` literally.
+
+Effect: `FAIL npm: 1 of 7 packages are not what they claim ... {{ opencode_cli_package }}: https://registry.npmjs.org/{{ opencode_cli_package }} gave up with curl exit 3`.
+
+How it was proven: the first tier 2 run of this change.
+
+Fix: `ai_tools_npm_packages` and `opencode_cli_pair` in e2e/lib/common.sh expand the pair, and e2e/tier2/resolve_packages.sh and e2e/tier1/windows_npm_parity.sh both read through them. The rerun gave `PASS npm: all 8 packages are live...`.
+
+Mechanical check: the tier 2 npm check itself, which caught it.
+
+#### 10.100 Two Windows check failures hidden by a SKIP
+
+Cause: introduced by an agent. The new mapping `opencode_desktop_v1` has no toggle, and the new toggle `opencode_use_v1` is neither an install_ toggle nor a system setting.
+
+Effect: windows_mapping.sh failed with "Windows mappings with no install_ toggle anywhere ... opencode_desktop_v1". windows_settings.sh failed with "the Windows system-setting toggles and WindowsSettings.ps1 do not cover each other ... < opencode_use_v1". On the Linux host where the change was made, both only SKIP for lack of pwsh, so tier 1 there exited 0 with the defect in place.
+
+How it was proven: running both checks inside a throwaway PowerShell container.
+
+Fix: setup/windows/WindowsCustomInstalls.ps1 declares `$script:CustomInstallMappingKeys` and setup/windows/WindowsSoftware.ps1 declares `$script:OpenCodeVersionToggle`, and the two checks read those declarations.
+
+Wrong turn worth keeping: the green tier 1 on a host without pwsh was taken as covering the PowerShell side, and it covers nothing there. A SKIP is not a pass.
+
+Mechanical check: e2e/tier1/windows_mapping.sh and e2e/tier1/windows_settings.sh, both proven to fail again when the declarations are removed, and only where pwsh runs.

@@ -11,7 +11,9 @@
 For configuration tasks and toggle reference, see [configuration.md](configuration.md). For the full software
 catalogue, see [software.md](software.md). For where to look up versions across every package manager and direct-URL
 source, see [version_sources.md](version_sources.md). Authoritative per-OS package mappings live in
-[ansible/vars/](ansible/vars/).
+[ansible/vars/](ansible/vars/). After the install, record the machine for agents with
+[bootstrap_machine_prompt.md](bootstrap_machine_prompt.md), see
+[After the install: record the machine for agents](#after-the-install-record-the-machine-for-agents).
 
 ### Using the setup script
 
@@ -71,7 +73,7 @@ What `setup.ps1` does on Windows: it never runs the Ansible playbook, because a 
 1. Upgrades already-installed winget and Chocolatey packages, unless `-SkipSystemUpgrade` is given.
 2. Installs `Microsoft.PowerShell.ConsoleGuiTools` if missing.
 3. Presents an interactive picker for software and the three Windows system settings together, or applies `group_vars` defaults non-interactively.
-4. Installs the selected software natively through winget, Chocolatey and npm, from [setup/windows/](windows/). winget programs go machine-wide wherever a working machine-wide route exists, and per user only where none does, see [software.md](software.md#how-to-read-this-file). Syncthing is a machine-wide portable install, which winget performs only when winget itself is elevated, so Windows asks for consent for that winget call. Slack and Claude Desktop install per user: their machine-wide msix was refused on Windows Server in GitHub sweep 38130934506, so they stay per user until a Windows 11 test proves that route, see [e2e/manual_test_matrix.md](../e2e/manual_test_matrix.md). Every step that needs an administrator, that winget call, the Chocolatey batch, the optional features and the Syncthing firewall rules, opens its own consent prompt. A refused prompt is reported by the step it belongs to. Syncthing then gets a per-user Startup folder shortcut and its firewall ports, see [software.md](software.md#utilities).
+4. Installs the selected software natively through winget, Chocolatey and npm, from [setup/windows/](windows/). winget programs go machine-wide wherever a working machine-wide route exists, and per user only where none does, see [software.md](software.md#how-to-read-this-file). Syncthing is a machine-wide portable install, which winget performs only when winget itself is elevated, so Windows asks for consent for that winget call. Slack and Claude Desktop install per user: their machine-wide msix was refused on Windows Server in GitHub sweep 38130934506, so they stay per user until a Windows 11 test proves that route, see [e2e/manual_test_matrix.md](../e2e/manual_test_matrix.md). Every step that needs an administrator, that winget call, the Chocolatey batch, the optional features and the Syncthing firewall rules, opens its own consent prompt. A refused prompt is reported by the step it belongs to. Syncthing then gets a per-user Startup folder shortcut and its firewall ports, see [software.md](software.md#utilities). Every package install, by winget, Chocolatey and npm, and the apt, dnf or pacman steps that install Ansible inside WSL, follows the retry rule [setup/ansible/tasks/install_role_packages.yaml](ansible/tasks/install_role_packages.yaml) uses: a first attempt with no refresh, then up to three retries twenty seconds apart, each after refreshing that manager's own package list. For winget that is `winget source update --name <source>`, for Chocolatey `choco cache remove`, which empties the cached feed answers, and npm has nothing to refresh, so it only waits. A package still missing after the last attempt is named in the summary with what its attempts said. A timeout or a refused consent prompt is not retried.
 5. Empties the winget and Chocolatey download caches, printing what that freed and how much is left on the system drive. Here rather than at the end, because the two steps after it are the ones that need the room: the Android SDK unzips into the temporary directory and `wsl --install` fetches a distribution image, and both have failed for want of disk. Chocolatey is what fills it, since it installs from its own download directory and leaves the file there.
 6. Runs the installs no single package can express (Java, Node.js, Flutter, the Android SDK, Gridcoin, Razer Cortex), then writes the development environment variables that point at what they just installed.
 7. Applies the three Windows system settings natively: the optional features, WSL registration, and the desktop wallpaper.
@@ -256,7 +258,7 @@ Every run writes four log files in your home directory:
 
 | Log file | Contents |
 |---|---|
-| `~/installation_full.log` | Complete playbook output, phase separators, per-task duration, and an end-of-run grouped summary (installed, already-present, skipped, failed). |
+| `~/installation_full.log` | Complete playbook output, phase separators, per-task duration, and an end-of-run grouped summary (installed, already-present, skipped, tolerated failures, failed). A package whose first attempt failed and a retry installed is listed once, under installed, as `docker (after 2 retries)`. A package that failed every attempt stays a failure. |
 | `~/installation_errors.log` | Only FAILED tasks and `unreachable` hosts. |
 | `~/installation_warnings.log` | Only WARNING-level entries (deprecations, captured stderr, etc.). |
 | `~/installation_skipped.log` | Per-item skips with the reason category (toggle disabled, not for this OS, ...). |
@@ -288,23 +290,23 @@ otherwise the install is just slow.
 For verbose live output from the underlying tool, open a second terminal and tail the per-tool log directly:
 
 ```bash
-tail -f /var/log/installation-flatpak.log
+tail -f /var/log/installation-packages.log
 ```
 
 The available log files match the running task:
 
 | Task | Log file |
 |---|---|
-| `Install APT packages, one at a time` (every apt package, Claude Desktop included) | `/var/log/installation-apt.log` |
-| `Install Flatpak applications, one at a time` | `/var/log/installation-flatpak.log` |
+| `Install a package set one package at a time, first attempt without refreshing the package index` (every apt, dnf, pacman, flatpak and snap install, the software set and every role alike) | `/var/log/installation-packages.log` |
+| `Retry each package that failed, refreshing the package index first where the manager keeps one` (the retries of the same installs, with each index refresh) | `/var/log/installation-packages.log` |
 | `Full system upgrade and autoremove (Debian, via raw)` | `/var/log/installation-apt-upgrade.log` |
-| `Install QEMU/KVM and virt-manager packages (Debian)` | `/var/log/installation-virt-apt.log` |
-| `Install Docker CE (Debian)` | `/var/log/installation-docker-apt.log` |
+
+Homebrew installs run as the user and write no log file. Their output is in the playbook's own log.
 
 These logs and tables only apply when the playbook runs, which on Windows means the Manual run section above, driven by hand inside WSL. `setup.ps1` never runs the playbook itself, see [docs/regression_ledger.md](../docs/regression_ledger.md). If you do run it that way, the same files live under WSL's filesystem. Tail them from PowerShell with:
 
 ```powershell
-wsl -d Ubuntu tail -f /var/log/installation-flatpak.log
+wsl -d Ubuntu tail -f /var/log/installation-packages.log
 ```
 
 The heartbeat tick (default 5s) and idle-ping window (default 300s) are tunable:
@@ -434,7 +436,7 @@ Some installations cannot be abstracted through a single package manager and hav
 - [waydroid](ansible/roles/waydroid/): kernel parameters and custom GDM files for the Wayland container.
 - [system_core](ansible/roles/system_core/): system upgrade, tmpfs, GRUB timeout, RTC fix, locale.
 - [virtualization_config](ansible/roles/virtualization_config/): QEMU/KVM, virt-manager, and virtiofsd on Linux.
-  Auto-installs `spice-vdagent` inside a VM guest. macOS uses UTM (Apple Virtualization). Windows uses VirtualBox via winget, installed natively by [setup/windows/](windows/), not by this Ansible role. VMware Workstation Player auto-install is currently broken (Broadcom moved the download behind a portal login), install manually or use VirtualBox.
+  Auto-installs `spice-vdagent` inside a VM guest. macOS gets UTM (Apple Virtualization) and VirtualBox from Homebrew casks. Windows uses VirtualBox via winget, installed natively by [setup/windows/](windows/), not by this Ansible role. VMware Workstation Player auto-install is currently broken (Broadcom moved the download behind a portal login), install manually or use VirtualBox.
 
 ### Non-standard installation methods
 
@@ -455,12 +457,13 @@ Source role: [roles/ai_tools/](ansible/roles/ai_tools/).
 | **Claude Code CLI** | `npm install -g @anthropic-ai/claude-code` | same | same | same | same |
 | **Claude Desktop** | on by default, `sudo apt-get install -y claude-desktop` from Anthropic's own apt repository | on by default, AUR `claude-desktop` through `paru`, which compiles nothing: it downloads Anthropic's own `.deb`, checks its pinned SHA-256 and unpacks it | not installed, the vendor does not support Fedora | `brew install --cask claude` | `winget install -e --id Anthropic.Claude`, installed natively by [setup/windows/](windows/), the `ai_tools` role's Windows task file for it can never run |
 | **Claude Cowork** | Build from source via `go` and `make install` | same | same | same | not available |
-| **OpenCode** | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` removes version 1, which claims the same `opencode` command | same | same | same | same |
+| **OpenCode** | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` removes version 1, which claims the same `opencode` command. With `opencode_use_v1`, labelled `Switch OpenCode from v2 to v1` on the checklist and left off by `--software all` and `-Software all`, `opencode-ai` after removing `@opencode/cli`. Version 1 starts with an empty data folder, the version 2 one moved to `opencode.v2-backup-<date>-<time>`, see [software.md](software.md) | same | same | same | same |
+| **Kilo Code CLI** | `npm install -g @kilocode/cli`, the `kilo` command | same | same | same | same |
 | **OpenSpec** | `npm install -g @fission-ai/openspec` | same | same | same | same |
 | **Codex CLI** | `npm install -g @openai/codex` | same | same | same | same |
 | **Grok CLI** | `npm install -g @xai-official/grok` | same | same | same | same |
 | **ChatGPT desktop** | no official Linux build | no official Linux build | no official Linux build | `brew install --cask chatgpt` | `winget install -e --id 9PLM9XGG6VKS --source msstore` |
-| **OpenCode desktop** | `flatpak install -y flathub ai.opencode.opencode` | same | same | `brew install --cask opencode-desktop` | `winget install -e --id SST.OpenCodeDesktop` |
+| **OpenCode desktop** | version 2 from the vendor `.deb`, see URL-based package installs below. With `opencode_use_v1`, version 1 from Flathub, `ai.opencode.opencode`, after removing the `.deb` | `yay -S opencode-desktop-bin`. With `opencode_use_v1`, version 1 from Flathub, `ai.opencode.opencode`, after removing `opencode-desktop-bin` | version 2 from the vendor `.rpm`, see URL-based package installs below. With `opencode_use_v1`, version 1 from Flathub, `ai.opencode.opencode`, after removing the `.rpm` | `brew install --cask opencode-desktop`. With `opencode_use_v1`, version 1 from the vendor DMG on the GitHub release after `brew uninstall --cask opencode-desktop`, because Homebrew has no version 1 cask | version 2 from the vendor installer, `setup/windows/WindowsCustomInstalls.ps1` runs it with `/S`. With `opencode_use_v1`, version 1 from `winget install -e --id SST.OpenCodeDesktop --scope user`, after uninstalling version 2 |
 
 #### Virtualization tools
 
@@ -470,8 +473,8 @@ Source role: [roles/ai_tools/](ansible/roles/ai_tools/).
 |---|---|---|---|---|---|
 | **QEMU/KVM + virt-manager** | `sudo apt-get install -y qemu-kvm libvirt-daemon-system virt-manager virtinst bridge-utils virtiofsd` | `sudo pacman -S --needed virt-manager qemu-full libvirt dnsmasq nftables bridge-utils virtiofsd` | `sudo dnf install -y qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd` | not available | not available |
 | **UTM** | not available | not available | not available | `brew install --cask utm` | not available |
-| **VirtualBox** | not available | not available | not available | not available | `winget install -e --id Oracle.VirtualBox` |
-| **VMware** | not available | not available | not available | `brew install --cask vmware-fusion` | `choco install vmware-workstation-player -y` |
+| **VirtualBox** | not available | not available | not available | `brew install --cask virtualbox` | `winget install -e --id Oracle.VirtualBox` |
+| **VMware** | not available | not available | not available | not available, the `vmware-fusion` cask no longer exists | `choco install vmware-workstation-player -y` |
 | **Docker** | `sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo first) | `sudo pacman -S --needed docker` | `sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` (repo first) | `brew install --cask docker-desktop` | `winget install -e --id Docker.DockerDesktop` |
 
 #### SDK managers
@@ -504,6 +507,7 @@ distro package exists or the repo version is too old. Pinned versions and URL te
 | **Balena Etcher** | `curl -fsSLo /tmp/balena-etcher.deb https://github.com/balena-io/etcher/releases/download/v2.1.6/balena-etcher_2.1.6_amd64.deb && sudo apt-get install -y /tmp/balena-etcher.deb` | not installed, the AUR package conflicts with nodejs | `sudo dnf install -y https://github.com/balena-io/etcher/releases/download/v2.1.6/balena-etcher-2.1.6-1.x86_64.rpm` |
 | **Veracrypt** | `curl -fsSLo /tmp/veracrypt.deb https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-Ubuntu-24.04-amd64.deb && sudo apt-get install -y /tmp/veracrypt.deb` | `sudo pacman -S --needed veracrypt` | `sudo dnf install -y https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-CentOS-8-x86_64.rpm` |
 | **TeamViewer** | `curl -fsSLo /tmp/teamviewer.deb https://download.teamviewer.com/download/linux/teamviewer_amd64.deb && sudo apt-get install -y /tmp/teamviewer.deb` | `yay -S teamviewer` | `sudo dnf install -y https://download.teamviewer.com/download/linux/teamviewer.x86_64.rpm` |
+| **OpenCode desktop** | `curl -fsSLo /tmp/opencode-desktop.deb https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-amd64.deb && sudo apt-get install -y /tmp/opencode-desktop.deb` | `yay -S opencode-desktop-bin` | `sudo dnf install -y https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-x86_64.rpm` |
 | **AppImageLauncher** | `curl -fsSLo /tmp/appimagelauncher.deb https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb && sudo apt-get install -y /tmp/appimagelauncher.deb` | `yay -S appimagelauncher` | `curl -fsSLo /tmp/appimagelauncher.rpm https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher-2.2.0-travis995.0f91801.x86_64.rpm && sudo rpm --install --nodigest /tmp/appimagelauncher.rpm` |
 | **Chrome** | `sudo apt-get install -y google-chrome-stable` (repo first) | `yay -S google-chrome` | `sudo dnf install -y google-chrome-stable` (repo first) |
 | **Brave** | `sudo apt-get install -y brave-browser` (repo first) | `yay -S brave-bin` | `sudo dnf install -y brave-browser` (repo first) |
@@ -534,7 +538,6 @@ tasks (e.g. AppImage downloads, custom DMG / EXE installers), add an entry:
 [checksums]
 jetbrains_toolbox = "sha256:0123abcd..."
 gputest = "sha256:..."
-antigravity_macos = "sha256:..."
 gridcoin_macos = "sha256:..."
 gridcoin_flatpak = "sha256:..."
 ```
@@ -602,6 +605,27 @@ shell setup, no environment variables, no groups, no services, no desktop enviro
 
 ---
 
+### After the install: record the machine for agents
+
+The playbook configures a machine and then forgets it. An agent that later changes disks, boot, drivers, audio or
+system packages on that machine has nothing to read, so it guesses. Fix that once, as the last step of a first install
+and again after any large change:
+
+1. Open any agent (Claude Code, Codex, OpenCode, Kilo Code or GitHub Copilot) in your home directory.
+2. Paste [bootstrap_machine_prompt.md](bootstrap_machine_prompt.md) into the session, or tell the agent to read it and
+   follow it. It asks you a short numbered list first (projects folder, disks that must never be touched, backups), then
+   discovers the machine read-only. It never runs `sudo` and lists every command that needs root for you to run.
+3. The result is `MACHINE.md` in `~/.config/agents/` on Linux and macOS, or `%USERPROFILE%\.config\agents\` on Windows,
+   built from the template [MACHINE.md.example](MACHINE.md.example). The file is not loaded into every session. The
+   prompt ends by asking whether to add one line to your global instruction file that makes an agent read it only when
+   a task touches the machine itself.
+
+The projects folder it asks about is the one this playbook already created and exported: `projects_dir` in
+[ansible/group_vars/all.yaml](ansible/group_vars/all.yaml), `~/Projects` on Linux and macOS and
+`%USERPROFILE%\Projects` on Windows, available to every shell as `PROJECTS_DIR`. Give the prompt that answer.
+
+---
+
 ### Docs map
 
 ---
@@ -613,6 +637,8 @@ shell setup, no environment variables, no groups, no services, no desktop enviro
 | [software.md](software.md) | Full per-OS software catalogue with install methods |
 | [../docs/tool_usage.md](../docs/tool_usage.md) | How to use the installed tools that are not self-explanatory |
 | [version_sources.md](version_sources.md) | Where to look up the latest version for every pinned package |
+| [bootstrap_machine_prompt.md](bootstrap_machine_prompt.md) | Prompt that makes an agent discover this machine read-only and write `MACHINE.md` |
+| [MACHINE.md.example](MACHINE.md.example) | Template that prompt fills in, kept under the name of the file it produces |
 | [ansible/tags.md](ansible/tags.md) | Ansible `--tags` taxonomy for surgical partial runs |
 | [../docs/AGENT_TOOLING.md](../docs/AGENT_TOOLING.md) | Agent-standards, OpenSpec, per-agent integration notes |
 | [../docs/MCP_SETUP.md](../docs/MCP_SETUP.md) | MCP server setup (Context7 only in this project) |

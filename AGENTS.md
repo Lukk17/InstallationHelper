@@ -10,6 +10,7 @@ This project includes agent skills in `.agents/skills/`. Invoke relevant skills 
 - `/security-review` before auditing for vulnerabilities
 - `/coding-standards` before writing new code
 - `/python-testing` or `/ai-regression-testing` before adding features or fixing bugs
+- `/arch-linux`, `/cachyos`, `/kde-plasma`, `/windows` or `/macos` before changing a machine of that kind outside the playbook, or when diagnosing one
 
 Slash commands may appear as `/name` or `/name.md` in your agent's autocomplete, use whichever your agent shows.
 
@@ -56,21 +57,21 @@ Every server except `playwright` and `chrome-devtools` reads its endpoint or cre
 
 All supported agents read this `AGENTS.md` from the project root and auto-discover skills from `.agents/skills/`. Start your agent from the project root:
 
-- **Claude Code** — run `claude`. Reads `.claude/CLAUDE.md`, which imports this file, plus `.claude/settings.json` for hooks, `.claude/agents/` and the `.claude/skills` symlink.
+- **Claude Code** — run `claude`. Reads this `AGENTS.md` natively, which needs Claude Code 2.1.277 or later, plus `.claude/settings.json` for hooks, `.claude/agents/` and the `.claude/skills` symlink. That holds only while no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists in the working directory or any directory above it, because any one of those replaces `AGENTS.md` rather than adding to it, so do not add one. Your own `~/.claude/CLAUDE.md` does not count and loads alongside it.
 - **Kilo Code** — reads `AGENTS.md` automatically, plus `.kilo/agents`, which is a symlink to the canonical set. Hooks arrive through the OpenCode plugin below.
-- **OpenCode** — reads `AGENTS.md` automatically, plus `opencode.json` at the project root, which loads `.agents/plugin/hooks.js`.
+- **OpenCode** — reads `AGENTS.md` automatically, plus `opencode.json` at the project root, which declares the plugin by its directory, `./.agents/plugin`, and lists `.agents/instructions/reply-rules.md` as a second instruction file.
 - **Codex CLI** — run `codex`. Reads `AGENTS.md` automatically, plus `.codex/config.toml`, which carries both the MCP servers and the hooks, and `.codex/agents/`. Global settings stay in `~/.codex/config.toml`.
 - **GitHub Copilot** — reads `AGENTS.md`, `.github/agents/` and `.github/hooks/preflight.json`.
 
 ## Hooks
 
-Two Python scripts under `.agents/hooks/` are wired into every surface above. They are not advisory. Read them before wondering why a tool call was refused.
+The Python scripts under `.agents/hooks/` are wired into every surface above. They are not advisory. Read them before wondering why a tool call was refused. The two that matter most are `preflight_gate.py` and `no_ai_markers_check.py`. Beside them sit `task_list_sync.py`, which mirrors the agent task list into `tasks.md` at the root (git-ignored runtime state, the one file the main thread may write), and the markdown lint, status block and question numbering checks. OpenCode 1.x and 2.x and Kilo Code reach all of them through one plugin, `.agents/plugin/index.js`, whose default export is `{ id, server, setup }`: 1.x and Kilo call `server`, 2.x calls `setup`. 2.x also gets the reply rules from the plugin, because it ignores the `instructions` key.
 
-`preflight_gate.py` runs before a tool call and enforces three rules. The main thread may not write any file, and must delegate the change to a subagent that owns the area. This covers the edit tools and the shell alike, because the gate lexes the command, so a redirection, `sed` or `patch` is not a way around it. A subagent whose own definition declares no skills may not act. And the main thread may not run a web fetch or web search directly, it spawns a subagent to research and report back. Any parse error or unexpected payload allows the call, because a broken gate must never break a session.
+`preflight_gate.py` runs before a tool call and enforces three rules. The main thread may not write any file, and must delegate the change to a subagent that owns the area. This covers the edit tools and the shell alike, because the gate lexes the command, so a redirection, `sed` or `patch` is not a way around it. A subagent whose own definition declares no skills may not act. The main thread may not run a web fetch or web search directly, it spawns a subagent to research and report back. And the main thread may not run a script or a module (`bash e2e/run.sh`, `python x.py`, `npm run`), because the gate cannot see what a script writes, so e2e runs are delegated to a subagent. A subagent whose definition names read-only tools carries `permission` deny entries for edit and bash in its OpenCode and Kilo copy, `permissionMode: plan` on Claude Code. Any parse error or unexpected payload allows the call, because a broken gate must never break a session.
 
 `no_ai_markers_check.py` runs when a reply is about to be delivered and blocks prose containing an em dash, an en dash, a semicolon or a bold marker, after stripping fenced code, inline code and link targets. Code is exempt. Prose is not.
 
-Both are generated artifacts from agent-standards, like the subagents. Change them there, not here.
+All of these are generated artifacts from agent-standards, like the subagents. Change them there, not here.
 
 ## Working Principles
 
@@ -211,7 +212,33 @@ dates, error text and fixes are in the ledger.
 15. Trusting a subcommand to do what its name suggests. `choco cache remove` sounds like the command
     that empties the download cache and is not: asked directly, `choco cache --help` on 2.7.3 says it
     works on the User HTTP Cache and, when elevated, the System HTTP Cache, which is the NuGet
-    metadata. Ask the tool what its own command does before building on the name.
+    metadata. Find out what a command really does before building on its name: read the tool's own
+    documentation, or ask the tool itself inside a container, never by running it on the owner's
+    computer, as the MANDATORY section below requires.
+16. A test fake that is not found falls through to the real tool. A fixture play put its fake package
+    managers on PATH under a directory that did not exist, so the removal it was testing ran the real
+    `pacman -R --noconfirm opencode-desktop-bin` on the owner's machine, and only the missing root
+    privilege stopped it. A check that drives anything able to remove or install must prove, under the
+    exact environment it hands the code, that every command resolves to its fake before running it.
+    Guarded now inside `e2e/tier1/opencode_switch_pass.yaml`.
+
+---
+
+## MANDATORY: never run anything on the owner's computer for testing
+
+This repository installs and removes software, so a test that escapes onto the real machine changes the real machine. It has happened twice, both recorded in [`docs/regression_ledger.md`](docs/regression_ledger.md):
+
+1. Entry 10.64: a downloaded JetBrains Toolbox binary was run only to read its `--help`. It ignored `HOME`, started against the owner's real home, rewrote the Toolbox menu entry to a scratch path, regenerated the IDE launchers and rewrote five `.vmoptions` files.
+2. Entry 10.98: a tier 1 fixture play put its fakes under a directory that did not exist, so it ran the real `pacman -R --noconfirm opencode-desktop-bin`. It was refused only because the check was not running as root.
+
+The rules for this repository:
+
+1. Every test, check, gate, test suite, experiment and probe runs only inside a container or a throwaway virtual machine, even when it only reads files. Nothing test-like runs on the owner's computer. In this repository that container is the gate container, built from [`e2e/gate/Dockerfile`](e2e/gate/Dockerfile): `bash e2e/run.sh` builds it and runs every tier inside it by itself, and every check refuses to start anywhere else.
+2. Never run a downloaded program, an installer, a vendor binary, an IDE or an app on the owner's computer to read its help or try it. Read its options from its documentation or its files instead.
+3. Never run a package manager install, remove or upgrade, a playbook, or a role against the owner's computer unless the owner explicitly asks for that exact change in the conversation.
+4. Read-only inspection of the owner's computer is allowed only to answer the owner's direct question, never as a test.
+5. A test that executes a play or a command with fakes belongs in a container. The fakes must also be proven to resolve before anything runs, as defect class 16 above requires, and that proof does not replace the container.
+6. If something on the owner's computer was changed by mistake, stop, tell the owner immediately exactly what changed, and restore it from a backup before doing anything else.
 
 ---
 
@@ -219,25 +246,17 @@ dates, error text and fixes are in the ledger.
 
 This is not optional and it is not advisory. Every regression recorded in [`docs/regression_ledger.md`](docs/regression_ledger.md) reached a real machine because nothing ran the playbook before it shipped. Reading a diff cannot tell you that a group name does not exist on Arch, or that a toggle installs nothing, and both of those have happened here.
 
-**After any change under `setup/`, run the tier 1 gate.** It now takes about six and a half minutes rather than the seconds it used to, measured at 6 minutes 28 seconds from Git Bash on Windows on 2026-08-29, because seven of its checks start `setup.sh` as a real process and process creation under Git Bash is what nearly all of that time goes on. It has not been measured on Linux, where those same processes are much cheaper.
-
-```bash
-./e2e/run.sh
-```
-
-On Windows, prefer Git Bash, because that is the only shell here that can prove every check. Run it from the repository root:
+**After any change under `setup/`, run the tier 1 gate.** It runs inside the gate container, never on your machine: `e2e/run.sh` builds [`e2e/gate/Dockerfile`](e2e/gate/Dockerfile), mounts the repository read-only, works on a copy inside the container and writes back only `e2e/runs`. The same command works from a Linux shell, from Git Bash with Docker Desktop, and from WSL when Docker Desktop has integration enabled for it. Run it from the repository root:
 
 ```bash
 bash e2e/run.sh
 ```
 
-WSL runs the gate too, and as measured on 2026-10-11 it comes back clean, with the same tally Git Bash gives and the same single skip, one toggle coverage assertion. On 2026-09-02 there was a second skip, for shellcheck not being installed, and that one is gone: since 2026-10-11 the gate downloads the ShellCheck version pinned in `setup/pinned_values/pinned_values.toml` itself, through `pinned_shellcheck` in [`e2e/lib/common.sh`](e2e/lib/common.sh), and fails rather than skipping when it cannot. What this paragraph said before, one failure and three skips, understated the gap by an order of magnitude, and the direction of the error is the part worth keeping. Measured on 2026-09-02 against a clean worktree, fourteen of the checks that run Python were useless there: twelve printed their header and then nothing at all, no PASS, no FAIL and no tally, a thirteenth got one assertion out before it died, and a fourteenth, `shell_syntax`, turned the same failure into `FAIL no shell script was found anywhere in the repository`. The cause was that every one of them named its interpreter `${PYTHON:-python}` while WSL Ubuntu here has `/usr/bin/python3` and no `python`, so the command substitution failed and `set -e` ended the script on the assignment. Forty-seven assertions never ran, and the gate reported all of that as a bare exit code. Two more checks were broken the same shape for a different reason: `windows_pester` and `powershell_variables` converted their paths with `host_path`, which answers a Docker daemon's question and is the identity on Linux, so a Windows `pwsh.exe` was handed a `/mnt/d` path and answered that it could not find `D:\mnt\d\...`, which made one of them accuse the tree of failing unit tests it had never run. The interpreter is resolved once now, by `require_python` in [`e2e/lib/common.sh`](e2e/lib/common.sh), which reports SKIP and names what it looked for when there is none, and those two checks use `to_windows_path`. The manifest failure recorded here before is gone as well, because `setup/manifests/generate.py` compares bytes rather than calling `Path.read_text(newline="")`. The interop route does work when Windows lets it: the Store build's `pwsh.exe` and `winget.exe` under `WindowsApps` have been observed running from inside WSL and answering real queries, which is why those checks report SKIP rather than a pass when nothing runs. This paragraph has now been rewritten three times and in both directions, which is itself the lesson: a Store app-execution alias is not a normal executable, whether WSL can run one is a property of the Windows build rather than of this repository, so measure it on the day rather than trusting what is written here. Git Bash remains the better default, because it needs no interop hop and delegates the two Ansible checks to WSL by itself. The gate prints its own tally, and [`e2e/README_E2E.md`](e2e/README_E2E.md) describes the shells without restating a number that goes stale every time a check is added.
+Measured on Linux on 2026-10-15, the whole gate took 3 minutes 39 seconds with the image already built, and building the image from nothing took about a minute. The image carries every tool a check calls, Python, ansible-core and its collections, ShellCheck, PowerShell 7 and Pester 5, yamllint, ansible-lint, Node, git and the Docker client, each pinned in `setup/pinned_values/pinned_values.toml` or by digest in the Dockerfile. Nothing has to be installed on the host but Docker, and no check skips because a tool is missing: the five PowerShell checks run the same from every shell. The one skip left is a toggle coverage assertion the gate reports on purpose.
 
-```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh"
-```
+The gate refuses to run anywhere but in its container. Starting one check directly, `bash e2e/tier1/<check>.sh`, prints `REFUSED` and runs nothing, because `e2e/lib/common.sh` asks for the gate switch, `E2E_INSIDE_GATE_CONTAINER=1` together with the marker file `/etc/installationhelper-e2e-gate`, before anything else. Only the gate's own entry point sets both.
 
-**The container tiers run from Git Bash as well.** This section used to say WSL was what they needed, which was wrong in the direction that costs coverage. What refused Git Bash was the harness rather than Docker: the guard asked `uname -s`, turned away anything that was not Linux, and pointed the reader at WSL whether or not WSL could reach a daemon. It now asks whether a daemon answers and whether the shell can spell a host path for it, and from Git Bash both answers are yes whenever Docker Desktop is running. Run tiers 2 and 3 exactly as written, from the repository root, with no prefix and nothing exported:
+**The container tiers start the same way.** Tier 2 and the tier 3 driver run inside the gate container too, with the Docker socket mounted so they can start their own throwaway containers beside it:
 
 ```bash
 bash e2e/run.sh --tier 2
@@ -247,13 +266,11 @@ bash e2e/run.sh --tier 2
 bash e2e/run.sh --tier 3 --scenario defaults --os debian
 ```
 
-The MSYS path rewriting that makes `docker` unusable by hand from Git Bash is handled inside `e2e/lib/common.sh` rather than left to the caller, which is why those two commands are identical to the ones a Linux shell runs. If you ever call `docker` yourself from Git Bash, remember what the harness is doing for you: prefix `MSYS_NO_PATHCONV=1` so container paths such as `-v /sys/fs/cgroup:...` and `-w /work/setup/ansible` survive, and pass every host path through `cygpath -w`.
-
-Whether WSL can also reach the daemon depends on Docker Desktop having integration enabled for that distribution, so measure it rather than assume it either way. Measured on 2026-08-20, the Ubuntu distribution has `/var/run/docker.sock` and `docker info` reports server 29.3.1, so the container tiers run from there too. That integration has been off before, and while it is off there is no socket inside WSL at all, which the guard now reports by name instead of blaming the operating system.
+Tier 2 reads winget manifests through `gh` when no winget can run, so for tier 2 only the launcher lends the container your own `gh` login as `GH_TOKEN`, through the environment and never on a command line. The MSYS path rewriting that makes `docker` unusable by hand from Git Bash is handled inside `e2e/lib/host.sh`, which is why those commands are identical to the ones a Linux shell runs. If you ever call `docker` yourself from Git Bash, prefix `MSYS_NO_PATHCONV=1` and pass every host path through `cygpath -w`.
 
 A non-zero exit means the work is not done. Do not report success, do not commit, and do not explain the failure away. Fix it.
 
-**Additionally, when your change touches any of the following, run the container tier as well.** The cheapest scenario there is forced-failure, at a 90 minute ceiling and 46 minutes measured on debian, because it is the only one that never installs the software set. The cheapest that installs anything is defaults, at 180. There is still no cheap container scenario: the smoke scenario used to declare 45 minutes, but every toggle it enabled was already true in defaults, so it proved nothing defaults does not. Tier 1 is still the cheap one at about six and a half minutes, measured at 6 minutes 28 seconds from Git Bash on Windows on 2026-08-29.
+**Additionally, when your change touches any of the following, run the container tier as well.** The cheapest scenario there is forced-failure, at a 90 minute ceiling and 46 minutes measured on debian, because it is the only one that never installs the software set. The cheapest that installs anything is defaults, at 180. There is still no cheap container scenario: the smoke scenario used to declare 45 minutes, but every toggle it enabled was already true in defaults, so it proved nothing defaults does not. Tier 1 is still the cheap one, measured at 3 minutes 39 seconds inside the gate container on Linux on 2026-10-15.
 
 | If you changed | Run |
 |---|---|
@@ -270,7 +287,8 @@ A non-zero exit means the work is not done. Do not report success, do not commit
 | `setup/ansible/verify_install.yaml` | tier 1, then `--tier 3 --scenario forced-failure`, which is the only scenario that proves the play refuses over a broken machine, then any one passing scenario |
 | a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `./e2e/run.sh --tier 3 --scenario idempotency`, which applies the defaults configuration twice and fails on any task that reports changed on the second pass without a reason in `e2e/tier3/idempotent_changes_allowed.txt` |
 | a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, or the callback plugin's failure rendering | `./e2e/run.sh --tier 3 --scenario forced-failure`, which breaks the run on purpose and asserts the failure reaches the exit code, the terminal summary, the error log and the verification |
-| a check under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then run the whole gate from Git Bash and from WSL |
+| a check under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then run the whole gate. When the change touches `e2e/lib/gate.sh`, `e2e/lib/host.sh` or `e2e/gate/`, start the gate from Git Bash and from WSL as well, because the launcher is the only part that differs between them |
+| the gate image, `e2e/gate/Dockerfile` or `e2e/gate/provision.sh` | tier 1 and then tier 2, both of which rebuild the image before they run |
 | a distribution Dockerfile, or a new distribution | `./e2e/run.sh --tier 3 --scenario defaults --os <name>` |
 | anything macOS-only | tier 1 and tier 2, then the `macos` target of the dispatch workflow, which is the only thing that executes on macOS at all |
 
@@ -278,19 +296,17 @@ That table is the short version. The complete map, including what each run still
 
 What none of it can prove, on any platform, is [`e2e/manual_test_matrix.md`](e2e/manual_test_matrix.md). Read it before telling the owner that something is verified: bootloaders, hibernation, Snapper, Waydroid, VirtualBox and VMware are suppressed in every container, client-edition and hardware-dependent packages are skipped on the hosted Windows runner, and macOS has no container tier at all. The page says for each one whether a virtual machine is enough or real hardware is required, and gives a command that answers the question.
 
-**For a run that must survive you closing the terminal**, drive it from the queue container rather than a shell. A queue tied to a shell is not a queue: one previously started two scenarios of three, exited, and nobody noticed for four hours.
+**For a run that must survive you closing the terminal**, add `--queue`. The gate container then runs detached under the name `e2e-queue`, writes everything to `e2e/runs/queue.log`, ends that file with `QUEUE_EXIT=<status>`, and exits with the run's own status, so it can be alarmed on and chained behind. A queue tied to a shell is not a queue: one previously started two scenarios of three, exited, and nobody noticed for four hours. The same command works from Git Bash.
 
 ```bash
-docker run -d --name e2e-queue -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/repo" -w /repo installationhelper-e2e-queue:latest -c './e2e/run.sh --tier 3 --scenario all --jobs 3 > /repo/e2e/runs/queue.log 2>&1; rc=$?; echo "QUEUE_EXIT=$rc" >> /repo/e2e/runs/queue.log; exit $rc'
+bash e2e/run.sh --queue --tier 3 --scenario all --jobs 3
 ```
 
-That form is for a Linux shell. From Git Bash the same run needs the two path rules spelled out, because this command is yours rather than the harness's: the rewriting has to be off so the socket mount survives, and the repository mount has to be a Windows path. Verified from Git Bash on 2026-08-20, the container reaches the daemon and finds `e2e/run.sh` under `/repo`.
+The container is kept after it exits so its status stays readable. Remove it before the next queued run, which refuses to start while a container named `e2e-queue` exists:
 
 ```bash
-MSYS_NO_PATHCONV=1 docker run -d --name e2e-queue -v /var/run/docker.sock:/var/run/docker.sock -v "$(cygpath -w "$PWD"):/repo" -w /repo installationhelper-e2e-queue:latest -c './e2e/run.sh --tier 3 --scenario all --jobs 3 > /repo/e2e/runs/queue.log 2>&1; rc=$?; echo "QUEUE_EXIT=$rc" >> /repo/e2e/runs/queue.log; exit $rc'
+docker rm e2e-queue
 ```
-
-The `rc=$?` and `exit $rc` are not decoration. Append anything after the run without capturing the status first, an `echo` for instance, and the container exits with the echo's status instead: a sweep where three of the seven scenarios that existed then failed reported `Exited (0)` for exactly that reason, which makes the queue impossible to alarm on or chain behind. Verified both ways, this form writes `QUEUE_EXIT=2` into the log and exits 2.
 
 Roughly 5 GB of memory per concurrent scenario, measured. On a 16 GB WSL ceiling that means three at a time, not six. Three against 12 GB available does not corrupt anything, but it does make `wsl.exe` intermittently answer `Wsl/Service/0x8007274c` and it cost one scenario a failed `docker cp` of `setup/`. Use `--jobs 2` when you want clean timings rather than throughput.
 
@@ -418,7 +434,7 @@ A cross-platform Ansible-based system setup and local development toolkit. It ha
 Markdown filenames are lowercase with underscores: `setup/software.md`, `homelab/adguard_dns.md`, `docs/linux/virt_manager_setup.md`. Two exceptions keep their capitals:
 
 1. Any filename starting with `README` — `README.md`, `setup/README_SETUP.md`, `homelab/README_HOMELAB.md`, `local-dev/README_LOCAL_DEV.md`.
-2. The agent tooling docs, which follow upstream agent-standards naming — `AGENTS.md`, `.claude/CLAUDE.md`, `.agents/skills/*/SKILL.md`, `.agents/agents/*.md`, `.agents/hooks/*.py`, `docs/AGENT_TOOLING.md`, `docs/MCP_SETUP.md`, `docs/AI_TOOLS_ADDING.md`.
+2. The agent tooling docs, which follow upstream agent-standards naming — `AGENTS.md`, `.agents/skills/*/SKILL.md`, `.agents/agents/*.md`, `.agents/hooks/*.py`, `docs/AGENT_TOOLING.md`, `docs/MCP_SETUP.md`, `docs/AI_TOOLS_ADDING.md`.
 
 Do not rename anything in the first two categories to match the lowercase rule. Renaming a doc means updating every markdown link that points at it in the same change.
 
@@ -428,7 +444,7 @@ Every doc directory has one hub page that links to all of its siblings: `README.
 
 The playbook (`site.yaml`) follows this execution order:
 
-1. **Pre-tasks**: Loads OS-specific group vars (`group_vars/{linux,macos,windows}.yaml`) and the OS translation dictionary (`vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml`) as `os_dict`.
+1. **Pre-tasks**: Loads OS-specific group vars (`group_vars/{linux,macos,windows}.yaml`) and the OS translation dictionary (`vars/{Debian,RedHat,Archlinux,Darwin,Windows}.yaml`) as `os_dict`, through `tasks/load_os_dict.yaml`, which also merges a derivative's own entries from `vars/derivatives/<os-release ID>.yaml` over it. CachyOS is the one derivative today. `verify_install.yaml` loads it through the same file.
 2. **OS core roles**: `macos_core`, `arch_core`, `fedora_core`, `debian_core`, `system_core` — bootstrap the specific OS. There is no Windows role: Windows is provisioned natively by `setup/setup.ps1` and the modules in `setup/windows/`, and the playbook never runs there.
 3. **Desktop environments**: `kde_plasma_setup`, `gnome_setup` — gated by `install_kde_plasma`/`configure_kde_plasma` and `install_gnome`/`configure_gnome` flags.
 4. **Cross-platform settings**: `env_variables`, `shell_zsh`.
@@ -446,6 +462,7 @@ The playbook (`site.yaml`) follows this execution order:
 | `group_vars/windows.yaml` | Windows-only toggles |
 | `setup/pinned_values/pinned_values.toml` | Pinned versions, download locations and vendor identifiers, read through `setup/pinned_values/pinned_values.py` |
 | `vars/{OS}.yaml` | Translation dictionaries mapping generic app name → `{manager, package}` |
+| `vars/derivatives/<os-release ID>.yaml` | Overrides for a distribution that maps something differently from its family, named after the `ID` field of `/etc/os-release` (`vars/derivatives/cachyos.yaml` today). `tasks/load_os_dict.yaml` merges its entries over the family dictionary, each replacing the family entry of the same key whole, and it may carry `software_mapping` and nothing else |
 | `profiles/linux_live.yaml` | Override profile for USB/live installs |
 | `software.md` | Complete per-OS software list with installation methods |
 
@@ -460,8 +477,8 @@ chrome: { manager: "apt", package: "google-chrome-stable" }
 The `software_installer` role (`roles/software_installer/tasks/dynamic_install.yaml`) iterates over enabled toggles, looks up the OS dict, and dispatches to the correct package manager. Supported managers: `apt`, `apt_url`, `dnf`, `dnf_url`, `dnf_repo`, `pacman`, `aur`, `snap`, `flatpak`, `brew`, `brew_cask`, `choco`, `winget`.
 
 **Package manager priority per OS:**
-- **Windows:** Official installer > Chocolatey > Winget
-- **macOS:** DMG/PKG > Homebrew Cask (GUI) / Formula (CLI) > MAS
+- **Windows:** winget > Chocolatey > the vendor's own installer. Chocolatey only where winget has no package or its manifest was measured broken, with the reason beside each mapping in `vars/Windows.yaml`. The vendor route only where Chocolatey is missing or measured unsuitable: FVM comes from pub.dev and pipx from pip, because Chocolatey's `fvm` and `pipx` each drag in a second Dart SDK or Python. The Android command line tools come from Google's zip beside winget's `Google.AndroidStudio`, because no winget package carries them. Exceptions to the order: Gridcoin comes from the vendor's release although winget carries `Gridcoin.Client`, the Dart SDK from Chocolatey although winget carries `Google.DartSDK`, and Claude Code, OpenCode, Codex and Grok from npm although winget carries `Anthropic.ClaudeCode`, `SST.opencode`, `OpenAI.Codex` and `xAI.GrokBuild`. OpenSpec and the Bruno command line tool come from npm as well, and winget has neither. FVM, pipx, the Android command line tools and Gridcoin are in `setup/windows/WindowsCustomInstalls.ps1`, the npm tools in `setup/windows/WindowsNpmTools.ps1`.
+- **macOS:** Homebrew first, a formula for a command line tool and a cask for an application, then the Mac App Store or the vendor's own DMG or PKG. Nothing uses the Mac App Store today. The vendor routes are Razer Synapse and Gridcoin, which have no cask, and OpenCode desktop version 1, which `opencode_use_v1` installs instead of the version 2 cask and which has no cask either. Antigravity, JetBrains Toolbox, LM Studio and VirtualBox are casks like any other application, `antigravity`, `jetbrains-toolbox`, `lm-studio` and `virtualbox`. The `lm-studio` cask installs on Apple Silicon only. NVM, Pyenv, SDKMAN and FVM come from their own install scripts on every Unix, macOS included, although Homebrew carries formulae for NVM, Pyenv and FVM and casks for the Temurin JDKs SDKMAN installs. The Android command line tools come from Google's zip although the cask `android-commandlinetools` exists. Claude Code, OpenCode, OpenSpec, Codex and Grok come from npm although Homebrew carries the casks `claude-code`, `codex` and `grok-build` and the formulae `opencode` and `openspec`.
 - **Debian/Ubuntu:** Official APT repo > Flatpak > Snap > Default APT
 - **Fedora:** Official DNF repo > Flatpak > Snap > Default DNF
 - **Arch:** Official Pacman > AUR (`yay`) > Flatpak > Snap
@@ -470,6 +487,7 @@ The `software_installer` role (`roles/software_installer/tasks/dynamic_install.y
 
 1. Add toggle in `group_vars/all.yaml` (or OS-specific file if Linux/macOS/Windows only).
 2. Add mapping in each relevant `vars/{OS}.yaml` file under `software_mapping`.
+   A distribution that maps the app differently from its family gets its entry in `vars/derivatives/<os-release ID>.yaml` instead, under `software_mapping`, in flow style with one line per entry, `key: { manager: "...", package: "..." }`, because the shell checks in `e2e/` read those files line by line and see nothing else. A mapping whose package depends on steam also carries `brings_steam: true`, which `tasks/steam_graphics_alignment.yaml` reads to decide whether the CachyOS 32-bit graphics alignment is needed.
 3. If the app requires custom install logic (e.g., SDK management, binary downloads), create a dedicated task file under the appropriate role.
 
 ### Workaround: ansible-core 2.19/2.20 deserialization bug
@@ -482,30 +500,30 @@ Two parts of this playbook bypass the standard Ansible module mechanism. They lo
 
 **Affected versions:** every ansible-core release from 2.19.0 onwards, on all three live branches. Re-checked 2026-08-20: [PR #86739](https://github.com/ansible/ansible/pull/86739) is still open against `devel`, created 2026-03-27 and last touched 2026-08-18, `merged_at` null. Nothing on `stable-2.19`, `stable-2.20` or `stable-2.21` mentions the fix in its changelog, so 2.19.12, 2.20.8 and 2.21.3, the newest release on each branch as of 2026-08-10, all still carry it. An earlier version of this section named 2.19.9 and 2.20.5 as the end of the affected range, which was only ever the newest release at the time of writing and not a statement that anything later was fixed. Pre-bug version: 2.18.x, which is below this project's floor for other reasons.
 
-**The version this repository runs, and where that is pinned.** ansible-core cannot be pinned to one exact version across the places it arrives from, because four package managers each publish exactly one and they do not agree: Debian trixie carries 2.19.4, Ubuntu 26.04 carries 2.20.1, Fedora 44 carries 2.20.7 and Arch carries 2.21.3. What is pinned is the half-open range 2.19.0 accepted up to but not including 2.22.0, in two places that enforce it rather than merely document it: `setup/setup.sh` reads the version behind `ansible-playbook` and refuses a control node outside `ANSIBLE_CORE_MIN_VERSION` to `ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE`, and each Linux `e2e/tier3/*.Dockerfile` asserts the same two bounds at build time so a rolling distribution moving under the harness fails the image build in seconds instead of a scenario twenty-five minutes in. Widening either bound means running the e2e suite against the new branch first. Note what the range does not buy: no release inside it escapes the bug above, so the mitigations stay whatever version is in use.
+**The version this repository runs, and where that is pinned.** ansible-core cannot be pinned to one exact version across the places it arrives from, because four package managers each publish exactly one and they do not agree: Debian trixie carries 2.19.4, Ubuntu 26.04 carries 2.20.1, Fedora 44 carries 2.20.7 and Arch carries 2.21.3. What is pinned is the half-open range 2.19.0 accepted up to but not including 2.22.0, in two places that enforce it rather than merely document it: `setup/setup.sh` reads the version behind `ansible-playbook` and refuses a control node outside `ANSIBLE_CORE_MIN_VERSION` to `ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE`, and each Linux `e2e/tier3/*.Dockerfile` asserts the same two bounds at build time so a rolling distribution moving under the harness fails the image build in seconds instead of a scenario twenty-five minutes in. The e2e gate container, `e2e/gate/Dockerfile`, installs one exact version, `gate_ansible_core_version` in `setup/pinned_values/pinned_values.toml`, and `e2e/gate/provision.sh` refuses to build it when that version falls outside the range `setup/setup.sh` declares. Widening either bound means running the e2e suite against the new branch first. Note what the range does not buy: no release inside it escapes the bug above, so the mitigations stay whatever version is in use.
 
 **Upstream tracking:** issues [#86738](https://github.com/ansible/ansible/issues/86738), closed as a duplicate on 2026-03-31 and therefore no longer a place to watch for movement, and [#86562](https://github.com/ansible/ansible/issues/86562), still open. The pull request above is the one to watch.
 
 **Mitigations in this repo**
 
-1. **`ansible.builtin.raw` for the APT and Flatpak installs on Debian/Ubuntu** (`roles/software_installer/tasks/dynamic_install.yaml`). `raw` bypasses the entire Python module subsystem, no ansiballz and no JSON round-trip, so the bug class cannot trigger. Note that nothing in that file batches any longer: as of 2026-08-25 every manager installs one package per call, so each `raw` invocation is now short. It stays `raw` because a single large package can still run long enough to meet the race, and because switching mechanism is a change worth making deliberately rather than as a side effect. Arch and Fedora install through a `command` for the reporting rather than through their native modules, which report failure only through the result's `failed` key that this repository forbids reading.
+1. **`ansible.builtin.raw` for every package install** (`tasks/install_role_packages.yaml`). `raw` bypasses the entire Python module subsystem, no ansiballz and no JSON round-trip, so the bug class cannot trigger. Since 2026-10-15 every apt, dnf, pacman, flatpak, snap and Homebrew install in the playbook, the software set in `roles/software_installer/tasks/dynamic_install.yaml` and every role's own packages alike, goes through that one file, one package per call, under the one retry rule every package manager follows. It was `raw` for apt and Flatpak only before, with a `command` per package on Fedora and Arch, and it is `raw` for all of them now so one task can serve every manager. It reports from `rc`, never from the result's `failed` key that this repository forbids reading.
 
 2. **Ansible tmp dirs moved out of `/tmp`** (`ansible.cfg`): `local_tmp`, `remote_tmp`, and `fact_caching_connection` all point to `~/.ansible/...` instead of `/tmp/ansible-*`. The ansiballz zip lives in `local_tmp`; moving it away from `/tmp` removes the path contention with dpkg and systemd-tmpfiles. Works on live USB too since Ubuntu Live's `$HOME` is writable.
 
 **When this can be reverted**
 
 Once ansible-core ships a release that contains the fix from PR #86739 — both 2.19.x and 2.20.x branches will need a patched point release. After that:
-- The `raw` flatpak/apt tasks can go back to `ansible.builtin.apt` / `community.general.flatpak` with `name: <list>`.
+- The `raw` install tasks in `tasks/install_role_packages.yaml` can go back to native modules, still one package per call and still reporting from `rc`.
 - The `~/.ansible/tmp` paths in `ansible.cfg` can stay (better default anyway) or revert to the older `/tmp` paths.
 
 **Mandatory recurring check (every time this playbook is touched):**
 
 Before recommending changes to the `raw` callsites or claiming the workaround is "still needed", verify the upstream status:
 
-1. Check the current ansible-core release that this repo's target hosts will use. The version is in `ansible --version` on the dev machine, and the accepted range is the one `setup/setup.sh` enforces.
+1. Check the current ansible-core release that this repo's target hosts will use. The e2e gate container runs exactly `gate_ansible_core_version` from `setup/pinned_values/pinned_values.toml`, each tier 3 image runs whatever its distribution ships, and the accepted range is the one `setup/setup.sh` enforces.
 2. Confirm PR #86739 status: https://github.com/ansible/ansible/pull/86739 — merged or still open?
 3. If merged, find the first release tag containing it: https://github.com/ansible/ansible/releases. Every branch this project accepts needs a patched point release before the workaround can go, which today means `stable-2.19`, `stable-2.20` and `stable-2.21`.
-4. If the target ansible-core version is on a release that includes the fix, schedule the revert: replace the `raw` tasks (the per-package apt install, the per-application flatpak install, and apt-full-upgrade) with the native modules in one change, drop `apt_raw_env` / `apt_raw_flags` from `group_vars/linux.yaml`, and update this section. Reverting must not reintroduce a batch: `e2e/tier1/batched_managers.sh` fails on any manager that hands its whole set to one call, and the reasoning is in that file.
+4. If the target ansible-core version is on a release that includes the fix, schedule the revert: replace the `raw` tasks (the two install tasks in `tasks/install_role_packages.yaml` and apt-full-upgrade) with the native modules in one change, drop `apt_raw_env` / `apt_raw_flags` from `group_vars/linux.yaml`, and update this section. Reverting must not reintroduce a batch: `e2e/tier1/batched_managers.sh` fails on any manager that hands its whole set to one call, and the reasoning is in that file.
 5. If still unmerged, leave the workaround in place and note the upstream status in the commit message of any related change.
 
 The check is cheap (one `gh pr view 86739` or a `WebFetch` of the PR URL) and prevents the workaround from outliving its reason.
@@ -570,16 +588,11 @@ konsave -i config/lukk_desktop_profile.knsv && konsave -a lukk_desktop_profile  
 - Test `setup/setup.sh` in Git Bash or PowerShell — it is a Linux-only script
 - Use WSL's `/etc/os-release` to test OS detection — WSL configs differ from real Linux installs
 
-Syntax check command:
-```bash
-wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projekty-IT/InstallationHelper/setup/ansible/site.yaml"
-```
+The playbook syntax check is part of the tier 1 gate, where `e2e/tier1/ansible_static.sh` runs `ansible-playbook --syntax-check` inside the gate container. Never run it on your own machine, WSL included, because WSL is the owner's computer too. Run the gate after any YAML edit to playbook files, any new role or task, any change to `requirements.yaml`, and any other change in `setup/ansible/`:
 
-**Always run this check after:**
-- Making any YAML edits to playbook files
-- Adding new roles or tasks
-- Installing collections from requirements.yaml
-- Modifying any file in `setup/ansible/`
+```bash
+bash e2e/run.sh
+```
 
 ## OpenSpec Project Conventions
 
@@ -604,3 +617,7 @@ Project-specific rules layered on top of the canonical OpenSpec lifecycle above.
 ### Applying Tasks from OpenSpec
 - When applying a task from an OpenSpec change, follow the detailed specifications in the proposal.md
 - Do not deviate from the documented approach without first updating the documentation
+
+### Changes that are never archived
+- `openspec/changes/add-playbook-e2e-capability-tests/` must never be archived. Do not run `/opsx:archive` on it and do not move it into an archive folder by hand
+- It stays the living description of the e2e capability tests indexed by [`e2e/testing/README.md`](e2e/testing/README.md). When a capability is added, removed, renumbered or changes its invocation or cost, update `proposal.md`, `test-spec.md` and `tasks-template.md` in that change in the same piece of work
