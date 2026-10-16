@@ -387,12 +387,21 @@
         repository_key: openrazer
       tags: [always]
 
+# One package per call through setup/ansible/tasks/install_role_packages.yaml, so one that cannot
+# install costs only itself and is named.
 - name: Install kernel headers for the OpenRazer DKMS module
-  ansible.builtin.dnf:
-    name: "{{ ['kernel-devel', 'kernel-headers'] }}"
-    state: present
-  become: true
-  when: install_openrazer | default(false) | bool
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
+      - kernel-devel
+      - kernel-headers
+    role_packages_purpose: the kernel headers the OpenRazer DKMS module builds against
+  when:
+    - ih_family == 'RedHat'
+    - install_openrazer | default(false) | bool
 
 # --- Tailscale ---
 # The repo definition is Fedora-release independent, `$basearch` is expanded by

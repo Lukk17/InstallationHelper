@@ -187,6 +187,49 @@
           {{ ansible_failed_result.msg | default('no message given') }}
           k3d is NOT installed. Every other install continues, and the run is marked failed.
 
+# --- uv and uvx: Astral's Python package and project manager (Linux without a package) ---
+# Arch and Fedora package it and macOS has a formula, so those go through dynamic_install.yaml. Debian
+# trixie and Ubuntu 26.04 carry no uv package, measured with apt-cache policy uv on both images, so
+# they get Astral's own installer. The condition reads the os_dict mapping rather than naming
+# distributions, the shape gradle already uses in sdkman_unix.yaml, so a native entry added to
+# vars/Debian.yaml switches this off. UV_UNMANAGED_INSTALL puts uv and uvx straight into
+# /usr/local/bin, which every login and non-login shell already has on PATH, and tells the installer
+# to touch no shell profile and write no self-update receipt, so there is nothing for a later run to
+# repair and no per-user init to keep in step. Run as root, as k3d is. Absent uvx on a machine is what
+# broke `uvx arch-ops-server` on 2026-10-13.
+- name: Install uv and uvx with Astral's official installer (Linux without a uv package)
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - install_uv | default(false) | bool
+    - os_dict.software_mapping.uv is not defined
+  block:
+    - name: Install uv and uvx into /usr/local/bin (Linux)
+      ansible.builtin.shell: |
+        set -o pipefail
+        {{ ih_timeout }} 300 bash -c 'curl -fsSL --max-time 120 https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local/bin sh'
+      args:
+        executable: /bin/bash
+        creates: /usr/local/bin/uvx
+      become: true
+      register: uv_install
+      retries: 2
+      delay: 10
+      until: uv_install is succeeded
+  rescue:
+    - name: Record that uv could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['uv (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the uv step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          uv is NOT installed. Every other install continues, and the run is marked failed.
+
 # The Fedora Docker CE repository used to be added a second time here, after fedora_repos.yaml had
 # already added the same file, which is one rule in two places. It is added there only now, as its own
 # block with a rescue.

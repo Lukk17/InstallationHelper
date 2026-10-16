@@ -40,10 +40,6 @@ antigravity_linux_tarball_url = "{{ antigravity_cdn_base }}/linux-x64/Antigravit
 # NOTE: Google's APT/YUM pool paths are not publicly addressable (return 404
 # even though the apt repo metadata lists them). Linux installs use the
 # tarball above instead — see custom_installs.yaml.
-# macOS: both Apple Silicon (arm64) and Intel (x64) builds — macos_install.yaml
-# picks the right one via ansible_facts['architecture'].
-antigravity_dmg_arm64_url = "{{ antigravity_cdn_base }}/darwin-arm/Antigravity.dmg"
-antigravity_dmg_x64_url = "{{ antigravity_cdn_base }}/darwin-x64/Antigravity.dmg"
 teamviewer_file = "teamviewer_amd64.deb"
 veracrypt_version = "1.26.24"
 veracrypt_file = "veracrypt-{{ veracrypt_version }}-Ubuntu-24.04-amd64.deb"
@@ -81,6 +77,24 @@ teamviewer_rpm_url = "https://download.teamviewer.com/download/linux/teamviewer.
 # No CentOS Stream 9 RPM is published. The CentOS-8 build works on Fedora 38+
 # and RHEL/CentOS 8/9 (verified against veracrypt.io download manifest).
 veracrypt_rpm_url = "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }}/+download/veracrypt-{{ veracrypt_version }}-CentOS-8-x86_64.rpm"
+# OpenCode desktop, version 2. No package manager carries version 2 on Debian, Ubuntu, Fedora or Windows: Flathub,
+# winget's SST.OpenCodeDesktop and Chocolatey's opencode-desktop are all version 1, read on 2026-10-15. The vendor
+# serves every release under one path per version and keeps the old ones, 2.0.1 still answered 200 on 2026-10-15.
+# Verify the newest with `curl -fsSL https://opencode.ai/update/api/latest/desktop/opencode`, which is the same
+# endpoint the AUR opencode-desktop-bin package checks. The Windows installer is signed by Anomaly Innovations, Inc.
+opencode_desktop_version = "2.0.29"
+opencode_desktop_base = "https://opencode.ai/files/bin/{{ opencode_desktop_version }}"
+opencode_desktop_url = "{{ opencode_desktop_base }}/opencode-desktop-linux-amd64.deb"
+opencode_desktop_rpm_url = "{{ opencode_desktop_base }}/opencode-desktop-linux-x86_64.rpm"
+opencode_desktop_win_installer_url = "{{ opencode_desktop_base }}/opencode-desktop-win-x64.exe"
+# OpenCode desktop, version 1, read on the Mac only, when opencode_use_v1 is true. Homebrew's opencode-desktop cask is
+# version 2 and there is no version 1 cask, read on formulae.brew.sh on 2026-10-15. Linux takes version 1 from Flathub
+# and Windows from winget. The anomalyco/opencode GitHub releases carry version 1 only, v1.19.1 is the newest there,
+# published 2026-10-15, and both DMGs hold OpenCode.app with bundle id ai.opencode.desktop, needing macOS 12 or newer.
+opencode_desktop_v1_version = "1.19.1"
+opencode_desktop_v1_base = "https://github.com/anomalyco/opencode/releases/download/v{{ opencode_desktop_v1_version }}"
+opencode_desktop_v1_macos_arm64_dmg_url = "{{ opencode_desktop_v1_base }}/opencode-desktop-mac-arm64.dmg"
+opencode_desktop_v1_macos_x86_64_dmg_url = "{{ opencode_desktop_v1_base }}/opencode-desktop-mac-x64.dmg"
 # Minikube versions are real semver tags (e.g. v1.38.1); 'latest' is a redirect
 # alias and not a real release filename. Pin a real release. Verify latest via
 # https://github.com/kubernetes/minikube/releases/latest.
@@ -191,18 +205,38 @@ shellcheck_macos_aarch64_sha256 = "339b930feb1ea764467013cc1f72d09cd6b869ebf1013
 shellcheck_windows_x86_64_url = "{{ shellcheck_release_base }}/shellcheck-v{{ shellcheck_version }}.zip"
 shellcheck_windows_x86_64_sha256 = "8a4e35ab0b331c85d73567b12f2a444df187f483e5079ceffa6bda1faa2e740e"
 
+# The gate container every e2e tier runs in, built from e2e/gate/Dockerfile by e2e/gate/provision.sh.
+# PowerShell: verify the newest stable tag with `gh api repos/PowerShell/PowerShell/releases/latest`,
+# whose `digest` per asset is the SHA-256 pinned here. v7.6.7 checked on 2026-10-15.
+gate_pwsh_version = "7.6.7"
+gate_pwsh_release_base = "https://github.com/PowerShell/PowerShell/releases/download/v{{ gate_pwsh_version }}"
+gate_pwsh_linux_x86_64_url = "{{ gate_pwsh_release_base }}/powershell-{{ gate_pwsh_version }}-linux-x64.tar.gz"
+gate_pwsh_linux_x86_64_sha256 = "6896f9e3a6b0a354bf470835a96da76d2f801cd50dcf047ad7c4563bf93bf431"
+gate_pwsh_linux_aarch64_url = "{{ gate_pwsh_release_base }}/powershell-{{ gate_pwsh_version }}-linux-arm64.tar.gz"
+gate_pwsh_linux_aarch64_sha256 = "ba465efdfb0984c1c5dc5ed9eb0b79a7e91a1b52c45f99377058c0659b84d3f1"
+# Pester stays on major 5, which e2e/tier1/windows_pester.sh and the CI job both ask for. Verify the
+# newest 5.x on https://www.powershellgallery.com/packages/Pester, then measure the package with
+# sha256sum. 5.9.1 measured on 2026-10-15.
+gate_pester_version = "5.9.1"
+gate_pester_url = "https://www.powershellgallery.com/api/v2/package/Pester/{{ gate_pester_version }}"
+gate_pester_sha256 = "8dd4060fc3bc895f05bd655e4ab82abe346de54a4e6415dfb727cc8378672b69"
+# Python tools for the gate, from PyPI. ansible-core must stay inside the range setup/setup.sh
+# enforces, which provision.sh asserts while the image builds. Checked on PyPI on 2026-10-15.
+gate_ansible_core_version = "2.21.5"
+gate_yamllint_version = "1.38.0"
+gate_ansible_lint_version = "26.10.1"
+
 [checksums]
 # Download integrity checksums. Populate with `sha256:<hex>` strings to enforce verification on the
 # get_url tasks that fetch a vendor artifact. Empty or missing means no enforcement, which is where
 # every entry stands today, so no vendor download in this repository is verified.
 #
-# Keys name the artifact, not the toggle, and every consumer follows that rule. For the five vendor
+# Keys name the artifact, not the toggle, and every consumer follows that rule. For the six vendor
 # .deb files dispatched from dynamic_install.yaml the key is the toggle name with `_deb` appended,
 # because the toggle is what names the file. The examples below are the real key names, so populating
 # one is a matter of pasting a hash beside it.
 # jetbrains_toolbox = "sha256:..."
 # antigravity_linux = "sha256:..."
-# antigravity_macos = "sha256:..."
 # gridcoin_flatpak = "sha256:..."
 # gridcoin_macos = "sha256:..."
 # gputest = "sha256:..."
@@ -213,3 +247,4 @@ shellcheck_windows_x86_64_sha256 = "8a4e35ab0b331c85d73567b12f2a444df187f483e507
 # veracrypt_deb = "sha256:..."
 # appimagelauncher_deb = "sha256:..."
 # balena_etcher_deb = "sha256:..."
+# opencode_desktop_deb = "sha256:..."

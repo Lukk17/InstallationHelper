@@ -49,6 +49,11 @@ MAPPING = re.compile(
     re.MULTILINE,
 )
 SOURCE = re.compile(r'source:\s*"([^"]*)"')
+ARCHITECTURE = re.compile(r'requires_architecture:\s*"([^"]*)"')
+
+# Homebrew's own test for each processor architecture a mapping can be bound to, in the spelling
+# ansible_facts['architecture'] reports and requires_architecture carries.
+BREW_ARCHITECTURE_TEST = {"arm64": "Hardware::CPU.arm?", "x86_64": "Hardware::CPU.intel?"}
 
 GENERATED_BY = "setup/manifests/generate.py"
 
@@ -74,12 +79,14 @@ def mappings(family: str) -> list[dict[str, str]]:
     entries = []
     for match in MAPPING.finditer(text):
         source = SOURCE.search(match.group("rest") or "")
+        architecture = ARCHITECTURE.search(match.group("rest") or "")
         entries.append(
             {
                 "key": match.group("key"),
                 "manager": match.group("manager"),
                 "package": match.group("package"),
                 "source": source.group(1) if source else "",
+                "architecture": architecture.group(1) if architecture else "",
             }
         )
     return entries
@@ -95,6 +102,14 @@ def wanted(family: str, *toggle_files: str) -> list[dict[str, str]]:
 def header(lines: list[str], comment: str = "#") -> str:
     prefix = f"{comment} "
     return "\n".join(prefix + line if line else comment for line in lines)
+
+
+def brew_line(kind: str, entry: dict[str, str]) -> str:
+    """One Brewfile line, guarded by Homebrew's own processor test when the mapping is bound to one."""
+    line = f'{kind} "{entry["package"]}"'
+    if entry["architecture"]:
+        return f"{line} if {BREW_ARCHITECTURE_TEST[entry['architecture']]}"
+    return line
 
 
 def brewfile() -> str:
@@ -125,9 +140,9 @@ def brewfile() -> str:
     ).splitlines()
 
     body = ["", "# Command line tools"]
-    body += [f'brew "{entry["package"]}"' for entry in formulae]
+    body += [brew_line("brew", entry) for entry in formulae]
     body += ["", "# Applications"]
-    body += [f'cask "{entry["package"]}"' for entry in casks]
+    body += [brew_line("cask", entry) for entry in casks]
     return "\n".join(lines + body) + "\n"
 
 

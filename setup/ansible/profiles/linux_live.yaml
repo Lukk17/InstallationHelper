@@ -52,6 +52,8 @@ install_rawtherapee: false
 
 # ---- Gaming (all off) ----
 install_steam: false
+install_gaming_suite: false
+install_curseforge: false
 
 # ---- CAD / 3D (all off) ----
 install_freecad: false
@@ -76,6 +78,8 @@ install_claude_code: false
 install_claude_desktop: false
 install_opencode: false
 install_opencode_desktop: false
+install_kilo_code: false
+install_zoom: false
 install_openspec: false
 install_codex: false
 install_grok: false

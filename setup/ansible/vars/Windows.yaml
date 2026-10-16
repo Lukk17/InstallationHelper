@@ -75,6 +75,11 @@ software_mapping:
   jq: { manager: "winget", package: "jqlang.jq" }
   fzf: { manager: "winget", package: "junegunn.fzf" }
   ripgrep: { manager: "winget", package: "BurntSushi.ripgrep.MSVC" }
+  uv: { manager: "winget", package: "astral-sh.uv" }   # Manifest 0.13.0, read 2026-10-13: one unscoped portable zip per architecture, so no scope to pin; provides uv, uvx and uvw.
+  go: { manager: "winget", package: "GoLang.Go" }   # Manifest 1.27.0, read 2026-10-13: machine wix only, from go.dev, so there is no scope to choose.
+  # pipx has no mapping: winget-pkgs carries no pipx manifest, and Chocolatey's pipx 1.16.7 depends on
+  # python3, which pulls python315 in with PrependPath=1 and puts a second Python ahead of the pinned
+  # 3.11 on PATH. setup/windows/WindowsCustomInstalls.ps1 installs it with pip instead.
   # scope machine, because the manifest offers the same installer twice and differs only in scope,
   # the shape bruno and curseforge already had. GitHub sweep run 38107292439 on 2026-10-11, job
   # "Windows default apps", lost Lens on both attempts with exit -1978335226, 0x8A150006, and
@@ -107,7 +112,7 @@ software_mapping:
   bruno: { manager: "winget", package: "Bruno.Bruno", scope: "machine", installer_type: "wix" }
   # scope user, because no machine-wide route exists: manifest 3.8.1.0, read 2026-10-11, offers a
   # user exe only, and Toolbox installs itself and the IDEs it manages under the user's profile.
-  jetbrains_toolbox: { manager: "winget", package: "JetBrains.Toolbox", scope: "user" }       # Publisher JetBrains, verified with winget show. The sdk_manager role installs this on Linux and macOS, and this mapping is the whole Windows path.
+  jetbrains_toolbox: { manager: "winget", package: "JetBrains.Toolbox", scope: "user" }       # Publisher JetBrains, verified with winget show. The jetbrains_toolbox role installs this on Linux, the Homebrew cask on macOS, and this mapping is the whole Windows path.
 
   # Communication
   # scope user, because no machine-wide route exists: manifest 1.0.9261, read 2026-10-11, offers a
@@ -121,6 +126,7 @@ software_mapping:
   # in Windows Sandbox or on a real PC, proves the machine route. See e2e/manual_test_matrix.md.
   slack: { manager: "winget", package: "SlackTechnologies.Slack", scope: "user" }
   teams: { manager: "winget", package: "Microsoft.Teams" }
+  zoom: { manager: "winget", package: "Zoom.Zoom" }   # Manifest 7.2.48556, read 2026-10-15: one machine msi per architecture from zoom.us, so there is no scope to choose. Zoom.Zoom.EXE is the per-user build.
   # scope user, because the only machine route is the unscoped portable zip (manifest 7.3.1, read
   # 2026-10-11: user inno, unscoped zip). Telegram does not document that zip as an install, its
   # self-updater cannot write into Program Files, and a winget portable creates no Start menu entry.
@@ -145,9 +151,15 @@ software_mapping:
   # user until a Windows 11 test, in Windows Sandbox or on a real PC, proves the machine route.
   claude_desktop: { manager: "winget", package: "Anthropic.Claude", scope: "user" }           # Publisher "Anthropic, PBC", verified with winget show. The ai_tools role has no Windows path, so this mapping is the only one.
   lm_studio: { manager: "winget", package: "ElementLabs.LMStudio", scope: "machine", installer_type: "nullsoft" }            # Author "Element Labs, Inc.", verified with winget show. Manifest 0.4.26+4, read 2026-10-11: user (/currentuser) and machine (/allusers) nullsoft, the lens shape.
-  # scope user, because no machine-wide route exists: manifest 1.19.0, read 2026-10-11, offers a
-  # user nullsoft only.
-  opencode_desktop: { manager: "winget", package: "SST.OpenCodeDesktop", scope: "user" }      # Publisher "OpenCode", verified with winget show on 2026-10-10 (1.18.35, per-user nullsoft). SST.opencode is the CLI, which comes from npm instead.
+  # opencode_desktop: installed by setup/windows/WindowsCustomInstalls.ps1 from the vendor's own signed installer, because
+  # no Windows source carries version 2. SST.OpenCodeDesktop, mapped here until 2026-10-15, is version 1: its newest
+  # winget manifest, read 2026-10-15, is 1.19.0, and Chocolatey's opencode-desktop is 1.17.9. SST.opencode is the CLI,
+  # which comes from npm instead.
+  # Version 1 of the desktop app, installed instead of version 2 when opencode_use_v1 is true, by
+  # setup/windows/WindowsCustomInstalls.ps1 rather than by the mapping pass, which is why it has no install_ toggle of
+  # its own. Manifest 1.19.0, read 2026-10-15: one nullsoft installer, Scope user, product code
+  # d074f30d-5f88-5885-b075-be1348cc7676, the same one version 2 registers.
+  opencode_desktop_v1: { manager: "winget", package: "SST.OpenCodeDesktop", scope: "user" }
 
   # Media / Design
   vlc: { manager: "winget", package: "VideoLAN.VLC" }

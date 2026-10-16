@@ -1,7 +1,7 @@
 ---
 - name: Check if JetBrains Toolbox is installed
   ansible.builtin.stat:
-    path: "{{ non_root_home }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
+    path: "{{ jetbrains_toolbox_binary }}"
   register: toolbox_binary
 
 # Where the tarball is staged and unpacked. One definition, read by the create, download and extract
@@ -31,7 +31,7 @@
   become_user: "{{ non_root_user }}"
   when:
     - install_jetbrains_toolbox | default(true) | bool
-    - ansible_facts['system'] in ['Linux', 'Darwin']
+    - ansible_facts['system'] == 'Linux'
     - not toolbox_binary.stat.exists
     - ih_family != "Archlinux"
 
@@ -53,28 +53,151 @@
   until: toolbox_download is succeeded
   when:
     - install_jetbrains_toolbox | default(true) | bool
-    - ansible_facts['system'] in ['Linux', 'Darwin']
+    - ansible_facts['system'] == 'Linux'
     - not toolbox_binary.stat.exists
     - ih_family != "Archlinux"
 
-- name: Extract and install JetBrains Toolbox (Linux/macOS)
-  ansible.builtin.shell: |
-    set -o pipefail
-    tar -xzf "{{ toolbox_stage_dir }}/jetbrains-toolbox.tar.gz" -C "{{ toolbox_stage_dir }}/"
-    TOOLBOX_DIR=$(find "{{ toolbox_stage_dir }}" -maxdepth 1 -name 'jetbrains-toolbox-*' -type d | head -1)
-    if [ -n "$TOOLBOX_DIR" ] && [ -f "$TOOLBOX_DIR/jetbrains-toolbox" ]; then
-      "$TOOLBOX_DIR/jetbrains-toolbox" --install
-    fi
-  args:
-    executable: /bin/bash
-    creates: "{{ non_root_home }}/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox"
+# Toolbox 3.x has no self-install step. Until 2.x the tarball held one binary at its top directory
+# and `jetbrains-toolbox --install` copied it into the data directory. 3.x ships a whole application
+# under bin/, a launcher, its own Java runtime and its libraries, and the Install-linux-tar.txt inside
+# the tarball says to unpack it where it is to live and run ./bin/jetbrains-toolbox. app.jar carries
+# no --install flag any more. The task that was here tested for the binary at the old top-level path,
+# found nothing, did nothing and exited 0 on every run, so Debian, Ubuntu and Fedora got no Toolbox.
+#
+# So the tarball is unpacked into the data directory with its versioned top directory stripped, which
+# puts the binary exactly where 2.x's --install put it, jetbrains_toolbox_binary, and Toolbox updates
+# itself in place from there.
+- name: Create the JetBrains Toolbox data directory (Linux)
+  ansible.builtin.file:
+    path: "{{ jetbrains_toolbox_data_dir }}"
+    state: directory
+    mode: '0700'
   become: yes
   become_user: "{{ non_root_user }}"
   when:
     - install_jetbrains_toolbox | default(true) | bool
-    - ansible_facts['system'] in ['Linux', 'Darwin']
+    - ansible_facts['system'] == 'Linux'
     - not toolbox_binary.stat.exists
     - ih_family != "Archlinux"
+
+- name: Unpack JetBrains Toolbox into its data directory (Linux)
+  ansible.builtin.unarchive:
+    src: "{{ toolbox_stage_dir }}/jetbrains-toolbox.tar.gz"
+    dest: "{{ jetbrains_toolbox_data_dir }}"
+    remote_src: true
+    extra_opts: ['--strip-components=1']
+    creates: "{{ jetbrains_toolbox_binary }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] == 'Linux'
+    - not toolbox_binary.stat.exists
+    - ih_family != "Archlinux"
+
+# Asked rather than assumed, so the next change to the tarball's layout is a named failure here
+# instead of another run that reports success and leaves nothing behind.
+- name: Ask whether the JetBrains Toolbox binary is where the tarball should have put it (Linux)
+  ansible.builtin.stat:
+    path: "{{ jetbrains_toolbox_binary }}"
+  register: toolbox_binary_unpacked
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] == 'Linux'
+    - ih_family != "Archlinux"
+
+- name: Fail when the tarball did not produce the JetBrains Toolbox binary (Linux)
+  ansible.builtin.assert:
+    that: toolbox_binary_unpacked.stat.executable | default(false)
+    success_msg: "JetBrains Toolbox is at {{ jetbrains_toolbox_binary }}"
+    fail_msg: >-
+      JetBrains Toolbox is NOT installed: the tarball was unpacked into {{ jetbrains_toolbox_data_dir }}
+      and no executable appeared at {{ jetbrains_toolbox_binary }}. JetBrains has changed the tarball's
+      layout again, list it with tar -tzf and correct the path in group_vars/all.yaml.
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] == 'Linux'
+    - ih_family != "Archlinux"
+
+# Toolbox writes its own menu entry, under the same name, the first time it starts, and that is the
+# only thing that ever wrote one on these three families. Nothing here starts it, because it is a
+# desktop application with nobody signed in yet, so until that first start this entry is the only way
+# to find it in the menu. force: false leaves the one Toolbox writes alone afterwards.
+- name: Create the user's application menu directory (Linux)
+  ansible.builtin.file:
+    path: "{{ non_root_home }}/.local/share/applications"
+    state: directory
+    mode: '0755'
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] == 'Linux'
+    - ih_family != "Archlinux"
+
+- name: Add a JetBrains Toolbox menu entry until Toolbox writes its own (Linux)
+  ansible.builtin.copy:
+    dest: "{{ non_root_home }}/.local/share/applications/jetbrains-toolbox.desktop"
+    force: false
+    mode: '0644'
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Name=JetBrains Toolbox
+      Exec={{ jetbrains_toolbox_binary }} %u
+      Icon={{ jetbrains_toolbox_data_dir }}/bin/toolbox.svg
+      Categories=Development
+      StartupWMClass=jetbrains-toolbox
+      StartupNotify=false
+      Terminal=false
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] == 'Linux'
+    - ih_family != "Archlinux"
+
+# The shell launchers Toolbox writes for each IDE it installs, idea, pycharm and the rest, live in
+# jetbrains_toolbox_scripts_dir. On its first start Toolbox puts that directory on PATH by appending
+# `export PATH="$PATH:<dir>"` under "# Added by Toolbox App" to ~/.profile, which zsh never reads and
+# Arch's login bash does not read either, because ~/.bash_profile exists there. Measured on the
+# owner's CachyOS machine on 2026-10-15: `zsh -lic 'command -v idea pycharm'` returned 1. Every
+# family, Arch included, where the AUR package installs Toolbox and the same directory is used.
+#
+# So the directory goes in the environment file every shell and the desktop session read, appended
+# as Toolbox appends it, and Toolbox's own two lines go. Toolbox adds them only when it finds the
+# directory missing from PATH, so with this block in place it has no reason to write them again.
+- name: Ensure the JetBrains Toolbox launcher directory is in the project's environment file (Linux)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file }}"
+    marker: "# {mark} ANSIBLE JETBRAINS TOOLBOX ENVIRONMENT"
+    create: yes
+    mode: '0644'
+    block: |
+      PATH="${PATH}:{{ jetbrains_toolbox_scripts_dir }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] == 'Linux'
+
+- name: Remove the PATH lines Toolbox appended to the shell startup files (Linux)
+  ansible.builtin.lineinfile:
+    path: "{{ item.0 }}"
+    regexp: "{{ item.1 }}"
+    state: absent
+  loop: "{{ shell_startup_files | product(jetbrains_toolbox_vendor_lines) | list }}"
+  loop_control:
+    label: "{{ item.0 }}"
+  vars:
+    jetbrains_toolbox_vendor_lines:
+      - '^# Added by Toolbox App$'
+      - '^export PATH="\$PATH:{{ jetbrains_toolbox_scripts_dir | regex_escape }}"$'
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] == 'Linux'
 
 # Toolbox installs the IDEs, not this playbook, and that is deliberate rather than a gap.
 #

@@ -28,11 +28,15 @@ software_mapping:
   terraform: { manager: "pacman", package: "terraform" }
   gh: { manager: "pacman", package: "github-cli" }
   jq: { manager: "pacman", package: "jq" }
+  uv: { manager: "pacman", package: "uv" }                    # extra, provides uv and uvx
+  pipx: { manager: "pacman", package: "python-pipx" }         # extra, pacman -Si python-pipx answered 1.15.0 on 2026-10-13
+  go: { manager: "pacman", package: "go" }                     # extra, the same package arch_core builds yay with
   fzf: { manager: "pacman", package: "fzf" }
   ripgrep: { manager: "pacman", package: "ripgrep" }
   lens: { manager: "aur", package: "lens-bin" }
   filezilla: { manager: "pacman", package: "filezilla" }
   putty: { manager: "pacman", package: "putty" }
+  rclone: { manager: "pacman", package: "rclone" }           # extra, pacman -Si rclone answered 1.75.2-1 on 2026-10-15, and cachyos-extra-v3 carries the same version
 
 
   # IDEs / Editors (JetBrains via AUR)
@@ -51,6 +55,7 @@ software_mapping:
   slack: { manager: "flatpak", package: "com.slack.Slack" }
   telegram: { manager: "pacman", package: "telegram-desktop" }
   signal: { manager: "pacman", package: "signal-desktop" }
+  zoom: { manager: "aur", package: "zoom" }   # No pacman package. AUR RPC on 2026-10-15: zoom 7.2.1-1, not out of date, maintained, repackages Zoom's own build.
   # whatsapp: removed - not on Flathub
 
   # Productivity
@@ -60,7 +65,15 @@ software_mapping:
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
   # AI
-  opencode_desktop: { manager: "flatpak", package: "ai.opencode.opencode" }   # Flathub, the desktop app. The CLI is the npm package, not this.
+  # Version 2 of the desktop app. Flathub's ai.opencode.opencode, mapped here until 2026-10-15, is the version 1 app,
+  # 1.18.8 per flathub.org/api/v2/appstream on 2026-10-15. AUR RPC the same day: opencode-desktop-bin 2.0.29-1, not
+  # out of date, last modified 2026-10-14, and its PKGBUILD repackages opencode.ai/files/bin/<version>/opencode-desktop-linux-amd64.deb.
+  # The CLI is the npm package, not this.
+  opencode_desktop: { manager: "aur", package: "opencode-desktop-bin" }
+  # Version 1 of the desktop app, installed instead of opencode_desktop when opencode_use_v1 is true, through
+  # setup/ansible/tasks/opencode_version.yaml, which is why it has no install_ toggle of its own. 1.18.8 on
+  # flathub.org/api/v2/appstream on 2026-10-15, a system installation.
+  opencode_desktop_v1: { manager: "flatpak", package: "ai.opencode.opencode" }
 
   # Media / Design
   vlc: { manager: "pacman", package: "vlc" }
@@ -71,8 +84,11 @@ software_mapping:
   audacity: { manager: "flatpak", package: "org.audacityteam.Audacity" }
   rawtherapee: { manager: "pacman", package: "rawtherapee" }
 
-  # Gaming — Heroic Launcher is community-only (not official GOG); no Linux mapping for gog/epic
+  # Gaming — Heroic Launcher is community-only (not official GOG); no Linux mapping for gog/epic.
+  # gaming_suite is Lutris here and the whole CachyOS gaming set on CachyOS, see vars/derivatives/cachyos.yaml.
   steam: { manager: "pacman", package: "steam" }
+  gaming_suite: { manager: "pacman", package: "lutris" }                 # extra, pacman -Si lutris answered 0.5.22 on 2026-10-15
+  curseforge: { manager: "flatpak", package: "com.overwolf.curseforge" } # Flathub, verified publisher overwolf.com
 
   # CAD / 3D
   freecad: { manager: "flatpak", package: "org.freecad.FreeCAD" }

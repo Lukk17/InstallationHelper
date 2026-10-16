@@ -140,9 +140,12 @@ else
     eval "${preload_text}"
 
     for os_file in linux macos windows; do
-        differing="$(join -j1 \
-            <(read_boolean_toggles "${GROUP_VARS_DIR}/all.yaml" | sort) \
-            <(read_boolean_toggles "${GROUP_VARS_DIR}/${os_file}.yaml" | sort) \
+        # sort orders whole lines and join compares only the first field, so the two have to agree on
+        # collation. Under en_US.UTF-8 the space in "install_bruno ON" sorts after the underscore in
+        # "install_bruno_cli ON", join disagrees, and it stops with "is not sorted".
+        differing="$(LC_ALL=C join -j1 \
+            <(read_boolean_toggles "${GROUP_VARS_DIR}/all.yaml" | LC_ALL=C sort) \
+            <(read_boolean_toggles "${GROUP_VARS_DIR}/${os_file}.yaml" | LC_ALL=C sort) \
             | awk '$2 != $3 {print $1, $3}')"
 
         # No differing toggle is a valid state and must not read as a pass, so it says so instead.
@@ -182,20 +185,33 @@ fi
 # piece of software, and the default label is just the key with its prefix stripped and
 # underscores swapped for spaces. That renders setup_zsh as "Zsh", which sits next to
 # "Chrome" in the same list and tells the user nothing about which one reconfigures
-# their shell. Any such toggle that reaches the checklist must carry an explicit label.
+# their shell. Any such toggle that reaches the checklist must carry an explicit label, in the table of
+# the wizard that shows it: setup.sh's LABEL_OVERRIDES for all.yaml, linux.yaml and macos.yaml, and
+# setup.ps1's $LabelOverrides for all.yaml and windows.yaml, the only two files Get-SelectableToggle reads.
 eval "$(sed -n '/^declare -A LABEL_OVERRIDES=(/,/^)$/p' "${SETUP_SH}")"
+ps_label_keys="$(sed -n '/^\$LabelOverrides = @{/,/^}/p' "${SETUP_PS1}" | grep -oE "^[[:space:]]*'[a-z0-9_]+'" | tr -d "' " || true)"
 missing_labels=()
-for f in "${GROUP_VARS_DIR}"/all.yaml "${GROUP_VARS_DIR}"/linux.yaml \
-         "${GROUP_VARS_DIR}"/macos.yaml "${GROUP_VARS_DIR}"/windows.yaml; do
-    while read -r key _; do
-        [[ -z "${key}" || "${key}" == install_* ]] && continue
-        # The four desktop environment keys never reach the checklist. preload_toggles
-        # filters them out because the wizard gives them a dedicated screen with its own
-        # install-versus-configure choice.
-        [[ "${key}" == configure_kde_plasma || "${key}" == configure_gnome ]] && continue
-        [[ -n "${LABEL_OVERRIDES[${key}]:-}" ]] && continue
-        missing_labels+=("${key}")
-    done < <(read_boolean_toggles "${f}")
+for wizard in setup.sh setup.ps1; do
+    if [[ "${wizard}" == setup.sh ]]; then
+        files=("${GROUP_VARS_DIR}"/all.yaml "${GROUP_VARS_DIR}"/linux.yaml "${GROUP_VARS_DIR}"/macos.yaml)
+    else
+        files=("${GROUP_VARS_DIR}"/all.yaml "${GROUP_VARS_DIR}"/windows.yaml)
+    fi
+    for f in "${files[@]}"; do
+        while read -r key _; do
+            [[ -z "${key}" || "${key}" == install_* ]] && continue
+            # The four desktop environment keys never reach the checklist. preload_toggles
+            # filters them out because the wizard gives them a dedicated screen with its own
+            # install-versus-configure choice.
+            [[ "${key}" == configure_kde_plasma || "${key}" == configure_gnome ]] && continue
+            if [[ "${wizard}" == setup.sh ]]; then
+                [[ -n "${LABEL_OVERRIDES[${key}]:-}" ]] && continue
+            else
+                grep -qxF "${key}" <<<"${ps_label_keys}" && continue
+            fi
+            missing_labels+=("${wizard}:${key}")
+        done < <(read_boolean_toggles "${f}")
+    done
 done
 if [[ ${#missing_labels[@]} -eq 0 ]]; then
     pass "every visible system setting has a descriptive label"
@@ -214,6 +230,29 @@ if [[ "${sh_excluded}" == "${ps_excluded}" ]]; then
 else
     fail "the two wizards hide different toggles" \
          "$(diff <(echo "${sh_excluded}") <(echo "${ps_excluded}") | tr '\n' ' ')"
+fi
+
+# The two wizards must leave the same keys off under "all", or --software all and -Software all install
+# different things. opencode_use_v1 is one of them, so "install all" keeps OpenCode on version 2 in both,
+# which the owner decided on 2026-10-15. Compared as sets.
+keeps_off_line="$(grep -m1 '^ALL_SOFTWARE_KEEPS_OFF=' "${SETUP_SH}" || true)"
+ps_keeps_off="$(awk '/^\$AllSoftwareKeepsOff = @\(/ { found = 1 } found { print } found && /\)$/ { exit }' "${SETUP_PS1}" \
+    | grep -oE "'[a-z0-9_]+'" | tr -d "'" | sort -u || true)"
+if [[ -z "${keeps_off_line}" ]]; then
+    fail "setup.sh does not define ALL_SOFTWARE_KEEPS_OFF, so what --software all leaves off cannot be compared" \
+         "no ALL_SOFTWARE_KEEPS_OFF assignment found in ${SETUP_SH}"
+else
+    eval "${keeps_off_line}"
+    sh_keeps_off="$(tr '|' '\n' <<<"${ALL_SOFTWARE_KEEPS_OFF}" | grep . | sort -u || true)"
+    if [[ "${sh_keeps_off}" != "${ps_keeps_off}" ]]; then
+        fail "the two wizards leave different toggles off under all" \
+             "setup.sh ALL_SOFTWARE_KEEPS_OFF: $(tr '\n' ' ' <<<"${sh_keeps_off}")| setup.ps1 \$AllSoftwareKeepsOff: $(tr '\n' ' ' <<<"${ps_keeps_off:-empty or not found}")"
+    elif ! grep -qx opencode_use_v1 <<<"${sh_keeps_off}"; then
+        fail "neither wizard leaves opencode_use_v1 off under all, so install all would switch OpenCode to version 1" \
+             "both lists read: $(tr '\n' ' ' <<<"${sh_keeps_off}")"
+    else
+        pass "both wizards leave the same toggles off under all, opencode_use_v1 among them ($(grep -c . <<<"${sh_keeps_off}") keys)"
+    fi
 fi
 
 finish "wizard parse"

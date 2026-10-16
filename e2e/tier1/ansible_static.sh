@@ -384,6 +384,137 @@ case "${retry_probe}" in
     *) fail "a failed attempt of a retried task leaves no trace where it should" "${retry_probe#FAIL }" ;;
 esac
 
+# --- the summary names a package that installed on a retry once, as installed --------------------
+# A package whose first attempt failed and whose retry installed it was listed under TOLERATED
+# FAILURES for the first attempt and under INSTALLED for the retry, so one summary said both that it
+# failed and that it installed. The real hooks are driven with results shaped like ansible-core's, in
+# the order a run sends them: a first attempt in one task and its retry in a second task, the retry
+# named once "Retry ..." as in install_role_packages.yaml and once "Install ...", a retry inside one task's own
+# `until`, and a package that failed every attempt, which must stay a failure.
+summary_status=0
+summary_probe="$("${PYTHON}" - "${ANSIBLE_DIR}/callback_plugins/dual_logger.py" <<'PYEOF'
+import importlib.util, io, sys
+
+spec = importlib.util.spec_from_file_location("dual_logger_summary_probe", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(module)
+except Exception as exc:                      # ansible not importable here, for instance
+    print("SKIP {}".format(exc))
+    sys.exit(0)
+
+shown = []
+
+
+class Display:
+    def display(self, text):
+        shown.append(text)
+
+
+class Named:
+    def __init__(self, name):
+        self.name = name
+
+    def get_name(self):
+        return self.name
+
+
+class Stats:
+    processed = {"localhost": 1}
+
+    def summarize(self, host):
+        return {"ok": 1, "changed": 1, "unreachable": 0, "failures": 0, "skipped": 0, "rescued": 0,
+                "ignored": 0}
+
+
+def result(task, item, rc, changed=False, **extra):
+    r = type("Result", (), {})()
+    r._host = Named("localhost")
+    r._task = Named(task)
+    r._result = dict({"item": item, "rc": rc, "changed": changed, "stdout": "", "stderr": "",
+                      "msg": "non-zero return code" if rc else ""}, **extra)
+    return r
+
+
+# The two task names of setup/ansible/tasks/install_role_packages.yaml, read out of that file so a rename
+# there cannot leave this probe driving names no run sends. Every apt, dnf, pacman, flatpak, snap and
+# Homebrew install goes through them, from a role and from the software installer alike.
+import pathlib, yaml
+shared = yaml.safe_load(pathlib.Path(sys.argv[1]).parents[1].joinpath("tasks", "install_role_packages.yaml").read_text(encoding="utf-8"))
+shared_names = [t["name"] for t in shared if isinstance(t, dict) and str(t.get("name", "")).startswith(("Install ", "Retry "))]
+FIRST_NAME = next(n for n in shared_names if n.startswith("Install "))
+RETRY_NAME = next(n for n in shared_names if n.startswith("Retry "))
+FIRST = "virtualization_config : " + FIRST_NAME
+RETRY = "virtualization_config : " + RETRY_NAME
+FIRST_LOOP = "software_installer : " + FIRST_NAME
+RETRY_LOOP = "software_installer : " + RETRY_NAME
+OWN_UNTIL = "sdk_manager : Install all Java Temurin versions via SDKMAN (Linux/Mac)"
+
+callback = module.CallbackModule()
+callback._display = Display()
+callback.full_log = io.StringIO()
+callback.errors_log = io.StringIO()
+callback.warnings_log = io.StringIO()
+callback._log_initialized = True
+
+callback.v2_runner_item_on_ok(result(FIRST, "docker", 1))
+callback.v2_runner_item_on_ok(result(FIRST, "nope-never-installs", 1))
+callback.v2_runner_item_on_ok(result(FIRST_LOOP, "steam", 1))
+callback.v2_runner_retry(result(RETRY, "docker", 1, attempts=1, retries=3))
+callback.v2_runner_item_on_ok(result(RETRY, "docker", 0, changed=True))
+callback.v2_runner_item_on_ok(result(RETRY, "nope-never-installs", 1))
+callback.v2_runner_item_on_ok(result(RETRY_LOOP, "steam", 0, changed=True))
+callback.v2_runner_retry(result(OWN_UNTIL, "jq", 1, attempts=1, retries=4))
+callback.v2_runner_retry(result(OWN_UNTIL, "jq", 1, attempts=2, retries=4))
+callback.v2_runner_item_on_ok(result(OWN_UNTIL, "jq", 0, changed=True))
+callback.v2_runner_item_on_ok(result(FIRST_LOOP, "ripgrep", 0, changed=True))
+# After its items, a looped task sends one result of its own, carrying no item. Until 2026-10-15 a list
+# of batch-era task names recorded that result as an installed package, so a real Debian defaults run
+# listed "Install APT packages, one at a time" under INSTALLED beside the packages themselves.
+for whole_task in (FIRST, RETRY, FIRST_LOOP, RETRY_LOOP):
+    aggregate = result(whole_task, None, 0, changed=True)
+    del aggregate._result["item"]
+    callback.v2_runner_on_ok(aggregate)
+callback.v2_playbook_on_stats(Stats())
+
+summary = "\n".join(shown[next(i for i, t in enumerate(shown) if "PLAY RECAP" in t):])
+sections = {}
+current = None
+for line in summary.splitlines():
+    if "═══ " in line and " ═══" in line:
+        current = line.split("═══ ", 1)[1].split(" (", 1)[0]
+        sections[current] = []
+    elif current:
+        sections[current].append(line)
+installed = "\n".join(sections.get("INSTALLED", []))
+tolerated = "\n".join(sections.get("TOLERATED FAILURES", []))
+
+problems = []
+for name, retries in (("docker", "after 2 retries"), ("steam", "after 1 retry"), ("jq", "after 2 retries")):
+    if name in tolerated:
+        problems.append("{} installed on a retry and is still listed under TOLERATED FAILURES".format(name))
+    if "{} ({})".format(name, retries) not in installed:
+        problems.append("{} is not listed under INSTALLED as {!r}".format(name, "{} ({})".format(name, retries)))
+if "ripgrep (" in installed or "ripgrep" not in installed:
+    problems.append("ripgrep installed on its first attempt and is not listed as plainly installed")
+for name in (FIRST_NAME, RETRY_NAME):
+    if name in installed:
+        problems.append("the task name {!r} is listed under INSTALLED as if it were a package".format(name))
+if tolerated.count("nope-never-installs") != 1:
+    problems.append("a package that failed every attempt is listed {} times under TOLERATED FAILURES, not once"
+                    .format(tolerated.count("nope-never-installs")))
+if "nope-never-installs" in installed:
+    problems.append("a package that failed every attempt is listed under INSTALLED")
+print("FAIL " + "; ".join(problems) if problems else "OK")
+PYEOF
+)" || summary_status=$?
+assert_python_ran "${summary_status}" "Ansible static"
+case "${summary_probe}" in
+    OK) pass "the summary lists a package that installed on a retry once, as installed after its retries, and one that never installed as a failure" ;;
+    SKIP*) skip "the summary lists a package that installed on a retry once" "${summary_probe#SKIP }" ;;
+    *) fail "the summary misreports a package that installed on a retry" "${summary_probe#FAIL }" ;;
+esac
+
 # --- optional linters --------------------------------------------------------
 # Reported, never required. Making the gate depend on a tool that may not be installed
 # would mean the gate silently stops running, which is its own failure mode.

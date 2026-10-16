@@ -103,10 +103,14 @@
     # application to the AUR by name with no URL to dereference, so five green Arch runs proved
     # nothing about it. Recorded in docs/regression_ledger.md.
 
+    # The same file site.yaml loads it through, so a derivative's overrides are expected here exactly
+    # where the playbook installed them.
     - name: Load the OS translation dictionary
-      ansible.builtin.include_vars:
-        file: "{{ playbook_dir }}/vars/{{ ih_family }}.yaml"
-        name: os_dict
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/load_os_dict.yaml"
+
+    # The same file site.yaml decides it through, so this expects the OpenCode version the run installed.
+    - name: Decide which OpenCode version the run installed, the same way the playbook decides
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/opencode_version.yaml"
 
   tasks:
     # --- what the toggles asked for -----------------------------------------
@@ -150,6 +154,17 @@
       loop_control:
         label: "{{ item.key }}"
       when: lookup('vars', 'install_' ~ item.key, default=false) | bool
+
+    # A mapping the vendor builds for one processor architecture only is skipped by the playbook on
+    # any other, LM Studio on an Intel Mac today, so it is not expected here either. The answer comes
+    # from the same task file dynamic_install.yaml reads, so the two cannot disagree about it, and
+    # the report below names each one as skipped with the reason rather than as not requested.
+    - name: Ask which requested mappings this machine's processor cannot run, the same way the playbook asks
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/architecture_availability.yaml"
+
+    - name: Leave out every requested mapping the playbook skipped for this machine's processor
+      ansible.builtin.set_fact:
+        enabled_mapped: "{{ enabled_mapped | default([]) | reject('in', ih_architecture_skipped | list) | list }}"
 
     - name: Split the enabled software by package manager
       ansible.builtin.set_fact:
@@ -206,10 +221,10 @@
     # --- what the playbook skipped on purpose, and why --------------------------
     # Three more things the playbook no longer stops for. A third-party repository that could not be
     # added skips only what installs from it, a CachyOS 32-bit graphics stack that could not be aligned
-    # skips only Steam, and an env_variables failure skips only sdk_manager. A package missing for one
-    # of those reasons is still MISSING here, and the report says which reason, from the same task files
-    # the playbook reads, so the two cannot disagree about it. Each asks the disk, because this play
-    # runs on its own, long after the run that decided.
+    # skips only Steam and what brings it, and an env_variables failure skips only sdk_manager. A
+    # package missing for one of those reasons is still MISSING here, and the report says which
+    # reason, from the same task files the playbook reads, so the two cannot disagree about it. Each
+    # asks the disk, because this play runs on its own, long after the run that decided.
     - name: Ask which requested third-party repositories are on this machine, the same way the playbook asks
       ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/repository_availability.yaml"
 
@@ -230,11 +245,12 @@
       loop_control:
         label: "{{ item.key }}"
 
+    # Every mapping that brings Steam, which on CachyOS is the gaming suite as well as steam itself.
     - name: Name the reason Steam is missing when the 32-bit graphics stack could not be aligned
       ansible.builtin.set_fact:
         ih_missing_reasons: >-
           {{ ih_missing_reasons | default({})
-             | combine({'steam': 'the CachyOS 32-bit graphics packages could not be aligned'}) }}
+             | combine(dict(ih_steam_keys | product(['the CachyOS 32-bit graphics packages could not be aligned']))) }}
       when: not (steam_graphics_stack_aligned | default(true) | bool)
 
     # The five toggles sdk_manager installs from, the same five roles/sdk_manager/tasks/main.yaml gates
@@ -244,7 +260,7 @@
         ih_sdk_toggles: [install_nodejs, install_java, install_python, install_flutter, install_android_sdk]
         ih_sdk_missing_reason: >-
           {{ '' if (env_variables_available | default(true) | bool)
-             else 'the environment file ~/apps_config/env.sh is missing, so env_variables failed and sdk_manager was skipped' }}
+             else 'the environment file ' ~ dev_env_file ~ ' is missing, so env_variables failed and sdk_manager was skipped' }}
 
     # The missing-package comparison below catches a URL install that did not happen, but it cannot
     # say why. This names the one cause that produces no output anywhere: a rendered download
@@ -482,7 +498,7 @@
 
     # --- command-line tools installed outside a package manager --------------
     # Everything above this line asks a package manager what it recorded, and none of it can see
-    # NVM, pyenv, SDKMAN, FVM, the Android SDK command line tools, or any of the six npm-installed AI
+    # NVM, pyenv, SDKMAN, FVM, the Android SDK command line tools, or any of the seven npm-installed AI
     # CLIs, because none of them ever tell apt, dnf, pacman or Homebrew that they exist. Measured on a
     # real CachyOS machine on 2026-09-15: Claude Code, OpenCode, OpenSpec, Codex, Grok and Bruno CLI
     # all installed, all reported CHANGED, and the owner could run none of them, because NVM wired
@@ -547,6 +563,25 @@
       ansible.builtin.set_fact:
         ih_yay_applies: "{{ (install_yay | default(false) | bool) and (ih_family == 'Archlinux') }}"
 
+    # uv is a package where vars/<OS>.yaml maps it, and checked above with the rest of the packages.
+    # Where the mapping is absent, Debian and Ubuntu today, custom_installs.yaml runs Astral's
+    # installer, and no package manager knows about the result, so it is asked about here instead.
+    - name: Decide whether uv came from Astral's installer on this machine
+      ansible.builtin.set_fact:
+        ih_uv_installer_applies: "{{ (install_uv | default(false) | bool) and os_dict.software_mapping.uv is not defined }}"
+
+    # JetBrains Toolbox is a package where vars/<OS>.yaml maps it, the AUR on Arch and a cask on macOS,
+    # and checked above with the rest of the packages. Debian, Ubuntu and Fedora have no mapping and
+    # roles/jetbrains_toolbox unpacks JetBrains' tarball instead, which no package manager records, so
+    # it is asked about here. Until 2026-10-15 nothing asked, and that unpack had installed nothing on
+    # those three families since Toolbox 3.x moved its binary, with every run green.
+    - name: Decide whether JetBrains Toolbox came from JetBrains' tarball on this machine
+      ansible.builtin.set_fact:
+        ih_toolbox_tarball_applies: >-
+          {{ (install_jetbrains_toolbox | default(false) | bool)
+             and ansible_facts['system'] == 'Linux'
+             and os_dict.software_mapping.jetbrains_toolbox is not defined }}
+
     # One entry per tool this playbook installs outside a package manager. shell_bin is the name a
     # login shell is asked to resolve; left empty for the four pinned Java majors and the four pinned
     # Python builds, because only one of each is ever the active java or python on PATH at a time,
@@ -609,10 +644,17 @@
           - key: opencode
             toggle: install_opencode
             shell_bin: opencode
-            how: "npm package @opencode/cli under ~/.nvm/versions/node/*/lib/node_modules"
+            how: "npm package {{ opencode_cli_package }} under ~/.nvm/versions/node/*/lib/node_modules"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/@opencode/cli/package.json' 2>/dev/null | grep -q .
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/{{ opencode_cli_package }}/package.json' 2>/dev/null | grep -q .
+          - key: kilo
+            toggle: install_kilo_code
+            shell_bin: kilo
+            how: "npm package @kilocode/cli under ~/.nvm/versions/node/*/lib/node_modules"
+            expected_path: ""
+            disk_cmd: >-
+              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/@kilocode/cli/package.json' 2>/dev/null | grep -q .
           - key: openspec
             toggle: install_openspec
             shell_bin: openspec
@@ -651,7 +693,7 @@
           - key: pyenv
             toggle: install_python
             shell_bin: pyenv
-            how: "~/.pyenv/bin/pyenv, wrapped in a shell function by `pyenv init` in apps_config/env.sh, not resolved from PATH directly"
+            how: "~/.pyenv/bin/pyenv, wrapped in a shell function by `pyenv init` in the interactive rc file, not resolved from PATH directly"
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.pyenv/bin/pyenv" ]
@@ -767,6 +809,20 @@
             expected_path: "{{ android_home }}/platform-tools/adb"
             disk_cmd: >-
               [ -x "{{ android_home }}/platform-tools/adb" ]
+          - key: jetbrains-toolbox
+            toggle: ih_toolbox_tarball_applies
+            shell_bin: ""
+            how: "{{ jetbrains_toolbox_binary }}, unpacked from JetBrains' tarball by roles/jetbrains_toolbox. A desktop application started from its menu entry, so no shell is asked to find it"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ jetbrains_toolbox_binary }}" ]
+          - key: uvx
+            toggle: ih_uv_installer_applies
+            shell_bin: uvx
+            how: "/usr/local/bin/uvx, put there by Astral's installer where the distribution has no uv package"
+            expected_path: "/usr/local/bin/uvx"
+            disk_cmd: >-
+              [ -x /usr/local/bin/uvx ] && [ -x /usr/local/bin/uv ]
 
     - name: Determine which outside-package-manager tools this run enabled
       ansible.builtin.set_fact:
@@ -868,6 +924,67 @@
       ignore_errors: true
       when: item.shell_bin | length > 0
 
+    # --- the environment a desktop session gets --------------------------------------------------
+    # The probes above open a shell, and a shell is not what starts a desktop application. Plasma and
+    # GNOME take their environment from the systemd user manager, which builds it at login by running
+    # its user environment generators over ~/.config/environment.d, and Plasma's own login zsh is
+    # non-interactive, so it never reads .zshrc. On 2026-10-13 /proc/<plasmashell>/environ on the
+    # owner's CachyOS machine carried none of ANDROID_HOME, GRADLE_USER_HOME, DOCKER_CONFIG,
+    # KUBECONFIG, M2_HOME, PYENV_ROOT, NVM_DIR, SDKMAN_DIR and JAVA_HOME, while every `-ic` and `-lic`
+    # probe here passed, because all of them lived in ~/apps_config/env.sh, sourced from .zshrc only.
+    #
+    # So this asks the generator itself, run as the user with an empty environment, which is exactly
+    # what the user manager runs at the next login. It needs no running session and no D-Bus, so it
+    # answers the same in a container as on a desktop. systemd-path names the generator directory on
+    # every distribution this project supports, and the fallback is the path all of them use. Linux
+    # only: macOS has no systemd and its desktop does not read environment.d at all.
+    - name: Define what the desktop session environment must carry
+      ansible.builtin.set_fact:
+        ih_session_env_vars: >-
+          {{ ['GRADLE_USER_HOME', 'DOCKER_CONFIG', 'M2_HOME', 'KUBECONFIG', 'PROJECTS_DIR', 'ANDROID_HOME',
+              'ANDROID_SDK_ROOT', 'ANDROID_USER_HOME', 'ANDROID_SDK_HOME', 'PUB_CACHE']
+             + (['NVM_DIR'] if (install_nodejs | default(false) | bool) else [])
+             + (['SDKMAN_DIR', 'JAVA_HOME'] if (install_java | default(false) | bool) else [])
+             + (['PYENV_ROOT'] if (install_python | default(false) | bool) else []) }}
+        ih_session_path_entries: >-
+          {{ [android_home ~ '/platform-tools', non_root_home ~ '/fvm/bin']
+             + ([non_root_home ~ '/.sdkman/candidates/java/current/bin'] if (install_java | default(false) | bool) else [])
+             + ([non_root_home ~ '/.pyenv/bin'] if (install_python | default(false) | bool) else [])
+             + ([jetbrains_toolbox_scripts_dir] if (install_jetbrains_toolbox | default(false) | bool) else []) }}
+      when: ansible_facts['system'] == 'Linux'
+
+    - name: Ask the systemd user environment generator what a desktop session started now would carry
+      ansible.builtin.shell: |
+        set -o pipefail
+        gen_dir="$(systemd-path systemd-user-environment-generator 2>/dev/null || true)"
+        gen="${gen_dir:-/usr/lib/systemd/user-environment-generators}/30-systemd-environment-d-generator"
+        [ -x "$gen" ] || { echo "no environment generator at $gen" >&2; exit 3; }
+        env -i HOME={{ non_root_home | quote }} PATH=/usr/local/bin:/usr/bin:/bin "$gen"
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: ih_session_env
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+      when: ansible_facts['system'] == 'Linux'
+
+    # The generator prints KEY=VALUE and quotes a value that holds a space, so the PATH value is
+    # unquoted before it is split.
+    - name: Name what the desktop session environment would be missing
+      ansible.builtin.set_fact:
+        ih_session_env_missing: >-
+          {{ ih_session_env_vars
+             | reject('in', ih_session_env.stdout_lines | default([]) | map('regex_replace', '=.*$', '') | list)
+             | list
+             + (ih_session_path_entries
+                | reject('in', (ih_session_env.stdout_lines | default([]) | select('match', '^PATH=') | first | default('PATH='))
+                                 | regex_replace('^PATH=', '') | regex_replace('^"(.*)"$', '\\1') | split(':'))
+                | map('regex_replace', '^', 'PATH entry ')
+                | list) }}
+      when: ansible_facts['system'] == 'Linux'
+
     # Zipped by index rather than by name, because all three registers above were built from one loop
     # over ih_outside_pm_enabled in the same order, which Ansible preserves. An empty shell_bin means
     # this tool has no independent PATH identity of its own to test, so both shell verdicts mirror the
@@ -929,6 +1046,58 @@
     # Every line carries the [verify] marker so setup.sh can lift the report out of the Ansible
     # output it wrote to the log and show that, rather than showing the reader a play recap and
     # calling it a verdict.
+    # --- OpenCode: the selected version and nothing else ------------------------
+    # tasks/opencode_version.yaml chose the version for the run and for this play, and roles/ai_tools removed the
+    # other one by asking the same probes asked here: the desktop probe from opencode_desktop_commands, and for the
+    # command line package the npm list the shared npm helper asks under the LTS Node it installs into. The selected
+    # desktop app is checked through the mapping above, except the macOS version 1 app, which no mapping installs
+    # and which is asked about here. A probe that could not run leaves no rc, and that fails the assertion below,
+    # because an unverifiable claim is not a verified one.
+    - name: Ask whether the OpenCode desktop app of the version not selected is still installed
+      ansible.builtin.shell: "{{ ih_other_commands.probe | replace('PKG', opencode_other_desktop_route.package | quote) }}"
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: ih_opencode_other_desktop
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+      when:
+        - install_opencode_desktop | default(false) | bool
+        - ih_other_commands | length > 0
+      vars:
+        ih_other_commands: "{{ opencode_desktop_commands[opencode_other_desktop_route.manager | default('')] | default({}) }}"
+
+    - name: Ask whether the selected OpenCode desktop app that no mapping installs is on this machine
+      ansible.builtin.shell: "{{ opencode_desktop_commands.macos_app.probe | replace('PKG', opencode_desktop_route.package | quote) }}"
+      args:
+        executable: /bin/bash
+      register: ih_opencode_selected_app
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+      when:
+        - install_opencode_desktop | default(false) | bool
+        - opencode_desktop_route.manager | default('') == 'macos_app'
+
+    - name: Ask whether the OpenCode command line package of the version not selected is still installed
+      ansible.builtin.shell: |
+        set -o pipefail
+        source {{ non_root_home }}/.nvm/nvm.sh
+        nvm use --lts >/dev/null 2>&1
+        npm list -g {{ opencode_other_cli_package | quote }} --depth=0 2>/dev/null | grep -q -F {{ opencode_other_cli_package | quote }}
+      args:
+        executable: /bin/bash
+        chdir: "{{ non_root_home }}"
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: ih_opencode_other_cli
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+      when: install_opencode | default(false) | bool
+
     - name: Build the per-application verdict
       ansible.builtin.set_fact:
         ih_report: |-
@@ -937,9 +1106,9 @@
           [verify] {{ '%-30s %-14s %s' | format('APPLICATION', 'VERDICT', 'PACKAGE') }}
           [verify] --------------------------------------------------------------------------
           {% for key in ih_all_keys %}
-          {% set verdict = 'MISSING' if key in ih_missing_keys else 'installed' if key in (enabled_mapped | default([])) else 'not requested' %}
+          {% set verdict = 'MISSING' if key in ih_missing_keys else 'installed' if key in (enabled_mapped | default([])) else 'skipped' if key in (ih_architecture_skipped | default({})) else 'not requested' %}
           {% set reason = ih_aur_missing_reason if (os_dict.software_mapping[key].manager == 'aur' and ih_aur_missing_reason) else (ih_missing_reasons | default({}))[key] | default('') %}
-          {% set why = ' (NOT installed: ' ~ reason ~ ')' if (verdict == 'MISSING' and reason) else '' %}
+          {% set why = ' (NOT installed: ' ~ reason ~ ')' if (verdict == 'MISSING' and reason) else ' (not installed on purpose: ' ~ ih_architecture_skipped[key] ~ ')' if verdict == 'skipped' else '' %}
           [verify] {{ '%-30s %-14s %s' | format(key, verdict, os_dict.software_mapping[key].manager ~ ': ' ~ ih_package_by_key[key] ~ why) }}
           {% endfor %}
           {% for row in ih_role_aur_packages | default([]) %}
@@ -981,10 +1150,22 @@
           [verify]   in /etc/group already, not yet in this session. Log out and back in, a new terminal window alone will not pick it up.
           {% endif %}
           {% endif %}
+          {% if ih_opencode_other_desktop is defined and ih_opencode_other_desktop is not skipped %}
+          [verify] {{ '%-30s %-14s %s' | format('opencode desktop ' ~ opencode_other_version, 'absent' if (ih_opencode_other_desktop.rc | default(0)) != 0 else 'STILL THERE' if ih_opencode_other_desktop.rc is defined else 'UNREADABLE', 'not selected, ' ~ opencode_other_desktop_route.manager ~ ': ' ~ opencode_other_desktop_route.package) }}
+          {% endif %}
+          {% if ih_opencode_selected_app is defined and ih_opencode_selected_app is not skipped %}
+          [verify] {{ '%-30s %-14s %s' | format('opencode desktop ' ~ opencode_version, 'installed' if (ih_opencode_selected_app.rc | default(1)) == 0 else 'MISSING', 'selected, vendor DMG: ' ~ opencode_desktop_route.package) }}
+          {% endif %}
+          {% if ih_opencode_other_cli is defined and ih_opencode_other_cli is not skipped %}
+          [verify] {{ '%-30s %-14s %s' | format('opencode cli ' ~ opencode_other_version, 'absent' if (ih_opencode_other_cli.rc | default(0)) != 0 else 'STILL THERE' if ih_opencode_other_cli.rc is defined else 'UNREADABLE', 'not selected, npm: ' ~ opencode_other_cli_package) }}
+          {% endif %}
           [verify] {{ '%-30s %-14s %s' | format('temporary sudo rule', 'removed' if (temp_sudoers.stat is defined and not temp_sudoers.stat.exists) else 'STILL THERE' if (temp_sudoers.stat is defined) else 'UNREADABLE', '/etc/sudoers.d/99-ansible-user') }}
           [verify] --------------------------------------------------------------------------
           [verify] requested {{ (enabled_mapped | default([])) | length }} of {{ ih_all_keys | length }} mapped applications: {{ ((enabled_mapped | default([])) | length) - (ih_missing_keys | length) }} installed, {{ ih_missing_keys | length }} missing
           [verify] missing: {{ ih_missing_keys | join(', ') | default('none', true) }}
+          {% if ih_architecture_skipped | default({}) | length > 0 %}
+          [verify] skipped on purpose for this processor, and not counted as requested: {{ ih_architecture_skipped | list | join(', ') }}
+          {% endif %}
           {% if ih_family == 'Archlinux' %}
           [verify] Arch User Repository packages expected {{ expected_aur | default([]) | length }}, missing {{ missing_aur | default([]) | length }}{{ ': ' ~ (missing_aur | join(', ')) if (missing_aur | default([]) | length > 0) else '' }}
           [verify] paru {{ 'is on this machine' if not ih_aur_missing_reason else 'is NOT on this machine, because it could not be built, so every Arch User Repository package above that is MISSING was skipped for that reason' }}
@@ -994,6 +1175,9 @@
           [verify] outside-package-manager tools probed via {{ ih_user_shell }} as an interactive shell for {{ non_root_user }}, the shell a plain terminal opens, with a login-shell probe kept as a secondary, non-failing check{{ '' if ih_user_shell_known | default(false) else ' (login shell unknown, /bin/bash assumed)' }}
           [verify] outside-package-manager tools requested {{ (ih_outside_pm_report_all | default([]) | rejectattr('verdict', 'equalto', 'not requested') | list) | length }}, missing or unreachable {{ (ih_outside_pm_missing | default([])) | length }}
           [verify] outside-package-manager tools missing or unreachable: {{ (ih_outside_pm_missing | default([])) | join(', ') | default('none', true) }}
+          {% if ansible_facts['system'] == 'Linux' %}
+          [verify] desktop session environment, from ~/.config/environment.d through the systemd user environment generator: {{ 'UNREADABLE (' ~ (ih_session_env.stderr | default('no answer') | trim) ~ ')' if (ih_session_env.rc | default(1)) != 0 else ('missing ' ~ (ih_session_env_missing | join(', ')) if ih_session_env_missing | length > 0 else 'all ' ~ (ih_session_env_vars | length) ~ ' variables and ' ~ (ih_session_path_entries | length) ~ ' PATH entries present') }}
+          {% endif %}
           [verify] ==========================================================================
 
     - name: Report every application, and what the system state came out as
@@ -1056,8 +1240,8 @@
     #
     # It used to require a non-zero candidate count on Debian, Ubuntu and Fedora, on the reasoning
     # that an empty list there meant the selection had broken. That is false for any run whose
-    # selection legitimately contains no URL-installed package, and such runs exist: the five
-    # apt_url mappings are minikube, teamviewer, veracrypt, appimagelauncher and balena_etcher, so a
+    # selection legitimately contains no URL-installed package, and such runs exist: the six
+    # apt_url mappings are minikube, teamviewer, veracrypt, appimagelauncher, balena_etcher and opencode_desktop, so a
     # scenario that enables none of them examines nothing and was then failed for it. Found the first
     # time a scenario other than defaults ran on Debian after this play was written, which was also
     # the first Debian container run from a shell the old harness guard used to refuse.
@@ -1206,3 +1390,43 @@
           marked MISSING never reached disk, and the install task that was supposed to put it there is
           what to look at.
         quiet: true
+
+    # The shell probes above cannot see this one. A tool can be reachable from every terminal and its
+    # variables still absent from every application the desktop starts, which is what the owner's
+    # machine had until 2026-10-15.
+    - name: Assert the desktop session environment carries every development variable
+      ansible.builtin.assert:
+        that:
+          - (ih_session_env.rc | default(1)) == 0
+          - (ih_session_env_missing | default([])) | length == 0
+        success_msg: >-
+          PASS desktop session environment: all {{ ih_session_env_vars | length }} variables and
+          {{ ih_session_path_entries | length }} PATH entries are in what the systemd user manager
+          builds from ~/.config/environment.d
+        fail_msg: >-
+          {{ ('FAIL desktop session environment unreadable: '
+               ~ (ih_session_env.stderr | default('no answer') | trim)
+               ~ '. Without the systemd user environment generator nothing can say what a desktop application gets.')
+             if (ih_session_env.rc | default(1)) != 0
+             else ('FAIL desktop session environment missing: ' ~ (ih_session_env_missing | join(', '))
+                   ~ '. A desktop application started at the next login would not see these, even if every terminal does. '
+                   ~ 'They belong in ' ~ dev_env_file ~ ', which env_variables, nvm_unix.yaml, sdkman_unix.yaml and pyenv_unix.yaml write'
+                   ~ ('' if (env_variables_available | default(true) | bool) else ', and that file is missing because env_variables failed')
+                   ~ '.') }}
+        quiet: true
+      when: ansible_facts['system'] == 'Linux'
+
+    - name: Assert exactly the selected OpenCode version is installed
+      ansible.builtin.assert:
+        that:
+          - ih_opencode_other_desktop is skipped or (ih_opencode_other_desktop.rc is defined and ih_opencode_other_desktop.rc != 0)
+          - ih_opencode_selected_app is skipped or (ih_opencode_selected_app.rc | default(1)) == 0
+          - ih_opencode_other_cli is skipped or (ih_opencode_other_cli.rc is defined and ih_opencode_other_cli.rc != 0)
+        success_msg: "PASS OpenCode {{ opencode_version }} is the only OpenCode version here"
+        fail_msg: >-
+          FAIL OpenCode {{ opencode_version }} was selected and the machine disagrees. See the opencode rows in the table
+          above: STILL THERE means the {{ opencode_other_version }} app or command line package was not removed,
+          UNREADABLE that the probe could not run, and MISSING that the selected version 1 app is not in /Applications.
+        quiet: true
+
+

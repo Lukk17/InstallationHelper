@@ -12,6 +12,9 @@ install_tor: true
 install_git: true
 install_nodejs: true
 install_python: true
+install_uv: true  # Astral's uv and uvx. Package on Arch, Fedora, macOS and Windows, the official installer to /usr/local/bin on Debian and Ubuntu, which carry no package.
+install_pipx: true  # A package on every Unix. On Windows `py -m pip install --user pipx` from setup/windows/WindowsCustomInstalls.ps1, because winget has none and Chocolatey's pulls in a second Python. The KDE role installs the same package for Konsave whatever this says.
+install_go: true
 install_java: true
 install_maven: true
 install_gradle: true
@@ -45,6 +48,7 @@ install_telegram: true
 install_whatsapp: true
 install_signal: true
 install_teams: true  # Windows via winget and macOS via cask. No Linux mapping, upstream is web only there, so it no-ops on Linux.
+install_zoom: true  # Homebrew cask on macOS, winget on Windows, AUR zoom on Arch and CachyOS, Flathub us.zoom.Zoom on Debian, Ubuntu and Fedora.
 
 # Productivity
 install_obsidian: true
@@ -54,7 +58,7 @@ install_onlyoffice: true
 
 # AI
 install_chatgpt: true  # Desktop app — Windows and macOS only, OpenAI ships no Linux build.
-install_opencode_desktop: true  # Desktop app. winget on Windows, Homebrew cask on macOS, Flathub on Linux. The CLI is install_opencode.
+install_opencode_desktop: true  # Desktop app, version 2. AUR opencode-desktop-bin on Arch, the vendor .deb and .rpm on Debian, Ubuntu and Fedora, Homebrew cask on macOS, the vendor installer on Windows. The CLI is install_opencode.
 
 # Media / Design
 install_vlc: true
@@ -65,9 +69,10 @@ install_handbrake: true
 install_audacity: true
 install_rawtherapee: true
 
-# Gaming — storefronts/launchers. GOG/Epic/EA/CurseForge ship on Windows
-# (winget) + macOS (cask) but have no official Linux client, so they no-op on
-# Linux (no mapping in vars/{Debian,RedHat,Archlinux}.yaml).
+# Gaming — storefronts/launchers. GOG/Epic/EA ship on Windows (winget) + macOS
+# (cask) but have no official Linux client, so they no-op on Linux (no mapping
+# in vars/{Debian,RedHat,Archlinux}.yaml). CurseForge does have one, Overwolf's
+# own Flathub build, which every Linux distribution installs.
 install_steam: true
 install_ea_app: true
 install_gog: true
@@ -118,6 +123,8 @@ install_claude_code: true
 install_claude_desktop: true
 install_jetbrains_toolbox: true
 install_opencode: true
+opencode_use_v1: false  # Installs OpenCode version 1 instead of version 2, the npm package opencode-ai and the version 1 desktop app, and removes version 2. Version 2 is the default.
+install_kilo_code: true  # Kilo Code CLI, the kilo command, npm package @kilocode/cli on every OS like the other AI command line tools.
 install_openspec: true
 install_codex: true
 install_grok: true
@@ -140,3 +147,33 @@ non_root_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
 # non_root_home comes from linux.yaml or macos.yaml and resolves non_root_user above, so only lazy
 # templating after fact gathering can render this. A file of pins has to resolve on its own.
 android_home: "{{ non_root_home }}/Android/Sdk"
+
+# Where the owner keeps source checkouts. env_variables creates it and exports it as PROJECTS_DIR, and
+# a project, a script or an agent can read that one name instead of guessing a path. Same templating
+# rule as android_home: non_root_home comes from linux.yaml or macos.yaml, so only lazy templating
+# after fact gathering can render it. Override with `-e projects_dir=/some/path` or edit this line.
+# The Windows default, %USERPROFILE%\Projects, is $projectsDir in Set-WindowsDevEnvironment, setup/windows/WindowsCustomInstalls.ps1.
+projects_dir: "{{ non_root_home }}/Projects"
+
+# The shell and environment layout on Linux and macOS, read by env_variables, shell_zsh, sdk_manager,
+# ai_tools and verify_install.yaml, so the five cannot name different files. Same templating rule as
+# android_home. setup/configuration.md, "Shell and environment layout", describes what goes where.
+dev_env_file: "{{ non_root_home }}/.config/environment.d/50-dev.conf"
+zsh_config_dir: "{{ non_root_home ~ '/.config/zsh' if (setup_zsh | default(false) | bool) else non_root_home }}"
+interactive_rc_files: >-
+  {{ ([{'shell': 'bash', 'path': non_root_home ~ '/.bashrc'}] if ansible_facts['system'] == 'Linux' else [])
+     + [{'shell': 'zsh', 'path': zsh_config_dir ~ '/.zshrc'}] }}
+shell_startup_files: >-
+  {{ [non_root_home ~ '/.bashrc', non_root_home ~ '/.bash_profile', non_root_home ~ '/.profile',
+      non_root_home ~ '/.zshrc', non_root_home ~ '/.zprofile',
+      zsh_config_dir ~ '/.zshrc', zsh_config_dir ~ '/.zprofile'] | unique }}
+shell_layout_backup_dir: "{{ non_root_home }}/.local/state/installation-helper/shell-layout-backup"
+
+# JetBrains Toolbox on Linux, read by roles/jetbrains_toolbox and verify_install.yaml, so the two
+# cannot name different paths. The data directory is Toolbox's own fixed one. The tarball unpacks
+# into it with its top directory stripped, so the binary lands at bin/jetbrains-toolbox, the path
+# Toolbox 2.x's own `--install` used. scripts is where Toolbox writes the idea, pycharm and other
+# shell launchers, its default shell_scripts.location.
+jetbrains_toolbox_data_dir: "{{ non_root_home }}/.local/share/JetBrains/Toolbox"
+jetbrains_toolbox_binary: "{{ jetbrains_toolbox_data_dir }}/bin/jetbrains-toolbox"
+jetbrains_toolbox_scripts_dir: "{{ jetbrains_toolbox_data_dir }}/scripts"

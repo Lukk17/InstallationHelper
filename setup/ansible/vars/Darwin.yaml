@@ -1,4 +1,8 @@
 ---
+# Where both OpenCode desktop versions keep the app: OpenCode.app, bundle id ai.opencode.desktop, read from the
+# v1.19.1 app archive and from the opencode-desktop cask on 2026-10-15. tasks/opencode_version.yaml reads it.
+opencode_desktop_app: "/Applications/OpenCode.app"
+
 software_mapping:
   # Browsers
   chrome: { manager: "brew_cask", package: "google-chrome" }
@@ -19,6 +23,9 @@ software_mapping:
   terraform: { manager: "brew", package: "hashicorp/tap/terraform" }
   gh: { manager: "brew", package: "gh" }
   jq: { manager: "brew", package: "jq" }
+  uv: { manager: "brew", package: "uv" }
+  pipx: { manager: "brew", package: "pipx" }
+  go: { manager: "brew", package: "go" }
   fzf: { manager: "brew", package: "fzf" }
   ripgrep: { manager: "brew", package: "ripgrep" }
   lens: { manager: "brew_cask", package: "lens" }
@@ -33,7 +40,8 @@ software_mapping:
   vscode: { manager: "brew_cask", package: "visual-studio-code" }
   sublime: { manager: "brew_cask", package: "sublime-text" }
   arduino: { manager: "brew_cask", package: "arduino-ide" }
-  # antigravity: installed via custom_installs_macos.yaml (direct DMG from antigravity.google)
+  antigravity: { manager: "brew_cask", package: "antigravity" }   # Google's own DMG from storage.googleapis.com, Apple Silicon and Intel builds, needs macOS 13 or newer. The app updates itself.
+  jetbrains_toolbox: { manager: "brew_cask", package: "jetbrains-toolbox" }   # JetBrains' own DMG, Apple Silicon and Intel builds. Toolbox installs the IDEs, see roles/jetbrains_toolbox, which is the Linux route.
   bruno: { manager: "brew_cask", package: "bruno" }
   bruno_cli: { manager: "brew", package: "bruno-cli" }
 
@@ -41,6 +49,7 @@ software_mapping:
   discord: { manager: "brew_cask", package: "discord" }
   slack: { manager: "brew_cask", package: "slack" }
   teams: { manager: "brew_cask", package: "microsoft-teams" }
+  zoom: { manager: "brew_cask", package: "zoom" }   # 7.2.2 on formulae.brew.sh on 2026-10-15, updates itself.
   telegram: { manager: "brew_cask", package: "telegram" }
   signal: { manager: "brew_cask", package: "signal" }
   whatsapp: { manager: "brew_cask", package: "whatsapp" }
@@ -53,7 +62,10 @@ software_mapping:
 
   # AI
   chatgpt: { manager: "brew_cask", package: "chatgpt" }   # Official OpenAI build from persistent.oaistatic.com (arm64 + x86_64), needs macOS 12 or newer
-  opencode_desktop: { manager: "brew_cask", package: "opencode-desktop" }   # OpenCode.app in /Applications, needs macOS 12 or newer. The CLI is the npm package, not this cask.
+  opencode_desktop: { manager: "brew_cask", package: "opencode-desktop" }   # Version 2, 2.0.29 on formulae.brew.sh on 2026-10-15, OpenCode.app in /Applications, needs macOS 13 or newer. The CLI is the npm package, not this cask.
+  # opencode_desktop_v1: Homebrew has no version 1 cask, so when opencode_use_v1 is true macos_install.yaml installs the
+  # vendor DMG from the GitHub release instead, see opencode_desktop_v1_macos_*_dmg_url in setup/pinned_values/pinned_values.toml.
+  lm_studio: { manager: "brew_cask", package: "lm-studio", requires_architecture: "arm64" }   # Element Labs' own DMG, Apple Silicon only, needs macOS 12 or newer. The cask declares depends_on arch: :arm64, so an Intel Mac skips it with a note, through tasks/architecture_availability.yaml. Linux takes the vendor script in roles/ai_tools.
 
   # Peripherals
   # synapse: installed via macos_install.yaml (official .pkg from dl.razerzone.com). Razer publishes no
@@ -89,7 +101,7 @@ software_mapping:
 
   # Crypto
   boinc: { manager: "brew_cask", package: "boinc" }
-  # gridcoin: installed via custom_installs_macos.yaml (DMG from github.com/gridcoin-community)
+  # gridcoin: installed via macos_install.yaml (DMG from github.com/gridcoin-community)
 
   # Alternatives
   stats: { manager: "brew_cask", package: "stats", is_alternative_for: "HWMonitor" }
@@ -100,6 +112,7 @@ software_mapping:
   # Virtualization
   utm: { manager: "brew_cask", package: "utm" }
   docker: { manager: "brew_cask", package: "docker-desktop" }        # Docker Desktop, the same product Windows gets. macOS has no Linux kernel, so the engine runs in a virtual machine whichever tool provides it.
+  virtualbox: { manager: "brew_cask", package: "virtualbox" }   # Oracle's own installer package, an Apple Silicon build and an Intel build. On Apple Silicon it runs arm64 guests only, so an x86 guest image will not boot there.
   # macOS does not have VMware Workstation Player (Windows/Linux only). The closest
   # equivalent was VMware Fusion, but the `vmware-fusion` cask no longer exists in
   # homebrew-cask: Broadcom moved the download behind a portal login, which is the same

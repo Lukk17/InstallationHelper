@@ -9,32 +9,45 @@
   when: ansible_facts['system'] == 'Linux'
 
 - name: Install snapper (Arch)
-  community.general.pacman:
-    name: snapper
-    state: present
-  become: yes
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [snapper]
+    role_packages_purpose: Snapper
   when:
     - ih_family == 'Archlinux'
     - root_fs_type.stdout == 'btrfs'
 
 - name: Install snapper (Debian)
-  ansible.builtin.apt:
-    name: snapper
-    state: present
-    update_cache: yes
-  become: yes
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [snapper]
+    role_packages_purpose: Snapper
   when:
     - ih_family == 'Debian'
     - root_fs_type.stdout == 'btrfs'
 
 - name: Install snapper (RedHat)
-  ansible.builtin.dnf:
-    name: snapper
-    state: present
-  become: yes
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [snapper]
+    role_packages_purpose: Snapper
   when:
     - ih_family == 'RedHat'
     - root_fs_type.stdout == 'btrfs'
+
+- name: Stop when snapper did not install
+  ansible.builtin.fail:
+    msg: snapper did not install, so configuring Snapper cannot continue. What the package manager said is in the [ERROR] line above.
+  when: "'snapper' in (role_packages_missing | default([]))"
 
 - name: Create snapper config for root
   ansible.builtin.command: snapper -c root create-config /

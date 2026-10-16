@@ -67,28 +67,42 @@
           The step that failed and its message are named above.
 
 - name: Install Waydroid (Debian)
-  ansible.builtin.apt:
-    name: waydroid
-    state: present
-  become: yes
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [waydroid]
+    role_packages_purpose: Waydroid
   when: ih_family == 'Debian'
 
 # From the official extra repository, not the Arch User Repository. waydroid has no AUR entry at all,
 # asked of the AUR API on 2026-10-10, and archlinux.org lists it in extra, so going through paru only
 # made Waydroid depend on an AUR helper it never needed.
 - name: Install Waydroid (Archlinux)
-  become: yes
-  community.general.pacman:
-    name: waydroid
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [waydroid]
+    role_packages_purpose: Waydroid
   when: ih_family == 'Archlinux'
 
 - name: Install Waydroid (Fedora)
-  ansible.builtin.dnf:
-    name: waydroid
-    state: present
-  become: yes
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [waydroid]
+    role_packages_purpose: Waydroid
   when: ih_family == 'RedHat'
+
+- name: Stop when waydroid did not install
+  ansible.builtin.fail:
+    msg: waydroid did not install, so setting up Waydroid cannot continue. What the package manager said is in the [ERROR] line above.
+  when: "'waydroid' in (role_packages_missing | default([]))"
 
 - name: Probe for Waydroid data image
   ansible.builtin.stat:

@@ -26,8 +26,9 @@
 #   setup.sh --print-command                         # print the resolved playbook command, run nothing
 #   setup.sh --verify-only                           # only verify what is installed, install nothing
 #
-#   defaults means the group_vars values as they are, all means every selectable toggle on, and
-#   none means every selectable toggle off so --enable can build a run up from nothing. An unknown
+#   defaults means the group_vars values as they are, all means every selectable toggle on except
+#   opencode_use_v1, which stays off so OpenCode stays on version 2, and none means every selectable
+#   toggle off so --enable can build a run up from nothing. An unknown
 #   key is refused rather than ignored, because a typo that installs nothing while the run reports
 #   success is this project's most repeated defect.
 #
@@ -124,19 +125,26 @@ VERIFY_LOG="${HOME}/installation_verify.log"
 #   rewrites the bootloader         setup_systemd_boot, setup_grub, remove_distro_*
 EXCLUDED_VARS="non_root_user|non_root_home|allow_callback_failure|default_wallpaper|install_system_core|setup_hibernate|setup_systemd_boot|setup_grub|remove_distro_grub|remove_distro_systemd_boot"
 
+# Checklist keys --software all leaves off rather than on, because turning one on is not more software but a
+# switch away from the default. opencode_use_v1 replaces OpenCode version 2 with version 1 and removes version
+# 2, so "install all" would downgrade OpenCode, which the owner ruled out on 2026-10-15. --enable still turns
+# one on. Must stay identical to $AllSoftwareKeepsOff in setup.ps1, and e2e/tier1/wizard_parse.sh fails if the
+# two ever disagree.
+ALL_SOFTWARE_KEEPS_OFF="opencode_use_v1"
+
 # System settings share the checklist with software, so their labels have to say what
 # they do. "Zsh" next to "Chrome" tells the user nothing about which one reconfigures
 # their shell. Keys not listed here fall through to format_label.
 declare -A LABEL_OVERRIDES=(
-    [setup_zsh]="System: zsh shell, with Powerlevel10k and Nerd Fonts"
+    [setup_zsh]="System: zsh shell with Powerlevel10k and Nerd Fonts"
     [setup_tmpfs]="System: mount /tmp in RAM as tmpfs"
     [set_custom_wallpaper]="System: set the desktop wallpaper"
-    [toggle_wayland_nvidia]="System: force Wayland on NVIDIA, can break the session"
+    [toggle_wayland_nvidia]="System: force Wayland on NVIDIA (can break the session)"
     [setup_karabiner]="System: Karabiner-Elements key remapping (macOS)"
     [setup_finder_defaults]="System: Finder default settings (macOS)"
-    [setup_wsl]="System: install WSL and Ubuntu (Windows)"
-    [enable_hyperv]="System: enable Hyper-V, WSL, .NET and Sandbox features, needs a reboot (Windows)"
-    [install_yay]="Yay: a second AUR helper, nothing here uses it (Arch only)"
+    [install_yay]="Yay: a second AUR helper that nothing here uses (Arch only)"
+    [install_gaming_suite]="Gaming suite: Lutris (on CachyOS the CachyOS gaming set with Steam and Mesa as mesa-git)"
+    [opencode_use_v1]="Switch OpenCode from v2 to v1"
 )
 DE_KEYS=("install_kde_plasma" "configure_kde_plasma" "install_gnome" "configure_gnome")
 
@@ -882,7 +890,7 @@ software_override_vars() {
     for (( i=0; i<${#PRELOADED_KEYS[@]}; i++ )); do
         key="${PRELOADED_KEYS[$i]}"
         case "${baseline}" in
-            all)  value=true ;;
+            all)  if [[ "${key}" =~ ^(${ALL_SOFTWARE_KEEPS_OFF})$ ]]; then value=false; else value=true; fi ;;
             none) value=false ;;
             *)    if [[ "${PRELOADED_ITEMS[$((i*3+2))]}" == "ON" ]]; then value=true; else value=false; fi ;;
         esac

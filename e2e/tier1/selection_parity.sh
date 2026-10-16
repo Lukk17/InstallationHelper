@@ -100,6 +100,22 @@ else
          "the block at 'mapfile -t all_toggles' no longer calls wizard_toggle_keys, so the rule is implemented twice again, which is the defect this check exists for"
 fi
 
+# The same two halves for what an all_software scenario leaves off: container.sh reads it through
+# wizard_all_software_keeps_off and its generation loop applies it, and that function reads setup.sh.
+if grep -q 'all_software_keeps_off_text="$(wizard_all_software_keeps_off)"' "${CONTAINER_SH}" \
+    && grep -qF '[[ "${SCENARIO_GENERATE}" == all_software && " ${all_software_keeps_off[*]} " == *" ${t} "* ]]' "${CONTAINER_SH}"; then
+    pass "container.sh leaves off what wizard_all_software_keeps_off names, in the loop that writes the generated set"
+else
+    fail "container.sh no longer leaves off what the wizard's --software all leaves off" \
+         "it must read wizard_all_software_keeps_off and apply all_software_keeps_off where it writes each generated toggle"
+fi
+if sed -n '/^wizard_all_software_keeps_off()/,/^}/p' "${COMMON_SH}" | grep -q 'setup/setup\.sh'; then
+    pass "wizard_all_software_keeps_off reads ALL_SOFTWARE_KEEPS_OFF out of setup.sh"
+else
+    fail "wizard_all_software_keeps_off no longer reads setup/setup.sh" \
+         "the shared reader now carries its own copy of what --software all leaves off"
+fi
+
 if sed -n '/^wizard_toggle_keys()/,/^}/p' "${COMMON_SH}" | grep -q 'setup/setup\.sh'; then
     pass "wizard_toggle_keys still reads the rule out of setup.sh rather than keeping its own copy"
 else
@@ -118,6 +134,7 @@ wizard_selection() {
         IFS=$'\n\t'
         local piece
         for piece in "$(grep -m1 '^EXCLUDED_VARS=' "${SETUP_SH}")" \
+                     "$(grep -m1 '^ALL_SOFTWARE_KEEPS_OFF=' "${SETUP_SH}")" \
                      "$(grep -m1 '^DE_KEYS=' "${SETUP_SH}")" \
                      "$(sed -n '/^declare -A LABEL_OVERRIDES=(/,/^)$/p' "${SETUP_SH}")" \
                      "$(sed -n '/^format_label()/,/^}/p' "${SETUP_SH}")" \
@@ -178,6 +195,11 @@ container_selection() {
         # shellcheck disable=SC2154
         [[ ${#all_toggles[@]} -eq 0 ]] && return 1
 
+        # What an all_software scenario leaves off, read the way container.sh reads it, through its own lines.
+        keeps_off_read="$(sed -n '/if ! all_software_keeps_off_text=/,/mapfile -t all_software_keeps_off/p' "${CONTAINER_SH}")"
+        [[ -z "${keeps_off_read}" ]] && return 1
+        eval "${keeps_off_read}"
+
         # A scenario that generates all_software writes true for every key it swept. A scenario that
         # generates nothing writes no software block at all, so the playbook reads group_vars, where
         # the per-OS file outranks all.yaml because site.yaml loads it through include_vars. That
@@ -190,6 +212,9 @@ container_selection() {
         for key in "${all_toggles[@]}"; do
             if [[ "${baseline}" == "all" ]]; then
                 value="true"
+                # all_software_keeps_off is declared by the lines of container.sh eval'd above.
+                # shellcheck disable=SC2154
+                [[ " ${all_software_keeps_off[*]} " == *" ${key} "* ]] && value="false"
             else
                 value="$(grep -m1 -- "^${key}=" <<<"${resolved}" | cut -d= -f2)"
                 [[ -z "${value}" ]] && value="MISSING"
@@ -208,7 +233,7 @@ for baseline in all defaults; do
     # is checklist item 11 in docs/regression_ledger.md. Neither side is allowed to be empty.
     if [[ -z "${wizard}" ]]; then
         fail "the wizard resolved no selection for --software ${baseline}, so this comparison proves nothing" \
-             "one of EXCLUDED_VARS, DE_KEYS, LABEL_OVERRIDES, format_label, is_de_key, read_boolean_toggles, preload_toggles, split_key_list or software_override_vars was not found in ${SETUP_SH}"
+             "one of EXCLUDED_VARS, ALL_SOFTWARE_KEEPS_OFF, DE_KEYS, LABEL_OVERRIDES, format_label, is_de_key, read_boolean_toggles, preload_toggles, split_key_list or software_override_vars was not found in ${SETUP_SH}"
         continue
     fi
     if [[ -z "${container}" ]]; then

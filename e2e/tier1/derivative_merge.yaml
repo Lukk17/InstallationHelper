@@ -1,0 +1,28 @@
+---
+# Fixture play behind e2e/tier1/derivative_merge.sh. It merges every derivative dictionary the way a
+# real run does, through the shipped setup/ansible/tasks/derive_os_facts.yaml and
+# setup/ansible/tasks/load_os_dict.yaml, and prints the merged package names per manager, so the shell
+# rule in derivative_package_names_for in e2e/lib/package_probe.sh can be compared with the real one.
+# Same reasoning as os_family_derivation.yaml: one merge rule written twice drifts, AGENTS.md defect
+# class 2, so the second copy is held to the first.
+#
+# derivative_merge.sh runs this from a temporary directory holding a link named vars to
+# setup/ansible/vars, because load_os_dict.yaml reads {{ playbook_dir }}/vars, and passes in with -e
+# ih_derivation, ih_loader, ih_fixtures and ih_derivative_cases, a list of { id, fixture } pairs.
+
+- name: Merge every derivative dictionary through the shipped loader
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  tasks:
+    - name: Merge and report one derivative
+      ansible.builtin.include_tasks: derivative_merge_case.yaml
+      loop: "{{ ih_derivative_cases }}"
+      loop_control:
+        loop_var: ih_case
+        label: "{{ ih_case.id }}"
+
+    - name: Report how many derivatives were merged
+      ansible.builtin.debug:
+        msg: "IH_MERGE_DONE cases={{ ih_derivative_cases | length }}"

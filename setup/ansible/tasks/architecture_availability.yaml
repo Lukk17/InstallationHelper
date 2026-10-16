@@ -1,0 +1,34 @@
+---
+# ih_architecture_skipped: the requested mappings this machine's processor cannot run, each with the
+# reason. Answered once, here, and read by every task that needs it, so the playbook and the
+# verification cannot disagree about it. dynamic_install.yaml includes this file and drops these
+# mappings from what it installs, and verify_install.yaml includes it and reports them as skipped
+# rather than expecting them.
+#
+# The fact lives beside the package that causes it: a mapping in vars/<OS>.yaml that runs on one
+# processor architecture only says so with requires_architecture, in the spelling
+# ansible_facts['architecture'] reports, arm64 on Apple Silicon and x86_64 on Intel. Today that is
+# lm_studio in vars/Darwin.yaml, whose Homebrew cask declares depends_on arch: :arm64 and fails on an
+# Intel Mac. A skip is a note rather than a failure, the way Razer Synapse is skipped on an Intel
+# Mac in roles/software_installer/tasks/macos_install.yaml, because the vendor publishes nothing that
+# machine could run.
+- name: Decide which requested mappings this machine's processor architecture cannot run
+  ansible.builtin.set_fact:
+    ih_architecture_skipped: >-
+      {{ dict(ih_arch_keys_skipped
+              | zip(ih_arch_keys_skipped
+                    | map('extract', os_dict.software_mapping)
+                    | map(attribute='requires_architecture')
+                    | map('regex_replace', '^', 'needs the ')
+                    | map('regex_replace', '$', ' build, this machine is ' ~ ansible_facts['architecture']))) }}
+  vars:
+    ih_arch_bound: >-
+      {{ os_dict.software_mapping | default({}) | dict2items
+         | selectattr('value.requires_architecture', 'defined')
+         | rejectattr('value.requires_architecture', 'equalto', ansible_facts['architecture'])
+         | map(attribute='key') | list }}
+    ih_arch_keys_skipped: >-
+      {{ ih_arch_bound
+         | zip(query('ansible.builtin.vars', *(ih_arch_bound | map('regex_replace', '^', 'install_')),
+                     default=false) | map('bool'))
+         | selectattr('1') | map(attribute='0') | list }}

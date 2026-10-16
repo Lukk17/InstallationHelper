@@ -34,12 +34,17 @@
     label: "{{ item.path }}"
   when: install_openrazer | default(false) | bool
 
+# One package per call through setup/ansible/tasks/install_role_packages.yaml, so a machine with two
+# kernels whose second headers package cannot install still gets the first, and the one that did not
+# is named.
 - name: Install matching kernel headers for DKMS modules (Arch)
-  community.general.pacman:
-    name: "{{ arch_dkms_header_packages }}"
-    state: present
-  become: true
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
   vars:
+    role_packages: "{{ arch_dkms_header_packages }}"
+    role_packages_purpose: the kernel headers DKMS builds against
     arch_dkms_header_packages: >-
       {{ arch_kernel_pkgbases.results | default([])
          | selectattr('content', 'defined')
@@ -50,6 +55,7 @@
          | unique
          | list }}
   when:
+    - ih_family == 'Archlinux'
     - install_openrazer | default(false) | bool
     - arch_dkms_header_packages | length > 0
 

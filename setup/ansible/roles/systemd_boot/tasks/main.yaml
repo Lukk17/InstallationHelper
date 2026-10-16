@@ -89,11 +89,19 @@
   when: efi_files.files | length > 0
 
 - name: Ensure systemd-boot package is present (Debian/Ubuntu)
-  become: yes
-  ansible.builtin.apt:
-    name: systemd-boot
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [systemd-boot]
+    role_packages_purpose: the systemd-boot bootloader
   when: ih_family == 'Debian'
+
+- name: Stop when systemd-boot did not install
+  ansible.builtin.fail:
+    msg: systemd-boot did not install, so installing systemd-boot cannot continue. What the package manager said is in the [ERROR] line above.
+  when: "'systemd-boot' in (role_packages_missing | default([]))"
 
 - name: Backup existing loader entries before any write
   become: yes

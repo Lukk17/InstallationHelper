@@ -1,20 +1,9 @@
 ---
-# Debian/Ubuntu apt tasks use shell+file-redirect (Ubuntu hit the 2.19
-# deserialization bug on long apt installs). Arch and Fedora kept on the
-# native modules — they ran cleanly in the last full run.
-#
-# Every apt-get call below takes its flags from apt_raw_flags in group_vars/linux.yaml, the same
-# variable the batched apt install in software_installer reads, so there is one source of truth for
-# them. They used to be spelled out here with -yqq, and that -qq is why these three tasks reported
-# changed on every run. With -qq, apt-get prints absolutely nothing when there is no work left to
-# do, measured as zero bytes of output in a debian:trixie container, so the "0 upgraded, 0 newly
-# installed, 0 to remove" line that changed_when looks for could never appear and the condition was
-# always true. With -y the same call prints "0 upgraded, 0 newly installed, 0 to remove and 9 not
-# upgraded." and the condition means what it says.
-#
-# set -o pipefail is load-bearing for the same reason it is on the batched apt install. Without it
-# the shell reports the status of the last command in the pipeline, which is tee, and tee succeeds
-# whatever apt did, so failed_when below could never fire on a real apt failure.
+# Every package in this role is installed one package per call through
+# setup/ansible/tasks/install_role_packages.yaml, under the retry rule every package manager follows,
+# so one package that cannot install costs only itself and is named, and the rest of the set and of the
+# role still run. That file installs through raw, for the 2.19 deserialization bug Ubuntu hit on long
+# apt installs, with apt's flags from apt_raw_flags in group_vars/linux.yaml.
 
 # qemu-system-x86, not qemu-kvm. qemu-kvm has no installation candidate on either Debian trixie or
 # Ubuntu 26.04, and the two then behave differently: on Debian apt resolves the virtual name to its
@@ -28,101 +17,98 @@
 #
 # qemu-system-x86 has a real candidate on both, 1:10.0.11 on Debian and 1:10.2.1 on Ubuntu, and it is
 # what qemu-kvm was the transitional name for.
-- name: Install QEMU/KVM and virt-manager packages (Debian) via apt-get → log file
-  ansible.builtin.shell: |
-    set -o pipefail
-    apt-get install {{ apt_raw_flags }} \
-      qemu-system-x86 libvirt-daemon-system libvirt-clients virt-manager virtinst \
-      bridge-utils virtiofsd \
-      2>&1 | tee -a /var/log/installation-virt-apt.log
-  args:
-    executable: /bin/bash
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-    APT_LISTCHANGES_FRONTEND: none
-    NEEDRESTART_MODE: a
-    NEEDRESTART_SUSPEND: "1"
-    LANG: C.UTF-8
-    LC_ALL: C.UTF-8
-  become: true
-  register: virt_apt_result
-  # Detect idempotent no-op: apt's "0 upgraded, 0 newly installed, 0 to remove"
-  # line means nothing changed. Any other output means real work happened.
-  changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (virt_apt_result.stdout | default(''))"
-  failed_when: virt_apt_result.rc | default(0) != 0
-  # Retried as a whole for the reason on the apt batch above: this fetches from the network,
-  # and one dropped connection must not cost the run every application in the batch. What has
-  # already installed is skipped on the second attempt, so a retry costs only what was lost.
-  until: virt_apt_result.rc | default(1) == 0
-  retries: 3
-  delay: 20
+- name: Install QEMU/KVM and virt-manager packages (Debian)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
+      - qemu-system-x86
+      - libvirt-daemon-system
+      - libvirt-clients
+      - virt-manager
+      - virtinst
+      - bridge-utils
+      - virtiofsd
+    role_packages_purpose: QEMU/KVM and virt-manager
   when: ih_family == 'Debian' and install_virt_manager | default(false) | bool
   tags: [libvirt]
 
 - name: Install QEMU/KVM and virt-manager packages (Arch)
-  become: yes
-  community.general.pacman:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - qemu-full
       - virt-manager
       - libvirt
       - dnsmasq
       - nftables
       - virtiofsd
-    state: present
+    role_packages_purpose: QEMU/KVM and virt-manager
   when: ih_family == 'Archlinux' and install_virt_manager | default(false) | bool
   tags: [libvirt]
 
 - name: Install QEMU/KVM and virt-manager packages (Fedora)
-  become: yes
-  ansible.builtin.dnf:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - qemu-kvm
       - libvirt
       - virt-manager
       - virt-install
       - bridge-utils
       - virtiofsd
-    state: present
+    role_packages_purpose: QEMU/KVM and virt-manager
   when: ih_family == 'RedHat' and install_virt_manager | default(false) | bool
   tags: [libvirt]
 
+# The libvirt daemon is what every libvirt task below enables or joins, so a daemon package that did not
+# install leaves them nothing to act on. It is already named as NOT installed, and enabling a unit that
+# does not exist would end the role there, Docker included.
+- name: Remember whether the libvirt daemon installed (Linux)
+  ansible.builtin.set_fact:
+    virt_libvirt_missing: "{{ role_packages_missing | intersect(['libvirt', 'libvirt-daemon-system']) | length > 0 }}"
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux'] and install_virt_manager | default(false) | bool
+  tags: [libvirt]
+
 # spice-vdagent — only when this machine is itself a guest VM.
-- name: Install spice-vdagent (Debian guest) via apt-get → log file
-  ansible.builtin.shell: |
-    set -o pipefail
-    apt-get install {{ apt_raw_flags }} spice-vdagent 2>&1 | tee -a /var/log/installation-virt-apt.log
-  args:
-    executable: /bin/bash
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-    NEEDRESTART_MODE: a
-  become: true
-  register: spice_apt_result
-  changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (spice_apt_result.stdout | default(''))"
-  failed_when: spice_apt_result.rc | default(0) != 0
-  # Retried as a whole for the reason on the apt batch above: this fetches from the network,
-  # and one dropped connection must not cost the run every application in the batch. What has
-  # already installed is skipped on the second attempt, so a retry costs only what was lost.
-  until: spice_apt_result.rc | default(1) == 0
-  retries: 3
-  delay: 20
+- name: Install spice-vdagent (Debian guest)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [spice-vdagent]
+    role_packages_purpose: the SPICE guest agent
   when: ih_family == 'Debian' and ansible_virtualization_role == 'guest'
   tags: [libvirt]
 
 - name: Install spice-vdagent (Arch guest)
-  become: yes
-  community.general.pacman:
-    name: spice-vdagent
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [spice-vdagent]
+    role_packages_purpose: the SPICE guest agent
   when: ih_family == 'Archlinux' and ansible_virtualization_role == 'guest'
   tags: [libvirt]
 
 - name: Install spice-vdagent (Fedora guest)
-  become: yes
-  ansible.builtin.dnf:
-    name: spice-vdagent
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [spice-vdagent]
+    role_packages_purpose: the SPICE guest agent
   when: ih_family == 'RedHat' and ansible_virtualization_role == 'guest'
   tags: [libvirt]
 
@@ -155,7 +141,9 @@
   ansible.builtin.systemd:
     name: libvirtd.service
     enabled: true
-  when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+  when:
+    - ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+    - not (virt_libvirt_missing | default(false) | bool)
   tags: [libvirt]
 
 - name: Enable and start the libvirtd socket (Linux)
@@ -164,7 +152,9 @@
     name: libvirtd.socket
     state: started
     enabled: true
-  when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+  when:
+    - ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+    - not (virt_libvirt_missing | default(false) | bool)
   tags: [libvirt]
 
 - name: Add current user to libvirt group (Linux)
@@ -173,7 +163,9 @@
     name: "{{ non_root_user }}"
     groups: libvirt
     append: true
-  when: ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+  when:
+    - ansible_facts['system'] == 'Linux' and install_virt_manager | default(false) | bool
+    - not (virt_libvirt_missing | default(false) | bool)
   tags: [libvirt]
 
 - name: Add current user to kvm group (Linux)
@@ -221,36 +213,19 @@
     - "'docker' in unavailable_repositories | default({})"
   tags: [docker]
 
-# Same shell+apt-get pattern as the batched software install — Ubuntu's apt
-# module reliably trips "Module result deserialization failed" when a docker
-# install's containerd.io / docker-ce postinst writes to stdout (systemctl
-# daemon-reload, needrestart messages). Bypass via shell.
-- name: Install Docker CE (Debian) via apt-get → log file
-  ansible.builtin.shell: |
-    set -o pipefail
-    apt-get install {{ apt_raw_flags }} \
-      docker-ce docker-ce-cli containerd.io \
-      docker-buildx-plugin docker-compose-plugin \
-      2>&1 | tee -a /var/log/installation-docker-apt.log
-  args:
-    executable: /bin/bash
-  environment:
-    DEBIAN_FRONTEND: noninteractive
-    APT_LISTCHANGES_FRONTEND: none
-    NEEDRESTART_MODE: a
-    NEEDRESTART_SUSPEND: "1"
-    LANG: C.UTF-8
-    LC_ALL: C.UTF-8
-  become: true
-  register: docker_apt_result
-  changed_when: "'0 upgraded, 0 newly installed, 0 to remove' not in (docker_apt_result.stdout | default(''))"
-  failed_when: docker_apt_result.rc | default(0) != 0
-  # Retried as a whole for the reason on the apt batch above: this fetches from the network,
-  # and one dropped connection must not cost the run every application in the batch. What has
-  # already installed is skipped on the second attempt, so a retry costs only what was lost.
-  until: docker_apt_result.rc | default(1) == 0
-  retries: 3
-  delay: 20
+- name: Install Docker CE (Debian)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    role_packages_purpose: Docker
   when:
     - ih_family == 'Debian'
     - install_docker | default(false) | bool
@@ -258,41 +233,75 @@
   tags: [docker]
 
 - name: Install Docker CE (Fedora)
-  become: true
-  ansible.builtin.dnf:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - docker-ce
       - docker-ce-cli
       - containerd.io
       - docker-buildx-plugin
       - docker-compose-plugin
-    state: present
+    role_packages_purpose: Docker
   when:
     - ih_family == 'RedHat'
     - install_docker | default(false) | bool
     - "'docker' not in unavailable_repositories | default({})"
   tags: [docker]
 
-- name: Install Docker (Arch)
-  become: true
-  community.general.pacman:
-    name:
+# These four were one community.general.pacman call until 2026-10-15, when the cachyos defaults
+# scenario lost all of them to a single 404: the dependency containerd-2.4.1-1.1 was published,
+# cdn77.cachyos.org did not carry it yet, and the whole transaction failed. docs/regression_ledger.md
+# has the entry, and e2e/tier1/batched_managers.sh now fails on any task that hands several packages to
+# one call. A retry after a package index refresh is what gets a current answer from a mirror that is
+# behind, and the wait before it is the retry rule's twenty seconds like every other set: it waited three
+# minutes until the owner settled one rule for every manager on 2026-10-15.
+#
+# Docker on Arch needs the nftables variant of iptables or the daemon fails to initialise its bridge
+# driver. That variant used to be a separate iptables-nft package and Arch has since consolidated:
+# core/iptables IS the nftables build, and the old behaviour moved to iptables-legacy, which declares
+# `provides: iptables`. So iptables-nft no longer exists and naming it failed the whole task, taking
+# the Docker install with it. Found by e2e/tier2/resolve_role_packages.sh. See
+# docs/regression_ledger.md. bridge-utils is deliberately absent: iproute2 ships those tools and
+# bridge-utils is no longer in the Arch repositories.
+- name: Install Docker (Arch), one package at a time
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - docker
       - docker-buildx
       - docker-compose
-      # Docker on Arch needs the nftables variant of iptables or the daemon fails to
-      # initialise its bridge driver. That variant used to be a separate iptables-nft package
-      # and Arch has since consolidated: core/iptables IS the nftables build, and the old
-      # behaviour moved to iptables-legacy, which declares `provides: iptables`. So
-      # iptables-nft no longer exists and naming it failed the whole task, taking the Docker
-      # install with it. Found by e2e/tier2/resolve_role_packages.sh. See
-      # docs/regression_ledger.md.
-      #
-      # bridge-utils is deliberately absent: iproute2 ships those tools and bridge-utils is no
-      # longer in the Arch repositories.
       - iptables
-    state: present
+    role_packages_purpose: Docker
   when: ih_family == 'Archlinux' and install_docker | default(false) | bool
+  tags: [docker]
+
+# The engine is docker on Arch and docker-ce on Debian and Fedora. Without it there is no daemon to
+# start and no docker group to join, so the tasks below that need either are skipped, and the package
+# is already named as NOT installed.
+- name: Remember whether the Docker engine installed (Linux)
+  ansible.builtin.set_fact:
+    docker_engine_missing: "{{ role_packages_missing | intersect(['docker', 'docker-ce']) | length > 0 }}"
+  when:
+    - ih_family in ['Debian', 'RedHat', 'Archlinux']
+    - install_docker | default(false) | bool
+    - "'docker' not in unavailable_repositories | default({})"
+  tags: [docker]
+
+- name: Say that the Docker service and group are skipped because the engine did not install (Linux)
+  ansible.builtin.debug:
+    msg: >-
+      The Docker service and the docker group are skipped, because the Docker engine package did not
+      install and there is no Docker to start. The package is named as NOT installed above.
+  when:
+    - ih_family in ['Debian', 'RedHat', 'Archlinux']
+    - install_docker | default(false) | bool
+    - docker_engine_missing | default(false) | bool
   tags: [docker]
 
 # On Arch, libvirtd loaded the legacy iptables kernel modules when it
@@ -382,6 +391,7 @@
     - ansible_facts['system'] == 'Linux'
     - install_docker | default(false) | bool
     - "'docker' not in unavailable_repositories | default({})"
+    - not (docker_engine_missing | default(false) | bool)
   tags: [docker]
 
 - name: Enable and start Docker service (Linux)
@@ -398,6 +408,7 @@
     - ansible_facts['system'] == 'Linux'
     - install_docker | default(false) | bool
     - "'docker' not in unavailable_repositories | default({})"
+    - not (docker_engine_missing | default(false) | bool)
     - docker_service_units is defined
     - docker_service_units.results | selectattr('stat.exists', 'equalto', true) | list | length > 0
   tags: [docker]
@@ -413,6 +424,7 @@
     - ansible_facts['system'] == 'Linux'
     - install_docker | default(false) | bool
     - "'docker' not in unavailable_repositories | default({})"
+    - not (docker_engine_missing | default(false) | bool)
     - os_dict.docker_group is defined
   tags: [docker]
 
@@ -430,5 +442,6 @@
     - ansible_facts['system'] == 'Linux'
     - install_docker | default(false) | bool
     - "'docker' not in unavailable_repositories | default({})"
+    - not (docker_engine_missing | default(false) | bool)
     - docker_group_add is changed
   tags: [docker]

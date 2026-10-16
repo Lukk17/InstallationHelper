@@ -1,0 +1,218 @@
+---
+# Installs a set of packages one package per call, through one package manager, under the one retry
+# rule every package manager in this repository follows. It is the only place the playbook installs
+# through apt, dnf, pacman, flatpak, snap or Homebrew, and setup/windows/WindowsSoftware.ps1 and the
+# manual scripts under docs/manual follow the same rule with the same numbers.
+#
+# The rule, decided by the owner on 2026-10-15:
+#   1. Each package gets one attempt with no package index refresh, against the index the run already
+#      holds: the apt cache refresh in site.yaml, arch_core's full upgrade, dnf's own metadata.
+#   2. Every package whose attempt failed waits, then the manager's own package index is refreshed,
+#      then the package is tried again, and that repeats until it installs or has had four attempts.
+#      A manager that keeps no local index, snap, only waits.
+#   3. Every package still missing is named with what the manager said, recorded in
+#      not_installed_with_reason, and any_role_failed is set, so the run ends failed. Nothing here is
+#      fatal on its own, so the rest of the set and the rest of the role still run. A caller whose later
+#      tasks need one of the packages reads role_packages_missing.
+#
+# A refresh only before a retry, never before the first attempt: refreshing pacman's index without
+# upgrading installs against an index newer than the installed system, the partial upgrade the Arch wiki
+# warns about, and it buys nothing when the first attempt would have worked. A retry is where a stale
+# index is the likely cause, because a mirror that is behind it answers 404 for a file. Ansible cannot
+# change a task's arguments between its own retries, so the first attempt and the retries are two tasks.
+#
+# The caller passes:
+#   role_packages                  the list, one package, group or file name per entry
+#   role_packages_purpose          a few words naming what the set is for, read by every message here
+#   role_packages_manager          apt, dnf, pacman, flatpak, snap, brew or brew_cask. When it is not
+#                                  given, the family's own manager: apt, dnf or pacman
+#   role_packages_install_options  extra options placed before each package, empty when not given
+#   role_packages_classic          snap only, the packages installed with --classic
+# and gets back role_packages_missing, every package of the set that is absent after the last attempt.
+# role_packages_retry_delay and role_packages_log exist for the e2e fake package manager runs in
+# e2e/tier1/package_retry_rule.sh, so they neither wait twenty seconds a time nor need root to write
+# the log. No playbook caller passes either, and that check fails on one that does.
+#
+# raw for every manager, which is the mitigation for the ansible-core 2.19 deserialization race
+# documented in AGENTS.md, and which reports rc without the result's failed key that
+# e2e/tier1/failed_key_reads.sh forbids reading. raw honours neither the environment keyword nor
+# chdir, so the apt variables are inline, and set -o pipefail is what lets rc be the manager's status
+# rather than tee's. Both output streams are merged, so each changed_when reads every line the manager
+# wrote: pacman's "is up to date -- skipping" and Homebrew's and snap's "is already installed" go to
+# stderr, while apt's, dnf's and pacman's nothing-to-do lines go to stdout. Each marker was measured,
+# apt's and dnf's in containers on 2026-08-25, pacman's on archlinux on 2026-10-15, flatpak's
+# "Installing " with flatpak 1.16.6 in debian:trixie, and snap's from snapd's own source,
+# cmd/snapd/cli/error.go, which prints "snap %q is already installed" to stderr.
+
+- name: Start with no package of this set missing
+  ansible.builtin.set_fact:
+    role_packages_missing: []
+    role_packages_failures: []
+    role_packages_retry: []
+
+# The numbers of the rule. retries is the attempts after the first, so four in all, and both numbers are
+# the ones setup/windows/WindowsSoftware.ps1 and docs/manual/*/install.sh use, which
+# e2e/tier1/windows/WindowsSoftware.Tests.ps1 and e2e/tier1/package_retry_rule.sh hold them to.
+- name: Settle the package manager and the retry rule for this set
+  ansible.builtin.set_fact:
+    role_packages_rule:
+      manager: >-
+        {{ role_packages_manager if role_packages_manager is defined
+           else {'Debian': 'apt', 'RedHat': 'dnf', 'Archlinux': 'pacman'}[ih_family] }}
+      retries: 3
+      delay: "{{ role_packages_retry_delay | default(20) }}"
+
+# Each manager's install command, its index refresh, whether it runs as root and how it says it did
+# nothing. The refreshes, each checked to refresh metadata and upgrade nothing:
+#   apt      apt-get update, which downloads the package lists only.
+#   dnf      dnf makecache --refresh, which marks the metadata expired and downloads it again.
+#   pacman   pacman -Syy, on its own invocation, never joined to an install. See
+#            e2e/tier1/pacman_partial_refresh.sh.
+#   flatpak  flatpak update --appstream, which in flatpak 1.16.6 fetches the remote's summary and
+#            appstream data and returns before any application is touched: app/flatpak-builtins-update.c
+#            returns straight after update_appstream when --appstream is given.
+#   snap     none. snapd asks the store for every install and keeps no package list, and `snap help
+#            --all` lists no command that refreshes one: `snap refresh` updates installed snaps.
+#            snap is wrapped so "is already installed" counts as success whatever the exit code,
+#            because snapd's current source exits 0 there while the Arch container measured exit 1
+#            with the same words (docs/regression_ledger.md 10.37).
+#   brew     brew update, which the Homebrew manual describes as fetching the newest version of
+#            Homebrew and all formulae, while upgrading an installed package is `brew upgrade`. Both
+#            Homebrew prefixes lead PATH, because raw inherits the controller's PATH, and a Homebrew
+#            macos_core installed moments earlier in the same run is not on it.
+- name: Install a package set one package at a time, first attempt without refreshing the package index
+  ansible.builtin.raw: >-
+    set -o pipefail;
+    {{ role_packages_command.install }} {{ role_packages_install_options | default('') }} {{ item | quote }}
+    2>&1{{ ' | tee -a ' ~ (role_packages_log | default('/var/log/installation-packages.log')) if role_packages_command.become else '' }}
+  become: "{{ role_packages_command.become }}"
+  loop: "{{ role_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  register: role_packages_first
+  changed_when:
+    - role_packages_first.rc | default(1) == 0
+    - >-
+      (role_packages_command.done in (role_packages_first.stdout | default('')))
+      if role_packages_command.done is defined
+      else (role_packages_command.nothing_done not in (role_packages_first.stdout | default('')))
+  failed_when: false
+  when: role_packages | length > 0
+  vars: &role_packages_managers
+    role_packages_managers:
+      apt:
+        install: "{{ apt_raw_env | default('') }} apt-get install {{ apt_raw_flags | default('-y') }}"
+        refresh: "{{ apt_raw_env | default('') }} apt-get update"
+        become: true
+        nothing_done: "0 upgraded, 0 newly installed, 0 to remove"
+      dnf:
+        install: dnf install -y
+        refresh: dnf makecache --refresh
+        become: true
+        nothing_done: Nothing to do
+      pacman:
+        install: pacman -S --noconfirm --needed
+        refresh: pacman -Syy --noconfirm
+        become: true
+        nothing_done: there is nothing to do
+      flatpak:
+        install: flatpak install --system --noninteractive --assumeyes flathub
+        refresh: flatpak update --system --appstream --noninteractive flathub
+        become: true
+        done: "Installing "
+      snap:
+        install: >-
+          sh -c 'output="$(snap install "$@" 2>&1)"; status=$?; printf "%s\n" "$output";
+          case "$output" in *"is already installed"*) exit 0 ;; esac; exit "$status"'
+          snap-install{{ ' --classic' if (item | default('')) in (role_packages_classic | default([])) else '' }}
+        refresh: ""
+        become: true
+        nothing_done: is already installed
+      brew:
+        install: PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" brew install
+        refresh: PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" brew update
+        become: false
+        nothing_done: is already installed
+      brew_cask:
+        install: PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" brew install --cask
+        refresh: PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" brew update
+        become: false
+        nothing_done: is already installed
+    role_packages_command: "{{ role_packages_managers[role_packages_rule.manager] }}"
+
+- name: Collect the packages of this set whose first attempt failed
+  ansible.builtin.set_fact:
+    role_packages_retry: >-
+      {{ (role_packages_first.results | default([]))
+         | selectattr('rc', 'defined')
+         | rejectattr('rc', 'equalto', 0)
+         | map(attribute='item')
+         | list }}
+
+- name: Wait before the first retry
+  ansible.builtin.pause:
+    seconds: "{{ role_packages_rule.delay }}"
+  when: role_packages_retry | length > 0
+
+- name: Retry each package that failed, refreshing the package index first where the manager keeps one
+  ansible.builtin.raw: >-
+    set -o pipefail;
+    {% if role_packages_command.refresh %}{{ role_packages_command.refresh }}
+    2>&1{{ ' | tee -a ' ~ (role_packages_log | default('/var/log/installation-packages.log')) if role_packages_command.become else '' }};
+    {% endif %}{{ role_packages_command.install }} {{ role_packages_install_options | default('') }} {{ item | quote }}
+    2>&1{{ ' | tee -a ' ~ (role_packages_log | default('/var/log/installation-packages.log')) if role_packages_command.become else '' }}
+  become: "{{ role_packages_command.become }}"
+  loop: "{{ role_packages_retry }}"
+  loop_control:
+    label: "{{ item }}"
+  register: role_packages_retried
+  changed_when:
+    - role_packages_retried.rc | default(1) == 0
+    - >-
+      (role_packages_command.done in (role_packages_retried.stdout | default('')))
+      if role_packages_command.done is defined
+      else (role_packages_command.nothing_done not in (role_packages_retried.stdout | default('')))
+  failed_when: false
+  until: role_packages_retried.rc | default(1) == 0
+  retries: "{{ role_packages_rule.retries - 1 }}"
+  delay: "{{ role_packages_rule.delay }}"
+  when: role_packages_retry | length > 0
+  vars: *role_packages_managers
+
+- name: Name the packages of this set that are still missing
+  ansible.builtin.set_fact:
+    role_packages_failures: >-
+      {{ (role_packages_retried.results | default([]))
+         | selectattr('rc', 'defined')
+         | rejectattr('rc', 'equalto', 0)
+         | list }}
+    role_packages_missing: >-
+      {{ (role_packages_retried.results | default([]))
+         | selectattr('rc', 'defined')
+         | rejectattr('rc', 'equalto', 0)
+         | map(attribute='item')
+         | list }}
+  when: role_packages_retry | length > 0
+
+- name: Name every package of this set that did not install, and what the package manager said
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] {{ role_packages_missing | join(', ') }}, from {{ role_packages_purpose }}, did not
+      install with {{ role_packages_rule.manager }} after {{ role_packages_rule.retries + 1 }} attempts
+      and {{ 'is' if role_packages_missing | length == 1 else 'are' }} NOT present. Every other package
+      in the set was installed on its own call.
+      {% for entry in role_packages_failures %}
+      {{ entry.item }}: {{ (((entry.stderr | default('')).splitlines() + (entry.stdout | default('')).splitlines()) | map('trim') | select | list)[-4:] | join(' ') | truncate(400) }}
+      {% endfor %}
+  when: role_packages_missing | length > 0
+
+- name: Record the packages of this set that did not install in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
+    not_installed_with_reason: >-
+      {{ (not_installed_with_reason | default([]))
+         + (role_packages_missing
+            | map('regex_replace', '$', ' (' ~ role_packages_purpose ~ ', ' ~ role_packages_rule.manager
+                  ~ ' could not install it in ' ~ (role_packages_rule.retries + 1) ~ ' attempts)')
+            | list) }}
+  when: role_packages_missing | length > 0

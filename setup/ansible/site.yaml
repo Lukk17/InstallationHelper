@@ -26,10 +26,16 @@
         file: "group_vars/{{ 'windows' if ih_family == 'Windows' else 'macos' if ih_family == 'Darwin' else 'linux' }}.yaml"
       tags: always
 
+    # The family's dictionary with the distribution's own overrides merged over it. One file loads it
+    # for this play and verify_install.yaml alike, see tasks/load_os_dict.yaml.
     - name: Load OS translation dictionary
-      ansible.builtin.include_vars:
-        file: "vars/{{ ih_family }}.yaml"
-        name: os_dict
+      ansible.builtin.import_tasks: tasks/load_os_dict.yaml
+      tags: always
+
+    # After the dictionary, because the selected desktop route replaces its opencode_desktop entry. The same file
+    # tells verify_install.yaml which version to expect and which one must be gone.
+    - name: Decide which OpenCode version this run installs
+      ansible.builtin.import_tasks: tasks/opencode_version.yaml
       tags: always
 
     # Not a bare apt refresh any longer: tasks/apt_cache_refresh.yaml fetches every third-party

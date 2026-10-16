@@ -1,0 +1,14 @@
+---
+# CachyOS overrides of vars/Archlinux.yaml. CachyOS reports ID=cachyos and ID_LIKE=arch, so it reads the
+# Arch dictionary, and tasks/load_os_dict.yaml merges the software_mapping entries below over it. Only an
+# entry that differs from Arch belongs here, and each one replaces the Arch entry of the same key whole.
+
+software_mapping:
+  # The cachyos repository's own gaming metapackage rather than Arch's lutris. pacman -Si on a CachyOS
+  # machine on 2026-10-15 answered 1.0.0-3, depending on cachyos-gaming-meta, gamescope, goverlay,
+  # heroic-games-launcher, faugus-launcher, lib32-mangohud, lutris, mangohud, steam and wqy-zenhei, and
+  # cachyos-gaming-meta brings wine-cachyos-opt, proton-cachyos-slr, umu-launcher, protontricks,
+  # winetricks and the lib32 libraries. So this one package installs both metas. It depends on steam,
+  # brings_steam: true says so, and tasks/steam_graphics_alignment.yaml reads it to count
+  # install_gaming_suite as asking for Steam here.
+  gaming_suite: { manager: "pacman", package: "cachyos-gaming-applications", brings_steam: true }

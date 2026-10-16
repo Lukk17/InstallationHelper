@@ -44,7 +44,8 @@
 #      is built from unavailable_repositories in one place;
 #   4. every other task gated on the toggle of a repository-backed package, outside Arch and macOS,
 #      reads unavailable_repositories, so it cannot configure a package that was never installed;
-#   5. the pacman loop reads steam_graphics_stack_aligned, and the alignment block's rescue sets it false;
+#   5. the pacman loop reads steam_graphics_stack_aligned and ih_steam_packages, and the alignment
+#      block's rescue sets it false;
 #   6. sdk_manager is gated on env_variables_available, and the env_variables rescue sets it false and
 #      no longer fails the play.
 # The counts are reported and must not be zero, so a rewrite that hides everything from the parser
@@ -407,19 +408,26 @@ for where, tasks in docs.items():
                 lines.append('FAIL %s builds repository_skipped_packages without reading '
                              'unavailable_repositories' % label)
         loop = as_text(task.get('loop'))
+        # The apt and dnf lists go through setup/ansible/tasks/install_role_packages.yaml since
+        # 2026-10-15, like the pacman list below, so the skip can sit in the include's vars as well as
+        # in a when on a loop.
         for manager in ('apt', 'dnf'):
-            if 'software_installer_batches.%s' % manager in loop:
+            if 'software_installer_batches.%s' % manager in loop + as_text(task.get('vars')):
                 loop_consumers += 1
-                if 'repository_skipped_packages' not in when:
+                if 'repository_skipped_packages' not in when + as_text(task.get('vars')):
                     lines.append('FAIL %s installs every %s package without skipping what '
                                  'repository_skipped_packages names, so a package whose repository '
                                  'could not be added is asked for anyway' % (label, manager))
-        if 'software_installer_batches.pacman' in loop:
+        # The pacman list goes through setup/ansible/tasks/install_role_packages.yaml since 2026-10-15,
+        # so it is filtered in the include's vars rather than skipped item by item in a when.
+        pacman_list = loop + as_text(task.get('vars'))
+        if 'software_installer_batches.pacman' in pacman_list:
             loop_consumers += 1
-            if 'steam_graphics_stack_aligned' not in when:
-                lines.append('FAIL %s installs every pacman package without reading '
-                             'steam_graphics_stack_aligned, so Steam is asked for on a CachyOS machine '
-                             'whose 32-bit graphics stack could not be aligned' % label)
+            reads = when + as_text(task.get('vars'))
+            if 'steam_graphics_stack_aligned' not in reads or 'ih_steam_packages' not in reads:
+                lines.append('FAIL %s installs every pacman package without reading both '
+                             'steam_graphics_stack_aligned and ih_steam_packages, so Steam is asked for on '
+                             'a CachyOS machine whose 32-bit graphics stack could not be aligned' % label)
         if where in NOT_CONSUMERS or where in ARCH_OR_MAC_ONLY or where == SITE:
             continue
         # An include is a container and set_fact or debug only report, so none of them can act on a
@@ -446,8 +454,13 @@ if loop_consumers < 3:
                  'there are, so the parser lost them' % loop_consumers)
 
 # --- 5. and 6. the two rescues ------------------------------------------------------------------
+# The alignment installs mesa-git and lib32-mesa-git one per call since 2026-10-15, so the block is
+# found by the task whose loop names both and whose command installs the loop item.
 align_blocks = [t for t, _ in walk(docs.get(ARCH_CORE, []))
-                if 'block' in t and any('pacman -Syy --needed mesa-git' in as_text(c) for c, _ in walk(t['block']))]
+                if 'block' in t and any('pacman -S --needed {{ item' in as_text(c)
+                                        and 'mesa-git' in as_text(c.get('loop'))
+                                        and 'lib32-mesa-git' in as_text(c.get('loop'))
+                                        for c, _ in walk(t['block']))]
 if len(align_blocks) != 1:
     lines.append('FAIL %s should hold exactly one block around the CachyOS alignment and holds %d'
                  % (ARCH_CORE, len(align_blocks)))

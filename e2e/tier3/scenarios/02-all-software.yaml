@@ -1,5 +1,6 @@
 ---
-# Wizard path: Step 2 "customise", then `a` to select every entry in the checklist.
+# Wizard path: setup.sh --software all, which is Step 2 "customise" with every entry in the
+# checklist selected except opencode_use_v1, see below.
 #
 # The toggle list is the wizard's own checklist, resolved at run time out of setup.sh
 # rather than written out here, so it can never fall behind a newly added toggle. That
@@ -15,8 +16,14 @@
 # settings whose names do not begin with install_. The 300 minute ceiling below has not
 # been re-measured since, and is deliberately left where it was rather than lowered on an
 # expectation.
+#
+# What setup.sh --software all leaves off stays off here too, because container.sh reads
+# ALL_SOFTWARE_KEEPS_OFF out of setup.sh and writes those keys false. Today that is
+# opencode_use_v1, so this scenario installs OpenCode version 2 and removes nothing, which
+# the owner decided on 2026-10-15. No container scenario selects OpenCode version 1 since
+# then, see e2e/manual_test_matrix.md.
 e2e_scenario_name: "all-software"
-e2e_scenario_description: "every checklist toggle forced true, as the wizard select-all produces"
+e2e_scenario_description: "every checklist toggle forced true except what setup.sh --software all leaves off, as --software all produces"
 e2e_generate: all_software
 e2e_timeout_minutes: 300
 e2e_expect_desktop: none

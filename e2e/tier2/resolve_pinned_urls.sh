@@ -31,6 +31,7 @@
 #               reason, never a pass and never a failure.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/http_ask.sh"
 # The shell end of the pinned values port, and the only thing here that reads a pin. Sourced rather
 # than executed. See setup/pinned_values.
 source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
@@ -95,30 +96,6 @@ http_verdict() {
         200|206|401|403) printf 'alive' ;;
         404|410)         printf 'gone' ;;
         *)               printf 'indefinite' ;;
-    esac
-}
-
-# Why curl gave up, as a verb phrase that follows the name of the request that failed. Taken from the
-# EXIT CODES section of the curl manual, https://curl.se/docs/manpage.html. Only the codes a download
-# location can plausibly hit are spelled out and the rest fall through, because this list decides
-# nothing: the verdict comes from whether curl exited zero at all, so an unnamed code is still
-# classified correctly and merely gets a duller sentence.
-curl_fault_reason() {
-    case "$1" in
-        5)     printf 'could not resolve the proxy host (curl 5)' ;;
-        6)     printf 'could not resolve the host through DNS (curl 6)' ;;
-        7)     printf 'could not connect to the host (curl 7)' ;;
-        16|92) printf 'failed in the HTTP/2 framing layer (curl %s)' "$1" ;;
-        18)    printf 'was cut off part way through (curl 18)' ;;
-        28)    printf 'timed out with no answer (curl 28)' ;;
-        35)    printf 'failed the TLS handshake (curl 35)' ;;
-        47)    printf 'never reached the end of the redirect chain (curl 47)' ;;
-        52)    printf 'connected and then got nothing back at all (curl 52)' ;;
-        55)    printf 'could not send the request (curl 55)' ;;
-        56)    printf 'lost the answer on the way back (curl 56)' ;;
-        60)    printf 'could not verify the certificate against the local trust store (curl 60)' ;;
-        95)    printf 'failed in the HTTP/3 layer (curl 95)' ;;
-        *)     printf 'gave up with curl exit %s, see the EXIT CODES section of https://curl.se/docs/manpage.html' "$1" ;;
     esac
 }
 

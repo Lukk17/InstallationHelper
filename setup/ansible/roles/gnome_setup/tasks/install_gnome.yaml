@@ -14,60 +14,79 @@
 # equivalent is gnome-core, which is the desktop without the full gnome task's extras.
 # Both names checked with apt-cache policy in debian:trixie and ubuntu:26.04 containers.
 # See docs/regression_ledger.md.
+# Through tasks/install_role_packages.yaml, the retry rule every package manager follows. The apt
+# module's update_cache before the first attempt went with it, because the rule's first attempt is
+# against the cache the pre_tasks refreshed, and apt-get update runs before a retry instead.
 - name: Install the GNOME desktop metapackage (Debian family)
-  become: yes
-  ansible.builtin.apt:
-    name: "{{ 'ubuntu-desktop' if ih_base == 'ubuntu' else 'gnome-core' }}"
-    state: present
-    update_cache: yes
-  register: gnome_apt_meta
-  retries: 3
-  delay: 10
-  until: gnome_apt_meta is succeeded
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
+      - "{{ 'ubuntu-desktop' if ih_base == 'ubuntu' else 'gnome-core' }}"
+    role_packages_purpose: the GNOME desktop
   when:
     - ih_family == 'Debian'
     - not gnome_shell_stat.stat.exists
 
+# One package per call through tasks/install_role_packages.yaml, here and for Arch below, so one that
+# cannot install costs only itself and is named.
 - name: Install GNOME tooling (Debian family)
-  become: yes
-  ansible.builtin.apt:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - gnome-tweaks
       - gnome-shell-extension-manager
-    state: present
-  register: gnome_apt_tools
-  retries: 3
-  delay: 10
-  until: gnome_apt_tools is succeeded
+    role_packages_purpose: the GNOME tooling
   when:
     - ih_family == 'Debian'
     - not gnome_shell_stat.stat.exists
 
 - name: Install GNOME Desktop (Fedora)
-  become: yes
-  ansible.builtin.dnf:
-    # The group ID. "@GNOME Desktop Environment" matched nothing, because on Fedora 44 that group is
-    # named "GNOME" and its ID is gnome-desktop. Measured on fedora:44 with dnf5 5.4.2.1: the old
-    # value answers "No match for argument" and the ID resolves.
-    #
-    # This failed loudly rather than silently, because the group is the only argument in its list
-    # and there was nothing else for the module to succeed at. Every Fedora cell that installs
-    # GNOME failed on it, which is all-software and gnome-full, and they were the last two Fedora
-    # cells still red after the display manager fix. See the note in
-    # kde_plasma_setup/tasks/install_kde.yaml for why its sibling survived the same mistake.
-    name: "@gnome-desktop"
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
+      # The group ID. "@GNOME Desktop Environment" matched nothing, because on Fedora 44 that group is
+      # named "GNOME" and its ID is gnome-desktop. Measured on fedora:44 with dnf5 5.4.2.1: the old
+      # value answers "No match for argument" and the ID resolves.
+      #
+      # This failed loudly rather than silently, because the group is the only argument in its list
+      # and there was nothing else for the module to succeed at. Every Fedora cell that installs
+      # GNOME failed on it, which is all-software and gnome-full, and they were the last two Fedora
+      # cells still red after the display manager fix. See the note in
+      # kde_plasma_setup/tasks/install_kde.yaml for why its sibling survived the same mistake.
+      - "@gnome-desktop"
+    role_packages_purpose: the GNOME desktop
   when:
     - ih_family == 'RedHat'
     - not gnome_shell_stat.stat.exists
 
 - name: Install GNOME Desktop (Archlinux)
-  become: yes
-  community.general.pacman:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - gnome
       - gnome-tweaks
-    state: present
+    role_packages_purpose: the GNOME desktop
+  when:
+    - ih_family == 'Archlinux'
+    - not gnome_shell_stat.stat.exists
+
+# GDM comes with the gnome group, so a gnome that did not install leaves nothing to enable below. It is
+# already named as NOT installed, and enabling a unit that does not exist would end the role there.
+- name: Remember whether the GNOME desktop installed (Archlinux)
+  ansible.builtin.set_fact:
+    gnome_desktop_missing: "{{ 'gnome' in role_packages_missing }}"
   when:
     - ih_family == 'Archlinux'
     - not gnome_shell_stat.stat.exists
@@ -94,6 +113,7 @@
     enabled: yes
   when:
     - ih_family in ['RedHat', 'Archlinux']
+    - not (gnome_desktop_missing | default(false) | bool)
     - not (existing_display_manager.stat.exists | default(false))
       or 'gdm' in (existing_display_manager.stat.lnk_target | default(''))
 

@@ -13,16 +13,23 @@
 # it had no rescue, so one repository that could not be added stopped the whole run, and there it is
 # its own block with a rescue like every other third-party repository.
 
+# Through tasks/install_role_packages.yaml, the retry rule every package manager follows, and the
+# tasks that need snapd skip when it did not install, because the shared file has already named it.
 - name: Ensure Snap plugin is installed
-  become: yes
-  ansible.builtin.dnf:
-    name:
-      - snapd
-    state: present
-  register: fedora_snapd_install
-  retries: 3
-  delay: 10
-  until: fedora_snapd_install is succeeded
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [snapd]
+    role_packages_purpose: the snap daemon
+  when:
+    - ih_family == 'RedHat'
+    - install_snapd | default(false) | bool
+
+- name: Remember whether snapd installed
+  ansible.builtin.set_fact:
+    fedora_snapd_missing: "{{ 'snapd' in (role_packages_missing | default([])) }}"
   when: install_snapd | default(false) | bool
 
 - name: Enable Snapd socket
@@ -31,7 +38,9 @@
     name: snapd.socket
     state: started
     enabled: yes
-  when: install_snapd | default(false) | bool
+  when:
+    - install_snapd | default(false) | bool
+    - not (fedora_snapd_missing | default(false) | bool)
 
 - name: Create Classic Snap Symlink
   become: yes
@@ -39,4 +48,6 @@
     src: /var/lib/snapd/snap
     dest: /snap
     state: link
-  when: install_snapd | default(false) | bool
+  when:
+    - install_snapd | default(false) | bool
+    - not (fedora_snapd_missing | default(false) | bool)

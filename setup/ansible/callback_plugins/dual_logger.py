@@ -36,14 +36,12 @@ from ansible.plugins.callback import CallbackBase
 # match wins (see _heartbeat_lookup_log) so order doesn't matter, but more
 # specific prefixes still need to be unique enough to not collide.
 HEARTBEAT_LOG_FILES = {
-    "Install APT packages, one at a time":    "/var/log/installation-apt.log",
-    "Install Flatpak applications, one at a time": "/var/log/installation-flatpak.log",
     "Full system upgrade and autoremove (Debian, via raw)": "/var/log/installation-apt-upgrade.log",
-    # virtualization_config Debian apt installs (QEMU/KVM, virt-manager, spice-vdagent)
-    "Install QEMU/KVM and virt-manager packages (Debian)": "/var/log/installation-virt-apt.log",
-    "Install spice-vdagent (Debian guest)":   "/var/log/installation-virt-apt.log",
-    # Docker CE on Debian
-    "Install Docker CE (Debian)":             "/var/log/installation-docker-apt.log",
+    # Every apt, dnf, pacman, flatpak and snap install in the playbook, the software set and every role
+    # alike, one package per call through setup/ansible/tasks/install_role_packages.yaml: its first
+    # attempt and its retries
+    "Install a package set one package at a time": "/var/log/installation-packages.log",
+    "Retry each package that failed": "/var/log/installation-packages.log",
 }
 
 
@@ -116,7 +114,8 @@ IGNORE_PATTERNS = [
     "AC_PROG_CC_C99' is obsolete",
     # pub during dart/flutter install: it warns because PATH inside the
     # playbook subshell doesn't include ~/.pub-cache/bin yet. env_variables
-    # role adds it to ~/.bashrc / ~/.zshrc so interactive shells are fine.
+    # puts it on PATH in ~/.config/environment.d/50-dev.conf, which every
+    # shell and the desktop session read, so later shells are fine.
     "Pub installs executables into $HOME/.pub-cache/bin, which is not on your path",
     # pacman -Sc cleans cached download tempfiles that may already be gone.
     # The error is harmless — the actual cache cleanup succeeded.
@@ -176,6 +175,11 @@ ENUMERATION_TASK_MARKERS = [
     "Check which vendor .deb files actually arrived",
 ]
 
+# Task name words that mark a looped task as real install work, whose per-item results land in the
+# end-of-run buckets. "Retry" covers a retry that lives in its own task, because Ansible cannot change a
+# task's arguments between its own attempts (setup/ansible/tasks/install_role_packages.yaml).
+INSTALLER_TASK_KEYWORDS = ("Install", "Download", "Add ", "Retry")
+
 # Task name keywords that mean "this is an OS-specific manager task".
 # A skipped item here usually means "we're not on that OS" — we now SHOW
 # those entries with a clear label (was: suppress).
@@ -201,6 +205,7 @@ ROLE_TOGGLE_MAPPING: Dict[str, List[str]] = {
     'ai_tools':            ['install_claude_code', 'install_claude_desktop',
                             'install_lm_studio', 'install_stable_diffusion',
                             'install_opencode', 'install_openspec',
+                            'install_codex', 'install_grok', 'install_kilo_code',
                             'install_bruno_cli'],
     'software_installer':  [],   # mapped per-software via the toggle key itself
     'virtualization_config': ['install_virt_manager', 'install_docker'],
@@ -256,6 +261,9 @@ class CallbackModule(CallbackBase):
         # Failures the playbook deliberately tolerated (ignore_errors). Kept apart from
         # self.failed so the summary cannot claim a run failed while the run exits zero.
         self.tolerated: List[Dict[str, str]] = []   # {name, error, task}
+        # Failed attempts per package of an install task that have not yet ended in success, so a
+        # package that installs on a retry is summarised once, as installed after that many retries.
+        self._failed_attempts: Dict[str, int] = {}
 
         # Progress reporter: emits the task START line, one line per new
         # progress entry tailed from the task's log file, and an occasional
@@ -757,25 +765,6 @@ class CallbackModule(CallbackBase):
         prefix = f"{dur} " if dur else ""
         self._display_and_log(f"{prefix}{status}: [{host}]", "INFO",
                               include_output=True, result=result)
-        # Batch installers (apt/dnf/pacman/flatpak with name: list) don't fire
-        # per-item events. Record the task-level disposition so the summary can
-        # show which managers actually changed something.
-        task_name = result._task.get_name() if hasattr(result, "_task") else ""
-        if any(p in task_name for p in (
-            "Install APT packages",
-            "Install DNF packages",
-            "Install Pacman packages",
-            "Install Flatpak packages",
-            "Install Homebrew packages",
-            "Install Homebrew Cask packages",
-            "Install Chocolatey packages",
-            "Install Docker CE",
-            "Install Docker (Arch)",
-            "Install QEMU/KVM",
-        )):
-            role = self._extract_task_role(task_name) or "batch"
-            entry = {"name": task_name.split(' : ', 1)[-1], "manager": role}
-            (self.installed if changed else self.unchanged).append(entry)
 
     def v2_runner_on_failed(self, result, ignore_errors: bool = False) -> None:
         """A task failed. `ignore_errors` says whether the playbook asked for that failure to be
@@ -843,6 +832,8 @@ class CallbackModule(CallbackBase):
         task_name = result._task.get_name() if hasattr(result, "_task") else "unknown"
         rd = result._result if hasattr(result, "_result") else {}
         item = f" ({self._extract_item_display(rd['item'])})" if "item" in rd else ""
+        if "item" in rd and self._is_installer_task(task_name):
+            self._count_failed_attempt(self._item_key(rd["item"]))
         dur = self._task_duration()
         prefix = f"{dur} " if dur else ""
         self._display_and_log(
@@ -949,7 +940,7 @@ class CallbackModule(CallbackBase):
         task_name = result._task.get_name() if hasattr(result, "_task") else ""
         if any(m in task_name for m in ENUMERATION_TASK_MARKERS):
             return
-        if not ("Install" in task_name or "Download" in task_name or "Add " in task_name):
+        if not self._is_installer_task(task_name):
             return
         role = self._extract_task_role(task_name) or ""
         manager = ""
@@ -957,14 +948,38 @@ class CallbackModule(CallbackBase):
             manager = (item.get("value", {}) or {}).get("manager", "")
         if not manager and role:
             manager = role
-        entry = {"name": item["key"] if isinstance(item, dict) and "key" in item else display,
-                 "manager": manager or "other"}
+        entry = {"name": self._item_key(item), "manager": manager or "other"}
         if tolerated:
             # Its own bucket, so the summary never counts a failed item as one that was already there.
             entry["reason"] = f"rc {rc}"
-            self.tolerated.append(entry)
+            self._count_failed_attempt(entry["name"])
+            self._record_tolerated_item(entry)
         else:
-            (self.installed if changed else self.unchanged).append(entry)
+            self._record_succeeded_item(entry, changed)
+
+    @staticmethod
+    def _is_installer_task(task_name: str) -> bool:
+        return any(word in task_name for word in INSTALLER_TASK_KEYWORDS)
+
+    def _item_key(self, item) -> str:
+        return item["key"] if isinstance(item, dict) and "key" in item else self._extract_item_display(item)
+
+    def _count_failed_attempt(self, name: str) -> None:
+        self._failed_attempts[name] = self._failed_attempts.get(name, 0) + 1
+
+    def _record_tolerated_item(self, entry: Dict[str, str]) -> None:
+        """A package that failed its first attempt and its retry is one failure, reported with the
+        last reason rather than once per attempt."""
+        self.tolerated = [e for e in self.tolerated if e.get("name") != entry["name"]] + [entry]
+
+    def _record_succeeded_item(self, entry: Dict[str, str], changed: bool) -> None:
+        """A success after failed attempts takes the package out of the tolerated failures, so the
+        summary lists it once, as installed after its retries, instead of under both headings."""
+        retries = self._failed_attempts.pop(entry["name"], 0)
+        if retries:
+            entry["retries"] = retries
+            self.tolerated = [e for e in self.tolerated if e.get("name") != entry["name"]]
+        (self.installed if changed else self.unchanged).append(entry)
 
     def v2_runner_item_on_failed(self, result) -> None:
         """Ansible passes no ignore_errors argument to the per-item hook, so the flag is read off
@@ -986,9 +1001,13 @@ class CallbackModule(CallbackBase):
         self._display_and_log(f"{label:>10}: [{host}] {display} -- {short}", level)
         for detail in self._extract_error_details(result):
             self._display_and_log(detail, level)
-        item_key = item.get("key", display) if isinstance(item, dict) else display
-        entry = {"task": task_name, "name": item_key, "error": short}
-        (self.tolerated if tolerated else self.failed).append(entry)
+        entry = {"task": task_name, "name": self._item_key(item), "error": short}
+        if not tolerated:
+            self.failed.append(entry)
+            return
+        if self._is_installer_task(task_name):
+            self._count_failed_attempt(entry["name"])
+        self._record_tolerated_item(entry)
 
     @staticmethod
     def _task_tolerates_failure(result) -> bool:
@@ -1019,7 +1038,7 @@ class CallbackModule(CallbackBase):
         # like `option: Command, value: /usr/bin/zsh` that are useless as
         # user-facing skip entries — let the task-level v2_runner_on_skipped
         # console line cover them instead.
-        is_installer_task = any(m in task_name for m in ("Install", "Download", "Add "))
+        is_installer_task = self._is_installer_task(task_name)
         qualified = f"{role} → {item_key}" if role else item_key
 
         # Real skip — flush the pending TASK header / PHASE banner.
@@ -1122,10 +1141,16 @@ class CallbackModule(CallbackBase):
         by_manager: Dict[str, List[str]] = {}
         for it in items:
             mgr = it.get("manager") or "other"
-            by_manager.setdefault(mgr, []).append(it["name"])
+            by_manager.setdefault(mgr, []).append(it["name"] + self._retries_suffix(it.get("retries", 0)))
         for mgr in sorted(by_manager.keys()):
             names = sorted(set(by_manager[mgr]))
             self._display_and_log(f"  {mgr}: {', '.join(names)}", "INFO")
+
+    @staticmethod
+    def _retries_suffix(retries: int) -> str:
+        if not retries:
+            return ""
+        return f" (after {retries} {'retry' if retries == 1 else 'retries'})"
 
     def _emit_skipped_summary(self) -> None:
         if not self.skipped_by_reason:

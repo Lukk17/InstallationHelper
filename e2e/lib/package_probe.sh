@@ -36,6 +36,23 @@ package_names_for() {
         | sed -E 's/.*package: "([^"]+)".*/\1/' | sort -u || true
 }
 
+# derivative_package_names_for <family-file> <derivative-file> <manager>  ->  one package name per line
+#
+# The names one manager installs on a derivative such as CachyOS, whose dictionary is its family's
+# with the derivative's entries merged over it by setup/ansible/tasks/load_os_dict.yaml. That task
+# replaces a family entry whole when the derivative maps the same key, so a family entry counts here
+# only when the derivative does not name its key at all, whatever manager the derivative gives it.
+derivative_package_names_for() {
+    local overridden
+    overridden="$(derivative_mapping_keys "$2" | tr '\n' ' ')"
+    {
+        grep -E "^  [a-z0-9_]+: \{ *manager: \"$3\"" "$1" \
+            | awk -v skip="${overridden}" 'BEGIN { n = split(skip, k, " "); for (i = 1; i <= n; i++) s[k[i]] = 1 }
+                                          { key = $1; sub(/:$/, "", key); if (!(key in s)) print }'
+        derivative_mapping_lines "$2" | grep -E "\{ *manager: \"$3\""
+    } | sed -E 's/.*package: "([^"]+)".*/\1/' | sort -u || true
+}
+
 # probe_image_for <distro>  ->  the pinned image, or nothing when there is no Dockerfile
 probe_image_for() {
     local f="${PROBE_TIER3_DIR}/$1.Dockerfile"
@@ -54,26 +71,36 @@ probe_is_forgiven() {
 
 # probe_missing_in_image <image> <names>  ->  the names the image cannot resolve, one per line
 #
-# One container, one pass over the whole list. apt-cache policy and dnf info both answer from the
-# index alone, so nothing is downloaded and nothing is installed. A dnf name starting with @ is a
-# group rather than a package and is asked about as one.
+# One container, one pass over the whole list. apt-cache policy, dnf info and pacman -Si all answer
+# from the index alone, so nothing is downloaded and nothing is installed. A dnf name starting with @
+# is a group rather than a package and is asked about as one. pacman is here for CachyOS, whose own
+# repositories archlinux.org knows nothing about.
 #
 # Returns non-zero when the container did not run to the end. Without that, an image that failed to
 # pull produced no output, no output read as no missing names, and the caller announced that all of
 # them resolved. Silence and success have to be told apart or the check is decoration.
 probe_missing_in_image() {
-    local image="$1" names="$2" work out
-    work="$(mktemp -d)"
-    printf '%s\n' "${names}" > "${work}/names.txt"
-    cat > "${work}/probe.sh" <<'PROBE'
-#!/bin/sh
+    local image="$1" names="$2" script out
+    # The names travel inside the script and the script travels as the container's command argument,
+    # so nothing is bind-mounted. A bind mount names a directory on the daemon's machine, and this
+    # runs inside the gate container, where a temporary directory exists for this process alone: the
+    # daemon would mount an empty directory of its own and every name would read as missing.
+    script="$(
+        printf 'cat > /tmp/probe-names.txt <<'"'"'PROBE_NAMES'"'"'\n%s\nPROBE_NAMES\n' "${names}"
+        cat <<'PROBE'
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update -qq >/dev/null 2>&1
     while IFS= read -r p; do
         [ -z "$p" ] && continue
         c=$(apt-cache policy "$p" 2>/dev/null | awk '/Candidate:/{print $2}')
         { [ -z "$c" ] || [ "$c" = "(none)" ]; } && echo "MISSING $p"
-    done < /probe/names.txt
+    done < /tmp/probe-names.txt
+elif command -v pacman >/dev/null 2>&1; then
+    pacman -Sy >/dev/null 2>&1
+    while IFS= read -r p; do
+        [ -z "$p" ] && continue
+        pacman -Si "$p" >/dev/null 2>&1 || echo "MISSING $p"
+    done < /tmp/probe-names.txt
 else
     while IFS= read -r p; do
         [ -z "$p" ] && continue
@@ -81,18 +108,13 @@ else
             @*) dnf -q group info "${p#@}" >/dev/null 2>&1 || echo "MISSING $p" ;;
             *)  dnf -q info "$p" >/dev/null 2>&1 || echo "MISSING $p" ;;
         esac
-    done < /probe/names.txt
+    done < /tmp/probe-names.txt
 fi
 echo PROBE_COMPLETE
 PROBE
+    )"
 
-    # The mount's left half is a host directory and goes through host_path, the right half and the
-    # script argument name locations inside the container and must not. Under MSYS the untranslated
-    # form is the dangerous one: the daemon accepts `/tmp/tmp.XXXX` as a relative name, creates an
-    # empty directory of its own and mounts that, so every name reads as missing and the check
-    # reports a hundred packages that do not exist.
-    out="$(docker run --rm -v "$(host_path "${work}"):/probe" "${image}" sh /probe/probe.sh 2>/dev/null | tr -d '\r' || true)"
-    rm -rf "${work}"
+    out="$(docker run --rm "${image}" sh -c "${script}" 2>/dev/null | tr -d '\r' || true)"
 
     grep -qx 'PROBE_COMPLETE' <<<"${out}" || return 1
     sed -n 's/^MISSING //p' <<<"${out}"

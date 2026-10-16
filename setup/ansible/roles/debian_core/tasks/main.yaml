@@ -59,29 +59,34 @@
 #
 # ca-certificates joins them because a curl over https with no trust store fails the same way, later
 # and less clearly.
+# One package per call through tasks/install_role_packages.yaml, so one that cannot install costs only
+# itself and is named.
 - name: Install curl, gpg and certificates before any repository key is fetched (Debian family)
-  become: yes
-  ansible.builtin.apt:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - curl
       - gnupg
       - ca-certificates
-    state: present
-  register: debian_keytools_install
-  retries: 3
-  delay: 10
-  until: debian_keytools_install is succeeded
+    role_packages_purpose: the tools a repository key is fetched with
+  when: ih_family == 'Debian'
 
+# Through tasks/install_role_packages.yaml, the retry rule every package manager follows, and the
+# tasks that need snapd skip when it did not install, because the shared file has already named it.
 - name: Install snapd (Debian non-Ubuntu)
-  become: yes
-  ansible.builtin.apt:
-    name: snapd
-    state: present
-  register: debian_snapd_install
-  retries: 3
-  delay: 10
-  until: debian_snapd_install is succeeded
-  when: ih_base != 'ubuntu'
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [snapd]
+    role_packages_purpose: the snap daemon
+  when:
+    - ih_family == 'Debian'
+    - ih_base != 'ubuntu'
 
 - name: Enable snapd socket (Debian non-Ubuntu)
   become: yes
@@ -89,7 +94,9 @@
     name: snapd.socket
     state: started
     enabled: yes
-  when: ih_base != 'ubuntu'
+  when:
+    - ih_base != 'ubuntu'
+    - "'snapd' not in (role_packages_missing | default([]))"
 
 # NOTE: Removed manual symlink creation - not needed with modern snapd
 

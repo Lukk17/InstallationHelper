@@ -42,9 +42,10 @@
 # not found", which is exactly what the first macOS run in CI did. Installed here rather than through
 # the software dictionary because it is a prerequisite of the playbook itself rather than an
 # application the user chose, and it has to be present before sdk_manager runs.
-# update_homebrew here and nowhere else. This is the first brew task of the run, so one refresh
-# covers every brew and cask task after it, and paying for it once is the whole reason it lives on
-# this task rather than on the batches in software_installer.
+# brew update once, here, before the first install of the run, the way the apt cache is refreshed in
+# site.yaml's pre_tasks and arch_core upgrades the system: it is what every first attempt in the run
+# installs against, and the retry rule in tasks/install_role_packages.yaml refreshes again only before
+# a retry.
 #
 # Without it a cask install downloads whatever version the local metadata names, and vendors delete
 # old files. The macOS run of 2026-08-22 failed on "Download failed on Cask 'tor-browser'" for
@@ -52,33 +53,52 @@
 # 404 today, while the current cask is 15.0.20 and downloads fine. Nothing about that was specific
 # to a runner: a laptop that has not run brew update in a month has the same stale metadata and
 # fails the same way.
-- name: Install coreutils, which is where macOS gets a timeout command
-  community.general.homebrew:
-    name: coreutils
-    state: present
-    update_homebrew: true
-  # Retried, because this reaches the network and a single dropped connection must not cost the
-  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
-  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
-  # eof from python.org.
-  register: coreutils_brew
-  until: coreutils_brew is succeeded
+- name: Refresh Homebrew and its formula definitions before the first install of the run
+  ansible.builtin.command: brew update
+  environment:
+    PATH: "/opt/homebrew/bin:/usr/local/bin:{{ ansible_env.PATH }}"
+  register: homebrew_update
+  changed_when: "'Already up-to-date' not in (homebrew_update.stdout | default(''))"
+  # Retried four times twenty seconds apart, the retry rule's numbers, because a dropped connection
+  # must not cost the run, and failing for good stops the run here, because every install after it
+  # would read the metadata this could not fetch.
+  until: homebrew_update.rc | default(1) == 0
   retries: 3
-  delay: 15
+  delay: 20
+
+# Through tasks/install_role_packages.yaml, the retry rule every package manager follows.
+- name: Install coreutils, which is where macOS gets a timeout command
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [coreutils]
+    role_packages_purpose: the timeout command every long task in this playbook is bounded with
+    role_packages_manager: brew
+  when: ih_family == 'Darwin'
+
+# A prerequisite of the playbook itself, so the run stops here rather than at the first task that
+# needs gtimeout, which is what it did when this was a module call that failed for good.
+- name: Stop when coreutils did not install
+  ansible.builtin.fail:
+    msg: >-
+      coreutils did not install, and every long-running task after this needs the gtimeout it
+      provides. What brew said is in the [ERROR] line above.
+  when: "'coreutils' in (role_packages_missing | default([]))"
 
 - name: Install Karabiner-Elements
-  community.general.homebrew_cask:
-    name: karabiner-elements
-    state: present
-  when: setup_karabiner | bool
-  # Retried, because this reaches the network and a single dropped connection must not cost the
-  # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
-  # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
-  # eof from python.org.
-  register: karabiner_cask
-  until: karabiner_cask is succeeded
-  retries: 3
-  delay: 15
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [karabiner-elements]
+    role_packages_purpose: Karabiner-Elements
+    role_packages_manager: brew_cask
+  when:
+    - ih_family == 'Darwin'
+    - setup_karabiner | bool
 
 - name: Set macOS Finder Defaults
   ansible.builtin.shell: |

@@ -10,8 +10,37 @@
 # rescued now, the run carries on, and the pacman loop skips steam and names it as NOT installed when
 # this is false. e2e/tier1/availability_facts.sh fails the gate for a consumer that does not read it.
 #
-# Everywhere else, and on CachyOS when nobody asked for Steam, there is nothing to align, so the answer
-# is true.
+# Everywhere else, and on CachyOS when nothing this run installs needs Steam, there is nothing to align,
+# so the answer is true.
+#
+# Steam is asked for in two ways, and both are answered here so the alignment gate, the pacman loop, the
+# report and the verification read one answer. install_steam asks for it directly. A mapping that depends
+# on steam asks for it too, and says so with brings_steam: true in its os_dict entry, so the fact lives
+# beside the package that causes it rather than in a distribution name and a key written here. Today
+# that is gaming_suite in vars/derivatives/cachyos.yaml, mapped to cachyos-gaming-applications, which
+# depends on steam and meets the same conflict. ih_steam_keys names the toggled mappings that bring
+# Steam, steam itself included, and ih_steam_packages their package names in os_dict.
+- name: Decide which mappings this run installs that bring Steam with them
+  ansible.builtin.set_fact:
+    ih_steam_requested: "{{ ih_steam_keys_asked | length > 0 }}"
+    ih_steam_keys: "{{ ih_steam_keys_asked }}"
+    ih_steam_packages: >-
+      {{ os_dict.software_mapping | dict2items
+         | selectattr('key', 'in', ih_steam_keys_asked)
+         | map(attribute='value.package') | list }}
+  vars:
+    ih_steam_bringers: >-
+      {{ os_dict.software_mapping | dict2items
+         | selectattr('value.brings_steam', 'defined') | selectattr('value.brings_steam')
+         | map(attribute='key') | list }}
+    ih_steam_bringers_on: >-
+      {{ ih_steam_bringers
+         | zip(query('ansible.builtin.vars', *(ih_steam_bringers | map('regex_replace', '^', 'install_')),
+                     default=false) | map('bool'))
+         | selectattr('1') | map(attribute='0') | list }}
+    ih_steam_keys_asked: >-
+      {{ ((['steam'] if (install_steam | default(false) | bool) else []) + ih_steam_bringers_on) | unique }}
+
 - name: Ask whether the CachyOS 32-bit graphics packages Steam needs are installed (CachyOS)
   ansible.builtin.command: pacman -Q mesa-git lib32-mesa-git
   register: steam_graphics_lookup
@@ -20,7 +49,7 @@
   when:
     - ih_family == 'Archlinux'
     - ih_os_release_id == 'cachyos'
-    - install_steam | default(false) | bool
+    - ih_steam_requested | bool
 
 - name: Record whether the 32-bit graphics stack is aligned for Steam
   ansible.builtin.set_fact:

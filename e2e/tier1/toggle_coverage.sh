@@ -35,7 +35,7 @@ info "Tier 1: toggle coverage"
 #
 # The pattern used to be install_[a-z0-9_]+, and that single prefix was a blind spot rather than a
 # filter. group_vars declares toggles under eight prefixes today, and toggle_wayland_nvidia has been
-# declared, labelled on both wizards' checklists and consumed by nothing for as long as it has
+# declared, labelled on the bash wizard's checklist on Linux and consumed by nothing for as long as it has
 # existed, while this check reported full coverage on every family. So every identifier is collected
 # here and the declared set below decides which of them are toggle names. Nothing in this file names
 # a prefix: a toggle written tomorrow under a prefix nobody has used yet is covered on the day it is
@@ -72,6 +72,18 @@ windows_native_consumers() {
     sed -n 's/^\$script:SettingKeys = @(\(.*\))$/\1/p' "${WINDOWS_DIR}/WindowsSettings.ps1" 2>/dev/null \
         | tr -d "' " | tr ',' '\n'
 }
+
+# Mappings no toggle names, because something else selects them by name: a version that replaces the mapping a
+# toggle does name. tasks/opencode_version.yaml swaps opencode_desktop_v1 in for opencode_desktop when
+# opencode_use_v1 is true, and on Windows WindowsCustomInstalls.ps1 declares the mappings it installs itself.
+# Read out of those two places, comments removed, so a mapping counts here only while its selector still names it.
+selected_mappings="$(
+    {
+        sed -E 's/#.*$//' "${ANSIBLE_DIR}/tasks/opencode_version.yaml" 2>/dev/null | grep -oE '[a-z0-9_]+'
+        sed -n 's/^\$script:CustomInstallMappingKeys = @(\(.*\))$/\1/p' "${WINDOWS_DIR}/WindowsCustomInstalls.ps1" 2>/dev/null \
+            | tr -d "' " | tr ',' '\n'
+    } | sort -u
+)"
 
 check_family() {
     local family="$1" os_gv="$2"
@@ -156,7 +168,9 @@ check_family() {
     while IFS= read -r key; do
         [[ -z "${key}" ]] && continue
         n_mapped=$((n_mapped + 1))
-        grep -qx "${key}" <<<"${defined}" || unreachable+=("${key}")
+        grep -qx "${key}" <<<"${defined}" && continue
+        grep -qx "${key}" <<<"${selected_mappings}" && continue
+        unreachable+=("${key}")
     done <<<"${mapped}"
 
     if [[ ${#unreachable[@]} -eq 0 ]]; then
@@ -173,12 +187,62 @@ check_family Archlinux linux.yaml
 check_family Darwin    macos.yaml
 check_family Windows   windows.yaml
 
+# A derivative's dictionary, vars/derivatives/<id>.yaml, is merged over its family's by
+# setup/ansible/tasks/load_os_dict.yaml and gated by the same install_<key> lookup, so each of its keys
+# needs a toggle Linux loads exactly as a family mapping does. Every derivative is a Linux distribution,
+# because its file is chosen by the ID field of /etc/os-release.
+check_derivatives() {
+    local f id key defined unreachable n=0 loaded python=""
+    python="$(find_runnable_python)" || python=""
+    defined="$(
+        {
+            sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${GV_DIR}/linux.yaml"
+            sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "${GV_DIR}/all.yaml"
+        } | grep -E '^install_[a-z0-9_]+: (true|false)$' \
+          | sed -E 's/^install_([a-z0-9_]+):.*/\1/' \
+          | sort -u
+    )"
+    for f in "${VARS_DIR}"/derivatives/*.yaml; do
+        [[ -f "${f}" ]] || continue
+        id="$(basename "${f}" .yaml)"
+        unreachable=()
+        n=0
+        while IFS= read -r key; do
+            [[ -z "${key}" ]] && continue
+            n=$((n + 1))
+            grep -qx "${key}" <<<"${defined}" || unreachable+=("${key}")
+        done < <(derivative_mapping_keys "${f}")
+        if [[ -z "${python}" ]]; then
+            skip "${id}: the derivative mappings were counted only by derivative_mapping_keys" \
+                 "no Python 3.11 or newer on PATH (tried python3, python and py), so the YAML loader could not count them too"
+        else
+            loaded="$("${python}" -c 'import sys, yaml
+print(len((yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}).get("software_mapping") or {}))' "${f}" || echo "unreadable")"
+            if [[ "${loaded}" != "${n}" ]]; then
+                fail "${id}: the YAML loader finds ${loaded} entries under software_mapping and derivative_mapping_keys finds ${n}, so an entry is written in a form the shell checks cannot see" \
+                     "write every entry of ${f} as one line, key: { manager: \"...\", package: \"...\" }"
+                continue
+            fi
+        fi
+        if [[ "${n}" -eq 0 ]]; then
+            fail "${id}: vars/derivatives/${id}.yaml maps nothing, so it overrides nothing" "${f}"
+        elif [[ ${#unreachable[@]} -eq 0 ]]; then
+            pass "${id}: every one of the ${n} derivative mappings has a toggle Linux loads"
+        else
+            fail "${id}: ${#unreachable[@]} derivative mapping(s) have no toggle Linux loads, so they can never install" \
+                 "${unreachable[*]}"
+        fi
+    done
+}
+
+check_derivatives
+
 # --- every declared toggle must be consumed by something that acts on it -------------------------
 #
 # The direction above asks about enabled toggles, and on its own that is not enough. A toggle set to
 # false with nothing behind it looks exactly like a toggle set to false with an implementation
 # waiting for it, and the user finds out which by ticking it and getting nothing. toggle_wayland_nvidia
-# is on both wizards' checklists with a label promising to force Wayland on NVIDIA, has been declared
+# is on the bash wizard's checklist on Linux with a label promising to force Wayland on NVIDIA, has been declared
 # and unimplemented for as long as it has existed, and every assertion above passed on every family
 # throughout.
 #

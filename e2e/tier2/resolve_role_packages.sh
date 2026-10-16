@@ -32,6 +32,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/package_probe.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/http_ask.sh"
 
 require_cmd curl awk
 TIER2_DIR="$(dirname "${BASH_SOURCE[0]}")"
@@ -49,6 +50,26 @@ extract() {
     [[ -z "${files}" ]] && return 0
     # shellcheck disable=SC2086
     awk -v mod="${module}" -f "${EXTRACTOR}" ${files} 2>/dev/null | sort -u
+}
+
+# The packages a role installs through setup/ansible/tasks/install_role_packages.yaml, one package per
+# call. Those tasks carry no package module, so extract above never sees them, and this is what keeps
+# every name a role writes resolvable after the roles stopped batching on 2026-10-15. The extractor
+# labels each line arch, fedora, debian,ubuntu or ubuntu from the include's when, or none when the
+# when names no family.
+extract_helper() {
+    local files
+    files=$(grep -rl "install_role_packages.yaml" "${ROLES_DIR}" 2>/dev/null) || return 0
+    [[ -z "${files}" ]] && return 0
+    # shellcheck disable=SC2086
+    awk -v mod="install_role_packages.yaml" -v listkey="role_packages" -f "${EXTRACTOR}" ${files} 2>/dev/null | sort -u
+}
+
+# The helper's lines whose label names this family, in the module extractor's shape, so they join the
+# body the existing checks already read.
+helper_lines_for() {
+    local family_pattern="$1"
+    awk -F'\t' -v pattern="${family_pattern}" '$1 ~ pattern' <<<"${HELPER_BODY}"
 }
 
 # Names for one distro, excluding templated entries. Forgiveness is applied by the probe rather than
@@ -87,16 +108,29 @@ ROLE_BODY=""
 role_annotate() { printf '(in %s)' "$(where_is "$1" "${ROLE_BODY}")"; }
 
 # --- Arch, over HTTP ---------------------------------------------------------
+# Returns 0 when the group exists, 1 when archlinux.org says it does not for both architectures, 2
+# when either never gave a definite answer, with what came back in ARCH_GROUP_FAULT.
+ARCH_GROUP_FAULT=""
 arch_group_exists() {
-    local arch
+    local arch url status verdict=1
+    ARCH_GROUP_FAULT=""
     for arch in x86_64 any; do
-        curl -s --max-time 20 "https://archlinux.org/groups/${arch}/$1/" | grep -q 'Group Details' && return 0
+        url="https://archlinux.org/groups/${arch}/$1/"
+        status=0
+        http_ask "${url}" 'Group Details' || status=$?
+        if [[ ${status} -eq 0 ]]; then
+            return 0
+        fi
+        if [[ ${status} -eq 2 ]]; then
+            verdict=2
+            ARCH_GROUP_FAULT="$(http_unresolved_reason "${url}")"
+        fi
     done
-    return 1
+    return ${verdict}
 }
 
 check_arch() {
-    local body; body="$(extract 'community.general.pacman:')"
+    local body; body="$(printf '%s\n%s\n' "$(extract 'community.general.pacman:')" "$(helper_lines_for '(^|,)arch(,|$)')" | sed '/^$/d')"
     report_templated "Arch" "${body}"
     local list; list="$(names_for arch "${body}")"
     # The extractor labels pacman tasks debian,ubuntu by default since it keys off the module family,
@@ -104,25 +138,32 @@ check_arch() {
     list="$(grep -v '{{' <<<"${body}" | awk -F'\t' '{print $3}' | sort -u)"
     [[ -z "${list}" ]] && { skip "Arch role package names" "none found"; return; }
 
-    local missing=() groups=() pkg ok attempt n=0
+    local missing=() unresolved=() groups=() pkg url status where n=0
     while IFS= read -r pkg; do
         [[ -z "${pkg}" ]] && continue
-        n=$((n + 1)); ok=false
-        for attempt in 1 2 3; do
-            curl -s --max-time 20 "https://archlinux.org/packages/search/json/?name=${pkg}" | grep -q '"pkgname"' && { ok=true; break; }
-            sleep $((attempt * 2))
-        done
-        if [[ "${ok}" == false ]]; then
-            if arch_group_exists "${pkg}"; then groups+=("${pkg}"); else missing+=("${pkg} (in $(where_is "${pkg}" "${body}"))"); fi
+        n=$((n + 1))
+        where="(in $(where_is "${pkg}" "${body}"))"
+        url="https://archlinux.org/packages/search/json/?name=${pkg}"
+        status=0
+        http_ask "${url}" '"results"' || status=$?
+        if [[ ${status} -eq 0 ]] && grep -q '"pkgname"' <<<"${HTTP_BODY}"; then
+            continue
         fi
+        if [[ ${status} -eq 2 ]]; then
+            unresolved+=("${pkg} ${where}: $(http_unresolved_reason "${url}")")
+            continue
+        fi
+        status=0
+        arch_group_exists "${pkg}" || status=$?
+        case ${status} in
+            0) groups+=("${pkg}") ;;
+            1) missing+=("${pkg} ${where}") ;;
+            *) unresolved+=("${pkg} ${where}: ${ARCH_GROUP_FAULT}") ;;
+        esac
     done <<<"${list}"
 
     [[ ${#groups[@]} -gt 0 ]] && dim "Arch: resolved as package groups: ${groups[*]}"
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        pass "Arch: all ${n} literal pacman names in role tasks resolve"
-    else
-        fail "Arch: ${#missing[@]} of ${n} literal pacman names do not exist" "${missing[*]}"
-    fi
+    report_names "Arch" "literal pacman names in role tasks" "${n}"
 }
 
 # --- apt and dnf, inside the pinned base image ------------------------------
@@ -154,8 +195,9 @@ check_in_container() {
 # This closes the first of the two. Names are taken from the command line and its backslash
 # continuations, and anything that is not a literal package name is dropped: flags, redirections,
 # the tee target, and Jinja expressions, because a name the playbook builds at run time cannot be
-# resolved from the source. The count is asserted, so a future rewrite that leaves this finding
-# nothing fails here rather than passing silently.
+# resolved from the source. What it finds is asserted, so a future rewrite that leaves this finding
+# nothing fails here rather than passing silently. Two of those three, QEMU and Docker, now go through
+# setup/ansible/tasks/install_role_packages.yaml and are read by extract_helper instead.
 extract_shell_names() {
     awk '
         # Comment lines are not commands. Without this the prose picks itself up: a comment in
@@ -222,10 +264,27 @@ check_allowlist_orphans() {
     fi
 }
 
+HELPER_BODY="$(extract_helper)"
+
+check_helper_families() {
+    local unlabelled
+    unlabelled="$(awk -F'\t' '$1 == "none" && $3 !~ /\{\{/ { n = split($2, p, "/"); print $3 " (in " p[n] ")" }' <<<"${HELPER_BODY}")"
+    if [[ -z "${HELPER_BODY}" ]]; then
+        fail "no role task includes install_role_packages.yaml with a package list" \
+             "the roles install their own packages through it, so either the extraction broke or the includes moved"
+    elif [[ -n "${unlabelled}" ]]; then
+        fail "a role installs packages through install_role_packages.yaml with no family in its when, so they are resolved nowhere" \
+             "$(tr '\n' ' ' <<<"${unlabelled}")"
+    else
+        pass "every package list included through install_role_packages.yaml names its family"
+    fi
+}
+
+check_helper_families
 check_arch
 
-apt_body="$(extract 'ansible.builtin.apt:')"
-dnf_body="$(extract 'ansible.builtin.dnf:')"
+apt_body="$(printf '%s\n%s\n' "$(extract 'ansible.builtin.apt:')" "$(helper_lines_for 'debian|ubuntu')" | sed '/^$/d')"
+dnf_body="$(printf '%s\n%s\n' "$(extract 'ansible.builtin.dnf:')" "$(helper_lines_for '(^|,)fedora(,|$)')" | sed '/^$/d')"
 
 check_allowlist_orphans "${apt_body}" "${dnf_body}"
 
@@ -244,9 +303,23 @@ check_shell_embedded() {
     local names=()
     mapfile -t names < <(extract_shell_names "${ROLES_DIR}"/*/tasks/*.yaml)
 
-    if [[ ${#names[@]} -lt 5 ]]; then
-        fail "the shell-embedded package extractor found only ${#names[@]} names, which cannot be right" \
-             "it should find the virtualization role's apt lists. Either the extraction broke or those tasks moved."
+    # The QEMU and Docker apt lists moved to install_role_packages.yaml on 2026-10-15, and
+    # spice-vdagent, the last name written into an apt-get command in a role, followed it the same day,
+    # so every name is resolved through extract_helper now and e2e/tier1/package_retry_rule.sh fails on
+    # an install written outside that file. The extractor is still proven to work, against a line of the
+    # shape it reads, so an empty answer from the roles means none rather than an extractor that broke.
+    local probe_file
+    probe_file="$(mktemp)"
+    printf '    apt-get install {{ apt_raw_flags }} ih-extractor-probe 2>&1 | tee -a /var/log/x.log\n' > "${probe_file}"
+    if [[ "$(extract_shell_names "${probe_file}")" != "ih-extractor-probe" ]]; then
+        rm -f -- "${probe_file}"
+        fail "the shell-embedded package extractor does not read an apt-get install line, so it proves nothing" \
+             "expected ih-extractor-probe from a line of the shape it was written for"
+        return
+    fi
+    rm -f -- "${probe_file}"
+    if [[ ${#names[@]} -eq 0 ]]; then
+        pass "no role writes a package name into an apt-get command, every one goes through install_role_packages.yaml"
         return
     fi
     pass "found ${#names[@]} package names written into shell commands rather than module lists"

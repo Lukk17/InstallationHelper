@@ -1,0 +1,32 @@
+---
+# One derivative, driven by the loop in derivative_merge.yaml. The reported family and distribution
+# are passed as unknown so the family comes from ID_LIKE alone, the route a derivative takes when
+# Ansible's own table does not name it, and so the answer does not depend on the machine running the
+# gate.
+
+- name: "Derive the family from the {{ ih_case.fixture }} os-release fixture"
+  ansible.builtin.include_tasks: "{{ ih_derivation }}"
+  vars:
+    ih_os_release_path: "{{ ih_fixtures }}/{{ ih_case.fixture }}"
+    ih_reported_family: unknown
+    ih_reported_distribution: unknown
+
+- name: "The fixture names {{ ih_case.id }} as its ID"
+  ansible.builtin.assert:
+    that: ih_os_release_id == ih_case.id
+    fail_msg: "{{ ih_case.fixture }} carries ID={{ ih_os_release_id }}, not {{ ih_case.id }}"
+    quiet: true
+
+- name: "Merge vars/derivatives/{{ ih_case.id }}.yaml over vars/{{ ih_family }}.yaml"
+  ansible.builtin.include_tasks: "{{ ih_loader }}"
+
+- name: "Report the merged package names of {{ ih_case.id }}, one line per manager"
+  ansible.builtin.debug:
+    msg: >-
+      IH_MERGE id={{ ih_case.id }} family={{ ih_family }} manager={{ ih_manager }}
+      packages={{ os_dict.software_mapping | dict2items
+                  | selectattr('value.manager', 'equalto', ih_manager)
+                  | map(attribute='value.package') | unique | sort | join(',') }}
+  loop: "{{ os_dict.software_mapping | dict2items | map(attribute='value.manager') | unique | sort }}"
+  loop_control:
+    loop_var: ih_manager

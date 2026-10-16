@@ -44,7 +44,9 @@ else
 fi
 
 # --- macOS is given the package that provides it --------------------------------------------------
-if grep -rqE '^\s*name:\s*coreutils\s*$' "${ROLES_DIR}/macos_core/tasks/" 2>/dev/null; then
+# Through setup/ansible/tasks/install_role_packages.yaml since 2026-10-15, as `role_packages: [coreutils]`,
+# and as a package module's `name: coreutils` before that.
+if grep -rqE '^\s*(name:\s*coreutils|role_packages:\s*\[\s*coreutils\s*\])\s*$' "${ROLES_DIR}/macos_core/tasks/" 2>/dev/null; then
     pass "macos_core installs coreutils, which is where gtimeout comes from"
 else
     fail "macos_core does not install coreutils, so gtimeout will not exist when the fact names it" \

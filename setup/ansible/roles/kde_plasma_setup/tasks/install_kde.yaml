@@ -32,10 +32,18 @@
 # Linux Mint get the language pack and Linux Mint Debian Edition does not. See
 # setup/ansible/tasks/derive_os_facts.yaml. Every name below was checked with apt-cache policy in both a
 # debian:trixie and an ubuntu:26.04 container. See docs/regression_ledger.md.
+#
+# One package per call through tasks/install_role_packages.yaml, here and for Fedora and Arch below, so
+# one that cannot install costs only itself and is named. The apt index is the one the pre_tasks in
+# site.yaml refreshed through tasks/apt_cache_refresh.yaml, which is why the update_cache this task
+# used to carry is not repeated.
 - name: Install KDE Plasma Wayland (Debian family, shared packages)
-  become: yes
-  ansible.builtin.apt:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - kde-standard
       - plasma-workspace
       - systemsettings
@@ -48,27 +56,24 @@
       - qt6-style-kvantum
       - sddm-theme-breeze
       - sddm
-    state: present
-    update_cache: yes
-  register: kde_apt_shared
-  retries: 3
-  delay: 10
-  until: kde_apt_shared is succeeded
+    role_packages_purpose: the KDE Plasma desktop
   when: ih_family == 'Debian'
 
 # Ubuntu ships translated KDE strings as language packs, Debian does not package them at
 # all and gets its translations with the applications. Kept separate rather than dropped,
 # because losing it would silently change what an Ubuntu user gets.
 - name: Install the Polish KDE language pack (Ubuntu only)
-  become: yes
-  ansible.builtin.apt:
-    name: language-pack-kde-pl
-    state: present
-  register: kde_apt_ubuntu
-  retries: 3
-  delay: 10
-  until: kde_apt_ubuntu is succeeded
-  when: ih_base == 'ubuntu'
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
+      - language-pack-kde-pl
+    role_packages_purpose: the Polish KDE translations
+  when:
+    - ih_family == 'Debian'
+    - ih_base == 'ubuntu'
 
 # sddm is named explicitly, not left to the group. Fedora's "KDE Plasma Workspaces" group does not
 # contain it, checked with dnf group info on fedora:44, so every task after this one that touches
@@ -79,9 +84,12 @@
 # package is inside it. Arch already names sddm explicitly three tasks below, which is what made the
 # difference visible.
 - name: Install KDE Plasma Wayland (Fedora)
-  become: yes
-  ansible.builtin.dnf:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       # The group ID, and it is the ID rather than a display name on purpose. On Fedora 44 the group
       # whose ID is kde-desktop is named simply "KDE", and "KDE Plasma Workspaces" is the first four
       # words of its description. The old value matched anyway, through whatever looser matching the
@@ -95,18 +103,29 @@
       # an ID is what the packaging system guarantees, and dnf group info prints it first.
       - "@kde-desktop"
       - sddm
-    state: present
+    role_packages_purpose: the KDE Plasma desktop
   when: ih_family == 'RedHat'
 
 - name: Install KDE Plasma Wayland (Archlinux)
-  become: yes
-  community.general.pacman:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - plasma-meta
       - kde-applications-meta
       - sddm
-    state: present
+    role_packages_purpose: the KDE Plasma desktop
   when: ih_family == 'Archlinux'
+
+# Every SDDM task below works on the display manager, so an sddm that did not install leaves them
+# nothing to work on. It is already named as NOT installed, and the first of them to touch it, the
+# ownership fix, would otherwise end the role with "failed to look up user sddm".
+- name: Remember whether SDDM installed
+  ansible.builtin.set_fact:
+    kde_sddm_missing: "{{ 'sddm' in role_packages_missing }}"
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
 - name: Set SDDM input method config
   become: yes
@@ -121,7 +140,9 @@
 - name: Reconfigure SDDM (Debian)
   become: yes
   ansible.builtin.command: dpkg-reconfigure -f noninteractive sddm
-  when: ih_family == 'Debian'
+  when:
+    - ih_family == 'Debian'
+    - not (kde_sddm_missing | default(false) | bool)
 
 - name: Fix SDDM directory ownership
   become: yes
@@ -130,6 +151,7 @@
     owner: sddm
     group: sddm
     recurse: yes
+  when: not (kde_sddm_missing | default(false) | bool)
 
 # Ask before enabling, because on Fedora the package has already done it under another name.
 #
@@ -167,3 +189,4 @@
   when:
     - ih_family in ['RedHat', 'Archlinux']
     - not (display_manager_link.stat.exists | default(false))
+    - not (kde_sddm_missing | default(false) | bool)

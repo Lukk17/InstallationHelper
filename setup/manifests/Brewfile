@@ -3,7 +3,7 @@
 # Every application the playbook would install on macOS with the toggles as they ship,
 # expressed as a Brewfile so a Mac can be brought up with Homebrew alone.
 #
-# 16 formulae and 48 casks. Install with:
+# 19 formulae and 53 casks. Install with:
 #
 #     brew bundle install --file setup/manifests/Brewfile
 #
@@ -21,6 +21,7 @@ brew "bruno-cli"
 brew "fzf"
 brew "gh"
 brew "git"
+brew "go"
 brew "gradle"
 brew "helm"
 brew "jq"
@@ -30,11 +31,14 @@ brew "lynis"
 brew "maven"
 brew "minikube"
 brew "openssl@3"
+brew "pipx"
 brew "ripgrep"
 brew "speedtest-cli"
 brew "hashicorp/tap/terraform"
+brew "uv"
 
 # Applications
+cask "antigravity"
 cask "arduino-ide"
 cask "audacity"
 cask "balenaetcher"
@@ -56,9 +60,11 @@ cask "gimp"
 cask "gog-galaxy"
 cask "grandperspective"
 cask "handbrake-app"
+cask "jetbrains-toolbox"
 cask "keepassxc"
 cask "krita"
 cask "lens"
+cask "lm-studio" if Hardware::CPU.arm?
 cask "lulu"
 cask "obsidian"
 cask "onlyoffice"
@@ -80,6 +86,8 @@ cask "telegram"
 cask "tor-browser"
 cask "utm"
 cask "veracrypt"
+cask "virtualbox"
 cask "vlc"
 cask "visual-studio-code"
 cask "whatsapp"
+cask "zoom"

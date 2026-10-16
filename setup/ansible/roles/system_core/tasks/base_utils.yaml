@@ -10,17 +10,23 @@
 
 # --- Flatpak: Required for flatpak applications ---
 - name: Install flatpak (RedHat/Fedora)
-  ansible.builtin.dnf:
-    name: flatpak
-    state: present
-  become: yes
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [flatpak]
+    role_packages_purpose: the Flatpak installer
   when: ih_family == 'RedHat'
 
 - name: Install flatpak (Debian/Ubuntu)
-  ansible.builtin.apt:
-    name: flatpak
-    state: present
-  become: yes
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [flatpak]
+    role_packages_purpose: the Flatpak installer
   when: ih_family == 'Debian'
 
 # Arch was missing entirely. flatpak was installed for RedHat and Debian only, while the
@@ -29,15 +35,19 @@
 # the whole playbook fifteen minutes in with nothing installed. Found by the e2e
 # kde-configure-only and live-profile scenarios. See docs/regression_ledger.md.
 - name: Install flatpak (Arch)
-  community.general.pacman:
-    name: flatpak
-    state: present
-  become: yes
-  register: arch_flatpak_install
-  retries: 3
-  delay: 10
-  until: arch_flatpak_install is succeeded
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [flatpak]
+    role_packages_purpose: the Flatpak installer
   when: ih_family == 'Archlinux'
+
+- name: Stop when flatpak did not install
+  ansible.builtin.fail:
+    msg: flatpak did not install, so adding the Flathub remote cannot continue. What the package manager said is in the [ERROR] line above.
+  when: "'flatpak' in (role_packages_missing | default([]))"
 
 # site.yaml runs this role without a rescue, on purpose, because it is the bootstrap
 # everything later depends on. The consequence nobody accounted for is that one transient
@@ -153,33 +163,44 @@
 
 # git is required by pyenv's bootstrap script (curl pyenv.run | bash) and
 # by several other SDK installers. Minimal Ubuntu/Debian VMs don't ship it.
+# One package per call through tasks/install_role_packages.yaml, for all three families, so one that
+# cannot install costs only itself and is named.
 - name: Install unzip, zip and git (Arch)
-  community.general.pacman:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - unzip
       - zip
       - git
-    state: present
-  become: yes
+    role_packages_purpose: the base utilities
   when: ih_family == 'Archlinux'
 
 - name: Install unzip, zip and git (Debian)
-  ansible.builtin.apt:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - unzip
       - zip
       - git
-    state: present
-  become: yes
+    role_packages_purpose: the base utilities
   when: ih_family == 'Debian'
 
 - name: Install unzip, zip, patch and git (Fedora)
-  ansible.builtin.dnf:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - unzip
       - zip
       - patch
       - git
-    state: present
-  become: yes
+    role_packages_purpose: the base utilities
   when: ih_family == 'RedHat'

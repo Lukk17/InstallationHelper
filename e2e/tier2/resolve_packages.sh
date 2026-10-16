@@ -21,15 +21,13 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/package_probe.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/http_ask.sh"
 source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
 
 require_cmd curl
 
 VARS_DIR="${ANSIBLE_DIR}/vars"
-
-info "Tier 2: package name resolution"
-
-http_ok() { [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$1")" =~ ^(200|301|302)$ ]]; }
+DERIVATIVES_DIR="${VARS_DIR}/derivatives"
 
 # --- Arch official repositories ---------------------------------------------
 # One request per name, because the search endpoint honours only the last `name`
@@ -40,39 +38,43 @@ http_ok() { [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$1")" =~
 # body rather than a 404, which is indistinguishable from "no such package" unless you
 # retry. Without the retry this check reported eleven perfectly real packages as
 # missing, all of them at the alphabetical tail where the throttle kicked in. A check
-# that cries wolf gets ignored, which is worse than not having it.
+# that cries wolf gets ignored, which is worse than not having it. So only a body that
+# carries a results list is an answer, and an empty list is the definite "no such package".
 check_pacman() {
-    local missing=() n=0
+    local missing=() unresolved=() n=0 pkg url status
     while IFS= read -r pkg; do
         [[ -z "${pkg}" ]] && continue
         n=$((n + 1))
-        local found=false
-        for attempt in 1 2 3; do
-            if curl -s --max-time 20 "https://archlinux.org/packages/search/json/?name=${pkg}" | grep -q '"pkgname"'; then
-                found=true; break
-            fi
-            sleep $((attempt * 2))
-        done
-        [[ "${found}" == false ]] && missing+=("${pkg}")
+        url="https://archlinux.org/packages/search/json/?name=${pkg}"
+        status=0
+        http_ask "${url}" '"results"' || status=$?
+        case ${status} in
+            0) grep -q '"pkgname"' <<<"${HTTP_BODY}" || missing+=("${pkg}") ;;
+            1) missing+=("${pkg}") ;;
+            *) unresolved+=("${pkg}: $(http_unresolved_reason "${url}")") ;;
+        esac
     done < <(package_names_for "${VARS_DIR}/Archlinux.yaml" pacman)
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        pass "Arch official repositories: all ${n} package names resolve"
-    else
-        fail "Arch official repositories: ${#missing[@]} of ${n} names do not exist" "${missing[*]}"
-    fi
+    report_names "Arch official repositories" "package names" "${n}"
 }
 
 # --- Arch User Repository ----------------------------------------------------
 # One batched request. The RPC endpoint takes repeated arg[] parameters and returns
 # only the names it found, so the difference is the missing set.
 check_aur() {
-    local pkgs=() query=""
-    mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Archlinux.yaml" aur)
+    local pkgs=() query="" f
+    mapfile -t pkgs < <(
+        { package_names_for "${VARS_DIR}/Archlinux.yaml" aur
+          for f in "${DERIVATIVES_DIR}"/*.yaml; do [[ -f "${f}" ]] && package_names_for "${f}" aur; done; } | sort -u
+    )
     [[ ${#pkgs[@]} -eq 0 ]] && { pass "AUR: nothing mapped"; return; }
     for p in "${pkgs[@]}"; do query+="&arg[]=${p}"; done
-    local found
-    found="$(curl -s --max-time 30 "https://aur.archlinux.org/rpc/v5/info?${query#&}" \
-        | tr '{' '\n' | grep -oE '"Name":"[^"]+"' | sed -E 's/.*:"([^"]+)"/\1/' | sort -u)"
+    local found url="https://aur.archlinux.org/rpc/v5/info?${query#&}"
+    if ! http_ask "${url}" '"resultcount"'; then
+        fail "AUR: the ${#pkgs[@]} package names could not be checked, because the index never gave a definite answer" \
+            "$(http_unresolved_reason "${url}")"
+        return
+    fi
+    found="$(tr '{' '\n' <<<"${HTTP_BODY}" | grep -oE '"Name":"[^"]+"' | sed -E 's/.*:"([^"]+)"/\1/' | sort -u || true)"
     local missing=()
     for p in "${pkgs[@]}"; do grep -qx "${p}" <<<"${found}" || missing+=("${p}"); done
     if [[ ${#missing[@]} -eq 0 ]]; then
@@ -86,26 +88,23 @@ check_aur() {
 # Checked once across all Linux families, because the application id is the same
 # everywhere and re-checking it three times only wastes time.
 check_flatpak() {
-    local ids=() missing=()
+    local ids=() missing=() unresolved=() f
     mapfile -t ids < <(
         { package_names_for "${VARS_DIR}/Archlinux.yaml" flatpak
           package_names_for "${VARS_DIR}/Debian.yaml" flatpak
-          package_names_for "${VARS_DIR}/RedHat.yaml" flatpak; } | sort -u
+          package_names_for "${VARS_DIR}/RedHat.yaml" flatpak
+          for f in "${DERIVATIVES_DIR}"/*.yaml; do [[ -f "${f}" ]] && package_names_for "${f}" flatpak; done; } | sort -u
     )
     for id in "${ids[@]}"; do
         [[ -z "${id}" ]] && continue
-        http_ok "https://flathub.org/api/v2/appstream/${id}" || missing+=("${id}")
+        ask_name "${id}" "https://flathub.org/api/v2/appstream/${id}"
     done
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        pass "Flathub: all ${#ids[@]} application ids resolve"
-    else
-        fail "Flathub: ${#missing[@]} of ${#ids[@]} ids do not exist" "${missing[*]}"
-    fi
+    report_names "Flathub" "application ids" "${#ids[@]}"
 }
 
 # --- Homebrew ----------------------------------------------------------------
 check_brew() {
-    local kind="$1" api="$2" pkgs=() missing=()
+    local kind="$1" api="$2" pkgs=() missing=() unresolved=()
     mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Darwin.yaml" "${kind}")
     [[ ${#pkgs[@]} -eq 0 ]] && { pass "Homebrew ${kind}: nothing mapped"; return; }
     for p in "${pkgs[@]}"; do
@@ -114,38 +113,43 @@ check_brew() {
         # is the live example: HashiCorp's licence change pushed it out of homebrew-core
         # and the only working name is hashicorp/tap/terraform. Resolve those against
         # the tap repository instead.
+        # The name is missing only when both branches say so definitely.
         if [[ "${p}" == */*/* ]]; then
-            local owner tap formula
+            local owner tap formula branch url status verdict=missing reasons=()
             owner="${p%%/*}"; tap="${p#*/}"; tap="${tap%%/*}"; formula="${p##*/}"
-            if http_ok "https://raw.githubusercontent.com/${owner}/homebrew-${tap}/master/Formula/${formula}.rb" \
-               || http_ok "https://raw.githubusercontent.com/${owner}/homebrew-${tap}/main/Formula/${formula}.rb"; then
-                continue
-            fi
-            missing+=("${p}")
+            for branch in master main; do
+                url="https://raw.githubusercontent.com/${owner}/homebrew-${tap}/${branch}/Formula/${formula}.rb"
+                status=0
+                http_ask "${url}" || status=$?
+                if [[ ${status} -eq 0 ]]; then
+                    verdict=found
+                    break
+                fi
+                if [[ ${status} -eq 2 ]]; then
+                    verdict=unresolved
+                    reasons+=("$(http_unresolved_reason "${url}")")
+                fi
+            done
+            case "${verdict}" in
+                missing)    missing+=("${p}") ;;
+                unresolved) unresolved+=("${p}: ${reasons[*]}") ;;
+            esac
             continue
         fi
-        http_ok "https://formulae.brew.sh/api/${api}/${p}.json" || missing+=("${p}")
+        ask_name "${p}" "https://formulae.brew.sh/api/${api}/${p}.json"
     done
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        pass "Homebrew ${kind}: all ${#pkgs[@]} names resolve"
-    else
-        fail "Homebrew ${kind}: ${#missing[@]} of ${#pkgs[@]} names do not exist" "${missing[*]}"
-    fi
+    report_names "Homebrew ${kind}" "names" "${#pkgs[@]}"
 }
 
 # --- Chocolatey --------------------------------------------------------------
 check_choco() {
-    local pkgs=() missing=()
+    local pkgs=() missing=() unresolved=()
     mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Windows.yaml" choco)
     [[ ${#pkgs[@]} -eq 0 ]] && { pass "Chocolatey: nothing mapped"; return; }
     for p in "${pkgs[@]}"; do
-        http_ok "https://community.chocolatey.org/packages/${p}" || missing+=("${p}")
+        ask_name "${p}" "https://community.chocolatey.org/packages/${p}"
     done
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        pass "Chocolatey: all ${#pkgs[@]} package ids resolve"
-    else
-        fail "Chocolatey: ${#missing[@]} of ${#pkgs[@]} ids do not exist" "${missing[*]}"
-    fi
+    report_names "Chocolatey" "package ids" "${#pkgs[@]}"
 }
 
 # --- winget ------------------------------------------------------------------
@@ -458,6 +462,51 @@ check_dictionary() {
         "$(package_names_for "${VARS_DIR}/${file}" "${manager}")"
 }
 
+# --- a derivative's own dictionary, inside its own image ---------------------
+# vars/derivatives/<id>.yaml holds the entries a distribution maps differently from its family, and
+# setup/ansible/tasks/load_os_dict.yaml merges them over the family's dictionary. CachyOS is the one
+# today, and its gaming suite is cachyos-gaming-applications from the cachyos repository, which
+# archlinux.org has never heard of. So the merged pacman set is resolved inside the image
+# e2e/tier3/<id>.Dockerfile names, which is the distribution the scenarios run.
+#
+# pacman is the only manager resolved here, because every derivative so far is an Arch one. Flathub and
+# AUR names in a derivative file are already asked about by check_flatpak and check_aur above. A
+# derivative entry for any other manager fails here by name rather than passing unresolved, and so
+# does a derivative whose e2e/tier3/<id>.Dockerfile is missing or never runs pacman, because merging
+# it over vars/Archlinux.yaml would check it against the wrong family.
+derivative_dockerfile_runs_pacman() {
+    local dockerfile="${PROBE_TIER3_DIR}/$1.Dockerfile"
+    [[ -f "${dockerfile}" ]] && grep -vE '^\s*#' "${dockerfile}" | grep -qE '(^|[^[:alnum:]_-])pacman -S'
+}
+
+check_derivatives() {
+    local f id others
+    for f in "${DERIVATIVES_DIR}"/*.yaml; do
+        [[ -f "${f}" ]] || continue
+        id="$(basename "${f}" .yaml)"
+        if ! derivative_dockerfile_runs_pacman "${id}"; then
+            fail "${id}: vars/derivatives/${id}.yaml is merged over vars/Archlinux.yaml, but e2e/tier3/${id}.Dockerfile is missing or never runs pacman, so it is not an Arch image and its names would be checked against the wrong family" \
+                "${PROBE_TIER3_DIR}/${id}.Dockerfile"
+            continue
+        fi
+        others="$(derivative_mapping_lines "${f}" | grep -vE 'manager: "(pacman|aur|flatpak)"' || true)"
+        if [[ -n "${others}" ]]; then
+            fail "${id}: vars/derivatives/${id}.yaml maps a manager this check cannot resolve" "${others}"
+        fi
+        if ! derivative_mapping_lines "${f}" | grep -E '\{ *manager: "pacman"' >/dev/null; then
+            continue
+        fi
+        if ! docker info &>/dev/null; then
+            skip "${id} dictionary package names" "no reachable Docker daemon, so the ${id} package index cannot be queried"
+            continue
+        fi
+        probe_names "${id}" "$(probe_image_for "${id}")" \
+            "${id} dictionary package names" \
+            "pacman names in vars/Archlinux.yaml merged with vars/derivatives/${id}.yaml" \
+            "$(derivative_package_names_for "${VARS_DIR}/Archlinux.yaml" "${f}" pacman)"
+    done
+}
+
 check_apt_and_dnf() {
     if ! docker info &>/dev/null; then
         skip "apt and dnf dictionary package names" "no reachable Docker daemon, so the package indexes cannot be queried"
@@ -488,24 +537,20 @@ check_npm() {
         return
     fi
     local pkgs=() bad=() n=0
-    mapfile -t pkgs < <(
-        for f in "${ANSIBLE_DIR}"/roles/ai_tools/tasks/*_unix.yaml; do
-            [[ "$(basename "${f}")" == "npm_install_unix.yaml" ]] && continue
-            grep -hE '^\s*npm_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_pkg:\s*//; s/"//g; s/\s+$//'
-        done | sort -u
-    )
+    mapfile -t pkgs < <(ai_tools_npm_packages)
     [[ ${#pkgs[@]} -eq 0 ]] && { fail "npm: no packages found in the ai_tools task files, so this check proves nothing" "${ANSIBLE_DIR}/roles/ai_tools/tasks"; return; }
 
     for pkg in "${pkgs[@]}"; do
         n=$((n + 1))
         # The scope separator has to be encoded or the registry reads it as a path segment.
         local encoded="${pkg//\//%2f}"
-        local body
-        body="$(curl -s --max-time 25 "https://registry.npmjs.org/${encoded}" || true)"
-        if [[ -z "${body}" ]]; then
-            bad+=("${pkg}: the registry did not answer")
-            continue
-        fi
+        local body url="https://registry.npmjs.org/${encoded}" status=0
+        http_ask "${url}" '^[[:space:]]*[{]' || status=$?
+        case ${status} in
+            1) bad+=("${pkg}: the registry says it does not exist, ${url} answered HTTP ${HTTP_CODE}"); continue ;;
+            2) bad+=("${pkg}: $(http_unresolved_reason "${url}")"); continue ;;
+        esac
+        body="${HTTP_BODY}"
         local verdict
         verdict="$(
             PKG="${pkg}" "${PYTHON}" -c '
@@ -541,17 +586,27 @@ print("; ".join(problems))
     fi
 }
 
-check_pacman
-check_aur
-check_flatpak
-check_brew brew formula
-check_brew brew_cask cask
-check_choco
-check_winget
-check_winget_downloads
-check_winget_scopes
-check_npm
-check_apt_and_dnf
-probe_report_forgiveness "no dictionary forgiveness in runtime_repo_packages.txt has become unnecessary"
+# e2e/tier1/name_lookup_retries.sh sources this file to drive the checks against a stand-in curl, so
+# they run only when the file is executed.
+main() {
+    info "Tier 2: package name resolution"
+    check_pacman
+    check_aur
+    check_flatpak
+    check_brew brew formula
+    check_brew brew_cask cask
+    check_choco
+    check_winget
+    check_winget_downloads
+    check_winget_scopes
+    check_npm
+    check_apt_and_dnf
+    check_derivatives
+    probe_report_forgiveness "no dictionary forgiveness in runtime_repo_packages.txt has become unnecessary"
 
-finish "package name resolution"
+    finish "package name resolution"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main
+fi

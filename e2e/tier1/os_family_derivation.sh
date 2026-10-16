@@ -38,6 +38,7 @@ FIXTURE_DIR="${TIER1_DIR}/os_release_fixtures"
 PLAY="${TIER1_DIR}/os_family_derivation.yaml"
 DERIVATION="${ANSIBLE_DIR}/tasks/derive_os_facts.yaml"
 SITE="${ANSIBLE_DIR}/site.yaml"
+DICTIONARY_LOADER="${ANSIBLE_DIR}/tasks/load_os_dict.yaml"
 
 # Four ways to reach either fact: bracket access and dotted access on ansible_facts, and the two
 # top-level aliases. The trailing [^_a-z] on the distribution forms is what keeps
@@ -71,13 +72,31 @@ fi
 # makes the whole pipeline exit 1, and an assignment carrying a non-zero status ends the script under
 # set -e instead of reporting the check. Proven: without it, deleting the import line killed this
 # script silently at that point rather than failing the check.
+#
+# The dictionary is loaded by tasks/load_os_dict.yaml, which reads vars/{{ ih_family }}.yaml and merges
+# a derivative's overrides over it, so the order asked about is that import against the derivation.
+# The second assertion keeps it the only loader: a task that read vars/{{ ih_family }}.yaml itself would
+# hand its play the family's dictionary without the derivative's entries, and the playbook and the
+# verification would then disagree about what CachyOS installs, AGENTS.md defect class 2.
 import_line="$(grep -n 'import_tasks: tasks/derive_os_facts.yaml' "${SITE}" | head -1 | cut -d: -f1 || true)"
-vars_line="$(grep -n 'vars/{{ ih_family }}.yaml' "${SITE}" | head -1 | cut -d: -f1 || true)"
-if [[ -n "${import_line}" && -n "${vars_line}" && "${import_line}" -lt "${vars_line}" ]]; then
-    pass "site.yaml derives the family (line ${import_line}) before loading vars/{{ ih_family }}.yaml (line ${vars_line})"
+vars_line="$(grep -n 'import_tasks: tasks/load_os_dict.yaml' "${SITE}" | head -1 | cut -d: -f1 || true)"
+if [[ -n "${import_line}" && -n "${vars_line}" && "${import_line}" -lt "${vars_line}" ]] \
+    && grep -q 'vars/{{ ih_family }}.yaml' "${DICTIONARY_LOADER}" 2>/dev/null; then
+    pass "site.yaml derives the family (line ${import_line}) before loading vars/{{ ih_family }}.yaml through tasks/load_os_dict.yaml (line ${vars_line})"
 else
     fail "site.yaml does not import the derivation before the OS dictionary it names" \
-         "import at line '${import_line:-none}', dictionary load at line '${vars_line:-none}'"
+         "import at line '${import_line:-none}', tasks/load_os_dict.yaml import at line '${vars_line:-none}', and that file must read vars/{{ ih_family }}.yaml"
+fi
+
+# A load is a file: key naming the path, or the free-form include_vars: <path>, with any spacing inside
+# the braces. Messages that mention the path to a reader are not loads.
+other_loaders="$(grep -rnE --include='*.yaml' --include='*.yml' '^[^#]*(file|include_vars):.*vars/\{\{ *ih_family *\}\}\.yaml' "${ANSIBLE_DIR}" 2>/dev/null \
+    | grep -vF "${DICTIONARY_LOADER}:" | tr '\n' ' ' || true)"
+if [[ -z "${other_loaders}" ]]; then
+    pass "tasks/load_os_dict.yaml is the only task file that loads vars/{{ ih_family }}.yaml"
+else
+    fail "a task file loads vars/{{ ih_family }}.yaml itself, without the derivative overrides tasks/load_os_dict.yaml merges" \
+         "${other_loaders}"
 fi
 
 # --- nothing else may read the raw facts ---------------------------------------------------------

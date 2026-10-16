@@ -35,6 +35,7 @@ install_appimagelauncher: true
 install_waydroid: false
 install_snapd: true
 install_putty: true
+install_rclone: true  # pacman on Arch and CachyOS, apt on Debian and Ubuntu, dnf on Fedora.
 
 # Arch Linux AUR helpers
 # yay, a second AUR helper beside paru. Off by default because nothing in this playbook uses it: every
@@ -42,6 +43,15 @@ install_putty: true
 # this toggle must be removed and arch_core must build yay unconditionally, which
 # e2e/tier1/paru_consumers.sh enforces. Does nothing outside the Arch family.
 install_yay: false
+
+# Gaming
+# Lutris, from pacman on Arch and from Flathub on Debian, Ubuntu and Fedora. On CachyOS it is the
+# cachyos-gaming-applications metapackage instead, which also installs Steam, Heroic, Faugus,
+# gamescope, MangoHud and GOverlay regardless of install_steam, plus cachyos-gaming-meta with Proton,
+# Wine, umu-launcher, protontricks and winetricks. See setup/ansible/vars/derivatives/cachyos.yaml.
+# Because it brings Steam, on CachyOS it also triggers the alignment in roles/arch_core that replaces
+# mesa and lib32-mesa with mesa-git and lib32-mesa-git, exactly as install_steam does.
+install_gaming_suite: true
 
 # Hardware/System Alternative Apps (Alternatives to Windows-only apps)
 install_hardinfo: true    # Alt for HWMonitor

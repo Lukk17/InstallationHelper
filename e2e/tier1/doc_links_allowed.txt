@@ -1,0 +1,21 @@
+# Relative markdown links to paths that do not exist yet on purpose, each with the reason.
+#
+# Read by e2e/tier1/compose_and_docs.sh. One entry per line: the linking file from the repository
+# root, then " -> ", then the target as it resolves from the repository root with no trailing slash,
+# then " | ", then why. An entry whose target now exists, or that no link uses any longer, fails the
+# check as well, so this file cannot quietly outlive what it excuses.
+
+openspec/changes/add-flutter-desktop-frontend/design.md -> desktop | the directory this open change creates, task group 3 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/design.md -> desktop/README_DESKTOP.md | the hub page this open change writes, task 3.4 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/design.md -> setup/contract | the contract directory this open change creates in task 2.1 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/design.md -> .github/workflows/desktop-release.yml | the workflow this open change writes in task 8.2 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/design.md -> .github/workflows/desktop-flatpak-pages.yml | the workflow this open change writes in task 7.11 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/proposal.md -> desktop | the directory this open change creates, task group 3 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/proposal.md -> desktop/README_DESKTOP.md | the hub page this open change writes, task 3.4 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/proposal.md -> setup/contract | the contract directory this open change creates in task 2.1 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/proposal.md -> .github/workflows/desktop-release.yml | the workflow this open change writes in task 8.2 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/proposal.md -> .github/workflows/desktop-flatpak-pages.yml | the workflow this open change writes in task 7.11 of its tasks.md
+openspec/changes/add-flutter-desktop-frontend/proposal.md -> openspec/specs | the directory openspec archive creates on the first archived change, and the sentence linking it says it holds nothing yet
+openspec/changes/add-flutter-desktop-frontend/tasks.md -> desktop/README_DESKTOP.md | the hub page this open change writes, task 3.4 of that file
+openspec/changes/add-flutter-desktop-frontend/tasks.md -> .github/workflows/desktop-release.yml | the workflow this open change writes in task 8.2 of that file
+openspec/changes/add-flutter-desktop-frontend/tasks.md -> .github/workflows/desktop-flatpak-pages.yml | the workflow this open change writes in task 7.11 of that file

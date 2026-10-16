@@ -74,25 +74,39 @@
 # --- Remove stale NVRAM entry pointing to this distro's GRUB ---
 
 - name: Install efibootmgr if not present (Debian)
-  become: yes
-  ansible.builtin.apt:
-    name: efibootmgr
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [efibootmgr]
+    role_packages_purpose: efibootmgr, which removes the old GRUB boot entry
   when: ih_family == 'Debian'
 
 - name: Install efibootmgr if not present (Arch)
-  become: yes
-  community.general.pacman:
-    name: efibootmgr
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [efibootmgr]
+    role_packages_purpose: efibootmgr, which removes the old GRUB boot entry
   when: ih_family == 'Archlinux'
 
 - name: Install efibootmgr if not present (Fedora)
-  become: yes
-  ansible.builtin.dnf:
-    name: efibootmgr
-    state: present
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [efibootmgr]
+    role_packages_purpose: efibootmgr, which removes the old GRUB boot entry
   when: ih_family == 'RedHat'
+
+- name: Stop when efibootmgr did not install
+  ansible.builtin.fail:
+    msg: efibootmgr did not install, so removing the old GRUB boot entry cannot continue. What the package manager said is in the [ERROR] line above.
+  when: "'efibootmgr' in (role_packages_missing | default([]))"
 
 # Match NVRAM entries by Loader path (\EFI\<distro>\), not by free-text
 # label — labels collide with Windows / other distros and a wrong delete

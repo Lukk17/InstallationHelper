@@ -14,12 +14,42 @@
 # Emits: <applies>\t<file>\t<package>, where applies is drawn from debian,ubuntu,fedora.
 #
 # Usage: awk -v mod="ansible.builtin.apt:" -f extract_tasks.awk <files...>
+#
+# The second mode reads the role tasks that include setup/ansible/tasks/install_role_packages.yaml,
+# which is how a role installs its own packages since 2026-10-15, one package per call. Those tasks
+# carry no package module, so the module mode above could never see their names, and every name a
+# role writes would have gone unresolved. The list is under role_packages, and the family comes from
+# the include's own when, since the module no longer says it: arch, fedora or debian,ubuntu, narrowed
+# by ih_base like a module task. An include whose when names no family is labelled none, and
+# resolve_role_packages.sh fails on a literal name labelled none rather than resolve it nowhere.
+#
+# Usage: awk -v mod="install_role_packages.yaml" -v listkey="role_packages" -f extract_tasks.awk <files...>
 
 function flush_task() {
     if (!used_module) { return }
 
     applies = default_applies
-    if (index(whentext, "distribution") > 0) {
+    if (listkey != "name") {
+        # Every family the when names, because one include can serve several, `ih_family in
+        # ['Debian', 'RedHat', 'Archlinux']` for instance, and labelling it with the first alone left the
+        # names unresolved for the others. macos is a label of its own: tier 2 resolves no Homebrew
+        # name, and a macOS include is not a list that names no family.
+        applies = ""
+        if (index(whentext, "'Archlinux'") > 0) { applies = applies ",arch" }
+        if (index(whentext, "'RedHat'") > 0) { applies = applies ",fedora" }
+        if (index(whentext, "'Debian'") > 0) { applies = applies ",debian,ubuntu" }
+        if (index(whentext, "'Darwin'") > 0) { applies = applies ",macos" }
+        applies = (applies == "") ? "none" : substr(applies, 2)
+        # A list handed to a manager other than the family's own, snap, flatpak or Homebrew, is labelled
+        # with that manager, because its names are not apt, dnf or pacman names: the core snap on Arch
+        # is not a pacman package called core.
+        if (manager != "" && manager != "apt" && manager != "dnf" && manager != "pacman") {
+            applies = manager
+        }
+    }
+    if (index(applies, "debian") == 0) {
+        # Narrowing to Debian or Ubuntu only means something for a task that applies to them.
+    } else if (index(whentext, "distribution") > 0) {
         if (index(whentext, "!=") > 0 && index(whentext, "Ubuntu") > 0) {
             applies = "debian"
         } else if (index(whentext, "Ubuntu") > 0) {
@@ -47,12 +77,13 @@ function flush_task() {
 }
 
 function reset_task() {
-    used_module = 0; inname = 0; inwhen = 0; npkgs = 0; whentext = ""
+    used_module = 0; inname = 0; inwhen = 0; npkgs = 0; whentext = ""; manager = ""
     delete pkgs
 }
 
 BEGIN {
     if (index(mod, "dnf") > 0) { default_applies = "fedora" } else { default_applies = "debian,ubuntu" }
+    if (listkey == "") { listkey = "name" }
     reset_task()
 }
 
@@ -71,20 +102,50 @@ BEGIN {
     next
 }
 
+# The include names the task file on its file: line, not on the module line, so in the second mode any
+# line naming it starts collecting.
+listkey != "name" && index($0, mod) > 0 { used_module = 1; inname = 0; taskfile = FILENAME; next }
+
+/^[[:space:]]*role_packages_manager:/ {
+    manager = $0
+    sub(/^[[:space:]]*role_packages_manager:[[:space:]]*/, "", manager)
+    gsub(/["\047[:space:]]/, "", manager)
+    inname = 0
+    next
+}
+
 /^[[:space:]]*when:/ { inwhen = 1; inname = 0; whentext = whentext " " $0; next }
 inwhen && /^[[:space:]]*-[[:space:]]/ { whentext = whentext " " $0; next }
 inwhen && /^[[:space:]]*[a-z_]+:/ { inwhen = 0 }
 
-used_module && /^[[:space:]]*name:[[:space:]]*[^[:space:]]/ {
+used_module && $0 ~ ("^[[:space:]]*" listkey ":[[:space:]]*[^[:space:]]") {
     line = $0
-    sub(/^[[:space:]]*name:[[:space:]]*/, "", line)
+    sub("^[[:space:]]*" listkey ":[[:space:]]*", "", line)
     sub(/[[:space:]]+#.*$/, "", line)
+    # A block scalar indicator, `>-` or `|`, is not a name: the value is the template on the lines
+    # below it, as the software installer's pacman list is since 2026-10-15, and it was read as a
+    # package called ">-". It is recorded as the template it is, so it is reported as one not checked.
+    if (line ~ /^[|>][-+0-9]*$/) {
+        pkgs[++npkgs] = "{{ " listkey " block scalar }}"
+        next
+    }
     gsub(/["]/, "", line)
     gsub(/[\047]/, "", line)
+    # A flow sequence, `role_packages: [snapd]`, which the single-package includes use: every entry is
+    # a name, and the brackets are not part of any of them.
+    if (line ~ /^\[.*\]$/) {
+        line = substr(line, 2, length(line) - 2)
+        n = split(line, flow, /[[:space:]]*,[[:space:]]*/)
+        for (k = 1; k <= n; k++) {
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", flow[k])
+            if (flow[k] != "") { pkgs[++npkgs] = flow[k] }
+        }
+        next
+    }
     pkgs[++npkgs] = line
     next
 }
-used_module && /^[[:space:]]*name:[[:space:]]*$/ { inname = 1; next }
+used_module && $0 ~ ("^[[:space:]]*" listkey ":[[:space:]]*$") { inname = 1; next }
 inname && /^[[:space:]]*(#|$)/ { next }
 inname && /^[[:space:]]*-[[:space:]]/ {
     line = $0

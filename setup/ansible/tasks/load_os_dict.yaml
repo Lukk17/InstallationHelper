@@ -1,0 +1,54 @@
+---
+# os_dict: the software dictionary for this machine. Loaded here and nowhere else, because site.yaml
+# and verify_install.yaml both need it and two loaders are two answers to what this machine installs.
+# AGENTS.md defect class 2 is what that costs.
+#
+# The family's dictionary, vars/<ih_family>.yaml, is the whole answer on every machine except a
+# derivative that maps something differently from its family. CachyOS is the one today: it shares
+# vars/Archlinux.yaml with Arch, and the gaming suite is cachyos-gaming-applications from its own
+# repository there instead of Arch's lutris. A derivative's file sits in vars/derivatives/, is named
+# after the ID field of /etc/os-release, which ih_os_release_id carries, and holds only the
+# software_mapping entries that differ. Each of its entries replaces the family's entry of the same key
+# whole, never field by field, so a mapping can change manager without inheriting a stale field.
+#
+# e2e/tier2/resolve_packages.sh resolves a derivative's merged dictionary inside that derivative's own
+# image, and e2e/tier1/toggle_coverage.sh requires every key in one to have a toggle Linux loads.
+- name: Load the family's software dictionary
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/vars/{{ ih_family }}.yaml"
+    name: ih_family_dict
+  tags: always
+
+- name: Load the distribution's own overrides when it has any
+  ansible.builtin.include_vars:
+    file: "{{ ih_derivative_dict_path }}"
+    name: ih_derivative_dict
+  when:
+    - ih_os_release_id | default('') | length > 0
+    - ih_derivative_dict_path is file
+  vars:
+    ih_derivative_dict_path: "{{ playbook_dir }}/vars/derivatives/{{ ih_os_release_id | default('') }}.yaml"
+  tags: always
+
+# Only software_mapping is merged below, so any other top-level key in a derivative would be dropped
+# without a word. Refused here instead, naming the file.
+- name: Refuse a derivative dictionary that carries anything besides software_mapping
+  ansible.builtin.assert:
+    that: ih_derivative_extra_keys | length == 0
+    fail_msg: >-
+      vars/derivatives/{{ ih_os_release_id }}.yaml carries {{ ih_derivative_extra_keys | join(', ') }}
+      beside software_mapping, and tasks/load_os_dict.yaml merges software_mapping alone, so that would
+      be dropped silently. Move it into software_mapping or into the family's vars file.
+    quiet: true
+  when: ih_derivative_dict is defined
+  vars:
+    ih_derivative_extra_keys: "{{ ih_derivative_dict.keys() | list | difference(['software_mapping']) }}"
+  tags: always
+
+- name: Merge the overrides over the family's dictionary as os_dict
+  ansible.builtin.set_fact:
+    os_dict: >-
+      {{ ih_family_dict
+         | combine({'software_mapping': ih_family_dict.software_mapping
+                    | combine((ih_derivative_dict | default({})).software_mapping | default({}))}) }}
+  tags: always

@@ -42,9 +42,6 @@ Archlinux  gog              no official Linux client
 Debian     epic             no official Linux client
 RedHat     epic             no official Linux client
 Archlinux  epic             no official Linux client
-Debian     curseforge       no official Linux client
-RedHat     curseforge       no official Linux client
-Archlinux  curseforge       no official Linux client
 Debian     ea_app           no official Linux client
 RedHat     ea_app           no official Linux client
 Archlinux  ea_app           no official Linux client

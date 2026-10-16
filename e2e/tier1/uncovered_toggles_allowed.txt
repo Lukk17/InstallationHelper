@@ -18,4 +18,3 @@ install_waydroid needs the binder and ashmem kernel modules, which belong to the
 install_virtualbox builds a kernel module against the running kernel, which in a container is the host's. Real machine, per e2e/manual_test_matrix.md
 install_vmware same kernel module problem, and the installer wants a desktop session. Real machine, per e2e/manual_test_matrix.md
 install_snapper needs a btrfs filesystem to snapshot, and the container's overlayfs is not one. VM with btrfs, per e2e/manual_test_matrix.md
-install_jetbrains_toolbox five IDEs at roughly a gigabyte each, a background service that expects a desktop session, and a licensed product that wants an account logged in. Real machine, per e2e/manual_test_matrix.md

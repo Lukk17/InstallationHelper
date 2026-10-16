@@ -7,11 +7,11 @@
 # vendor host that did not answer ended the installer there and the installs after it were skipped. Now
 # the failure is recorded, the application is named as NOT installed, and the rest continue.
 
-# Every vendor artifact below is staged in a directory only root can enter, never in /tmp. All three
-# are handed to root: the .pkg goes to `installer -pkg -target /`, and the two disk images have their
-# contents copied into /Applications. /tmp is writable by every local account, all three file names
-# are fixed, and get_url does not overwrite a destination that already exists, so any local user
-# could pre-create one of those paths and have their own payload installed by root.
+# Every vendor artifact below is staged in a directory only root can enter, never in /tmp. Both are
+# handed to root: the .pkg goes to `installer -pkg -target /`, and the disk image has its contents
+# copied into /Applications. /tmp is writable by every local account, both file names are fixed, and
+# get_url does not overwrite a destination that already exists, so any local user could pre-create
+# one of those paths and have their own payload installed by root.
 #
 # Created here rather than relied upon from dynamic_install.yaml, whose own create task asks for
 # `group: root`. On macOS gid 0 is named `wheel`, so `root` is the Linux answer to a per-OS question,
@@ -19,8 +19,8 @@
 # creating the directory. `wheel` resolves on every macOS release. The mode is what carries the
 # security property in any case: at 0700 the group cannot read the directory either way.
 #
-# Not gated on any toggle, for the same reason the Linux one is not: three separate blocks stage into
-# it, and a condition listing all three is a fourth place to keep in sync.
+# Not gated on any toggle, for the same reason the Linux one is not: two separate blocks stage into
+# it, and a condition listing both is a third place to keep in sync.
 - name: Create the private staging directory for vendor downloads (macOS)
   ansible.builtin.file:
     path: "{{ software_installer_stage_dir }}"
@@ -29,96 +29,6 @@
     group: wheel
     mode: '0700'
   become: true
-
-# --- Google Antigravity ---
-- name: Resolve Antigravity DMG URL for this Mac's architecture
-  ansible.builtin.set_fact:
-    antigravity_dmg_resolved_url: "{{ antigravity_dmg_arm64_url if ansible_facts['architecture'] == 'arm64' else antigravity_dmg_x64_url }}"
-  when: install_antigravity | default(false) | bool
-
-- name: Install Antigravity from DMG
-  when: install_antigravity | default(false) | bool
-  block:
-    # force: true because the destination name is stable while the artifact behind the URL is not:
-    # the arm64 and x64 URLs are resolved per machine and neither carries a version, so a cached file
-    # under a permanent staging path would be installed forever and the run would report success.
-    - name: Download Antigravity DMG
-      ansible.builtin.get_url:
-        url: "{{ antigravity_dmg_resolved_url }}"
-        dest: "{{ software_installer_stage_dir }}/Antigravity.dmg"
-        force: true
-        mode: '0600'
-        checksum: "{{ download_checksums.antigravity_macos | default(omit) }}"
-        timeout: 60
-      become: true
-      register: antigravity_dmg_download
-      retries: 3
-      delay: 10
-      until: antigravity_dmg_download is succeeded
-
-    # become: true on the whole mount chain, because the staging directory is mode 0700 and
-    # root-owned, so no other account can read the image to attach it, and a volume attached by root
-    # is detached by root.
-    - name: Mount Antigravity DMG and capture mount-point
-      ansible.builtin.shell: |
-        set -e -o pipefail
-        hdiutil attach -nobrowse -noautoopen "{{ software_installer_stage_dir }}/Antigravity.dmg" \
-          | awk -F '\t' '/\/Volumes\// {print $NF; exit}'
-      args:
-        executable: /bin/bash
-      become: true
-      register: antigravity_mount
-      changed_when: true
-
-    - name: Find Antigravity .app inside mounted volume
-      ansible.builtin.find:
-        paths: "{{ antigravity_mount.stdout }}"
-        patterns: "*.app"
-        file_type: directory
-        recurse: false
-      become: true
-      register: antigravity_app
-      when: antigravity_mount.stdout | length > 0
-
-    - name: Copy Antigravity.app to /Applications
-      ansible.builtin.command: cp -R "{{ antigravity_app.files[0].path }}" /Applications/
-      args:
-        creates: "/Applications/{{ antigravity_app.files[0].path | basename }}"
-      become: true
-      when:
-        - antigravity_app is defined
-        - antigravity_app.files | default([]) | length > 0
-  rescue:
-    - name: Record that Antigravity could not be installed
-      ansible.builtin.set_fact:
-        any_role_failed: true
-        not_installed_with_reason: >-
-          {{ (not_installed_with_reason | default([]))
-             + ['antigravity (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
-
-    - name: Name the Antigravity step that failed
-      ansible.builtin.debug:
-        msg: >-
-          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
-          {{ ansible_failed_result.msg | default('no message given') }}
-          Antigravity is NOT installed. Every other install continues, and the run is marked failed.
-  always:
-    - name: Detach Antigravity DMG
-      ansible.builtin.command: hdiutil detach -quiet "{{ antigravity_mount.stdout }}"
-      become: true
-      changed_when: true
-      failed_when: false
-      when:
-        - antigravity_mount is defined
-        - antigravity_mount.stdout | default('') | length > 0
-
-    # In `always` so a failed mount or copy cannot leave a gigabyte-scale disk image sitting in a
-    # permanent staging directory, and so no later run can find a file there to trust.
-    - name: Remove the staged Antigravity DMG
-      ansible.builtin.file:
-        path: "{{ software_installer_stage_dir }}/Antigravity.dmg"
-        state: absent
-      become: true
 
 # --- Razer Synapse for Mac ---
 # Razer publishes no Homebrew cask, only a .pkg. Razer requires an Apple Silicon
@@ -216,9 +126,9 @@
 - name: Install Gridcoin from DMG
   when: install_gridcoin | default(false) | bool
   block:
-    # force: true for the same reason as the Antigravity image above: the staged name is stable, the
-    # artifact behind the pinned URL is not guaranteed to be, and a permanent staging path turns a
-    # non-overwriting download into a cache no version bump can invalidate.
+    # force: true because the staged name is stable, the artifact behind the pinned URL is not
+    # guaranteed to be, and a permanent staging path turns a non-overwriting download into a cache no
+    # version bump can invalidate.
     - name: Download Gridcoin DMG
       ansible.builtin.get_url:
         url: "{{ gridcoin_macos_dmg_url }}"
@@ -289,5 +199,106 @@
     - name: Remove the staged Gridcoin DMG
       ansible.builtin.file:
         path: "{{ software_installer_stage_dir }}/gridcoin.dmg"
+        state: absent
+      become: true
+
+# --- OpenCode desktop, version 1 ---
+# Only when opencode_use_v1 is true. Homebrew carries no version 1, so the vendor DMG from the GitHub release is
+# copied into /Applications, the Gridcoin shape above. Version 2 is the opencode-desktop cask and lives at the same
+# path, so roles/ai_tools/tasks/opencode_desktop_other.yaml has already uninstalled that cask by now. A version 2
+# app nobody installed through Homebrew is still in the way, and is removed here the same way. The probe is the one
+# tasks/opencode_version.yaml names for the macos_app route, which verify_install.yaml asks as well.
+- name: Install OpenCode desktop version 1 from the vendor DMG
+  when:
+    - install_opencode_desktop | default(false) | bool
+    - opencode_version == 'v1'
+  vars:
+    ih_opencode_app: "{{ opencode_desktop_route.package }}"
+    ih_opencode_dmg: "{{ software_installer_stage_dir }}/opencode-desktop-v1.dmg"
+  block:
+    - name: Ask whether OpenCode desktop version 1 is already in /Applications
+      ansible.builtin.shell: "{{ opencode_desktop_commands.macos_app.probe | replace('PKG', ih_opencode_app | quote) }}"
+      args:
+        executable: /bin/bash
+      register: opencode_v1_app_probe
+      changed_when: false
+      failed_when: false
+
+    - name: Download the OpenCode desktop version 1 DMG
+      ansible.builtin.get_url:
+        url: >-
+          {{ opencode_desktop_v1_macos_arm64_dmg_url if ansible_facts['architecture'] == 'arm64'
+             else opencode_desktop_v1_macos_x86_64_dmg_url }}
+        dest: "{{ ih_opencode_dmg }}"
+        force: true
+        mode: '0600'
+        timeout: 120
+      become: true
+      register: opencode_v1_dmg_download
+      retries: 3
+      delay: 10
+      until: opencode_v1_dmg_download is succeeded
+      when: opencode_v1_app_probe.rc != 0
+
+    - name: Mount the OpenCode desktop version 1 DMG and capture the mount point
+      ansible.builtin.shell: |
+        set -e -o pipefail
+        hdiutil attach -nobrowse -noautoopen {{ ih_opencode_dmg | quote }} \
+          | awk -F '\t' '/\/Volumes\// {print $NF; exit}'
+      args:
+        executable: /bin/bash
+      become: true
+      register: opencode_v1_mount
+      changed_when: true
+      when: opencode_v1_app_probe.rc != 0
+
+    - name: Remove a version 2 OpenCode.app that Homebrew did not install
+      ansible.builtin.command: rm -rf {{ ih_opencode_app | quote }}
+      args:
+        removes: "{{ ih_opencode_app }}"
+      become: true
+      register: opencode_v2_app_removal
+      when: opencode_v1_app_probe.rc != 0
+
+    - name: Say that the OpenCode v2 desktop app was removed
+      ansible.builtin.debug:
+        msg: "[INFO] removed OpenCode v2 desktop because v1 is selected"
+      when: opencode_v2_app_removal is changed
+
+    - name: Copy OpenCode.app version 1 to /Applications
+      ansible.builtin.command: cp -R "{{ opencode_v1_mount.stdout }}/OpenCode.app" /Applications/
+      args:
+        creates: "{{ ih_opencode_app }}"
+      become: true
+      when:
+        - opencode_v1_app_probe.rc != 0
+        - opencode_v1_mount.stdout | default('') | length > 0
+  rescue:
+    - name: Record that OpenCode desktop version 1 could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['opencode_desktop version 1 (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the OpenCode desktop version 1 step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          OpenCode desktop version 1 is NOT installed. Every other install continues, and the run is marked failed.
+  always:
+    - name: Detach the OpenCode desktop version 1 DMG
+      ansible.builtin.command: hdiutil detach -quiet "{{ opencode_v1_mount.stdout }}"
+      become: true
+      changed_when: true
+      failed_when: false
+      when:
+        - opencode_v1_mount is defined
+        - opencode_v1_mount.stdout | default('') | length > 0
+
+    - name: Remove the staged OpenCode desktop version 1 DMG
+      ansible.builtin.file:
+        path: "{{ ih_opencode_dmg }}"
         state: absent
       become: true

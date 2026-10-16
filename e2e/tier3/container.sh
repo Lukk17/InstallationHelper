@@ -61,6 +61,14 @@
 # the "exactly once" this harness has to prove. collect_and_verify below reads back what setup.sh
 # already produced, ~/installation_verify.log and the exit code its own header documents, rather than
 # invoking ansible-playbook on verify.yaml a second time.
+#
+# This driver runs only inside the gate container, like every check. Started anywhere else it moves
+# itself there through lib/gate.sh with the same arguments, so a scenario file or a run directory is
+# named relative to the repository root, or by a path inside it.
+
+# shellcheck source=../lib/gate.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/gate.sh"
+gate_enter wait e2e/tier3/container.sh "$@"
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -356,6 +364,14 @@ start_run() {
             echo "ERROR: the generated software set is empty, so this scenario would install nothing it claims to" >&2
             exit 2
         fi
+        # all_software leaves off what the wizard's --software all leaves off, opencode_use_v1 among them, so
+        # "install all" keeps OpenCode on version 2 here as it does on a real machine. Read from setup.sh, and
+        # refused when it cannot be, for the reason the empty set above is refused.
+        if ! all_software_keeps_off_text="$(wizard_all_software_keeps_off)"; then
+            echo "ERROR: what --software all leaves off could not be read out of setup.sh" >&2
+            exit 2
+        fi
+        mapfile -t all_software_keeps_off <<<"${all_software_keeps_off_text}"
         mapfile -t excepted < <(sed -n '/^e2e_generate_except:/,/^[a-z]/p' "${SCENARIO_FILE}" \
             | grep -E '^[[:space:]]*-[[:space:]]' | sed -E 's/^[[:space:]]*-[[:space:]]*//' | tr -d '"')
 
@@ -379,7 +395,11 @@ start_run() {
             # So does a container limit, appended below. Emitting it here too would
             # produce a duplicate mapping key and a warning per toggle.
             grep -qhE "^${t}:" "${LIMITS_FILES[@]}" && continue
-            echo "${t}: ${gen_value}" >> "${EFFECTIVE_VARS}"
+            value="${gen_value}"
+            if [[ "${SCENARIO_GENERATE}" == all_software && " ${all_software_keeps_off[*]} " == *" ${t} "* ]]; then
+                value="false"
+            fi
+            echo "${t}: ${value}" >> "${EFFECTIVE_VARS}"
         done
         dim "generated ${#all_toggles[@]} checklist toggles as ${gen_value}"
         [[ ${#skipped[@]} -gt 0 ]] && warn "excluded from the generated set: ${skipped[*]}"
@@ -468,6 +488,25 @@ start_run() {
         } | tee "${RUN_DIR}/result.txt"
         exit 1
     }
+
+    # Docker fills a privileged container's /dev from the host's device nodes once, when the
+    # container starts, and a node the host kernel creates afterwards never appears in it. A kernel
+    # that creates loop devices only on demand, max_loop 0 and CONFIG_BLK_DEV_LOOP_MIN_COUNT=0 as on
+    # the CachyOS machine this was measured on, therefore hands mount a /dev/loopN this container
+    # has no node for, and snapd's startup check dies on "failed to set up loop device for
+    # /tmp/syscheck-squashfs-...". That failed the defaults scenario on arch and cachyos on
+    # 2026-10-15, ledger entry 10.37. A node is only a name for block major 7, and the kernel still
+    # creates the device behind it through /dev/loop-control when mount asks, so making the nodes
+    # in here is enough and nothing on the host changes.
+    #
+    # 0 to 63 because the kernel hands out the lowest free number, and one scenario's snapd holds
+    # one loop device per mounted snap, a handful, so three concurrent scenarios plus the host's own
+    # snaps stay far below 64. A number past 63 fails the mount exactly as before, with the same
+    # message, so outgrowing the range is loud rather than silent.
+    local loop_node_last=63
+    if ! docker exec "${CONTAINER}" bash -c 'for n in $(seq 0 "$1"); do [[ -e "/dev/loop${n}" ]] || mknod -m 0660 "/dev/loop${n}" b 7 "${n}" || { echo "mknod /dev/loop${n} failed"; exit 1; }; done' _ "${loop_node_last}" >"${RUN_DIR}/loop-nodes.log" 2>&1; then
+        abort_before_playbook "creating /dev/loop0 to /dev/loop${loop_node_last} inside the container" "${RUN_DIR}/loop-nodes.log"
+    fi
 
     # The playbook escalates with sudo for almost everything it does, so a container where sudo does
     # not work is a container that can only fail, twenty minutes later, with a message about whatever
@@ -883,9 +922,10 @@ collect_and_verify() {
     docker cp "${CONTAINER}:/work/installation_errors.log" "$(host_path "${ERRORS_LOG}")" &>/dev/null \
         || echo "(no installation_errors.log was copied out of the container)" > "${ERRORS_LOG}"
 
-    # The package manager's own transcripts, which are where the reason for a failed batch actually
-    # lives. Both the per-package apt install and the three virtualization apt calls tee to these, and
-    # both are lost when the container goes.
+    # The package manager's own transcripts, which are where the reason for a failed install actually
+    # lives. Every apt, dnf, pacman, flatpak and snap install, through
+    # setup/ansible/tasks/install_role_packages.yaml, tees to installation-packages.log, and the Debian
+    # full upgrade to installation-apt-upgrade.log, and both are lost when the container goes.
     #
     # Worth collecting because of how a batch failure reads without them. Debian's kde-configure-only
     # cell failed on the apt batch, and the only thing recoverable afterwards was "non-zero return
@@ -896,7 +936,7 @@ collect_and_verify() {
     #
     # Every scenario, not just failing ones. On a clean run these are a few kilobytes of what apt
     # installed, which is the same reason installation_errors.log is collected unconditionally above.
-    for remote_log in installation-apt.log installation-virt-apt.log; do
+    for remote_log in installation-packages.log installation-apt-upgrade.log; do
         docker cp "${CONTAINER}:/var/log/${remote_log}" "$(host_path "${RUN_DIR}/${remote_log}")" &>/dev/null || true
     done
 

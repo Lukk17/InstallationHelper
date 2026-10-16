@@ -76,13 +76,19 @@
   community.general.pacman:
     upgrade: yes
 
+# One package per call through tasks/install_role_packages.yaml, so one that cannot install costs only
+# itself and is named. The same for every package list in this file.
 - name: Install unzip and zip
-  become: yes
-  community.general.pacman:
-    name:
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages:
       - unzip
       - zip
-    state: present
+    role_packages_purpose: the archive tools
+  when: ih_family == 'Archlinux'
 
 # Nothing in this playbook calls yay after building it: every Arch User Repository consumer goes
 # through paru. So yay is built only when install_yay in group_vars/linux.yaml asks for it, off by
@@ -106,13 +112,26 @@
       failed_when: yay_check.rc > 1
 
     - name: Install yay build dependencies
-      become: yes
-      ansible.builtin.package:
-        name:
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+        apply:
+          tags: [always]
+      vars:
+        role_packages:
           - git
           - base-devel
           - go
-        state: present
+        role_packages_purpose: the yay build dependencies
+      when:
+        - ih_family == 'Archlinux'
+        - yay_check.rc != 0
+
+    - name: Confirm the yay build dependencies are present
+      ansible.builtin.assert:
+        that: role_packages_missing | length == 0
+        fail_msg: >-
+          {{ role_packages_missing | join(', ') }} did not install, so yay cannot be built.
+        quiet: true
       when: yay_check.rc != 0
 
     - name: Ensure clean yay build directory exists
@@ -220,10 +239,23 @@
       when: not (paru_available | bool)
 
     - name: Install paru build dependencies (rust, which provides cargo, unless rustup does)
-      become: yes
-      ansible.builtin.package:
-        name: "{{ ['git', 'base-devel'] + ([] if paru_rustup_installed.rc == 0 else ['rust']) }}"
-        state: present
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+        apply:
+          tags: [always]
+      vars:
+        role_packages: "{{ ['git', 'base-devel'] + ([] if paru_rustup_installed.rc == 0 else ['rust']) }}"
+        role_packages_purpose: the paru build dependencies
+      when:
+        - ih_family == 'Archlinux'
+        - not (paru_available | bool)
+
+    - name: Confirm the paru build dependencies are present
+      ansible.builtin.assert:
+        that: role_packages_missing | length == 0
+        fail_msg: >-
+          {{ role_packages_missing | join(', ') }} did not install, so paru cannot be built.
+        quiet: true
       when: not (paru_available | bool)
 
     - name: Check if rustup has a default toolchain for the build user
@@ -347,12 +379,19 @@
           reported as NOT installed. Everything else continues. The run is marked failed, and the
           summary at the end names each package that was skipped.
 
+# The retry rule every package manager follows, four attempts twenty seconds apart, with no refresh
+# between them, because paru asks the AUR's /rpc endpoint on every call and keeps no index of it, and
+# its -y refreshes the pacman sync databases, which before a single install is a partial upgrade.
 - name: Install snapd via paru
   become: yes
   become_user: "{{ non_root_user }}"
   ansible.builtin.command: paru -S --needed --noconfirm snapd
   args:
     creates: /usr/bin/snap
+  register: arch_snapd_paru
+  until: arch_snapd_paru.rc | default(0) == 0
+  retries: 3
+  delay: 20
   when:
     - install_snapd | default(false) | bool
     - paru_available | bool
@@ -443,58 +482,44 @@
     - install_snapd | default(false) | bool
     - arch_snapd_binary.stat.exists | default(false)
 
+# Through tasks/install_role_packages.yaml with snap, the retry rule every package manager follows:
+# four attempts twenty seconds apart, no refresh, because snapd keeps no package list. snap exits 1
+# for two entirely different things here. `snap install core` on a machine that already has it prints
+# `error: snap "core" is already installed, see 'snap help refresh'` and exits 1, and a genuine
+# failure also exits 1. This role has hit two: snapd not reachable on its socket, and, in the Arch and
+# CachyOS test containers, snapd's startup check failing to set up a loop device for a squashfs image
+# (docs/regression_ledger.md 10.37). The shared file counts the already-installed words as installed
+# whatever the exit code, and names a genuine failure with what snap said.
+#
+# Not attempted when seeding never finished, because the outcome is known: snap answers "too early for
+# operation" and exits 10. Attempting it anyway turned a container's inability to seed into a failed
+# run, and reported the cause as if the core snap itself were broken.
 - name: Install snapd core channel
-  become: yes
-  ansible.builtin.command: snap install core
-  changed_when: false
-  failed_when: false
-  register: snap_core_install
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [core]
+    role_packages_purpose: the snap runtime every snap package needs
+    role_packages_manager: snap
   when:
+    - ih_family == 'Archlinux'
     - install_snapd | default(false) | bool
-    # Not attempted when seeding never finished, because the outcome is known: snap answers "too early
-    # for operation" and exits 10. Attempting it anyway turned a container's inability to seed into a
-    # failed run, and reported the cause as if the core snap itself were broken.
     - snapd_usable | default(false)
 
-# snap exits 1 for two entirely different things here. `snap install core` on a machine that already
-# has it prints `error: snap "core" is already installed, see 'snap help refresh'` and exits 1, and a
-# genuine failure, snapd not reachable on its socket being the one this role has actually hit, also
-# exits 1. The previous version announced every non-zero rc as "already installed", so the one outcome
-# that needs attention was reported as the one that needs none, and nothing anywhere recorded it. The
-# text decides now, not the return code.
-#
-# The message below deliberately avoids the phrase the match looks for, because
-# callback_plugins/dual_logger.py drops any line containing it as noise, so a message built out of it
-# would never be printed.
-- name: Note that the core snap was already present
-  ansible.builtin.debug:
-    msg: "The core snap is present on this machine already, so snap fetched nothing."
-  when:
-    - install_snapd | default(false) | bool
-    - snap_core_install.rc | default(0) != 0
-    - "'already installed' in (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))"
-
-- name: Report that the core snap could not be installed
+- name: Report what the core snap's failure means for the rest of the run
   ansible.builtin.debug:
     msg: >-
-      [ERROR] The core snap did not install, so every snap package in this run will fail: snap exited
-      {{ snap_core_install.rc | default('with no return code') }} saying
-      {{ (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))
-         | trim | default('nothing at all', true) }}.
-      The usual cause on Arch is snapd.socket not being reachable yet, which the enable and the pause
-      above are meant to cover.
+      [ERROR] The core snap did not install, so every snap package in this run will fail.
+      A cause measured in the Arch and CachyOS test containers is snapd's startup check failing to
+      mount a squashfs image through a loop device, which snap reports as failed to set up loop
+      device, so check that the loop module is loaded, that /dev/loop-control exists and that
+      losetup -f names a free /dev/loopN that exists rather than one marked (lost).
   when:
     - install_snapd | default(false) | bool
-    - snap_core_install.rc | default(0) != 0
-    - "'already installed' not in (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))"
-
-- name: Record the failed core snap install in the play summary
-  ansible.builtin.set_fact:
-    any_role_failed: true
-  when:
-    - install_snapd | default(false) | bool
-    - snap_core_install.rc | default(0) != 0
-    - "'already installed' not in (snap_core_install.stderr | default('') ~ (snap_core_install.stdout | default('')))"
+    - snapd_usable | default(false)
+    - "'core' in (role_packages_missing | default([]))"
 
 # Asked outside the block and tagged always, because the pacman loop in software_installer reads
 # steam_graphics_stack_aligned, and a run limited by --tags to it still has to know the truth about this
@@ -529,7 +554,9 @@
 # is what makes the question unanswerable.
 #
 # Gated on the distribution's own ID rather than on ih_base, because Ansible reports Archlinux for
-# ansible_distribution on CachyOS and ih_base is archlinux there too.
+# ansible_distribution on CachyOS and ih_base is archlinux there too. And on ih_steam_requested rather
+# than install_steam, because install_gaming_suite brings Steam on CachyOS as well, its mapping there
+# being marked brings_steam: true, and tasks/steam_graphics_alignment.yaml decides both in one place.
 #
 # Verified end to end on the image: with this, `pacman -S --needed --noconfirm steam ...` exits 0 and
 # steam 1.0.0.87-1 installs. Without it the same command exits 1 on the conflict.
@@ -547,7 +574,7 @@
   when:
     - ih_family == 'Archlinux'
     - ih_os_release_id == 'cachyos'
-    - install_steam | default(false) | bool
+    - ih_steam_requested | bool
   tags: [cachyos, steam]
   block:
     - name: Align the 32-bit graphics stack with the CachyOS repositories (CachyOS)
@@ -559,17 +586,26 @@
       # whatever pacman did. That is not theoretical here: on 2026-08-28 this task failed three times in a
       # row on a real CachyOS machine where pacman had printed "there is nothing to do" and exited
       # cleanly, and it took the whole run down with it. Reading from a file leaves rc meaning what it
-      # says. Two packages need at most a handful of answers, and 20 is the headroom.
+      # says. One package needs at most a handful of answers, and 20 is the headroom.
       #
-      # -Syy and three retries cover a mirror that is behind the database it serves. The failure recorded
-      # in the container on 2026-08-21 was a different thing and the record was wrong about it: it said
-      # the v3 index and the v3 files disagree. Re-measured on 2026-08-28, they do not. Both
-      # lib32-glibc-2.44+r24+g16be1518495f-1 and lib32-gcc-libs-16.2.1+r23+gd564253eb6c8-1, the exact
-      # builds the index names, answer 200 on mirror.cachyos.org and 404 on cdn77.cachyos.org. The index
-      # is right and one mirror is missing files, which is what a mirrorlist with more than one entry is
-      # for.
+      # The first attempt installs against the index the system upgrade above was made against, and only
+      # a failed attempt refreshes it, in the retry below. A refresh before every attempt, which this
+      # task used to do with -Syy, installs against an index newer than the installed system even when
+      # nothing was wrong, the partial upgrade the Arch wiki warns about. The retries cover a mirror that
+      # is behind the database it serves. The failure recorded in the container on 2026-08-21 was a
+      # different thing and the record was wrong about it: it said the v3 index and the v3 files
+      # disagree. Re-measured on 2026-08-28, they do not. Both lib32-glibc-2.44+r24+g16be1518495f-1 and
+      # lib32-gcc-libs-16.2.1+r23+gd564253eb6c8-1, the exact builds the index names, answer 200 on
+      # mirror.cachyos.org and 404 on cdn77.cachyos.org. The index is right and one mirror is missing
+      # files, which is what a mirrorlist with more than one entry is for.
       #
-      # A failure here is no longer fatal to the run. After the three attempts below the block's rescue
+      # One package per call, mesa-git first because lib32-mesa-git depends on mesa, which mesa-git
+      # provides. This used to be one call naming both, the last batch in the playbook. Measured in
+      # cachyos/cachyos-v3 on 2026-10-15, two calls work in either order, with the stable mesa and
+      # lib32-mesa installed beforehand or not, each exiting 0 with `pacman -Dk` clean, so
+      # e2e/tier1/batched_managers.sh carries no exception for it any more.
+      #
+      # A failure here is no longer fatal to the run. After the retries below the block's rescue
       # records it, Steam is skipped and named as NOT installed with the reason, and the rest of the run
       # continues. It is still a failure: the run ends failed and the step is named in the summary.
       ansible.builtin.shell: |
@@ -577,15 +613,52 @@
         answers="$(mktemp)"
         trap 'rm -f "$answers"' EXIT
         for _ in $(seq 20); do echo y; done > "$answers"
-        pacman -Syy --needed mesa-git lib32-mesa-git < "$answers"
+        pacman -S --needed {{ item | quote }} < "$answers"
       args:
         executable: /bin/bash
+      loop: [mesa-git, lib32-mesa-git]
       register: cachy_mesa_align
-      changed_when: "'there is nothing to do' not in (cachy_mesa_align.stdout | default(''))"
-      failed_when: cachy_mesa_align.rc != 0
-      retries: 3
+      changed_when:
+        - cachy_mesa_align.rc | default(1) == 0
+        - "'there is nothing to do' not in (cachy_mesa_align.stdout | default(''))"
+      failed_when: false
+
+    - name: Collect the graphics packages whose first alignment attempt failed (CachyOS)
+      ansible.builtin.set_fact:
+        cachy_mesa_align_failed: >-
+          {{ cachy_mesa_align.results
+             | selectattr('rc', 'defined')
+             | rejectattr('rc', 'equalto', 0)
+             | map(attribute='item')
+             | list }}
+
+    - name: Wait before retrying the alignment with a refreshed package index (CachyOS)
+      ansible.builtin.pause:
+        seconds: 20
+      when: cachy_mesa_align_failed | length > 0
+
+    # Ansible cannot change a task's arguments between its own retries, so the refresh lives in a
+    # second task that runs only for a package whose first attempt failed, in the same order. Its own
+    # failure is real: failed_when reads its rc and the block's rescue reports it.
+    - name: Retry the alignment after refreshing the package index (CachyOS)
+      become: yes
+      ansible.builtin.shell: |
+        set -o pipefail
+        answers="$(mktemp)"
+        trap 'rm -f "$answers"' EXIT
+        for _ in $(seq 20); do echo y; done > "$answers"
+        pacman -Syy && pacman -S --needed {{ item | quote }} < "$answers"
+      args:
+        executable: /bin/bash
+      loop: "{{ cachy_mesa_align_failed }}"
+      register: cachy_mesa_align_retry
+      changed_when:
+        - cachy_mesa_align_retry.rc | default(1) == 0
+        - "'there is nothing to do' not in (cachy_mesa_align_retry.stdout | default(''))"
+      failed_when: cachy_mesa_align_retry.rc | default(1) != 0
+      retries: 2
       delay: 20
-      until: cachy_mesa_align.rc == 0
+      until: cachy_mesa_align_retry.rc | default(1) == 0
 
     # Asked again rather than assumed from the step above, so the fact the pacman loop reads is the
     # disk's answer and not this task's exit code.
@@ -613,6 +686,7 @@
         msg: >-
           [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
           {{ ansible_failed_result.msg | default('no message given') }}
-          The CachyOS 32-bit graphics packages could not be aligned, so Steam is skipped and reported as
-          NOT installed. Everything else continues, and the run is marked failed.
+          The CachyOS 32-bit graphics packages could not be aligned, so {{ ih_steam_packages | join(', ') }}
+          {{ 'is' if ih_steam_packages | length == 1 else 'are' }} skipped and reported as NOT installed.
+          Everything else continues, and the run is marked failed.
 
