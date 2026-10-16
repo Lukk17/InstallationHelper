@@ -1,0 +1,10 @@
+*
+!e2e/gate/provision.sh
+!e2e/gate/entrypoint.sh
+!e2e/lib/host.sh
+!e2e/lib/common.sh
+!setup/pinned_values/pinned_values.toml
+!setup/pinned_values/pinned_values.py
+!setup/pinned_values/pinned_values.sh
+!setup/ansible/requirements.yaml
+!setup/setup.sh

@@ -255,14 +255,10 @@ jobs:
   # e2e/README_E2E.md's stage 1 table in order.
   # ===========================================================================================
 
-  # 1. The whole static gate, every tier 1 check, from a clean checkout. That now includes the
-  # compose files and documentation links under local-dev/ and homelab/, which need a docker
-  # binary but no daemon, and the runner has one.
-  #
-  # The whole static gate, from a clean checkout. Needs ansible-playbook
-  # on PATH, which this runner does not ship with, and the collections site.yaml's syntax check
-  # walks through, so both are installed first. Neither step is part of the harness itself. They
-  # are what e2e/README_E2E.md's own quick start assumes is already true on a developer machine.
+  # 1. The whole static gate, every tier 1 check, from a clean checkout. e2e/run.sh builds the gate
+  # container from e2e/gate/Dockerfile and runs every check inside it, exactly as it does on a
+  # developer machine, so the runner needs Docker and nothing else: no ansible-core, collections,
+  # ShellCheck or PowerShell are installed on it.
   stage1_tier1_gate:
     name: "Tier 1 checks"
     if: inputs.start_from_stage == 'stage-1'
@@ -272,17 +268,6 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install ansible-core and the collections site.yaml needs to parse
-        run: |
-          set -euo pipefail
-          # The range setup/setup.sh enforces and every tier 3 image asserts at build time.
-          # This is the one place a version is chosen freely rather than handed over by a
-          # distribution, so it is the one place that has to say the range out loud.
-          python3 -m pip install --user 'ansible-core>=2.19.0,<2.22.0'
-          echo "$HOME/.local/bin" >> "${GITHUB_PATH}"
-          export PATH="$HOME/.local/bin:${PATH}"
-          ansible-galaxy collection install -r setup/ansible/requirements.yaml
 
       - name: Run the tier 1 gate
         run: |

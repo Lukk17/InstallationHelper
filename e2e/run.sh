@@ -3,30 +3,51 @@
 # End-to-end harness entry point.
 #
 # Usage:
-#   run.sh                          tier 1 only, the pre-commit gate (seconds)
+#   run.sh                          tier 1 only, the pre-commit gate (minutes)
 #   run.sh --tier 1                 static checks against the working tree
 #   run.sh --tier 2                 resolve every package name against real repositories
 #   run.sh --tier 3 --scenario defaults     one scenario in a container
 #   run.sh --tier 3 --scenario all          every scenario, sequentially (hours)
 #   run.sh --tier 3 --scenario all --jobs 3 every scenario, three at a time
 #   run.sh --tier 3 --scenario defaults --os debian the same scenario on another distro
+#   run.sh --queue <any of the above>       the same run, detached, logged to e2e/runs/queue.log
 #   run.sh --list                   show the scenarios and what each one covers
 #   run.sh --help
 #
+# Every tier runs inside the gate container, e2e/gate/Dockerfile, and nothing runs on the machine
+# that starts this script. Started there, this script builds the gate image, runs itself inside it
+# with the same arguments, and exits with that run's status. The repository goes in read-only, the
+# container works on its own copy, and only e2e/runs comes back. The host needs Docker and nothing
+# else: a Linux shell, WSL with Docker Desktop integration, or Git Bash on Windows.
+#
 # --jobs only affects tier 3. Each scenario gets its own throwaway container, so they
-# are safe to overlap. The limit is host memory, roughly 3 GB per running scenario, and
+# are safe to overlap. The limit is host memory, roughly 5 GB per running scenario, and
 # on Windows the ceiling is WSL's rather than the host's.
 #
 # --os picks the distribution, defaulting to arch. One Dockerfile per distribution in
 # tier3/, and container.sh refuses a name that has none rather than quietly falling back
 # to arch, because testing the wrong distribution is worse than testing nothing.
-#
-# Tiers 2 and 3 need a Docker daemon and a shell that can drive it. A Linux shell qualifies,
-# and so does Git Bash on Windows, where docker.exe reaches Docker Desktop directly and the
-# harness translates the host paths itself. WSL qualifies only when Docker Desktop has
-# integration enabled for that distribution, because without it there is no socket in there
-# at all. Ansible itself still only runs on Linux, so the playbook under test runs inside the
-# container either way.
+
+usage() { sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+
+GATE_MODE="wait"
+GATE_ARGS=()
+GATE_TIER="1"
+previous=""
+for arg in "$@"; do
+    case "${arg}" in
+        -h|--help) usage; exit 0 ;;
+        --queue)   GATE_MODE="queue" ;;
+        --tier=*)  GATE_TIER="${arg#--tier=}"; GATE_ARGS+=("${arg}") ;;
+        *)         [[ "${previous}" == --tier ]] && GATE_TIER="${arg}"; GATE_ARGS+=("${arg}") ;;
+    esac
+    previous="${arg}"
+done
+
+# shellcheck source=lib/gate.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+[[ "${GATE_TIER}" == 2 || "${GATE_TIER}" == all ]] && gate_lend_github_token
+gate_enter "${GATE_MODE}" e2e/run.sh ${GATE_ARGS[@]+"${GATE_ARGS[@]}"}
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
@@ -34,8 +55,6 @@ TIER="1"
 SCENARIO=""
 JOBS="1"
 OS="arch"
-
-usage() { sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 list_scenarios() {
     printf '%-22s %s\n' "SCENARIO" "COVERS"
@@ -59,6 +78,7 @@ while [[ $# -gt 0 ]]; do
         --jobs=*)   JOBS="${1#--jobs=}" ;;
         --os)       shift; OS="${1:?--os needs a value}" ;;
         --os=*)     OS="${1#--os=}" ;;
+        --queue)    echo "ERROR: --queue starts the gate container from the host, and this is already inside it" >&2; exit 2 ;;
         *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
     shift
@@ -77,7 +97,7 @@ run_tier1() {
     local rc=0
     local tally_file
     tally_file="$(mktemp)"
-    for check in shell_syntax wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings windows_phase_contract windows_cache_cleanup windows_pester powershell_variables powershell_splat workflow_timeouts workflow_parity verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation pinned_values pinned_values_reader manifests compose_and_docs network_retries batched_managers sigpipe_pipelines unreachable_tasks desktop_settings become_password_file line_endings ansible_static control_characters keycloak_realm_import interactive_states list_software wizard_refusals wizard_root_refusal shell_units print_command_resolution selection_parity paru_consumers heartbeat_log_files availability_facts rescue_coverage zshrc_env_block vendor_installer_shell_init forced_failure_assertions winget_scope_pins repo_metadata_keys manual_windows_install; do
+    for check in shell_syntax wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings windows_phase_contract windows_cache_cleanup windows_pester powershell_variables powershell_splat workflow_timeouts workflow_parity verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation derivative_merge opencode_switch pinned_values pinned_values_reader manifests compose_and_docs network_retries batched_managers pacman_partial_refresh package_retry_rule sigpipe_pipelines unreachable_tasks desktop_settings become_password_file line_endings ansible_static control_characters keycloak_realm_import interactive_states list_software wizard_refusals wizard_root_refusal shell_units print_command_resolution selection_parity paru_consumers heartbeat_log_files availability_facts rescue_coverage zshrc_env_block vendor_installer_shell_init forced_failure_assertions winget_scope_pins repo_metadata_keys manual_windows_install manual_linux_install imported_agent_artifacts checklist_labels name_lookup_retries capability_index_parity; do
         local check_rc
         set +e
         bash "${E2E_ROOT}/tier1/${check}.sh" 2>&1 | tee "${tally_file}"

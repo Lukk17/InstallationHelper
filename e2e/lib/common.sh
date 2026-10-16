@@ -4,6 +4,24 @@
 
 set -euo pipefail
 
+# shellcheck source=host.sh
+source "$(dirname "${BASH_SOURCE[0]}")/host.sh"
+
+# Every check sources this file, so this is the one place that stops a check running on the machine
+# that started the harness. A check runs only inside the gate container, which e2e/run.sh starts by
+# itself. Reading files counts too: a check that only reads is still a test, and tests run in a
+# container, never on the owner's computer.
+if ! e2e_inside_gate; then
+    cat >&2 <<EOF
+REFUSED: $(basename "${BASH_SOURCE[1]:-${0}}") is a check, and checks run only inside the gate container.
+Nothing was run. Start the harness through e2e/run.sh, which builds e2e/gate/Dockerfile and runs
+every tier inside it:
+
+    bash e2e/run.sh
+EOF
+    exit 2
+fi
+
 E2E_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # E2E_REPO_ROOT lets a check run against a copy of the tree, which is how the
 # checks themselves are tested: point it at a copy carrying the old bug and the
@@ -16,50 +34,6 @@ REPO_ROOT="$(cd "${E2E_REPO_ROOT:-${E2E_ROOT}/..}" && pwd)"
 ANSIBLE_DIR="${REPO_ROOT}/setup/ansible"
 # shellcheck disable=SC2034
 RUNS_DIR="${E2E_ROOT}/runs"
-
-# Which kind of shell this is, decided once. It is not a stand-in for the operating system: it
-# answers the only question the harness cares about, which is how a host path has to be spelled
-# before a Docker daemon will accept it. A Linux shell and Git Bash can both drive the daemon on
-# this machine, they just spell that path differently.
-E2E_HOST_KIND="other"
-case "$(uname -s)" in
-    Linux*)               E2E_HOST_KIND="linux" ;;
-    MINGW*|MSYS*|CYGWIN*) E2E_HOST_KIND="windows-msys" ;;
-esac
-
-# Under MSYS every argument that looks like an absolute POSIX path is rewritten before a native
-# Windows executable sees it, and for docker that is fatal in both directions. A container path is
-# destroyed: `-v /sys/fs/cgroup:/sys/fs/cgroup:rw` becomes `mkdir C:\Program Files\Git\sys: Access
-# is denied` and `-w /work/setup/ansible` becomes `Cwd must be an absolute path`. A host path is
-# destroyed differently and worse, because `-v /tmp/x:/probe` mounts a directory that is not the one
-# meant and reports no error at all.
-#
-# So the rewriting is turned off for every docker call the harness makes, and the host paths are
-# spelled out explicitly through host_path below. One wrapper rather than the same environment
-# variable repeated at forty callsites, because the callsite that gets forgotten is the one that
-# fails silently, and because it makes the commands in the documentation work unchanged from either
-# shell instead of needing a prefix only the reader can add.
-#
-# Defined only when a real docker executable is on PATH, so require_docker_host still notices its
-# absence rather than finding this function and calling it proof.
-if [[ "${E2E_HOST_KIND}" == "windows-msys" ]] && E2E_DOCKER_BIN="$(command -v docker 2>/dev/null)"; then
-    docker() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' "${E2E_DOCKER_BIN}" "$@"; }
-fi
-
-# host_path <path>  ->  the same location, spelled the way the Docker daemon accepts it
-#
-# On Linux the daemon and the shell agree, so this is the identity. Under MSYS the daemon is a
-# Windows process that only understands the Windows form: `docker cp /d/repo/setup` answers
-# `GetFileAttributesEx D:\d: The system cannot find the file specified`. Every docker argument that
-# names a location on this machine goes through here, and every argument that names a location
-# inside a container must not.
-host_path() {
-    if [[ "${E2E_HOST_KIND}" == "windows-msys" ]]; then
-        cygpath -w "$1"
-    else
-        printf '%s\n' "$1"
-    fi
-}
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
@@ -146,15 +120,6 @@ finish() {
     for n in "${FAILED_NAMES[@]}"; do printf '  - %s\n' "${n}"; done
     [[ "${CHECKS_SKIPPED:-0}" -gt 0 ]] && for n in "${SKIPPED_NAMES[@]}"; do printf '  ? %s\n' "${n}"; done
     exit 1
-}
-
-require_cmd() {
-    for c in "$@"; do
-        command -v "${c}" &>/dev/null || {
-            echo "ERROR: required command not found: ${c}" >&2
-            exit 2
-        }
-    done
 }
 
 # find_runnable_python  ->  prints the interpreter a check must use, or nothing with status 2
@@ -346,66 +311,27 @@ pinned_shellcheck() {
     printf '%s\n' "${binary}"
 }
 
-# The container tiers need two things, and neither of them is an operating system: a Docker daemon
-# that answers, and a shell that can spell a host path the way that daemon expects. This asks those
-# two questions directly.
-#
-# It used to ask `uname -s` instead and refuse anything that was not Linux, which meant Git Bash was
-# turned away with a message telling the reader to use WSL, whether or not WSL could reach a daemon.
-# Git Bash reaches it through docker.exe and drives it fine once the MSYS path rewriting is dealt
-# with, which this file now does. Whether WSL can reach one depends on Docker Desktop having
-# integration enabled for that distribution: measured on 2026-08-20 the Ubuntu distribution has a
-# socket and answers, and it has been off before, in which case there is no socket in there at all.
-# Neither of those is a fact about the operating system, which is why the operating system is no
-# longer what decides. A guard that refuses a working setup is as much a defect as one that admits a
-# broken one, so the refusal that is left names the thing that is actually missing.
-require_docker_host() {
-    if [[ "${E2E_HOST_KIND}" == "other" ]]; then
-        cat >&2 <<EOF
-ERROR: the container tiers need a shell that can drive a Docker daemon, and this one cannot.
-It reports itself as $(uname -s), which is neither a Linux shell nor an MSYS shell such as Git Bash,
-so there is no known way to hand the daemon a host path it will accept. Run the container tiers from
-a Linux shell, from WSL, or from Git Bash on Windows.
-EOF
-        exit 2
-    fi
-
-    # cygpath is what host_path translates with, so on MSYS its absence is as disqualifying as
-    # docker's own. Named here rather than discovered as a "command not found" inside a docker
-    # argument, where it would read as a Docker problem.
-    [[ "${E2E_HOST_KIND}" == "windows-msys" ]] && require_cmd cygpath
-
-    # command -v would find the wrapper function common.sh defines on MSYS whether or not a real
-    # docker exists, so the executable is looked for through E2E_DOCKER_BIN instead, which is set
-    # only when that lookup already succeeded.
-    if [[ "${E2E_HOST_KIND}" == "windows-msys" ]]; then
-        [[ -n "${E2E_DOCKER_BIN:-}" ]] || {
-            echo "ERROR: required command not found: docker" >&2
-            exit 2
-        }
-    else
-        require_cmd docker
-    fi
-
-    docker info &>/dev/null || {
-        cat >&2 <<'EOF'
-ERROR: there is a docker command here but no daemon answering it.
-  Linux:    is the docker service running, and is this user in the docker group?
-  WSL:      Docker Desktop must have integration enabled for this distribution, under
-            Settings, Resources, WSL integration. With it off there is no socket inside
-            WSL at all, and Git Bash is the shell to use instead.
-  Git Bash: is Docker Desktop running?
-EOF
-        exit 2
-    }
-}
-
 # Extract "<key> true|false" for every boolean toggle in a group_vars file,
 # independently of setup.sh, so tier 1 can compare the two and catch drift.
 yaml_bool_toggles() {
     sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//' "$1" \
         | grep -E '^[a-z0-9_]+: (true|false)$' \
         | tr -d ':'
+}
+
+# derivative_mapping_lines <derivative-file>  ->  every software_mapping entry line, as written
+#
+# The one definition of a derivative entry for the shell side of the harness, a two-space indented key
+# followed by a flow mapping, read by tier 1 and tier 2 alike. toggle_coverage.sh counts the same file's
+# entries with a YAML loader as well and fails when the two disagree, so an entry written in block style
+# cannot slip past this rule unseen.
+derivative_mapping_lines() {
+    grep -E '^  [a-z0-9_]+: \{' "$1" || true
+}
+
+# derivative_mapping_keys <derivative-file>  ->  the key of every software_mapping entry, one per line
+derivative_mapping_keys() {
+    derivative_mapping_lines "$1" | sed -E 's/^  ([a-z0-9_]+):.*/\1/'
 }
 
 # prepare_detect_os <linux_vars_file> <macos_vars_file>  -> 0 and the real detect_os and
@@ -510,6 +436,50 @@ wizard_toggle_keys() {
     fi
 
     printf '%s\n' "${keys}"
+}
+
+# wizard_all_software_keeps_off  ->  the checklist keys --software all leaves off, one per line
+#
+# Read out of setup.sh's ALL_SOFTWARE_KEEPS_OFF rather than restated, for the reason wizard_toggle_keys gives,
+# so an all_software scenario leaves off what the wizard's --software all leaves off. Returns 3 when setup.sh
+# no longer defines it, because an empty answer here would turn on what the wizard keeps off.
+wizard_all_software_keeps_off() {
+    local setup_sh="${REPO_ROOT}/setup/setup.sh" line
+    line="$(grep -m1 '^ALL_SOFTWARE_KEEPS_OFF=' "${setup_sh}" 2>/dev/null || true)"
+    if [[ -z "${line}" ]]; then
+        printf 'ERROR: %s no longer defines ALL_SOFTWARE_KEEPS_OFF\n' "${setup_sh}" >&2
+        return 3
+    fi
+    (
+        eval "${line}"
+        tr '|' '\n' <<<"${ALL_SOFTWARE_KEEPS_OFF}" | grep . || true
+    )
+}
+
+# opencode_cli_pair  ->  "v1 <package>" and "v2 <package>", one per line
+#
+# OpenCode's two npm packages as setup/ansible/tasks/opencode_version.yaml declares them in ih_opencode_cli, which
+# opencode_unix.yaml installs as {{ opencode_cli_package }} rather than by name.
+opencode_cli_pair() {
+    sed -n '/^    ih_opencode_cli:$/,/^    [a-z_]*:$/p' "${ANSIBLE_DIR}/tasks/opencode_version.yaml" 2>/dev/null \
+        | grep -E '^      v[12]: ' | sed -E 's/^ +(v[12]): "?([^"]+)"?$/\1 \2/' | sort
+}
+
+# ai_tools_npm_packages  ->  every npm package an ai_tools *_unix.yaml installs, one per line
+#
+# The literal npm_pkg values, and both OpenCode packages for the consumer that names the selected one.
+ai_tools_npm_packages() {
+    local f named
+    for f in "${ANSIBLE_DIR}"/roles/ai_tools/tasks/*_unix.yaml; do
+        [[ "$(basename "${f}")" == "npm_install_unix.yaml" ]] && continue
+        grep -hE '^\s*npm_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_pkg:\s*//; s/"//g; s/\s+$//'
+    done | while IFS= read -r named; do
+        if [[ "${named}" == "{{ opencode_cli_package }}" ]]; then
+            opencode_cli_pair | awk '{print $2}'
+        else
+            printf '%s\n' "${named}"
+        fi
+    done | sort -u
 }
 
 timestamp() { date -u +%Y-%m-%dT%H-%M-%SZ; }
