@@ -19,13 +19,7 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-Confirm the shell is Linux. On Windows this means running from inside WSL, which is also the only place Ansible runs at all.
-
-```bash
-uname -s
-```
-
-Expect `Linux`. The harness refuses tier 3 from any other platform.
+The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
 
 Confirm the Docker daemon is reachable.
 
@@ -33,7 +27,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. On Windows that means Docker Desktop running with WSL integration enabled. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and the host cgroup mount.
 
 Confirm there is disk headroom.
 
@@ -97,7 +91,7 @@ Step 1. Launch and return. The command prints the run directory, the container n
 ./e2e/tier3/container.sh e2e/tier3/scenarios/01-defaults.yaml --detach
 ```
 
-From a PowerShell prompt on Windows, the same launch inside WSL.
+From a PowerShell prompt on Windows, the same launch through WSL.
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/01-defaults.yaml --detach"
@@ -146,6 +140,8 @@ Before any of them, `Assert the installed-package query returned a plausible lis
 `Assert the expected desktop environment is installed` does not run here. The scenario declares `e2e_expect_desktop: none`, which is the wizard's `skip` answer, and both `install_kde_plasma` and `install_gnome` are false by default.
 
 10. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Every toggle in the ai_tools and sdk_manager roles is true by default, so this checks node, npm, nvm, pyenv, the four pinned Python builds, sdk, java, the four pinned Java majors, fvm, flutter, dart, sdkmanager, adb and the six npm-installed CLIs (Claude Code, OpenCode, OpenSpec, Codex, Grok, Bruno CLI), each on two independent axes: present on disk at the path its own installer used, and resolvable by name, at that same path, from an interactive non-login shell of `{{ non_root_user }}`'s real login shell, read from `getent passwd`, the shell a plain terminal actually opens. A second, non-failing probe repeats the same check as a login shell, so a tool reachable only there is reported rather than hidden. This is the assertion a real CachyOS run on 2026-09-15 needed and did not have: all six AI CLIs installed cleanly and reported CHANGED, and every one of them was unreachable from the owner's zsh login shell because NVM's own installer wired itself into `~/.bashrc` only, and this play's own verification printed a clean tally and exited 0 regardless. On a real Arch and CachyOS run on 2026-09-17, the same assertion caught a second, distinct defect this way: `shell_zsh`'s Oh My Zsh install overwrites `~/.zshrc` after `env_variables` wrote the PATH block into it, which made fvm, sdkmanager and adb unreachable regardless of shell flavour, and separately proved that FVM's own Flutter SDK is never added to PATH at all. Recorded as the "Found on a real CachyOS machine on 2026-09-15" entries in [../../docs/regression_ledger.md](../../docs/regression_ledger.md).
+11. `Assert the desktop session environment carries every development variable`. Linux only. It runs the systemd user environment generator as the user over `~/.config/environment.d`, which is what the user manager does at the next login, and asks for the variables and PATH entries env_variables writes into `~/.config/environment.d/50-dev.conf`, plus NVM_DIR, SDKMAN_DIR, JAVA_HOME and PYENV_ROOT, since every SDK toggle is on by default, and the JetBrains Toolbox launcher directory, `~/.local/share/JetBrains/Toolbox/scripts`, since `install_jetbrains_toolbox` is on by default too and the container tier no longer switches it off. The shell probes above cannot see this: on 2026-10-13 every one of them passed on the owner's machine while Plasma carried none of those variables.
+12. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails.
 
 A note on Docker, because assertions 5 and 6 are the whole of its coverage. Docker on Arch is installed by the `virtualization_config` role rather than through the OS dictionary, so it is absent from the expected native set and neither group membership nor unit state would catch a broken package.
 

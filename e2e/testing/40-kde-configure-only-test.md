@@ -19,13 +19,7 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-Confirm the shell is Linux. On Windows this means running from inside WSL, which is also the only place Ansible runs at all.
-
-```bash
-uname -s
-```
-
-Expect `Linux`. The harness refuses tier 3 from any other platform.
+The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
 
 Confirm the Docker daemon is reachable.
 
@@ -33,7 +27,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. On Windows that means Docker Desktop running with WSL integration enabled. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and the host cgroup mount.
 
 Confirm there is disk headroom.
 
@@ -95,7 +89,7 @@ One step. Run it from the repository root and wait.
 ./e2e/run.sh --tier 3 --scenario kde-configure-only
 ```
 
-From a PowerShell prompt on Windows, the same run inside WSL.
+From a PowerShell prompt on Windows, the same run through WSL.
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh --tier 3 --scenario kde-configure-only"
@@ -132,6 +126,8 @@ Before any of them, `Assert the installed-package query returned a plausible lis
 `Assert the expected desktop environment is installed` does not run here. The scenario declares `e2e_expect_desktop: none`, so verification neither requires nor forbids `plasma-desktop`. That is deliberate: the point of this scenario is the configure path, not an install.
 
 10. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. This scenario sets no `e2e_generate` key either, so every ai_tools and sdk_manager toggle stays at its default of true, and the assertion checks node, npm, nvm, pyenv, the four pinned Python builds, sdk, java, the four pinned Java majors, fvm, flutter, dart, sdkmanager, adb and the six npm-installed CLIs, each on disk and by name, at that same path, from an interactive non-login shell of `{{ non_root_user }}`'s real login shell. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60, and the same full default set, since this scenario changes nothing about the ai_tools or sdk_manager toggles.
+11. `Assert the desktop session environment carries every development variable`. Linux only. It runs the systemd user environment generator as the user over `~/.config/environment.d`, which is what the user manager does at the next login, and asks for the development variables and PATH entries env_variables writes into `~/.config/environment.d/50-dev.conf`, plus NVM_DIR, SDKMAN_DIR, JAVA_HOME and PYENV_ROOT for the SDK toggles that are on, all of them here. A KDE configure run is the case the assertion was written for: Plasma takes its environment from that manager and never reads `.zshrc`.
+12. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails.
 
 A gap to be honest about. The scenario file says the interesting question is whether the configure tasks fail cleanly with a readable message rather than blowing up halfway through, and states that the verify step checks it. [../tier3/verify.yaml](../tier3/verify.yaml) contains no assertion specific to the configure-only path. What actually distinguishes a clean failure from a messy one here is the playbook exit code plus the `errors_and_failures` block in `result.txt`, which the harness fills with the `fatal:`, `failed:` and `[ERROR]` lines from the log. Those lines are diagnostics for a human reading the run, not pass criteria, and a runner must not tick an assertion box for them. If the run exits 0 and the eight assertions above pass, this capability passed as specified, and the readability of any configure-path message is a judgement to record in the Result summary rather than a checkbox.
 

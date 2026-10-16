@@ -18,13 +18,7 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-Confirm the shell can drive a Docker daemon. On Windows both Git Bash and WSL qualify, WSL only when Docker Desktop has integration enabled for that distribution.
-
-```bash
-uname -s
-```
-
-Expect `Linux` from WSL, or `MINGW64_NT-...` from Git Bash. The harness asks whether a daemon answers rather than what the operating system is, so either is fine.
+The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
 
 Confirm the Docker daemon is reachable.
 
@@ -106,7 +100,7 @@ Then collect it, substituting the run directory the launch printed.
 ./e2e/tier3/container.sh --collect e2e/runs/<run-id>
 ```
 
-From a PowerShell prompt on Windows, the same run inside WSL.
+From a PowerShell prompt on Windows, the same run through WSL.
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh --tier 3 --scenario forced-failure --os debian"
@@ -123,7 +117,7 @@ The single most important line is that `result.txt` reports a non-zero `playbook
 Five assertions on every distribution, a sixth on Arch and CachyOS and a seventh everywhere else, made by [../tier3/container.sh](../tier3/container.sh) rather than by the verify play, because they are about the reporting path rather than about the state of the machine.
 
 1. The playbook exited non-zero. Ansible's own failure code is 2, which is what the terminal fail task in site.yaml produces.
-2. The terminal summary contains a `FAILED (n)` section with at least one bullet naming a task. The first bullet is the earliest injected failure. Since 2026-10-10 that is the Pyenv installer download, `sdk_manager : Install Pyenv, or complete a half-finished install (Linux/Mac)`, on every distribution except Arch and CachyOS, because sdk_manager runs before the software installer. Next on Debian, Ubuntu, Pop!_OS and Fedora comes the Lens repository, and after that the injected batch failure, which on Debian and Ubuntu reads `software_installer : Install APT packages (batched, via raw to bypass 2.19 deserialization)`, on Fedora `software_installer : Install DNF packages (batched)`. On Arch and CachyOS the first bullet is `arch_core : Clone paru AUR helper repository`, because arch_core runs first and the scenario breaks the paru clone as well, and `software_installer : Install Pacman packages (batched)` follows it. The final `Fail the run because at least one role failed` appears as a second bullet, and the section header says how many of the failures were caught by a rescue so the count cannot look like it contradicts the recap.
+2. The terminal summary contains a `FAILED (n)` section with at least one bullet naming a task. The first bullet is the earliest injected failure. Since 2026-10-10 that is the Pyenv installer download, `sdk_manager : Install Pyenv, or complete a half-finished install (Linux/Mac)`, on every distribution except Arch and CachyOS, because sdk_manager runs before the software installer, and next on Debian, Ubuntu, Pop!_OS and Fedora comes the Lens repository. On Arch and CachyOS the first bullet is `arch_core : Clone paru AUR helper repository`, because arch_core runs first and the scenario breaks the paru clone as well. The injected package name itself is never a `FAILED` bullet: it goes through [../../setup/ansible/tasks/install_role_packages.yaml](../../setup/ansible/tasks/install_role_packages.yaml), whose tasks `software_installer : Install a package set one package at a time, first attempt without refreshing the package index` and `software_installer : Retry each package that failed, refreshing the package index first where the manager keeps one` tolerate each failed attempt, so the name is listed under `TOLERATED FAILURES` and named in an `[ERROR] ih-e2e-forced-failure-no-such-package, from the software set, did not install with <manager> after 4 attempts` line, and it reaches the exit code through `any_role_failed`. Measured on the CachyOS run of 2026-10-15, before the apt, dnf and flatpak lists moved into that file, the injected name was under `TOLERATED FAILURES` and the `FAILED` section held the paru clone, the Pyenv download, `software_installer : Enable tailscaled systemd system service` and the final fail task. The final `Fail the run because at least one role failed` appears as the last bullet, and the section header says how many of the failures were caught by a rescue so the count cannot look like it contradicts the recap.
 3. `installation_errors.log`, collected out of the container into the run directory, names the same task the summary named. Matching the name is the point: a non-empty file proves only that something was written.
 4. The verification exited non-zero and its log carries a `FAIL native packages missing:` line listing the applications the failed batch cost.
 5. Arch and CachyOS only. `installation_errors.log` names `Clone paru AUR helper repository`, and the playbook log carries `paru could not be built, so these Arch User Repository packages were NOT installed`. The scenario sets `arch_core_paru_repository` to `https://aur.invalid/paru.git`, a host under `.invalid`, which RFC 2606 reserves so that it never resolves, so the clone step itself fails on every run and lands in the rescue around the paru build in [../../setup/ansible/roles/arch_core/tasks/main.yaml](../../setup/ansible/roles/arch_core/tasks/main.yaml). The line proves the run went on past it, because the software installer and the final summary are what print it and both run after arch_core, and that it named each skipped package rather than leaving them out. Measured in WSL Ubuntu on 2026-10-11, `git clone https://aur.invalid/paru.git` exits 128 with `Could not resolve host: aur.invalid`, and the clone task with its three retries ten seconds apart fails after about 34 seconds under ansible-core 2.19.9. Until that date the address was an empty Arch User Repository name, and the step that failed was whatever the server chose: `Failed to checkout branch master` at the clone on 2026-10-10, and an empty repository that cloned fine on 2026-10-11, which moved the failure to `Build paru package (non-root)` with `==> ERROR: PKGBUILD does not exist.` and failed this assertion on Arch and CachyOS in GitHub sweep run 38107292439 although the rescue had worked.
@@ -144,6 +138,8 @@ The verify log's own assertions, in the order the play runs them. Every containe
 10. `Assert the temporary passwordless sudoers entry was removed` is not reached by the verify play, and the state it checks is still worth reading out of the report block above it, because the sudoers removal sits in an `always` section precisely so that a failed run cannot skip it. The report block prints before any assertion for exactly this reason.
 11. `Assert the expected desktop environment is installed` does not run at all, reached or otherwise. The scenario declares `e2e_expect_desktop: none`.
 12. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell` is not reached, for the same reason.
+13. `Assert the desktop session environment carries every development variable` is not reached, for the same reason.
+14. `Assert exactly the selected OpenCode version is installed` is not reached, for the same reason.
 
 What this capability deliberately does not assert mechanically. The rescue in `dynamic_install.yaml` lists every application in the failed batch, and the injected batch holds one synthetic name, so on this scenario that list is one line long and proves nothing about the real behaviour. Read the `[ERROR] Install step ... failed` line in the log and confirm it names the batch and says a batch is one call, then record that as a judgement in the Result summary rather than ticking an assertion box for it. Asserting the wording of a message is how a test starts failing on a rewording rather than on a defect.
 

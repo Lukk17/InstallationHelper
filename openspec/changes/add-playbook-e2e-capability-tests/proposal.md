@@ -4,7 +4,7 @@ Heading levels follow the `e2e-runbooks` proposal template, which fixes the sect
 
 Three shape deviations from the schema, stated up front so nobody has to reverse-engineer them.
 
-1. This change introduces eight capabilities at once, not one. The harness at [../../../e2e/](../../../e2e/) already exists and runs, so the work here is describing it in the schema's shape, and describing one eighth of a working harness would be a false record. Every single-value field below is therefore a table.
+1. This change introduces nine capabilities at once, not one. The harness at [../../../e2e/](../../../e2e/) already exists and runs, so the work here is describing it in the schema's shape, and describing one ninth of a working harness would be a false record. Every single-value field below is therefore a table.
 2. The scaffold marker `e2e/README.md` was deliberately not created. See the Scaffold section.
 3. No `run.md` is part of this change. No run has been executed through this schema yet, and writing one would fabricate a test result.
 
@@ -14,7 +14,7 @@ Three shape deviations from the schema, stated up front so nobody has to reverse
 
 Every entry in [../../../docs/regression_ledger.md](../../../docs/regression_ledger.md) reached a real machine because nothing ran the playbook end to end before it shipped. A syntax check cannot tell you that `plugdev` does not exist on Arch, and reading a diff cannot tell you that a toggle installs nothing. Both of those happened, the first failing every Arch run behind an anonymous rescue warning and the second twice, with `install_putty` and `install_gradle`.
 
-The harness that answers those questions exists, has three tiers, and is documented in [../../../e2e/README_E2E.md](../../../e2e/README_E2E.md). What it did not have is a capability-level description of what each invocation asserts, what has to be true before it starts, and what is safe to run beside it. Without that, a sweep is guesswork: nobody can tell from the outside that the live-profile scenario verifies against a toggle set the profile never applied, that the 300 minute scenarios contend for one Docker daemon, or which container limitations mean a red line in the log is not a regression. This change writes those eight descriptions and wires them into the schema so a future sweep is a checklist rather than an act of memory.
+The harness that answers those questions exists, has three tiers, and is documented in [../../../e2e/README_E2E.md](../../../e2e/README_E2E.md). What it did not have is a capability-level description of what each invocation asserts, what has to be true before it starts, and what is safe to run beside it. Without that, a sweep is guesswork: nobody can tell from the outside that the live-profile scenario verifies against a toggle set the profile never applied, that the 300 minute scenarios contend for one Docker daemon, or which container limitations mean a red line in the log is not a regression. This change writes those nine descriptions and wires them into the schema so a future sweep is a checklist rather than an act of memory.
 
 ---
 
@@ -26,12 +26,13 @@ Behaviour and persisted state only, never a log substring. The observables the h
 |---|---|---|---|
 | 10 | wizard-toggle-parse | Both wizards parse the same toggles out of the same YAML, nothing is dropped or malformed, every enabled toggle resolves to a mapping or a task per OS family, the no-op list has no stale entries, and the playbook parses within a two warning budget | Wizard toggle parse desync, Toggles enabled with no mapping and no task, Toggles that had already been dead for a while, the `inventory = localhost,` warning flood |
 | 20 | package-name-resolution | Every pacman, AUR, Flathub, Homebrew formula, Homebrew cask, Chocolatey and winget name in the dictionaries exists upstream | Package and repository facts that only held for one distribution, Windows winget product IDs that stopped resolving, Microsoft Store product IDs need an explicit source |
-| 30 | smoke | The seven historically broken toggles install, `tailscaled` is enabled, the user is in the Arch OpenRazer group and in `docker`, and the temporary sudoers grant is gone | Arch OpenRazer device group does not exist, Pacman batch failure marked as success, `playbook_succeeded` reported true regardless of what the rescue caught |
+| 30 | forced-failure | A run broken on purpose exits non-zero, names the failing task in the terminal `FAILED (n)` summary and in `~/installation_errors.log`, and the verification refuses over the machine it failed to build. This replaced the smoke capability, deleted in 68a1d84 because every toggle it enabled was already true in capability 60 | Install block rescue hides which task failed, `playbook_succeeded` reported true regardless of what the rescue caught, the callback rendering a tolerated failure as FAILED beside a recap saying failed=0, Pacman batch failure marked as success |
 | 40 | kde-configure-only | The configure-without-install path completes and the default software set still lands | Install block rescue hides which task failed, `playbook_succeeded` reported true regardless of what the rescue caught |
 | 50 | live-profile | The wizard's profile path applies `linux_live` and the run completes | Tailscale's apt repository URL entry, whose commit also caught the live profile never disabling Tailscale |
 | 60 | defaults | The whole default toggle set installs with no overrides at all | Pacman batch failure marked as success, Install block rescue hides which task failed, Arch OpenRazer device group does not exist |
 | 70 | desktop-environments | KDE Plasma and GNOME each install and configure on their own, asserted by a package probe per desktop | Toggles enabled with no mapping and no task, applied to two toggles the OS dictionary does not carry |
 | 80 | all-software | Every mapped package on Arch installs, including toggles that ship disabled, and a stalled task fails on time | Package and repository facts that only held for one distribution, Pacman batch failure marked as success, FVM's interactive picker stalled a run for 8 hours |
+| 90 | idempotency | Capability 60's configuration applied twice in one container: the second pass exits 0, every task that still reports changed is named in [../../../e2e/tier3/idempotent_changes_allowed.txt](../../../e2e/tier3/idempotent_changes_allowed.txt), and the state assertions still hold after both passes | None directly. It is the one capability not written in response to a shipped defect, because `changed` is what every reading of a log depends on and nothing had checked that it means what it says |
 
 ---
 
@@ -41,14 +42,15 @@ The schema's five classes describe an HTTP service suite with fixture uploads an
 
 | N | Capability | Closest schema class | Declared cost |
 |---|---|---|---|
-| 10 | wizard-toggle-parse | 1: no state to reset, no fixtures | seconds |
-| 20 | package-name-resolution | 2: no state, but rate-limited third-party indexes make repetition expensive | about a minute |
-| 30 | smoke | 5: seeded state plus observation of an asynchronous background process | 45 minute timeout |
+| 10 | wizard-toggle-parse | 1: no state to reset, no fixtures | minutes, measured at 3 minutes 39 seconds |
+| 20 | package-name-resolution | 2: no state, but rate-limited third-party indexes make repetition expensive | minutes, measured at 7 minutes 57 seconds |
+| 30 | forced-failure | 5: seeded state plus observation of an asynchronous background process | 90 minute timeout, measured at 46 minutes |
 | 40 | kde-configure-only | 5 | 90 minute timeout |
 | 50 | live-profile | 5 | 120 minute timeout |
 | 60 | defaults | 5 | 180 minute timeout |
 | 70 | desktop-environments | 5, twice over | 300 minute timeout each, two runs |
 | 80 | all-software | 5 | 300 minute timeout |
+| 90 | idempotency | 5 | 300 minute timeout for two passes |
 
 Class 5 is the honest fit for every container scenario. The playbook runs detached inside the container writing its own log and exit code, and the harness polls for it, which is exactly seeded state plus observation of an asynchronous process.
 
@@ -56,15 +58,15 @@ Class 5 is the honest fit for every container scenario. The playbook runs detach
 
 ## Fixtures needed
 
-None, for any of the eight. The inputs are the working tree itself: the toggle files under [../../../setup/ansible/group_vars/](../../../setup/ansible/group_vars/), the per-distribution dictionaries under [../../../setup/ansible/vars/](../../../setup/ansible/vars/), the profiles, and the scenario files under [../../../e2e/tier3/scenarios/](../../../e2e/tier3/scenarios/). Copying any of those into `e2e/fixtures/` would create a second source of truth that drifts, which is the failure this suite exists to catch. [../../../e2e/fixtures/README.md](../../../e2e/fixtures/README.md) records that, and names the two cases that would justify a real fixture later.
+None, for any of the nine. The inputs are the working tree itself: the toggle files under [../../../setup/ansible/group_vars/](../../../setup/ansible/group_vars/), the per-distribution dictionaries under [../../../setup/ansible/vars/](../../../setup/ansible/vars/), the profiles, and the scenario files under [../../../e2e/tier3/scenarios/](../../../e2e/tier3/scenarios/). Copying any of those into `e2e/fixtures/` would create a second source of truth that drifts, which is the failure this suite exists to catch. [../../../e2e/fixtures/README.md](../../../e2e/fixtures/README.md) records that, and names the two cases that would justify a real fixture later.
 
 ---
 
 ## Concurrency profile
 
-- Mutates: nothing for capabilities 10 and 20, which are read-only against the working tree and against six third-party indexes. Over-declared for 10: `~/.ansible/tmp` and the fact cache, because the syntax check writes there. For 30 through 80, each capability mutates its own throwaway container's filesystem and nothing else on the machine under test, plus one unique directory under `e2e/runs/` on the host, plus the shared image tag `installationhelper-e2e-arch:latest` that all six build or reuse.
-- Conflicts with: for 10, any process editing [../../../setup/](../../../setup/) while it runs, because the working tree is its input. For 20, a second copy of itself, always: `archlinux.org` throttles a burst and answers with an empty body rather than a 404, and GitHub's API budget is shared per account. For 30 through 80, nothing at the level of state, because separate containers cannot touch each other's filesystems. What they do share is the host Docker daemon, host disk and network bandwidth, and each installs gigabytes. Running several 300 minute scenarios at once will thrash a single machine even though nothing corrupts, and the realistic failure is a declared timeout, which counts as a fail, not corruption.
-- Serial: false for all eight. Capability 80 should be treated as serial by policy on any machine not dedicated to it, which is a scheduling choice rather than a state constraint.
+- Mutates: nothing for capabilities 10 and 20, which are read-only against the working tree and against six third-party indexes. Over-declared for 10: `~/.ansible/tmp` and the fact cache, because the syntax check writes there. For 30 through 90, each capability mutates its own throwaway container's filesystem and nothing else on the machine under test, plus one unique directory under `e2e/runs/` on the host, plus the shared image tag `installationhelper-e2e-<os>:latest` that all seven build or reuse, `installationhelper-e2e-arch:latest` for 40 through 80 and the tag of the distribution passed with `--os` for 30 and 90.
+- Conflicts with: for 10, any process editing [../../../setup/](../../../setup/) while it runs, because the working tree is its input. For 20, a second copy of itself, always: `archlinux.org` throttles a burst and answers with an empty body rather than a 404, and GitHub's API budget is shared per account. For 30 through 90, nothing at the level of state, because separate containers cannot touch each other's filesystems. What they do share is the host Docker daemon, host disk and network bandwidth, and each installs gigabytes. Running several 300 minute scenarios at once will thrash a single machine even though nothing corrupts, and the realistic failure is a declared timeout, which counts as a fail, not corruption.
+- Serial: false for all nine. Capability 80 should be treated as serial by policy on any machine not dedicated to it, which is a scheduling choice rather than a state constraint.
 
 ---
 
@@ -76,22 +78,23 @@ There is no HTTP client here, because the capability under test is an Ansible pl
 |---|---|
 | 10 | `./e2e/run.sh` |
 | 20 | `./e2e/run.sh --tier 2` |
-| 30 | `./e2e/run.sh --tier 3 --scenario smoke` |
+| 30 | `./e2e/run.sh --tier 3 --scenario forced-failure --os debian` |
 | 40 | `./e2e/run.sh --tier 3 --scenario kde-configure-only` |
 | 50 | `./e2e/tier3/container.sh e2e/tier3/scenarios/05-live-profile.yaml --detach`, then `--collect` |
 | 60 | `./e2e/tier3/container.sh e2e/tier3/scenarios/01-defaults.yaml --detach`, then `--collect` |
 | 70 | the same detached pair for `03-kde-full.yaml` and for `04-gnome-full.yaml` |
 | 80 | `./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach`, then `--collect` |
+| 90 | `./e2e/tier3/container.sh e2e/tier3/scenarios/08-idempotency.yaml --os debian --detach`, then `--collect` |
 
 Anything above two hours uses the detached form on purpose. The playbook always runs detached inside the container, so a run is not tied to the shell that started it and an ordinary disconnect cannot throw hours of work away.
 
-Prerequisites the invocation cannot supply for itself: a Linux shell with a working Docker socket, which on Windows means running from inside WSL, and an authenticated `gh` for the winget portion of capability 20, without which that one check is skipped with a warning and the run passes while covering less.
+Every invocation runs inside the gate container, e2e/gate/Dockerfile, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so nothing runs on the machine that starts them. Prerequisites the invocation cannot supply for itself: a shell that reaches a Docker daemon, which on Windows means Git Bash with Docker Desktop or WSL with Docker Desktop integration, and an authenticated `gh` for the winget portion of capability 20, without which that one check is skipped with a warning and the run passes while covering less.
 
 ---
 
 ## Number assignment
 
-N: 10, 20, 30, 40, 50, 60, 70 and 80, assigned in the table above. Cheapest first, which is also the order a sweep should run them in.
+N: 10, 20, 30, 40, 50, 60, 70, 80 and 90, assigned in the table above. Cheapest first, which is also the order a sweep should run them in. Number 30 belonged to the smoke capability until 68a1d84 deleted it, and forced-failure took the free number because it is now the cheapest container run. Idempotency took 90, the next free number, because it is the most expensive.
 
 Two notes on the count. Tiers 1 and 2 are separate capabilities rather than part of a container scenario, because they have their own assertions and their own cost, and folding them in would misrepresent both. The two desktop environment scenarios are one capability rather than two, because neither answer to the wizard's desktop question is covered until both have run, and [../../../AGENTS.md](../../../AGENTS.md) already requires them as a pair.
 
@@ -111,7 +114,7 @@ The four README files were adapted rather than copied byte for byte, since the o
 
 ## Next steps
 
-1. The eight specs are written to [../../../e2e/testing/](../../../e2e/testing/) as `{N}-{capability}-test.md`, and indexed by [test-spec.md](test-spec.md) in this directory.
-2. The eight run-record templates are written to [../../../e2e/testing/templates/](../../../e2e/testing/templates/) as `{N}-{capability}-tasks.template.md`, and indexed by [tasks-template.md](tasks-template.md) in this directory.
+1. The nine specs are written to [../../../e2e/testing/](../../../e2e/testing/) as `{N}-{capability}-test.md`, and indexed by [test-spec.md](test-spec.md) in this directory.
+2. The nine run-record templates are written to [../../../e2e/testing/templates/](../../../e2e/testing/templates/) as `{N}-{capability}-tasks.template.md`, and indexed by [tasks-template.md](tasks-template.md) in this directory.
 3. Run records are produced as `e2e/testing/runs/<UTC-timestamp>_{N}-{capability}-tasks.md` from the matching template, one per execution.
 4. Done, and the fix landed outside this change as it should have. Capability 50's verification could not be clean because [../../../e2e/tier3/container.sh](../../../e2e/tier3/container.sh) passed the profile to the playbook and not to the verify play. `collect_and_verify` now passes it to both, in the same order, so precedence matches. The spec, its tasks template and the note in [test-spec.md](test-spec.md) have all been amended, and capability 50 now expects `verify_rc: 0` like every other capability.

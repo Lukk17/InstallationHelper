@@ -1,6 +1,6 @@
 ## Purpose
 
-Makes a Wayland session available and preferred on a Linux machine whose graphics come from the NVIDIA proprietary driver, which is the behaviour both wizards already promise under the label "System: force Wayland on NVIDIA, can break the session". Covers the kernel module parameter, the display manager's session offering, and the refusal to act on a machine that has no NVIDIA driver at all.
+Makes a Wayland session available and preferred on a Linux machine whose graphics come from the NVIDIA proprietary driver, which is the behaviour the bash wizard's checklist on Linux already promises under the label "System: force Wayland on NVIDIA (can break the session)". Covers the kernel module parameter, the display manager's session offering, and the refusal to act on a machine that has no NVIDIA driver at all.
 
 ## ADDED Requirements
 

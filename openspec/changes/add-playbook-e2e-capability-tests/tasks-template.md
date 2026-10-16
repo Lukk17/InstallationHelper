@@ -2,22 +2,23 @@
 
 Heading levels follow the `e2e-runbooks` tasks-template, which fixes the section headings at level two, overriding this repository's level-three rule.
 
-This file is an index, not a template. The schema gives a change one `tasks-template.md`, which assumes one capability per change, and this change introduces eight. The eight real templates live in [../../../e2e/testing/templates/](../../../e2e/testing/templates/), one per spec, sharing the `{N}` prefix and capability name of the spec they mirror. Copy from there, never from here.
+This file is an index, not a template. The schema gives a change one `tasks-template.md`, which assumes one capability per change, and this change introduces nine. The nine real templates live in [../../../e2e/testing/templates/](../../../e2e/testing/templates/), one per spec, sharing the `{N}` prefix and capability name of the spec they mirror. Copy from there, never from here.
 
 ---
 
-## The eight templates
+## The nine templates
 
 | N | Capability | Spec | Template |
 |---|---|---|---|
 | 10 | wizard-toggle-parse | [10-wizard-toggle-parse-test.md](../../../e2e/testing/10-wizard-toggle-parse-test.md) | [10-wizard-toggle-parse-tasks.template.md](../../../e2e/testing/templates/10-wizard-toggle-parse-tasks.template.md) |
 | 20 | package-name-resolution | [20-package-name-resolution-test.md](../../../e2e/testing/20-package-name-resolution-test.md) | [20-package-name-resolution-tasks.template.md](../../../e2e/testing/templates/20-package-name-resolution-tasks.template.md) |
-| 30 | smoke | [30-smoke-test.md](../../../e2e/testing/30-smoke-test.md) | [30-smoke-tasks.template.md](../../../e2e/testing/templates/30-smoke-tasks.template.md) |
+| 30 | forced-failure | [30-forced-failure-test.md](../../../e2e/testing/30-forced-failure-test.md) | [30-forced-failure-tasks.template.md](../../../e2e/testing/templates/30-forced-failure-tasks.template.md) |
 | 40 | kde-configure-only | [40-kde-configure-only-test.md](../../../e2e/testing/40-kde-configure-only-test.md) | [40-kde-configure-only-tasks.template.md](../../../e2e/testing/templates/40-kde-configure-only-tasks.template.md) |
 | 50 | live-profile | [50-live-profile-test.md](../../../e2e/testing/50-live-profile-test.md) | [50-live-profile-tasks.template.md](../../../e2e/testing/templates/50-live-profile-tasks.template.md) |
 | 60 | defaults | [60-defaults-test.md](../../../e2e/testing/60-defaults-test.md) | [60-defaults-tasks.template.md](../../../e2e/testing/templates/60-defaults-tasks.template.md) |
 | 70 | desktop-environments | [70-desktop-environments-test.md](../../../e2e/testing/70-desktop-environments-test.md) | [70-desktop-environments-tasks.template.md](../../../e2e/testing/templates/70-desktop-environments-tasks.template.md) |
 | 80 | all-software | [80-all-software-test.md](../../../e2e/testing/80-all-software-test.md) | [80-all-software-tasks.template.md](../../../e2e/testing/templates/80-all-software-tasks.template.md) |
+| 90 | idempotency | [90-idempotency-test.md](../../../e2e/testing/90-idempotency-test.md) | [90-idempotency-tasks.template.md](../../../e2e/testing/templates/90-idempotency-tasks.template.md) |
 
 ---
 

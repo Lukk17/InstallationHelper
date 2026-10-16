@@ -15,12 +15,11 @@ grep -rn "toggle_wayland_nvidia" setup/
 ```
 
 ```text
+setup/setup.sh:134:    [toggle_wayland_nvidia]="System: force Wayland on NVIDIA (can break the session)"
 setup/ansible/group_vars/linux.yaml:21:toggle_wayland_nvidia: false
-setup/setup.ps1:145:    'toggle_wayland_nvidia' = 'System: force Wayland on NVIDIA, can break the session'
-setup/setup.sh:133:    [toggle_wayland_nvidia]="System: force Wayland on NVIDIA, can break the session"
 ```
 
-One declaration and two label-table entries. No role, no task, no `when:` clause, nothing under `setup/windows/`.
+One declaration and one label-table entry, in the bash wizard. Re-run on 2026-10-15, after the `setup.ps1` entry was deleted because the Windows wizard never shows a key from `linux.yaml`. No role, no task, no `when:` clause, nothing under `setup/windows/`.
 
 ```bash
 grep -rn --binary-files=without-match "setup_grub" setup/
@@ -55,7 +54,7 @@ This is the trap, and it is worth spelling out rather than leaving to be redisco
 
 This is the same shape as the `install_gradle` defect recorded in the ledger, where a comment claiming SDKMAN handled it stood in for an implementation that did not exist. It is why `toggle_coverage.sh` strips comments before searching for consumers, and why neither wizard nor the callback table counts as a consumer in that check.
 
-`toggle_wayland_nvidia` has the opposite problem. It is not hidden by `EXCLUDED_VARS`, so it appears on both wizards' checklists labelled "System: force Wayland on NVIDIA, can break the session". It is the only one of the three a user can reach, and the label promises a behaviour that does not exist.
+`toggle_wayland_nvidia` has the opposite problem. It is not hidden by `EXCLUDED_VARS`, so it appears on the bash wizard's checklist on Linux labelled "System: force Wayland on NVIDIA (can break the session)". It is the only one of the three a user can reach, and the label promises a behaviour that does not exist.
 
 ## What Changes
 

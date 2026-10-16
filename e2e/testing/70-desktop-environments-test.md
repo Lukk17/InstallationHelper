@@ -21,13 +21,7 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-Confirm the shell is Linux. On Windows this means running from inside WSL, which is also the only place Ansible runs at all.
-
-```bash
-uname -s
-```
-
-Expect `Linux`. The harness refuses tier 3 from any other platform.
+The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
 
 Confirm the Docker daemon is reachable.
 
@@ -35,7 +29,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. On Windows that means Docker Desktop running with WSL integration enabled. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and the host cgroup mount.
 
 Confirm there is real disk headroom, because this capability builds two containers, each with a full desktop environment plus the default software set.
 
@@ -99,7 +93,7 @@ Step 1. Launch the KDE run and return.
 ./e2e/tier3/container.sh e2e/tier3/scenarios/03-kde-full.yaml --detach
 ```
 
-From a PowerShell prompt on Windows, the same launch inside WSL.
+From a PowerShell prompt on Windows, the same launch through WSL.
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/03-kde-full.yaml --detach"
@@ -157,6 +151,8 @@ Before any of them, `Assert the installed-package query returned a plausible lis
 Note what assertion 9 does not cover. It proves the desktop environment's main package is present, and nothing more. Whether the configure half of the `full` action actually applied a setting is not asserted anywhere, and could not be in a container without a session: the two runs turn `configure_kde_plasma` and `configure_gnome` on, so those tasks execute and their failures would surface as a non-zero playbook exit code, but a configure task that succeeds while writing the wrong value passes here. Record any configure oddity you see in the log under the Result summary rather than as a ticked assertion.
 
 11. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Both scenarios leave the ai_tools and sdk_manager toggles at their default of true, so this checks the whole set, node through the six npm-installed AI CLIs, in both the KDE run and the GNOME run. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60, and a place worth watching here specifically: the shell it probes is an interactive non-login shell of `{{ non_root_user }}`'s real login shell, not whichever a desktop environment role happens to assume.
+12. `Assert the desktop session environment carries every development variable`. Linux only, and the scenarios where it matters most, because Plasma and GNOME take their environment from the systemd user manager, which builds it from `~/.config/environment.d` and never reads `.zshrc`. It runs that manager's own generator as the user and asks for every development variable and PATH entry the SDK toggles at their default of true call for.
+13. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails.
 
 Known container limitations. [../tier3/container_limits.yaml](../tier3/container_limits.yaml) forces `setup_hibernate`, `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot`, `install_waydroid`, `install_virtualbox`, `install_vmware` and `install_snapper` to false on top of every scenario, because each needs hardware or a kernel facility that belongs to the host. The harness prints that list on every run, and a pass here is not evidence about any entry in it.
 

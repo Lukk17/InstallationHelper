@@ -19,13 +19,7 @@ This capability exists for the same reason as the ledger entries about tolerance
 
 ## Prerequisites
 
-Confirm the shell can drive a Docker daemon. On Windows both Git Bash and WSL qualify, WSL only when Docker Desktop has integration enabled for that distribution.
-
-```bash
-uname -s
-```
-
-Expect `Linux` from WSL, or `MINGW64_NT-...` from Git Bash. The harness asks whether a daemon answers rather than what the operating system is, so either is fine.
+The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
 
 Confirm the Docker daemon is reachable.
 
@@ -129,7 +123,7 @@ The single-command form does the same work in the foreground.
 ./e2e/run.sh --tier 3 --scenario idempotency --os debian
 ```
 
-From a PowerShell prompt on Windows, the same launch inside WSL.
+From a PowerShell prompt on Windows, the same launch through WSL.
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/08-idempotency.yaml --os debian --detach"
@@ -169,6 +163,8 @@ Before any of them, `Assert the installed-package query returned a plausible lis
 9. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist. Both passes create and remove it, so on a second pass the removal task legitimately reports changed and is expected to appear in the allowlist.
 10. `Assert the expected desktop environment is installed` does not run here. The scenario declares `e2e_expect_desktop: none`, which is the wizard's `skip` answer, and both `install_kde_plasma` and `install_gnome` are false by default.
 11. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Verification runs once, after both passes, so this proves the second pass left every enabled tool exactly as reachable as the first pass made it: node, npm, nvm, pyenv, sdk, java, fvm, flutter, dart, sdkmanager, adb and the six npm-installed AI CLIs, on disk and from an interactive non-login shell of `{{ non_root_user }}`'s real login shell. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60. A second pass that reruns an installer's shell-wiring step and writes to the wrong rc file, or skips it as already-changed, would surface here rather than in the changed-task accounting, since a missing or unreachable tool is a verify failure regardless of which pass caused it.
+12. `Assert the desktop session environment carries every development variable`. Linux only. Verification runs once, after both passes, so this proves the second pass left `~/.config/environment.d/50-dev.conf` carrying every variable and PATH entry a desktop session needs, read through the systemd user environment generator exactly as the user manager reads it at the next login.
+13. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails. Verification runs once, after both passes, so this proves the second pass did not bring the other version back.
 
 Known container limitations. [../tier3/container_limits.yaml](../tier3/container_limits.yaml) forces `setup_hibernate`, `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot`, `install_waydroid`, `install_virtualbox`, `install_vmware` and `install_snapper` to false on top of every scenario, because each needs hardware or a kernel facility that belongs to the host. None of those is covered here, so nothing is known about whether the bootloader or hibernation tasks are idempotent. The harness prints the suppressed list on every run.
 

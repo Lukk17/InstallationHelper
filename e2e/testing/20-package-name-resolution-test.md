@@ -1,6 +1,6 @@
 # package-name-resolution: e2e test
 
-Tier 2 of the harness. A few minutes, nothing installed anywhere, but it talks to every real package index this repository depends on and starts three throwaway containers to reach the two that need a package index of their own.
+Tier 2 of the harness. A few minutes, measured at 7 minutes 57 seconds on Linux on 2026-10-15, nothing installed anywhere, and nothing run on the machine that starts it, but it talks to every real package index this repository depends on and starts three throwaway containers to reach the two that need a package index of their own.
 
 Section headings sit at level two because the `e2e-runbooks` test-spec template fixes the seven section names at that level, which overrides this repository's level-three heading rule.
 
@@ -22,13 +22,7 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-Confirm the shell is Linux. On Windows this means running from inside WSL.
-
-```bash
-uname -s
-```
-
-Expect `Linux`. The harness refuses tier 2 from any other platform with an instruction to use WSL.
+Tier 2 runs inside the gate container, like every tier: `e2e/run.sh` builds [../gate/Dockerfile](../gate/Dockerfile) and runs the checks inside it, with the Docker socket mounted so the apt, dnf and pacman probe containers start beside it. curl, Python and the rest are in the image, so the host needs only Docker, network access, and optionally a `gh` login.
 
 Confirm the Docker daemon is reachable.
 
@@ -38,15 +32,7 @@ docker info
 
 Expect a daemon summary rather than an error. Tier 2 needs it for real now: apt and dnf cannot be asked whether a package exists without a package index, so those names are resolved inside the same pinned base images the tier 3 scenarios use, read out of the Dockerfiles so the check and the scenarios cannot drift. The containers are asked and thrown away and nothing is installed in them. On Windows that means Docker Desktop running with WSL integration enabled for the distribution you run the harness from.
 
-Confirm curl is installed.
-
-```bash
-command -v curl
-```
-
-Expect a path. Without it the check exits 2 before running any assertion.
-
-Confirm `gh` is authenticated, or accept that the winget portion is skipped.
+Confirm `gh` is authenticated on this machine, or accept that the winget portion is skipped. The gate container has no `gh` login of its own, so for tier 2 only `e2e/run.sh` lends it yours as `GH_TOKEN`, through the environment and never on a command line. A `GH_TOKEN` you exported yourself wins over it.
 
 ```bash
 gh auth status
@@ -54,34 +40,28 @@ gh auth status
 
 Expect a logged-in account. There are more winget packages in the dictionary than GitHub's hourly limit for anonymous requests, so without authentication the entire winget check is skipped with a warning that says exactly that, and the run passes while covering less than it claims. Run `gh auth login` first if you want that coverage.
 
-Confirm outbound network access to the indexes and to the container registry. A blocked or captive network turns every name into a missing name, and a registry it cannot reach turns the apt and dnf halves into a skip that says so.
-
-```bash
-curl -s -o /dev/null -w '%{http_code}\n' --max-time 20 https://archlinux.org/packages/search/json/?name=bash
-```
-
-Expect `200`.
+Outbound network access to the indexes and to the container registry is not probed from this machine, because a probe is a test and tests run only in a container. The run itself names every URL it could not reach: a blocked or captive network turns every name into a failure that says it could not be checked, and a registry it cannot reach turns the apt and dnf halves into a skip that says so.
 
 ---
 
 ## Reset state
 
-None. This test writes no persisted state and installs nothing. It performs read-only requests against third-party indexes, and starts three throwaway containers, one per apt or dnf family, each removed as soon as it has answered.
+None. This test writes no persisted state and installs nothing. It performs read-only requests against third-party indexes, and starts throwaway probe containers, one per apt, dnf or pacman image, each removed as soon as it has answered, beside the gate container, which is removed when the run ends.
 
 ---
 
 ## Run
 
-Run tier 2 from the repository root.
+Run tier 2 from the repository root. The same command works from a Linux shell, from Git Bash and from WSL.
 
 ```bash
-./e2e/run.sh --tier 2
+bash e2e/run.sh --tier 2
 ```
 
-From a PowerShell prompt on Windows, the same run inside WSL.
+From a PowerShell prompt on Windows, the same run through WSL.
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh --tier 2"
+wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && bash e2e/run.sh --tier 2"
 ```
 
 Wait for the process to exit. Every index is checked before anything fails, so one dead package name does not hide the rest.
@@ -92,11 +72,11 @@ Wait for the process to exit. Every index is checked before anything fails, so o
 
 The process exits 0. A non-zero exit means at least one index reported a name it does not have, and the tally at the end lists the failing checks by name.
 
-Eight check results, one per index group. Arch official repositories, the Arch User Repository, Flathub, Homebrew formulae, Homebrew casks, Chocolatey, winget and npm. winget also reports the files its manifests point at and the packages that need a scope pinned, each as a result of its own. Each pass states how many names resolved. Each failure states how many of how many do not exist and names them, so the output is a work list rather than a verdict.
+Eight check results, one per index group. Arch official repositories, the Arch User Repository, Flathub, Homebrew formulae, Homebrew casks, Chocolatey, winget and npm. winget also reports the files its manifests point at and the packages that need a scope pinned, each as a result of its own. Each pass states how many names resolved. Each failure states how many of how many do not exist and names them, so the output is a work list rather than a verdict. A name is called missing only when the index answers 404 or 410, or for Arch an empty results list. A lookup that never gets a definite answer is a failure of its own, `could not be checked`, naming the URL and what came back, so a network fault is never reported as a missing name.
 
 The winget line reports how many entries were skipped as Microsoft Store product ids rather than manifests, and that number is expected to be non-zero while Store entries are mapped. When `gh` is not authenticated, the winget line is a warning and no assertion is recorded for it at all.
 
-A transient empty body from `archlinux.org` is retried up to three times with a growing pause before a name is called missing. That retry is load-bearing: without it the check once reported eleven perfectly real packages as missing, all at the alphabetical tail where the throttle kicked in.
+Every lookup that gets no definite answer, a timeout, a 5xx, a 429, or a transient empty body from `archlinux.org`, is asked up to four times with a growing pause, through `http_ask` in [../lib/http_ask.sh](../lib/http_ask.sh), and is then reported as not checked rather than missing. That retry is load-bearing: without it the check once reported eleven perfectly real packages as missing, all at the alphabetical tail where the throttle kicked in.
 
 apt and dnf used to be the stated gap here, and they are not any more. Both are resolved inside a pinned base image, Debian and Ubuntu separately because their answers differ, and the names that only exist once the playbook adds a vendor repository are forgiven by name and reason in [../tier2/runtime_repo_packages.txt](../tier2/runtime_repo_packages.txt), which is itself checked for entries that have gone stale in either direction.
 

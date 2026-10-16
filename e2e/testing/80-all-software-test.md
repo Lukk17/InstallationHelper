@@ -18,13 +18,7 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-Confirm the shell is Linux. On Windows this means running from inside WSL, which is also the only place Ansible runs at all.
-
-```bash
-uname -s
-```
-
-Expect `Linux`. The harness refuses tier 3 from any other platform.
+The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
 
 Confirm the Docker daemon is reachable.
 
@@ -32,7 +26,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. On Windows that means Docker Desktop running with WSL integration enabled. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and the host cgroup mount.
 
 Confirm there is serious disk headroom. This scenario installs everything the playbook can install on Arch, including two desktop environments, every IDE and every SDK.
 
@@ -102,7 +96,7 @@ Step 1. Launch and return. The command prints the run directory, the container n
 ./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach
 ```
 
-From a PowerShell prompt on Windows, the same launch inside WSL.
+From a PowerShell prompt on Windows, the same launch through WSL.
 
 ```powershell
 wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach"
@@ -145,12 +139,14 @@ Before any of them, `Assert the installed-package query returned a plausible lis
 `Assert the expected desktop environment is installed` does not run. The scenario declares `e2e_expect_desktop: none`, and since 2026-08-29 that is what the run actually produces. See the paragraph below.
 
 10. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Every `install_` toggle is forced true here, so this is the largest set the assertion is ever asked to check: node, npm, nvm, pyenv, all four pinned Python builds, sdk, java, all four pinned Java majors, fvm, flutter, dart, sdkmanager, adb and the six npm-installed AI CLIs, each proven on disk and by name, at that same path, from an interactive non-login shell of `{{ non_root_user }}`'s real login shell. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60, and the scenario where a shell-wiring gap would cost the most, since nothing here is off to hide behind.
+11. `Assert the desktop session environment carries every development variable`. Linux only. Every SDK toggle is forced true here, so it asks for the full set: the variables and PATH entries env_variables writes into `~/.config/environment.d/50-dev.conf` plus NVM_DIR, SDKMAN_DIR, JAVA_HOME and PYENV_ROOT and the JetBrains Toolbox launcher directory, `~/.local/share/JetBrains/Toolbox/scripts`, read through the systemd user environment generator exactly as the user manager reads them at the next login.
+12. `Assert exactly the selected OpenCode version is installed`. `opencode_use_v1` is the one checklist toggle this scenario writes false rather than true, because `setup.sh --software all` leaves it off, by the owner's decision of 2026-10-15, and [../tier3/container.sh](../tier3/container.sh) reads that list, `ALL_SOFTWARE_KEEPS_OFF`, out of `setup.sh`. So version 2 is selected here, as in every other scenario, and no container scenario selects version 1. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. Both toggles are on here, so both probes run. A probe that could not run fails. Version 1 is covered by the manual row in [../manual_test_matrix.md](../manual_test_matrix.md).
 
 What the generated set is, and what it stopped being. The set is the wizard's checklist, resolved by `wizard_toggle_keys` in [../lib/common.sh](../lib/common.sh), which evaluates the functions `setup.sh` ships. Until 2026-08-29 the harness swept `^install_` out of `group_vars/all.yaml` and `group_vars/linux.yaml` for itself, which is the same rule implemented twice, and the two answers differed in both directions. The visible half was here: `install_kde_plasma` and `install_gnome` matched the sweep's pattern, so this scenario installed both desktop environments into one container while declaring `e2e_expect_desktop: none`, a machine no wizard run can produce, and it was the largest single reason this run was the longest. The wizard drops those two keys because the desktop environment has a screen of its own where exactly one is chosen, so they are no longer generated, and this scenario now installs no desktop at all unless a scenario names one, which capabilities 70 and 40 are the place that happens. The quieter half went the other way: the sweep could not see `set_custom_wallpaper`, `setup_tmpfs`, `setup_zsh` and `toggle_wayland_nvidia`, whose names do not begin with `install_`, so they were never part of a generated set. They are now generated true here. Three of them were already true in `group_vars` and therefore already ran in every scenario, since nothing in the harness ever wrote them. `toggle_wayland_nvidia` is the only one whose value this changes, and nothing in the playbook consumes it, so enabling it does nothing until something does. The `configure_` counterparts of the desktop keys are checklist keys the wizard drops as well, so nothing configures either desktop here either.
 
 The declared ceiling of 300 minutes is unchanged, deliberately. Dropping two desktop environments should take a large bite out of the run, but nobody has measured the new number, and a ceiling lowered on an expectation is how a slow cell starts being killed for being slow. Lower it after a measured run, not before.
 
-What is excluded, and why. `stable_diffusion` is named under `e2e_generate_except`, because it clones the AUTOMATIC1111 repository and pulls gigabytes of model weights, and `group_vars` ships it false for the same reason. The harness prints the exclusion on every run. Any toggle the scenario file states explicitly, and any toggle named in the container limits, also keeps its stated value rather than being generated, which is how a duplicate mapping key is avoided.
+What is excluded, and why. `opencode_use_v1` is written false rather than true, for the reason capability 12 gives, and the harness reads that from `setup.sh` rather than from this scenario. `stable_diffusion` is named under `e2e_generate_except`, because it clones the AUTOMATIC1111 repository and pulls gigabytes of model weights, and `group_vars` ships it false for the same reason. The harness prints the exclusion on every run. Any toggle the scenario file states explicitly, and any toggle named in the container limits, also keeps its stated value rather than being generated, which is how a duplicate mapping key is avoided.
 
 
 Known container limitations. [../tier3/container_limits.yaml](../tier3/container_limits.yaml) forces `setup_hibernate`, `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot`, `install_waydroid`, `install_virtualbox`, `install_vmware` and `install_snapper` to false on top of every scenario, because each needs hardware or a kernel facility that belongs to the host. That list matters most here, because this is the scenario whose name most invites the reading that everything was covered: it was not, and the harness prints the suppressed list on every run precisely so nobody makes that mistake.

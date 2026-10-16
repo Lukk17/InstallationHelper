@@ -39,8 +39,8 @@ The `{N}` prefix is setup cost, cheapest first, which is also the order a sweep 
 
 | N | Capability | Harness invocation | Declared cost |
 |---|---|---|---|
-| 10 | [wizard-toggle-parse](10-wizard-toggle-parse-test.md) | `./e2e/run.sh` | seconds |
-| 20 | [package-name-resolution](20-package-name-resolution-test.md) | `./e2e/run.sh --tier 2` | about a minute |
+| 10 | [wizard-toggle-parse](10-wizard-toggle-parse-test.md) | `./e2e/run.sh` | minutes, measured at 3 minutes 39 seconds |
+| 20 | [package-name-resolution](20-package-name-resolution-test.md) | `./e2e/run.sh --tier 2` | minutes, measured at 7 minutes 57 seconds |
 | 30 | [forced-failure](30-forced-failure-test.md) | `./e2e/run.sh --tier 3 --scenario forced-failure` | 90 minute timeout, measured at 46 minutes |
 | 40 | [kde-configure-only](40-kde-configure-only-test.md) | `./e2e/run.sh --tier 3 --scenario kde-configure-only` | 90 minute timeout |
 | 50 | [live-profile](50-live-profile-test.md) | `./e2e/run.sh --tier 3 --scenario live-profile` | 120 minute timeout |
@@ -49,7 +49,7 @@ The `{N}` prefix is setup cost, cheapest first, which is also the order a sweep 
 | 80 | [all-software](80-all-software-test.md) | `./e2e/run.sh --tier 3 --scenario all-software` | 300 minute timeout |
 | 90 | [idempotency](90-idempotency-test.md) | `./e2e/run.sh --tier 3 --scenario idempotency` | 300 minute timeout for two passes |
 
-Capabilities 10 and 20 are the two static tiers. They start no container, install nothing, and are the only two that are cheap enough to run on every commit. Everything from 30 up runs the real playbook inside a throwaway container, on Arch unless `--os` names another distribution.
+Capabilities 10 and 20 are the two static tiers. They install nothing, start no scenario container, and are the only two that are cheap enough to run on every commit. Everything from 30 up runs the real playbook inside a throwaway container, on Arch unless `--os` names another distribution.
 
 Two of these numbers need a word of explanation.
 
@@ -63,7 +63,7 @@ Capability 90 is the next free number after 80, and idempotency belongs at the e
 
 Pass criteria are observable state only. The harness reads installed packages from `pacman -Qq` and `flatpak list --app --columns=application`, unit state from `systemctl is-enabled`, group membership from `id -nG`, and file existence with `stat`. A tail of `playbook.log` is the next diagnostic step after a failed assertion, never a pass criterion.
 
-Tiers 2 and 3 need a Linux shell with a working Docker socket. On Windows that means running from inside WSL, which is also the only place the playbook itself runs at all.
+Every capability runs inside the gate container, [../gate/Dockerfile](../gate/Dockerfile), which `e2e/run.sh` builds and enters by itself, and nothing runs on the machine that starts it. That machine needs a Docker daemon and nothing else: a Linux shell, Git Bash with Docker Desktop, or WSL with Docker Desktop integration enabled all start the same run.
 
 Every container run writes a directory under `e2e/runs/`, which is gitignored, holding `effective-vars.yaml`, `playbook.log`, `verify.log` and `result.txt`. Keep that directory when reporting a failure. The effective variable file is the only record of what the run was actually asked for.
 
