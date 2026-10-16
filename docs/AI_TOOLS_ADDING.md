@@ -133,14 +133,16 @@ tools subsystems** table:
 | `<tool>` | <one-line description> | `nvm` (skips with warning) |
 ```
 
-#### 7. Run the syntax check
+#### 7. Run the tier 1 gate
+
+The playbook syntax check is part of it, and it runs inside the gate container, never on your machine.
 
 ```bash
-wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projekty-IT/InstallationHelper/setup/ansible/site.yaml"
+bash e2e/run.sh
 ```
 
 ```powershell
-wsl -d Ubuntu bash -c "ansible-playbook --syntax-check /mnt/d/Development/projekty-IT/InstallationHelper/setup/ansible/site.yaml"
+wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && bash e2e/run.sh"
 ```
 
 ---

@@ -1,5 +1,4 @@
 .claude/*
-!.claude/CLAUDE.md
 !.claude/commands/
 !.claude/agents/
 
@@ -129,3 +128,7 @@ e2e/.cache/
 # End-to-end capability test run records. The README in that directory stays tracked.
 e2e/testing/runs/*.md
 !e2e/testing/runs/README.md
+
+# Agent task list, written by the task_list_sync hook at runtime
+/tasks.md
+/.agents/tasks.widget.json
