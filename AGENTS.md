@@ -226,17 +226,18 @@ dates, error text and fixes are in the ledger.
 
 ## MANDATORY: never run anything on the owner's computer for testing
 
-This repository installs and removes software, so a test that escapes onto the real machine changes the real machine. It has happened twice, both recorded in [`docs/regression_ledger.md`](docs/regression_ledger.md):
+This repository installs and removes software, so a test that escapes onto the real machine changes the real machine. It has happened twice, and a third time an agent inspected the machine without being asked, all three recorded in [`docs/regression_ledger.md`](docs/regression_ledger.md):
 
 1. Entry 10.64: a downloaded JetBrains Toolbox binary was run only to read its `--help`. It ignored `HOME`, started against the owner's real home, rewrote the Toolbox menu entry to a scratch path, regenerated the IDE launchers and rewrote five `.vmoptions` files.
 2. Entry 10.98: a tier 1 fixture play put its fakes under a directory that did not exist, so it ran the real `pacman -R --noconfirm opencode-desktop-bin`. It was refused only because the check was not running as root.
+3. Entry 10.124: on 2026-10-18 the main session wanted to know whether the Ubuntu desktop session PATH defect of entry 10.123 affected the owner's machine, and without being asked ran `grep PATH` over `~/.config/environment.d/*.conf` and `/etc/environment` and listed `~/.config/environment.d/`. Nothing was changed, but the owner had forbidden any test or check on his computer.
 
 The rules for this repository:
 
 1. Every test, check, gate, test suite, experiment and probe runs only inside a container or a throwaway virtual machine, even when it only reads files. Nothing test-like runs on the owner's computer. In this repository that container is the gate container, built from [`e2e/gate/Dockerfile`](e2e/gate/Dockerfile): `bash e2e/run.sh` builds it and runs every tier inside it by itself, and every check refuses to start anywhere else.
 2. Never run a downloaded program, an installer, a vendor binary, an IDE or an app on the owner's computer to read its help or try it. Read its options from its documentation or its files instead.
 3. Never run a package manager install, remove or upgrade, a playbook, or a role against the owner's computer unless the owner explicitly asks for that exact change in the conversation.
-4. Read-only inspection of the owner's computer is allowed only to answer the owner's direct question, never as a test.
+4. Never test, check, probe or inspect the owner's computer, not even with a read-only command such as grep, cat, ls or a package query, and not to find out whether a defect affects it. If that question matters, ask the owner and give him the exact command to run himself. The only things an agent does on the host are git and file edits inside this repository, Docker commands that start and watch the test containers, and reading the test logs under e2e/runs.
 5. A test that executes a play or a command with fakes belongs in a container. The fakes must also be proven to resolve before anything runs, as defect class 16 above requires, and that proof does not replace the container.
 6. If something on the owner's computer was changed by mistake, stop, tell the owner immediately exactly what changed, and restore it from a backup before doing anything else.
 

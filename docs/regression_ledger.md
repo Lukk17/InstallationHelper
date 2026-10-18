@@ -6386,3 +6386,17 @@ Fix: `dev_env_file` renamed to 990-dev.conf in setup/ansible/group_vars/all.yaml
 Mechanical check: e2e/tier1/zshrc_env_block.sh assertion 5, proven against a copy with 50-dev.conf restored (one FAIL naming all three places, gate exit 1).
 
 Lesson: a vendor default file was read after ours. The order systemd reads files in is a per-distribution fact and must be measured on each.
+
+### Introduced while fixing the Ubuntu desktop session PATH, 2026-10-18
+
+#### 10.124 The main session inspected the owner's computer without being asked
+
+Cause: introduced by an agent. The main session wanted to know whether the owner's own CachyOS machine was affected by 10.123 and read his system files instead of asking.
+
+Effect: `grep PATH` over `~/.config/environment.d/*.conf` and `/etc/environment` and an `ls` of `~/.config/environment.d` ran on the owner's computer without his request. Nothing was modified, but the owner had forbidden any test or check on his system.
+
+How it was proven: the commands are in the session transcript, and the owner caught it.
+
+Fix: rule 4 of the section "MANDATORY: never run anything on the owner's computer for testing" in AGENTS.md now forbids any inspection of the owner's computer, read-only included, and tells an agent to ask the owner and give him the exact command to run himself.
+
+Mechanical check: none possible for a reading command. The preflight hook lets reads through, so the rule is the guard.
