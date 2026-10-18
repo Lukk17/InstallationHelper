@@ -6400,3 +6400,19 @@ How it was proven: the commands are in the session transcript, and the owner cau
 Fix: rule 4 of the section "MANDATORY: never run anything on the owner's computer for testing" in AGENTS.md now forbids any inspection of the owner's computer, read-only included, and tells an agent to ask the owner and give him the exact command to run himself.
 
 Mechanical check: none possible for a reading command. The preflight hook lets reads through, so the rule is the guard.
+
+### Found while verifying the packages of toggles with no mapping, 2026-10-18
+
+#### 10.125 Toggles whose packages only a role installs were verified by a service, a group or nothing
+
+Cause: role tasks installed packages under a toggle with no `software_mapping` entry from literal lists, and setup/ansible/verify_install.yaml expected only mapped packages, so 10.121's fix, which covered lists beside a mapping, never reached them.
+
+Effect: `install_docker` was verified by docker.service and the docker group only (5 packages on Debian and Fedora, 4 on Arch unchecked). `install_waydroid`, `install_snapper`, Fedora's `install_snapd`, macOS's `install_claude_desktop` and `setup_karabiner`, the Pyenv build dependencies, `setup_zsh`'s zsh, curl and git, `install_system_core`'s base packages, and `install_kde_plasma`'s and `configure_kde_plasma`'s packages were checked by nothing. Two defects found beside it: Ubuntu's KDE language pack install ran after the Debian list and reset `role_packages_missing`, so an Ubuntu sddm failure was never noticed (found by reading the task order, not measured), and the Arch manual route installed docker without docker-buildx, docker-compose and iptables.
+
+How it was proven: the extended e2e/tier1/verify_wiring.sh against HEAD without the fix failed `verification wiring: 50 checks, 38 FAILED`, naming each literal list and `setup/ansible/verify_install.yaml does not resolve a companion_packages key with no mapping`. With the fix tier 1 ran 561 checks with 0 failed and tier 2 resolved every new name in debian:trixie, ubuntu:26.04, fedora:44, cachyos, the Arch index and both Homebrew indexes.
+
+Fix: owner decision 71. `companion_packages` keys may name a toggle with no mapping in setup/ansible/vars/Debian.yaml, setup/ansible/vars/RedHat.yaml, setup/ansible/vars/Archlinux.yaml and setup/ansible/vars/Darwin.yaml, the roles read them, setup/ansible/verify_install.yaml expects them, setup/ansible/tasks/snapper_applicability.yaml decides Snapper's btrfs condition for both, and 20 role installs the verification cannot expect are named with their reason in e2e/tier1/unverified_role_installs.txt.
+
+Mechanical check: e2e/tier1/verify_wiring.sh.
+
+Still open: debian_core installs snapd on Debian regardless of `install_snapd`, an owner decision.
