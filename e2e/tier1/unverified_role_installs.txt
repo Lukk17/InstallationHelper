@@ -1,0 +1,46 @@
+# Role installs under a toggle that setup/ansible/verify_install.yaml deliberately does not expect, with
+# the reason. Read by e2e/tier1/verify_wiring.sh, which fails on any role include of
+# setup/ansible/tasks/install_role_packages.yaml under a toggle that neither reads its list from the
+# toggle's companion_packages entry in setup/ansible/vars/<OS>.yaml nor is named here, and on any line
+# here that no longer names such an include.
+#
+# Format: <task file under setup/ansible/roles> | <task name> | <reason>
+#
+# Before adding a line, ask whether the verification could expect the packages after all, the way it
+# does for every companion_packages entry. A line belongs here only when what the include installs
+# depends on something the toggle alone does not decide, or cannot be read back from the package
+# database by the name the include uses.
+
+# Installed only when the product is absent, so a second run, or a machine that already had it, installs
+# nothing here. The product itself is what the verification asks about.
+arch_core/tasks/main.yaml | Install yay build dependencies | the tools yay is built with, installed only while yay is absent, and the verification checks yay itself at /usr/bin/yay
+gnome_setup/tasks/install_gnome.yaml | Install the GNOME desktop metapackage (Debian family) | installed only when /usr/bin/gnome-shell is absent, so a machine that already has GNOME gets nothing here, and the metapackage differs between Ubuntu and Debian inside one dictionary, and the verification checks /usr/bin/gnome-shell
+gnome_setup/tasks/install_gnome.yaml | Install GNOME tooling (Debian family) | installed only when /usr/bin/gnome-shell is absent, so a machine that already has GNOME gets nothing here, and the verification checks /usr/bin/gnome-shell
+gnome_setup/tasks/install_gnome.yaml | Install GNOME Desktop (Fedora) | a dnf group, which rpm records under no name of its own, installed only when /usr/bin/gnome-shell is absent, and the verification checks /usr/bin/gnome-shell
+gnome_setup/tasks/install_gnome.yaml | Install GNOME Desktop (Archlinux) | installed only when /usr/bin/gnome-shell is absent, so a machine that already has GNOME gets nothing here, and the verification checks /usr/bin/gnome-shell
+
+# Groups and snaps, which the package query the verification runs cannot see by the name the include uses.
+kde_plasma_setup/tasks/install_kde.yaml | Install the KDE Plasma group (Fedora) | a dnf group, which rpm records under no name of its own, sddm beside it is companion_packages.kde_plasma, and the verification checks /usr/bin/plasmashell
+arch_core/tasks/main.yaml | Install snapd core channel | a snap, which pacman -Qq does not list, installed only once snapd finished seeding, which a container never does
+
+# One dictionary serves Debian and Ubuntu, and these differ between the two, by ih_base.
+kde_plasma_setup/tasks/install_kde.yaml | Install the Polish KDE language pack (Ubuntu only) | Ubuntu lineage only, and vars/Debian.yaml serves Debian as well, so a companion_packages entry would expect it on Debian too
+system_core/tasks/system_config.yaml | Install Polish language packs (Ubuntu) | Ubuntu lineage only, and vars/Debian.yaml serves Debian as well, so a companion_packages entry would expect them on Debian too
+system_core/tasks/system_config.yaml | Install Polish locale support (Debian) | Debian lineage only, and vars/Debian.yaml serves Ubuntu as well, so a companion_packages entry would expect it on Ubuntu too
+
+# Another toggle's mapped package, installed early.
+kde_plasma_setup/tasks/configure_kde.yaml | Install pipx, which Konsave is installed with | install_pipx's own mapped package, read from software_mapping rather than written a second time, and expected by the verification whenever install_pipx is on
+
+# The bootloader. Each step runs only on a UEFI machine and after the one before it proved itself, the
+# role checks its own result, and no container can run any of it.
+systemd_boot/tasks/main.yaml | Ensure systemd-boot package is present (Debian/Ubuntu) | installed only on a UEFI machine, the role ends early on BIOS, and the role verifies the boot entry itself
+systemd_boot/tasks/fedora.yaml | Install systemd-boot (Fedora) | installed only on a UEFI machine, the role ends early on BIOS, and the role verifies the boot entry itself
+systemd_boot/tasks/fedora.yaml | Install kernel-install plugin to keep systemd-boot updated on Fedora | installed only on a UEFI machine, and tolerated on purpose: the role asks rpm for it and reports its absence itself
+systemd_boot/tasks/remove_grub.yaml | Install efibootmgr if not present (Debian) | installed only when remove_distro_grub runs after systemd-boot was verified on a UEFI machine
+systemd_boot/tasks/remove_grub.yaml | Install efibootmgr if not present (Arch) | installed only when remove_distro_grub runs after systemd-boot was verified on a UEFI machine
+systemd_boot/tasks/remove_grub.yaml | Install efibootmgr if not present (Fedora) | installed only when remove_distro_grub runs after systemd-boot was verified on a UEFI machine
+
+# Owned by no one toggle: virtualization_config runs under any of four, and this depends on the machine.
+virtualization_config/tasks/main.yaml | Install spice-vdagent (Debian guest) | installed only when this machine is itself a virtual machine guest, whichever of the four virtualization toggles ran the role
+virtualization_config/tasks/main.yaml | Install spice-vdagent (Arch guest) | installed only when this machine is itself a virtual machine guest, whichever of the four virtualization toggles ran the role
+virtualization_config/tasks/main.yaml | Install spice-vdagent (Fedora guest) | installed only when this machine is itself a virtual machine guest, whichever of the four virtualization toggles ran the role

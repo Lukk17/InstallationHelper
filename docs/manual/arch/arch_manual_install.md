@@ -243,7 +243,7 @@ sudo usermod -aG openrazer "${USER}"
 | App | Install command |
 |---|---|
 | QEMU/KVM + virt-manager | `for package in virt-manager qemu-full libvirt dnsmasq nftables virtiofsd; do sudo pacman -S --needed "${package}" \|\| echo "FAILED: ${package}"; done` |
-| Docker | `sudo pacman -S --needed docker` |
+| Docker | `for package in docker docker-buildx docker-compose iptables; do sudo pacman -S --needed "${package}" \|\| echo "FAILED: ${package}"; done` |
 | Podman Desktop | `flatpak install -y flathub io.podman_desktop.PodmanDesktop`, a front end for the Docker engine above |
 
 Start the Docker daemon now and at every boot, which the package does not do on every distribution:

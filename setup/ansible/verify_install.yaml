@@ -218,34 +218,71 @@
           {{ 'paru could not be built'
              if (ih_family == 'Archlinux' and not (paru_available | default(false) | bool)) else '' }}
 
-    # --- what a role installs beside a mapping ---------------------------------
-    # Where one toggle installs more than its mapped package, the role installs the rest from the
-    # toggle's companion_packages entry in vars/<OS>.yaml, and the same entry is read here, so the
-    # verification expects every package the run installed for an enabled mapping and not only the one
-    # the mapping names. Before this, install_qastools on Debian and Ubuntu was verified by qasmixer
+    # --- what a role installs under a toggle ------------------------------------
+    # Where a role installs packages under a toggle, it installs them from the toggle's
+    # companion_packages entry in vars/<OS>.yaml, and the same entry is read here, so the verification
+    # expects every package the run installed for an enabled toggle. Beside a mapping that is the rest of
+    # what the toggle installs: before this, install_qastools on Debian and Ubuntu was verified by qasmixer
     # alone while the role also installed qashctl and qasconfig, and install_virt_manager by virt-manager
-    # alone while virtualization_config installed the whole KVM stack, so a run that lost one of them
-    # reported success. OpenRazer's kernel headers on Arch depend on the kernels the machine has, so
-    # they come from the same task file arch_prereqs.yaml installs them from, rather than from a list.
-    # e2e/tier1/verify_wiring.sh fails on a role list beside a mapping that this cannot see.
+    # alone while virtualization_config installed the whole KVM stack. For a toggle with no mapping it is
+    # everything: install_docker was verified only by docker.service and the docker group, while the
+    # engine's plugins went unchecked, and install_waydroid, install_snapper, Fedora's install_snapd and
+    # macOS's install_claude_desktop and setup_karabiner were checked by nothing at all. A key names its
+    # toggle without the install_ prefix, or whole when the toggle has none, setup_karabiner for one.
+    # OpenRazer's kernel headers on Arch depend on the kernels the machine has, so they come from the same
+    # task file arch_prereqs.yaml installs them from, rather than from a list.
+    # e2e/tier1/verify_wiring.sh fails on a role install under a toggle that this cannot see.
     - name: Name the kernel headers of every installed kernel, the same way the playbook names them
       ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/dkms_header_packages.yaml"
       when: ih_family == 'Archlinux' and 'openrazer' in (enabled_mapped | default([]))
 
-    - name: Name every package a role installs beside an enabled mapping
+    - name: Name every package a role installs under a toggle on this family
+      ansible.builtin.set_fact:
+        ih_companions_all: >-
+          {{ (os_dict.companion_packages | default({}))
+             | combine({'openrazer': dkms_header_packages | default([])} if ih_family == 'Archlinux' else {}) }}
+        ih_role_only_keys: >-
+          {{ (os_dict.companion_packages | default({})) | list
+             | reject('in', os_dict.software_mapping | list) | sort }}
+
+    # A key with a mapping follows enabled_mapped, which already leaves out what this processor cannot
+    # run. A key with none follows its toggle, install_<key> when that exists and <key> itself otherwise.
+    - name: Determine which of those toggles this run enabled
+      ansible.builtin.set_fact:
+        ih_companion_keys_enabled: "{{ ih_companion_keys_enabled | default([]) + [item] }}"
+      loop: "{{ ih_companions_all | list }}"
+      when: >-
+        (item in (enabled_mapped | default([])))
+        if item in os_dict.software_mapping
+        else (lookup('vars', 'install_' ~ item, default=lookup('vars', item, default=false)) | bool)
+
+    # Snapper keeps snapshots of a btrfs root only, and roles/snapper installs nothing on any other, so
+    # it is not expected there either. The answer comes from the same task file the role reads.
+    - name: Ask whether Snapper applies to this machine, the same way the playbook asks
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/snapper_applicability.yaml"
+      when: "'snapper' in (ih_companion_keys_enabled | default([]))"
+
+    - name: Name every enabled toggle whose role installs nothing on this machine, and why
+      ansible.builtin.set_fact:
+        ih_companions_not_applicable: >-
+          {{ {'snapper': 'the root filesystem is ' ~ (root_fs_type.stdout | default('', true) | trim | default('unknown', true))
+                         ~ ', and Snapper snapshots a btrfs root only'}
+             if ('snapper' in (ih_companion_keys_enabled | default([])) and not (snapper_applies | default(false) | bool))
+             else {} }}
+
+    - name: Name every package a role installs under an enabled toggle
       ansible.builtin.set_fact:
         ih_companions_by_key: >-
-          {{ (os_dict.companion_packages | default({}))
-             | combine({'openrazer': dkms_header_packages | default([])} if ih_family == 'Archlinux' else {})
-             | dict2items
-             | selectattr('key', 'in', enabled_mapped | default([]))
+          {{ ih_companions_all | dict2items
+             | selectattr('key', 'in', ih_companion_keys_enabled | default([]))
+             | rejectattr('key', 'in', ih_companions_not_applicable | list)
              | items2dict }}
 
-    - name: Collect every package a role installs beside an enabled mapping
+    - name: Collect every package a role installs under an enabled toggle
       ansible.builtin.set_fact:
         expected_companions: "{{ ih_companions_by_key | dict2items | map(attribute='value') | flatten | unique | list }}"
 
-    - name: Expect every package a role installs beside an enabled mapping among the native packages
+    - name: Expect every package a role installs under an enabled toggle among the native packages
       ansible.builtin.set_fact:
         expected_native: "{{ expected_native + expected_companions }}"
 
@@ -410,7 +447,7 @@
         missing_flatpak: "{{ expected_flatpak | difference(installed_flatpak) }}"
         missing_aur: "{{ (expected_aur | default([])) | difference(installed_native) }}"
 
-    - name: Name the packages each enabled mapping is missing beside its own
+    - name: Name the packages each enabled toggle is missing among those a role installs
       ansible.builtin.set_fact:
         ih_companions_missing: >-
           {{ dict(ih_companions_by_key | dict2items | map(attribute='key')
@@ -420,7 +457,8 @@
     # Back from package names to the names a person recognises, computed from the same two missing
     # sets the assertions fail on, so the report and the verdict cannot disagree. An application whose
     # own package is there and one of its companions is not is missing too, because the run did not
-    # install everything its toggle asked for.
+    # install everything its toggle asked for. A toggle with no mapping is named apart from them, because
+    # the tally below counts mapped applications.
     - name: Name the applications that are missing, requested and present, or not requested
       ansible.builtin.set_fact:
         ih_missing_keys: >-
@@ -428,7 +466,8 @@
                | selectattr('key', 'in', enabled_mapped | default([]))
                | selectattr('value', 'in', missing_native + missing_flatpak)
                | map(attribute='key') | list)
-              + (ih_companions_missing | list)) | unique | list }}
+              + (ih_companions_missing | list | select('in', os_dict.software_mapping | list) | list)) | unique | list }}
+        ih_role_missing_keys: "{{ ih_companions_missing | list | reject('in', os_dict.software_mapping | list) | sort }}"
         ih_all_keys: "{{ os_dict.software_mapping | dict2items | map(attribute='key') | list | sort }}"
 
     # --- systemd units -------------------------------------------------------
@@ -1160,6 +1199,12 @@
           {% set why = ' (NOT installed: ' ~ ih_aur_missing_reason ~ ')' if (verdict == 'MISSING' and ih_aur_missing_reason) else '' %}
           [verify] {{ '%-30s %-14s %s' | format(row.key, verdict, 'aur, by a role: ' ~ row.package ~ why) }}
           {% endfor %}
+          {% for key in ih_role_only_keys | default([]) %}
+          {% set verdict = 'MISSING' if key in (ih_companions_missing | default({})) else 'installed' if key in (ih_companions_by_key | default({})) else 'skipped' if key in (ih_companions_not_applicable | default({})) else 'not requested' %}
+          {% set reason = (ih_missing_reasons | default({}))[key] | default(ih_sdk_missing_reason if ('install_' ~ key) in (ih_sdk_toggles | default([])) else '', true) %}
+          {% set why = ' (NOT installed: ' ~ ((ih_companions_missing | default({}))[key] | join(', ')) ~ ((', because ' ~ reason) if reason else '') ~ ')' if verdict == 'MISSING' else ' (not installed on purpose: ' ~ ih_companions_not_applicable[key] ~ ')' if verdict == 'skipped' else '' %}
+          [verify] {{ '%-30s %-14s %s' | format(key, verdict, 'by a role: ' ~ (os_dict.companion_packages[key] | join(', ')) ~ why) }}
+          {% endfor %}
           {% for row in ih_outside_pm_report_all | default([]) %}
           {% set why = ' (NOT installed: ' ~ ih_sdk_missing_reason ~ ')' if (row.verdict == 'MISSING' and row.sdk and ih_sdk_missing_reason) else '' %}
           [verify] {{ '%-30s %-14s %s' | format(row.key, row.verdict, row.how ~ why) }}
@@ -1213,7 +1258,8 @@
           [verify] Arch User Repository packages expected {{ expected_aur | default([]) | length }}, missing {{ missing_aur | default([]) | length }}{{ ': ' ~ (missing_aur | join(', ')) if (missing_aur | default([]) | length > 0) else '' }}
           [verify] paru {{ 'is on this machine' if not ih_aur_missing_reason else 'is NOT on this machine, because it could not be built, so every Arch User Repository package above that is MISSING was skipped for that reason' }}
           {% endif %}
-          [verify] packages a role installs beside an enabled mapping expected {{ expected_companions | default([]) | length }}, missing {{ expected_companions | default([]) | intersect(missing_native) | length }}{{ ': ' ~ (expected_companions | intersect(missing_native) | join(', ')) if (expected_companions | default([]) | intersect(missing_native) | length > 0) else '' }}, counted among the native packages below
+          [verify] toggles whose packages only a role installs: requested {{ (ih_role_only_keys | default([])) | select('in', ih_companions_by_key | default({})) | list | length }}, missing {{ ih_role_missing_keys | default([]) | length }}{{ ': ' ~ (ih_role_missing_keys | join(', ')) if (ih_role_missing_keys | default([]) | length > 0) else '' }}
+          [verify] packages a role installs under an enabled toggle expected {{ expected_companions | default([]) | length }}, missing {{ expected_companions | default([]) | intersect(missing_native) | length }}{{ ': ' ~ (expected_companions | intersect(missing_native) | join(', ')) if (expected_companions | default([]) | intersect(missing_native) | length > 0) else '' }}, counted among the native packages below
           [verify] native packages expected {{ expected_native | length }}, missing {{ missing_native | length }}; flatpak expected {{ expected_flatpak | length }}, missing {{ missing_flatpak | length }}
           [verify] URL-installed candidates examined {{ url_candidates | default([]) | length }}, without a download location {{ (url_without_location | default([])) | length }}
           [verify] outside-package-manager tools probed via {{ ih_user_shell }} as an interactive shell for {{ non_root_user }}, the shell a plain terminal opens, with a login-shell probe kept as a secondary, non-failing check{{ '' if ih_user_shell_known | default(false) else ' (login shell unknown, /bin/bash assumed)' }}
@@ -1272,11 +1318,11 @@
           ('. Of these, ' ~ (missing_aur | join(', ')) ~ ' are Arch User Repository packages, NOT installed because '
            ~ ih_aur_missing_reason ~ '.') if (ih_aur_missing_reason and (missing_aur | default([]) | length > 0)) else '' }}{{
           ('. Skipped by the run on purpose: '
-           ~ (ih_missing_keys | select('in', ih_missing_reasons | default({}))
-              | zip(ih_missing_keys | select('in', ih_missing_reasons | default({}))
+           ~ ((ih_missing_keys + ih_role_missing_keys | default([])) | select('in', ih_missing_reasons | default({}))
+              | zip((ih_missing_keys + ih_role_missing_keys | default([])) | select('in', ih_missing_reasons | default({}))
                     | map('extract', ih_missing_reasons | default({})))
               | map('join', ' because ') | join(', ')) ~ '.')
-          if (ih_missing_keys | select('in', ih_missing_reasons | default({})) | list | length > 0) else '' }}
+          if ((ih_missing_keys + ih_role_missing_keys | default([])) | select('in', ih_missing_reasons | default({})) | list | length > 0) else '' }}
         quiet: true
 
     # The second condition asks about the manager list rather than about the candidate count, and

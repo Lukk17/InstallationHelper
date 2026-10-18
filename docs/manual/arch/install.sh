@@ -64,7 +64,8 @@ PACMAN_PACKAGES=(
   signal-desktop keepassxc vlc handbrake rawtherapee steam veracrypt
   speedtest-cli boinc lynis clamav hardinfo2 lm_sensors baobab gparted
   partitionmanager virt-manager qemu-full libvirt dnsmasq nftables
-  virtiofsd docker zsh syncthing tailscale openrazer-daemon
+  virtiofsd docker docker-buildx docker-compose iptables zsh syncthing tailscale
+  openrazer-daemon
 )
 
 # The gaming suite: Lutris on Arch, the CachyOS gaming metapackage on CachyOS, as

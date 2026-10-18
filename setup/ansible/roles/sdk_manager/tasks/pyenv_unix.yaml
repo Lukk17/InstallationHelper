@@ -1,79 +1,25 @@
 ---
 # One package per call through tasks/install_role_packages.yaml, for all three families, so one that
-# cannot install costs only itself and is named.
-- name: Install Pyenv build dependencies (Debian)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - build-essential
-      - libssl-dev
-      - zlib1g-dev
-      - libbz2-dev
-      - libreadline-dev
-      - libsqlite3-dev
-      # libncursesw5-dev is gone from Debian trixie and Ubuntu 26.04, both of which ship
-      # libncurses-dev instead, confirmed with apt-cache policy. apt fails the whole task on an
-      # unknown name, so every Pyenv build dependency install failed across the Debian family and
-      # took Python version management with it. See docs/regression_ledger.md.
-      - libncurses-dev
-      - xz-utils
-      - tk-dev
-      - libxml2-dev
-      - libxmlsec1-dev
-      - libffi-dev
-      - liblzma-dev
-      - curl
-    role_packages_purpose: the Pyenv build dependencies
-  when: ih_family == 'Debian'
-
-- name: Install Pyenv build dependencies (Fedora)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - gcc
-      - make
-      - patch
-      # Fedora moved to zlib-ng and zlib-devel no longer exists on 44. The replacement is
-      # zlib-ng-compat-devel, which provides the same headers, confirmed with dnf info.
-      - zlib-ng-compat-devel
-      - bzip2-devel
-      - readline-devel
-      - sqlite-devel
-      - openssl-devel
-      - tk-devel
-      - libffi-devel
-      - xz-devel
-      - curl
-    role_packages_purpose: the Pyenv build dependencies
-  when: ih_family == 'RedHat'
-
-# zlib is deliberately not in this list. Every Arch-family system already has a provider of it, and
-# on CachyOS that provider is zlib-ng-compat, which declares `Conflicts With: zlib`. Naming the real
+# cannot install costs only itself and is named. The list is install_python's companion_packages entry
+# in vars/<OS>.yaml, which setup/ansible/verify_install.yaml reads too, and the reason for each name that
+# changed with a distribution release is written beside it there.
+#
+# On Arch zlib is deliberately not in that list. Every Arch-family system already has a provider of it,
+# and on CachyOS that provider is zlib-ng-compat, which declares `Conflicts With: zlib`. Naming the real
 # package as an explicit target therefore asks pacman to replace the one that is installed, and with
 # --noconfirm it cannot answer its own question and the whole task fails with "unresolvable package
 # conflicts detected". Measured on the CachyOS image on 2026-08-21: with zlib in the list the install
 # exits 1, without it the install exits 0 and /usr/include/zlib.h is still there, from
 # zlib-ng-compat, so python-build has the headers it needs either way.
-- name: Install Pyenv build dependencies (Arch)
+- name: Install Pyenv build dependencies
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - base-devel
-      - openssl
-      - xz
-      - tk
-      - curl
+    role_packages: "{{ os_dict.companion_packages.python }}"
     role_packages_purpose: the Pyenv build dependencies
-  when: ih_family == 'Archlinux'
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
 # pyenv-installer, which pyenv.run hands to bash, clones pyenv into ~/.pyenv first and then
 # pyenv-doctor, pyenv-update and pyenv-virtualenv into its plugins directory, under set -e. Guarding

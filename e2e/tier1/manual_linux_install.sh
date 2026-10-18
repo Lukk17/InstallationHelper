@@ -18,8 +18,10 @@
 # An apt_url or dnf_url mapping is compared by the download location the playbook resolves for it,
 # the mapping's url field, else the <key>_rpm_url pin for dnf_url, else the <key>_url pin, rendered by
 # the pinned values port, because that location is what the manual route has to fetch. The family's
-# companion_packages entries count as well, each package under its toggle, because the playbook installs
-# them under that toggle beside the mapping.
+# companion_packages entries beside a mapping count as well, each package under its toggle, because the
+# playbook installs them under that toggle beside the mapping. An entry for a toggle with no mapping,
+# install_docker's engine or install_snapper's snapper, is no dictionary name to the manual route, so a
+# script that installs one says why in manual_linux_install_allowed.txt like any other name.
 #
 # Asserted for each family:
 #   1. the script installs, or for the AUR lists with its yay command, every mapping whose toggle is
@@ -335,6 +337,7 @@ for family in "${FAMILIES[@]}"; do
     done
     while read -r c_key c_name; do
         [[ -n "${c_name}" ]] || continue
+        [[ -v "family_line[${c_key}]" ]] || continue
         mapped["${c_name}"]=1
         if [[ "${default_on[${c_key}]:-false}" == "true" ]]; then expected["${c_name}"]=1; fi
     done < <(companion_packages_of "${VARS_DIR}/${family}.yaml")

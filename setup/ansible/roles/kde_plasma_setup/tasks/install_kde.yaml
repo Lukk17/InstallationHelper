@@ -30,35 +30,9 @@
 # that last difference. The shared list is keyed on the family and the difference on
 # ih_base, which is Ubuntu lineage rather than the distribution's own name, so Pop!_OS and
 # Linux Mint get the language pack and Linux Mint Debian Edition does not. See
-# setup/ansible/tasks/derive_os_facts.yaml. Every name below was checked with apt-cache policy in both a
-# debian:trixie and an ubuntu:26.04 container. See docs/regression_ledger.md.
+# setup/ansible/tasks/derive_os_facts.yaml. Every name in the Debian family's list, now kde_plasma in
+# vars/Debian.yaml, was checked with apt-cache policy in both a debian:trixie and an ubuntu:26.04 container. See docs/regression_ledger.md.
 #
-# One package per call through tasks/install_role_packages.yaml, here and for Fedora and Arch below, so
-# one that cannot install costs only itself and is named. The apt index is the one the pre_tasks in
-# site.yaml refreshed through tasks/apt_cache_refresh.yaml, which is why the update_cache this task
-# used to carry is not repeated.
-- name: Install KDE Plasma Wayland (Debian family, shared packages)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - kde-standard
-      - plasma-workspace
-      - systemsettings
-      - plasma-desktop
-      - kde-config-sddm
-      - kde-config-gtk-style
-      - kde-config-gtk-style-preview
-      - breeze
-      - qt5-style-kvantum
-      - qt6-style-kvantum
-      - sddm-theme-breeze
-      - sddm
-    role_packages_purpose: the KDE Plasma desktop
-  when: ih_family == 'Debian'
-
 # Ubuntu ships translated KDE strings as language packs, Debian does not package them at
 # all and gets its translations with the applications. Kept separate rather than dropped,
 # because losing it would silently change what an Ubuntu user gets.
@@ -81,9 +55,9 @@
 # user sddm", and the service enable and the config writes were working on a display manager that was
 # not installed. Found by the first Fedora KDE run this repository has ever done, on 2026-08-21, and
 # it is the same defect as the Arch OpenRazer group: a group is not a promise that a particular
-# package is inside it. Arch already names sddm explicitly three tasks below, which is what made the
-# difference visible.
-- name: Install KDE Plasma Wayland (Fedora)
+# package is inside it. Arch already named sddm explicitly, which is what made the difference visible.
+# sddm is installed by the family-wide task below, from the kde_plasma entry in vars/RedHat.yaml.
+- name: Install the KDE Plasma group (Fedora)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
@@ -102,22 +76,28 @@
       # GNOME. Two display names, one tolerated and one not, is reason enough to stop using them:
       # an ID is what the packaging system guarantees, and dnf group info prints it first.
       - "@kde-desktop"
-      - sddm
     role_packages_purpose: the KDE Plasma desktop
   when: ih_family == 'RedHat'
 
-- name: Install KDE Plasma Wayland (Archlinux)
+# The packages for every family: the Debian family's shared list, sddm beside the Fedora group, and the
+# Arch metapackages. One package per call through tasks/install_role_packages.yaml, so one that cannot
+# install costs only itself and is named. The list is install_kde_plasma's companion_packages entry in
+# vars/<OS>.yaml, which setup/ansible/verify_install.yaml reads too. The apt index is the one the
+# pre_tasks in site.yaml refreshed through tasks/apt_cache_refresh.yaml, which is why the update_cache
+# this task used to carry is not repeated.
+#
+# Last of the installs on purpose: sddm is in this list, and the task below reads role_packages_missing,
+# which only the most recent install sets. With the Ubuntu language pack installed after the Debian list,
+# as it was, an Ubuntu sddm that did not install was never noticed there.
+- name: Install KDE Plasma Wayland
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - plasma-meta
-      - kde-applications-meta
-      - sddm
+    role_packages: "{{ os_dict.companion_packages.kde_plasma }}"
     role_packages_purpose: the KDE Plasma desktop
-  when: ih_family == 'Archlinux'
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
 # Every SDDM task below works on the display manager, so an sddm that did not install leaves them
 # nothing to work on. It is already named as NOT installed, and the first of them to touch it, the

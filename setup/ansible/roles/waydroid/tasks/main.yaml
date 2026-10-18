@@ -72,7 +72,7 @@
     apply:
       tags: [always]
   vars:
-    role_packages: [waydroid]
+    role_packages: "{{ os_dict.companion_packages.waydroid }}"
     role_packages_purpose: Waydroid
   when: ih_family == 'Debian'
 
@@ -85,7 +85,7 @@
     apply:
       tags: [always]
   vars:
-    role_packages: [waydroid]
+    role_packages: "{{ os_dict.companion_packages.waydroid }}"
     role_packages_purpose: Waydroid
   when: ih_family == 'Archlinux'
 
@@ -95,7 +95,7 @@
     apply:
       tags: [always]
   vars:
-    role_packages: [waydroid]
+    role_packages: "{{ os_dict.companion_packages.waydroid }}"
     role_packages_purpose: Waydroid
   when: ih_family == 'RedHat'
 

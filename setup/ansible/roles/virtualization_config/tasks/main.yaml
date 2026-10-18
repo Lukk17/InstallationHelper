@@ -164,18 +164,16 @@
     - "'docker' in unavailable_repositories | default({})"
   tags: [docker]
 
+# Docker's packages are install_docker's companion_packages entry in vars/<OS>.yaml, which
+# setup/ansible/verify_install.yaml reads too, so the verification expects every package installed here
+# and not only docker.service and the docker group.
 - name: Install Docker CE (Debian)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
+    role_packages: "{{ os_dict.companion_packages.docker }}"
     role_packages_purpose: Docker
   when:
     - ih_family == 'Debian'
@@ -189,12 +187,7 @@
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
+    role_packages: "{{ os_dict.companion_packages.docker }}"
     role_packages_purpose: Docker
   when:
     - ih_family == 'RedHat'
@@ -223,11 +216,7 @@
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - docker
-      - docker-buildx
-      - docker-compose
-      - iptables
+    role_packages: "{{ os_dict.companion_packages.docker }}"
     role_packages_purpose: Docker
   when: ih_family == 'Archlinux' and install_docker | default(false) | bool
   tags: [docker]

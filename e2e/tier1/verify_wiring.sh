@@ -246,29 +246,38 @@ else
          "expected the Failed count to be read into \$verifyFailed and to exit 3 when it is not zero"
 fi
 
-# --- every package a toggle installs is verified, not only its mapped one ----------------------------
-# The play expects the package a toggle's software_mapping entry names. Where a role installs more
-# under the same toggle, through setup/ansible/tasks/install_role_packages.yaml, the rest used to be a
-# literal list in the role that the play never read: install_qastools on Debian and Ubuntu installed
-# qashctl and qasconfig beside the qasmixer mapping, install_virt_manager installed the KVM stack beside
-# virt-manager, and install_openrazer installed kernel headers beside openrazer-meta and
-# openrazer-daemon, and a run that lost any of them was verified as a success. Owner decision 70.
+# --- every package a toggle installs is verified --------------------------------------------------
+# The play expects the package a toggle's software_mapping entry names. Where a role installs packages
+# under a toggle, through setup/ansible/tasks/install_role_packages.yaml, they used to be literal lists
+# in the role that the play never read: install_qastools on Debian and Ubuntu installed qashctl and
+# qasconfig beside the qasmixer mapping, install_virt_manager installed the KVM stack beside
+# virt-manager, install_docker installed the engine and its plugins while the play asked only for
+# docker.service, and install_waydroid, install_snapper and macOS's setup_karabiner installed packages
+# the play never asked about at all. A run that lost any of them was verified as a success. Owner
+# decisions 70 and 71.
 #
 # So the role reads such a list from the toggle's companion_packages entry in vars/<OS>.yaml, or from a
-# fact a shared task file derives, and the play reads the same thing into its expected set. Asserted:
-#   1. every role include of install_role_packages.yaml under install_<key>, on a family whose
-#      software_mapping has <key>, takes its list from companion_packages.<key>, or from one fact the
-#      play also reads into its companion set, never from a literal list;
-#   2. every companion_packages entry belongs to a mapping of its family, is a list of literal names
-#      without the mapped package, and is read by some role include, so it is installed by something;
+# fact a shared task file derives, and the play reads the same thing into its expected set. Every role
+# install is found by following site.yaml's role gates and each role's includes down to the include of
+# install_role_packages.yaml, so a toggle that gates a whole role counts as much as one in a task's own
+# when. Asserted:
+#   1. every role include of install_role_packages.yaml whose conditions name a toggle takes its list
+#      from companion_packages.<key> of a toggle among those conditions, optionally after that toggle's
+#      own mapped package, or from one fact the play also reads into its companion set, or is named with
+#      its reason in unverified_role_installs.txt, never a literal list nobody verifies;
+#   2. every companion_packages entry names a toggle its family loads, install_<key> or <key> itself, is
+#      a list of literal names without the mapped package, and is read by some role include on its
+#      family, so it is installed by something;
 #   3. the play reads os_dict.companion_packages into a fact that reaches expected_native, the set the
-#      native-package assertion compares with the machine.
-# The number of role installs beside a mapping is reported and must not be zero, so a rewrite that hides
+#      native-package assertion compares with the machine, and resolves a key with no mapping through
+#      its toggle;
+#   4. every line of unverified_role_installs.txt still names such an include and gives a reason.
+# The number of role installs under a toggle is reported and must not be zero, so a rewrite that hides
 # them from this parser fails here rather than passing over nothing.
 require_python "every package a toggle installs is verified" "verification wiring"
 
 companion_status=0
-companion_report="$("${PYTHON}" - "${ANSIBLE_DIR}" <<'PYEOF'
+companion_report="$("${PYTHON}" - "${ANSIBLE_DIR}" "${E2E_ROOT}/tier1/unverified_role_installs.txt" <<'PYEOF'
 import pathlib
 import re
 import sys
@@ -276,8 +285,10 @@ import sys
 import yaml
 
 ANSIBLE = pathlib.Path(sys.argv[1])
+ALLOWED_FILE = pathlib.Path(sys.argv[2])
 FAMILIES = ['Debian', 'RedHat', 'Archlinux', 'Darwin']
 INCLUDE_KEYS = ('ansible.builtin.include_tasks', 'include_tasks', 'ansible.builtin.import_tasks', 'import_tasks')
+ROLE_KEYS = ('ansible.builtin.import_role', 'import_role', 'ansible.builtin.include_role', 'include_role')
 SHARED = 'install_role_packages.yaml'
 WORD = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 lines = []
@@ -302,13 +313,17 @@ def when_text(task):
     return '' if cond is None else str(cond)
 
 
+def joined(*parts):
+    return ' and '.join(p for p in parts if p)
+
+
 def tasks_of(node, inherited=''):
     if not isinstance(node, list):
         return
     for task in node:
         if not isinstance(task, dict):
             continue
-        text = (inherited + ' ' + when_text(task)).strip()
+        text = joined(inherited, when_text(task))
         yield task, text
         for section in ('block', 'rescue', 'always'):
             yield from tasks_of(task.get(section), text)
@@ -322,12 +337,27 @@ def included_file(task):
     return ''
 
 
+# The toggles each family loads, the booleans of group_vars, as site.yaml loads them.
+group = {name: load(ANSIBLE / 'group_vars' / (name + '.yaml')) for name in ('all', 'linux', 'macos')}
+bools = {name: {k for k, v in values.items() if isinstance(v, bool)} for name, values in group.items()}
+toggles_of = {family: bools['all'] | (bools['macos'] if family == 'Darwin' else bools['linux']) for family in FAMILIES}
+all_toggles = set().union(*toggles_of.values())
+
+
+def toggle_of(key, family):
+    if ('install_' + key) in toggles_of[family]:
+        return 'install_' + key
+    return key if key in toggles_of[family] else None
+
+
 dictionaries = {family: load(ANSIBLE / 'vars' / (family + '.yaml')) for family in FAMILIES}
 mappings = {family: d.get('software_mapping') or {} for family, d in dictionaries.items()}
 companions = {family: d.get('companion_packages') or {} for family, d in dictionaries.items()}
 
-# The play: the fact that reads companion_packages, and whether it reaches expected_native.
-verify_doc = yaml.safe_load((ANSIBLE / 'verify_install.yaml').read_text(encoding='utf-8'))
+# The play: the fact that reads companion_packages, whether it reaches expected_native, and whether a
+# key with no mapping is resolved through its toggle.
+verify_text = (ANSIBLE / 'verify_install.yaml').read_text(encoding='utf-8')
+verify_doc = yaml.safe_load(verify_text)
 facts = {}
 for play in verify_doc or []:
     for section in ('pre_tasks', 'tasks', 'post_tasks'):
@@ -357,71 +387,152 @@ def reaches(start, goal):
 verified_fact = next((name for name in companion_facts if reaches('expected_native', name)), None)
 if not companion_facts:
     lines.append('FAIL setup/ansible/verify_install.yaml reads no os_dict.companion_packages, so every '
-                 'package a role installs beside a mapping is installed by the run and checked by nothing')
+                 'package a role installs under a toggle is installed by the run and checked by nothing')
 elif verified_fact is None:
     lines.append('FAIL setup/ansible/verify_install.yaml reads os_dict.companion_packages into %s, and '
                  'expected_native never takes it in, so the native-package assertion still ignores them'
                  % ', '.join(sorted(companion_facts)))
+if "lookup('vars', 'install_' ~ item, default=lookup('vars', item" not in verify_text:
+    lines.append('FAIL setup/ansible/verify_install.yaml does not resolve a companion_packages key with no '
+                 'mapping through install_<key>, or <key> itself, so a toggle no mapping names is never '
+                 'expected even when it is on')
 verified_text = ' '.join(facts.get(verified_fact, [])) if verified_fact else ''
 
-# The roles: every install beside a mapping, and where its list comes from.
-beside = 0
-read_keys = set()
-for path in sorted((ANSIBLE / 'roles').glob('*/tasks/*.yaml')):
-    rel = path.relative_to(ANSIBLE).as_posix()
-    for task, text in tasks_of(yaml.safe_load(path.read_text(encoding='utf-8'))):
-        if SHARED not in included_file(task):
+# The documented exceptions: <role task file under roles/> | <task name> | <reason>.
+allowed = {}
+if not ALLOWED_FILE.is_file():
+    lines.append('FAIL %s is missing, so no role install can be excused and none can be checked' % ALLOWED_FILE.name)
+else:
+    for raw in ALLOWED_FILE.read_text(encoding='utf-8').splitlines():
+        text = raw.strip()
+        if not text or text.startswith('#'):
             continue
-        listed = (task.get('vars') or {}).get('role_packages')
-        named = [family for family in FAMILIES if "'%s'" % family in text]
-        for key in sorted(set(re.findall(r'\binstall_([a-z0-9_]+)\b', text))):
-            for family in (named or [f for f in FAMILIES if key in mappings[f]]):
-                if key not in mappings[family]:
-                    continue
-                beside += 1
-                where = '%s, "%s", on %s beside the %s mapping' % (rel, task.get('name', '?'), family, key)
-                if isinstance(listed, str) and ('companion_packages.' + key) in listed:
-                    read_keys.add((family, key))
-                    continue
-                single = single_variable(listed)
-                if single and single in WORD.findall(verified_text):
-                    continue
-                if single:
-                    lines.append('FAIL %s installs the fact %s, which setup/ansible/verify_install.yaml '
-                                 'never reads into the set it expects, so those packages are installed and '
-                                 'not verified' % (where, single))
-                else:
-                    lines.append('FAIL %s installs %s from a list of its own, which '
-                                 'setup/ansible/verify_install.yaml cannot see. Move the names into '
-                                 'companion_packages.%s in vars/%s.yaml and read them from there'
-                                 % (where, listed, key, family))
+        parts = [p.strip() for p in text.split('|')]
+        if len(parts) != 3 or not all(parts):
+            lines.append('FAIL a line in %s is not <file> | <task name> | <reason>: %s' % (ALLOWED_FILE.name, text))
+            continue
+        allowed[(parts[0], parts[1])] = False
+
+# The roles: every include of the shared file, with every condition above it, from site.yaml's role
+# gate down through each include. A task file no include reaches is still read, with its own
+# conditions only, so moving a file out of the chain cannot hide it.
+site = yaml.safe_load((ANSIBLE / 'site.yaml').read_text(encoding='utf-8'))
+gates = {}
+for play in site or []:
+    for task, text in tasks_of(play.get('tasks')):
+        for key in ROLE_KEYS:
+            if key in task:
+                gates[task[key]['name']] = text
+
+installs = []
+visited = set()
+
+
+def visit(path, cond, stack):
+    if not path.is_file() or path in stack:
+        return
+    visited.add(path)
+    role_dir = path.parent
+    for task, text in tasks_of(yaml.safe_load(path.read_text(encoding='utf-8'))):
+        target = included_file(task)
+        if not target:
+            continue
+        full = joined(cond, text)
+        if SHARED in target:
+            installs.append((path, task, full))
+            continue
+        match = re.search(r'roles/([^/]+)/tasks/([^/}]+\.ya?ml)$', target)
+        if match:
+            visit(ANSIBLE / 'roles' / match.group(1) / 'tasks' / match.group(2), full, stack | {path})
+        elif '/' not in target and '{' not in target:
+            visit(role_dir / target, full, stack | {path})
+
+
+for role in sorted(p.name for p in (ANSIBLE / 'roles').iterdir() if p.is_dir()):
+    visit(ANSIBLE / 'roles' / role / 'tasks' / 'main.yaml', gates.get(role, ''), frozenset())
+for path in sorted((ANSIBLE / 'roles').glob('*/tasks/*.yaml')):
+    if path not in visited:
+        visit(path, '', frozenset())
+
+COMPANION = re.compile(r'^\{\{\s*(?:\[os_dict\.software_mapping\.(\w+)\.package\]\s*\+\s*)?'
+                       r'os_dict\.companion_packages\.(\w+)\s*\}\}$')
+under_toggle = 0
+read_keys = set()
+seen_messages = set()
+for path, task, cond in installs:
+    rel = path.relative_to(ANSIBLE / 'roles').as_posix()
+    name = str(task.get('name', '?'))
+    named_toggles = sorted(set(WORD.findall(cond)) & all_toggles)
+    if not named_toggles:
+        continue
+    under_toggle += 1
+    families = [family for family in FAMILIES if "'%s'" % family in cond] or FAMILIES
+    listed = (task.get('vars') or {}).get('role_packages')
+    where = '%s, "%s", under %s' % (rel, name, ', '.join(named_toggles))
+    message = None
+    match = COMPANION.match(listed.strip()) if isinstance(listed, str) else None
+    if match:
+        mapped_key, key = match.group(1), match.group(2)
+        if mapped_key is not None and mapped_key != key:
+            message = ('FAIL %s installs %s beside the mapped package of %s, a different toggle, so the '
+                       'verification expects one and not the other' % (where, key, mapped_key))
+        for family in families:
+            toggle = toggle_of(key, family)
+            if toggle is None or toggle not in named_toggles:
+                message = ('FAIL %s reads companion_packages.%s, whose toggle on %s is not among the '
+                           'conditions it runs under, so the verification expects it under a different '
+                           'switch than the one that installs it' % (where, key, family))
+            read_keys.add((family, key))
+    elif (rel, name) in allowed:
+        allowed[(rel, name)] = True
+    else:
+        single = single_variable(listed)
+        if single and single in WORD.findall(verified_text):
+            pass
+        elif single:
+            message = ('FAIL %s installs the fact %s, which setup/ansible/verify_install.yaml never reads '
+                       'into the set it expects, so those packages are installed and not verified' % (where, single))
+        else:
+            message = ('FAIL %s installs %s from a list of its own, which setup/ansible/verify_install.yaml '
+                       'cannot see. Move the names into the toggle\'s companion_packages entry in '
+                       'vars/<OS>.yaml and read them from there, or name the include in %s with the reason '
+                       'the verification cannot expect them' % (where, listed, ALLOWED_FILE.name))
+    if message and message not in seen_messages:
+        seen_messages.add(message)
+        lines.append(message)
 
 for family in FAMILIES:
     for key, names in sorted(companions[family].items()):
         entry = 'companion_packages.%s in vars/%s.yaml' % (key, family)
-        if key not in mappings[family]:
-            lines.append('FAIL %s has no software_mapping entry of that key on %s, so no toggle '
-                         'enables it in the verification' % (entry, family))
+        if toggle_of(key, family) is None:
+            lines.append('FAIL %s names no toggle %s loads, neither install_%s nor %s, so nothing ever '
+                         'expects it in the verification' % (entry, family, key, key))
             continue
         if not isinstance(names, list) or not names \
                 or not all(isinstance(n, str) and n and '{{' not in n for n in names):
             lines.append('FAIL %s is not a list of literal package names: %r' % (entry, names))
             continue
-        if mappings[family][key].get('package') in names:
+        if key in mappings[family] and mappings[family][key].get('package') in names:
             lines.append('FAIL %s repeats the mapped package %s, which the verification already expects'
                          % (entry, mappings[family][key].get('package')))
         if (family, key) not in read_keys:
-            lines.append('FAIL %s is read by no role include of install_role_packages.yaml under '
-                         'install_%s, so the verification expects packages nothing installs' % (entry, key))
+            lines.append('FAIL %s is read by no role include of install_role_packages.yaml under %s, so '
+                         'the verification expects packages nothing installs' % (entry, toggle_of(key, family)))
 
-if beside == 0:
-    lines.append('FAIL no role include of install_role_packages.yaml under a mapped toggle was found, '
-                 'so either the parser broke or the includes moved, and nothing here was checked')
+for (rel, name), used in sorted(allowed.items()):
+    if not used:
+        lines.append('FAIL %s names %s, "%s", and no role include of install_role_packages.yaml under a '
+                     'toggle has that file and name any more, so the exception outlived what it excused'
+                     % (ALLOWED_FILE.name, rel, name))
+
+if under_toggle == 0:
+    lines.append('FAIL no role include of install_role_packages.yaml under a toggle was found, so either '
+                 'the parser broke or the includes moved, and nothing here was checked')
 
 if not lines:
-    lines.append('OK all %d role installs beside a mapping read companion_packages or a fact the '
-                 'verification reads, and setup/ansible/verify_install.yaml expects them through %s'
-                 % (beside, verified_fact))
+    lines.append('OK all %d role installs under a toggle read companion_packages, a fact the verification '
+                 'reads, or a documented exception (%d), and setup/ansible/verify_install.yaml expects them '
+                 'through %s' % (under_toggle, len(allowed), verified_fact))
 
 print('\n'.join(lines))
 PYEOF

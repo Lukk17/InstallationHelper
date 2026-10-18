@@ -134,14 +134,27 @@ software_mapping:
   # "fix" this to pacman.
   podman_desktop: { manager: "flatpak", package: "io.podman_desktop.PodmanDesktop" }
 
-# The packages a role task installs under a software toggle beside that toggle's software_mapping entry,
-# keyed by the same toggle. The role task reads its list from here and setup/ansible/verify_install.yaml
-# expects every one of them once the mapping is enabled, so nothing the run installs for a toggle goes
-# unverified. e2e/tier1/verify_wiring.sh fails on a role list beside a mapping that is not read from
-# here. One line per entry in flow style, because the e2e shell checks read these lines one at a time.
+# The packages a role task installs under a toggle, keyed by the toggle's name without its install_
+# prefix, or by its whole name when it has no such prefix (setup_zsh, configure_kde_plasma). Beside a
+# software_mapping entry of the same key they are what the role installs next to the mapped package,
+# and for a toggle with no mapping they are everything the run installs for it. The role task reads its
+# list from here and setup/ansible/verify_install.yaml expects every one of them once the toggle is on,
+# so nothing the run installs for a toggle goes unverified. e2e/tier1/verify_wiring.sh fails on a role
+# install under a toggle whose list is not read from here, unless e2e/tier1/unverified_role_installs.txt
+# names it with the reason. One line per entry in flow style, because the e2e shell checks read these
+# lines one at a time.
 #
 # OpenRazer's kernel headers are not here, because their names come from the kernels installed on the
 # machine: setup/ansible/tasks/dkms_header_packages.yaml derives them, for the install and the
 # verification alike. CachyOS reads this list too, tasks/load_os_dict.yaml merges only software_mapping.
 companion_packages:
   virt_manager: ["qemu-full", "libvirt", "dnsmasq", "nftables", "virtiofsd"]
+  docker: ["docker", "docker-buildx", "docker-compose", "iptables"]   # the engine and its plugins, installed by virtualization_config, which explains iptables
+  waydroid: ["waydroid"]   # from extra, installed by the waydroid role
+  snapper: ["snapper"]   # installed by the snapper role on a btrfs root only, which setup/ansible/tasks/snapper_applicability.yaml decides
+  python: ["base-devel", "openssl", "xz", "tk", "curl"]   # what pyenv builds Python against, installed by sdk_manager/tasks/pyenv_unix.yaml, which explains why zlib is absent
+  setup_zsh: ["zsh", "curl", "git"]   # the shell, and what Oh-My-Zsh is fetched and cloned with, installed by shell_zsh
+  system_core: ["flatpak", "unzip", "zip", "git"]   # installed by system_core/tasks/base_utils.yaml
+  kde_plasma: ["plasma-meta", "kde-applications-meta", "sddm"]   # installed by kde_plasma_setup/tasks/install_kde.yaml
+  # The applet-window-buttons build dependencies, installed by kde_plasma_setup/tasks/configure_kde.yaml. libplasma, not the Plasma 5 plasma-framework5, which no Arch repository carries any more.
+  configure_kde_plasma: ["gcc", "extra-cmake-modules", "qt6-base", "qt6-declarative", "kcoreaddons", "kdeclarative", "kpackage", "ksvg", "ki18n", "kservice", "kconfigwidgets", "kcmutils", "kuserfeedback", "libplasma", "kdecoration", "gettext", "cmake"]

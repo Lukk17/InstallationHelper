@@ -8,46 +8,42 @@
     group: "{{ ih_non_root_group }}"
   become: yes
 
-# --- Flatpak: Required for flatpak applications ---
-- name: Install flatpak (RedHat/Fedora)
+# --- The packages this role installs ---
+# One include, one package per call through tasks/install_role_packages.yaml, so one that cannot install
+# costs only itself and is named. The list is install_system_core's companion_packages entry in
+# vars/<OS>.yaml, which setup/ansible/verify_install.yaml reads too: flatpak, which the Flathub task
+# below needs, unzip, zip and git, which pyenv's bootstrap script and several other SDK installers need
+# and minimal Debian and Ubuntu machines do not ship, patch on Fedora, locales on the Debian family, and
+# Fedora's Polish langpack. All of them first, so every task that needs one of them runs after it.
+#
+# Arch was once missing from the flatpak install entirely, while the Flathub task below runs on every
+# Linux, so on Arch it shelled out to a binary that was not there and failed every run that reached it.
+# Because this role has no rescue, that aborted the whole playbook fifteen minutes in with nothing
+# installed. Found by the e2e kde-configure-only and live-profile scenarios. See docs/regression_ledger.md.
+#
+# locales used to be installed after the locale_gen task in system_config.yaml that needs it, and only on
+# Debian, so a minimal Debian or Ubuntu install died with "Is the package locales installed?" two minutes
+# into every run. Found by the first e2e smoke run on debian:trixie and ubuntu:26.04. See
+# docs/regression_ledger.md.
+- name: Install flatpak and the base utilities
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages: [flatpak]
-    role_packages_purpose: the Flatpak installer
-  when: ih_family == 'RedHat'
-
-- name: Install flatpak (Debian/Ubuntu)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages: [flatpak]
-    role_packages_purpose: the Flatpak installer
-  when: ih_family == 'Debian'
-
-# Arch was missing entirely. flatpak was installed for RedHat and Debian only, while the
-# Flathub task below runs on every Linux, so on Arch it shelled out to a binary that was not
-# there and failed every run that reached it. Because this role has no rescue, that aborted
-# the whole playbook fifteen minutes in with nothing installed. Found by the e2e
-# kde-configure-only and live-profile scenarios. See docs/regression_ledger.md.
-- name: Install flatpak (Arch)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages: [flatpak]
-    role_packages_purpose: the Flatpak installer
-  when: ih_family == 'Archlinux'
+    role_packages: "{{ os_dict.companion_packages.system_core }}"
+    role_packages_purpose: flatpak and the base utilities
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
 - name: Stop when flatpak did not install
   ansible.builtin.fail:
     msg: flatpak did not install, so adding the Flathub remote cannot continue. What the package manager said is in the [ERROR] line above.
   when: "'flatpak' in (role_packages_missing | default([]))"
+
+- name: Stop when locales did not install
+  ansible.builtin.fail:
+    msg: locales did not install, so generating the locales cannot continue. What the package manager said is in the [ERROR] line above.
+  when: "'locales' in (role_packages_missing | default([]))"
 
 # site.yaml runs this role without a rescue, on purpose, because it is the bootstrap
 # everything later depends on. The consequence nobody accounted for is that one transient
@@ -159,48 +155,4 @@
   async: 1800
   poll: 30
   register: dnf_full_upgrade
-  when: ih_family == 'RedHat'
-
-# git is required by pyenv's bootstrap script (curl pyenv.run | bash) and
-# by several other SDK installers. Minimal Ubuntu/Debian VMs don't ship it.
-# One package per call through tasks/install_role_packages.yaml, for all three families, so one that
-# cannot install costs only itself and is named.
-- name: Install unzip, zip and git (Arch)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - unzip
-      - zip
-      - git
-    role_packages_purpose: the base utilities
-  when: ih_family == 'Archlinux'
-
-- name: Install unzip, zip and git (Debian)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - unzip
-      - zip
-      - git
-    role_packages_purpose: the base utilities
-  when: ih_family == 'Debian'
-
-- name: Install unzip, zip, patch and git (Fedora)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - unzip
-      - zip
-      - patch
-      - git
-    role_packages_purpose: the base utilities
   when: ih_family == 'RedHat'

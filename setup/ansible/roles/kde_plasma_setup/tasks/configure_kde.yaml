@@ -4,108 +4,29 @@
 # below from the pipx mapping in vars/<OS>.yaml. They were
 # Qt 5 and Frameworks 5 names, matching a widget source that no longer builds anywhere. The
 # whole set is now the Frameworks 6 equivalent, and every name was resolved against the real
-# index of the distribution it applies to before being written here:
+# index of the distribution it applies to before being written:
 #   Debian trixie and Ubuntu 26.04   apt-cache show inside the pinned e2e base images
 #   Fedora 44                        dnf info inside the pinned e2e base image
 #   Arch                             pacman -Si
 # libkf5plasma-dev and kf5-plasma-devel became libplasma-dev and libplasma-devel, which drop
 # the framework prefix entirely because Plasma 6 moved the library out of Frameworks.
 #
-# One package per call through tasks/install_role_packages.yaml, here and for Fedora and Arch below, so
-# one that cannot install costs only itself and is named.
-- name: Install the widget build dependencies (Debian)
+# One package per call through tasks/install_role_packages.yaml, so one that cannot install costs only
+# itself and is named. The list is configure_kde_plasma's companion_packages entry in vars/<OS>.yaml,
+# which setup/ansible/verify_install.yaml reads too, with the reason for each renamed package beside it.
+# A mirror that resets one connection mid-download no longer ends the run either: Debian's
+# kde-configure-only cell in the first GitHub sweep died on exactly that, one .deb into eighteen, with
+# 'OpenSSL system call error ... Connection reset by peer' from deb.debian.org, and the shared file
+# retries every package that failed.
+- name: Install the widget build dependencies
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - g++
-      - extra-cmake-modules
-      - qt6-base-dev
-      - qt6-declarative-dev
-      - libkf6coreaddons-dev
-      - libkf6declarative-dev
-      - libkf6package-dev
-      - libkf6svg-dev
-      - libkf6i18n-dev
-      - libkf6service-dev
-      - libkf6configwidgets-dev
-      - libkf6kcmutils-dev
-      - libplasma-dev
-      # libkdecorations2-dev was the Plasma 5 name and exists in neither Debian trixie nor Ubuntu
-      # 26.04. Plasma 6 ships libkdecorations3-dev, confirmed present on both with apt-cache policy.
-      # apt fails the whole task on an unknown name, so this made the Konsave build dependencies
-      # unbuildable across the entire Debian family. See docs/regression_ledger.md.
-      - libkdecorations3-dev
-      - gettext
-      - cmake
+    role_packages: "{{ os_dict.companion_packages.configure_kde_plasma }}"
     role_packages_purpose: the widget build dependencies
-    # A mirror that resets one connection mid-download otherwise ends the run. Debian's
-    # kde-configure-only cell in the first GitHub sweep died on exactly that, one .deb into
-    # eighteen, with 'OpenSSL system call error ... Connection reset by peer' from
-    # deb.debian.org. Three attempts, not silence: a package that genuinely does not exist
-    # still fails, ten seconds later than before.
-  when: ih_family == 'Debian'
-
-- name: Install the widget build dependencies (Fedora)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - gcc-c++
-      - extra-cmake-modules
-      - qt6-qtbase-devel
-      - qt6-qtdeclarative-devel
-      - kf6-kcoreaddons-devel
-      - kf6-kdeclarative-devel
-      - kf6-kpackage-devel
-      - kf6-ksvg-devel
-      - kf6-ki18n-devel
-      - kf6-kservice-devel
-      - kf6-kconfigwidgets-devel
-      - kf6-kcmutils-devel
-      - libplasma-devel
-      - kdecoration-devel
-      - gettext
-      - cmake
-    role_packages_purpose: the widget build dependencies
-    # Same reason as the Debian task above: one mirror reset must not end the run.
-  when: ih_family == 'RedHat'
-
-- name: Install the widget build dependencies (Arch)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - gcc
-      - extra-cmake-modules
-      - qt6-base
-      - qt6-declarative
-      - kcoreaddons
-      - kdeclarative
-      - kpackage
-      - ksvg
-      - ki18n
-      - kservice
-      - kconfigwidgets
-      - kcmutils
-      - kuserfeedback
-      # plasma-framework5 was the Plasma 5 name and no longer exists in any Arch repository,
-      # so this whole task failed and took the KDE configuration with it. Plasma 6 ships the
-      # same library as libplasma. Every other name in this list was checked against the Arch
-      # package index at the same time and all of them still resolve. Found by the e2e
-      # kde-configure-only scenario. See docs/regression_ledger.md.
-      - libplasma
-      - kdecoration
-      - gettext
-      - cmake
-    role_packages_purpose: the widget build dependencies
-  when: ih_family == 'Archlinux'
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
 # pipx is install_pipx's package, named once in vars/<OS>.yaml and installed by software_installer.
 # That role runs after this one, so Konsave would find no pipx on a fresh machine, and it needs pipx

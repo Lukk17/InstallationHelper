@@ -1,24 +1,27 @@
 ---
-# findmnt is util-linux only — guard so direct role invocation on macOS
-# doesn't fail. The site.yaml block also gates on Linux, so this is
-# defensive (covers direct ansible-playbook -i roles/snapper invocations).
-- name: Detect root filesystem type (Linux only)
-  ansible.builtin.command: findmnt -no FSTYPE /
-  register: root_fs_type
-  changed_when: false
-  when: ansible_facts['system'] == 'Linux'
+# Whether the root filesystem is btrfs, from the file verify_install.yaml asks it through too, so the
+# verification expects snapper exactly where this role installs it. It also registers root_fs_type,
+# which the configuration tasks below read.
+- name: Decide whether Snapper applies to this machine
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/snapper_applicability.yaml"
+    apply:
+      tags: [always]
+  tags: [always]
 
+# The list is install_snapper's companion_packages entry in vars/<OS>.yaml, which
+# setup/ansible/verify_install.yaml reads too.
 - name: Install snapper (Arch)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages: [snapper]
+    role_packages: "{{ os_dict.companion_packages.snapper }}"
     role_packages_purpose: Snapper
   when:
     - ih_family == 'Archlinux'
-    - root_fs_type.stdout == 'btrfs'
+    - snapper_applies | bool
 
 - name: Install snapper (Debian)
   ansible.builtin.include_tasks:
@@ -26,11 +29,11 @@
     apply:
       tags: [always]
   vars:
-    role_packages: [snapper]
+    role_packages: "{{ os_dict.companion_packages.snapper }}"
     role_packages_purpose: Snapper
   when:
     - ih_family == 'Debian'
-    - root_fs_type.stdout == 'btrfs'
+    - snapper_applies | bool
 
 - name: Install snapper (RedHat)
   ansible.builtin.include_tasks:
@@ -38,11 +41,11 @@
     apply:
       tags: [always]
   vars:
-    role_packages: [snapper]
+    role_packages: "{{ os_dict.companion_packages.snapper }}"
     role_packages_purpose: Snapper
   when:
     - ih_family == 'RedHat'
-    - root_fs_type.stdout == 'btrfs'
+    - snapper_applies | bool
 
 - name: Stop when snapper did not install
   ansible.builtin.fail:

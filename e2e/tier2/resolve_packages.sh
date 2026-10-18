@@ -142,6 +142,35 @@ check_brew() {
     report_names "Homebrew ${kind}" "names" "${#pkgs[@]}"
 }
 
+# The packages a macOS role installs under a toggle, companion_packages in vars/Darwin.yaml. The entry
+# carries no manager, because the role task that reads it names brew or brew_cask itself, so a name
+# resolves when either index has it: the cask index is asked first, then the formula index. It is only
+# missing when both answer that it does not exist.
+check_brew_companions() {
+    local pkgs=() missing=() unresolved=() p cask_url formula_url status reasons
+    mapfile -t pkgs < <(companion_packages_of "${VARS_DIR}/Darwin.yaml" | awk '{print $2}' | sort -u)
+    [[ ${#pkgs[@]} -eq 0 ]] && { pass "Homebrew companion_packages: nothing listed"; return; }
+    for p in "${pkgs[@]}"; do
+        cask_url="https://formulae.brew.sh/api/cask/${p}.json"
+        formula_url="https://formulae.brew.sh/api/formula/${p}.json"
+        status=0
+        http_ask "${cask_url}" || status=$?
+        [[ ${status} -eq 0 ]] && continue
+        reasons=()
+        [[ ${status} -eq 2 ]] && reasons+=("$(http_unresolved_reason "${cask_url}")")
+        local formula_status=0
+        http_ask "${formula_url}" || formula_status=$?
+        [[ ${formula_status} -eq 0 ]] && continue
+        [[ ${formula_status} -eq 2 ]] && reasons+=("$(http_unresolved_reason "${formula_url}")")
+        if [[ ${#reasons[@]} -eq 0 ]]; then
+            missing+=("${p}")
+        else
+            unresolved+=("${p}: ${reasons[*]}")
+        fi
+    done
+    report_names "Homebrew companion_packages in vars/Darwin.yaml" "names" "${#pkgs[@]}"
+}
+
 # --- Chocolatey --------------------------------------------------------------
 check_choco() {
     local pkgs=() missing=() unresolved=()
@@ -601,6 +630,7 @@ main() {
     check_flatpak
     check_brew brew formula
     check_brew brew_cask cask
+    check_brew_companions
     check_choco
     check_winget
     check_winget_downloads

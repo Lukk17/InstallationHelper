@@ -22,24 +22,28 @@ Debian     gnupg            roles/debian_core/tasks/main.yaml                   
 RedHat     curl             -                                                      the script downloads the OpenRazer repository and the AppImageLauncher rpm with it, the playbook downloads through get_url
 RedHat     dnf5-plugins     -                                                      carries dnf config-manager addrepo, which the script and guide add repositories with, the playbook writes the repository files itself
 
-# install_docker installs the engine outside the dictionary. The KVM stack install_virt_manager installs
-# beside its mapping is companion_packages.virt_manager in vars/<OS>.yaml, which the check reads itself.
-Archlinux  docker           roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-Debian     docker-ce        roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-Debian     docker-ce-cli    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-Debian     containerd.io    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-Debian     docker-buildx-plugin roles/virtualization_config/tasks/main.yaml        the engine install_docker installs
-Debian     docker-compose-plugin roles/virtualization_config/tasks/main.yaml       the engine install_docker installs
-RedHat     docker-ce        roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-RedHat     docker-ce-cli    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-RedHat     containerd.io    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-RedHat     docker-buildx-plugin roles/virtualization_config/tasks/main.yaml        the engine install_docker installs
-RedHat     docker-compose-plugin roles/virtualization_config/tasks/main.yaml       the engine install_docker installs
+# install_docker has no mapping, and the engine and its plugins are its companion_packages entry in
+# vars/<OS>.yaml. The check reads companion_packages beside a mapping itself, the KVM stack of
+# install_virt_manager for one, and a toggle with no mapping is outside the manual route's dictionary.
+Archlinux  docker           vars/Archlinux.yaml                                    the engine install_docker installs
+Archlinux  docker-buildx    vars/Archlinux.yaml                                    the buildx plugin install_docker installs
+Archlinux  docker-compose   vars/Archlinux.yaml                                    the compose plugin install_docker installs
+Archlinux  iptables         vars/Archlinux.yaml                                    the nftables iptables the Docker daemon needs on Arch, which install_docker installs
+Debian     docker-ce        vars/Debian.yaml                                       the engine install_docker installs
+Debian     docker-ce-cli    vars/Debian.yaml                                       the engine install_docker installs
+Debian     containerd.io    vars/Debian.yaml                                       the engine install_docker installs
+Debian     docker-buildx-plugin vars/Debian.yaml                                   the engine install_docker installs
+Debian     docker-compose-plugin vars/Debian.yaml                                  the engine install_docker installs
+RedHat     docker-ce        vars/RedHat.yaml                                       the engine install_docker installs
+RedHat     docker-ce-cli    vars/RedHat.yaml                                       the engine install_docker installs
+RedHat     containerd.io    vars/RedHat.yaml                                       the engine install_docker installs
+RedHat     docker-buildx-plugin vars/RedHat.yaml                                   the engine install_docker installs
+RedHat     docker-compose-plugin vars/RedHat.yaml                                  the engine install_docker installs
 
 # The shell the shell_zsh role installs and configures.
-Archlinux  zsh              roles/shell_zsh/tasks/install_zsh.yaml                 the login shell shell_zsh installs
-Debian     zsh              roles/shell_zsh/tasks/install_zsh.yaml                 the login shell shell_zsh installs
-RedHat     zsh              roles/shell_zsh/tasks/install_zsh.yaml                 the login shell shell_zsh installs
+Archlinux  zsh              vars/Archlinux.yaml                                    the login shell shell_zsh installs
+Debian     zsh              vars/Debian.yaml                                       the login shell shell_zsh installs
+RedHat     zsh              vars/RedHat.yaml                                       the login shell shell_zsh installs
 
 # Installed by a dedicated task rather than a mapping on that family.
 Archlinux  claude-desktop   roles/ai_tools/tasks/claude_unix.yaml                  the AUR package ai_tools installs through paru, Arch maps no claude_desktop
