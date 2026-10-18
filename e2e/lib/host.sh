@@ -16,6 +16,12 @@ E2E_GATE_SWITCH="E2E_INSIDE_GATE_CONTAINER"
 E2E_GATE_MARKER="/etc/installationhelper-e2e-gate"
 # shellcheck disable=SC2034  # read by gate.sh and entrypoint.sh
 E2E_GATE_REPO="/repo"
+# Where gate.sh mounts a lent GitHub token, read-only, and the line the entry point prints once it has
+# read it, which is what lets the launcher delete its host copy of a queued run's token.
+# shellcheck disable=SC2034  # read by gate.sh and entrypoint.sh
+E2E_GATE_TOKEN_FILE="/run/installationhelper-e2e-gate/gh_token"
+# shellcheck disable=SC2034  # read by gate.sh and entrypoint.sh
+E2E_GATE_TOKEN_READ_LINE=">> the gate read the lent GitHub token from its mounted file"
 
 # e2e_inside_gate  ->  status 0 inside the gate container, 1 anywhere else
 e2e_inside_gate() {

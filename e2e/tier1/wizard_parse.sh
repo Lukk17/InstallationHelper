@@ -255,4 +255,29 @@ else
     fi
 fi
 
+# Select-all on either checklist is "install all" too, and neither widget can leave one item out, so each
+# wizard reads every offered key ticked as select-all and drops that same list from it. Asserted here as
+# wiring, so that the two stay alike: interactive_states.sh drives the bash one and the Pester suite drives
+# the PowerShell one.
+checklist_state="$(sed -n '/^main_interactive()/,/^}/p' "${SETUP_SH}" | sed -n '/^            checklist)$/,/;;$/p')"
+pick_software_text="$(sed -n '/^pick_software()/,/^}/p' "${SETUP_SH}")"
+ps_function_text() {
+    awk -v name="$1" '$0 ~ "^function " name " " { found = 1 } found { print } found && /^}$/ { exit }' "${SETUP_PS1}"
+}
+select_all_wiring=()
+grep -q 'select_all_leaves_off' <<<"${checklist_state}" \
+    || select_all_wiring+=("the checklist state of main_interactive in setup.sh does not pass the ticked keys through select_all_leaves_off")
+grep -q 'select_all_note' <<<"${pick_software_text}" \
+    || select_all_wiring+=("pick_software in setup.sh does not put select_all_note in the checklist header")
+ps_function_text Resolve-PickedSelection | grep -q 'AllSoftwareKeepsOff' \
+    || select_all_wiring+=("Resolve-PickedSelection in setup.ps1 does not drop \$AllSoftwareKeepsOff from a full selection")
+ps_function_text Show-SoftwarePicker | grep -q 'AllSoftwareKeepsOff' \
+    || select_all_wiring+=("Show-SoftwarePicker in setup.ps1 does not name what select-all leaves off in the grid title")
+if [[ ${#select_all_wiring[@]} -eq 0 ]]; then
+    pass "both checklists drop the keys all leaves off from a select-all and say so in their header"
+else
+    fail "a checklist's select-all would turn on a key --software all leaves off, or would not say it does not" \
+         "$(printf '%s | ' "${select_all_wiring[@]}")"
+fi
+
 finish "wizard parse"

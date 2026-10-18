@@ -26,11 +26,8 @@
 # is the wizard toggle parse desync in docs/regression_ledger.md.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
-# Git Bash has no ansible-playbook, so this check re-runs itself inside WSL from there. The whole
-# check moves, not just its second half, which costs nothing because the first half is grep.
-delegate_to_wsl_when_no_ansible e2e/tier1/os_family_derivation.sh
+require_cmd ansible-playbook
 
 TIER1_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ALLOWLIST="${TIER1_DIR}/os_family_reads_allowed.txt"

@@ -10,11 +10,8 @@
 # warning cannot be seen in that. See docs/regression_ledger.md.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
-# Git Bash has no ansible-playbook, so this check re-runs itself inside WSL from there. The reasoning
-# and the mechanism live in wsl_delegate.sh, shared with the other check that needs Ansible.
-delegate_to_wsl_when_no_ansible e2e/tier1/ansible_static.sh
+require_cmd ansible-playbook
 
 info "Tier 1: Ansible static checks"
 

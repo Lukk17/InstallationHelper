@@ -25,12 +25,9 @@
 #   2. A Linux shell that is already root, which is what a container gives.
 #   3. Passwordless sudo on Linux, which is what a hosted runner gives when its kernel refuses an
 #      unprivileged user namespace. The sudo stub is still first on PATH inside that run.
-#   4. From Git Bash, none of those exist, so the check re-runs itself inside WSL through
-#      wsl_delegate.sh, the way the two checks that need Ansible do.
-# If none of the four is available the check reports SKIP and names why, rather than a pass.
+# If none of the three is available the check reports SKIP and names why, rather than a pass.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
 SETUP_SH="${REPO_ROOT}/setup/setup.sh"
 EXPECTED_MESSAGE="ERROR: Do not run this script as root or with sudo. Run it as your normal user: ./setup.sh. It asks for your sudo password itself when a step needs it."
@@ -52,9 +49,8 @@ elif [[ "${E2E_HOST_KIND}" == "linux" ]] && sudo -n true &>/dev/null; then
     ROOT_RUNNER=(sudo -n)
     ROOT_HOW="passwordless sudo"
 else
-    delegate_to_wsl e2e/tier1/wizard_root_refusal.sh "no way to become uid 0 without a password here" || true
     skip "the wizard refuses to run as root" \
-         "no unshare -r, no root shell, no passwordless sudo and no WSL to hand this to, so nothing here can start the wizard as uid 0"
+         "no unshare -r, no root shell, and no passwordless sudo, so nothing here can start the wizard as uid 0"
     finish "wizard root refusal"
 fi
 

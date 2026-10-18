@@ -32,7 +32,7 @@ docker info
 
 Expect a daemon summary rather than an error. Tier 2 needs it for real now: apt and dnf cannot be asked whether a package exists without a package index, so those names are resolved inside the same pinned base images the tier 3 scenarios use, read out of the Dockerfiles so the check and the scenarios cannot drift. The containers are asked and thrown away and nothing is installed in them. On Windows that means Docker Desktop running with WSL integration enabled for the distribution you run the harness from.
 
-Confirm `gh` is authenticated on this machine, or accept that the winget portion is skipped. The gate container has no `gh` login of its own, so for tier 2 only `e2e/run.sh` lends it yours as `GH_TOKEN`, through the environment and never on a command line. A `GH_TOKEN` you exported yourself wins over it.
+Confirm `gh` is authenticated on this machine, or accept that the winget portion is skipped. The gate container has no `gh` login of its own, so for tier 2 only `e2e/run.sh` lends it yours as `GH_TOKEN`, through a read-only mounted file that the launcher deletes afterwards, never through the container's environment settings and never on a command line. A `GH_TOKEN` you exported yourself wins over it.
 
 ```bash
 gh auth status

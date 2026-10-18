@@ -128,8 +128,9 @@ EXCLUDED_VARS="non_root_user|non_root_home|allow_callback_failure|default_wallpa
 # Checklist keys --software all leaves off rather than on, because turning one on is not more software but a
 # switch away from the default. opencode_use_v1 replaces OpenCode version 2 with version 1 and removes version
 # 2, so "install all" would downgrade OpenCode, which the owner ruled out on 2026-10-15. --enable still turns
-# one on. Must stay identical to $AllSoftwareKeepsOff in setup.ps1, and e2e/tier1/wizard_parse.sh fails if the
-# two ever disagree.
+# one on. The checklist's select-all leaves them off too, through select_all_leaves_off, and ticking one on
+# its own still turns it on. Must stay identical to $AllSoftwareKeepsOff in setup.ps1, and
+# e2e/tier1/wizard_parse.sh fails if the two ever disagree.
 ALL_SOFTWARE_KEEPS_OFF="opencode_use_v1"
 
 # System settings share the checklist with software, so their labels have to say what
@@ -1186,6 +1187,33 @@ pick_review_mode() {
     SCREEN_RESULT="${SCREEN_RESULT%% *}"
 }
 
+# The checklist keys with the ones select-all leaves off removed, when every key the checklist offers is
+# ticked. gum's select-all cannot leave one item out, so a full selection is read as select-all, the way
+# --software all reads. Anything less than everything is kept as ticked. Prints one key per line.
+select_all_leaves_off() {
+    local key picked
+    for key in "${PRELOADED_KEYS[@]}"; do
+        for picked in "$@"; do
+            [[ "${picked}" == "${key}" ]] && continue 2
+        done
+        printf '%s\n' "$@"
+        return 0
+    done
+    for picked in "$@"; do
+        [[ "${picked}" =~ ^(${ALL_SOFTWARE_KEEPS_OFF})$ ]] || printf '%s\n' "${picked}"
+    done
+}
+
+# The checklist header line that says which toggles select-all leaves off, empty when none is offered.
+select_all_note() {
+    local key labels=""
+    for key in "${PRELOADED_KEYS[@]}"; do
+        [[ "${key}" =~ ^(${ALL_SOFTWARE_KEEPS_OFF})$ ]] && labels+="${labels:+, }\"${LABEL_OVERRIDES[${key}]:-${key}}\""
+    done
+    [[ -z "${labels}" ]] && return 0
+    printf 'Select-all leaves %s off. Tick it on its own to turn it on.' "${labels}"
+}
+
 # Multi-select software picker. `gum choose --no-limit` supports `--selected` for
 # pre-selection (`gum filter` does not). Items already enabled in group_vars show
 # up as pre-selected so the user only changes what they actually want to change.
@@ -1204,10 +1232,13 @@ pick_software() {
         fi
     done
 
-    local picked
+    local picked header note
+    header="arrows move | Space toggle | a select-all | A deselect-all | Enter confirm | Esc cancel"
+    note="$(select_all_note)"
+    [[ -n "${note}" ]] && header+=$'\n'"${note}"
     picked=$(gum choose \
         --no-limit \
-        --header "arrows move | Space toggle | a select-all | A deselect-all | Enter confirm | Esc cancel" \
+        --header "${header}" \
         --selected="${preselect_csv}" \
         --cursor.foreground=10 --selected.foreground=10 \
         "${options[@]}" \
@@ -1321,6 +1352,7 @@ main_interactive() {
                 if [[ -z "${SCREEN_RESULT}" ]]; then state="review"; continue; fi
                 local -a selected_keys=()
                 mapfile -t selected_keys <<<"${SCREEN_RESULT}"
+                mapfile -t selected_keys < <(select_all_leaves_off "${selected_keys[@]}")
                 pkg_vars=()
                 local key found sel
                 for key in "${PRELOADED_KEYS[@]}"; do

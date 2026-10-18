@@ -2602,6 +2602,88 @@ Describe 'Resolve-PickedSelection in setup.ps1' {
             -WindowsVarsPath (Join-Path $script:AnsibleDir 'group_vars\windows.yaml') `
             -ToggleOverride $picked.ToggleOverride -OnlyKeys $picked.OnlyKeys | Should -Be 'v1'
     }
+
+    It 'leaves opencode_use_v1 off when every offered key is ticked, which is how select-all answers' {
+        $picked = Resolve-PickedSelection -PickedKeys @($script:Offered.Key) -Selectable $script:Offered
+
+        $picked.ToggleOverride['opencode_use_v1'] | Should -BeFalse
+        $picked.ToggleOverride['install_opencode'] | Should -BeTrue
+        $picked.ToggleOverride['install_chrome'] | Should -BeTrue
+        $picked.ToggleOverride['setup_wsl'] | Should -BeTrue
+        $picked.OnlyKeys | Should -Not -Contain 'opencode_use_v1'
+    }
+
+    It 'keeps opencode_use_v1 on when it is ticked on its own' {
+        $picked = Resolve-PickedSelection -PickedKeys @('opencode_use_v1') -Selectable $script:Offered
+
+        $picked.ToggleOverride['opencode_use_v1'] | Should -BeTrue
+        ($picked.OnlyKeys -join ' ') | Should -Be 'opencode_use_v1'
+    }
+
+    It 'keeps opencode_use_v1 on when everything but one other key is ticked with it' {
+        $picked = Resolve-PickedSelection -PickedKeys @('install_opencode', 'opencode_use_v1', 'setup_wsl') -Selectable $script:Offered
+
+        $picked.ToggleOverride['opencode_use_v1'] | Should -BeTrue
+        $picked.ToggleOverride['install_chrome'] | Should -BeFalse
+    }
+}
+
+Describe 'Show-SoftwarePicker in setup.ps1 with every row selected' {
+
+    # The grid is replaced by a stand-in that hands back every row it was given, which is what its select-all
+    # does, and records the title it was shown. Lifted out of the syntax tree for the reason above.
+    BeforeAll {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+        $wanted = @('Show-SoftwarePicker', 'Resolve-PickedSelection', 'Resolve-ToggleOverride', 'Split-KeyList')
+        $definitions = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in setup.ps1 and found $($definitions.Count)."
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        $assignments = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                ($node.Left.Extent.Text -eq '$AllSoftwareKeepsOff' -or $node.Left.Extent.Text -eq '$LabelOverrides')
+        }, $false))
+        foreach ($assignment in $assignments) {
+            . ([scriptblock]::Create($assignment.Extent.Text))
+        }
+        function Import-Module { }
+        function Out-ConsoleGridView {
+            param([Parameter(ValueFromPipeline)] $InputObject, [string] $Title, [string] $OutputMode)
+            begin { $script:GridTitle = $Title }
+            process { $InputObject }
+        }
+        $script:Items = @(
+            [PSCustomObject]@{ Key = 'install_chrome'; Label = 'Chrome'; Enabled = $true }
+            [PSCustomObject]@{ Key = 'install_opencode'; Label = 'Opencode'; Enabled = $true }
+            [PSCustomObject]@{ Key = 'opencode_use_v1'; Label = $LabelOverrides['opencode_use_v1']; Enabled = $false }
+        )
+    }
+
+    It 'says in the grid title that select-all leaves the switch off and that it is ticked on its own' {
+        $null = Show-SoftwarePicker -Items $script:Items
+
+        $script:GridTitle | Should -Match ([regex]::Escape($LabelOverrides['opencode_use_v1']))
+        $script:GridTitle | Should -Match 'on its own'
+    }
+
+    It 'turns select-all into every key on but opencode_use_v1' {
+        $keys = Show-SoftwarePicker -Items $script:Items
+        $picked = Resolve-PickedSelection -PickedKeys $keys -Selectable $script:Items
+
+        $picked.ToggleOverride['opencode_use_v1'] | Should -BeFalse
+        $picked.ToggleOverride['install_chrome'] | Should -BeTrue
+        $picked.ToggleOverride['install_opencode'] | Should -BeTrue
+    }
 }
 
 Describe 'Get-FileProductMajorVersion' {

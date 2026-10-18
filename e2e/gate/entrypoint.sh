@@ -8,6 +8,10 @@
 #   /source                 the repository, read-only
 #   /repo/e2e/runs          the host's e2e/runs, the only place a run writes back to
 #   /var/run/docker.sock    the daemon, for tier 1's compose checks and tiers 2 and 3
+#   /run/installationhelper-e2e-gate/gh_token
+#                           a GitHub token lent for tier 2, read-only, only when the launcher has one.
+#                           Read into GH_TOKEN, then E2E_GATE_TOKEN_READ_LINE is printed so a queue
+#                           launcher knows it may delete the host copy
 #
 # Environment it reads:
 #   E2E_GATE_CWD   the caller's directory relative to the repository root, empty for the root
@@ -22,6 +26,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/host.sh"
 
 GATE_USER="gate"
 GATE_SOURCE="/source"
+
+# The lent token becomes GH_TOKEN in this process's own environment, which every process it starts
+# inherits, and nowhere else: not in the container's settings, not on a command line. Read as root
+# when the entry point starts as root, because the file keeps the host's owner and mode 0600.
+if [[ -z "${GH_TOKEN:-}" && -r "${E2E_GATE_TOKEN_FILE}" ]]; then
+    GH_TOKEN="$(<"${E2E_GATE_TOKEN_FILE}")"
+    export GH_TOKEN
+fi
 
 # As root: give the gate user the socket's group, then drop to it for everything else.
 if [[ "${EUID}" -eq 0 ]]; then
@@ -51,6 +63,10 @@ shift
 if [[ -n "${E2E_GATE_LOG:-}" ]]; then
     exec >"${E2E_GATE_LOG}" 2>&1
     trap 'echo "QUEUE_EXIT=$?"' EXIT
+fi
+
+if [[ -n "${GH_TOKEN:-}" ]]; then
+    printf '%s\n' "${E2E_GATE_TOKEN_READ_LINE}"
 fi
 
 # A private, writable copy, so nothing a check writes can reach the repository on the host. The run

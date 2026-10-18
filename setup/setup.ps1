@@ -138,8 +138,9 @@ $ExcludedVars = @(
 # Checklist keys -Software all leaves off rather than on, because turning one on is not more software but a
 # switch away from the default. opencode_use_v1 replaces OpenCode version 2 with version 1 and removes version
 # 2, so "install all" would downgrade OpenCode, which the owner ruled out on 2026-10-15. -EnableKey still turns
-# one on. Must stay identical to ALL_SOFTWARE_KEEPS_OFF in setup.sh, and e2e/tier1/wizard_parse.sh fails if the
-# two ever disagree.
+# one on. The checklist's select-all leaves them off too, through Resolve-PickedSelection, and ticking one on its
+# own still turns it on. Must stay identical to ALL_SOFTWARE_KEEPS_OFF in setup.sh, and e2e/tier1/wizard_parse.sh
+# fails if the two ever disagree.
 $AllSoftwareKeepsOff = @('opencode_use_v1')
 
 # System settings share the checklist with software, so their labels have to say what
@@ -1213,9 +1214,15 @@ function Show-SoftwarePicker {
         @{ N = 'Name';    E = { $_.Label } }, `
         @{ N = 'Default'; E = { if ($_.Enabled) { 'ON' } else { 'off' } } }
 
+    $title = 'Software — type to filter, Space to mark, Enter to confirm, Esc to cancel'
+    $keptOff = @($Items | Where-Object { $_.Key -in $AllSoftwareKeepsOff } | ForEach-Object { '"' + $_.Label + '"' })
+    if ($keptOff.Count -gt 0) {
+        $title += ". Select-all leaves $($keptOff -join ', ') off. Tick it on its own to turn it on."
+    }
+
     $selected = $rows |
         Out-ConsoleGridView `
-            -Title 'Software — type to filter, Space to mark, Enter to confirm, Esc to cancel' `
+            -Title $title `
             -OutputMode Multiple
 
     if ($null -eq $selected) { return $null }
@@ -1271,6 +1278,10 @@ function Resolve-PickedSelection {
 
         OnlyKeys is the bare name, without the install_ prefix the checklist carries, because the native
         installers key off it. The system settings have no prefix and pass through unchanged.
+
+        Every offered key ticked is read as select-all, which cannot leave one item out, so the keys in
+        $AllSoftwareKeepsOff are dropped from it the way -Software all drops them. Anything less than
+        everything is kept as ticked, so a key in that list ticked on its own still turns on.
     #>
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
@@ -1279,11 +1290,17 @@ function Resolve-PickedSelection {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [PSCustomObject[]] $Selectable
     )
 
+    $keys = @($PickedKeys)
+    $unticked = @($Selectable | Where-Object { $_.Key -notin $keys })
+    if ($Selectable.Count -gt 0 -and $unticked.Count -eq 0) {
+        $keys = @($keys | Where-Object { $_ -notin $AllSoftwareKeepsOff })
+    }
+
     return [PSCustomObject]@{
-        OnlyKeys       = @($PickedKeys | ForEach-Object {
+        OnlyKeys       = @($keys | ForEach-Object {
             if ($_ -like 'install_*') { $_.Substring('install_'.Length) } else { $_ }
         })
-        ToggleOverride = (Resolve-ToggleOverride -Selectable $Selectable -Baseline 'none' -EnableKey $PickedKeys)
+        ToggleOverride = (Resolve-ToggleOverride -Selectable $Selectable -Baseline 'none' -EnableKey $keys)
     }
 }
 

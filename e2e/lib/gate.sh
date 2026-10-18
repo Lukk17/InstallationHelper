@@ -18,8 +18,7 @@ E2E_GATE_QUEUE_NAME="e2e-queue"
 # gate_refuse_foreign_container  ->  returns on a real machine, exits 2 inside any other container
 #
 # A host path read from inside another container names nothing the daemon can mount, so starting the
-# gate from there would hand it an empty repository. The queue image that used to drive long runs is
-# exactly that case, and `bash e2e/run.sh --queue` replaces it.
+# gate from there would hand it an empty repository.
 gate_refuse_foreign_container() {
     [[ -f /.dockerenv || -f /run/.containerenv ]] || return 0
     cat >&2 <<EOF
@@ -70,21 +69,45 @@ gate_container_path() {
     fi
 }
 
-# gate_lend_github_token  ->  exports GH_TOKEN from this machine's own gh login, when there is one
+# gate_lend_github_token  ->  writes this machine's GitHub token to a private file the gate mounts
 #
 # Tier 2 reads winget manifests through gh when no winget can run, and the gate container has no gh
-# login of its own. The token travels in the environment docker run inherits, never on a command line.
-# Called only for a tier that reads GitHub, so the other tiers never hold it.
+# login of its own. The token goes into a 0600 file that gate_enter mounts read-only, never into the
+# container's environment settings or onto a command line, because `docker inspect` prints both to
+# anybody who can reach the daemon. A GH_TOKEN or GITHUB_TOKEN already exported here wins over the gh
+# login. Called only for a tier that reads GitHub, so the other tiers never hold it.
 gate_lend_github_token() {
     e2e_inside_gate && return 0
-    [[ -n "${GH_TOKEN:-}" || -n "${GITHUB_TOKEN:-}" ]] && return 0
-    command -v gh &>/dev/null || return 0
-    local token
-    token="$(gh auth token 2>/dev/null || true)"
-    if [[ -n "${token}" ]]; then
-        export GH_TOKEN="${token}"
+    local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+    if [[ -z "${token}" ]] && command -v gh &>/dev/null; then
+        token="$(gh auth token 2>/dev/null || true)"
     fi
-    return 0
+    [[ -n "${token}" ]] || return 0
+    E2E_GATE_TOKEN_HOST_FILE="$(umask 077 && mktemp)"
+    trap gate_forget_github_token EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    printf '%s' "${token}" >"${E2E_GATE_TOKEN_HOST_FILE}"
+}
+
+# gate_forget_github_token  ->  deletes the host copy of the lent token, when there is one
+gate_forget_github_token() {
+    [[ -n "${E2E_GATE_TOKEN_HOST_FILE:-}" ]] || return 0
+    rm -f "${E2E_GATE_TOKEN_HOST_FILE}"
+    E2E_GATE_TOKEN_HOST_FILE=""
+}
+
+# gate_await_token_read <seconds> <queue log>  ->  returns once the queued container has read the lent
+# token, has stopped, or the time is up, whichever comes first. The entry point writes
+# E2E_GATE_TOKEN_READ_LINE to the queue log right after it reads the file.
+gate_await_token_read() {
+    local deadline=$((SECONDS + $1)) log="$2"
+    while ((SECONDS < deadline)); do
+        grep -qxF "${E2E_GATE_TOKEN_READ_LINE}" "${log}" 2>/dev/null && return 0
+        [[ "$(docker inspect -f '{{.State.Running}}' "${E2E_GATE_QUEUE_NAME}" 2>/dev/null)" == true ]] || return 0
+        sleep 1
+    done
+    echo "WARNING: the queued container did not report reading the GitHub token within $1 seconds, so the host copy is deleted now and tier 2 may report the winget assertions as SKIP" >&2
 }
 
 # gate_enter <queue|wait> <repository-relative script> <argument>...
@@ -120,8 +143,11 @@ gate_enter() {
         -v "$(host_path "${repo_root}"):/source:ro"
         -v "$(host_path "${repo_root}/e2e/runs"):${E2E_GATE_REPO}/e2e/runs"
         -e "E2E_GATE_CWD=${cwd_rel}"
-        -e GH_TOKEN -e GITHUB_TOKEN -e NO_COLOR
+        -e NO_COLOR
     )
+    if [[ -n "${E2E_GATE_TOKEN_HOST_FILE:-}" ]]; then
+        run_opts+=(-v "$(host_path "${E2E_GATE_TOKEN_HOST_FILE}"):${E2E_GATE_TOKEN_FILE}:ro")
+    fi
     if [[ "${E2E_HOST_KIND}" == "windows-msys" || -S /var/run/docker.sock ]]; then
         run_opts+=(-v /var/run/docker.sock:/var/run/docker.sock)
     fi
@@ -139,6 +165,10 @@ gate_enter() {
                 "${E2E_GATE_IMAGE}" "${script}" ${args[@]+"${args[@]}"} >/dev/null; then
             echo "ERROR: the queue container did not start, so nothing was queued" >&2
             exit 2
+        fi
+        if [[ -n "${E2E_GATE_TOKEN_HOST_FILE:-}" ]]; then
+            gate_await_token_read 120 "${repo_root}/e2e/runs/queue.log"
+            gate_forget_github_token
         fi
         info_line "queued in the detached container ${E2E_GATE_QUEUE_NAME}, writing e2e/runs/queue.log, which ends with QUEUE_EXIT=<status>"
         exit 0

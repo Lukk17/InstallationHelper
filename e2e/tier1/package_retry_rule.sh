@@ -30,9 +30,8 @@
 #      the same numbers, and the Arch script's refresh is a full upgrade, never a bare -Syy.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
-delegate_to_wsl_when_no_ansible e2e/tier1/package_retry_rule.sh
+require_cmd ansible-playbook
 
 info "Tier 1: every package manager follows the one retry rule"
 

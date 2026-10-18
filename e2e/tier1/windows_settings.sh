@@ -119,13 +119,11 @@ fi
 # it reads toggles through Get-WindowsGroupVarToggle in WindowsSoftware.ps1. Loading it the way the
 # wizard loads it means this check cannot pass on a file the wizard could not load.
 #
-# Paths are interpolated into the script text rather than passed as environment variables, because a
-# WSL environment variable does not reach a Windows process unless it is listed in WSLENV. Each item
-# is printed on its own prefixed line so the order survives.
+# Each item is printed on its own prefixed line so the order survives.
 ps_script="\$ErrorActionPreference = 'Stop'
 if (\$PSStyle) { \$PSStyle.OutputRendering = 'PlainText' }
-. '$(to_windows_path "${SOFTWARE_PS1}")'
-. '$(to_windows_path "${PS_FILE}")'
+. '${SOFTWARE_PS1}'
+. '${PS_FILE}'
 foreach (\$n in (Get-WindowsOptionalFeatureName)) { 'E2E_FEATURE ' + \$n }
 foreach (\$k in (Get-WindowsSettingKey)) { 'E2E_KEY ' + \$k }"
 

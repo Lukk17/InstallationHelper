@@ -18,9 +18,8 @@
 # databases @opencode/cli 2.0.29 and opencode-ai 1.19.1 created in node:24-slim on 2026-10-15.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
-delegate_to_wsl_when_no_ansible e2e/tier1/opencode_switch.sh
+require_cmd ansible-playbook
 
 TIER1_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

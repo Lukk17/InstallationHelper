@@ -44,8 +44,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 # The set is read through the shell adapter rather than parsed, because parsing it here is the very
 # thing assertion 1 forbids everywhere else.
 source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
-# Finding a runnable pwsh and converting a path for it are shared with windows_mapping.sh and
-# windows_settings.sh. See pwsh_probe.sh.
+# Finding a runnable pwsh is shared with windows_mapping.sh and windows_settings.sh. See pwsh_probe.sh.
 source "$(dirname "${BASH_SOURCE[0]}")/pwsh_probe.sh"
 
 CORE="${REPO_ROOT}/setup/pinned_values/pinned_values.py"
@@ -589,7 +588,7 @@ fi
 
 ps_script="\$ErrorActionPreference = 'Stop'
 if (\$PSStyle) { \$PSStyle.OutputRendering = 'PlainText' }
-Import-Module '$(to_windows_path "${PS_MODULE}")' -Force
+Import-Module '${PS_MODULE}' -Force
 \$map = Get-PinnedValueMap
 foreach (\$name in \$map.Keys) { '{0}={1}' -f \$name, \$map[\$name] }"
 

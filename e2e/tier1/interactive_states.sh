@@ -36,8 +36,11 @@ fi
 
 main_text="$(sed -n '/^main_interactive()/,/^}/p' "${SETUP_SH}")"
 desktop_text="$(sed -n '/^desktop_override_vars()/,/^}/p' "${SETUP_SH}")"
-if [[ -z "${main_text}" || -z "${desktop_text}" ]]; then
-    fail "setup.sh still defines main_interactive and desktop_override_vars" \
+select_all_text="$(sed -n '/^select_all_leaves_off()/,/^}/p;/^select_all_note()/,/^}/p' "${SETUP_SH}")"
+keeps_off_line="$(grep -m1 '^ALL_SOFTWARE_KEEPS_OFF=' "${SETUP_SH}" || true)"
+labels_text="$(sed -n '/^declare -A LABEL_OVERRIDES=(/,/^)$/p' "${SETUP_SH}")"
+if [[ -z "${main_text}" || -z "${desktop_text}" || -z "${select_all_text}" || -z "${keeps_off_line}" || -z "${labels_text}" ]]; then
+    fail "setup.sh still defines main_interactive, desktop_override_vars, select_all_leaves_off, select_all_note, ALL_SOFTWARE_KEEPS_OFF and LABEL_OVERRIDES" \
          "one of them was not found, so not a single transition was driven"
     finish "interactive states"
 fi
@@ -58,6 +61,9 @@ IFS=$'\n\t'
 
 eval "${desktop_text}"
 eval "${main_text}"
+eval "${select_all_text}"
+eval "${keeps_off_line}"
+eval "${labels_text}"
 
 TRACE_FILE="$(mktemp)"
 EXTRAS_FILE="$(mktemp)"
@@ -67,8 +73,14 @@ trap cleanup EXIT
 # --- fixtures ------------------------------------------------------------------------------------
 # Every one of these is read by the wizard functions eval'd out of setup.sh above, and by
 # nothing in this file, so shellcheck sees an assignment with no reader.
+# The keys --software all leaves off are offered too, read out of setup.sh, because the checklist's
+# select-all has to leave them off and a fixture without them could not show that.
 # shellcheck disable=SC2034
 PRELOADED_KEYS=("install_alpha" "install_beta" "install_gamma" "install_delta")
+# ALL_SOFTWARE_KEEPS_OFF is assigned by the line of setup.sh eval'd above.
+# shellcheck disable=SC2154
+mapfile -t KEPT_OFF_KEYS < <(tr '|' '\n' <<<"${ALL_SOFTWARE_KEEPS_OFF}" | grep . || true)
+PRELOADED_KEYS+=(${KEPT_OFF_KEYS[@]+"${KEPT_OFF_KEYS[@]}"})
 # shellcheck disable=SC2034
 PROF_NAMES=("Default" "Demo Profile")
 # shellcheck disable=SC2034
@@ -296,6 +308,63 @@ if [[ "${actual_checklist}" == "${expected_checklist}" ]]; then
 else
     fail "the checklist does not carry every toggle the user marked" \
          "expected [${expected_checklist}], got [${actual_checklist}]. pick_software joins the marked keys with \"\${_results[*]}\", which uses the first character of IFS, and setup.sh sets IFS to newline and tab, so the checklist state receives them one per line. The 'read -ra selected_keys' that consumes them has no -d, so it reads the first line and stops, and every key after the first is written out as false"
+fi
+
+# --- select-all on the checklist -------------------------------------------------------------------
+#
+# gum's select-all cannot leave one item out, so the checklist reads every offered key ticked as
+# select-all and leaves the keys in ALL_SOFTWARE_KEEPS_OFF off, the way --software all does. A key in
+# that list ticked with anything less than everything stays on, so it can still be picked on its own.
+if [[ ${#KEPT_OFF_KEYS[@]} -eq 0 ]]; then
+    fail "ALL_SOFTWARE_KEEPS_OFF names no key, so select-all leaving a key off cannot be shown" \
+         "${keeps_off_line}"
+else
+    # resolved_value <extras> <key>  the value the checklist handed the playbook for that key
+    resolved_value() { grep -m1 -E "^extra $2=" <<<"$1" | cut -d= -f2 || true; }
+
+    expect_run "select-all on the checklist reaches the playbook" \
+               "de review checklist confirm playbook finish" \
+               "skip" "customise" "$(IFS=,; printf '%s' "${PRELOADED_KEYS[*]}")" "run"
+    select_all_extras="${DRIVE_EXTRAS}"
+    wrong=()
+    for key in "${PRELOADED_KEYS[@]}"; do
+        expected="true"
+        [[ " ${KEPT_OFF_KEYS[*]} " == *" ${key} "* ]] && expected="false"
+        actual="$(resolved_value "${select_all_extras}" "${key}")"
+        [[ "${actual}" == "${expected}" ]] || wrong+=("${key}=${actual:-missing} where ${expected} was expected")
+    done
+    if [[ ${#wrong[@]} -eq 0 ]]; then
+        pass "select-all on the checklist turns every key on but the ${#KEPT_OFF_KEYS[@]} --software all leaves off: ${KEPT_OFF_KEYS[*]}"
+    else
+        fail "select-all on the checklist does not leave the ALL_SOFTWARE_KEEPS_OFF keys off" "$(printf '%s | ' "${wrong[@]}")"
+    fi
+
+    alone_key="${KEPT_OFF_KEYS[0]}"
+    expect_run "ticking ${alone_key} on its own reaches the playbook" \
+               "de review checklist confirm playbook finish" \
+               "skip" "customise" "${alone_key}" "run"
+    assert_eq "ticking ${alone_key} on its own turns it on" \
+              "true" "$(resolved_value "${DRIVE_EXTRAS}" "${alone_key}")"
+
+    expect_run "ticking ${alone_key} with everything but one other key reaches the playbook" \
+               "de review checklist confirm playbook finish" \
+               "skip" "customise" "$(IFS=,; printf '%s' "${PRELOADED_KEYS[*]:1}")" "run"
+    assert_eq "ticking ${alone_key} with everything but one other key keeps it on" \
+              "true" "$(resolved_value "${DRIVE_EXTRAS}" "${alone_key}")"
+
+    note="$(select_all_note)"
+    # LABEL_OVERRIDES is declared by the block of setup.sh eval'd above.
+    # shellcheck disable=SC2154
+    if [[ "${note}" == *"${LABEL_OVERRIDES[${alone_key}]:-${alone_key}}"* && "${note}" == *"on its own"* ]]; then
+        pass "the checklist header names what select-all leaves off and says to tick it on its own: ${note}"
+    else
+        fail "the checklist header does not say what select-all leaves off" "select_all_note printed [${note}]"
+    fi
+    if sed -n '/^pick_software()/,/^}/p' "${SETUP_SH}" | grep -q 'select_all_note'; then
+        pass "pick_software puts that note in the checklist header"
+    else
+        fail "pick_software no longer shows the select-all note" "no call to select_all_note inside pick_software in ${SETUP_SH}"
+    fi
 fi
 
 finish "interactive states"

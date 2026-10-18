@@ -46,7 +46,7 @@ out="$("${PWSH}" -NoProfile -NonInteractive -Command "
     if (-not \$m) { Write-Output 'PESTER_ABSENT'; exit 0 }
     Import-Module \$m.Path -Force
     \$c = New-PesterConfiguration
-    \$c.Run.Path = '$(to_windows_path "${SUITE}")'
+    \$c.Run.Path = '${SUITE}'
     \$c.Run.PassThru = \$true
     \$c.Filter.ExcludeTag = @('Slow', 'Network')
     \$c.Output.Verbosity = 'None'

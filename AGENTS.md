@@ -266,7 +266,7 @@ bash e2e/run.sh --tier 2
 bash e2e/run.sh --tier 3 --scenario defaults --os debian
 ```
 
-Tier 2 reads winget manifests through `gh` when no winget can run, so for tier 2 only the launcher lends the container your own `gh` login as `GH_TOKEN`, through the environment and never on a command line. The MSYS path rewriting that makes `docker` unusable by hand from Git Bash is handled inside `e2e/lib/host.sh`, which is why those commands are identical to the ones a Linux shell runs. If you ever call `docker` yourself from Git Bash, prefix `MSYS_NO_PATHCONV=1` and pass every host path through `cygpath -w`.
+Tier 2 reads winget manifests through `gh` when no winget can run, so for tier 2 only the launcher lends the container your own `gh` login as `GH_TOKEN`, through a read-only mounted file it deletes afterwards, never through the container's environment settings, where `docker inspect` would show it, and never on a command line. The MSYS path rewriting that makes `docker` unusable by hand from Git Bash is handled inside `e2e/lib/host.sh`, which is why those commands are identical to the ones a Linux shell runs. If you ever call `docker` yourself from Git Bash, prefix `MSYS_NO_PATHCONV=1` and pass every host path through `cygpath -w`.
 
 A non-zero exit means the work is not done. Do not report success, do not commit, and do not explain the failure away. Fix it.
 
