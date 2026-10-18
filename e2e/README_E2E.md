@@ -50,7 +50,8 @@ bash e2e/run.sh --tier N
                                      bash /repo/e2e/run.sh --tier N
                                        tier 1: the checks, against /repo
                                        tier 2: probe containers beside the gate
-                                       tier 3: scenario containers beside the gate
+                                       tier 3: scenario containers beside the gate, only on a
+                                               GitHub-hosted runner or a throwaway virtual machine
   exit status  <-------------------  the run's own status
   e2e/runs/    <-------------------  the only thing written back
 ```
@@ -59,15 +60,44 @@ The image carries everything a check calls: Python, ansible-core and the collect
 
 Every check refuses to run outside the gate container. Started directly, `bash e2e/tier1/<check>.sh` prints `REFUSED` and runs nothing, because [lib/common.sh](lib/common.sh) asks for the gate switch before anything else: the variable `E2E_INSIDE_GATE_CONTAINER=1` and the marker file `/etc/installationhelper-e2e-gate`, both of them, which only the gate's own entry point and build set. `run.sh` and `tier3/container.sh` are the two entry points that move themselves into the gate instead of refusing, through [lib/gate.sh](lib/gate.sh). Started inside some other container, they refuse too, because a host path read from inside a container names nothing the daemon can mount.
 
-The container tiers start the same way:
+Tier 2 starts the same way:
 
 ```bash
 bash e2e/run.sh --tier 2
 ```
 
+### Tier 3 runs only on a GitHub-hosted runner or in a throwaway virtual machine
+
+A tier 3 scenario container is privileged, and privileged means no user namespace, so it shares the kernel of whatever machine runs the Docker daemon. Run on the owner's computer, scenario containers changed the owner's own kernel: the binary format table, udev, and the units that act on both, recorded as entries 10.126 to 10.129 of [../docs/regression_ledger.md](../docs/regression_ledger.md). The owner's decision is that nothing may change his computer, so tier 3 runs on a GitHub-hosted runner or inside a virtual machine that is deleted afterwards, and nowhere else.
+
+[lib/throwaway_machine.sh](lib/throwaway_machine.sh) decides, from inside the gate container, before any scenario container starts:
+
+1. A GitHub-hosted runner is one where `GITHUB_ACTIONS=true`, `RUNNER_OS=Linux` and `RUNNER_ENVIRONMENT=github-hosted` are all set. The runner sets all three for every step. A self-hosted runner reports `self-hosted` and does not qualify on that route. [lib/gate.sh](lib/gate.sh) hands those three variables to the gate container when they are set.
+2. A throwaway virtual machine is one where `systemd-detect-virt --vm` names a hypervisor. It reads the processor's hypervisor information and the firmware tables, which a non-privileged container sees exactly as the machine does, so the answer comes from inside the gate container without reading anything on the machine itself. The gate image installs `systemd` for this command. The virtual machines WSL 2, Docker Desktop and OrbStack run the daemon in are refused by their kernel names, because each is part of the computer it runs on and is not thrown away.
+
+Anywhere else, `run.sh --tier 3`, `run.sh --tier all` and `tier3/container.sh` print `REFUSED`, show what the machine answered, name the commands below and exit 2. The launcher asks first, in a short foreground gate container, so a `--queue` run is refused on the terminal and nothing is queued. `run.sh` and `container.sh` ask again inside the gate, so no route around the launcher reaches a scenario container. `container.sh --collect` starts nothing and is not refused. There is no override. [tier1/throwaway_machine_only.sh](tier1/throwaway_machine_only.sh) fails the gate when any part of the refusal is removed or weakened.
+
+From the owner's computer, dispatch the run to a GitHub-hosted runner. One distribution, the defaults configuration:
+
 ```bash
-bash e2e/run.sh --tier 3 --scenario defaults --os debian
+gh workflow run e2e-manual.yaml -f target_platform=debian -f software_mode=defaults
 ```
+
+One named scenario on one distribution, which also runs stage 1 and the macOS and Windows jobs of stage 3:
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=idempotency -f distro=debian
+```
+
+Every scenario on every distribution:
+
+```bash
+gh workflow run e2e-matrix.yml
+```
+
+Inside a throwaway virtual machine, every command in the rest of this document works as written.
+
+What a local throwaway virtual machine needs has not been built. What it would need, so it can be decided later, with only the memory figure measured: a hypervisor on the host, such as libvirt with QEMU and KVM on Linux or Hyper-V on Windows, which is a change to the owner's computer and needs his approval before anything is installed. One Linux guest with Docker Engine, not Docker Desktop, about 5 GB of memory per `--jobs` slot, and enough disk for the gate image and the distribution images. The guest is created from a fresh image for each run, receives a copy of the repository rather than a shared folder, so nothing it does can reach the host's files, and is deleted afterwards. Everything else, the gate image and the six distribution images under [tier3/](tier3/), the harness builds inside the guest by itself.
 
 Tier 2 reads winget manifests through `gh` when no winget can run, and the gate container has no `gh` login of its own. For tier 2 only, the launcher lends it yours: it writes the token to a temporary file only you can read, mounts that file read-only, and the entry point reads it into `GH_TOKEN` for its own processes. The token is never in the container's settings, so `docker inspect` cannot show it, and never on a command line. The launcher deletes the file when the run ends, or for a `--queue` run as soon as the container reports it has read it. Without a `gh` login the three winget assertions report SKIP.
 
@@ -79,7 +109,7 @@ See what scenarios exist and what each covers.
 bash e2e/run.sh --list
 ```
 
-Run the cheapest container scenario. There is no fast one: defaults carries a 180 minute ceiling, which is the honest cost of proving anything inside a container, and it is the configuration a user actually gets.
+Inside a throwaway virtual machine, run the cheapest container scenario that installs anything. There is no fast one: defaults carries a 180 minute ceiling, which is the honest cost of proving anything inside a container, and it is the configuration a user actually gets. On the owner's computer every command in this block exits 2 with the refusal above.
 
 ```bash
 bash e2e/run.sh --tier 3 --scenario defaults
@@ -105,14 +135,14 @@ The eight scenarios above cross five Linux distributions, which is 40 combinatio
 
 [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 48 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. Those 48 are 48 separate jobs rather than one matrix, each calling [.github/workflows/e2e-linux-cell.yml](../.github/workflows/e2e-linux-cell.yml), because GitHub's run graph collapses a matrix into a single node that names neither the distribution nor the scenario. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
 
-Local Docker runs, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: fast feedback on the distribution and scenario a change actually touches, without waiting on 39 others.
+Runs inside a throwaway virtual machine, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: feedback on the distribution and scenario a change actually touches, without waiting on 39 others. A tier 3 run never happens on the owner's computer, so from there the single platform workflow, `e2e-manual.yaml`, is the scoped run and the sweep is the broad one.
 
 What each side proves, and does not:
 
 | | Proves | Does not prove |
 |---|---|---|
 | CI matrix sweep | The full cross product passes on GitHub's own infrastructure, including a distro/scenario pairing nobody happened to run locally | Correctness on the hardware you actually deploy to. A hosted runner's disk, memory and privileged-container behaviour differ from a personal Docker Desktop or WSL setup, and the sweep has not been observed to catch a defect that a local run would have missed, because it has not run yet |
-| Local run | The harness works on your actual machine, against your actual Docker setup, for the one scenario and distribution you are actively changing | The other 39 combinations still pass, unless you run them too |
+| Throwaway virtual machine run | The harness works in that virtual machine, against its Docker Engine, for the one scenario and distribution you are actively changing | The other 39 combinations still pass, unless you run them too |
 
 Dispatch the sweep from the Actions tab, or narrow it to one scenario or one distribution from the same form.
 
@@ -140,24 +170,26 @@ green: what that run still does not tell you.
 | a mapping in `setup/ansible/vars/*.yaml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the package installs cleanly, only that the name resolves in that distribution's index |
 | a package name written directly into a role task | `./e2e/run.sh --tier 2` | the same, and nothing at all for a name built at run time from a variable |
 | a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the pinned version is the right version, only that it resolves and that its download location answers |
-| the pinned values reader or any of its adapters | `./e2e/run.sh`, whose `windows_pester` check runs the adapter tests, then `--tier 3 --scenario defaults` | nothing about macOS, which has no container tier |
-| anything in `roles/` touching groups, systemd units or per-distribution behaviour | `./e2e/run.sh --tier 3 --scenario defaults` on arch, debian, ubuntu and fedora | anything needing a graphical session, a real kernel module, or hardware |
-| a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `./e2e/run.sh --tier 3 --scenario idempotency` | whether the task is idempotent on any distribution other than the one you ran, because a guard that is right on apt can be missing entirely on pacman |
-| a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, the callback plugin's failure rendering, or `verify_install.yaml`'s assertions | `./e2e/run.sh --tier 3 --scenario forced-failure` | that a real defect would be caught, only that a failure which does happen is reported in all four places, and it is the cheapest container scenario so there is no excuse for skipping it |
-| the desktop environment roles | `--scenario kde-full` and `--scenario gnome-full` | that the desktop actually starts, since no container has a display |
-| `profiles/linux_live.yaml` | `--scenario live-profile` | that a real live USB behaves the same, since the container has a writable root |
-| `setup/setup.sh` | `./e2e/run.sh`, then any one `--tier 3` scenario end to end | the interactive screens, which need a terminal no test has |
+| the pinned values reader or any of its adapters | `./e2e/run.sh`, whose `windows_pester` check runs the adapter tests, then the defaults scenario, `gh workflow run e2e-manual.yaml -f target_platform=debian -f software_mode=defaults` | nothing about macOS, which has no container tier |
+| anything in `roles/` touching groups, systemd units or per-distribution behaviour | the defaults scenario on every distribution, `gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=all` | anything needing a graphical session, a real kernel module, or hardware |
+| a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `gh workflow run e2e-matrix.yml -f scenario=idempotency -f distro=debian` | whether the task is idempotent on any distribution other than the one you ran, because a guard that is right on apt can be missing entirely on pacman |
+| a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, the callback plugin's failure rendering, or `verify_install.yaml`'s assertions | `gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian` | that a real defect would be caught, only that a failure which does happen is reported in all four places, and it is the cheapest container scenario so there is no excuse for skipping it |
+| the desktop environment roles | `gh workflow run e2e-matrix.yml -f scenario=kde-full -f distro=debian` and the same with `scenario=gnome-full` | that the desktop actually starts, since no container has a display |
+| `profiles/linux_live.yaml` | `gh workflow run e2e-matrix.yml -f scenario=live-profile -f distro=debian` | that a real live USB behaves the same, since the container has a writable root |
+| `setup/setup.sh` | `./e2e/run.sh`, then any one tier 3 scenario end to end, `gh workflow run e2e-manual.yaml -f target_platform=debian -f skip_system_upgrade=false` | the interactive screens, which need a terminal no test has |
 | `setup/setup.ps1` or anything in `setup/windows/` | `./e2e/run.sh` for the logic, then `pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1` for a real install | anything needing a reboot, WSL, or a hypervisor, none of which a sandbox has |
-| `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then `--tier 3 --scenario forced-failure`, then any one passing scenario | nothing, if the gate and both scenarios pass, this is the best covered file in the repository. The forced-failure scenario is the half that matters: it proves the play refuses over a broken machine, which no passing scenario can show |
+| `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then `gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian`, then any one passing scenario | nothing, if the gate and both scenarios pass, this is the best covered file in the repository. The forced-failure scenario is the half that matters: it proves the play refuses over a broken machine, which no passing scenario can show |
 | a tier 1 check, or anything under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then `bash e2e/run.sh`, and from Git Bash and from WSL as well when the change touches `lib/gate.sh`, `lib/host.sh` or `gate/`, because the launcher is the only part that differs between them | that the check is testing the thing rather than its own implementation, which only the failure proof shows |
 | `gate/Dockerfile` or `gate/provision.sh` | `bash e2e/run.sh` then `bash e2e/run.sh --tier 2`, both of which rebuild the image first | that the image builds on an architecture other than the one it was built on, x86_64 on 2026-10-15 |
-| a distribution Dockerfile, or a new distribution | `--tier 3 --scenario defaults --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
+| a distribution Dockerfile, or a new distribution | `gh workflow run e2e-manual.yaml -f target_platform=<name> -f software_mode=defaults`, after adding a new one to that workflow's `target_platform` choices | that the distribution's derivatives behave the same, since only the named one runs |
 | anything that only affects macOS | `./e2e/run.sh` and `./e2e/run.sh --tier 2` | everything that executes, because a Darwin container cannot run on a Linux or Windows kernel and the only executing macOS test is the `macos` target of the dispatch workflow |
 | `.github/workflows/e2e-manual.yaml`, named "E2E - single platform" in the Actions tab | dispatch it from the Actions tab, one target platform at a time | nothing locally |
 | `.github/workflows/e2e-matrix.yml`, named "E2E - test software install and configuration on every OS" in the Actions tab | dispatch it from the Actions tab, the full sweep or narrowed to one scenario or one distribution | nothing locally |
 | `homelab/` or `local-dev/` | nothing, and that is the honest answer | everything, no tier covers either directory today |
 
-Three rules that are easy to miss.
+Four rules that are easy to miss.
+
+Every row that names a tier 3 scenario runs on a GitHub-hosted runner through the command it shows, or inside a throwaway virtual machine through `bash e2e/run.sh --tier 3 --scenario <name> --os <distro>`, and never on the owner's computer, where that command exits 2.
 
 There is no cheap container row. Most rows that name a scenario name defaults, at a 180 minute ceiling rather than the 45 the removed smoke scenario declared, and the two that name something else name it because that scenario asks a question defaults cannot: forced-failure is the cheapest of them, measured at 46 minutes on debian against a 90 minute ceiling, and it is still not a pre-commit gate. The smoke scenario is gone because every toggle it enabled was already true in defaults, so it was the same test with most of the toggles taken away, and a 20 to 30 minute run was never cheap enough either. Tier 1 is the thing that runs in seconds.
 
@@ -170,6 +202,8 @@ A tier that cannot run is not a tier that passed. Every tier needs a Docker daem
 ### Long runs, and why they detach
 
 The playbook always runs detached inside the container, writing its own log and exit code there, and the runner only watches it. So a run does not die with the shell that started it. That is not a nicety: the all-software scenario takes hours, and a run tied to a terminal session throws away the whole thing on an ordinary disconnect.
+
+Everything in this section starts or watches tier 3 scenario containers, so it applies inside a throwaway virtual machine. On the owner's computer `container.sh` refuses every mode but `--collect` with exit 2, and a GitHub-hosted run is watched with `gh run list --workflow e2e-matrix.yml --limit 5` instead.
 
 Start a scenario and get your prompt back immediately.
 
@@ -197,6 +231,12 @@ A run that has to outlive the terminal goes into the queue, which is the gate co
 
 ```bash
 bash e2e/run.sh --queue --tier 3 --scenario all --jobs 3
+```
+
+On the owner's computer the queue holds tiers 1 and 2 only. A queued tier 3 run is asked whether the machine is thrown away in the foreground, before the queue container starts, and is refused there with exit 2:
+
+```bash
+bash e2e/run.sh --queue --tier 2
 ```
 
 The container stays after it exits, so its status stays readable, and the next `--queue` refuses to start until it is removed:
@@ -319,6 +359,7 @@ them.
 | [tier1/zshrc_env_block.sh](tier1/zshrc_env_block.sh) | `setup/config/zsh/.zshrc` setting environment outside a comment, an `export` or a PATH assignment, which a desktop session never sees because Plasma's login zsh is non-interactive. shell_zsh writing that file other than as one marked block read from the file, the shape that made a second run insert a block again in GitHub sweep run 38107292439 on Arch idempotency. Its `ZSH=` line naming a different directory from `shell_zsh_oh_my_zsh_dir`. And the zsh environment import in `env_unix.yaml` importing `~/.config/environment.d` before `typeset -U path PATH`, so a nested shell repeats every PATH entry. And `dev_env_file`, or an `environment.d` file a manual install page appends PATH to, named so it sorts before `99-environment.conf`, the link to `/etc/environment` that resets PATH on Ubuntu and took all five PATH entries from the desktop session in the Ubuntu defaults scenario of 2026-10-18 |
 | [tier1/vendor_installer_shell_init.sh](tier1/vendor_installer_shell_init.sh) | A task file that pipes a vendor installer into a shell behind a `creates` guard under the user's home and has no unconditional blockinfile beside it into `dev_env_file`, `~/.config/environment.d/50-dev.conf`, or into every file in `interactive_rc_files`, so the installer is the only thing wiring its tool into the shell and never runs again once its guard file exists. GitHub sweep run 38107292439 measured that on CachyOS GNOME full, where `sdk` and `java` were on disk and unreachable from zsh. Exceptions live in [tier1/vendor_installer_shell_init_allowed.txt](tier1/vendor_installer_shell_init_allowed.txt) with a reason, and a stale entry fails |
 | [tier1/container_isolation.sh](tier1/container_isolation.sh) | A scenario container reaching the host kernel again: the host's cgroup namespace or `/sys/fs/cgroup`, no `container=docker`, a unit that acts on the host kernel left unmasked, a missing host state record, or a scenario allowed to rewrite the host's boot. Privileged containers registered AppImageLauncher in the owner's binary format table and triggered udev for every host device |
+| [tier1/throwaway_machine_only.sh](tier1/throwaway_machine_only.sh) | Tier 3 starting anywhere but a GitHub-hosted runner or a throwaway virtual machine: a verdict that admits a bare machine, WSL 2, Docker Desktop, a self-hosted runner or a partial set of GitHub's variables, a route through `run.sh` or `container.sh` that is not refused with exit 2 before docker is called, a launcher that queues or starts the run before its probe, or a variable that overrides the decision. Privileged scenario containers changed the owner's own kernel, entries 10.126 to 10.129 |
 | [tier1/forced_failure_assertions.sh](tier1/forced_failure_assertions.sh) | A forced-failure assertion in [tier3/container.sh](tier3/container.sh) that fails over a rescue that worked. GitHub sweep run 38107292439 failed that scenario on Arch, CachyOS and Fedora that way: Lens was matched as the whole skipped-repository sentence when tailscale was in the same list, and the paru injection let the Arch User Repository server decide whether the clone or the build failed. It drives `log_list_names` from container.sh over that run's own lines and requires the paru address to be under `.invalid` |
 | [tier1/winget_scope_pins.sh](tier1/winget_scope_pins.sh) | A winget mapping that leaves the installer to winget although its manifest offers a user and a machine installer, or a user one beside unscoped ones. The wizard runs elevated, and Bruno, CurseForge and then Lens in GitHub sweep run 38107292439 failed while winget chose. The list of such packages is [tier1/winget_scoped_packages.txt](tier1/winget_scoped_packages.txt), which tier 2 reads again from winget-pkgs. It also fails a machine pin whose `installer_type` is missing or differs from the type winget selects for `--scope machine`, because that type decides whether the wizard runs winget elevated, and an msix or portable sent to an unelevated winget dies on `APPINSTALLER_CLI_ERROR_COMMAND_REQUIRES_ADMIN` |
 | [tier1/repo_metadata_keys.sh](tier1/repo_metadata_keys.sh) | A dnf repository with `repo_gpgcheck` whose metadata check would stop at a key prompt, or whose key would be accepted unchecked. Every `dnf makecache` must pass `-y`, which GitHub sweep run 38107292439 lacked on every Fedora scenario, and because `-y` accepts any key, `gpgkey` must be a local file that the same block downloaded from a pin and compared by fingerprint with a pin before the repository is written |

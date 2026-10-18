@@ -66,13 +66,22 @@
 # itself there through lib/gate.sh with the same arguments, so a scenario file or a run directory is
 # named relative to the repository root, or by a path inside it.
 
+# Starting a scenario container is the one thing that changes the kernel of the machine Docker runs
+# on, so every mode but --collect, which starts nothing, runs only on a GitHub-hosted runner or in a
+# throwaway virtual machine. lib/throwaway_machine.sh decides, here through the launcher's probe and
+# again below inside the gate.
+#
 # shellcheck source=../lib/gate.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/gate.sh"
+# shellcheck disable=SC2034  # read by gate_enter in lib/gate.sh
+GATE_REQUIRES_THROWAWAY=1
+for gate_arg in "$@"; do
+    # shellcheck disable=SC2034  # read by gate_enter in lib/gate.sh
+    [[ "${gate_arg}" == --collect ]] && GATE_REQUIRES_THROWAWAY=0
+done
 gate_enter wait e2e/tier3/container.sh "$@"
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-
-require_docker_host
 
 TIER3_DIR="${E2E_ROOT}/tier3"
 E2E_USER="lukk"
@@ -106,6 +115,12 @@ if [[ "${MODE}" != "collect" && -z "${SCENARIO_FILE}" ]]; then
     echo "ERROR: usage: container.sh <scenario-file> [--os <name>] [--detach] | --collect <run-dir>" >&2
     exit 2
 fi
+
+if [[ "${MODE}" != "collect" ]]; then
+    require_throwaway_machine
+fi
+
+require_docker_host
 
 # Each distribution gets its own Dockerfile and image tag. Refuse an unknown name
 # rather than falling back to Arch, because silently testing the wrong distribution is

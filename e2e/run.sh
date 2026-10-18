@@ -11,6 +11,10 @@
 #   run.sh --tier 3 --scenario all --jobs 3 every scenario, three at a time
 #   run.sh --tier 3 --scenario defaults --os debian the same scenario on another distro
 #   run.sh --queue <any of the above>       the same run, detached, logged to e2e/runs/queue.log
+#
+# Tier 3, and --tier all which includes it, runs only on a GitHub-hosted runner or inside a throwaway
+# virtual machine, and exits 2 anywhere else before any container starts, --queue included. From any
+# other machine dispatch .github/workflows/e2e-manual.yaml or e2e-matrix.yml instead.
 #   run.sh --list                   show the scenarios and what each one covers
 #   run.sh --help
 #
@@ -28,7 +32,7 @@
 # tier3/, and container.sh refuses a name that has none rather than quietly falling back
 # to arch, because testing the wrong distribution is worse than testing nothing.
 
-usage() { sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 GATE_MODE="wait"
 GATE_ARGS=()
@@ -47,6 +51,8 @@ done
 # shellcheck source=lib/gate.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 [[ "${GATE_TIER}" == 2 || "${GATE_TIER}" == all ]] && gate_lend_github_token
+# shellcheck disable=SC2034  # read by gate_enter in lib/gate.sh
+[[ "${GATE_TIER}" == 3 || "${GATE_TIER}" == all ]] && GATE_REQUIRES_THROWAWAY=1
 gate_enter "${GATE_MODE}" e2e/run.sh ${GATE_ARGS[@]+"${GATE_ARGS[@]}"}
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -84,6 +90,13 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
+# Tier 3 starts privileged containers, which change the kernel of the machine Docker runs on, so it
+# runs only on a GitHub-hosted runner or in a throwaway virtual machine. Asked here as well as by the
+# launcher's probe, so a run started inside the gate by any route is refused before anything starts.
+if [[ "${TIER}" == 3 || "${TIER}" == all ]]; then
+    require_throwaway_machine
+fi
+
 run_tier1() {
     # Ordering is deliberate and has to stay on one line, because verify_spec_parity.sh reads this
     # loop to prove capability 10's spec names every check.
@@ -97,7 +110,7 @@ run_tier1() {
     local rc=0
     local tally_file
     tally_file="$(mktemp)"
-    for check in shell_syntax wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings windows_phase_contract windows_cache_cleanup windows_pester powershell_variables powershell_splat workflow_timeouts workflow_parity verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation derivative_merge apt_vendor_repositories opencode_switch pinned_values pinned_values_reader manifests compose_and_docs network_retries batched_managers pacman_partial_refresh package_retry_rule sigpipe_pipelines unreachable_tasks desktop_settings become_password_file line_endings ansible_static control_characters keycloak_realm_import interactive_states list_software wizard_refusals wizard_root_refusal shell_units print_command_resolution selection_parity paru_consumers heartbeat_log_files availability_facts rescue_coverage zshrc_env_block vendor_installer_shell_init forced_failure_assertions winget_scope_pins repo_metadata_keys manual_windows_install manual_linux_install imported_agent_artifacts checklist_labels name_lookup_retries capability_index_parity container_isolation; do
+    for check in shell_syntax wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings windows_phase_contract windows_cache_cleanup windows_pester powershell_variables powershell_splat workflow_timeouts workflow_parity verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation derivative_merge apt_vendor_repositories opencode_switch pinned_values pinned_values_reader manifests compose_and_docs network_retries batched_managers pacman_partial_refresh package_retry_rule sigpipe_pipelines unreachable_tasks desktop_settings become_password_file line_endings ansible_static control_characters keycloak_realm_import interactive_states list_software wizard_refusals wizard_root_refusal shell_units print_command_resolution selection_parity paru_consumers heartbeat_log_files availability_facts rescue_coverage zshrc_env_block vendor_installer_shell_init forced_failure_assertions winget_scope_pins repo_metadata_keys manual_windows_install manual_linux_install imported_agent_artifacts checklist_labels name_lookup_retries capability_index_parity container_isolation throwaway_machine_only; do
         local check_rc
         set +e
         bash "${E2E_ROOT}/tier1/${check}.sh" 2>&1 | tee "${tally_file}"

@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-venv \
         sed \
         sudo \
+        systemd \
         tar \
         unzip \
         util-linux \

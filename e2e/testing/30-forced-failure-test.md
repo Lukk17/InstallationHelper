@@ -18,7 +18,9 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
+This capability never runs on the owner's computer. Its scenario containers are privileged and share the kernel of the machine Docker runs on, and on the owner's computer they changed his kernel, entries 10.126 to 10.129 of [../../docs/regression_ledger.md](../../docs/regression_ledger.md). It runs on a GitHub-hosted runner, dispatched with the command under Run, or inside a throwaway virtual machine with Docker Engine that is deleted afterwards, where every command below works as written. Anywhere else `e2e/run.sh --tier 3` and `e2e/tier3/container.sh` print `REFUSED` and exit 2 before any container starts, and there is no override. WSL 2 and Docker Desktop do not qualify, because their virtual machine is part of the computer they run on. The rule and how the machine is recognised are under "Tier 3 runs only on a GitHub-hosted runner or in a throwaway virtual machine" in [../README_E2E.md](../README_E2E.md).
+
+Inside the virtual machine the scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so the virtual machine needs a Docker daemon and nothing else.
 
 Confirm the Docker daemon is reachable.
 
@@ -100,10 +102,14 @@ Then collect it, substituting the run directory the launch printed.
 ./e2e/tier3/container.sh --collect e2e/runs/<run-id>
 ```
 
-From a PowerShell prompt on Windows, the same run through WSL.
+From the owner's computer, where the commands above and below exit 2, dispatch the same scenario to GitHub-hosted runners instead. It runs stage 1 and that one stage 2 cell of [../../.github/workflows/e2e-matrix.yml](../../.github/workflows/e2e-matrix.yml), and stage 3 on macOS and Windows as well, because stage 3 always runs. The command is the same from a Unix shell and from PowerShell.
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian
+```
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh --tier 3 --scenario forced-failure --os debian"
+gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian
 ```
 
 `--os` defaults to arch, and this scenario is written to fail identically on all five distributions: the injected package name is offered to apt, dnf and pacman alike and none of them has ever carried it. Debian is the fastest image and therefore the sensible one for a first run, but a pass on one distribution is not evidence about the others, so the run record has to say which one it targeted.

@@ -18,7 +18,9 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
+This capability never runs on the owner's computer. Its scenario containers are privileged and share the kernel of the machine Docker runs on, and on the owner's computer they changed his kernel, entries 10.126 to 10.129 of [../../docs/regression_ledger.md](../../docs/regression_ledger.md). It runs on a GitHub-hosted runner, dispatched with the command under Run, or inside a throwaway virtual machine with Docker Engine that is deleted afterwards, where every command below works as written. Anywhere else `e2e/run.sh --tier 3` and `e2e/tier3/container.sh` print `REFUSED` and exit 2 before any container starts, and there is no override. WSL 2 and Docker Desktop do not qualify, because their virtual machine is part of the computer they run on. The rule and how the machine is recognised are under "Tier 3 runs only on a GitHub-hosted runner or in a throwaway virtual machine" in [../README_E2E.md](../README_E2E.md).
+
+Inside the virtual machine the scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so the virtual machine needs a Docker daemon and nothing else.
 
 Confirm the Docker daemon is reachable.
 
@@ -26,7 +28,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
+Expect a daemon summary. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Confirm there is serious disk headroom. This scenario installs everything the playbook can install on Arch, including two desktop environments, every IDE and every SDK.
 
@@ -96,10 +98,14 @@ Step 1. Launch and return. The command prints the run directory, the container n
 ./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach
 ```
 
-From a PowerShell prompt on Windows, the same launch through WSL.
+From the owner's computer, where the commands above and below exit 2, dispatch the same scenario to GitHub-hosted runners instead. It runs stage 1 and that one stage 2 cell of [../../.github/workflows/e2e-matrix.yml](../../.github/workflows/e2e-matrix.yml), and stage 3 on macOS and Windows as well, because stage 3 always runs. The command is the same from a Unix shell and from PowerShell.
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=all-software -f distro=arch
+```
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach"
+gh workflow run e2e-matrix.yml -f scenario=all-software -f distro=arch
 ```
 
 Follow it from any shell, as often as you like, using the container name the launch printed.

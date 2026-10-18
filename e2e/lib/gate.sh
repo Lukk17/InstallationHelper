@@ -11,9 +11,14 @@
 
 # shellcheck source=host.sh
 source "$(dirname "${BASH_SOURCE[0]}")/host.sh"
+# shellcheck source=throwaway_machine.sh
+source "$(dirname "${BASH_SOURCE[0]}")/throwaway_machine.sh"
 
 E2E_GATE_IMAGE="installationhelper-e2e-gate:latest"
 E2E_GATE_QUEUE_NAME="e2e-queue"
+# The variables that tell a GitHub-hosted runner apart, handed to the gate container when they are set
+# here, so lib/throwaway_machine.sh can read them inside it.
+E2E_GATE_RUNNER_ENV=(-e GITHUB_ACTIONS -e RUNNER_OS -e RUNNER_ENVIRONMENT)
 
 # gate_refuse_foreign_container  ->  returns on a real machine, exits 2 inside any other container
 #
@@ -110,10 +115,27 @@ gate_await_token_read() {
     echo "WARNING: the queued container did not report reading the GitHub token within $1 seconds, so the host copy is deleted now and tier 2 may report the winget assertions as SKIP" >&2
 }
 
+# gate_probe_throwaway_machine <repository root>  ->  returns when tier 3 may run on this machine, and
+# otherwise exits with the probe's status, 2, having printed its refusal
+#
+# The answer comes from a short gate container in the foreground, because the facts it reads are read
+# inside a container and never on this machine. It runs before the run starts and before a queue is
+# started, so a refused queue says so on this terminal instead of in a log nobody is reading.
+gate_probe_throwaway_machine() {
+    local repo_root="$1" rc=0
+    docker run --rm --init \
+        -v "$(host_path "${repo_root}"):/source:ro" \
+        "${E2E_GATE_RUNNER_ENV[@]}" -e NO_COLOR \
+        "${E2E_GATE_IMAGE}" e2e/lib/throwaway_machine.sh || rc=$?
+    [[ ${rc} -eq 0 ]] || exit "${rc}"
+}
+
 # gate_enter <queue|wait> <repository-relative script> <argument>...
 #
 # queue starts the run detached in a container named e2e-queue, writing everything to
 # e2e/runs/queue.log and ending that file with QUEUE_EXIT=<status>. wait runs it in the foreground.
+# A caller that is about to run tier 3 sets GATE_REQUIRES_THROWAWAY=1 first, and then nothing starts
+# unless gate_probe_throwaway_machine agrees.
 gate_enter() {
     e2e_inside_gate && return 0
 
@@ -126,6 +148,9 @@ gate_enter() {
     local repo_root
     repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
     gate_build "${repo_root}"
+    if [[ "${GATE_REQUIRES_THROWAWAY:-}" == 1 ]]; then
+        gate_probe_throwaway_machine "${repo_root}"
+    fi
     mkdir -p "${repo_root}/e2e/runs"
 
     local cwd_rel=""
@@ -144,6 +169,7 @@ gate_enter() {
         -v "$(host_path "${repo_root}/e2e/runs"):${E2E_GATE_REPO}/e2e/runs"
         -e "E2E_GATE_CWD=${cwd_rel}"
         -e NO_COLOR
+        "${E2E_GATE_RUNNER_ENV[@]}"
     )
     if [[ -n "${E2E_GATE_TOKEN_HOST_FILE:-}" ]]; then
         run_opts+=(-v "$(host_path "${E2E_GATE_TOKEN_HOST_FILE}"):${E2E_GATE_TOKEN_FILE}:ro")

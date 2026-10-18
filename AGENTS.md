@@ -234,7 +234,7 @@ This repository installs and removes software, so a test that escapes onto the r
 
 The rules for this repository:
 
-1. Every test, check, gate, test suite, experiment and probe runs only inside a container or a throwaway virtual machine, even when it only reads files. Nothing test-like runs on the owner's computer. In this repository that container is the gate container, built from [`e2e/gate/Dockerfile`](e2e/gate/Dockerfile): `bash e2e/run.sh` builds it and runs every tier inside it by itself, and every check refuses to start anywhere else.
+1. Every test, check, gate, test suite, experiment and probe runs only inside a container or a throwaway virtual machine, even when it only reads files. Nothing test-like runs on the owner's computer. In this repository that container is the gate container, built from [`e2e/gate/Dockerfile`](e2e/gate/Dockerfile): `bash e2e/run.sh` builds it and runs tiers 1 and 2 inside it by itself, and every check refuses to start anywhere else. Tier 3 never runs on the owner's computer at all, not even inside the gate container, because its scenario containers are privileged and changed the owner's own kernel four times (entries 10.126 to 10.129). It runs only on a GitHub-hosted runner, dispatched through `.github/workflows/e2e-manual.yaml` or `.github/workflows/e2e-matrix.yml`, or inside a throwaway virtual machine that is deleted afterwards. WSL 2 and Docker Desktop do not count, because their virtual machine is part of the owner's computer. `e2e/run.sh` and `e2e/tier3/container.sh` refuse with exit 2 anywhere else before any scenario container starts, `--queue` included, there is no override, and `e2e/tier1/throwaway_machine_only.sh` fails the gate if that refusal is removed or weakened.
 2. Never run a downloaded program, an installer, a vendor binary, an IDE or an app on the owner's computer to read its help or try it. Read its options from its documentation or its files instead.
 3. Never run a package manager install, remove or upgrade, a playbook, or a role against the owner's computer unless the owner explicitly asks for that exact change in the conversation.
 4. Never test, check, probe or inspect the owner's computer, not even with a read-only command such as grep, cat, ls or a package query, and not to find out whether a defect affects it. If that question matters, ask the owner and give him the exact command to run himself. The only things an agent does on the host are git and file edits inside this repository, Docker commands that start and watch the test containers, and reading the test logs under e2e/runs.
@@ -257,11 +257,19 @@ Measured on Linux on 2026-10-15, the whole gate took 3 minutes 39 seconds with t
 
 The gate refuses to run anywhere but in its container. Starting one check directly, `bash e2e/tier1/<check>.sh`, prints `REFUSED` and runs nothing, because `e2e/lib/common.sh` asks for the gate switch, `E2E_INSIDE_GATE_CONTAINER=1` together with the marker file `/etc/installationhelper-e2e-gate`, before anything else. Only the gate's own entry point sets both.
 
-**The container tiers start the same way.** Tier 2 and the tier 3 driver run inside the gate container too, with the Docker socket mounted so they can start their own throwaway containers beside it:
+**Tier 2 starts the same way.** It runs inside the gate container too, with the Docker socket mounted so it can start its own non-privileged throwaway containers beside it:
 
 ```bash
 bash e2e/run.sh --tier 2
 ```
+
+**Tier 3 does not run on the owner's computer.** Its scenario containers are privileged, so they share the kernel of whatever machine runs Docker, and on the owner's computer they changed his kernel. `e2e/run.sh --tier 3`, `--tier all` and `e2e/tier3/container.sh` ask `e2e/lib/throwaway_machine.sh` first, from inside the gate container, and run only when the answer is a GitHub-hosted runner (`GITHUB_ACTIONS=true`, `RUNNER_OS=Linux` and `RUNNER_ENVIRONMENT=github-hosted`) or a virtual machine named by `systemd-detect-virt --vm` that is not WSL 2 or Docker Desktop. Anywhere else they print `REFUSED`, say what to do instead and exit 2 before any container starts. There is no override. From the owner's computer, dispatch the run to a GitHub-hosted runner instead:
+
+```bash
+gh workflow run e2e-manual.yaml -f target_platform=debian -f software_mode=defaults
+```
+
+Inside a throwaway virtual machine, the same harness command works as it always did:
 
 ```bash
 bash e2e/run.sh --tier 3 --scenario defaults --os debian
@@ -271,7 +279,7 @@ Tier 2 reads winget manifests through `gh` when no winget can run, so for tier 2
 
 A non-zero exit means the work is not done. Do not report success, do not commit, and do not explain the failure away. Fix it.
 
-**Additionally, when your change touches any of the following, run the container tier as well.** The cheapest scenario there is forced-failure, at a 90 minute ceiling and 46 minutes measured on debian, because it is the only one that never installs the software set. The cheapest that installs anything is defaults, at 180. There is still no cheap container scenario: the smoke scenario used to declare 45 minutes, but every toggle it enabled was already true in defaults, so it proved nothing defaults does not. Tier 1 is still the cheap one, measured at 3 minutes 39 seconds inside the gate container on Linux on 2026-10-15.
+**Additionally, when your change touches any of the following, run the container tier as well, on a GitHub-hosted runner through the commands below or inside a throwaway virtual machine, never on the owner's computer.** A command below that dispatches `e2e-matrix.yml` with a `scenario` and a `distro` runs stage 1, that one stage 2 cell, and stage 3 on macOS and Windows, because stage 3 always runs. Inside a throwaway virtual machine the equivalent is `bash e2e/run.sh --tier 3 --scenario <name> --os <distro>`. The cheapest scenario there is forced-failure, at a 90 minute ceiling and 46 minutes measured on debian, because it is the only one that never installs the software set. The cheapest that installs anything is defaults, at 180. There is still no cheap container scenario: the smoke scenario used to declare 45 minutes, but every toggle it enabled was already true in defaults, so it proved nothing defaults does not. Tier 1 is still the cheap one, measured at 3 minutes 39 seconds inside the gate container on Linux on 2026-10-15.
 
 | If you changed | Run |
 |---|---|
@@ -279,25 +287,31 @@ A non-zero exit means the work is not done. Do not report success, do not commit
 | a package mapping in `setup/ansible/vars/*.yaml` | `./e2e/run.sh --tier 2` |
 | **any package name written directly into a role task** | `./e2e/run.sh --tier 2`, which resolves them per distribution. Five shipped defects came from here, including two that were themselves earlier fixes that had rotted |
 | a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh --tier 2`, which asks every download location whether it still exists |
-| the pinned values reader or any of its adapters | tier 1, which runs the Windows Pester suite, then `--tier 3 --scenario defaults` |
-| anything in `roles/` that touches groups, systemd units, or per-distro behaviour | `./e2e/run.sh --tier 3 --scenario defaults`, on all four Linux distributions and not just one |
-| the desktop environment roles | `./e2e/run.sh --tier 3 --scenario kde-full` and `--scenario gnome-full` |
-| `profiles/linux_live.yaml` | `./e2e/run.sh --tier 3 --scenario live-profile` |
-| `setup/setup.sh` | tier 1, then any one tier 3 scenario end to end |
+| the pinned values reader or any of its adapters | tier 1, which runs the Windows Pester suite, then the defaults scenario: `gh workflow run e2e-manual.yaml -f target_platform=debian -f software_mode=defaults` |
+| anything in `roles/` that touches groups, systemd units, or per-distro behaviour | the defaults scenario on every Linux distribution and not just one: `gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=all` |
+| the desktop environment roles | `gh workflow run e2e-manual.yaml -f target_platform=debian -f desktop_environment=kde -f desktop_action=full` and the same with `desktop_environment=gnome`, or `gh workflow run e2e-matrix.yml -f scenario=kde-full -f distro=all` and `scenario=gnome-full` |
+| `profiles/linux_live.yaml` | `gh workflow run e2e-matrix.yml -f scenario=live-profile -f distro=all` |
+| `setup/setup.sh` | tier 1, then any one tier 3 scenario end to end on a GitHub-hosted runner: `gh workflow run e2e-manual.yaml -f target_platform=debian -f skip_system_upgrade=false` |
 | the Windows installer (`setup/setup.ps1` or `setup/windows/`) | tier 1, which runs the Windows Pester suite, then a real install in Windows Sandbox via `pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1`, see `e2e/manual_test_matrix.md`. There is no Windows container tier: it could not install one winget package |
-| `setup/ansible/verify_install.yaml` | tier 1, then `--tier 3 --scenario forced-failure`, which is the only scenario that proves the play refuses over a broken machine, then any one passing scenario |
-| a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `./e2e/run.sh --tier 3 --scenario idempotency`, which applies the defaults configuration twice and fails on any task that reports changed on the second pass without a reason in `e2e/tier3/idempotent_changes_allowed.txt` |
-| a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, or the callback plugin's failure rendering | `./e2e/run.sh --tier 3 --scenario forced-failure`, which breaks the run on purpose and asserts the failure reaches the exit code, the terminal summary, the error log and the verification |
+| `setup/ansible/verify_install.yaml` | tier 1, then the forced-failure scenario, `gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian`, which is the only scenario that proves the play refuses over a broken machine, then any one passing scenario |
+| a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | the idempotency scenario, `gh workflow run e2e-matrix.yml -f scenario=idempotency -f distro=debian`, which applies the defaults configuration twice and fails on any task that reports changed on the second pass without a reason in `e2e/tier3/idempotent_changes_allowed.txt` |
+| a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, or the callback plugin's failure rendering | the forced-failure scenario, `gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian`, which breaks the run on purpose and asserts the failure reaches the exit code, the terminal summary, the error log and the verification |
 | a check under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then run the whole gate. When the change touches `e2e/lib/gate.sh`, `e2e/lib/host.sh` or `e2e/gate/`, start the gate from Git Bash and from WSL as well, because the launcher is the only part that differs between them |
 | the gate image, `e2e/gate/Dockerfile` or `e2e/gate/provision.sh` | tier 1 and then tier 2, both of which rebuild the image before they run |
-| a distribution Dockerfile, or a new distribution | `./e2e/run.sh --tier 3 --scenario defaults --os <name>` |
+| a distribution Dockerfile, or a new distribution | the defaults scenario on that distribution, `gh workflow run e2e-manual.yaml -f target_platform=<name> -f software_mode=defaults`. A new distribution has to be added to that workflow's `target_platform` choices first |
 | anything macOS-only | tier 1 and tier 2, then the `macos` target of the dispatch workflow, which is the only thing that executes on macOS at all |
 
 That table is the short version. The complete map, including what each run still cannot prove, is the "What to run when you change something" section of [`e2e/README_E2E.md`](e2e/README_E2E.md).
 
 What none of it can prove, on any platform, is [`e2e/manual_test_matrix.md`](e2e/manual_test_matrix.md). Read it before telling the owner that something is verified: bootloaders, hibernation, Snapper, Waydroid, VirtualBox and VMware are suppressed in every container, client-edition and hardware-dependent packages are skipped on the hosted Windows runner, and macOS has no container tier at all. The page says for each one whether a virtual machine is enough or real hardware is required, and gives a command that answers the question.
 
-**For a run that must survive you closing the terminal**, add `--queue`. The gate container then runs detached under the name `e2e-queue`, writes everything to `e2e/runs/queue.log`, ends that file with `QUEUE_EXIT=<status>`, and exits with the run's own status, so it can be alarmed on and chained behind. A queue tied to a shell is not a queue: one previously started two scenarios of three, exited, and nobody noticed for four hours. The same command works from Git Bash.
+**For a run that must survive you closing the terminal**, add `--queue`. The gate container then runs detached under the name `e2e-queue`, writes everything to `e2e/runs/queue.log`, ends that file with `QUEUE_EXIT=<status>`, and exits with the run's own status, so it can be alarmed on and chained behind. A queue tied to a shell is not a queue: one previously started two scenarios of three, exited, and nobody noticed for four hours. The same command works from Git Bash. On the owner's computer that is tiers 1 and 2:
+
+```bash
+bash e2e/run.sh --queue --tier 2
+```
+
+A queued tier 3 run is asked the same question as any other tier 3 run, in the foreground, before the queue container starts, so on the owner's computer it is refused on the terminal with exit 2 and nothing is queued. Inside a throwaway virtual machine it queues as before:
 
 ```bash
 bash e2e/run.sh --queue --tier 3 --scenario all --jobs 3
@@ -309,7 +323,7 @@ The container is kept after it exits so its status stays readable. Remove it bef
 docker rm e2e-queue
 ```
 
-Roughly 5 GB of memory per concurrent scenario, measured. On a 16 GB WSL ceiling that means three at a time, not six. Three against 12 GB available does not corrupt anything, but it does make `wsl.exe` intermittently answer `Wsl/Service/0x8007274c` and it cost one scenario a failed `docker cp` of `setup/`. Use `--jobs 2` when you want clean timings rather than throughput.
+Roughly 5 GB of memory per concurrent scenario, measured, which is what a throwaway virtual machine needs per `--jobs` slot. That figure was measured on the owner's computer before tier 3 was moved off it. On a 16 GB WSL ceiling that means three at a time, not six. Three against 12 GB available does not corrupt anything, but it does make `wsl.exe` intermittently answer `Wsl/Service/0x8007274c` and it cost one scenario a failed `docker cp` of `setup/`. Use `--jobs 2` when you want clean timings rather than throughput.
 
 Rules that come out of the ledger and that the gate cannot check for you:
 
@@ -336,7 +350,7 @@ So there are two instruments and choosing between them is a decision you make ra
 gh workflow run e2e-manual.yaml -f target_platform=debian
 ```
 
-`arch`, `debian`, `ubuntu`, `fedora`, `cachyos` and `popos` never touch the runner itself. Each of them delegates to this repository's own container harness, `e2e/run.sh --tier 3`, against a systemd container built from `e2e/tier3/<distro>.Dockerfile`, so a Linux dispatch runs the same harness your own machine runs. `macos` and `windows` have no container to run in, so they run the real wizard directly on the runner, `setup/setup.sh` on `macos-26` and `setup/setup.ps1` on `windows-latest`. That file's own header explains the rest and explains it well, including why both of those jobs are always non-interactive and what a hosted Windows runner's disabled User Account Control does to `Assert-NotAdmin`. Read it there rather than trusting a summary here.
+`arch`, `debian`, `ubuntu`, `fedora`, `cachyos` and `popos` never touch the runner itself. Each of them delegates to this repository's own container harness, `e2e/run.sh --tier 3`, against a systemd container built from `e2e/tier3/<distro>.Dockerfile`, so a Linux dispatch runs the same harness a throwaway virtual machine runs, and the only way to run that harness from the owner's computer. `macos` and `windows` have no container to run in, so they run the real wizard directly on the runner, `setup/setup.sh` on `macos-26` and `setup/setup.ps1` on `windows-latest`. That file's own header explains the rest and explains it well, including why both of those jobs are always non-interactive and what a hosted Windows runner's disabled User Account Control does to `Assert-NotAdmin`. Read it there rather than trusting a summary here.
 
 Eight inputs, and one of them is a trap. `skip_system_upgrade` defaults to true, so a dispatch that leaves it alone never exercises the system upgrade `setup.sh` performs before Ansible starts. Turn that upgrade back on when it is the part you changed:
 
@@ -376,7 +390,23 @@ Both workflows upload their logs as run artefacts. What each side proves, and wh
 A container scenario takes 90 to 300 minutes by declared ceiling and a CI sweep takes hours. Neither tells you it is
 stuck, and a run that has hung looks exactly like a run that is working until you go and ask.
 
-So ask, on a timer, roughly every ten minutes, whichever way the work is running:
+So ask, on a timer, roughly every ten minutes, whichever way the work is running. A tier 3 scenario runs on a GitHub-hosted runner or in a throwaway virtual machine, never on the owner's computer, so from the owner's computer it is watched through the workflow runs:
+
+```bash
+gh run list --workflow e2e-manual.yaml --limit 5
+```
+
+```bash
+gh run list --workflow e2e-matrix.yml --limit 5
+```
+
+The jobs of one run, and which of them are still going, where `<run-id>` is the first column of the list above:
+
+```bash
+gh run view <run-id>
+```
+
+A queued tier 1 or tier 2 run on the owner's computer, and a tier 3 run inside a throwaway virtual machine, are watched through the containers and the queue log:
 
 ```bash
 docker ps --filter name=e2e --format '{{.Names}}\t{{.Status}}'
@@ -384,10 +414,6 @@ docker ps --filter name=e2e --format '{{.Names}}\t{{.Status}}'
 
 ```bash
 tail -5 e2e/runs/queue.log
-```
-
-```powershell
-gh run list --workflow e2e-matrix.yml --limit 5
 ```
 
 Watching only for completion is the mistake. A queue that died leaves no notification, and one that
