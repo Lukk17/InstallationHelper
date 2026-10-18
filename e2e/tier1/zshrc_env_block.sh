@@ -3,7 +3,7 @@
 # Tier 1: the checked-in zsh configuration keeps the environment out of .zshrc, and reaches the
 # machine in a form a second run leaves alone.
 #
-# Four assertions, each for a defect this layout has already had.
+# Five assertions, each for a defect this layout has already had.
 #
 #   1. setup/config/zsh/.zshrc exports nothing and assigns no PATH outside a comment. A variable set
 #      there misses every desktop application, because Plasma starts its session through a
@@ -17,6 +17,12 @@
 #      shell_zsh_oh_my_zsh_dir default, with {{ non_root_home }} read as $HOME.
 #   4. The zsh environment import env_variables writes declares `typeset -U path PATH` before it
 #      imports ~/.config/environment.d, so a shell started from a shell does not repeat every entry.
+#   5. dev_env_file in group_vars/all.yaml, and every environment.d file the manual install pages
+#      append a PATH line to, sorts after 99-environment.conf. systemd reads environment.d files in
+#      name order, every supported distribution links 99-environment.conf to /etc/environment, and
+#      Ubuntu's /etc/environment assigns PATH outright. The file was 50-dev.conf, and the Ubuntu
+#      defaults scenario of 2026-10-18 found all five PATH entries missing from the desktop session
+#      while every variable in the same file was there.
 #
 # A task that can no longer be found fails rather than passing over nothing.
 
@@ -39,6 +45,10 @@ TEMPLATE = pathlib.Path('setup/config/zsh/.zshrc')
 SHELL_ZSH_TASKS = pathlib.Path('setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml')
 SHELL_ZSH_DEFAULTS = pathlib.Path('setup/ansible/roles/shell_zsh/defaults/main.yaml')
 ENV_TASKS = pathlib.Path('setup/ansible/roles/env_variables/tasks/env_unix.yaml')
+GROUP_VARS_ALL = pathlib.Path('setup/ansible/group_vars/all.yaml')
+MANUAL_PAGES = pathlib.Path('docs/manual')
+SYSTEM_ENVIRONMENT_LINK = '99-environment.conf'
+ENVIRONMENT_D_FILE = re.compile(r'environment\.d/([A-Za-z0-9._-]+\.conf)')
 BASE_TASK = 'Write the checked-in zsh configuration into $ZDOTDIR/.zshrc'
 IMPORT_TASK = 'Import environment.d into every zsh (Linux/macOS)'
 BLOCKINFILE = ('ansible.builtin.blockinfile', 'community.general.blockinfile', 'blockinfile')
@@ -77,7 +87,7 @@ offending = [(n, line) for n, line in enumerate(text.splitlines(), 1)
 if offending:
     print('FAIL %s sets environment at %s. That file is read by interactive shells only, so a variable '
           'or PATH entry set there never reaches a desktop application. It belongs in the environment '
-          'file env_variables writes, ~/.config/environment.d/50-dev.conf.'
+          'file env_variables writes, ~/.config/environment.d/990-dev.conf.'
           % (TEMPLATE.as_posix(), ', '.join('line %d "%s"' % (n, line.strip()) for n, line in offending)))
 else:
     print('OK %s exports nothing and assigns no PATH outside a comment' % TEMPLATE.as_posix())
@@ -117,6 +127,28 @@ if env is not None:
               % (IMPORT_TASK, ENV_TASKS.as_posix()))
     else:
         print('OK "%s" declares typeset -U path PATH before the environment.d import' % IMPORT_TASK)
+
+dev_env_file = str((load(GROUP_VARS_ALL) or {}).get('dev_env_file', ''))
+path_files = [('dev_env_file in %s' % GROUP_VARS_ALL.as_posix(), pathlib.PurePosixPath(dev_env_file).name)]
+for page in sorted(MANUAL_PAGES.rglob('*.md')):
+    for number, line in enumerate(page.read_text(encoding='utf-8').splitlines(), 1):
+        if 'PATH=' in line:
+            path_files += [('%s:%d' % (page.as_posix(), number), name) for name in ENVIRONMENT_D_FILE.findall(line)]
+if not dev_env_file.endswith('.conf'):
+    print('FAIL %s has no dev_env_file ending in .conf, so where the PATH entries go is unknown'
+          % GROUP_VARS_ALL.as_posix())
+else:
+    early = [(where, name) for where, name in path_files if name <= SYSTEM_ENVIRONMENT_LINK]
+    if early:
+        print('FAIL %s. systemd reads environment.d files in name order and reads %s, the link to '
+              '/etc/environment, after each of these, and Ubuntu\'s /etc/environment assigns PATH outright, '
+              'so every PATH entry they add is gone from the desktop session. Name the file so it sorts '
+              'after %s, as 990-dev.conf does'
+              % ('; '.join('%s writes PATH into %s' % (where, name) for where, name in early),
+                 SYSTEM_ENVIRONMENT_LINK, SYSTEM_ENVIRONMENT_LINK))
+    else:
+        print('OK %d environment.d files that carry PATH sort after %s, %s among them'
+              % (len(path_files), SYSTEM_ENVIRONMENT_LINK, path_files[0][1]))
 PYEOF
 )" || report_status=$?
 assert_python_ran "${report_status}" "zshrc env block"

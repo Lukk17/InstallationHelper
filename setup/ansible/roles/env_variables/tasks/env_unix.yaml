@@ -1,6 +1,6 @@
 ---
 # Every static variable and every PATH entry a desktop application and a terminal both need lives in
-# one file, dev_env_file, ~/.config/environment.d/50-dev.conf. The systemd user manager reads it at
+# one file, dev_env_file, ~/.config/environment.d/990-dev.conf. The systemd user manager reads it at
 # login, so an application Plasma or GNOME starts sees it, and every shell imports the same file at
 # start, so a terminal, an SSH login and a TTY login see it too. env_unix.yaml, nvm_unix.yaml,
 # sdkman_unix.yaml, pyenv_unix.yaml and local_llm.yaml each append their own marked block to it.
@@ -166,5 +166,23 @@
   args:
     executable: /bin/bash
     removes: "{{ non_root_home }}/apps_config/env.sh"
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+# --- migration from ~/.config/environment.d/50-dev.conf -----------------------------------------
+# A machine provisioned between 2026-10-15 and 2026-10-18 has the same blocks in 50-dev.conf, which
+# systemd reads before /etc/environment, so on Ubuntu its PATH entries never reached the desktop
+# session. env_variables and every role that appends a block write it into dev_env_file on this run,
+# so the old file is moved into shell_layout_backup_dir rather than left to repeat every entry.
+- name: Move the retired ~/.config/environment.d/50-dev.conf into the shell layout backup (Linux/macOS)
+  ansible.builtin.shell: |
+    set -eu
+    mkdir -p "{{ shell_layout_backup_dir }}"
+    mv "{{ env_variables_retired_env_file }}" "{{ shell_layout_backup_dir }}/50-dev.conf.$(date +%Y%m%d%H%M%S)"
+  args:
+    executable: /bin/bash
+    removes: "{{ env_variables_retired_env_file }}"
+  vars:
+    env_variables_retired_env_file: "{{ dev_env_file | dirname }}/50-dev.conf"
   become: yes
   become_user: "{{ non_root_user }}"
