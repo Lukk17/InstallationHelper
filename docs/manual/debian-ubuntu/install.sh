@@ -153,26 +153,27 @@ echo "deb [signed-by=/etc/apt/keyrings/lens.gpg] https://downloads.k8slens.dev/a
 # Helm
 curl -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | sudo gpg --dearmor -o /etc/apt/keyrings/helm.gpg
 echo "deb [signed-by=/etc/apt/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | sudo tee /etc/apt/sources.list.d/helm.list >/dev/null
+# HashiCorp, Tailscale and Docker publish one suite per Debian or Ubuntu release, and Tailscale and Docker publish
+# ubuntu and debian paths only. A derivative takes its lineage and its parent's codename, never its own: Linux Mint
+# 22 is wilma on Ubuntu noble, LMDE 6 is faye on Debian bookworm. The lineage is the ih_base rule and the codename
+# the ih_apt_codename rule of setup/ansible/tasks/derive_os_facts.yaml.
+# shellcheck source=/dev/null
+UPSTREAM_DISTRO="$(. /etc/os-release && if [[ -n "${UBUNTU_CODENAME:-}" || "${ID_LIKE:-}" == *ubuntu* || "${ID:-}" == ubuntu ]]; then echo ubuntu; else echo debian; fi)"
+# shellcheck source=/dev/null
+UPSTREAM_CODENAME="$(. /etc/os-release && if [ "${UPSTREAM_DISTRO}" = ubuntu ]; then echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; else echo "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}"; fi)"
+if [ -z "${UPSTREAM_CODENAME}" ]; then
+  printf 'ERROR: /etc/os-release names no %s codename, so the HashiCorp, Tailscale and Docker repositories cannot be added.\n' "${UPSTREAM_DISTRO}" >&2
+  exit 1
+fi
 # Terraform (HashiCorp)
 curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/hashicorp.gpg
-echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com ${UPSTREAM_CODENAME} main" | sudo tee /etc/apt/sources.list.d/hashicorp.list >/dev/null
 # GitHub CLI (key is already a binary keyring — no dearmor)
 sudo curl -fsSLo /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
 echo "deb [signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
 # Syncthing (key is already a binary keyring, no dearmor)
 sudo curl -fsSLo /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
 echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list >/dev/null
-# Tailscale and Docker publish ubuntu and debian paths only, each under that distribution's own codename. A
-# derivative takes its lineage and its parent's codename, never its own: Linux Mint 22 is wilma on Ubuntu noble,
-# LMDE 6 is faye on Debian bookworm. The lineage is the ih_base rule of setup/ansible/tasks/derive_os_facts.yaml.
-# shellcheck source=/dev/null
-UPSTREAM_DISTRO="$(. /etc/os-release && if [[ -n "${UBUNTU_CODENAME:-}" || "${ID_LIKE:-}" == *ubuntu* || "${ID:-}" == ubuntu ]]; then echo ubuntu; else echo debian; fi)"
-# shellcheck source=/dev/null
-UPSTREAM_CODENAME="$(. /etc/os-release && if [ "${UPSTREAM_DISTRO}" = ubuntu ]; then echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; else echo "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}"; fi)"
-if [ -z "${UPSTREAM_CODENAME}" ]; then
-  printf 'ERROR: /etc/os-release names no %s codename, so the Tailscale and Docker repositories cannot be added.\n' "${UPSTREAM_DISTRO}" >&2
-  exit 1
-fi
 # Tailscale (key is already a binary keyring, no dearmor).
 sudo curl -fsSLo /etc/apt/keyrings/tailscale-archive-keyring.gpg "https://pkgs.tailscale.com/stable/${UPSTREAM_DISTRO}/${UPSTREAM_CODENAME}.noarmor.gpg"
 echo "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME} main" | sudo tee /etc/apt/sources.list.d/tailscale.list >/dev/null
@@ -226,13 +227,16 @@ log "Enabling the Syncthing user service"
 systemctl --user enable --now syncthing.service || printf '   Skipped: no user D-Bus session. Run it yourself after logging in.\n'
 
 log "Enabling the tailscaled system service"
-sudo systemctl enable --now tailscaled
+sudo systemctl enable --now tailscaled || printf '   Skipped: tailscaled.service could not be enabled, so tailscale most likely did not install. systemctl printed why above.\n'
+
+log "Enabling and starting the Docker system service"
+sudo systemctl enable --now docker || printf '   Skipped: docker.service could not be enabled, so docker-ce most likely did not install. systemctl printed why above.\n'
 
 log "Adding ${USER} to the docker group, which takes effect only after logging out and back in, a new terminal window is not enough"
 sudo usermod -aG docker "${USER}" || printf '   Skipped: the docker group does not exist, so docker-ce did not install.\n'
 
 log "Adding ${USER} to the plugdev group OpenRazer grants device access to, which takes effect at the next login"
-sudo usermod -aG plugdev "${USER}"
+sudo usermod -aG plugdev "${USER}" || printf '   Skipped: the plugdev group does not exist, so OpenRazer has no group to grant device access to.\n'
 
 log "Done. The following were NOT installed (manual download required):"
 for item in "${SKIPPED[@]}"; do

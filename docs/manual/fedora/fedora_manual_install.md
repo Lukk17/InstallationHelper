@@ -312,6 +312,12 @@ sudo dnf config-manager addrepo --from-repofile=https://download.docker.com/linu
 for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo dnf install -y "${package}" || echo "FAILED: ${package}"; done
 ```
 
+Start the Docker daemon now and at every boot, which the package does not do on every distribution:
+
+```bash
+sudo systemctl enable --now docker
+```
+
 Add yourself to the `docker` group so `docker` runs without `sudo`. It takes effect only after you log out and back in, or reboot. A new terminal window is not enough, because it keeps the groups of the session you are already in:
 
 ```bash

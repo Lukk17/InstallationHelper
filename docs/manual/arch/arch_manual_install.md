@@ -245,6 +245,12 @@ sudo usermod -aG openrazer "${USER}"
 | Docker | `sudo pacman -S --needed docker` |
 | Podman Desktop | `flatpak install -y flathub io.podman_desktop.PodmanDesktop`, a front end for the Docker engine above |
 
+Start the Docker daemon now and at every boot, which the package does not do on every distribution:
+
+```bash
+sudo systemctl enable --now docker
+```
+
 Add yourself to the `docker` group so `docker` runs without `sudo`. It takes effect only after you log out and back in, or reboot. A new terminal window is not enough, because it keeps the groups of the session you are already in:
 
 ```bash

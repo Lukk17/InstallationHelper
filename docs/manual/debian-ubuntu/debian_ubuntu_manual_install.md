@@ -96,6 +96,24 @@ curl -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | sudo g
 echo "deb [signed-by=/etc/apt/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | sudo tee /etc/apt/sources.list.d/helm.list
 ```
 
+**Ubuntu or Debian repository path.** HashiCorp, Tailscale and Docker publish one suite per Debian or Ubuntu release, and Tailscale and Docker publish `ubuntu` and `debian` paths only. A derivative needs its lineage and its parent's codename, never its own name or codename: Linux Mint 22 is `wilma` on Ubuntu `noble`, and LMDE 6 is `faye` on Debian `bookworm`. The playbook decides both the same way, `ih_base` and `ih_apt_codename` in [setup/ansible/tasks/derive_os_facts.yaml](../../../setup/ansible/tasks/derive_os_facts.yaml). Set the lineage first:
+
+```bash
+UPSTREAM_DISTRO="$(. /etc/os-release && if [[ -n "${UBUNTU_CODENAME:-}" || "${ID_LIKE:-}" == *ubuntu* || "${ID:-}" == ubuntu ]]; then echo ubuntu; else echo debian; fi)"
+```
+
+Then the codename of that lineage:
+
+```bash
+UPSTREAM_CODENAME="$(. /etc/os-release && if [ "${UPSTREAM_DISTRO}" = ubuntu ]; then echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; else echo "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}"; fi)"
+```
+
+Check both before going on. It prints `ubuntu noble` on Ubuntu 24.04 and on Linux Mint 22, and `debian trixie` on Debian 13. An empty codename means this machine does not name one, so stop here:
+
+```bash
+echo "${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME}"
+```
+
 **Terraform:**
 
 ```bash
@@ -103,7 +121,7 @@ curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /etc/a
 ```
 
 ```bash
-echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com ${UPSTREAM_CODENAME} main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
 ```
 
 **GitHub CLI** (key is already a binary keyring — no `gpg --dearmor` step):
@@ -124,24 +142,6 @@ sudo curl -fsSLo /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthi
 
 ```bash
 echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list
-```
-
-**Ubuntu or Debian repository path.** Tailscale and Docker publish `ubuntu` and `debian` paths only, each under that distribution's own codename. A derivative needs its lineage and its parent's codename, never its own name or codename: Linux Mint 22 is `wilma` on Ubuntu `noble`, and LMDE 6 is `faye` on Debian `bookworm`. The playbook decides the lineage the same way, in [setup/ansible/tasks/derive_os_facts.yaml](../../../setup/ansible/tasks/derive_os_facts.yaml). Set the lineage first:
-
-```bash
-UPSTREAM_DISTRO="$(. /etc/os-release && if [[ -n "${UBUNTU_CODENAME:-}" || "${ID_LIKE:-}" == *ubuntu* || "${ID:-}" == ubuntu ]]; then echo ubuntu; else echo debian; fi)"
-```
-
-Then the codename of that lineage:
-
-```bash
-UPSTREAM_CODENAME="$(. /etc/os-release && if [ "${UPSTREAM_DISTRO}" = ubuntu ]; then echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; else echo "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}"; fi)"
-```
-
-Check both before going on. It prints `ubuntu noble` on Ubuntu 24.04 and on Linux Mint 22, and `debian trixie` on Debian 13. An empty codename means this machine does not name one, so stop here:
-
-```bash
-echo "${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME}"
 ```
 
 **Tailscale** (key is already a binary keyring, no `gpg --dearmor` step). The keyring and the repo both live under the path set above:
@@ -354,6 +354,12 @@ sudo apt-get update
 
 ```bash
 for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo apt-get install -y "${package}" || echo "FAILED: ${package}"; done
+```
+
+Start the Docker daemon now and at every boot, which the package does not do on every distribution:
+
+```bash
+sudo systemctl enable --now docker
 ```
 
 Add yourself to the `docker` group so `docker` runs without `sudo`. It takes effect only after you log out and back in, or reboot. A new terminal window is not enough, because it keeps the groups of the session you are already in:

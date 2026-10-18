@@ -25,7 +25,9 @@
 #   2. the script installs nothing else, apart from a documented difference;
 #   3. the guide carries an install command for every mapping on by default;
 #   4. no install command in the guide names a package the dictionaries do not map, on or off, apart
-#      from a documented difference.
+#      from a documented difference;
+#   5. the script and the guide enable and start docker.service, as virtualization_config does;
+#   6. every usermod and systemctl line in the script reports a skip rather than ending it.
 # A documented difference is a line in manual_linux_install_allowed.txt naming the file of the
 # playbook that installs the same package outside the dictionary, and that file must still name it,
 # or naming no file, written -, for a prerequisite only the manual route needs, which the reason has
@@ -401,6 +403,48 @@ for family in "${FAMILIES[@]}"; do
     fi
 
     unset family_line expected mapped script_has guide_has
+done
+
+# --- the services and groups the playbook sets up after installing ----------------------------------
+# virtualization_config enables and starts docker.service after installing Docker, and every script
+# and guide installed Docker without ever starting it, so `docker run` failed with "Cannot connect
+# to the Docker daemon" on Fedora and Arch, whose packages do not start it themselves.
+#
+# The scripts run under set -e, so a usermod or systemctl that fails because its package did not
+# install ends the script there, before the list of packages that did not install, which is the one
+# thing the script promises to print. debian-ubuntu/install.sh had `sudo usermod -aG plugdev` with no
+# guard while fedora/install.sh had one. Every such line carries the `|| printf '   Skipped: ...'`
+# the docker group line already had.
+for family in "${FAMILIES[@]}"; do
+    script="${SCRIPT_OF[${family}]}"
+    guide="${GUIDE_OF[${family}]}"
+    script_rel="${script#"${REPO_ROOT}"/}"
+    guide_rel="${guide#"${REPO_ROOT}"/}"
+
+    if tr -d '\r' <"${script}" | grep -qE "^[[:space:]]*sudo systemctl enable --now docker(\.service)?[[:space:]]+\|\|[[:space:]]+printf '   Skipped: "; then
+        pass "${family}: ${script_rel} enables and starts docker.service, and says so when Docker did not install"
+    else
+        fail "${family}: ${script_rel} installs Docker and never enables and starts docker.service, guarded like the docker group line" \
+             "expected a line: sudo systemctl enable --now docker || printf '   Skipped: ...'"
+    fi
+    if tr -d '\r' <"${guide}" | grep -qE '^[[:space:]]*sudo systemctl enable --now docker(\.service)?[[:space:]]*$'; then
+        pass "${family}: ${guide_rel} tells the reader to enable and start docker.service"
+    else
+        fail "${family}: ${guide_rel} installs Docker and never tells the reader to enable and start docker.service" \
+             "expected a code block holding: sudo systemctl enable --now docker"
+    fi
+
+    unguarded="$(tr -d '\r' <"${script}" | grep -nE '^[[:space:]]*(sudo[[:space:]]+)?(usermod|systemctl)[[:space:]]' \
+        | grep -vE "\|\|[[:space:]]+printf '   Skipped: " || true)"
+    service_lines="$(tr -d '\r' <"${script}" | grep -cE '^[[:space:]]*(sudo[[:space:]]+)?(usermod|systemctl)[[:space:]]' || true)"
+    if [[ "${service_lines}" -eq 0 ]]; then
+        fail "${family}: no usermod or systemctl line could be read out of ${script_rel}, so this proves nothing" "${script}"
+    elif [[ -z "${unguarded}" ]]; then
+        pass "${family}: all ${service_lines} usermod and systemctl lines in ${script_rel} report a skip instead of ending the script under set -e"
+    else
+        fail "${family}: ${script_rel} has usermod or systemctl lines that end the script under set -e when their package did not install" \
+             "$(tr '\n' ' ' <<<"${unguarded}")"
+    fi
 done
 
 unused=()

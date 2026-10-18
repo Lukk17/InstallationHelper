@@ -236,7 +236,10 @@ log "Enabling the Syncthing user service"
 systemctl --user enable --now syncthing.service || printf '   Skipped: no user D-Bus session. Run it yourself after logging in.\n'
 
 log "Enabling the tailscaled system service"
-sudo systemctl enable --now tailscaled
+sudo systemctl enable --now tailscaled || printf '   Skipped: tailscaled.service could not be enabled, so tailscale most likely did not install. systemctl printed why above.\n'
+
+log "Enabling and starting the Docker system service"
+sudo systemctl enable --now docker || printf '   Skipped: docker.service could not be enabled, so docker-ce most likely did not install. systemctl printed why above.\n'
 
 log "Adding ${USER} to the docker group, which takes effect only after logging out and back in, a new terminal window is not enough"
 sudo usermod -aG docker "${USER}" || printf '   Skipped: the docker group does not exist, so docker-ce did not install.\n'
