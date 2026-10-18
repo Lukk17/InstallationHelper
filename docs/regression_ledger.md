@@ -4577,7 +4577,7 @@ How it was proven: `unshare -r bash -c 'echo "EUID=$EUID uid=$(id -u)"'` in WSL 
 
 Fix: the bash refusal now runs directly after `parse_args`, before the banner, so only `--help` answers as root. Both messages now say what to do: `ERROR: Do not run this script as root or with sudo. Run it as your normal user: ./setup.sh. It asks for your sudo password itself when a step needs it.` and `Do not run this script as Administrator. Open a normal PowerShell 7 window and run it there. It asks for administrator rights itself, one Windows prompt per step that needs them. Pass -AllowAdministrator only on a throwaway machine such as a CI runner.` The elevation question moved into `Test-IsAdministrator` so a test can mock it. The comment in [e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) that quoted the old Windows message was updated.
 
-Mechanical check: two. [wizard_root_refusal.sh](../e2e/tier1/wizard_root_refusal.sh) starts setup.sh as uid 0 through `unshare -r`, with a sudo stub first on PATH that records every call, and from Git Bash it re-runs itself inside WSL through [wsl_delegate.sh](../e2e/tier1/wsl_delegate.sh), whose WSL hop is now one function shared with the Ansible checks. Against a copy of setup.sh without the refusal it printed `FAIL ./setup.sh as root is refused with the message and nothing else runs`, with `sudo was called: sudo -n -k true` among the reasons, and `FAIL --print-command as root is refused as well, before it resolves anything`, with `exited 0 where the refusal exits 1`. Against a copy with the refusal back below the banner and `detect_os` it failed both cases on the banner. Four Pester tests under `Assert-NotAdmin in setup.ps1` in [WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) each failed against a copy made for it: without the `Write-Err` line, `Expected an exception ... to be thrown, but no exception was thrown`. Without the `-AllowAdministrator` branch, `Expected no exception to be thrown`. Without the elevation test, the normal run threw. With `Assert-AnsibleDir` moved ahead of `Assert-NotAdmin`, `Expected: 'Assert-NotAdmin' But was: 'Assert-AnsibleDir'`.
+Mechanical check: two. [wizard_root_refusal.sh](../e2e/tier1/wizard_root_refusal.sh) starts setup.sh as uid 0 through `unshare -r`, with a sudo stub first on PATH that records every call, and from Git Bash it re-runs itself inside WSL through `wsl_delegate.sh`, deleted on 2026-10-18 with every other route out of the gate container, whose WSL hop is now one function shared with the Ansible checks. Against a copy of setup.sh without the refusal it printed `FAIL ./setup.sh as root is refused with the message and nothing else runs`, with `sudo was called: sudo -n -k true` among the reasons, and `FAIL --print-command as root is refused as well, before it resolves anything`, with `exited 0 where the refusal exits 1`. Against a copy with the refusal back below the banner and `detect_os` it failed both cases on the banner. Four Pester tests under `Assert-NotAdmin in setup.ps1` in [WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) each failed against a copy made for it: without the `Write-Err` line, `Expected an exception ... to be thrown, but no exception was thrown`. Without the `-AllowAdministrator` branch, `Expected no exception to be thrown`. Without the elevation test, the normal run threw. With `Assert-AnsibleDir` moved ahead of `Assert-NotAdmin`, `Expected: 'Assert-NotAdmin' But was: 'Assert-AnsibleDir'`.
 
 #### 7.23 Three separate administrator checks on Windows, one rule in three places
 
@@ -6082,3 +6082,171 @@ Fix: setup/windows/WindowsCustomInstalls.ps1 declares `$script:CustomInstallMapp
 Wrong turn worth keeping: the green tier 1 on a host without pwsh was taken as covering the PowerShell side, and it covers nothing there. A SKIP is not a pass.
 
 Mechanical check: e2e/tier1/windows_mapping.sh and e2e/tier1/windows_settings.sh, both proven to fail again when the declarations are removed, and only where pwsh runs.
+
+### Found while keeping OpenCode version 1 out of every way to pick a whole set, 2026-10-15 to 2026-10-18
+
+#### 10.101 Switching to OpenCode version 1 brought an old version 1 backup back
+
+Cause: when `opencode_use_v1` turned on, the switch moved the version 2 data folder aside and then moved the newest `opencode.v1-backup-<date>-<time>` folder back into `~/.local/share/opencode`, on Linux and macOS in roles/ai_tools/tasks/opencode_data.yaml and on Windows in setup/windows/WindowsCustomInstalls.ps1. The owner decided, as decision 55, that version 1 starts clean instead.
+
+Effect: version 1 opened whatever state it had been left in at the last switch away from it, rather than the empty folder the owner wants from a switch.
+
+How it was proven: e2e/tier1/opencode_switch.sh, rewritten to assert the clean start, reported `52 checks, 7 FAILED` against the old code and `52 checks, all passed` after the change. The Pester suite reported `failed=0` after it.
+
+Fix: roles/ai_tools/tasks/opencode_data.yaml and setup/windows/WindowsCustomInstalls.ps1. Switching to version 1 moves version 2 data to `opencode.v2-backup-<date>-<time>` and restores nothing. Switching back to version 2 still restores the newest version 2 backup. Nothing is deleted, so an earlier version 1 backup stays where it is and can be moved back by hand.
+
+Mechanical check: e2e/tier1/opencode_switch.sh and the OpenCode cases in e2e/tier1/windows/WindowsSoftware.Tests.ps1.
+
+#### 10.102 --software all and -Software all switched OpenCode to version 1
+
+Cause: both wizards set every checklist toggle true under `all`, and `opencode_use_v1` is a checklist toggle. A toggle that replaces one version with another is not software to add, so "all" turned a replacement on.
+
+Effect: `setup.sh --print-command --software all` printed `opencode_use_v1=true`, and Pester showed `Get-OpenCodeVersion` answering v1 after `Resolve-ToggleOverride -Baseline all`. A real run would have installed OpenCode version 1 and removed version 2.
+
+How it was proven: before the fix, `print-command resolution: 9 checks, 2 FAILED` and 5 failed Pester tests. After it, both passed.
+
+Fix: `ALL_SOFTWARE_KEEPS_OFF` in setup/setup.sh and `$AllSoftwareKeepsOff` in setup/setup.ps1, each naming `opencode_use_v1`. `--enable opencode_use_v1` and `-EnableKey opencode_use_v1` still turn it on. e2e/tier3/container.sh reads the same list through `wizard_all_software_keeps_off` in e2e/lib/common.sh, so the container scenarios expect the same answer.
+
+Mechanical check: e2e/tier1/print_command_resolution.sh, e2e/tier1/wizard_parse.sh, which also requires the two lists to be equal, e2e/tier1/selection_parity.sh, and the Pester cases in e2e/tier1/windows/WindowsSoftware.Tests.ps1.
+
+#### 10.103 Select-all in both checklists still ticked opencode_use_v1
+
+Cause: owner item 61. The gum `--no-limit` select-all in setup/setup.sh and the Out-ConsoleGridView select-all in setup/setup.ps1 tick every row, `opencode_use_v1` included, while 10.102 had made `--software all` leave it off. Two routes that both mean "install all" decided separately, which is defect class 2 in AGENTS.md, and 10.102 fixed only one of them.
+
+Effect: selecting every row in either checklist installed OpenCode version 1 and removed version 2, the same defect 10.102 had just closed for the command line.
+
+How it was proven: five mutant runs each failed against a copy of the tree without the fix: interactive_states.sh, wizard_parse.sh, Pester with `failed=2` and with `failed=1`, and print_command_resolution.sh with a profile.
+
+Fix: `select_all_leaves_off` and `select_all_note` in setup/setup.sh, and `Resolve-PickedSelection` and `Show-SoftwarePicker` in setup/setup.ps1. A full selection drops the keys in the keep-off list, the checklist says which ones above the rows, and ticking one of them in a partial selection still turns it on.
+
+Mechanical check: e2e/tier1/interactive_states.sh, e2e/tier1/wizard_parse.sh, which asserts both functions read the list, e2e/tier1/print_command_resolution.sh, which also fails on any file under setup/ansible/profiles/ turning on a key the list names, and e2e/tier1/windows/WindowsSoftware.Tests.ps1.
+
+### Introduced while keeping OpenCode version 1 out of every way to pick a whole set, 2026-10-15 to 2026-10-18
+
+#### 10.104 The wizard parse check read past the one-line PowerShell list
+
+Cause: introduced by an agent. e2e/tier1/wizard_parse.sh extracted the one-line `$AllSoftwareKeepsOff = @('opencode_use_v1')` with `sed -n '/start/,/)$/p'`. A sed range looks for its end only from the line after the start, so on a one-line array it ran on into `$LabelOverrides`.
+
+Effect: the check compared against `setup.ps1 $AllSoftwareKeepsOff: enable_hyperv opencode_use_v1 set_custom_wallpaper setup_wsl`, three keys the list does not hold.
+
+How it was proven: by the failing comparison above. Wrong turn worth keeping: before setup.ps1 had the list, the check said `not found`, and that was taken as the expected failure of a test written first, so the extraction had never been seen working on a real line.
+
+Fix: an awk extraction in e2e/tier1/wizard_parse.sh that prints from the opening line and stops on the first line ending in `)`, the same line when the array is on one line.
+
+Mechanical check: the check itself, proven against a mutant copy whose array is empty: `wizard parse: 26 checks, 1 FAILED`.
+
+#### 10.105 The print-command check ended silently on an empty grep under pipefail
+
+Cause: introduced by an agent and caught before shipping. e2e/tier1/print_command_resolution.sh assigned `resolved_false=$(keys_resolved_to ...)`, and when grep matched nothing the assignment returned non-zero, so under `set -euo pipefail` the script ended on that line.
+
+Effect: the run printed one PASS and no tally, which looks like a short check rather than a dead one, defect class 10 in AGENTS.md. With an empty `ALL_OFF_KEYS` it died instead with `ALL_OFF_KEYS[0]: unbound variable`.
+
+How it was proven: by the missing tally and the error text above, in the first runs of the new cases.
+
+Fix: `|| true` on both assignments, and one `OFF_PROBE="${ALL_OFF_KEYS[0]:-opencode_use_v1}"` with a default, in e2e/tier1/print_command_resolution.sh. The check asserts how many runs answered, so a run that never happens fails by count.
+
+Mechanical check: the tally assertion in the check itself.
+
+#### 10.106 A profile regex tripped the SIGPIPE check
+
+Cause: introduced by an agent. The profile case in e2e/tier1/print_command_resolution.sh matched a boolean with `(true|yes|True|on)`, and e2e/tier1/sigpipe_pipelines.sh reads a `yes` directly after a pipe-like `|` as a command feeding a pipeline.
+
+Effect: tier 1 failed with `e2e/tier1/print_command_resolution.sh feeds a command from \`yes\``.
+
+How it was proven: by that failure in the gate run.
+
+Fix: the alternation is `(true|True|on|yes)`, with `yes` last, in e2e/tier1/print_command_resolution.sh. The SIGPIPE check was not changed.
+
+Mechanical check: e2e/tier1/sigpipe_pipelines.sh, which caught it.
+
+### Found while moving every check into the gate container, 2026-10-15 to 2026-10-18
+
+#### 10.107 Tests ran on the owner's computer because the rule only forbade the ones that can change it
+
+Cause: every tier 1 check, tier 2 and the tier 3 driver ran as processes on whatever machine started e2e/run.sh. The rule in force forbade tests that install or remove software on the owner's computer and allowed the rest, and nothing in the harness stopped either kind.
+
+Effect: the gate's answer depended on the host's tools. From WSL the five PowerShell checks reported SKIP, and on 2026-09-02 47 assertions never ran under WSL. Entry 10.98 shows a host-run fixture reaching the real `pacman -R --noconfirm opencode-desktop-bin`.
+
+How it was proven: on 2026-10-15, inside the gate container, tier 1 ran 60 scripts with 498 passed, 1 skipped and 0 failed in 3:37, Pester reported `total=212 passed=204 failed=0 skipped=5`, tier 2 reported 24 passed and 1 skipped in 7:57, and tier 3 forced-failure on debian passed 6 of 6 with `QUEUE_EXIT=0`. A check started outside the gate printed `REFUSED` and exited 2 in three tested cases.
+
+Fix: decision 59, the gate container: e2e/gate/Dockerfile, e2e/gate/provision.sh, e2e/gate/entrypoint.sh, e2e/lib/gate.sh, e2e/lib/host.sh, the guard at the top of e2e/lib/common.sh, which refuses to run without both `E2E_INSIDE_GATE_CONTAINER=1` and the marker file `/etc/installationhelper-e2e-gate`, and the `gate_*` pins in setup/pinned_values/pinned_values.toml. On 2026-10-18, owner item 62 deleted the last routes out of the container: `e2e/tier3/queue.Dockerfile`, `wsl_delegate.sh` and the Windows parts of e2e/tier1/pwsh_probe.sh.
+
+Scope worth keeping: this container-only rule is specific to this repository, because its tests install and remove software. An agent also copied it into the owner's global rules for every project, which was wrong, and the owner removed it there on 2026-10-18.
+
+Mechanical check: the guard in e2e/lib/common.sh, which every check sources first.
+
+#### 10.108 The tier 2 probe bind-mounted a host temporary directory
+
+Cause: e2e/lib/package_probe.sh wrote its probe script into a `mktemp -d` directory and bind-mounted it into the distribution container. A bind mount is resolved by the Docker daemon on the host, so it works only when the harness and the daemon share a filesystem, which the gate container does not.
+
+Effect: inside the gate every probe answered `sh: 0: cannot open /probe/probe.sh: No such file`, so every apt and dnf name would have read as unresolved and been skipped rather than checked. The daemon also created an empty `root:root` `/tmp/tmp.DHNDd1Ctm4` on the host, which was removed.
+
+How it was proven: by the error text above in the first tier 2 run inside the gate.
+
+Fix: `probe_missing_in_image` in e2e/lib/package_probe.sh passes the script as the `sh -c` argument, so nothing is mounted. Tier 2 inside the gate then resolved Debian 29, Ubuntu 28, Fedora 31 and CachyOS 40 names.
+
+Mechanical check: `probe_missing_in_image` returns non-zero when the probe container did not run to the end, and tier 2 reports that as a named SKIP, `the <image> probe container did not run to the end, so nothing was resolved`, never as a pass.
+
+#### 10.109 The lent GitHub token was readable through docker inspect
+
+Cause: owner item 63. `gate_enter` in e2e/lib/gate.sh passed the lent gh login as `-e GH_TOKEN`, which Docker stores in the container's settings.
+
+Effect: `docker inspect e2e-queue` showed the token for as long as the stopped queue container was kept, and a queued container is kept on purpose so its status stays readable.
+
+How it was proven: after the fix, `token occurrences in docker inspect: 0` on a queued and on a foreground tier 2 run, the host token file gone after the read, and `PASS winget: all 77 manifest ids resolve ... via gh`.
+
+Fix: e2e/lib/gate.sh, e2e/lib/host.sh and e2e/gate/entrypoint.sh. `gate_lend_github_token` writes the token to a 0600 file, `gate_enter` mounts it read-only, and the entrypoint reads it into `GH_TOKEN` in its own process environment. A queued run deletes the host file once the entrypoint reports the read, a foreground run deletes it from an EXIT trap.
+
+Mechanical check: none in the gate. The proof is the `docker inspect` count above.
+
+### Introduced while moving every check into the gate container, 2026-10-15
+
+#### 10.110 A subagent ran tier 1 checks on the owner's computer
+
+Cause: introduced by an agent. On 2026-10-15 a subagent ran checks on the host before the container-only rule reached it: `bash e2e/tier1/opencode_switch.sh` three times, with its fake guard passing each time, print_command_resolution.sh about five times, each starting `setup.sh --print-command`, selection_parity.sh three times, wizard_parse.sh twice, `ansible-playbook --syntax-check` of site.yaml and verify_install.yaml, and one full host `bash e2e/run.sh`, which ended `EXIT=1` in 2:27.
+
+Effect: outputs went to the session scratch folder. The only side effect found on the machine was the modification time of `~/.ansible/tmp`.
+
+How it was proven: by the subagent's own record of the commands it ran and where their output went, and by inspecting the machine afterwards, which found the modification time above and nothing else. The one check that drives a package manager, opencode_switch.sh, proved its fakes resolved before every run, the guard added in 10.98.
+
+Fix: 10.107, the gate container, and the guard at the top of e2e/lib/common.sh that refuses any check outside it.
+
+Mechanical check: that guard.
+
+#### 10.111 A subagent deleted the owner's Docker images and restored the wrong one
+
+Cause: introduced by an agent. The same subagent as 10.110, measuring whether dash accepts `set -o pipefail`, ran `docker rmi debian:trixie ubuntu:24.04 ubuntu:26.04` on the owner's Docker. It then "restored" `debian:trixie` with `docker tag a29215f6a35e debian:trixie`, but `a29215f6` is trixie-slim, not the full image.
+
+Effect: `installationhelper-e2e-debian` was later rebuilt on the slim base. A second subagent saw the retag, at 22:57:25, without knowing its cause and pulled `debian:trixie` again, now `913f6706`, the full image at 185 MB. `ubuntu:26.04` was pulled again on 2026-10-15, and its bottom layer `sha256:f6e0e88dd8e1...` matches the base of `installationhelper-e2e-ubuntu`, so it is the same build. `ubuntu:24.04` stays deleted, because nothing uses it.
+
+How it was proven: by the image ids and layer digests above. The dash probe itself measured that `debian:trixie` and `ubuntu:26.04` accept pipefail and `ubuntu:24.04` refuses it.
+
+Wrong turn worth keeping: the second subagent recorded the retag as "observed and not explained". The explanation was the first subagent's wrong restore, and an unexplained change on the owner's machine is a question to ask, not a note to leave.
+
+Fix: the images were pulled again as above. Subagent briefs for this repository now forbid deleting or retagging Docker images.
+
+Mechanical check: none. This is review discipline.
+
+#### 10.112 The first gate image build could not read a pin
+
+Cause: introduced by an agent and caught before shipping. e2e/gate/provision.sh called `pinned_value` before the function that defines it was loaded.
+
+Effect: the first gate build failed with `pinned_value: command not found`, exit 127.
+
+How it was proven: by that build failure.
+
+Fix: `enter_gate` in e2e/gate/provision.sh sources e2e/lib/common.sh and calls `find_runnable_python`, which sources setup/pinned_values/pinned_values.sh, where `pinned_value` lives, before any pin is read.
+
+Mechanical check: the image build itself, which every gate run performs.
+
+#### 10.113 A queued gate run could report success it did not have
+
+Cause: introduced by an agent. Three defects of defect class 10 in AGENTS.md in the first `--queue`: e2e/lib/gate.sh printed `queued` and exited 0 even when `docker run` failed, `QUEUE_EXIT` was written only after the run finished normally, and the log was emptied only once the container had started, so a watcher in that moment read the previous run's `QUEUE_EXIT`.
+
+Effect: a queue that never started looked started, a queue that died left no status line, and a fresh queue could look finished with the last run's answer.
+
+How it was proven: after the fix, a failing queue run ended `QUEUE_EXIT=2` with the container `Exited (2)`, and a passing one ended `QUEUE_EXIT=0` with `Exited (0)`.
+
+Fix: e2e/lib/gate.sh empties the log before starting the container and fails when `docker run` fails, and e2e/gate/entrypoint.sh writes `QUEUE_EXIT=<status>` from an EXIT trap, so every ending writes it.
+
+Mechanical check: none in the gate. The two queue runs above are the proof.
