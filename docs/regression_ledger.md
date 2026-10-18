@@ -6416,3 +6416,59 @@ Fix: owner decision 71. `companion_packages` keys may name a toggle with no mapp
 Mechanical check: e2e/tier1/verify_wiring.sh.
 
 Still open: debian_core installs snapd on Debian regardless of `install_snapd`, an owner decision.
+
+### Found while running tier 3 arch defaults and auditing the tier 3 containers, 2026-10-18
+
+#### 10.126 A privileged test container shared the host kernel's binary format table, and one scenario's AppImageLauncher broke lens-bin in another
+
+Cause: e2e/tier3/container.sh started every scenario with `--privileged` and systemd as PID 1, so systemd's `proc-sys-fs-binfmt_misc.automount` mounted the host kernel's one binfmt_misc table inside the container. AppImageLauncher 2.2.0's deb and rpm register `:appimage-type2:M:8:AI\x02::/usr/bin/AppImageLauncher:` without the F flag, so the kernel looks for the interpreter in the filesystem of whoever starts an AppImage.
+
+Effect: tier 3 arch defaults 2026-10-18T15-34-31Z lost lens-bin on all four attempts with `/home/lukk/.cache/paru/clone/lens-bin/PKGBUILD: line 24: ./lens-2026.9.181013.x86_64.AppImage: cannot execute: required file not found` (e2e/runs/2026-10-18T15-34-31Z_arch_defaults/playbook.log:1997) and verification failed `FAIL native packages missing: lens-bin`. The entry came from the Debian and Ubuntu defaults scenarios of the same day, whose postinst ran `systemctl restart systemd-binfmt`, and it survived `docker rm -f`. The same mechanism flushed and rewrote the owner's own kernel table since at least 2026-10-15: the Debian and Ubuntu images at every boot through their python3 binfmt.d file, and AppImageLauncher on install.
+
+How it was proven: in a throwaway container under a private binfmt_misc instance created with `unshare --user --mount` and checked to hold 0 entries, the real Lens AppImage extracted with rc 0 against the empty table, and failed with exactly `cannot execute: required file not found`, rc 127, once the 2.2.0 entry was registered. `file` and `readelf -l` show a static-pie runtime with no interpreter.
+
+Wrong hypotheses ruled out: a missing makedepends such as fuse2 or zlib, a new lens-bin release (2026.9.181013-1 built in both 2026-10-15 arch runs), and a noexec build directory.
+
+Not fully explained: the 2026-10-15 09:57 arch build passed although the Fedora rpm wrote the same entry at 09:21.
+
+Fix: e2e/tier3/container.sh masks both binfmt units and systemd-binfmt.service, and e2e/tier3/host_state.sh fails the run if binfmt_misc is mounted. The owner was told to reboot to restore his kernel table.
+
+Mechanical check: e2e/tier1/container_isolation.sh, which fails 7 of 7 against c4f06c2.
+
+Lesson: a privileged container is not isolated from the kernel's global tables.
+
+#### 10.127 udev inside a privileged test container replayed events for every host device
+
+Cause: with /sys writable, systemd-udevd and systemd-udev-trigger.service ran in the container, and linux_crypto_hardware's `udevadm control --reload-rules` and `udevadm trigger` both succeeded.
+
+Effect: e2e/runs/2026-10-18T15-34-31Z_arch_defaults/playbook.log:2426-2433 shows "Reload udev rules" and "Trigger udev for currently-connected devices" both ok and "Report that the device rules are on disk but not yet active" skipped, which proves both exit codes were 0. A trigger writes a change event into the uevent file of every device under the host's /sys, so the owner's own udev re-ran its rules for every disk, network card, input and USB device.
+
+Wrong hypothesis kept: the role's comment in setup/ansible/roles/linux_crypto_hardware/tasks/main.yaml said a container has no udev daemon, which is false for a privileged one.
+
+Fix: five udev units masked by e2e/tier3/container.sh, the guard fails the run if one is active, the comment corrected, and e2e/manual_test_matrix.md covers the rules taking effect.
+
+Mechanical check: e2e/tier1/container_isolation.sh.
+
+#### 10.128 Test containers could change host sysctls, load host modules and add host swap
+
+Suspected, not yet measured.
+
+Cause: systemd-sysctl.service and Debian's procps.service apply sysctl.d at every container boot, and the kernel, vm and fs keys that are not namespaced are the host's. systemd-modules-load and the Docker, libvirt and Tailscale services load modules into the host kernel (setup/ansible/roles/virtualization_config/tasks/main.yaml:247-252 records libvirtd loading the legacy iptables modules). timesyncd, pstore and zram-setup act on the host clock, crash records and swap.
+
+How it will be proven: e2e/tier3/container.sh records modules, swaps and kernel, vm and fs sysctls at boot, after each pass and at collection, and fails the run naming every difference.
+
+Fix so far: the units are masked and the detector is in place. Real isolation is owner decision 76.
+
+Mechanical check: e2e/tier1/container_isolation.sh.
+
+#### 10.129 Test containers ran in the host's cgroup namespace with the host's cgroup tree writable
+
+Cause: e2e/tier3/container.sh started every scenario with `--cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw` and no `container=` variable.
+
+Effect: the container's systemd could create and change cgroups outside its own. No specific damage was measured.
+
+How it was proven: by reading e2e/tier3/container.sh at c4f06c2, lines 453-454.
+
+Fix: `--cgroupns=private` with no bind, `-e container=docker`, and the guard requires `systemd-detect-virt --container` to print `docker`.
+
+Mechanical check: e2e/tier1/container_isolation.sh.
