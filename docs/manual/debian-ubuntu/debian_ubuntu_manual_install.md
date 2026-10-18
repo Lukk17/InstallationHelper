@@ -114,6 +114,8 @@ Check both before going on. It prints `ubuntu noble` on Ubuntu 24.04 and on Linu
 echo "${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME}"
 ```
 
+Devuan is not supported for the Terraform, Tailscale and Docker CE repositories, by the owner's decision of 2026-10-18. Its `/etc/os-release` names only Devuan's own release, `VERSION_CODENAME="daedalus"` on Devuan 5, and no Debian codename, so the command above prints `debian daedalus`, and download.docker.com, pkgs.tailscale.com and apt.releases.hashicorp.com all answer 404 for `daedalus`. On Devuan, skip those three repositories and the packages that come from them. The record is entry 10.114 of [docs/regression_ledger.md](../../regression_ledger.md).
+
 **Terraform:**
 
 ```bash

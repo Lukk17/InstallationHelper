@@ -132,6 +132,7 @@ pwsh setup/setup.ps1 -SkipSystemUpgrade
 Requirements:
 
 - Linux (Ubuntu / Debian, Fedora, Arch, CachyOS) or macOS, with an internet connection and `sudo`.
+- Devuan is not supported for the Docker, Tailscale and HashiCorp vendor repositories, by the owner's decision of 2026-10-18. Its `/etc/os-release` names only its own release, such as `daedalus`, and no Debian codename, and download.docker.com, pkgs.tailscale.com and apt.releases.hashicorp.com all answer 404 for that name, so none of the three repositories can be added there. The record is entry 10.114 of [docs/regression_ledger.md](../docs/regression_ledger.md).
 - On macOS, bash 4 or newer, which macOS does not ship. Apple froze `/bin/bash` at 3.2, the last
   version under the older licence, and the wizard uses two bash 4 constructs. Install one with
   `brew install bash` and the wizard finds it by itself, re-executing into Homebrew's copy. Without

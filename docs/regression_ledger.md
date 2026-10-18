@@ -6263,7 +6263,7 @@ How it was proven: e2e/tier1/apt_vendor_repositories.sh failed 23 of 41 assertio
 
 Fix: owner decision 66. One fact, `ih_apt_codename` in setup/ansible/tasks/derive_os_facts.yaml, takes `UBUNTU_CODENAME` on Ubuntu lineage or `DEBIAN_CODENAME` on Debian lineage, then `VERSION_CODENAME`, then Ansible's own release. It is read at setup/ansible/roles/software_installer/tasks/debian_repos.yaml:387, 599, 753 and 768 and at setup/ansible/roles/debian_core/tasks/main.yaml:23. New os-release fixtures `ubuntu-26.04`, `linux-mint-22.2` and `lmde-7` in e2e/tier1/os_release_fixtures/.
 
-Still open: Devuan (daedalus) still gets 404 at all three vendors. That is an open owner decision.
+Still open: none. Devuan (daedalus) still gets 404 at all three vendors, measured again on 2026-10-18 with `devuan/devuan:daedalus`, whose `/etc/os-release` carries `VERSION_CODENAME="daedalus"` and no `DEBIAN_CODENAME`. The owner decided on 2026-10-18 to document Devuan as unsupported for the Docker, Tailscale and HashiCorp repositories, and that now lives in the Requirements list of [setup/README_SETUP.md](../setup/README_SETUP.md) and in the Ubuntu or Debian repository path step of [docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md](manual/debian-ubuntu/debian_ubuntu_manual_install.md).
 
 Mechanical check: e2e/tier1/apt_vendor_repositories.sh in tier 1 and e2e/tier2/resolve_apt_repositories.sh in tier 2.
 
