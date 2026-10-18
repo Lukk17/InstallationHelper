@@ -6340,3 +6340,49 @@ How it was proven: by that failure in the gate run.
 Fix: the row, and the matching row in setup/software.md, now loop over the three packages one per call, in the form the QEMU/KVM row already uses.
 
 Mechanical check: e2e/tier1/batched_managers.sh, which caught it.
+
+### Found while checking every package a toggle installs, 2026-10-18
+
+#### 10.121 The verification checked only the mapped package of a toggle that installs several
+
+Cause: role tasks installed more packages under a software toggle than its `software_mapping` entry names, from literal lists inside the roles, and setup/ansible/verify_install.yaml expected only the mapped package.
+
+Effect: six installs were unverified. `install_qastools` on Debian and Ubuntu checked qasmixer and not qashctl or qasconfig. `install_virt_manager` checked virt-manager and not the KVM stack on Debian (6 packages), Fedora (5) and Arch (5). `install_openrazer` did not check kernel-devel and kernel-headers on Fedora or the per-kernel headers on Arch.
+
+How it was proven: the new section of e2e/tier1/verify_wiring.sh against master without the fix failed `verification wiring: 19 checks, 7 FAILED`, first failure `setup/ansible/verify_install.yaml reads no os_dict.companion_packages, so every package a role installs beside a mapping is installed by the run and checked by nothing`. A copy without the `expected_native` step and a copy with the qastools list put back as literal names each failed `14 checks, 2 FAILED`. With the fix, tier 1 ran 542 checks with 0 failed, tier 2 resolved the companion names in debian:trixie, ubuntu:26.04, fedora:44 and cachyos, and an Arch forced-failure run reported `virt_manager installed pacman: virt-manager + qemu-full, libvirt, dnsmasq, nftables, virtiofsd`.
+
+Fix: owner decision 70. `companion_packages` in setup/ansible/vars/Debian.yaml, setup/ansible/vars/RedHat.yaml and setup/ansible/vars/Archlinux.yaml is the one list, read by the virtualization_config role, setup/ansible/roles/software_installer/tasks/custom_installs.yaml, setup/ansible/roles/software_installer/tasks/fedora_repos.yaml and setup/ansible/verify_install.yaml. The Arch kernel headers come from setup/ansible/tasks/dkms_header_packages.yaml, included by setup/ansible/roles/software_installer/tasks/arch_prereqs.yaml and by setup/ansible/verify_install.yaml. 22 allowance lines were removed from e2e/tier1/manual_linux_install_allowed.txt.
+
+Mechanical check: e2e/tier1/verify_wiring.sh.
+
+### Introduced while checking every package a toggle installs, 2026-10-18
+
+#### 10.122 The new companion check carried a second parser of the pinned values
+
+Cause: introduced by an agent and caught by the gate before handing over. The new companion check carried a regular expression capturing a name between double braces, the shape e2e/tier1/pinned_values.sh forbids outside the pinned values reader.
+
+Effect: tier 1 failed with `FAIL 1 second parser(s) of the pinned values, which is how the three the reader replaced started`, naming e2e/tier1/verify_wiring.sh.
+
+How it was proven: by that failure in the gate run.
+
+Fix: string operations and `str.isidentifier` instead of the regular expression.
+
+Mechanical check: e2e/tier1/pinned_values.sh, which caught it.
+
+### Found while running tier 3 ubuntu defaults, 2026-10-18
+
+#### 10.123 Ubuntu's /etc/environment replaced the PATH of the desktop session
+
+Cause: `dev_env_file` was `~/.config/environment.d/50-dev.conf`. systemd reads environment.d files in byte order of their names, and every supported distribution links /usr/lib/environment.d/99-environment.conf to /etc/environment. On Ubuntu that file assigns `PATH="/usr/local/sbin:...:/snap/bin"` without `${PATH}`, so it replaced every PATH entry 50-dev.conf had added.
+
+Effect: tier 3 ubuntu defaults 2026-10-18T14-42-50Z finished the playbook with `failed=0` and failed verification with `FAIL desktop session environment missing: PATH entry /home/lukk/Android/Sdk/platform-tools, PATH entry /home/lukk/fvm/bin, PATH entry /home/lukk/.sdkman/candidates/java/current/bin, PATH entry /home/lukk/.pyenv/bin, PATH entry /home/lukk/.local/share/JetBrains/Toolbox/scripts`, while every plain variable in the same file was present. Debian passed the same day with `all 14 variables and 5 PATH entries present`, because Debian's /etc/environment has no PATH line. A real Ubuntu desktop would start applications without the SDK, FVM, Java, Pyenv and Toolbox directories on PATH.
+
+How it was proven: the generator `30-systemd-environment-d-generator` under `env -i` in throwaway containers from the tier 3 images. Ubuntu 26.04 (systemd 259) with 50-dev.conf printed `PATH=/usr/local/sbin:...:/snap/bin` with the added entries gone, and Debian printed them. With 990-dev.conf, Ubuntu, Debian, Fedora, Arch and CachyOS all kept them. 100-dev.conf was also replaced on Ubuntu, which proves byte order rather than number order.
+
+Wrong hypotheses ruled out: the playbook not writing the entries (playbook.log lines 682, 969 and 1090 show CHANGED), and the verification parsing the quoting wrongly (the same parser passed on Debian).
+
+Fix: `dev_env_file` renamed to 990-dev.conf in setup/ansible/group_vars/all.yaml, a migration task at the end of setup/ansible/roles/env_variables/tasks/env_unix.yaml moving an old 50-dev.conf into `shell_layout_backup_dir`, and the manual pages and setup/configuration.md updated.
+
+Mechanical check: e2e/tier1/zshrc_env_block.sh assertion 5, proven against a copy with 50-dev.conf restored (one FAIL naming all three places, gate exit 1).
+
+Lesson: a vendor default file was read after ours. The order systemd reads files in is a per-distribution fact and must be measured on each.
