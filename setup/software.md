@@ -72,6 +72,7 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | FileZilla | `sudo apt-get install -y filezilla` | `sudo dnf install -y filezilla` | `sudo pacman -S --needed filezilla` | `brew install --cask cyberduck` | `choco install filezilla -y` |
 | PuTTY | `sudo apt-get install -y putty` | `sudo dnf install -y putty` | `sudo pacman -S --needed putty` | not available | `winget install -e --id PuTTY.PuTTY` |
 | rclone | `sudo apt-get install -y rclone` | `sudo dnf install -y rclone` | `sudo pacman -S --needed rclone` | not installed, `install_rclone` is a Linux toggle | not installed, `install_rclone` is a Linux toggle |
+| QasTools (QasMixer, QasHctl, QasConfig) | `for package in qasmixer qashctl qasconfig; do sudo apt-get install -y "${package}"; done` | `sudo dnf install -y qastools` | `sudo pacman -S --needed qastools` | not installed, `install_qastools` is a Linux toggle | not installed, `install_qastools` is a Linux toggle |
 
 Terraform on macOS comes from the HashiCorp tap rather than Homebrew core, which dropped it after the BUSL relicense. The tap is added automatically by the fully qualified formula name.
 

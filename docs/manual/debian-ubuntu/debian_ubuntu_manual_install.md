@@ -206,6 +206,7 @@ sudo apt-get update
 | FileZilla | `sudo apt-get install -y filezilla` |
 | PuTTY | `sudo apt-get install -y putty` |
 | rclone | `sudo apt-get install -y rclone` |
+| QasTools | `for package in qasmixer qashctl qasconfig; do sudo apt-get install -y "${package}" \|\| echo "FAILED: ${package}"; done` |
 | Minikube | `curl -fsSLo /tmp/minikube.deb https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube_1.38.1-0_amd64.deb && sudo apt-get install -y /tmp/minikube.deb` |
 | k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
 | uv | `curl -fsSL https://astral.sh/uv/install.sh \| sudo UV_UNMANAGED_INSTALL=/usr/local/bin sh` *(no apt package on Debian trixie or Ubuntu 26.04)* |

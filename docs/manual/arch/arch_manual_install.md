@@ -56,6 +56,7 @@ sudo pacman -Syu
 | FileZilla | `sudo pacman -S --needed filezilla` |
 | PuTTY | `sudo pacman -S --needed putty` |
 | rclone | `sudo pacman -S --needed rclone` |
+| QasTools | `sudo pacman -S --needed qastools` |
 
 ## IDEs and editors
 

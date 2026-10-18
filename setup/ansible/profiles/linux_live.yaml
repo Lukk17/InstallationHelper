@@ -98,6 +98,7 @@ install_gputest: false
 install_hardinfo: false
 install_lm_sensors: false
 install_baobab: false
+install_qastools: false
 
 # ---- Virtualization (all off) ----
 install_virt_manager: false

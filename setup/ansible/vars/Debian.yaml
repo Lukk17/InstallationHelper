@@ -146,6 +146,7 @@ software_mapping:
   filezilla: { manager: "apt", package: "filezilla" }
   putty: { manager: "apt", package: "putty" }
   rclone: { manager: "apt", package: "rclone" }                # rclone publishes no apt repository and Flathub has no rclone. 1.60.1 on trixie and Ubuntu 26.04 on 2026-10-15
+  qastools: { manager: "apt", package: "qasmixer" }              # trixie and Ubuntu 26.04 have no qastools package, only qasmixer, qashctl and qasconfig, 1.4.0 on both on 2026-10-18. custom_installs.yaml installs the other two
 
   # IDEs / Editors
   vscode: { manager: "apt", package: "code" }                   # Microsoft apt repo

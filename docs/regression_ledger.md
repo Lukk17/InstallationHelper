@@ -6328,3 +6328,15 @@ How it was proven: by those failures in the gate run.
 Fix: the three findings were fixed in the new scripts, and e2e/lib/render_apt_repositories.py renders a task's vars in as many passes as the task has vars, so a var that reads another resolves whatever order they are written in.
 
 Mechanical check: the shellcheck check in tier 1 and e2e/tier1/apt_vendor_repositories.sh, which caught them.
+
+#### 10.120 The Debian QasTools guide line handed three packages to one apt-get call
+
+Cause: introduced by an agent and caught by the gate before handing over. The new QasTools row in docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md was written as `sudo apt-get install -y qasmixer qashctl qasconfig`, one call for three packages, which is defect class 9 in AGENTS.md.
+
+Effect: tier 1 failed with `docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md:211 hands qasmixer qashctl qasconfig to one apt-get call, so one package that fails loses all of them.`
+
+How it was proven: by that failure in the gate run.
+
+Fix: the row, and the matching row in setup/software.md, now loop over the three packages one per call, in the form the QEMU/KVM row already uses.
+
+Mechanical check: e2e/tier1/batched_managers.sh, which caught it.

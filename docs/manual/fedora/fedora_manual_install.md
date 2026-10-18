@@ -153,6 +153,7 @@ sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stabl
 | Go | `sudo dnf install -y golang` |
 | PuTTY | `sudo dnf install -y putty` |
 | rclone | `sudo dnf install -y rclone` |
+| QasTools | `sudo dnf install -y qastools` |
 
 > Gradle is installed via SDKMAN — see [Developer toolchain](#developer-toolchain-sdk--runtimes).
 

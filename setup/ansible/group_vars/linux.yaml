@@ -36,6 +36,7 @@ install_waydroid: false
 install_snapd: true
 install_putty: true
 install_rclone: true  # pacman on Arch and CachyOS, apt on Debian and Ubuntu, dnf on Fedora.
+install_qastools: true  # QasMixer, QasHctl and QasConfig, the Qt ALSA mixer tools. One package on Arch, CachyOS and Fedora, three on Debian and Ubuntu.
 
 # Arch Linux AUR helpers
 # yay, a second AUR helper beside paru. Off by default because nothing in this playbook uses it: every

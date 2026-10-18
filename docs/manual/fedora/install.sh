@@ -104,6 +104,7 @@ DNF_PACKAGES=(
   boinc-client lynis chkrootkit clamav hardinfo2 lm_sensors baobab gparted
   kde-partitionmanager qemu-kvm libvirt virt-manager virt-install
   bridge-utils virtiofsd zsh helm gh jq fzf ripgrep uv pipx golang syncthing putty rclone
+  qastools
 )
 
 # dnf packages that require a third-party repo (added below).

@@ -60,7 +60,7 @@ refresh_flatpak() { flatpak update --appstream --noninteractive flathub; }
 # pacman packages from official repos. Steam needs the multilib repo enabled.
 PACMAN_PACKAGES=(
   git maven gradle openssl kubectl minikube helm terraform github-cli jq fzf
-  ripgrep uv python-pipx go filezilla putty rclone telegram-desktop
+  ripgrep uv python-pipx go filezilla putty rclone qastools telegram-desktop
   signal-desktop keepassxc vlc handbrake rawtherapee steam veracrypt
   speedtest-cli boinc lynis clamav hardinfo2 lm_sensors baobab gparted
   partitionmanager virt-manager qemu-full libvirt dnsmasq nftables

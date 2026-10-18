@@ -90,7 +90,8 @@ APT_PACKAGES=(
   git maven openssl filezilla putty keepassxc vlc rawtherapee speedtest-cli
   boinc-client lynis chkrootkit clamav hardinfo lm-sensors baobab gparted
   partitionmanager qemu-system-x86 libvirt-daemon-system libvirt-clients virt-manager virtinst
-  bridge-utils virtiofsd zsh jq fzf ripgrep pipx golang-go rclone openrazer-meta
+  bridge-utils virtiofsd zsh jq fzf ripgrep pipx golang-go rclone qasmixer qashctl qasconfig
+  openrazer-meta
 )
 
 # apt packages that require a third-party repo (added below).

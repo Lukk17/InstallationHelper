@@ -122,6 +122,7 @@ software_mapping:
   filezilla: { manager: "dnf", package: "filezilla" }
   putty: { manager: "dnf", package: "putty" }
   rclone: { manager: "dnf", package: "rclone" }               # Fedora proper, mdapi answered 1.75.2-1.fc44 on 2026-10-15
+  qastools: { manager: "dnf", package: "qastools" }             # Fedora proper, a metapackage requiring qasmixer, qashctl and qasconfig, 0.23.0-13.fc44 on 2026-10-18
 
   # IDEs / Editors
   vscode: { manager: "dnf", package: "code" }

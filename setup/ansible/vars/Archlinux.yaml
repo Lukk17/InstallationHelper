@@ -37,6 +37,7 @@ software_mapping:
   filezilla: { manager: "pacman", package: "filezilla" }
   putty: { manager: "pacman", package: "putty" }
   rclone: { manager: "pacman", package: "rclone" }           # extra, pacman -Si rclone answered 1.75.2-1 on 2026-10-15, and cachyos-extra-v3 carries the same version
+  qastools: { manager: "pacman", package: "qastools" }       # extra, one package with QasMixer, QasHctl and QasConfig, 1.5.0-1 on 2026-10-18, and cachyos-extra-v3 carries the same version
 
 
   # IDEs / Editors (JetBrains via AUR)
