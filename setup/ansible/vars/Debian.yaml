@@ -242,3 +242,17 @@ software_mapping:
   # Podman Desktop is a GUI front end only, for the Docker engine above. No podman engine, pods,
   # or podman machine, the app's Docker extension talks to /var/run/docker.sock directly.
   podman_desktop: { manager: "flatpak", package: "io.podman_desktop.PodmanDesktop" }
+
+# The packages a role task installs under a software toggle beside that toggle's software_mapping entry,
+# keyed by the same toggle. The role task reads its list from here and setup/ansible/verify_install.yaml
+# expects every one of them once the mapping is enabled, so nothing the run installs for a toggle goes
+# unverified. e2e/tier1/verify_wiring.sh fails on a role list beside a mapping that is not read from
+# here. One line per entry in flow style, because the e2e shell checks read these lines one at a time.
+#
+# qemu-system-x86, not qemu-kvm, which has no installation candidate on Debian trixie or Ubuntu 26.04:
+# Debian resolves the virtual name to its one provider and exits 0, Ubuntu 26.04 exits 100 with
+# "Package 'qemu-kvm' has no installation candidate". qemu-system-x86 is what qemu-kvm was the
+# transitional name for, 1:10.0.11 on Debian and 1:10.2.1 on Ubuntu, measured on 2026-08-21.
+companion_packages:
+  qastools: ["qashctl", "qasconfig"]   # trixie and Ubuntu 26.04 build QasMixer, QasHctl and QasConfig as three packages, the mapping installs qasmixer
+  virt_manager: ["qemu-system-x86", "libvirt-daemon-system", "libvirt-clients", "virtinst", "bridge-utils", "virtiofsd"]

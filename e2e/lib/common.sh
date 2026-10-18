@@ -334,6 +334,27 @@ derivative_mapping_keys() {
     derivative_mapping_lines "$1" | sed -E 's/^  ([a-z0-9_]+):.*/\1/'
 }
 
+# companion_packages_of <family-file>  ->  "<key> <package>" per line, one for every package of every
+#                                          companion_packages entry
+#
+# companion_packages in vars/<OS>.yaml names the packages a role installs under a software toggle beside
+# that toggle's mapping, one flow sequence per line, key: ["a", "b"]. The manual install check counts
+# them as dictionary names and tier 2 resolves them, so a name listed there is checked like a mapping.
+companion_packages_of() {
+    tr -d '\r' <"$1" | awk '
+        /^companion_packages:/ { inside = 1; next }
+        /^[^[:space:]#]/ { inside = 0 }
+        inside && /^  [a-z0-9_]+: \[/ {
+            key = $1; sub(/:$/, "", key)
+            line = $0; sub(/^[^[]*\[/, "", line); sub(/\].*$/, "", line)
+            n = split(line, names, /,/)
+            for (i = 1; i <= n; i++) {
+                gsub(/["\047[:space:]]/, "", names[i])
+                if (names[i] != "") print key " " names[i]
+            }
+        }'
+}
+
 # prepare_detect_os <linux_vars_file> <macos_vars_file>  -> 0 and the real detect_os and
 #                                                            debian_lineage defined, or 1 and
 #                                                            neither defined

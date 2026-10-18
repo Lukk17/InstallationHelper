@@ -53,7 +53,8 @@ check_pacman() {
             1) missing+=("${pkg}") ;;
             *) unresolved+=("${pkg}: $(http_unresolved_reason "${url}")") ;;
         esac
-    done < <(package_names_for "${VARS_DIR}/Archlinux.yaml" pacman)
+    done < <({ package_names_for "${VARS_DIR}/Archlinux.yaml" pacman
+               companion_packages_of "${VARS_DIR}/Archlinux.yaml" | awk '{print $2}'; } | sort -u)
     report_names "Arch official repositories" "package names" "${n}"
 }
 
@@ -454,12 +455,16 @@ print(",".join(declared), effective(machine[0]) if machine else "-")
 # families read that one dictionary and their package sets are not the same. Ubuntu 26.04
 # has no kubectl of its own while Debian trixie does, and only asking one of them would
 # have missed that.
+#
+# The family's companion_packages are asked about with its own manager's names, because a role installs
+# them with that manager under the toggle beside the mapping, apt on Debian and Ubuntu and dnf on Fedora.
 check_dictionary() {
     local distro="$1" manager="$2" file="$3"
     probe_names "${distro}" "$(probe_image_for "${distro}")" \
         "${distro} dictionary package names" \
-        "${manager} names in vars/${file}" \
-        "$(package_names_for "${VARS_DIR}/${file}" "${manager}")"
+        "${manager} names in vars/${file}, companion_packages included" \
+        "$({ package_names_for "${VARS_DIR}/${file}" "${manager}"
+             companion_packages_of "${VARS_DIR}/${file}" | awk '{print $2}'; } | sort -u)"
 }
 
 # --- a derivative's own dictionary, inside its own image ---------------------
@@ -502,8 +507,9 @@ check_derivatives() {
         fi
         probe_names "${id}" "$(probe_image_for "${id}")" \
             "${id} dictionary package names" \
-            "pacman names in vars/Archlinux.yaml merged with vars/derivatives/${id}.yaml" \
-            "$(derivative_package_names_for "${VARS_DIR}/Archlinux.yaml" "${f}" pacman)"
+            "pacman names in vars/Archlinux.yaml merged with vars/derivatives/${id}.yaml, companion_packages included" \
+            "$({ derivative_package_names_for "${VARS_DIR}/Archlinux.yaml" "${f}" pacman
+                 companion_packages_of "${VARS_DIR}/Archlinux.yaml" | awk '{print $2}'; } | sort -u)"
     done
 }
 

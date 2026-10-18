@@ -1,0 +1,40 @@
+---
+# dkms_header_packages: the kernel headers package of every kernel installed on this Arch machine,
+# <pkgbase>-headers for each /usr/lib/modules/<version>/pkgbase. They are the packages OpenRazer's DKMS
+# driver builds against, and they cannot be a list in vars/Archlinux.yaml because the names depend on the
+# kernels the machine has: linux, linux-lts, linux-zen, linux-hardened, linux-cachyos.
+#
+# software_installer/tasks/arch_prereqs.yaml installs this list and verify_install.yaml expects it, both
+# through this file, so the two cannot disagree about which headers belong to the run. Every installed
+# kernel is covered, not just the running one, because a full system upgrade earlier in the playbook can
+# replace the running kernel's module tree before the install. A container has no /usr/lib/modules at
+# all, so the list is empty there, for the install and the verification alike. The pkgbase files are
+# world readable, measured on CachyOS on 2026-10-15, so reading them needs no root.
+- name: Find the pkgbase marker of every installed kernel (Arch)
+  ansible.builtin.find:
+    paths: /usr/lib/modules
+    patterns: pkgbase
+    file_type: file
+    recurse: true
+    depth: 2
+  register: arch_kernel_pkgbase_files
+
+- name: Read the package base of every installed kernel (Arch)
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  register: arch_kernel_pkgbases
+  loop: "{{ arch_kernel_pkgbase_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Name the kernel headers package of every installed kernel (Arch)
+  ansible.builtin.set_fact:
+    dkms_header_packages: >-
+      {{ arch_kernel_pkgbases.results | default([])
+         | selectattr('content', 'defined')
+         | map(attribute='content')
+         | map('b64decode')
+         | map('trim')
+         | map('regex_replace', '^(.+)$', '\1-headers')
+         | unique
+         | list }}

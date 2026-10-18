@@ -17,7 +17,9 @@
 # managers the manual route can run count: pacman, aur, apt, apt_url, dnf, dnf_url, flatpak and snap.
 # An apt_url or dnf_url mapping is compared by the download location the playbook resolves for it,
 # the mapping's url field, else the <key>_rpm_url pin for dnf_url, else the <key>_url pin, rendered by
-# the pinned values port, because that location is what the manual route has to fetch.
+# the pinned values port, because that location is what the manual route has to fetch. The family's
+# companion_packages entries count as well, each package under its toggle, because the playbook installs
+# them under that toggle beside the mapping.
 #
 # Asserted for each family:
 #   1. the script installs, or for the AUR lists with its yay command, every mapping whose toggle is
@@ -331,6 +333,11 @@ for family in "${FAMILIES[@]}"; do
         done
         unset merged
     done
+    while read -r c_key c_name; do
+        [[ -n "${c_name}" ]] || continue
+        mapped["${c_name}"]=1
+        if [[ "${default_on[${c_key}]:-false}" == "true" ]]; then expected["${c_name}"]=1; fi
+    done < <(companion_packages_of "${VARS_DIR}/${family}.yaml")
     if [[ ${#unresolved[@]} -gt 0 ]]; then
         fail "${family}: mappings whose download location resolves to nothing, so the manual route cannot fetch them" \
              "$(printf '%s\n' "${unresolved[@]}" | sort -u | tr '\n' ' ')"

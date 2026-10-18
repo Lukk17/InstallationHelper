@@ -243,6 +243,8 @@ check_allowlist_orphans() {
             package_names_for "${VARS_DIR}/Debian.yaml" apt | sed 's/^/debian /'
             package_names_for "${VARS_DIR}/Debian.yaml" apt | sed 's/^/ubuntu /'
             package_names_for "${VARS_DIR}/RedHat.yaml" dnf | sed 's/^/fedora /'
+            companion_packages_of "${VARS_DIR}/Debian.yaml" | awk '{print "debian " $2; print "ubuntu " $2}'
+            companion_packages_of "${VARS_DIR}/RedHat.yaml" | awk '{print "fedora " $2}'
             # The shell tasks count as asking for a package too. Leaving them out made this report
             # every Docker CE forgiveness on the Debian side as an orphan, because the only thing
             # naming those packages there is a shell command rather than a module list. The same

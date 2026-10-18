@@ -489,6 +489,7 @@ The `software_installer` role (`roles/software_installer/tasks/dynamic_install.y
 2. Add mapping in each relevant `vars/{OS}.yaml` file under `software_mapping`.
    A distribution that maps the app differently from its family gets its entry in `vars/derivatives/<os-release ID>.yaml` instead, under `software_mapping`, in flow style with one line per entry, `key: { manager: "...", package: "..." }`, because the shell checks in `e2e/` read those files line by line and see nothing else. A mapping whose package depends on steam also carries `brings_steam: true`, which `tasks/steam_graphics_alignment.yaml` reads to decide whether the CachyOS 32-bit graphics alignment is needed.
 3. If the app requires custom install logic (e.g., SDK management, binary downloads), create a dedicated task file under the appropriate role.
+4. If a role installs more packages under the same toggle beside the mapped one, list them under `companion_packages` in the same `vars/{OS}.yaml`, one line per toggle, `key: ["a", "b"]`, and have the role read `os_dict.companion_packages.<key>`. `setup/ansible/verify_install.yaml` reads the same entry, so the end-of-run verification expects every package the toggle installed, and `e2e/tier1/verify_wiring.sh` fails on a role list beside a mapping that it cannot see. A derivative file carries no `companion_packages`, it reads its family's.
 
 ### Workaround: ansible-core 2.19/2.20 deserialization bug
 

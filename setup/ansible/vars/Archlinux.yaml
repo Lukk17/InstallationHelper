@@ -133,3 +133,15 @@ software_mapping:
   # deliberately, on every Linux distribution, so there is one route rather than two. Do not
   # "fix" this to pacman.
   podman_desktop: { manager: "flatpak", package: "io.podman_desktop.PodmanDesktop" }
+
+# The packages a role task installs under a software toggle beside that toggle's software_mapping entry,
+# keyed by the same toggle. The role task reads its list from here and setup/ansible/verify_install.yaml
+# expects every one of them once the mapping is enabled, so nothing the run installs for a toggle goes
+# unverified. e2e/tier1/verify_wiring.sh fails on a role list beside a mapping that is not read from
+# here. One line per entry in flow style, because the e2e shell checks read these lines one at a time.
+#
+# OpenRazer's kernel headers are not here, because their names come from the kernels installed on the
+# machine: setup/ansible/tasks/dkms_header_packages.yaml derives them, for the install and the
+# verification alike. CachyOS reads this list too, tasks/load_os_dict.yaml merges only software_mapping.
+companion_packages:
+  virt_manager: ["qemu-full", "libvirt", "dnsmasq", "nftables", "virtiofsd"]
