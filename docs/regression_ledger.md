@@ -6250,3 +6250,81 @@ How it was proven: after the fix, a failing queue run ended `QUEUE_EXIT=2` with 
 Fix: e2e/lib/gate.sh empties the log before starting the container and fails when `docker run` fails, and e2e/gate/entrypoint.sh writes `QUEUE_EXIT=<status>` from an EXIT trap, so every ending writes it.
 
 Mechanical check: none in the gate. The two queue runs above are the proof.
+
+### Found while making vendor apt repositories follow the base release on Linux Mint and LMDE, 2026-10-18
+
+#### 10.114 Vendor apt repositories written under the derivative's own codename
+
+Cause: setup/ansible/roles/software_installer/tasks/debian_repos.yaml wrote the Docker, Tailscale and HashiCorp repositories with Ansible's `distribution_release`, which on Linux Mint and LMDE is the derivative's own `VERSION_CODENAME`, not the Ubuntu or Debian release the vendors publish. The path half, `ubuntu` or `debian` through `ih_base`, was already right.
+
+Effect: measured with ansible-core 2.21.5, `"ansible_distribution_release": "zara"` on Linux Mint 22.2 and `"gigi"` on LMDE 7. The rendered lines were `https://download.docker.com/linux/ubuntu zara stable`, `https://pkgs.tailscale.com/stable/debian/gigi.noarmor.gpg` and `https://apt.releases.hashicorp.com faye main`. download.docker.com, pkgs.tailscale.com and apt.releases.hashicorp.com answer 404 for zara, wilma, gigi and faye, while noble, trixie and bookworm answer 200.
+
+How it was proven: e2e/tier1/apt_vendor_repositories.sh failed 23 of 41 assertions against the old tree, and e2e/tier2/resolve_apt_repositories.sh failed all four Mint and LMDE fixtures with 4 of 5 locations missing.
+
+Fix: owner decision 66. One fact, `ih_apt_codename` in setup/ansible/tasks/derive_os_facts.yaml, takes `UBUNTU_CODENAME` on Ubuntu lineage or `DEBIAN_CODENAME` on Debian lineage, then `VERSION_CODENAME`, then Ansible's own release. It is read at setup/ansible/roles/software_installer/tasks/debian_repos.yaml:387, 599, 753 and 768 and at setup/ansible/roles/debian_core/tasks/main.yaml:23. New os-release fixtures `ubuntu-26.04`, `linux-mint-22.2` and `lmde-7` in e2e/tier1/os_release_fixtures/.
+
+Still open: Devuan (daedalus) still gets 404 at all three vendors. That is an open owner decision.
+
+Mechanical check: e2e/tier1/apt_vendor_repositories.sh in tier 1 and e2e/tier2/resolve_apt_repositories.sh in tier 2.
+
+#### 10.115 The manual HashiCorp line asked lsb_release
+
+Cause: docs/manual/debian-ubuntu/install.sh and its guide docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md wrote HashiCorp with `$(lsb_release -cs)`, while Tailscale and Docker in the same file already used `UPSTREAM_CODENAME`. The same rule decided in two places, defect class 2 in AGENTS.md.
+
+Effect: the derivative's own codename, zara or gigi, which apt.releases.hashicorp.com answers with 404, and on a machine without lsb-release an empty suite.
+
+How it was proven: the lsb_release assertion of e2e/tier1/apt_vendor_repositories.sh failed against HEAD.
+
+Fix: the `UPSTREAM_*` block moved above Terraform in docs/manual/debian-ubuntu/install.sh, and HashiCorp uses `${UPSTREAM_CODENAME}` in the script and the guide.
+
+Mechanical check: e2e/tier1/apt_vendor_repositories.sh.
+
+#### 10.116 The manual route installed Docker and never started it
+
+Cause: the three docs/manual/*/install.sh scripts and their guides installed Docker and added the user to the docker group but never ran `systemctl enable --now docker`, while the playbook's virtualization_config role does.
+
+Effect: on Fedora and Arch, whose packages do not start the daemon, `docker` fails with `Cannot connect to the Docker daemon` until the reader starts it by hand.
+
+How it was proven: the new assertions in e2e/tier1/manual_linux_install.sh failed for all three scripts and guides from HEAD.
+
+Fix: a guarded `sudo systemctl enable --now docker` in docs/manual/arch/install.sh, docs/manual/debian-ubuntu/install.sh and docs/manual/fedora/install.sh, and a code block in each of docs/manual/arch/arch_manual_install.md, docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md and docs/manual/fedora/fedora_manual_install.md.
+
+Mechanical check: e2e/tier1/manual_linux_install.sh.
+
+#### 10.117 Unguarded usermod and systemctl under set -e
+
+Cause: docs/manual/debian-ubuntu/install.sh:235 ran `sudo usermod -aG plugdev "${USER}"` with no guard, while docs/manual/fedora/install.sh had one, and all three scripts ran `sudo systemctl enable --now tailscaled` with no guard.
+
+Effect: under `set -e` a missing group or a tailscale that did not install ends the script before it prints the list of packages that did not install.
+
+How it was proven: e2e/tier1/manual_linux_install.sh named `229:sudo systemctl enable --now tailscaled` and `235:sudo usermod -aG plugdev "${USER}"` in the HEAD Debian script and the tailscaled line in the other two, `manual Linux install: 22 checks, 9 FAILED`.
+
+Fix: `|| printf '   Skipped: ...'` on each of those lines in the three docs/manual/*/install.sh scripts.
+
+Mechanical check: e2e/tier1/manual_linux_install.sh, which fails on any unguarded `usermod` or `systemctl` line.
+
+### Introduced while making vendor apt repositories follow the base release on Linux Mint and LMDE, 2026-10-18
+
+#### 10.118 The repository renderer ignored a task's when
+
+Cause: introduced by an agent and fixed before handing over. The first e2e/lib/render_apt_repositories.py ignored a task's `when`, so it rendered debian_core's `contrib` line for Ubuntu and Linux Mint too.
+
+Effect: `FAIL ubuntu-26.04: 1 of 6 repository and key locations do not exist https://deb.debian.org/debian/dists/resolute/InRelease`, a failure for a line the playbook never writes on Ubuntu.
+
+How it was proven: by that failure in e2e/tier2/resolve_apt_repositories.sh.
+
+Fix: e2e/lib/render_apt_repositories.py leaves a line out only when its own `when` reads only the case's facts and is false for them.
+
+Mechanical check: e2e/tier2/resolve_apt_repositories.sh, which caught it.
+
+#### 10.119 Shellcheck findings and task vars rendered in the wrong order in the new checks
+
+Cause: introduced by an agent and caught by the gate before handing over. The new checks carried three shellcheck findings, SC2034 twice and SC1073, and e2e/lib/render_apt_repositories.py rendered a task's vars in the wrong order, so a var that reads another one was rendered before the one it reads.
+
+Effect: tier 1 failed on the three shellcheck findings, and rendering the Docker repository failed with `'docker_apt_arch_map' is undefined`, the map defined at setup/ansible/roles/software_installer/tasks/debian_repos.yaml:605 and read at line 610.
+
+How it was proven: by those failures in the gate run.
+
+Fix: the three findings were fixed in the new scripts, and e2e/lib/render_apt_repositories.py renders a task's vars in as many passes as the task has vars, so a var that reads another resolves whatever order they are written in.
+
+Mechanical check: the shellcheck check in tier 1 and e2e/tier1/apt_vendor_repositories.sh, which caught them.
