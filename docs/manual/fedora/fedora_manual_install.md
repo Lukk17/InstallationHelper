@@ -389,10 +389,24 @@ Need Node from NVM above first.
 |---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
 | OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
-| OpenCode desktop | `sudo dnf install -y https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-x86_64.rpm`, version 2. Version 1 of the desktop app, the Flathub `ai.opencode.opencode` the playbook installed before 2026-10-15, refuses to start once version 2 has created its database, so remove it with `flatpak uninstall ai.opencode.opencode` |
+| OpenCode desktop | the three commands below the table, version 2. Version 1 of the desktop app, the Flathub `ai.opencode.opencode` the playbook installed before 2026-10-15, refuses to start once version 2 has created its database, so remove it with `flatpak uninstall ai.opencode.opencode` |
 | Kilo Code CLI | `npm install -g @kilocode/cli`, which provides the `kilo` command |
 | OpenSpec | `npm install -g @fission-ai/openspec` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` |
+
+**OpenCode desktop**: its .rpm carries links under `/usr/lib/.build-id` with the same paths the Lens package ships, so installing the .rpm with dnf fails with a file conflict whenever Lens is installed. Install what it requires with dnf, then the .rpm itself with rpm, leaving those links out. They are debugging aids, nothing reads them when OpenCode runs. The playbook does the same.
+
+```bash
+curl -fsSLo /tmp/opencode-desktop.rpm https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-x86_64.rpm
+```
+
+```bash
+rpm -qp --nosignature --requires /tmp/opencode-desktop.rpm | grep -v '^rpmlib(' | sort -u | xargs -d '\n' -r sudo dnf install -y
+```
+
+```bash
+sudo rpm -U --nosignature --excludepath=/usr/lib/.build-id /tmp/opencode-desktop.rpm
+```
 
 OpenCode version 1 instead of version 2. Version 2 is the default. The wizard switches when `Switch OpenCode from v2 to v1` is ticked on its checklist, or with `./setup.sh --enable opencode_use_v1`: it removes the version 2 command line tool and desktop app, installs version 1, and moves a data folder holding version 2 data to `~/.local/share/opencode.v2-backup-<date>-<time>`, because version 1 refuses to start on a version 2 database. Switching back moves version 1 data aside the same way and brings the newest version 2 backup back. Nothing is deleted. By hand, the same steps, first removing version 2:
 

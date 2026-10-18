@@ -57,6 +57,7 @@ lines = []
 REFRESH = {
     'apt': (r'\bapt-get update$', 'apt-get update'),
     'dnf': (r'^dnf makecache --refresh$', 'dnf makecache --refresh'),
+    'rpm_url': (r'^dnf makecache --refresh$', 'dnf makecache --refresh, because dnf resolves what the rpm requires'),
     'pacman': (r'^pacman -Syy --noconfirm$', 'pacman -Syy on its own'),
     'flatpak': (r'^flatpak update --system --appstream\b', 'flatpak update --appstream'),
     'snap': (r'^$', 'no refresh, snapd keeps no index'),

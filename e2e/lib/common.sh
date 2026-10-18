@@ -355,6 +355,26 @@ companion_packages_of() {
         }'
 }
 
+# lineage_companion_packages_of <family-file> <lineage>  ->  "<key> <package>" per line, for every
+#                                                         package lineage_companion_packages puts in
+#                                                         front of a companion_packages entry on that
+#                                                         lineage, ubuntu or debian in vars/Debian.yaml
+lineage_companion_packages_of() {
+    tr -d '\r' <"$1" | awk -v lineage="$2" '
+        /^lineage_companion_packages:/ { inside = 1; next }
+        /^[^[:space:]#]/ { inside = 0 }
+        inside && /^  [a-z0-9_]+:[[:space:]]*$/ { current = $1; sub(/:$/, "", current); next }
+        inside && current == lineage && /^    [a-z0-9_]+: \[/ {
+            key = $1; sub(/:$/, "", key)
+            line = $0; sub(/^[^[]*\[/, "", line); sub(/\].*$/, "", line)
+            n = split(line, names, /,/)
+            for (i = 1; i <= n; i++) {
+                gsub(/["\047[:space:]]/, "", names[i])
+                if (names[i] != "") print key " " names[i]
+            }
+        }'
+}
+
 # prepare_detect_os <linux_vars_file> <macos_vars_file>  -> 0 and the real detect_os and
 #                                                            debian_lineage defined, or 1 and
 #                                                            neither defined

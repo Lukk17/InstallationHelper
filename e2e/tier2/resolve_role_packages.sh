@@ -108,26 +108,6 @@ ROLE_BODY=""
 role_annotate() { printf '(in %s)' "$(where_is "$1" "${ROLE_BODY}")"; }
 
 # --- Arch, over HTTP ---------------------------------------------------------
-# Returns 0 when the group exists, 1 when archlinux.org says it does not for both architectures, 2
-# when either never gave a definite answer, with what came back in ARCH_GROUP_FAULT.
-ARCH_GROUP_FAULT=""
-arch_group_exists() {
-    local arch url status verdict=1
-    ARCH_GROUP_FAULT=""
-    for arch in x86_64 any; do
-        url="https://archlinux.org/groups/${arch}/$1/"
-        status=0
-        http_ask "${url}" 'Group Details' || status=$?
-        if [[ ${status} -eq 0 ]]; then
-            return 0
-        fi
-        if [[ ${status} -eq 2 ]]; then
-            verdict=2
-            ARCH_GROUP_FAULT="$(http_unresolved_reason "${url}")"
-        fi
-    done
-    return ${verdict}
-}
 
 check_arch() {
     local body; body="$(printf '%s\n%s\n' "$(extract 'community.general.pacman:')" "$(helper_lines_for '(^|,)arch(,|$)')" | sed '/^$/d')"

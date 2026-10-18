@@ -70,6 +70,26 @@ install_appimagelauncher_rpm() {
   return "${status}"
 }
 
+# The route setup/ansible/tasks/install_role_packages.yaml calls rpm_url, for a vendor .rpm that has to
+# leave a path out: what the rpm requires through dnf, then the rpm itself through rpm -U without that
+# path, because dnf has no way to pass --excludepath. OpenCode desktop needs it, its build-id links
+# under /usr/lib/.build-id are the same paths Lens ships, and dnf refuses the second of the two.
+install_rpm_without() {
+  local excluded="$1" location="$2" rpm nevra status=0
+  rpm="$(mktemp --suffix=.rpm)"
+  if curl -fsSLo "${rpm}" "${location}"; then
+    nevra="$(rpm -qp --nosignature --qf '%{NEVRA}' "${rpm}")"
+    if ! rpm -q "${nevra}" >/dev/null 2>&1; then
+      rpm -qp --nosignature --requires "${rpm}" | grep -v '^rpmlib(' | sort -u | xargs -d '\n' -r sudo dnf install -y \
+        && sudo rpm -U --nosignature --excludepath="${excluded}" "${rpm}" || status=$?
+    fi
+  else
+    status=$?
+  fi
+  rm -f -- "${rpm}"
+  return "${status}"
+}
+
 # Direct .rpm URLs, read from the pinned values rather than copied out of them. The versions and
 # locations live in setup/pinned_values and are read through the one adapter the whole repository
 # uses, so this script pulls exactly what the playbook pulls and a bumped pin cannot leave a stale
@@ -221,9 +241,12 @@ for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker
 done
 
 log "Installing direct .rpm packages"
-for rpm_url in "$MINIKUBE_RPM" "$TEAMVIEWER_RPM" "$VERACRYPT_RPM" "$BALENA_ETCHER_RPM" "$OPENCODE_DESKTOP_RPM"; do
+for rpm_url in "$MINIKUBE_RPM" "$TEAMVIEWER_RPM" "$VERACRYPT_RPM" "$BALENA_ETCHER_RPM"; do
   install_one "${rpm_url##*/}" refresh_dnf sudo dnf install -y "${rpm_url}"
 done
+
+log "Installing OpenCode desktop without its /usr/lib/.build-id links, which clash with Lens"
+install_one opencode-desktop refresh_dnf install_rpm_without /usr/lib/.build-id "$OPENCODE_DESKTOP_RPM"
 
 log "Installing AppImageLauncher (rpm --nodigest bypass)"
 install_one appimagelauncher no_refresh install_appimagelauncher_rpm

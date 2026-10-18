@@ -40,21 +40,34 @@ DERIVATIVES_DIR="${VARS_DIR}/derivatives"
 # missing, all of them at the alphabetical tail where the throttle kicked in. A check
 # that cries wolf gets ignored, which is worse than not having it. So only a body that
 # carries a results list is an answer, and an empty list is the definite "no such package".
+#
+# A companion_packages entry may name a package group, the way gnome_setup installs Arch's gnome, so a
+# name the package search does not know is asked of the group pages before it counts as missing.
 check_pacman() {
-    local missing=() unresolved=() n=0 pkg url status
+    local missing=() unresolved=() groups=() n=0 pkg url status
     while IFS= read -r pkg; do
         [[ -z "${pkg}" ]] && continue
         n=$((n + 1))
         url="https://archlinux.org/packages/search/json/?name=${pkg}"
         status=0
         http_ask "${url}" '"results"' || status=$?
+        if [[ ${status} -eq 0 ]] && grep -q '"pkgname"' <<<"${HTTP_BODY}"; then
+            continue
+        fi
+        if [[ ${status} -gt 1 ]]; then
+            unresolved+=("${pkg}: $(http_unresolved_reason "${url}")")
+            continue
+        fi
+        status=0
+        arch_group_exists "${pkg}" || status=$?
         case ${status} in
-            0) grep -q '"pkgname"' <<<"${HTTP_BODY}" || missing+=("${pkg}") ;;
+            0) groups+=("${pkg}") ;;
             1) missing+=("${pkg}") ;;
-            *) unresolved+=("${pkg}: $(http_unresolved_reason "${url}")") ;;
+            *) unresolved+=("${pkg}: ${ARCH_GROUP_FAULT}") ;;
         esac
     done < <({ package_names_for "${VARS_DIR}/Archlinux.yaml" pacman
                companion_packages_of "${VARS_DIR}/Archlinux.yaml" | awk '{print $2}'; } | sort -u)
+    [[ ${#groups[@]} -gt 0 ]] && dim "Arch: resolved as package groups: ${groups[*]}"
     report_names "Arch official repositories" "package names" "${n}"
 }
 
@@ -487,13 +500,16 @@ print(",".join(declared), effective(machine[0]) if machine else "-")
 #
 # The family's companion_packages are asked about with its own manager's names, because a role installs
 # them with that manager under the toggle beside the mapping, apt on Debian and Ubuntu and dnf on Fedora.
+# The lineage_companion_packages of the distribution's own lineage are asked about with them, ubuntu-desktop
+# in the Ubuntu image and gnome-core in the Debian one, because each exists in only one of the two.
 check_dictionary() {
     local distro="$1" manager="$2" file="$3"
     probe_names "${distro}" "$(probe_image_for "${distro}")" \
         "${distro} dictionary package names" \
         "${manager} names in vars/${file}, companion_packages included" \
         "$({ package_names_for "${VARS_DIR}/${file}" "${manager}"
-             companion_packages_of "${VARS_DIR}/${file}" | awk '{print $2}'; } | sort -u)"
+             companion_packages_of "${VARS_DIR}/${file}" | awk '{print $2}'
+             lineage_companion_packages_of "${VARS_DIR}/${file}" "${distro}" | awk '{print $2}'; } | sort -u)"
 }
 
 # --- a derivative's own dictionary, inside its own image ---------------------

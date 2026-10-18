@@ -14,10 +14,6 @@
 # Installed only when the product is absent, so a second run, or a machine that already had it, installs
 # nothing here. The product itself is what the verification asks about.
 arch_core/tasks/main.yaml | Install yay build dependencies | the tools yay is built with, installed only while yay is absent, and the verification checks yay itself at /usr/bin/yay
-gnome_setup/tasks/install_gnome.yaml | Install the GNOME desktop metapackage (Debian family) | installed only when /usr/bin/gnome-shell is absent, so a machine that already has GNOME gets nothing here, and the metapackage differs between Ubuntu and Debian inside one dictionary, and the verification checks /usr/bin/gnome-shell
-gnome_setup/tasks/install_gnome.yaml | Install GNOME tooling (Debian family) | installed only when /usr/bin/gnome-shell is absent, so a machine that already has GNOME gets nothing here, and the verification checks /usr/bin/gnome-shell
-gnome_setup/tasks/install_gnome.yaml | Install GNOME Desktop (Fedora) | a dnf group, which rpm records under no name of its own, installed only when /usr/bin/gnome-shell is absent, and the verification checks /usr/bin/gnome-shell
-gnome_setup/tasks/install_gnome.yaml | Install GNOME Desktop (Archlinux) | installed only when /usr/bin/gnome-shell is absent, so a machine that already has GNOME gets nothing here, and the verification checks /usr/bin/gnome-shell
 
 # Groups and snaps, which the package query the verification runs cannot see by the name the include uses.
 kde_plasma_setup/tasks/install_kde.yaml | Install the KDE Plasma group (Fedora) | a dnf group, which rpm records under no name of its own, sddm beside it is companion_packages.kde_plasma, and the verification checks /usr/bin/plasmashell

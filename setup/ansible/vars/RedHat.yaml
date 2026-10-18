@@ -149,7 +149,12 @@ software_mapping:
   # ai.opencode.opencode, mapped here until 2026-10-15, is the version 1 app (1.18.8), and there is no dnf repository.
   # The location is opencode_desktop_rpm_url in setup/pinned_values/pinned_values.toml. `package` is the rpm Name of
   # the 2.0.29 .rpm, read from its header on 2026-10-15: opencode. The CLI is the npm package.
-  opencode_desktop: { manager: "dnf_url", package: "opencode" }
+  # exclude_path sends it down the rpm route instead of dnf: its dependencies through dnf, then rpm -U without that
+  # path, through setup/ansible/tasks/install_role_packages.yaml. Its Electron chrome-sandbox has the same build id as
+  # the one in lens, so both rpms claim /usr/lib/.build-id/aa/c9a26d3d137c8cedbe1c3f2deab3edd8f39f43 and dnf refused
+  # whichever came second, measured on fedora:44 on 2026-10-18. The links are debugging aids nothing at run time reads.
+  # e2e/tier2/rpm_file_conflicts.sh fails on any path two packages of the default set claim outside such a field.
+  opencode_desktop: { manager: "dnf_url", package: "opencode", exclude_path: "/usr/lib/.build-id" }
   # Version 1 of the desktop app, installed instead of opencode_desktop when opencode_use_v1 is true, through
   # setup/ansible/tasks/opencode_version.yaml, which is why it has no install_ toggle of its own. 1.18.8 on
   # flathub.org/api/v2/appstream on 2026-10-15, a system installation.
@@ -235,3 +240,4 @@ companion_packages:
   kde_plasma: ["sddm"]   # installed by kde_plasma_setup/tasks/install_kde.yaml beside the @kde-desktop group, which rpm records under no name of its own
   # The applet-window-buttons build dependencies, installed by kde_plasma_setup/tasks/configure_kde.yaml.
   configure_kde_plasma: ["gcc-c++", "extra-cmake-modules", "qt6-qtbase-devel", "qt6-qtdeclarative-devel", "kf6-kcoreaddons-devel", "kf6-kdeclarative-devel", "kf6-kpackage-devel", "kf6-ksvg-devel", "kf6-ki18n-devel", "kf6-kservice-devel", "kf6-kconfigwidgets-devel", "kf6-kcmutils-devel", "libplasma-devel", "kdecoration-devel", "gettext", "cmake"]
+  gnome: ["@gnome-desktop"]   # the dnf group id, installed by gnome_setup/tasks/install_gnome.yaml, which the verification finds among the groups dnf records as installed. "@GNOME Desktop Environment" matched nothing on Fedora 44, where the group is named GNOME with the id gnome-desktop, measured with dnf5 5.4.2.1

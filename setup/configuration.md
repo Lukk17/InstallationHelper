@@ -35,7 +35,7 @@ Configuration tasks the Ansible playbook performs, grouped by desktop environmen
 
 | Task | Role | Description |
 |------|------|-------------|
-| Install GNOME | gnome_setup | Installs GNOME desktop environment |
+| Install GNOME | gnome_setup | Installs GNOME desktop environment and its tooling from `install_gnome`'s `companion_packages` entry, also on a machine that already has GNOME |
 | Configure GNOME | gnome_setup | Desktop settings, extensions |
 | Nautilus Bookmarks | gnome_setup | Custom file manager bookmarks |
 | GTK Settings | gnome_setup | GTK theme and appearance |

@@ -271,7 +271,9 @@ fi
 #   3. the play reads os_dict.companion_packages into a fact that reaches expected_native, the set the
 #      native-package assertion compares with the machine, and resolves a key with no mapping through
 #      its toggle;
-#   4. every line of unverified_role_installs.txt still names such an include and gives a reason.
+#   4. every line of unverified_role_installs.txt still names such an include and gives a reason;
+#   5. every lineage_companion_packages entry names a lineage ih_base takes on its family and a key its
+#      companion_packages carries, with a list of literal names.
 # The number of role installs under a toggle is reported and must not be zero, so a rewrite that hides
 # them from this parser fails here rather than passing over nothing.
 require_python "every package a toggle installs is verified" "verification wiring"
@@ -519,6 +521,34 @@ for family in FAMILIES:
             lines.append('FAIL %s is read by no role include of install_role_packages.yaml under %s, so '
                          'the verification expects packages nothing installs' % (entry, toggle_of(key, family)))
 
+# lineage_companion_packages: the lists setup/ansible/tasks/load_os_dict.yaml puts in front of the
+# companion_packages entry of the same key on one lineage. A lineage ih_base cannot take on that family,
+# or a key with no companion_packages entry for the role to read it through, is a list nothing installs
+# and nothing expects. The lineages are read out of the ih_base derivation itself, the quoted names in
+# its Debian branch, so a lineage added there is accepted here without a second list.
+derivation = (ANSIBLE / 'tasks' / 'derive_os_facts.yaml').read_text(encoding='utf-8')
+base_expr = re.search(r'ih_base:\s*>-(.*?)\n\s*tags:', derivation, re.S)
+debian_branch = base_expr.group(1).split("if ih_family == 'Debian'")[0] if base_expr else ''
+lineages = {'Debian': set(re.findall(r"\(\('(\w+)' if", debian_branch)) | set(re.findall(r"else '(\w+)'\)", debian_branch))}
+if not lineages['Debian']:
+    lines.append('FAIL the Debian lineages could not be read out of setup/ansible/tasks/derive_os_facts.yaml, '
+                 'so no lineage_companion_packages entry was checked')
+lineage_entries = 0
+for family in FAMILIES:
+    for base, entries in sorted((dictionaries[family].get('lineage_companion_packages') or {}).items()):
+        where = 'lineage_companion_packages.%s in vars/%s.yaml' % (base, family)
+        if base not in lineages.get(family, set()):
+            lines.append('FAIL %s names a lineage ih_base never takes on %s, %s, so nothing ever reads it'
+                         % (where, family, ', '.join(sorted(lineages.get(family, set()))) or 'none at all'))
+        for key, names in sorted((entries or {}).items()):
+            lineage_entries += 1
+            if key not in companions[family]:
+                lines.append('FAIL %s carries %s, and companion_packages has no %s entry for a role to read it '
+                             'through, so it is installed by nothing and expected by nothing' % (where, key, key))
+            if not isinstance(names, list) or not names \
+                    or not all(isinstance(n, str) and n and '{{' not in n for n in names):
+                lines.append('FAIL %s.%s is not a list of literal package names: %r' % (where, key, names))
+
 for (rel, name), used in sorted(allowed.items()):
     if not used:
         lines.append('FAIL %s names %s, "%s", and no role include of install_role_packages.yaml under a '
@@ -531,8 +561,9 @@ if under_toggle == 0:
 
 if not lines:
     lines.append('OK all %d role installs under a toggle read companion_packages, a fact the verification '
-                 'reads, or a documented exception (%d), and setup/ansible/verify_install.yaml expects them '
-                 'through %s' % (under_toggle, len(allowed), verified_fact))
+                 'reads, or a documented exception (%d), every one of the %d lineage_companion_packages '
+                 'entries names a lineage and a companion_packages key, and setup/ansible/verify_install.yaml '
+                 'expects them through %s' % (under_toggle, len(allowed), lineage_entries, verified_fact))
 
 print('\n'.join(lines))
 PYEOF

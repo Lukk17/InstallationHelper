@@ -24,8 +24,11 @@
 # The caller passes:
 #   role_packages                  the list, one package, group or file name per entry
 #   role_packages_purpose          a few words naming what the set is for, read by every message here
-#   role_packages_manager          apt, dnf, pacman, flatpak, snap, brew or brew_cask. When it is not
-#                                  given, the family's own manager: apt, dnf or pacman
+#   role_packages_manager          apt, dnf, rpm_url, pacman, flatpak, snap, brew or brew_cask. When it
+#                                  is not given, the family's own manager: apt, dnf or pacman. rpm_url
+#                                  takes a vendor .rpm location, installs what the rpm requires with dnf
+#                                  and the rpm itself with rpm -U, so role_packages_install_options can
+#                                  hand rpm an --excludepath dnf has no way to pass
 #   role_packages_install_options  extra options placed before each package, empty when not given
 #   role_packages_classic          snap only, the packages installed with --classic
 # and gets back role_packages_missing, every package of the set that is absent after the last attempt.
@@ -66,6 +69,9 @@
 # nothing. The refreshes, each checked to refresh metadata and upgrade nothing:
 #   apt      apt-get update, which downloads the package lists only.
 #   dnf      dnf makecache --refresh, which marks the metadata expired and downloads it again.
+#   rpm_url  the same, because the dependencies are what dnf resolves. The download is attempted again
+#            with the install, and a package already at the downloaded version is reported unchanged
+#            rather than handed to rpm -U, which exits 2 on it. Measured on fedora:44 on 2026-10-18.
 #   pacman   pacman -Syy, on its own invocation, never joined to an install. See
 #            e2e/tier1/pacman_partial_refresh.sh.
 #   flatpak  flatpak update --appstream, which in flatpak 1.16.6 fetches the remote's summary and
@@ -128,6 +134,24 @@
         refresh: ""
         become: true
         nothing_done: is already installed
+      rpm_url:
+        install: >-
+          sh -c 'set -eu;
+          for url do :; done;
+          n=$#; i=0;
+          for arg do i=$((i + 1)); if [ "$i" -lt "$n" ]; then set -- "$@" "$arg"; fi; done;
+          shift "$n";
+          work="$(mktemp -d /var/tmp/installation-helper-rpm.XXXXXX)";
+          trap "rm -rf $work" EXIT;
+          curl -fsSL --retry 3 --connect-timeout 30 -o "$work/package.rpm" "$url";
+          nevra="$(rpm -qp --nosignature --qf %{NEVRA} "$work/package.rpm")";
+          if rpm -q "$nevra" >/dev/null 2>&1; then echo "$nevra is already installed from its vendor rpm"; exit 0; fi;
+          rpm -qp --nosignature --requires "$work/package.rpm" | grep -v "^rpmlib(" | sort -u > "$work/requires";
+          xargs -d "\n" -r dnf install -y < "$work/requires";
+          rpm -U --nosignature "$@" "$work/package.rpm"' rpm-url-install
+        refresh: dnf makecache --refresh
+        become: true
+        nothing_done: is already installed from its vendor rpm
       brew:
         install: PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" brew install
         refresh: PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" brew update

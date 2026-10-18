@@ -75,28 +75,41 @@
   when: ih_family == 'Debian'
 
 # Through tasks/install_role_packages.yaml, the retry rule every package manager follows, and the
-# tasks that need snapd skip when it did not install, because the shared file has already named it.
-- name: Install snapd (Debian non-Ubuntu)
+# tasks that need snapd skip when it did not install, because the shared file has already named it. The
+# list is install_snapd's companion_packages entry in vars/Debian.yaml, which verify_install.yaml reads
+# too. Under install_snapd, as on Fedora and Arch: until 2026-10-18 this ran on every Debian machine
+# whatever the toggle said. Ubuntu is included, where snapd ships with the system and the install and
+# the socket change nothing, so the toggle means the same thing on every family. With it off the snap
+# mappings are skipped and named, see setup/ansible/tasks/snap_availability.yaml.
+- name: Install snapd (Debian family)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages: [snapd]
+    role_packages: "{{ os_dict.companion_packages.snapd }}"
     role_packages_purpose: the snap daemon
   when:
     - ih_family == 'Debian'
-    - ih_base != 'ubuntu'
+    - install_snapd | default(false) | bool
 
-- name: Enable snapd socket (Debian non-Ubuntu)
+- name: Remember whether snapd installed (Debian family)
+  ansible.builtin.set_fact:
+    debian_snapd_missing: "{{ 'snapd' in (role_packages_missing | default([])) }}"
+  when:
+    - ih_family == 'Debian'
+    - install_snapd | default(false) | bool
+
+- name: Enable snapd socket (Debian family)
   become: yes
   ansible.builtin.systemd:
     name: snapd.socket
     state: started
     enabled: yes
   when:
-    - ih_base != 'ubuntu'
-    - "'snapd' not in (role_packages_missing | default([]))"
+    - ih_family == 'Debian'
+    - install_snapd | default(false) | bool
+    - not (debian_snapd_missing | default(false) | bool)
 
 # NOTE: Removed manual symlink creation - not needed with modern snapd
 

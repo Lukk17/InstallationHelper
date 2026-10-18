@@ -45,10 +45,19 @@
     ih_derivative_extra_keys: "{{ ih_derivative_dict.keys() | list | difference(['software_mapping']) }}"
   tags: always
 
+# lineage_companion_packages is the other half of one family file serving two lineages: vars/Debian.yaml
+# serves Debian and Ubuntu, and where a role installs a different package on each, the entry under the
+# machine's ih_base is put in front of the companion_packages entry of the same key, so the role and the
+# verification both read one finished list. GNOME's desktop metapackage is the one today, ubuntu-desktop
+# on Ubuntu lineage and gnome-core on Debian lineage. e2e/tier1/verify_wiring.sh fails on a lineage a
+# family cannot have and on a key companion_packages does not carry.
 - name: Merge the overrides over the family's dictionary as os_dict
   ansible.builtin.set_fact:
     os_dict: >-
       {{ ih_family_dict
          | combine({'software_mapping': ih_family_dict.software_mapping
-                    | combine((ih_derivative_dict | default({})).software_mapping | default({}))}) }}
+                    | combine((ih_derivative_dict | default({})).software_mapping | default({})),
+                    'companion_packages': (ih_family_dict.companion_packages | default({}))
+                    | combine((ih_family_dict.lineage_companion_packages | default({}))[ih_base | default('')]
+                              | default({}), list_merge='prepend')}) }}
   tags: always

@@ -541,6 +541,18 @@
           when: ansible_facts['system'] == 'Linux'
           tags: always
 
+    # Named here as well as where the software installer skipped them, because that line scrolled past
+    # forty minutes ago and this is the end of the run the user reads. Not a failure: turning snapd off
+    # was a choice, and this says what it cost. The list is tasks/snap_availability.yaml's.
+    - name: Name the applications not installed because install_snapd is off
+      ansible.builtin.debug:
+        msg: >-
+          [WARN] install_snapd is off, so these toggles were skipped, because each installs through snap
+          on this machine: {{ ih_snap_skipped | default({}) | list | map('regex_replace', '^', 'install_') | join(', ') }}.
+          Turn install_snapd on to install them.
+      when: ih_snap_skipped | default({}) | length > 0
+      tags: always
+
     # Every role above catches its own failure so one broken role cannot abandon
     # a 40 minute run. Without this terminal check the play then exited zero even
     # when roles had failed, so nothing calling the playbook could tell a good run

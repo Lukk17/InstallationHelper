@@ -263,6 +263,7 @@ companion_packages:
   docker: ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]   # from download.docker.com, which debian_repos.yaml adds, installed by virtualization_config
   waydroid: ["waydroid"]   # from repo.waydro.id, which the waydroid role adds before installing it
   snapper: ["snapper"]   # installed by the snapper role on a btrfs root only, which setup/ansible/tasks/snapper_applicability.yaml decides
+  snapd: ["snapd"]   # installed by debian_core on Debian and Ubuntu alike, where Ubuntu ships it already and the install changes nothing
   # What pyenv builds Python against, installed by sdk_manager/tasks/pyenv_unix.yaml. libncurses-dev, because trixie and Ubuntu 26.04 carry no libncursesw5-dev, confirmed with apt-cache policy.
   python: ["build-essential", "libssl-dev", "zlib1g-dev", "libbz2-dev", "libreadline-dev", "libsqlite3-dev", "libncurses-dev", "xz-utils", "tk-dev", "libxml2-dev", "libxmlsec1-dev", "libffi-dev", "liblzma-dev", "curl"]
   setup_zsh: ["zsh", "curl", "git"]   # the shell, and what Oh-My-Zsh is fetched and cloned with, installed by shell_zsh
@@ -271,3 +272,15 @@ companion_packages:
   kde_plasma: ["kde-standard", "plasma-workspace", "systemsettings", "plasma-desktop", "kde-config-sddm", "kde-config-gtk-style", "kde-config-gtk-style-preview", "breeze", "qt5-style-kvantum", "qt6-style-kvantum", "sddm-theme-breeze", "sddm"]
   # The applet-window-buttons build dependencies, installed by kde_plasma_setup/tasks/configure_kde.yaml. libkdecorations3-dev, the Plasma 6 name, because neither trixie nor Ubuntu 26.04 carries libkdecorations2-dev, confirmed with apt-cache policy.
   configure_kde_plasma: ["g++", "extra-cmake-modules", "qt6-base-dev", "qt6-declarative-dev", "libkf6coreaddons-dev", "libkf6declarative-dev", "libkf6package-dev", "libkf6svg-dev", "libkf6i18n-dev", "libkf6service-dev", "libkf6configwidgets-dev", "libkf6kcmutils-dev", "libplasma-dev", "libkdecorations3-dev", "gettext", "cmake"]
+  gnome: ["gnome-tweaks", "gnome-shell-extension-manager"]   # installed by gnome_setup/tasks/install_gnome.yaml after the lineage's desktop metapackage below
+
+# The companion_packages that differ between the two lineages this file serves, under the ih_base
+# setup/ansible/tasks/derive_os_facts.yaml derives, ubuntu or debian. setup/ansible/tasks/load_os_dict.yaml
+# puts each list in front of the companion_packages entry of the same key, which therefore has to exist.
+# ubuntu-desktop does not exist in Debian, and gnome-core is Debian's desktop without the full gnome
+# task's extras, both checked with apt-cache policy in debian:trixie and ubuntu:26.04.
+lineage_companion_packages:
+  ubuntu:
+    gnome: ["ubuntu-desktop"]
+  debian:
+    gnome: ["gnome-core"]

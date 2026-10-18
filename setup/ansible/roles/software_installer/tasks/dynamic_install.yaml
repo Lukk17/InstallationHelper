@@ -75,6 +75,31 @@
     label: "{{ item.key }}"
   tags: always
 
+# The same shape for snap. With install_snapd off nothing installs snapd, so a snap mapping would only
+# fail four times and end the run failed for a choice the user made. tasks/snap_availability.yaml is the
+# one place that answers it, and site.yaml names the same list at the end of the run.
+- name: Decide which requested mappings need snapd while install_snapd is off
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/snap_availability.yaml"
+    apply:
+      tags: [always]
+  tags: always
+
+- name: Leave out every requested mapping that needs snapd while install_snapd is off
+  ansible.builtin.set_fact:
+    software_installer_packages: >-
+      {{ software_installer_packages | rejectattr('key', 'in', ih_snap_skipped | list) | list }}
+  tags: always
+
+- name: Name every requested mapping skipped because install_snapd is off
+  ansible.builtin.debug:
+    msg: >-
+      [WARN] Skipping install_{{ item.key }}: {{ item.value }}. Turn install_snapd on to install it.
+  loop: "{{ ih_snap_skipped | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  tags: always
+
 # One place where each manager's package list is worked out, and every task below reads it
 # from here.
 #
@@ -610,10 +635,20 @@
     # This was the dnf module, whose failure on the last attempt was fatal, so one withdrawn vendor rpm
     # sent the whole software installer into its rescue and skipped the flatpak set and every custom
     # install after it. The shared file names the URL that did not install and carries on.
+    #
+    # A mapping with exclude_path goes down the rpm route instead, grouped by the path it leaves out, so
+    # its rpm never writes that path. The field in vars/RedHat.yaml is the one place that decides it, and
+    # e2e/tier2/rpm_file_conflicts.sh reads the same field.
     - name: Resolve the vendor .rpm locations this run installs
       ansible.builtin.set_fact:
         dnf_url_locations: >-
-          {{ (dnf_url_locations | default([])) + [item_url | trim] }}
+          {{ (dnf_url_locations | default([]))
+             + ([] if item.value.exclude_path is defined else [item_url | trim]) }}
+        dnf_url_excluding: >-
+          {{ (dnf_url_excluding | default({}))
+             | combine({item.value.exclude_path: ((dnf_url_excluding | default({}))[item.value.exclude_path]
+                                                  | default([])) + [item_url | trim]}
+                       if item.value.exclude_path is defined else {}) }}
       loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'dnf_url') | list }}"
       vars:
         item_url: >-
@@ -642,6 +677,22 @@
       when:
         - ih_family == 'RedHat'
         - dnf_url_locations | default([]) | length > 0
+      tags: [dnf_batch]
+
+    - name: Install the vendor .rpm files rpm installs without a path, one at a time
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+        apply:
+          tags: [dnf_batch]
+      vars:
+        role_packages: "{{ dnf_url_excluding[rpm_excluded_path] }}"
+        role_packages_purpose: the vendor .rpm downloads rpm installs without {{ rpm_excluded_path }}
+        role_packages_manager: rpm_url
+        role_packages_install_options: "--excludepath={{ rpm_excluded_path | quote }}"
+      loop: "{{ dnf_url_excluding | default({}) | list }}"
+      loop_control:
+        loop_var: rpm_excluded_path
+      when: ih_family == 'RedHat'
       tags: [dnf_batch]
 
     # Every package that brings Steam, which on CachyOS is the gaming suite as well as steam itself.

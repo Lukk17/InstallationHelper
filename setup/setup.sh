@@ -343,6 +343,7 @@ debian_lineage() {
 detect_os() {
     IS_WSL=false
     DEBIAN_LINEAGE=""
+    OS_RELEASE_ID=""
     if grep -qi microsoft /proc/version 2>/dev/null; then
         IS_WSL=true
     fi
@@ -362,6 +363,7 @@ detect_os() {
     _id=$(. /etc/os-release 2>/dev/null; printf '%s\n' "${ID:-}")
     _id_like=$(. /etc/os-release 2>/dev/null; printf '%s\n' "${ID_LIKE:-}")
     DISTRO="${_name:-Linux}"
+    OS_RELEASE_ID="${_id:-}"
     ${IS_WSL} && DISTRO="${DISTRO} (WSL)"
     case "${_id_like:-${_id:-}}" in
         *arch*)                     OS_FAMILY="Archlinux" ;;
@@ -1214,6 +1216,41 @@ select_all_note() {
     printf 'Select-all leaves %s off. Tick it on its own to turn it on.' "${labels}"
 }
 
+# The toggles whose mapping installs through snap on this machine, one install_<key> per line. Read from
+# vars/<family>.yaml with the entries of vars/derivatives/<os-release ID>.yaml replacing the family's of
+# the same key, the merge setup/ansible/tasks/load_os_dict.yaml does, so this names exactly what
+# setup/ansible/tasks/snap_availability.yaml skips when install_snapd is off.
+snap_dependents() {
+    local family_file="${ANSIBLE_DIR}/vars/${OS_FAMILY}.yaml"
+    local derivative_file="${ANSIBLE_DIR}/vars/derivatives/${OS_RELEASE_ID:-none}.yaml"
+    [[ -f "${family_file}" ]] || return 0
+    {
+        awk '/^software_mapping:/ { inside = 1; next } /^[^[:space:]#]/ { inside = 0 } inside && /^  [a-z0-9_]+: \{/' "${family_file}"
+        if [[ -f "${derivative_file}" ]]; then grep -E '^  [a-z0-9_]+: \{' "${derivative_file}" || true; fi
+    } | tr -d '\r' \
+        | sed -nE 's/^  ([a-z0-9_]+): \{.*manager: *"([a-z_]+)".*/\1 \2/p' \
+        | awk '{ manager[$1] = $2 } END { for (key in manager) if (manager[key] == "snap") print "install_" key }' \
+        | sort
+}
+
+# The checklist header line that says what turning Snapd off skips on this machine, empty when the
+# checklist offers no Snapd entry.
+snapd_note() {
+    local key labels="" offered=false
+    for key in "${PRELOADED_KEYS[@]}"; do
+        [[ "${key}" == install_snapd ]] && offered=true
+    done
+    [[ "${offered}" == true ]] || return 0
+    while IFS= read -r key; do
+        [[ -n "${key}" ]] && labels+="${labels:+, }\"$(format_label "${key}")\""
+    done < <(snap_dependents)
+    if [[ -z "${labels}" ]]; then
+        printf 'Snapd: nothing on this machine installs through snap, so turning it off skips no application.'
+    else
+        printf 'Snapd: turning it off skips %s, because each installs through snap on this machine.' "${labels}"
+    fi
+}
+
 # Multi-select software picker. `gum choose --no-limit` supports `--selected` for
 # pre-selection (`gum filter` does not). Items already enabled in group_vars show
 # up as pre-selected so the user only changes what they actually want to change.
@@ -1235,6 +1272,8 @@ pick_software() {
     local picked header note
     header="arrows move | Space toggle | a select-all | A deselect-all | Enter confirm | Esc cancel"
     note="$(select_all_note)"
+    [[ -n "${note}" ]] && header+=$'\n'"${note}"
+    note="$(snapd_note)"
     [[ -n "${note}" ]] && header+=$'\n'"${note}"
     picked=$(gum choose \
         --no-limit \
