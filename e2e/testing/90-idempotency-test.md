@@ -27,7 +27,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Confirm there is disk headroom.
 
@@ -143,6 +143,8 @@ wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && .
 | `second_run_changed_total` | how many tasks reported changed on the second pass |
 | `second_run_changed_not_allowed` | those not named in the allowlist, listed by name, and the number that has to be zero |
 | `second_run_changed_allowed` | those named in the allowlist, listed by name, so an exemption cannot be used without being seen |
+
+It also reports `host_isolation: 0 finding(s)`, which means the host kernel's loaded modules, swap areas and sysctls matched the record taken at boot after every pass and at collection, no masked unit ran, and systemd knew it was in a container. This holds for every scenario, the forced-failure one included, and any finding fails the run. See "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 A note on the cross-cutting convention that pass criteria are observable state and never log substrings. This capability reads its verdict out of the second pass's log, and that is not an exception to the rule. `changed` is the playbook's own per-task disposition, a boolean the task itself returns, not prose that a rewording can move: the assertion is on the identity of the tasks and on the count, never on any message. The play recap at the end of `playbook2.log` carries the same total as `changed=N` and is the figure to check the parsed list against if the two ever look inconsistent.
 

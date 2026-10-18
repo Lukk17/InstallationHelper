@@ -27,7 +27,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Confirm there is disk headroom.
 
@@ -108,6 +108,8 @@ Every command above targets Arch, which is what `--os` defaults to. The same sce
 ## Expected
 
 The command exits 0, and `result.txt` in the run directory reports `playbook_rc: 0` and `verify_rc: 0`.
+
+It also reports `host_isolation: 0 finding(s)`, which means the host kernel's loaded modules, swap areas and sysctls matched the record taken at boot after every pass and at collection, no masked unit ran, and systemd knew it was in a container. This holds for every scenario, the forced-failure one included, and any finding fails the run. See "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 The verify log carries these assertions, each on its own PASS or FAIL line. Every container scenario runs the same [../tier3/verify.yaml](../tier3/verify.yaml), so the list is the same for all of them and only the expected sets differ. Each item names its verify task verbatim, so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete rather than leaving it to be noticed.
 

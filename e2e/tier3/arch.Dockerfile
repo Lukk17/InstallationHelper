@@ -7,7 +7,7 @@
 # a preinstalled convenience would hide it if that ever broke.
 #
 # systemd runs as PID 1 so tasks that enable units are genuinely exercised. That
-# needs --privileged and the host cgroup mount at run time, see container.sh.
+# needs --privileged and a private cgroup namespace at run time, see container.sh.
 FROM archlinux:base
 
 # The locale data has to be restored before anything else. The published Arch container image

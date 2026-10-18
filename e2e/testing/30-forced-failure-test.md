@@ -26,7 +26,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Confirm there is disk headroom.
 
@@ -113,6 +113,8 @@ wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && .
 ## Expected
 
 The single most important line is that `result.txt` reports a non-zero `playbook_rc` and a non-zero `verify_rc`. Both zeroes here would mean the harness cannot tell a failed run from a good one, which is a defect in the reporting path rather than in the scenario. The harness inverts its own verdicts for this scenario, driven by `e2e_expect_failure: true` in the scenario file, so a clean run is reported as a failed capability and says why in words.
+
+It also reports `host_isolation: 0 finding(s)`, which means the host kernel's loaded modules, swap areas and sysctls matched the record taken at boot after every pass and at collection, no masked unit ran, and systemd knew it was in a container. This holds for every scenario, the forced-failure one included, and any finding fails the run. See "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Five assertions on every distribution, a sixth on Arch and CachyOS and a seventh everywhere else, made by [../tier3/container.sh](../tier3/container.sh) rather than by the verify play, because they are about the reporting path rather than about the state of the machine.
 
