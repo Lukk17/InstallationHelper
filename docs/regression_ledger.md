@@ -6472,3 +6472,97 @@ How it was proven: by reading e2e/tier3/container.sh at c4f06c2, lines 453-454.
 Fix: `--cgroupns=private` with no bind, `-e container=docker`, and the guard requires `systemd-detect-virt --container` to print `docker`.
 
 Mechanical check: e2e/tier1/container_isolation.sh.
+
+### Found while confining tier 3 to throwaway machines, 2026-10-18
+
+#### 10.130 Tier 3 could start on the owner's computer at all
+
+Cause: nothing in e2e/run.sh, e2e/tier3/container.sh or e2e/lib/gate.sh asked what machine the privileged scenario containers would share a kernel with.
+
+Effect: the host kernel changes of 10.126 to 10.129, and owner decision 76: "nothing can do changes to my computer ! so vm or github action".
+
+How it was proven: on 2026-10-18 the probe in the gate container answered `systemd-detect-virt --vm  none` and `kernel release  7.2.9-2-cachyos` and exited 2, and `--queue --tier 3`, `--tier 3` and `container.sh ... --detach` each exited 2 with no queue container and no scenario container left.
+
+Fix: e2e/lib/throwaway_machine.sh, the probe in `gate_enter`, and the inner calls in e2e/run.sh and e2e/tier3/container.sh. They admit a GitHub-hosted runner (`GITHUB_ACTIONS=true`, `RUNNER_OS=Linux`, `RUNNER_ENVIRONMENT=github-hosted`) or a virtual machine named by `systemd-detect-virt --vm` that is not WSL 2, Docker Desktop or OrbStack. There is no override.
+
+Mechanical check: e2e/tier1/throwaway_machine_only.sh. It fails 1 of 1 against 0eee74c, 7 of 13 with only the library added, and each of eight weakened copies.
+
+Wrong turn kept: the first version of the check let an unrefused `--tier all` run the whole tier 1 gate, itself included, with no time limit. It now has a 30 second limit per route.
+
+### Found while running tier 3 fedora defaults, 2026-10-18
+
+#### 10.131 OpenCode desktop and Lens claimed the same build-id link, so dnf refused whichever installed second
+
+Cause: OpenCode desktop 2.0.29 and Lens both ship Electron's chrome-sandbox with the same build id, so both vendor rpms carry /usr/lib/.build-id/aa/c9a26d3d137c8cedbe1c3f2deab3edd8f39f43, pointing into /opt/OpenCode and /opt/Lens, and the dnf_url route could not leave a path out.
+
+Effect: `file /usr/lib/.build-id/aa/c9a26d3d137c8cedbe1c3f2deab3edd8f39f43 from install of opencode-2.0.29-1.x86_64 conflicts with file from package lens-2026.10.121159~latest-1.x86_64`, in tier 3 fedora defaults 2026-10-18T15-30-09Z and reproduced in fedora:44. Every tier 2 check passed, because each name and each location existed.
+
+How it was proven: e2e/tier2/rpm_file_conflicts.sh against the tree before the fix failed naming exactly that path, claimed by lens and opencode. The fixed route, run through the real setup/ansible/tasks/install_role_packages.yaml in fedora:44 with Lens present, gave changed=True and then changed=False, and `dnf remove -y opencode` left Lens's link in place.
+
+Options measured and rejected: `rpm --replacefiles`, after which every later dnf transaction touching Lens failed as a whole. A system-wide `%_netsharedpath` macro, after which no package gets build-id links any more. The AppImage, which the vendor starts with `--no-sandbox`.
+
+Fix: owner decision 73.1. `exclude_path` on the opencode_desktop mapping in setup/ansible/vars/RedHat.yaml, the rpm_url manager in setup/ansible/tasks/install_role_packages.yaml, the grouping in setup/ansible/roles/software_installer/tasks/dynamic_install.yaml, and `install_rpm_without` in docs/manual/fedora/install.sh and its guide.
+
+Mechanical check: e2e/tier2/rpm_file_conflicts.sh.
+
+### Found while settling owner decisions 74 and 75, 2026-10-18
+
+#### 10.132 debian_core installed snapd whatever install_snapd said, and snap mappings went to snap with snapd off
+
+Cause: the Debian install was gated on `ih_base != 'ubuntu'` only, and setup/ansible/roles/software_installer/tasks/dynamic_install.yaml sent snap mappings to snap without asking whether anything had installed it.
+
+Effect: `install_snapd` false still installed snapd on Debian. On Arch and Fedora a snap mapping would fail four times and end the run failed, which is latent because no mapping uses snap today. Nothing told the user what turning snapd off costs. This closes the open item at the end of 10.125.
+
+How it was proven: e2e/tier1/snap_dependents_summary.sh against HEAD failed 5 of 5, naming `Install snapd (Debian non-Ubuntu)` as installed without `install_snapd`.
+
+Fix: owner decision 74. setup/ansible/tasks/snap_availability.yaml and its use in dynamic_install.yaml, the `[WARN]` post task in setup/ansible/site.yaml, `companion_packages.snapd` in setup/ansible/vars/Debian.yaml read by debian_core under `install_snapd`, and `snap_dependents` and `snapd_note` in setup/setup.sh.
+
+Mechanical check: e2e/tier1/snap_dependents_summary.sh and e2e/tier1/snap_dependents_menu.sh.
+
+#### 10.133 The four GNOME installs were verified by nothing, and a machine that already had GNOME got no tooling
+
+Cause: setup/ansible/roles/gnome_setup/tasks/install_gnome.yaml installed literal lists only while /usr/bin/gnome-shell was absent, and picked the Debian metapackage by `ih_base` inside the task.
+
+Effect: gnome-tweaks, gnome-shell-extension-manager, the metapackage, @gnome-desktop and Arch's gnome group were never verified, and on a machine with GNOME already present the tooling was never installed.
+
+How it was proven: e2e/tier1/verify_wiring.sh against HEAD with only the four exception lines removed printed `verification wiring: 16 checks, 4 FAILED`.
+
+Fix: owner decision 75. `companion_packages.gnome` in the three Linux dictionaries, `lineage_companion_packages` in setup/ansible/vars/Debian.yaml merged by setup/ansible/tasks/load_os_dict.yaml, one install in install_gnome.yaml, and the group-aware installed query in setup/ansible/verify_install.yaml.
+
+Mechanical check: e2e/tier1/verify_wiring.sh rules 1 and 5.
+
+### Introduced while settling owner decisions 73.1, 74 and 75, 2026-10-18
+
+#### 10.134 The verification first read Fedora's groups from dnf's cache, which the playbook empties
+
+Cause: introduced by an agent. The query was `dnf -C group list`, while setup/ansible/site.yaml ends every Fedora run with `dnf clean all`.
+
+Effect: `Cache-only enabled but no cache for repository "fedora"`, exit 1, so @gnome-desktop would have read MISSING on every Fedora GNOME run.
+
+How it was proven: in fedora:44, with the group installed, `dnf clean all` run, and the query run as a normal user.
+
+Wrong hypothesis kept: that `-C` reads only local state.
+
+Fix: `--disablerepo='*'` in setup/ansible/verify_install.yaml.
+
+Mechanical check: none. Tier 3 gnome-full on fedora covers it.
+
+#### 10.135 The first rpm_file_conflicts listed nothing and would have passed vacuously without its guard
+
+Cause: introduced by an agent, who used dnf4 habits on dnf5. `repoquery --resolve` does not exist there, `--qf` does not expand `\t`, and rpm rejects a scalar tag inside an array iterator (`array iterator used with different sized arrays`).
+
+Effect: `all 0 vendor repository packages`, and the empty-listing guard failed it with `no file of any package was listed`.
+
+Fix: `--providers-of=requires`, space separators and `%{=NAME}` in e2e/tier2/rpm_file_conflicts.sh.
+
+Mechanical check: that guard.
+
+### Found while adding the rpm_url route, 2026-10-18
+
+#### 10.136 timeout_indirection matched an option ending in -timeout
+
+Cause: the pattern in e2e/tier1/timeout_indirection.sh accepted `-` before `timeout N`.
+
+Effect: `FAIL 1 task line(s) call the bare timeout command` on curl's `--connect-timeout 30` in the rpm_url route of setup/ansible/tasks/install_role_packages.yaml.
+
+Fix and proof: e2e/tier1/timeout_indirection.sh:61 excludes `-` before the word. The check passes on the tree and still fails on a planted bare `timeout 5 sleep 1`.

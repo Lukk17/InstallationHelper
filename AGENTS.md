@@ -221,6 +221,14 @@ dates, error text and fixes are in the ledger.
     privilege stopped it. A check that drives anything able to remove or install must prove, under the
     exact environment it hands the code, that every command resolves to its fake before running it.
     Guarded now inside `e2e/tier1/opencode_switch_pass.yaml`.
+17. Two packages that each install cleanly and refuse each other. OpenCode desktop and Lens both
+    ship Electron's chrome-sandbox, so both rpms claim the same /usr/lib/.build-id link and dnf
+    refuses whichever comes second. Every name and every location check passed. A mapping whose rpm
+    must leave a path out carries exclude_path, and e2e/tier2/rpm_file_conflicts.sh downloads the
+    default Fedora set and fails on any path two packages claim.
+18. A verification query that depends on something the run itself removes. A cache-only dnf query
+    reads nothing after the playbook's own dnf clean all. Measure a verification query in the state
+    the run leaves the machine in, not in the state a fresh container has.
 
 ---
 
@@ -490,6 +498,7 @@ The playbook (`site.yaml`) follows this execution order:
 | `setup/pinned_values/pinned_values.toml` | Pinned versions, download locations and vendor identifiers, read through `setup/pinned_values/pinned_values.py` |
 | `vars/{OS}.yaml` | Translation dictionaries mapping generic app name → `{manager, package}` |
 | `vars/derivatives/<os-release ID>.yaml` | Overrides for a distribution that maps something differently from its family, named after the `ID` field of `/etc/os-release` (`vars/derivatives/cachyos.yaml` today). `tasks/load_os_dict.yaml` merges its entries over the family dictionary, each replacing the family entry of the same key whole, and it may carry `software_mapping` and nothing else |
+| `lineage_companion_packages` in `vars/Debian.yaml` | companion lists that differ between Ubuntu and Debian lineage, put in front of the companion_packages entry of the same key by `tasks/load_os_dict.yaml` |
 | `profiles/linux_live.yaml` | Override profile for USB/live installs |
 | `software.md` | Complete per-OS software list with installation methods |
 
