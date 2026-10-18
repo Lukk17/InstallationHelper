@@ -45,10 +45,13 @@
     # of the tree carrying an old defect. E2E_REPO_ROOT in e2e/lib/common.sh is that mechanism.
     ih_cases:
       - { fixture: ubuntu,      reported_family: Debian,      reported_distribution: Ubuntu,                      family: Debian,    base: ubuntu , id: "ubuntu", id_like: "debian" }
+      - { fixture: ubuntu-26.04, reported_family: Debian,     reported_distribution: Ubuntu,                      family: Debian,    base: ubuntu , id: "ubuntu", id_like: "debian" }
       - { fixture: debian,      reported_family: Debian,      reported_distribution: Debian,                      family: Debian,    base: debian , id: "debian", id_like: "" }
       - { fixture: pop-os,      reported_family: Debian,      reported_distribution: "Pop!_OS",                   family: Debian,    base: ubuntu , id: "pop", id_like: "ubuntu debian" }
       - { fixture: linux-mint,  reported_family: Debian,      reported_distribution: "Linux Mint",                family: Debian,    base: ubuntu , id: "linuxmint", id_like: "ubuntu debian" }
+      - { fixture: linux-mint-22.2, reported_family: Debian,  reported_distribution: "Linux Mint",                family: Debian,    base: ubuntu , id: "linuxmint", id_like: "ubuntu debian" }
       - { fixture: lmde,        reported_family: Debian,      reported_distribution: "Linux Mint Debian Edition", family: Debian,    base: debian , id: "linuxmint", id_like: "debian" }
+      - { fixture: lmde-7,      reported_family: Debian,      reported_distribution: "Linux Mint Debian Edition", family: Debian,    base: debian , id: "linuxmint", id_like: "debian" }
       - { fixture: devuan,      reported_family: Debian,      reported_distribution: Devuan,                      family: Debian,    base: debian , id: "devuan", id_like: "debian" }
       - { fixture: arch,        reported_family: Archlinux,   reported_distribution: Archlinux,                   family: Archlinux, base: archlinux , id: "arch", id_like: "" }
       - { fixture: endeavouros, reported_family: EndeavourOS, reported_distribution: EndeavourOS,                 family: Archlinux, base: endeavouros , id: "endeavouros", id_like: "arch" }

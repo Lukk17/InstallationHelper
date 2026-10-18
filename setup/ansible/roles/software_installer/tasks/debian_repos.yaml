@@ -384,7 +384,7 @@
 
     - name: Add HashiCorp apt repository
       ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        repo: "deb [signed-by=/etc/apt/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ih_apt_codename }} main"
         filename: hashicorp
         state: present
         update_cache: false
@@ -596,7 +596,7 @@
         repo: >-
           deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.gpg]
           https://download.docker.com/linux/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
-          {{ ansible_facts['distribution_release'] }} stable
+          {{ ih_apt_codename }} stable
         filename: docker
         state: present
         update_cache: false
@@ -742,14 +742,15 @@
 # --dearmor step. Both the keyring and the repo live under a per-distribution,
 # per-codename path. The distribution segment is normalised to ubuntu or debian
 # the same way the Docker task above does it, because upstream publishes those
-# two only and a derivative's own name (linuxmint, pop!_os) is a 404.
+# two only and a derivative's own name (linuxmint, pop!_os) is a 404. The
+# codename is ih_apt_codename for the same reason, see tasks/derive_os_facts.yaml.
 - name: Add the Tailscale repository
   when: install_tailscale | default(false) | bool
   block:
     - name: Download Tailscale binary keyring
       ansible.builtin.get_url:
         url: >-
-          https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg
+          https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/{{ ih_apt_codename }}.noarmor.gpg
         dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
         mode: '0644'
         force: true
@@ -764,7 +765,7 @@
         repo: >-
           deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg]
           https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
-          {{ ansible_facts['distribution_release'] }} main
+          {{ ih_apt_codename }} main
         filename: tailscale
         state: present
         update_cache: false
