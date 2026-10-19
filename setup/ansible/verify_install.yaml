@@ -174,7 +174,7 @@
       ansible.builtin.set_fact:
         enabled_mapped: "{{ enabled_mapped | default([]) | reject('in', ih_architecture_skipped | list) | list }}"
 
-    # A snap mapping is skipped by the playbook while install_snapd is off, except on Ubuntu lineage,
+    # A snap mapping is skipped by the playbook while install_snapd is off, except on Ubuntu itself,
     # where snapd ships with the system and every snap mapping installs whatever the toggle says. The
     # answer comes from the same task file dynamic_install.yaml reads, so the two cannot disagree, and
     # the report below names each one as skipped with the reason.
@@ -286,7 +286,7 @@
       ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/snapper_applicability.yaml"
       when: "'snapper' in (ih_companion_keys_enabled | default([]))"
 
-    # snapd ships with the system on Ubuntu lineage, and roles/debian_core neither installs nor removes it
+    # snapd ships with the system on Ubuntu itself, and roles/debian_core neither installs nor removes it
     # there, so it is not expected from the playbook. ih_snapd_with_system comes from the same task file
     # the role reads.
     - name: Name every enabled toggle whose role installs nothing on this machine, and why

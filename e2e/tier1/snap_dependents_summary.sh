@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Tier 1: with install_snapd off, the playbook installs no snapd, skips every snap mapping, and says so
-# at the end of the run, and on Ubuntu lineage, where snapd ships with the system, it leaves snapd alone
+# at the end of the run, and on Ubuntu itself, where snapd ships with the system, it leaves snapd alone
 # and skips nothing.
 #
 # Until 2026-10-18 roles/debian_core installed snapd on every Debian machine whatever install_snapd said,
@@ -12,9 +12,12 @@
 #
 # Commit 0de82cc then put snapd under install_snapd on Ubuntu too, where it ships with the system, so
 # turning the toggle off there would have skipped every snap mapping on a machine that has snapd, and the
-# verification expected the playbook to install it. Owner decision 80: on Ubuntu lineage the playbook
-# never installs and never removes snapd and never touches its socket, and snap mappings install whatever
-# install_snapd says. snap_availability.yaml answers that as ih_snapd_with_system. Asserted:
+# verification expected the playbook to install it. Owner decision 80: on Ubuntu the playbook never
+# installs and never removes snapd and never touches its socket, and snap mappings install whatever
+# install_snapd says. snap_availability.yaml answers that as ih_snapd_with_system. Commit c99ef74 keyed it
+# on the Ubuntu lineage, ih_base, which also covers Pop!_OS and Linux Mint. Owner decision 84: only
+# Ubuntu itself, the os-release ID ubuntu, and Pop!_OS and Linux Mint follow install_snapd like Debian.
+# Asserted:
 #   1. every task in arch_core, debian_core and fedora_core that installs snapd runs under install_snapd,
 #      and every debian_core task that installs snapd or touches snapd.socket also runs only when
 #      ih_snapd_with_system is false, after debian_core included snap_availability.yaml;
@@ -25,9 +28,10 @@
 #      run's final verdict, and verify_install.yaml includes the same file, drops ih_snap_skipped from
 #      what it expects and expects no snapd from the playbook while ih_snapd_with_system is true;
 #   4. driven for real against a fixture dictionary, snap_availability.yaml skips exactly the requested
-#      snap mappings with install_snapd off on Debian lineage and on Fedora, nothing with it on, and
-#      nothing on Ubuntu lineage either way, and the two shipped [WARN] tasks, lifted out of
-#      dynamic_install.yaml and site.yaml unchanged, name every skipped one and nothing else.
+#      snap mappings with install_snapd off on Debian, on Pop!_OS and Linux Mint, which are Ubuntu lineage
+#      under another os-release ID, and on Fedora, nothing with it on, and nothing on Ubuntu itself either
+#      way, and the two shipped [WARN] tasks, lifted out of dynamic_install.yaml and site.yaml unchanged,
+#      name every skipped one and nothing else.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -113,7 +117,7 @@ for role in ('arch_core', 'debian_core', 'fedora_core'):
         debian_guarded += 1
         if not re.search(r'not \(?ih_snapd_with_system\b', cond):
             lines.append('FAIL %s :: %s installs snapd or touches its socket without "not ih_snapd_with_system" in '
-                         'its conditions, so it runs on Ubuntu lineage, where snapd ships with the system'
+                         'its conditions, so it runs on Ubuntu, where snapd ships with the system'
                          % (path.relative_to(ansible).as_posix(), task.get('name')))
         elif not decided:
             lines.append('FAIL %s :: %s reads ih_snapd_with_system before the role includes '
@@ -208,11 +212,11 @@ if v_include is None or v_reject is None or v_split is None or not v_include < v
 if not any("'snapd'" in str(t) and 'ih_snapd_with_system' in str(t) and 'ih_companions_not_applicable' in str(t)
            for t in vflat):
     lines.append('FAIL verify_install.yaml does not name snapd as not applicable while ih_snapd_with_system is true, '
-                 'so it expects snapd from the playbook on Ubuntu lineage')
+                 'so it expects snapd from the playbook on Ubuntu')
 
 if not any(line.startswith('FAIL') for line in lines):
     lines.append('OK all %d snapd installs run under install_snapd, the %d debian_core snapd tasks skip Ubuntu '
-                 'lineage, the software installer drops ih_snap_skipped before the snap install, both [WARN] tasks '
+                 'itself, the software installer drops ih_snap_skipped before the snap install, both [WARN] tasks '
                  'are in place, and the verification asks the same file' % (installs, debian_guarded))
 print('\n'.join(lines))
 PYEOF
@@ -260,46 +264,48 @@ cat > "${work}/play.yaml" <<'PLAY'
       ansible.builtin.include_tasks: "{{ work }}/site_warn.yaml"
 PLAY
 
-# drive <install_snapd> <ih_family> <ih_base>  ->  the play's output
+# drive <install_snapd> <ih_family> <ih_base> <ih_os_release_id>  ->  the play's output
 drive() {
     ANSIBLE_STDOUT_CALLBACK=default ANSIBLE_FORCE_COLOR=0 \
         ansible-playbook -i localhost, "${work}/play.yaml" \
         -e "availability=${AVAILABILITY}" -e "work=${work}" -e "install_snapd=$1" \
-        -e "ih_family=$2" -e "ih_base=$3" </dev/null 2>&1 || true
+        -e "ih_family=$2" -e "ih_base=$3" -e "ih_os_release_id=$4" </dev/null 2>&1 || true
 }
 
 problems=()
-# The cases where install_snapd off skips the requested snap mapping: Debian lineage and Fedora.
-for machine in "Debian debian" "RedHat fedora"; do
-    family="${machine% *}" base="${machine#* }"
-    off="$(drive false "${family}" "${base}")"
-    on="$(drive true "${family}" "${base}")"
+# The cases where install_snapd off skips the requested snap mapping: Debian, Pop!_OS and Linux Mint,
+# the last two Ubuntu lineage under their own os-release ID, and Fedora. Each is family, lineage and ID,
+# and the problems below name the machine by its ID.
+for machine in "Debian:debian:debian" "Debian:ubuntu:pop" "Debian:ubuntu:linuxmint" "RedHat:fedora:fedora"; do
+    IFS=: read -r family lineage id <<<"${machine}"
+    off="$(drive false "${family}" "${lineage}" "${id}")"
+    on="$(drive true "${family}" "${lineage}" "${id}")"
     if ! grep -q 'IH_SNAP skipped=' <<<"${off}"; then
-        problems+=("${base}: the play did not finish: $(grep -m3 -E 'ERROR|fatal' <<<"${off}" | tr '\n' ' ')")
+        problems+=("${id}: the play did not finish: $(grep -m3 -E 'ERROR|fatal' <<<"${off}" | tr '\n' ' ')")
         continue
     fi
     grep -q 'IH_SNAP skipped=fixture_snap_wanted with_system=False"' <<<"${off}" \
-        || problems+=("${base}: with install_snapd off it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${off}" | head -1)], expected fixture_snap_wanted alone and snapd not part of the system")
+        || problems+=("${id}: with install_snapd off it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${off}" | head -1)], expected fixture_snap_wanted alone and snapd not part of the system")
     grep -q 'IH_SNAP skipped= with_system=False"' <<<"${on}" \
-        || problems+=("${base}: with install_snapd on it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${on}" | head -1)], expected nothing")
+        || problems+=("${id}: with install_snapd on it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${on}" | head -1)], expected nothing")
     grep -q '\[WARN\] Skipping install_fixture_snap_wanted:' <<<"${off}" \
-        || problems+=("${base}: the software installer's [WARN] does not name install_fixture_snap_wanted")
+        || problems+=("${id}: the software installer's [WARN] does not name install_fixture_snap_wanted")
     grep -qE '\[WARN\] install_snapd is off.*install_fixture_snap_wanted' <<<"${off}" \
-        || problems+=("${base}: site.yaml's [WARN] does not name install_fixture_snap_wanted")
+        || problems+=("${id}: site.yaml's [WARN] does not name install_fixture_snap_wanted")
     grep -q 'fixture_snap_unwanted' <<<"$(grep '"msg": "\[WARN\]' <<<"${off}" || true)" \
-        && problems+=("${base}: a [WARN] names fixture_snap_unwanted, which nobody asked for")
-    grep -q '"msg": "\[WARN\]' <<<"${on}" && problems+=("${base}: with install_snapd on a [WARN] still names a skip: $(grep -m1 '\[WARN\]' <<<"${on}")")
+        && problems+=("${id}: a [WARN] names fixture_snap_unwanted, which nobody asked for")
+    grep -q '"msg": "\[WARN\]' <<<"${on}" && problems+=("${id}: with install_snapd on a [WARN] still names a skip: $(grep -m1 '\[WARN\]' <<<"${on}")")
 done
-# Ubuntu lineage: snapd ships with the system, so nothing is skipped and nothing is warned about either way.
+# Ubuntu itself: snapd ships with the system, so nothing is skipped and nothing is warned about either way.
 for toggle in false true; do
-    ubuntu="$(drive "${toggle}" Debian ubuntu)"
+    ubuntu="$(drive "${toggle}" Debian ubuntu ubuntu)"
     grep -q 'IH_SNAP skipped= with_system=True"' <<<"${ubuntu}" \
         || problems+=("ubuntu: with install_snapd ${toggle} it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${ubuntu}" | head -1)], expected nothing skipped and snapd part of the system")
     grep -q '"msg": "\[WARN\]' <<<"${ubuntu}" \
         && problems+=("ubuntu: with install_snapd ${toggle} a [WARN] claims a snap mapping is skipped: $(grep -m1 '\[WARN\]' <<<"${ubuntu}")")
 done
 if [[ ${#problems[@]} -eq 0 ]]; then
-    pass "with install_snapd off exactly the requested snap mapping is skipped on Debian lineage and Fedora and both [WARN] lines name it, with it on nothing is, and on Ubuntu lineage nothing is either way"
+    pass "with install_snapd off exactly the requested snap mapping is skipped on Debian, Pop!_OS, Linux Mint and Fedora and both [WARN] lines name it, with it on nothing is, and on Ubuntu itself nothing is either way"
 else
     fail "install_snapd does not skip and name the snap mappings as it should" "$(printf '%s; ' "${problems[@]}")"
 fi

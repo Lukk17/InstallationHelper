@@ -1220,7 +1220,7 @@ select_all_note() {
 # vars/<family>.yaml with the entries of vars/derivatives/<os-release ID>.yaml replacing the family's of
 # the same key, the merge setup/ansible/tasks/load_os_dict.yaml does, so this names exactly what
 # setup/ansible/tasks/snap_availability.yaml skips when install_snapd is off, everywhere but Ubuntu
-# lineage, where it skips nothing.
+# itself, where it skips nothing.
 snap_dependents() {
     local family_file="${ANSIBLE_DIR}/vars/${OS_FAMILY}.yaml"
     local derivative_file="${ANSIBLE_DIR}/vars/derivatives/${OS_RELEASE_ID:-none}.yaml"
@@ -1235,16 +1235,17 @@ snap_dependents() {
 }
 
 # The checklist header line that says what turning Snapd off skips on this machine, empty when the
-# checklist offers no Snapd entry. On Ubuntu lineage snapd ships with the system and the playbook neither
-# installs nor removes it, so the toggle skips nothing there, the answer
-# setup/ansible/tasks/snap_availability.yaml gives as ih_snapd_with_system.
+# checklist offers no Snapd entry. On Ubuntu itself, os-release ID ubuntu, snapd ships with the system and
+# the playbook neither installs nor removes it, so the toggle skips nothing there, the answer
+# setup/ansible/tasks/snap_availability.yaml gives as ih_snapd_with_system from the same ID. Pop!_OS and
+# Linux Mint follow install_snapd like Debian.
 snapd_note() {
     local key labels="" offered=false
     for key in "${PRELOADED_KEYS[@]}"; do
         [[ "${key}" == install_snapd ]] && offered=true
     done
     [[ "${offered}" == true ]] || return 0
-    if [[ "${OS_FAMILY:-}" == Debian && "${DEBIAN_LINEAGE:-}" == ubuntu ]]; then
+    if [[ "${OS_FAMILY:-}" == Debian && "${OS_RELEASE_ID:-}" == ubuntu ]]; then
         printf 'Snapd: it ships with Ubuntu, so the playbook neither installs nor removes it, and every application that installs through snap installs whatever this says.'
         return 0
     fi

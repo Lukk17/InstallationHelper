@@ -1,12 +1,14 @@
 ---
 # Two answers about snap, given once, here, and read by every task that needs them.
 #
-# ih_snapd_with_system: true on Ubuntu lineage, where snapd ships with the system. There the playbook
+# ih_snapd_with_system: true on Ubuntu itself, where snapd ships with the system. There the playbook
 # never installs snapd, never removes it and never touches its socket, whatever install_snapd says,
 # and every snap mapping installs as normal, because snapd is part of the system rather than something
 # this playbook adds. roles/debian_core reads it to leave snapd alone, and verify_install.yaml reads it
-# to expect no snapd from the playbook there. The lineage is ih_base, which tasks/derive_os_facts.yaml
-# derives and which setup/setup.sh's debian_lineage derives the same way for the wizard's checklist.
+# to expect no snapd from the playbook there. Ubuntu itself is the os-release ID ubuntu, which
+# tasks/derive_os_facts.yaml reads as ih_os_release_id and setup/setup.sh reads as OS_RELEASE_ID for
+# the wizard's checklist. It is not the Ubuntu lineage of ih_base: Pop!_OS and Linux Mint follow
+# install_snapd like Debian (owner decision 84).
 #
 # ih_snap_skipped: the requested mappings that install through snap while install_snapd is off on a
 # machine where snapd is not part of the system, each with the reason. dynamic_install.yaml drops these
@@ -14,15 +16,15 @@
 # site.yaml names them again at the end of the run, so a user who turned snapd off learns which
 # applications that cost.
 #
-# install_snapd off means the playbook does not use snap at all on Debian lineage, Fedora and Arch. The
+# install_snapd off means the playbook does not use snap at all anywhere but Ubuntu itself. The
 # wizard in setup/setup.sh tells the same story before the run: its checklist names the toggles that
-# need snapd on this machine, read from the same mappings, and says on Ubuntu lineage that the toggle
-# changes nothing there. e2e/tier1/snap_dependents_menu.sh and e2e/tier1/snap_dependents_summary.sh hold
+# need snapd on this machine, read from the same mappings, and says on Ubuntu that the toggle changes
+# nothing there. e2e/tier1/snap_dependents_menu.sh and e2e/tier1/snap_dependents_summary.sh hold
 # both to the mappings. The list is derived from manager snap in vars/<OS>.yaml and nothing else, so a
 # new snap mapping is named without anyone remembering to add it here.
 - name: Decide whether snapd ships with this system
   ansible.builtin.set_fact:
-    ih_snapd_with_system: "{{ ih_family | default('') == 'Debian' and ih_base | default('') == 'ubuntu' }}"
+    ih_snapd_with_system: "{{ ih_family | default('') == 'Debian' and ih_os_release_id | default('') == 'ubuntu' }}"
 
 - name: Decide which requested mappings need snapd while install_snapd is off
   ansible.builtin.set_fact:
