@@ -6636,3 +6636,19 @@ Fix: `ih_snapd_with_system` in setup/ansible/tasks/snap_availability.yaml, read 
 Mechanical check: e2e/tier1/snap_dependents_summary.sh and e2e/tier1/snap_dependents_menu.sh.
 
 Still open: whether Pop!_OS and Linux Mint count as Ubuntu here, owner decision 84.
+
+### Found while settling owner decision 84, 2026-10-19
+
+#### 10.142 snapd was treated as part of the system on every Ubuntu-based distribution
+
+Cause: introduced by an agent. 10.141's fix keyed `ih_snapd_with_system` in setup/ansible/tasks/snap_availability.yaml on the Ubuntu lineage, `ih_family == 'Debian' and ih_base == 'ubuntu'`, and `snapd_note` in setup/setup.sh on `DEBIAN_LINEAGE`, which also covers Pop!_OS and Linux Mint, where snapd does not come with the system.
+
+Effect: on Pop!_OS a requested snap mapping would be sent to a snapd the playbook never installed, and the menu said snapd ships with the system. With `install_snapd` on, debian_core skipped the snapd install and the socket there. Latent for applications, because no mapping uses snap today. Owner decision 84: "i dont care about mint, pop can follow debian", so only Ubuntu itself counts, and Pop!_OS and Linux Mint follow `install_snapd` like Debian. This settles the point 10.141 left open.
+
+Not measured: whether Pop!_OS or Linux Mint ship snapd, and whether apt can install it on Linux Mint. The decision does not depend on either. Off the toggle, the playbook sends nothing to snap and names every skipped mapping, which is right whether snapd is there or not. On the toggle, the playbook asks apt for snapd, which changes nothing where snapd is already installed. The decision says which machines the playbook trusts to bring their own snapd, and the owner chose Ubuntu alone.
+
+How it was proven: a copy of the finished tree with commit c99ef74's lineage rule put back in setup/setup.sh and setup/ansible/tasks/snap_availability.yaml, run through `bash e2e/run.sh`. e2e/tier1/snap_dependents_menu.sh failed 1 of 5, `snapd_note does not follow the os-release ID`, naming `pop-os`, `linux-mint` and `linux-mint-22.2` with the note `Snapd: it ships with Ubuntu, ...`. e2e/tier1/snap_dependents_summary.sh failed 1 of 3, with `pop` and `linuxmint` deciding `IH_SNAP skipped= with_system=True` with the toggle off and on, and neither `[WARN]` naming `install_fixture_snap_wanted`. Every other check passed on that copy. A first version of the menu check stopped setting `DEBIAN_LINEAGE`, so on the same copy it failed on the `ubuntu` fixtures instead of on Pop!_OS and Linux Mint, because the old rule then saw no lineage at all. That proved nothing about the defect, and the check sets the lineage per fixture the way `detect_os` does again. On the finished tree both checks pass, 5 of 5 and 3 of 3.
+
+Fix: `ih_snapd_with_system` reads `ih_os_release_id`, the os-release ID setup/ansible/tasks/derive_os_facts.yaml already derives, and `snapd_note` in setup/setup.sh compares `OS_RELEASE_ID`, both against `ubuntu`. The comments in setup/ansible/tasks/snap_availability.yaml, setup/ansible/roles/debian_core/tasks/main.yaml, whose three snapd task names now say `Debian family, not Ubuntu itself`, setup/ansible/roles/software_installer/tasks/dynamic_install.yaml, setup/ansible/site.yaml, setup/ansible/verify_install.yaml and setup/ansible/vars/Debian.yaml, plus setup/software.md, e2e/README_E2E.md and items 64 and 65 of e2e/testing/10-wizard-toggle-parse-test.md say Ubuntu itself.
+
+Mechanical check: e2e/tier1/snap_dependents_menu.sh, whose assertion 5 now requires the note to name the snap application on every Debian-family fixture whose ID is not `ubuntu`, Pop!_OS and Linux Mint included, and e2e/tier1/snap_dependents_summary.sh, which now drives Pop!_OS and Linux Mint beside Debian and Fedora.
