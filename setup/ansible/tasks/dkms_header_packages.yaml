@@ -7,8 +7,10 @@
 # software_installer/tasks/arch_prereqs.yaml installs this list and verify_install.yaml expects it, both
 # through this file, so the two cannot disagree about which headers belong to the run. Every installed
 # kernel is covered, not just the running one, because a full system upgrade earlier in the playbook can
-# replace the running kernel's module tree before the install. A container has no /usr/lib/modules at
-# all, so the list is empty there, for the install and the verification alike. The pkgbase files are
+# replace the running kernel's module tree before the install, and the software set itself can add a
+# kernel, which is why arch_prereqs.yaml runs after the pacman and AUR sets: CachyOS's gaming set brings
+# linux-cachyos. A container has no /usr/lib/modules until a package installs a kernel there, so the
+# list is empty there unless the software set brought one, for the install and the verification alike. The pkgbase files are
 # world readable, measured on CachyOS on 2026-10-15, so reading them needs no root.
 - name: Find the pkgbase marker of every installed kernel (Arch)
   ansible.builtin.find:

@@ -164,14 +164,6 @@
       tags: [dnf_batch]
       when: ih_family == 'RedHat'
 
-    - name: Install Arch prerequisites (DKMS kernel headers)
-      ansible.builtin.include_tasks:
-        file: arch_prereqs.yaml
-        apply:
-          tags: [pacman_batch]
-      tags: [pacman_batch]
-      when: ih_family == 'Archlinux'
-
     # After the repository setup above, and tagged always, because every consumer reads the answer and
     # a run limited by --tags to one of them still has to know the truth about this machine.
     # tasks/repository_availability.yaml is the one place that answers it.
@@ -1114,6 +1106,23 @@
         - failed_aur_packages | default([]) | length > 0
         - not (aur_allow_failures | bool)
       tags: [pacman_batch]
+
+    # After the pacman and AUR sets rather than before them, because the software set can bring a
+    # kernel of its own, and the headers are named from the kernels installed at the time. On CachyOS
+    # cachyos-gaming-applications brings cachyos-gaming-meta, then winetricks, wine and
+    # ntsync-autoload, which needs NTSYNC-MODULE, which linux-cachyos provides, resolved with
+    # pacman -Sp in cachyos/cachyos-v3 on 2026-10-19. In GitHub sweep run 39231000107 the headers step
+    # ran before that kernel existed and the verification failed on linux-cachyos-headers. Installing
+    # the headers after openrazer-driver-dkms still builds the module, because Arch's dkms hook fires
+    # on a new /usr/lib/modules/*/build/include as well as on a new dkms.conf, read from the hook in
+    # archlinux:base.
+    - name: Install Arch prerequisites (DKMS kernel headers)
+      ansible.builtin.include_tasks:
+        file: arch_prereqs.yaml
+        apply:
+          tags: [pacman_batch]
+      tags: [pacman_batch]
+      when: ih_family == 'Archlinux'
 
     # Snap, one per call through the shared file. snapd keeps no package list to refresh, so a retry
     # only waits: four attempts twenty seconds apart. Fetches from api.snapcraft.io can flake with HTTP

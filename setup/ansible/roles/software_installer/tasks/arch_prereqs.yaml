@@ -1,6 +1,9 @@
 ---
-# Arch prerequisites that must land before the batched pacman install, the same
-# role debian_repos.yaml and fedora_repos.yaml play for their families.
+# Arch kernel headers for DKMS, included by dynamic_install.yaml after the pacman and AUR sets rather
+# than before them, because the software set can install a kernel of its own: on CachyOS
+# cachyos-gaming-applications brings linux-cachyos through wine and ntsync-autoload, and headers named
+# before that kernel existed left it without any. Arch's dkms hook also fires on a new
+# /usr/lib/modules/*/build/include, so headers installed after openrazer-driver-dkms still build it.
 
 # --- Kernel headers for DKMS modules ---
 # Arch's dkms package lists linux-headers only as an optional dependency, so
@@ -46,7 +49,7 @@
 # has no kernel of its own, and in the published Arch image /usr/lib/modules is not a directory at
 # all: the find in setup/ansible/tasks/dkms_header_packages.yaml reports "Skipped '/usr/lib/modules'
 # path due to this access issue: '/usr/lib/modules' is not a directory", which is in every Arch tier 3
-# playbook log. Every real Arch
+# playbook log whose software set brings no kernel. Every real Arch
 # install has that directory with at least one pacman-managed kernel under it. So an absent module
 # tree means nothing on this machine manages kernels, which is informational, and a present module
 # tree with no build directory means the DKMS driver genuinely cannot build, which is a failure the

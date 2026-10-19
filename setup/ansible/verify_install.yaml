@@ -433,13 +433,16 @@
     # gnome-desktop is not a user-visible group and is left out without it. Not with -C: the playbook
     # ends with dnf clean all, and after it -C answers `Cache-only enabled but no cache for repository
     # "fedora"` and exits 1. Measured in fedora:44 as a normal user on 2026-10-18. Arch keeps no such record, so a group counts there once every member the sync database
-    # lists is installed, which is what pacman -S <group> --noconfirm leaves behind.
+    # lists is installed, which is what pacman -S <group> --noconfirm leaves behind. Both sides are
+    # deduplicated, because a group carried by two repositories is listed once per repository: in
+    # cachyos/cachyos-v3 on 2026-10-19 pacman -Sgq gnome printed 96 lines for 58 members, and the
+    # installed group then read as missing.
     - name: Define the per-family installed-package query
       ansible.builtin.set_fact:
         native_query:
           Archlinux: >-
             pacman -Qq; pacman -Qg | cut -d' ' -f1 | sort -u | while read -r group; do
-            [ "$(pacman -Sgq "$group" 2>/dev/null | sort)" = "$(pacman -Qgq "$group" | sort)" ] && echo "$group";
+            [ "$(pacman -Sgq "$group" 2>/dev/null | sort -u)" = "$(pacman -Qgq "$group" | sort -u)" ] && echo "$group";
             done; true
           Debian: "dpkg-query -W -f='${Package}\\n'"
           RedHat: "rpm -qa --qf '%{NAME}\\n'; dnf -q --disablerepo='*' group list --installed --hidden 2>/dev/null | awk 'NR > 1 { print \"@\" $1 }'"

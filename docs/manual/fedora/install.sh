@@ -122,7 +122,7 @@ OPENRAZER_REPO="$(pinned_value openrazer_fedora_repo_url)"
 DNF_PACKAGES=(
   git maven openssl filezilla keepassxc vlc rawtherapee speedtest-cli
   boinc-client lynis chkrootkit clamav hardinfo2 lm_sensors baobab gparted
-  kde-partitionmanager qemu-kvm libvirt virt-manager virt-install
+  kde-partitionmanager iptables-nft qemu-kvm libvirt virt-manager virt-install
   bridge-utils virtiofsd zsh helm gh jq fzf ripgrep uv pipx golang syncthing putty rclone
   qastools
 )
@@ -236,7 +236,7 @@ for package in "${DNF_REPO_PACKAGES[@]}"; do
 done
 
 log "Installing Docker CE"
-for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do
+for package in iptables-nft docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do
   install_one "${package}" refresh_dnf sudo dnf install -y "${package}"
 done
 

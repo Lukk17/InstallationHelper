@@ -301,7 +301,9 @@ sudo usermod -aG plugdev "${USER}"
 
 | App | Install command |
 |---|---|
-| QEMU/KVM + virt-manager | `for package in qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd; do sudo dnf install -y "${package}" \|\| echo "FAILED: ${package}"; done` |
+| QEMU/KVM + virt-manager | `for package in iptables-nft qemu-kvm libvirt virt-manager virt-install bridge-utils virtiofsd; do sudo dnf install -y "${package}" \|\| echo "FAILED: ${package}"; done` |
+
+iptables-nft goes first here and in the Docker list below, so dnf does not answer the iptables these packages need with iptables-legacy, which loads the legacy iptables kernel modules.
 
 **Docker CE** (official repo):
 
@@ -310,7 +312,7 @@ sudo dnf config-manager addrepo --from-repofile=https://download.docker.com/linu
 ```
 
 ```bash
-for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo dnf install -y "${package}" || echo "FAILED: ${package}"; done
+for package in iptables-nft docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo dnf install -y "${package}" || echo "FAILED: ${package}"; done
 ```
 
 Start the Docker daemon now and at every boot, which the package does not do on every distribution:

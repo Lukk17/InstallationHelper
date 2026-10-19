@@ -228,8 +228,9 @@ software_mapping:
 # lines one at a time.
 companion_packages:
   openrazer: ["kernel-devel", "kernel-headers"]   # what the OpenRazer DKMS module builds against, installed by software_installer/tasks/fedora_repos.yaml
-  virt_manager: ["qemu-kvm", "libvirt", "virt-install", "bridge-utils", "virtiofsd"]
-  docker: ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]   # from download.docker.com, which fedora_repos.yaml adds, installed by virtualization_config
+  # iptables-nft first in both lists, owner decision 85, because otherwise dnf answers the iptables these packages need with iptables-legacy, whose tables load ip6_tables, iptable_filter and iptable_nat into the host kernel. Measured in fedora:44 on 2026-10-19: in the committed order both sets left iptables-legacy installed and the iptables alternative on xtables-legacy-multi, with iptables-nft first iptables-legacy was absent and the alternative was xtables-nft-multi.
+  virt_manager: ["iptables-nft", "qemu-kvm", "libvirt", "virt-install", "bridge-utils", "virtiofsd"]
+  docker: ["iptables-nft", "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]   # from download.docker.com, which fedora_repos.yaml adds, installed by virtualization_config
   waydroid: ["waydroid"]   # installed by the waydroid role
   snapper: ["snapper"]   # installed by the snapper role on a btrfs root only, which setup/ansible/tasks/snapper_applicability.yaml decides
   snapd: ["snapd"]   # installed by fedora_core
