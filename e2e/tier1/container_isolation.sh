@@ -13,7 +13,8 @@
 #
 # This reads container.sh and requires what closes those routes: --cgroupns=private and never the
 # host's, no bind of /sys/fs/cgroup, container=docker in the container's environment, a read-only
-# /dev/null over each unit that acts on the host kernel, the guard and host state record at boot,
+# /dev/null over each unit that acts on the host kernel but none over a unit a package's maintainer
+# script restarts, /proc/sys made read-only before systemd starts, the guard and host state record at boot,
 # after each pass and at collection, and the refusal of a scenario that would rewrite the boot.
 # Then it drives host_isolation_findings, lifted out of container.sh, over records written here, so
 # the comparison that fails a run is itself proven to fail.
@@ -21,7 +22,10 @@
 # Proven on 2026-10-18 by pointing E2E_REPO_ROOT at a copy of the tree at commit c4f06c2, which had
 # none of this and failed 7 of 7, and at a copy of the finished tree with one mask, container=docker,
 # one boot setting and the diff target in host_isolation_findings each broken, which failed exactly
-# those 4 of 10.
+# those 4 of 10. Since 2026-10-19 it also requires systemd-binfmt.service unmasked, the read-only
+# /proc/sys entry and the mountinfo guard in host_state.sh, proven by running the gate on a copy of the
+# finished tree with container.sh and host_state.sh taken back to commit 80a8529, which failed exactly
+# those 3 of 12.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -32,7 +36,6 @@ CONTAINER_LIMITS="${REPO_ROOT}/e2e/tier3/container_limits.yaml"
 REQUIRED_MASKS=(
     proc-sys-fs-binfmt_misc.automount
     proc-sys-fs-binfmt_misc.mount
-    systemd-binfmt.service
     systemd-udevd.service
     systemd-udevd-control.socket
     systemd-udevd-kernel.socket
@@ -45,6 +48,14 @@ REQUIRED_MASKS=(
     systemd-pstore.service
     systemd-zram-setup@.service
 )
+# Units a package's own maintainer script restarts, so masking one fails that package instead of
+# protecting anything. AppImageLauncher's deb postinst and rpm %post end in `systemctl restart
+# systemd-binfmt`, and GitHub sweep run 39231000107 failed every Fedora job and half configured dpkg on
+# Debian, Ubuntu and Pop!_OS on the mask. The two binfmt_misc units above stay masked, which is what
+# keeps systemd-binfmt.service skipped by its own ConditionPathIsMountPoint=/proc/sys/fs/binfmt_misc.
+FORBIDDEN_MASKS=(systemd-binfmt.service)
+# What makes /proc/sys read-only, apart from the network namespace's own part, before systemd starts.
+PROC_SYS_READ_ONLY_ENTRY_EXPECTED='mount --bind /proc/sys /proc/sys && mount -o remount,bind,ro,nosuid,nodev,noexec /proc/sys && mount --bind /proc/sys/net /proc/sys/net && mount -o remount,bind,rw,nosuid,nodev,noexec /proc/sys/net && exec "$0"'
 REQUIRED_BOOT_SETTINGS=(setup_systemd_boot setup_grub remove_distro_grub remove_distro_systemd_boot setup_hibernate)
 
 info "Tier 1: a scenario container is isolated from the host kernel"
@@ -116,6 +127,36 @@ else
          "${unmasked[*]}"
 fi
 
+wrongly_masked=()
+for unit in "${FORBIDDEN_MASKS[@]}"; do
+    if grep -qF -- "/dev/null:/etc/systemd/system/${unit}" <<<"${run_block}" || grep -qxF -- "${unit}" <<<"${masked_array}"; then
+        wrongly_masked+=("${unit}")
+    fi
+done
+if [[ ${#wrongly_masked[@]} -eq 0 ]]; then
+    pass "no unit a package's maintainer script restarts is masked, so AppImageLauncher's postinst and %post can finish"
+else
+    fail "${#wrongly_masked[@]} unit(s) a package's maintainer script restarts are masked, which fails that package" \
+         "${wrongly_masked[*]}"
+fi
+
+# --- /proc/sys read-only before systemd starts ----------------------------------------------
+proc_sys_gaps=()
+grep -qxF -- "PROC_SYS_READ_ONLY_ENTRY='${PROC_SYS_READ_ONLY_ENTRY_EXPECTED}'" <<<"${code}" \
+    || proc_sys_gaps+=("PROC_SYS_READ_ONLY_ENTRY is not the read-only mount sequence ending in exec \"\$0\"")
+grep -qE -- '--entrypoint[= ]+/bin/sh([[:space:]]|$)' <<<"${run_block}" \
+    || proc_sys_gaps+=("the container does not start under --entrypoint /bin/sh")
+grep -qF -- '"${IMAGE}" -c "${PROC_SYS_READ_ONLY_ENTRY}" "${image_init}"' <<<"${run_block}" \
+    || proc_sys_gaps+=("the image is not handed -c \"\${PROC_SYS_READ_ONLY_ENTRY}\" with its own CMD as \$0")
+grep -qF -- "docker image inspect --format '{{index .Config.Cmd 0}}' \"\${IMAGE}\"" <<<"${code}" \
+    || proc_sys_gaps+=("image_init is not read from the image's own CMD")
+if [[ ${#proc_sys_gaps[@]} -eq 0 ]]; then
+    pass "the scenario container makes /proc/sys read-only, apart from /proc/sys/net, before it hands PID 1 to systemd"
+else
+    proc_sys_gap_text="$(printf '%s, ' "${proc_sys_gaps[@]}")"
+    fail "a package's sysctl.d file can still reach the host kernel through /proc/sys" "${proc_sys_gap_text%, }"
+fi
+
 # --- the guard and the host state records -------------------------------------------
 missing_records=()
 for label in boot after-pass1 after-pass2 at-collect; do
@@ -134,11 +175,15 @@ if [[ -f "${HOST_STATE_SH}" ]]; then
     guard_gaps=()
     grep -qF 'systemd-detect-virt --container' "${HOST_STATE_SH}" || guard_gaps+=("systemd-detect-virt")
     grep -qF '/proc/sys/fs/binfmt_misc' "${HOST_STATE_SH}" || guard_gaps+=("binfmt_misc mount")
+    if ! grep -qF '$5 == "/proc/sys"' "${HOST_STATE_SH}" || ! grep -qF '/proc/self/mountinfo' "${HOST_STATE_SH}" \
+        || ! grep -qF '*,ro,*' "${HOST_STATE_SH}"; then
+        guard_gaps+=("/proc/sys read-only in /proc/self/mountinfo")
+    fi
     grep -qF '/proc/modules' "${HOST_STATE_SH}" || guard_gaps+=("/proc/modules")
     grep -qF '/proc/swaps' "${HOST_STATE_SH}" || guard_gaps+=("/proc/swaps")
     grep -qF '/proc/sys/kernel /proc/sys/vm /proc/sys/fs' "${HOST_STATE_SH}" || guard_gaps+=("kernel, vm and fs sysctls")
     if [[ ${#guard_gaps[@]} -eq 0 ]]; then
-        pass "host_state.sh guards binfmt_misc and container detection, and records modules, swap and sysctls"
+        pass "host_state.sh guards binfmt_misc, a read-only /proc/sys and container detection, and records modules, swap and sysctls"
     else
         fail "host_state.sh no longer looks at everything the isolation depends on" "missing: ${guard_gaps[*]}"
     fi

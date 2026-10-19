@@ -156,16 +156,21 @@ IDEMPOTENCY_ALLOWLIST="${TIER3_DIR}/idempotent_changes_allowed.txt"
 
 # A privileged container shares the host's one kernel, and these units act on it rather than on the
 # container: udev replays an event for every host device, systemd-sysctl and procps write kernel
-# settings no namespace holds, systemd-modules-load loads host modules, systemd-binfmt and the
-# binfmt_misc units reach the host's binary format table, timesyncd sets the host clock, pstore
-# empties the host's crash records and zram-setup adds swap to the host. Each is bound to /dev/null
-# under /etc/systemd/system, which masks it whether or not the image ships it yet, and a later
-# package install cannot unmask a read-only bind. e2e/tier1/container_isolation.sh holds this list
-# to the units it requires.
+# settings no namespace holds, systemd-modules-load loads host modules, the binfmt_misc units mount
+# the host's binary format table, timesyncd sets the host clock, pstore empties the host's crash
+# records and zram-setup adds swap to the host. Each is bound to /dev/null under /etc/systemd/system,
+# which masks it whether or not the image ships it yet, and a later package install cannot unmask a
+# read-only bind. e2e/tier1/container_isolation.sh holds this list to the units it requires.
+#
+# systemd-binfmt.service is deliberately not in the list. AppImageLauncher's deb postinst and rpm
+# %post end in `systemctl restart systemd-binfmt`, and against a masked unit that fails the package:
+# GitHub sweep run 39231000107 failed every Fedora job on it and left dpkg half configured on Debian,
+# Ubuntu and Pop!_OS. The unit carries ConditionPathIsMountPoint=/proc/sys/fs/binfmt_misc on every
+# distribution here, and both binfmt_misc units stay masked, so the restart is skipped rather than
+# reaching the host's table, and host_state.sh still fails the run if that table is ever mounted.
 MASKED_UNITS=(
     proc-sys-fs-binfmt_misc.automount
     proc-sys-fs-binfmt_misc.mount
-    systemd-binfmt.service
     systemd-udevd.service
     systemd-udevd-control.socket
     systemd-udevd-kernel.socket
@@ -178,6 +183,20 @@ MASKED_UNITS=(
     systemd-pstore.service
     systemd-zram-setup@.service
 )
+
+# Masking systemd-sysctl.service does not keep sysctl.d away from the host kernel, because the
+# package managers call the binary itself: Fedora's systemd rpm file trigger and Arch's pacman sysctl
+# hook both run /usr/lib/systemd/systemd-sysctl when a package ships a sysctl.d file. GitHub sweep run
+# 39231000107 measured it on the runner kernel, Arch moving kernel.sysrq from 176 to 16 along with
+# vm.max_map_count, fs.inotify.* and kernel.core_pattern, CachyOS also kernel.split_lock_mitigate and
+# Fedora kernel.yama.ptrace_scope. So the container starts under /bin/sh, which makes /proc/sys
+# read-only except the network namespace's own /proc/sys/net, the same shape Docker gives a container
+# that is not privileged, and then hands PID 1 to the image's own CMD, passed as $0. A write to a
+# kernel, vm or fs sysctl then fails inside the container instead of landing on the host. A failed
+# mount ends the shell before systemd starts, which start_run reports as systemd never coming up.
+# This sequence needs a privileged container, so it is proven only on a GitHub-hosted runner, never
+# on the owner's computer, and host_state.sh fails the run when /proc/sys is not read-only.
+PROC_SYS_READ_ONLY_ENTRY='mount --bind /proc/sys /proc/sys && mount -o remount,bind,ro,nosuid,nodev,noexec /proc/sys && mount --bind /proc/sys/net /proc/sys/net && mount -o remount,bind,rw,nosuid,nodev,noexec /proc/sys/net && exec "$0"'
 
 # Settings that rewrite the boot loader, the kernel command line or the resume device of whatever
 # machine they run on, which for a privileged container is the host. container_limits.yaml turns
@@ -545,13 +564,20 @@ start_run() {
     for masked_unit in "${MASKED_UNITS[@]}"; do
         mask_mounts+=(-v "/dev/null:/etc/systemd/system/${masked_unit}:ro")
     done
+    local image_init
+    image_init="$(docker image inspect --format '{{index .Config.Cmd 0}}' "${IMAGE}" 2>/dev/null || true)"
+    if [[ "${image_init}" != /* ]]; then
+        echo "the ${OS} image names no absolute CMD to start as PID 1, it said '${image_init:-nothing}', aborting" | tee "${RUN_DIR}/result.txt"
+        exit 1
+    fi
     docker run -d --name "${CONTAINER}" \
         --privileged \
         --cgroupns=private \
         -e container=docker \
         "${mask_mounts[@]}" \
         --tmpfs /run --tmpfs /run/lock \
-        "${IMAGE}" >/dev/null
+        --entrypoint /bin/sh \
+        "${IMAGE}" -c "${PROC_SYS_READ_ONLY_ENTRY}" "${image_init}" >/dev/null
 
     # Poll rather than sleep blindly, and accept `degraded`: getty and firstboot always
     # fail in a container and neither matters here.
@@ -563,8 +589,9 @@ start_run() {
     done
     info "systemd state: ${state:-unknown}"
     if [[ "${state}" != running && "${state}" != degraded ]]; then
+        docker logs "${CONTAINER}" >"${RUN_DIR}/container-start.log" 2>&1 || true
         docker rm -f "${CONTAINER}" &>/dev/null || true
-        echo "systemd never came up, aborting" | tee "${RUN_DIR}/result.txt"
+        echo "systemd never came up, aborting, the container's own output is in container-start.log" | tee "${RUN_DIR}/result.txt"
         exit 1
     fi
 
