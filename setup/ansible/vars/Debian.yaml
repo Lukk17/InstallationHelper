@@ -263,7 +263,7 @@ companion_packages:
   docker: ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]   # from download.docker.com, which debian_repos.yaml adds, installed by virtualization_config
   waydroid: ["waydroid"]   # from repo.waydro.id, which the waydroid role adds before installing it
   snapper: ["snapper"]   # installed by the snapper role on a btrfs root only, which setup/ansible/tasks/snapper_applicability.yaml decides
-  snapd: ["snapd"]   # installed by debian_core on Debian and Ubuntu alike, where Ubuntu ships it already and the install changes nothing
+  snapd: ["snapd"]   # installed by debian_core on Debian lineage only, because Ubuntu lineage ships snapd with the system and the playbook neither installs nor removes it there, see tasks/snap_availability.yaml
   # What pyenv builds Python against, installed by sdk_manager/tasks/pyenv_unix.yaml. libncurses-dev, because trixie and Ubuntu 26.04 carry no libncursesw5-dev, confirmed with apt-cache policy.
   python: ["build-essential", "libssl-dev", "zlib1g-dev", "libbz2-dev", "libreadline-dev", "libsqlite3-dev", "libncurses-dev", "xz-utils", "tk-dev", "libxml2-dev", "libxmlsec1-dev", "libffi-dev", "liblzma-dev", "curl"]
   setup_zsh: ["zsh", "curl", "git"]   # the shell, and what Oh-My-Zsh is fetched and cloned with, installed by shell_zsh

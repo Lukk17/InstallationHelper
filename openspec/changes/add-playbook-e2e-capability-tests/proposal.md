@@ -20,7 +20,7 @@ The harness that answers those questions exists, has three tiers, and is documen
 
 ## What this will verify
 
-Behaviour and persisted state only, never a log substring. The observables the harness actually reads are the installed native package set from `pacman -Qq`, the installed application set from `flatpak list --app --columns=application`, unit state from `systemctl is-enabled`, group membership from `id -nG`, and file existence from `stat` on the temporary sudoers entry. Tiers 1 and 2 add two more: the toggle key and state sets both wizards parse out of `group_vars`, and the resolution of every mapped package name against its real upstream index.
+Behaviour and persisted state only, never a log substring. The observables the harness actually reads are the installed native package set from `pacman -Qq`, the installed application set from `flatpak list --app --columns=application`, the installed snap set from `snap list --color=never --unicode=never` when a snap mapping is expected, unit state from `systemctl is-enabled`, group membership from `id -nG`, and file existence from `stat` on the temporary sudoers entry. Tiers 1 and 2 add two more: the toggle key and state sets both wizards parse out of `group_vars`, and the resolution of every mapped package name against its real upstream index.
 
 | N | Capability | What it asserts | Ledger entries it exists for |
 |---|---|---|---|

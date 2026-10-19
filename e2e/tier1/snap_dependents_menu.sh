@@ -18,6 +18,13 @@
 #      names the fixtures and only those, and snapd_note names their labels.
 #   4. snapd_note is empty when the checklist offers no Snapd entry, and says that nothing is skipped
 #      when nothing on the machine installs through snap.
+#   5. On every Debian-family os-release fixture, with a fixture snap mapping in place, snapd_note under
+#      the lineage setup.sh's debian_lineage derives says on Ubuntu lineage that snapd ships with the
+#      system and names nothing as skipped, and on Debian lineage names the fixture, and the lineage it
+#      acts on is the base e2e/tier1/os_family_derivation.yaml expects the playbook to derive for that
+#      fixture. Owner decision 80: Ubuntu ships snapd, so the playbook neither installs nor removes it
+#      there, and turning the toggle off skips nothing, which the checklist has to say rather than
+#      claiming the opposite, as it did from commit 0de82cc.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -28,10 +35,10 @@ info "Tier 1: the wizard names what turning Snapd off skips"
 
 require_python "the checklist names what turning Snapd off skips" "snap dependents menu"
 
-functions_text="$(sed -n '/^format_label()/,/^}/p;/^snap_dependents()/,/^}/p;/^snapd_note()/,/^}/p' "${SETUP_SH}")"
+functions_text="$(sed -n '/^format_label()/,/^}/p;/^debian_lineage()/,/^}/p;/^snap_dependents()/,/^}/p;/^snapd_note()/,/^}/p' "${SETUP_SH}")"
 labels_text="$(sed -n '/^declare -A LABEL_OVERRIDES=(/,/^)$/p' "${SETUP_SH}")"
 picker_text="$(sed -n '/^pick_software()/,/^}/p' "${SETUP_SH}")"
-for name in format_label snap_dependents snapd_note; do
+for name in format_label debian_lineage snap_dependents snapd_note; do
     if ! grep -q "^${name}() {" <<<"${functions_text}"; then
         fail "setup.sh defines ${name}" "it was not found, so the checklist cannot name what turning Snapd off skips"
         finish "snap dependents menu"
@@ -139,7 +146,7 @@ for case in "Debian::install_fixture_snap_app" \
     got="$(snap_dependents | tr '\n' ' ' | sed 's/ $//')"
     [[ "${got}" == "${wanted}" ]] || fixture_problems+=("${OS_FAMILY}${OS_RELEASE_ID:+ with ${OS_RELEASE_ID}}: named [${got}], expected [${wanted}]")
 done
-OS_FAMILY=Debian OS_RELEASE_ID="" ANSIBLE_DIR="${work}/ansible"
+OS_FAMILY=Debian OS_RELEASE_ID="" ANSIBLE_DIR="${work}/ansible" DEBIAN_LINEAGE=debian
 PRELOADED_KEYS=(install_git install_snapd install_fixture_snap_app)
 note="$(snapd_note)"
 [[ "${note}" == *'"Fixture snap app"'* ]] || fixture_problems+=("snapd_note on Debian does not name \"Fixture snap app\": ${note}")
@@ -165,6 +172,52 @@ if [[ ${#quiet_problems[@]} -eq 0 ]]; then
     pass "snapd_note is empty without a Snapd entry and says nothing is skipped when nothing needs snap"
 else
     fail "snapd_note says the wrong thing in a quiet case" "$(printf '%s; ' "${quiet_problems[@]}")"
+fi
+
+# --- 5: Ubuntu lineage ships snapd -----------------------------------------------------------------
+# The lineage the playbook derives for each fixture, read from the play that drives derive_os_facts.yaml.
+lineage_of_fixture="$("${PYTHON}" - "${E2E_ROOT}/tier1/os_family_derivation.yaml" <<'PYEOF'
+import sys
+
+import yaml
+
+for play in yaml.safe_load(open(sys.argv[1], encoding='utf-8')):
+    for case in (play.get('vars') or {}).get('ih_cases') or []:
+        if case.get('family') == 'Debian':
+            print('%s %s' % (case['fixture'], case['base']))
+PYEOF
+)"
+lineage_problems=()
+ubuntu_cases=0
+debian_cases=0
+# shellcheck disable=SC2034
+PRELOADED_KEYS=(install_git install_snapd install_fixture_snap_app)
+OS_FAMILY=Debian OS_RELEASE_ID="" ANSIBLE_DIR="${work}/ansible"
+while IFS=" " read -r fixture base; do
+    [[ -n "${fixture}" ]] || continue
+    DEBIAN_LINEAGE="$(debian_lineage "${FIXTURE_DIR}/${fixture}")"
+    if [[ "${DEBIAN_LINEAGE}" != "${base}" ]]; then
+        lineage_problems+=("${fixture}: setup.sh derives ${DEBIAN_LINEAGE}, the playbook ${base}")
+        continue
+    fi
+    note="$(snapd_note)"
+    if [[ "${base}" == ubuntu ]]; then
+        ubuntu_cases=$((ubuntu_cases + 1))
+        [[ "${note}" == *"ships with Ubuntu"* && "${note}" != *"skips"* && "${note}" != *"Fixture snap app"* ]] \
+            || lineage_problems+=("${fixture}: on Ubuntu lineage the note reads: ${note}")
+    else
+        debian_cases=$((debian_cases + 1))
+        [[ "${note}" == *'skips "Fixture snap app"'* ]] \
+            || lineage_problems+=("${fixture}: on Debian lineage the note does not name \"Fixture snap app\": ${note}")
+    fi
+done <<<"${lineage_of_fixture}"
+if [[ ${ubuntu_cases} -eq 0 || ${debian_cases} -eq 0 ]]; then
+    lineage_problems+=("only ${ubuntu_cases} Ubuntu-lineage and ${debian_cases} Debian-lineage fixtures were read out of os_family_derivation.yaml, so both lineages were not compared")
+fi
+if [[ ${#lineage_problems[@]} -eq 0 ]]; then
+    pass "on ${ubuntu_cases} Ubuntu-lineage fixtures the note says snapd ships with the system and skips nothing, on ${debian_cases} Debian-lineage fixtures it names the snap application"
+else
+    fail "snapd_note does not follow the lineage" "$(printf '%s; ' "${lineage_problems[@]}")"
 fi
 
 finish "snap dependents menu"

@@ -237,7 +237,7 @@ companion_packages:
   python: ["gcc", "make", "patch", "zlib-ng-compat-devel", "bzip2-devel", "readline-devel", "sqlite-devel", "openssl-devel", "tk-devel", "libffi-devel", "xz-devel", "curl"]
   setup_zsh: ["zsh", "curl", "git"]   # the shell, and what Oh-My-Zsh is fetched and cloned with, installed by shell_zsh
   system_core: ["flatpak", "unzip", "zip", "patch", "git", "glibc-langpack-pl"]   # installed by system_core/tasks/base_utils.yaml
-  kde_plasma: ["sddm"]   # installed by kde_plasma_setup/tasks/install_kde.yaml beside the @kde-desktop group, which rpm records under no name of its own
+  kde_plasma: ["@kde-desktop", "sddm"]   # installed by kde_plasma_setup/tasks/install_kde.yaml. @kde-desktop is the dnf group id, display name "KDE" on Fedora 44, which the verification finds among the groups dnf records as installed. sddm is not in the group, checked with dnf group info on fedora:44
   # The applet-window-buttons build dependencies, installed by kde_plasma_setup/tasks/configure_kde.yaml.
   configure_kde_plasma: ["gcc-c++", "extra-cmake-modules", "qt6-qtbase-devel", "qt6-qtdeclarative-devel", "kf6-kcoreaddons-devel", "kf6-kdeclarative-devel", "kf6-kpackage-devel", "kf6-ksvg-devel", "kf6-ki18n-devel", "kf6-kservice-devel", "kf6-kconfigwidgets-devel", "kf6-kcmutils-devel", "libplasma-devel", "kdecoration-devel", "gettext", "cmake"]
   gnome: ["@gnome-desktop"]   # the dnf group id, installed by gnome_setup/tasks/install_gnome.yaml, which the verification finds among the groups dnf records as installed. "@GNOME Desktop Environment" matched nothing on Fedora 44, where the group is named GNOME with the id gnome-desktop, measured with dnf5 5.4.2.1

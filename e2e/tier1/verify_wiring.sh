@@ -578,4 +578,169 @@ while IFS= read -r line; do
     esac
 done <<<"${companion_report}"
 
+
+# --- every manager that installs anything is verified ----------------------------------------------
+# The verification once named its managers in one fixed list, written in e155568 on 2026-08-18, and
+# nothing compared that list with the managers the software installer dispatches. snap and dnf_repo were
+# dispatched and checked by nothing, and it went unnoticed only because no mapping used either. So the
+# two sets are read out of the files that hold them and compared. Asserted:
+#   1. every manager setup/ansible/roles/software_installer/tasks/dynamic_install.yaml selects mappings
+#      by, and every manager setup/ansible/tasks/install_role_packages.yaml carries a command for, is
+#      checked by setup/ansible/verify_install.yaml: named in ih_native_managers, or selected into an
+#      expected_<x> fact whose missing_<x> an assertion fails on. A manager the shared file carries only
+#      as a route for a mapping manager, rpm_url for a dnf_url mapping with exclude_path, counts as that
+#      mapping manager and may be used nowhere but in the software installer;
+#   2. every manager setup/windows/WindowsSoftware.ps1 installs by has an arm of its own in the switch
+#      over $mapping.Manager in setup/windows/WindowsVerify.ps1, the default arm, which reports a package
+#      as checked by nothing, not counting;
+#   3. every manager a mapping in vars/<OS>.yaml or vars/derivatives/ names is one its platform
+#      dispatches, so no mapping is quietly installed by nothing.
+manager_status=0
+manager_report="$("${PYTHON}" - "${ANSIBLE_DIR}" "${REPO_ROOT}/setup/windows" <<'PYEOF'
+import pathlib
+import re
+import sys
+
+import yaml
+
+ANSIBLE = pathlib.Path(sys.argv[1])
+WINDOWS = pathlib.Path(sys.argv[2])
+DISPATCH = ANSIBLE / 'roles' / 'software_installer' / 'tasks' / 'dynamic_install.yaml'
+SHARED = ANSIBLE / 'tasks' / 'install_role_packages.yaml'
+VERIFY = ANSIBLE / 'verify_install.yaml'
+# A manager the shared file carries that no mapping names, and the mapping manager it is the route of.
+ROUTES = {'rpm_url': 'dnf_url'}
+lines = []
+
+
+def text(path):
+    return path.read_text(encoding='utf-8')
+
+
+def walk(node):
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from walk(value)
+
+
+def literals(fragment):
+    return set(re.findall(r"""['"]([a-z_]+)['"]""", fragment))
+
+
+# --- what is dispatched ---
+dispatch_text = text(DISPATCH)
+dispatched = set()
+for kind, operand in re.findall(r"""value\.manager['"]\s*,\s*['"](equalto|in)['"]\s*,\s*(\[[^\]]*\]|['"][a-z_]+['"])""",
+                                dispatch_text):
+    dispatched |= literals(operand)
+dispatched |= set(re.findall(r"""value\.manager\s*==\s*['"]([a-z_]+)['"]""", dispatch_text))
+shared = set()
+for node in walk(yaml.safe_load(text(SHARED))):
+    if isinstance(node.get('role_packages_managers'), dict):
+        shared |= set(node['role_packages_managers'])
+if not dispatched or not shared:
+    lines.append('FAIL no manager was read out of %s (%d) or %s (%d), so the parser broke and nothing was compared'
+                 % (DISPATCH.name, len(dispatched), SHARED.name, len(shared)))
+
+for route, mapping_manager in sorted(ROUTES.items()):
+    users = sorted(str(path.relative_to(ANSIBLE)) for path in ANSIBLE.rglob('*.yaml')
+                   if path != DISPATCH and re.search(r'role_packages_manager:\s*%s\b' % route, text(path)))
+    if users:
+        lines.append('FAIL %s is the route of %s mappings and is used by %s too, where the verification does '
+                     'not look for it' % (route, mapping_manager, ', '.join(users)))
+    if route in dispatched:
+        lines.append('FAIL %s selects mappings by manager %s, which is meant to be only a route for %s'
+                     % (DISPATCH.name, route, mapping_manager))
+
+# --- what is verified ---
+verify = yaml.safe_load(text(VERIFY))
+tasks = [t for play in verify for t in walk(play.get('tasks') or []) if isinstance(t, dict)]
+facts = {}
+for task in tasks:
+    for key in ('ansible.builtin.set_fact', 'set_fact'):
+        if isinstance(task.get(key), dict):
+            facts.update({k: str(v) for k, v in task[key].items()})
+conditions = [t[k].get('that') for t in tasks for k in ('ansible.builtin.assert', 'assert') if isinstance(t.get(k), dict)]
+asserted = ' '.join(' '.join(map(str, c)) if isinstance(c, list) else str(c) for c in conditions)
+verified = {}
+native = facts.get('ih_native_managers', '')
+if 'missing_native' in asserted:
+    for manager in re.findall(r'[a-z_]+', native.strip('[]')):
+        verified[manager] = 'ih_native_managers'
+for name, value in sorted(facts.items()):
+    if not name.startswith('expected_') or name == 'expected_native':
+        continue
+    suffix = name[len('expected_'):]
+    missing = facts.get('missing_' + suffix, '')
+    if name not in missing or ('missing_' + suffix) not in asserted:
+        continue
+    for manager in re.findall(r"""value\.manager['"]\s*,\s*['"]equalto['"]\s*,\s*['"]([a-z_]+)['"]""", value):
+        verified[manager] = name
+if not verified:
+    lines.append('FAIL no checked manager was read out of %s, so the parser broke and nothing was compared' % VERIFY.name)
+
+unix_needed = {m: 'the software installer' for m in dispatched}
+for m in sorted(shared):
+    unix_needed.setdefault(ROUTES.get(m, m), SHARED.name if m not in ROUTES else '%s, as %s' % (SHARED.name, m))
+uncovered = sorted(m for m in unix_needed if m not in verified)
+for m in uncovered:
+    lines.append('FAIL %s installs through %s and %s does not check it: not in ih_native_managers and no '
+                 'expected_<x> fact selecting it that an assertion fails on' % (unix_needed[m], m, VERIFY.name))
+
+# --- Windows ---
+software_ps1 = text(WINDOWS / 'WindowsSoftware.ps1')
+verify_ps1 = text(WINDOWS / 'WindowsVerify.ps1').splitlines()
+win_dispatched = set(re.findall(r"""\.Manager\s+-eq\s+'([a-z_]+)'""", software_ps1))
+win_verified = set()
+for i, line in enumerate(verify_ps1):
+    found = re.match(r'^(\s*)switch \(\$mapping\.Manager\) \{', line)
+    if not found:
+        continue
+    arm_indent = len(found.group(1)) + 4
+    for arm in verify_ps1[i + 1:]:
+        if arm.strip() == '}' and len(arm) - len(arm.lstrip()) == len(found.group(1)):
+            break
+        named = re.match(r"^ {%d}'([a-z_]+)'\s*\{" % arm_indent, arm)
+        if named:
+            win_verified.add(named.group(1))
+if not win_dispatched or not win_verified:
+    lines.append('FAIL no Windows manager was read out of WindowsSoftware.ps1 (%d) or the switch over $mapping.Manager '
+                 'in WindowsVerify.ps1 (%d), so the parser broke and nothing was compared'
+                 % (len(win_dispatched), len(win_verified)))
+for m in sorted(win_dispatched - win_verified):
+    lines.append('FAIL setup/windows/WindowsSoftware.ps1 installs through %s and setup/windows/WindowsVerify.ps1 has no '
+                 'arm for it, so its default reports every such package as checked by nothing' % m)
+
+# --- the mappings ---
+for path in sorted((ANSIBLE / 'vars').glob('*.yaml')) + sorted((ANSIBLE / 'vars' / 'derivatives').glob('*.yaml')):
+    mapping = (yaml.safe_load(text(path)) or {}).get('software_mapping') or {}
+    accepted = win_dispatched if path.stem == 'Windows' else dispatched
+    for key, entry in sorted(mapping.items()):
+        manager = (entry or {}).get('manager')
+        if manager not in accepted:
+            lines.append('FAIL %s maps %s to manager %s, which its platform does not dispatch, so nothing installs it'
+                         % (path.relative_to(ANSIBLE), key, manager))
+
+if not lines:
+    lines.append('OK all %d managers the software installer and %s accept (%s) are checked by %s, and both '
+                 'Windows managers (%s) have an arm in WindowsVerify.ps1'
+                 % (len(unix_needed), SHARED.name, ', '.join(sorted(unix_needed)), VERIFY.name,
+                    ', '.join(sorted(win_dispatched))))
+print('\n'.join(lines))
+PYEOF
+)" || manager_status=$?
+assert_python_ran "${manager_status}" "verification wiring"
+
+while IFS= read -r line; do
+    case "${line}" in
+        OK*)   pass "${line#OK }" ;;
+        FAIL*) fail "a package manager installs what the verification does not check" "${line#FAIL }" ;;
+        *)     [[ -n "${line}" ]] && fail "the manager coverage check printed something unexpected" "${line}" ;;
+    esac
+done <<<"${manager_report}"
+
 finish "verification wiring"

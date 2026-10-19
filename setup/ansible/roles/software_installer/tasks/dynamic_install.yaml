@@ -76,7 +76,8 @@
   tags: always
 
 # The same shape for snap. With install_snapd off nothing installs snapd, so a snap mapping would only
-# fail four times and end the run failed for a choice the user made. tasks/snap_availability.yaml is the
+# fail four times and end the run failed for a choice the user made. On Ubuntu lineage snapd ships with
+# the system, so nothing is skipped there whatever the toggle says. tasks/snap_availability.yaml is the
 # one place that answers it, and site.yaml names the same list at the end of the run.
 - name: Decide which requested mappings need snapd while install_snapd is off
   ansible.builtin.include_tasks:

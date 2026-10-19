@@ -129,9 +129,17 @@
     # brew and brew_cask are the whole of vars/Darwin.yaml. `brew list` reports formulae and casks
     # by the same names the dictionary holds, so they compare against one installed set like the
     # Linux families do.
+    #
+    # dnf_repo is a package dnf installs by name from a vendor repository the playbook adds first, and
+    # the software installer hands it to dnf with the dnf mappings, so rpm records it by that name.
+    # flatpak and snap keep their own records and are compared against their own lists below. Until
+    # 2026-10-19 this list was written once, in e155568 on 2026-08-18, and nothing compared it with the
+    # managers the software installer dispatches, so snap and dnf_repo were installed and checked by
+    # nothing. e2e/tier1/verify_wiring.sh now fails on any manager the software installer or
+    # tasks/install_role_packages.yaml accepts that this play does not check.
     - name: Name the package managers whose end state is a recorded native package
       ansible.builtin.set_fact:
-        ih_native_managers: [pacman, aur, apt, dnf, apt_url, dnf_url, brew, brew_cask]
+        ih_native_managers: [pacman, aur, apt, dnf, dnf_repo, apt_url, dnf_url, brew, brew_cask]
         ih_url_managers: [apt_url, dnf_url]
 
     # One place that turns a dictionary entry into the name its manager actually records, so the
@@ -166,6 +174,17 @@
       ansible.builtin.set_fact:
         enabled_mapped: "{{ enabled_mapped | default([]) | reject('in', ih_architecture_skipped | list) | list }}"
 
+    # A snap mapping is skipped by the playbook while install_snapd is off, except on Ubuntu lineage,
+    # where snapd ships with the system and every snap mapping installs whatever the toggle says. The
+    # answer comes from the same task file dynamic_install.yaml reads, so the two cannot disagree, and
+    # the report below names each one as skipped with the reason.
+    - name: Ask which requested snap mappings the playbook skipped, the same way the playbook asks
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/snap_availability.yaml"
+
+    - name: Leave out every requested mapping the playbook skipped because install_snapd is off
+      ansible.builtin.set_fact:
+        enabled_mapped: "{{ enabled_mapped | default([]) | reject('in', ih_snap_skipped | list) | list }}"
+
     - name: Split the enabled software by package manager
       ansible.builtin.set_fact:
         expected_native: >-
@@ -177,6 +196,11 @@
           {{ os_dict.software_mapping | dict2items
              | selectattr('key', 'in', enabled_mapped | default([]))
              | selectattr('value.manager', 'equalto', 'flatpak')
+             | map(attribute='key') | map('extract', ih_package_by_key) | list }}
+        expected_snap: >-
+          {{ os_dict.software_mapping | dict2items
+             | selectattr('key', 'in', enabled_mapped | default([]))
+             | selectattr('value.manager', 'equalto', 'snap')
              | map(attribute='key') | map('extract', ih_package_by_key) | list }}
 
     # --- the Arch User Repository and paru --------------------------------------
@@ -262,13 +286,19 @@
       ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/snapper_applicability.yaml"
       when: "'snapper' in (ih_companion_keys_enabled | default([]))"
 
+    # snapd ships with the system on Ubuntu lineage, and roles/debian_core neither installs nor removes it
+    # there, so it is not expected from the playbook. ih_snapd_with_system comes from the same task file
+    # the role reads.
     - name: Name every enabled toggle whose role installs nothing on this machine, and why
       ansible.builtin.set_fact:
         ih_companions_not_applicable: >-
-          {{ {'snapper': 'the root filesystem is ' ~ (root_fs_type.stdout | default('', true) | trim | default('unknown', true))
-                         ~ ', and Snapper snapshots a btrfs root only'}
-             if ('snapper' in (ih_companion_keys_enabled | default([])) and not (snapper_applies | default(false) | bool))
-             else {} }}
+          {{ ({'snapper': 'the root filesystem is ' ~ (root_fs_type.stdout | default('', true) | trim | default('unknown', true))
+                          ~ ', and Snapper snapshots a btrfs root only'}
+              if ('snapper' in (ih_companion_keys_enabled | default([])) and not (snapper_applies | default(false) | bool))
+              else {})
+             | combine({'snapd': 'snapd ships with Ubuntu, and the playbook neither installs nor removes it there'}
+                       if ('snapd' in (ih_companion_keys_enabled | default([])) and (ih_snapd_with_system | default(false) | bool))
+                       else {}) }}
 
     - name: Name every package a role installs under an enabled toggle
       ansible.builtin.set_fact:
@@ -396,9 +426,10 @@
     # question is whether the query answered at all.
     #
     # A companion_packages entry may name a package group, which no package query lists: Fedora's
-    # @gnome-desktop and Arch's gnome. So the query adds the groups that are installed, in the spelling
-    # the entry uses. On Fedora that is every group dnf records as installed, as @<id>, read with every
-    # repository disabled, which needs neither root nor the network, and with --hidden, because
+    # @gnome-desktop and @kde-desktop, and Arch's gnome. So the query adds the groups that are
+    # installed, in the spelling the entry uses. On Fedora that is every group dnf records as
+    # installed, as @<id>, read with every repository disabled, which needs neither root nor the
+    # network, and with --hidden, because
     # gnome-desktop is not a user-visible group and is left out without it. Not with -C: the playbook
     # ends with dnf clean all, and after it -C answers `Cache-only enabled but no cache for repository
     # "fedora"` and exits 1. Measured in fedora:44 as a normal user on 2026-10-18. Arch keeps no such record, so a group counts there once every member the sync database
@@ -448,15 +479,38 @@
       failed_when: false
       when: ih_family != 'Darwin'
 
+    # snapd keeps its own record, which no native query reads. Asked only when a snap mapping is
+    # expected, because on a machine with no snapd the question has no answer. Asked as the user, with
+    # no root: snap list reads snapd's socket, which answers anyone. It reads what snapd has mounted,
+    # not the download cache site.yaml removes at the end of the run, so it answers the same in the
+    # state the run leaves the machine in. Measured in a non-privileged ubuntu:26.04 container with snap
+    # 2.77.1 on 2026-10-19: with snapd not running it exits 1 with `error: cannot list snaps: cannot
+    # communicate with server`, which leaves every expected snap missing, and with snapd running and
+    # nothing installed it exits 0 and prints `No snaps are installed yet.`. A container cannot install
+    # a snap, its squashfs cannot be mounted without privilege, so the shape of a listed snap is taken
+    # from `snap list --help` and snapd's documentation: one header line, Name Version Rev Tracking
+    # Publisher Notes, then one line per snap with its name first.
+    - name: List installed snaps
+      ansible.builtin.command: snap list --color=never --unicode=never
+      register: installed_snap_raw
+      changed_when: false
+      failed_when: false
+      when: expected_snap | length > 0
+
     - name: Normalise the installed sets
       ansible.builtin.set_fact:
         installed_native: "{{ (installed_native_raw.stdout | default('')).split('\n') | map('trim') | select() | list }}"
         installed_flatpak: "{{ (installed_flatpak_raw.stdout | default('')).split('\n') | map('trim') | select() | list }}"
+        installed_snap: >-
+          {{ ((installed_snap_raw.stdout | default('')).split('\n')[1:] | map('trim') | select()
+              | map('split') | map('first') | list)
+             if (installed_snap_raw.rc | default(1)) == 0 else [] }}
 
     - name: Work out what is missing
       ansible.builtin.set_fact:
         missing_native: "{{ expected_native | difference(installed_native) }}"
         missing_flatpak: "{{ expected_flatpak | difference(installed_flatpak) }}"
+        missing_snap: "{{ expected_snap | difference(installed_snap) }}"
         missing_aur: "{{ (expected_aur | default([])) | difference(installed_native) }}"
 
     - name: Name the packages each enabled toggle is missing among those a role installs
@@ -476,7 +530,7 @@
         ih_missing_keys: >-
           {{ ((ih_package_by_key | dict2items
                | selectattr('key', 'in', enabled_mapped | default([]))
-               | selectattr('value', 'in', missing_native + missing_flatpak)
+               | selectattr('value', 'in', missing_native + missing_flatpak + missing_snap)
                | map(attribute='key') | list)
               + (ih_companions_missing | list | select('in', os_dict.software_mapping | list) | list)) | unique | list }}
         ih_role_missing_keys: "{{ ih_companions_missing | list | reject('in', os_dict.software_mapping | list) | sort }}"
@@ -1198,9 +1252,10 @@
           [verify] {{ '%-30s %-14s %s' | format('APPLICATION', 'VERDICT', 'PACKAGE') }}
           [verify] --------------------------------------------------------------------------
           {% for key in ih_all_keys %}
-          {% set verdict = 'MISSING' if key in ih_missing_keys else 'installed' if key in (enabled_mapped | default([])) else 'skipped' if key in (ih_architecture_skipped | default({})) else 'not requested' %}
+          {% set skipped_why = (ih_architecture_skipped | default({}))[key] | default((ih_snap_skipped | default({}))[key] | default('')) %}
+          {% set verdict = 'MISSING' if key in ih_missing_keys else 'installed' if key in (enabled_mapped | default([])) else 'skipped' if skipped_why else 'not requested' %}
           {% set reason = ih_aur_missing_reason if (os_dict.software_mapping[key].manager == 'aur' and ih_aur_missing_reason) else (ih_missing_reasons | default({}))[key] | default('') %}
-          {% set why = ' (NOT installed: ' ~ reason ~ ')' if (verdict == 'MISSING' and reason) else ' (not installed on purpose: ' ~ ih_architecture_skipped[key] ~ ')' if verdict == 'skipped' else '' %}
+          {% set why = ' (NOT installed: ' ~ reason ~ ')' if (verdict == 'MISSING' and reason) else ' (not installed on purpose: ' ~ skipped_why ~ ')' if verdict == 'skipped' else '' %}
           {% set companions = (ih_companions_by_key | default({}))[key] | default([]) %}
           {% set companions_why = ' (beside it NOT installed: ' ~ ((ih_companions_missing | default({}))[key] | join(', ')) ~ ')' if key in (ih_companions_missing | default({})) else '' %}
           [verify] {{ '%-30s %-14s %s' | format(key, verdict, os_dict.software_mapping[key].manager ~ ': ' ~ ih_package_by_key[key] ~ ((' + ' ~ (companions | join(', '))) if companions else '') ~ why ~ companions_why) }}
@@ -1266,13 +1321,16 @@
           {% if ih_architecture_skipped | default({}) | length > 0 %}
           [verify] skipped on purpose for this processor, and not counted as requested: {{ ih_architecture_skipped | list | join(', ') }}
           {% endif %}
+          {% if ih_snap_skipped | default({}) | length > 0 %}
+          [verify] skipped on purpose because install_snapd is off, and not counted as requested: {{ ih_snap_skipped | list | join(', ') }}
+          {% endif %}
           {% if ih_family == 'Archlinux' %}
           [verify] Arch User Repository packages expected {{ expected_aur | default([]) | length }}, missing {{ missing_aur | default([]) | length }}{{ ': ' ~ (missing_aur | join(', ')) if (missing_aur | default([]) | length > 0) else '' }}
           [verify] paru {{ 'is on this machine' if not ih_aur_missing_reason else 'is NOT on this machine, because it could not be built, so every Arch User Repository package above that is MISSING was skipped for that reason' }}
           {% endif %}
           [verify] toggles whose packages only a role installs: requested {{ (ih_role_only_keys | default([])) | select('in', ih_companions_by_key | default({})) | list | length }}, missing {{ ih_role_missing_keys | default([]) | length }}{{ ': ' ~ (ih_role_missing_keys | join(', ')) if (ih_role_missing_keys | default([]) | length > 0) else '' }}
           [verify] packages a role installs under an enabled toggle expected {{ expected_companions | default([]) | length }}, missing {{ expected_companions | default([]) | intersect(missing_native) | length }}{{ ': ' ~ (expected_companions | intersect(missing_native) | join(', ')) if (expected_companions | default([]) | intersect(missing_native) | length > 0) else '' }}, counted among the native packages below
-          [verify] native packages expected {{ expected_native | length }}, missing {{ missing_native | length }}; flatpak expected {{ expected_flatpak | length }}, missing {{ missing_flatpak | length }}
+          [verify] native packages expected {{ expected_native | length }}, missing {{ missing_native | length }}; flatpak expected {{ expected_flatpak | length }}, missing {{ missing_flatpak | length }}; snap expected {{ expected_snap | length }}, missing {{ missing_snap | length }}{{ (' (snap list said: ' ~ ((installed_snap_raw.stderr | default('')) | trim | default('nothing', true)) ~ ')') if (expected_snap | length > 0 and (installed_snap_raw.rc | default(1)) != 0) else '' }}
           [verify] URL-installed candidates examined {{ url_candidates | default([]) | length }}, without a download location {{ (url_without_location | default([])) | length }}
           [verify] outside-package-manager tools probed via {{ ih_user_shell }} as an interactive shell for {{ non_root_user }}, the shell a plain terminal opens, with a login-shell probe kept as a secondary, non-failing check{{ '' if ih_user_shell_known | default(false) else ' (login shell unknown, /bin/bash assumed)' }}
           [verify] outside-package-manager tools requested {{ (ih_outside_pm_report_all | default([]) | rejectattr('verdict', 'equalto', 'not requested') | list) | length }}, missing or unreachable {{ (ih_outside_pm_missing | default([])) | length }}
@@ -1382,6 +1440,16 @@
         that: missing_flatpak | length == 0
         success_msg: "PASS flatpak applications: all {{ expected_flatpak | length }} present"
         fail_msg: "FAIL flatpak applications missing: {{ missing_flatpak | join(', ') }}"
+        quiet: true
+
+    - name: Assert every enabled snap application is installed
+      ansible.builtin.assert:
+        that: missing_snap | length == 0
+        success_msg: "PASS snap applications: all {{ expected_snap | length }} present"
+        fail_msg: >-
+          FAIL snap applications missing: {{ missing_snap | join(', ') }}{{
+          ('. snap list exited ' ~ installed_snap_raw.rc ~ ' and said: ' ~ ((installed_snap_raw.stderr | default('')) | trim))
+          if (installed_snap_raw.rc | default(0)) != 0 else '' }}
         quiet: true
 
     - name: Assert tailscaled is enabled when Tailscale was requested

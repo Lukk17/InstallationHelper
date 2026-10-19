@@ -77,11 +77,19 @@
 # Through tasks/install_role_packages.yaml, the retry rule every package manager follows, and the
 # tasks that need snapd skip when it did not install, because the shared file has already named it. The
 # list is install_snapd's companion_packages entry in vars/Debian.yaml, which verify_install.yaml reads
-# too. Under install_snapd, as on Fedora and Arch: until 2026-10-18 this ran on every Debian machine
-# whatever the toggle said. Ubuntu is included, where snapd ships with the system and the install and
-# the socket change nothing, so the toggle means the same thing on every family. With it off the snap
-# mappings are skipped and named, see setup/ansible/tasks/snap_availability.yaml.
-- name: Install snapd (Debian family)
+# too. Under install_snapd, as on Fedora and Arch, and on Debian lineage only. Ubuntu lineage ships
+# snapd with the system, so there the playbook never installs it, never removes it and never touches
+# its socket, and the snap mappings install whatever install_snapd says. Both answers come from
+# setup/ansible/tasks/snap_availability.yaml, which the software installer and the verification read
+# too, so the three cannot disagree about what snapd means on this machine.
+- name: Decide whether snapd ships with this system (Debian family)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/snap_availability.yaml"
+    apply:
+      tags: [always]
+  when: ih_family == 'Debian'
+
+- name: Install snapd (Debian lineage)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
@@ -92,15 +100,17 @@
   when:
     - ih_family == 'Debian'
     - install_snapd | default(false) | bool
+    - not (ih_snapd_with_system | bool)
 
-- name: Remember whether snapd installed (Debian family)
+- name: Remember whether snapd installed (Debian lineage)
   ansible.builtin.set_fact:
     debian_snapd_missing: "{{ 'snapd' in (role_packages_missing | default([])) }}"
   when:
     - ih_family == 'Debian'
     - install_snapd | default(false) | bool
+    - not (ih_snapd_with_system | bool)
 
-- name: Enable snapd socket (Debian family)
+- name: Enable snapd socket (Debian lineage)
   become: yes
   ansible.builtin.systemd:
     name: snapd.socket
@@ -109,6 +119,7 @@
   when:
     - ih_family == 'Debian'
     - install_snapd | default(false) | bool
+    - not (ih_snapd_with_system | bool)
     - not (debian_snapd_missing | default(false) | bool)
 
 # NOTE: Removed manual symlink creation - not needed with modern snapd

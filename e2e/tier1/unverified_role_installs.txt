@@ -15,8 +15,7 @@
 # nothing here. The product itself is what the verification asks about.
 arch_core/tasks/main.yaml | Install yay build dependencies | the tools yay is built with, installed only while yay is absent, and the verification checks yay itself at /usr/bin/yay
 
-# Groups and snaps, which the package query the verification runs cannot see by the name the include uses.
-kde_plasma_setup/tasks/install_kde.yaml | Install the KDE Plasma group (Fedora) | a dnf group, which rpm records under no name of its own, sddm beside it is companion_packages.kde_plasma, and the verification checks /usr/bin/plasmashell
+# Snaps, which the package query the verification runs cannot see by the name the include uses.
 arch_core/tasks/main.yaml | Install snapd core channel | a snap, which pacman -Qq does not list, installed only once snapd finished seeding, which a container never does
 
 # One dictionary serves Debian and Ubuntu, and these differ between the two, by ih_base.

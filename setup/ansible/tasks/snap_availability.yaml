@@ -1,19 +1,33 @@
 ---
-# ih_snap_skipped: the requested mappings that install through snap while install_snapd is off, each with
-# the reason. Answered once, here, and read by every task that needs it. dynamic_install.yaml includes
-# this file, drops these mappings from what it hands to snap and names each one, and site.yaml names them
-# again at the end of the run, so a user who turned snapd off learns which applications that cost.
+# Two answers about snap, given once, here, and read by every task that needs them.
 #
-# install_snapd off means the playbook does not use snap at all on any family, Ubuntu included, where
-# snapd ships with the system. The wizard in setup/setup.sh tells the same story before the run: its
-# checklist names the toggles that need snapd on this machine, read from the same mappings, and
-# e2e/tier1/snap_dependents_menu.sh and e2e/tier1/snap_dependents_summary.sh hold both to the mappings.
-# The list is derived from manager snap in vars/<OS>.yaml and nothing else, so a new snap mapping is
-# named without anyone remembering to add it here.
+# ih_snapd_with_system: true on Ubuntu lineage, where snapd ships with the system. There the playbook
+# never installs snapd, never removes it and never touches its socket, whatever install_snapd says,
+# and every snap mapping installs as normal, because snapd is part of the system rather than something
+# this playbook adds. roles/debian_core reads it to leave snapd alone, and verify_install.yaml reads it
+# to expect no snapd from the playbook there. The lineage is ih_base, which tasks/derive_os_facts.yaml
+# derives and which setup/setup.sh's debian_lineage derives the same way for the wizard's checklist.
+#
+# ih_snap_skipped: the requested mappings that install through snap while install_snapd is off on a
+# machine where snapd is not part of the system, each with the reason. dynamic_install.yaml drops these
+# mappings from what it hands to snap and names each one, verify_install.yaml expects none of them, and
+# site.yaml names them again at the end of the run, so a user who turned snapd off learns which
+# applications that cost.
+#
+# install_snapd off means the playbook does not use snap at all on Debian lineage, Fedora and Arch. The
+# wizard in setup/setup.sh tells the same story before the run: its checklist names the toggles that
+# need snapd on this machine, read from the same mappings, and says on Ubuntu lineage that the toggle
+# changes nothing there. e2e/tier1/snap_dependents_menu.sh and e2e/tier1/snap_dependents_summary.sh hold
+# both to the mappings. The list is derived from manager snap in vars/<OS>.yaml and nothing else, so a
+# new snap mapping is named without anyone remembering to add it here.
+- name: Decide whether snapd ships with this system
+  ansible.builtin.set_fact:
+    ih_snapd_with_system: "{{ ih_family | default('') == 'Debian' and ih_base | default('') == 'ubuntu' }}"
+
 - name: Decide which requested mappings need snapd while install_snapd is off
   ansible.builtin.set_fact:
     ih_snap_skipped: >-
-      {{ {} if (install_snapd | default(false) | bool)
+      {{ {} if ((install_snapd | default(false) | bool) or (ih_snapd_with_system | bool))
          else dict(ih_snap_keys_requested
                    | zip(ih_snap_keys_requested
                          | map('regex_replace', '^.*$', 'it installs through snap, and install_snapd is off'))) }}

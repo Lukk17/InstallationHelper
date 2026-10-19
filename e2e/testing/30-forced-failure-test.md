@@ -138,16 +138,17 @@ The verify log's own assertions, in the order the play runs them. Every containe
 2. `Assert every enabled native package is installed` fails, and this is the assertion that carries the capability. Its failure message names the applications the run did not install, which is the whole enabled native set rather than only the one synthetic name that broke the batch, because the rescue skips every remaining task in the software installer once one of them fails.
 3. `Assert every enabled URL-installed package resolved a download location` is not reached. A failed assertion ends the play, so everything below the previous item is never evaluated. That is honest rather than a gap: an assertion that never ran is reported by the harness as a run that stopped, not as a pass.
 4. `Assert every enabled flatpak application is installed` is not reached, for the same reason.
-5. `Assert tailscaled is enabled when Tailscale was requested` is not reached.
-6. `Assert the user is in the OpenRazer device group when OpenRazer was requested` is not reached.
-7. `Assert the user is in the docker group when Docker was requested` is not reached.
-8. `Assert docker.service is enabled when Docker was requested` is not reached.
-9. `Assert flatpak is installed and the Flathub remote is configured` is not reached.
-10. `Assert the temporary passwordless sudoers entry was removed` is not reached by the verify play, and the state it checks is still worth reading out of the report block above it, because the sudoers removal sits in an `always` section precisely so that a failed run cannot skip it. The report block prints before any assertion for exactly this reason.
-11. `Assert the expected desktop environment is installed` does not run at all, reached or otherwise. The scenario declares `e2e_expect_desktop: none`.
-12. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell` is not reached, for the same reason.
-13. `Assert the desktop session environment carries every development variable` is not reached, for the same reason.
-14. `Assert exactly the selected OpenCode version is installed` is not reached, for the same reason.
+5. `Assert every enabled snap application is installed` is not reached, for the same reason.
+6. `Assert tailscaled is enabled when Tailscale was requested` is not reached.
+7. `Assert the user is in the OpenRazer device group when OpenRazer was requested` is not reached.
+8. `Assert the user is in the docker group when Docker was requested` is not reached.
+9. `Assert docker.service is enabled when Docker was requested` is not reached.
+10. `Assert flatpak is installed and the Flathub remote is configured` is not reached.
+11. `Assert the temporary passwordless sudoers entry was removed` is not reached by the verify play, and the state it checks is still worth reading out of the report block above it, because the sudoers removal sits in an `always` section precisely so that a failed run cannot skip it. The report block prints before any assertion for exactly this reason.
+12. `Assert the expected desktop environment is installed` does not run at all, reached or otherwise. The scenario declares `e2e_expect_desktop: none`.
+13. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell` is not reached, for the same reason.
+14. `Assert the desktop session environment carries every development variable` is not reached, for the same reason.
+15. `Assert exactly the selected OpenCode version is installed` is not reached, for the same reason.
 
 What this capability deliberately does not assert mechanically. The rescue in `dynamic_install.yaml` lists every application in the failed batch, and the injected batch holds one synthetic name, so on this scenario that list is one line long and proves nothing about the real behaviour. Read the `[ERROR] Install step ... failed` line in the log and confirm it names the batch and says a batch is one call, then record that as a judgement in the Result summary rather than ticking an assertion box for it. Asserting the wording of a message is how a test starts failing on a rewording rather than on a defect.
 

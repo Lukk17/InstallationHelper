@@ -49,40 +49,20 @@
     - ih_family == 'Debian'
     - ih_base == 'ubuntu'
 
-# sddm is named explicitly, not left to the group. Fedora's "KDE Plasma Workspaces" group does not
-# contain it, checked with dnf group info on fedora:44, so every task after this one that touches
-# SDDM had nothing to touch: the ownership fix failed outright with "chown failed: failed to look up
-# user sddm", and the service enable and the config writes were working on a display manager that was
-# not installed. Found by the first Fedora KDE run this repository has ever done, on 2026-08-21, and
-# it is the same defect as the Arch OpenRazer group: a group is not a promise that a particular
-# package is inside it. Arch already named sddm explicitly, which is what made the difference visible.
-# sddm is installed by the family-wide task below, from the kde_plasma entry in vars/RedHat.yaml.
-- name: Install the KDE Plasma group (Fedora)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      # The group ID, and it is the ID rather than a display name on purpose. On Fedora 44 the group
-      # whose ID is kde-desktop is named simply "KDE", and "KDE Plasma Workspaces" is the first four
-      # words of its description. The old value matched anyway, through whatever looser matching the
-      # module or libdnf5 does, and it installed a real desktop: four minutes and twelve seconds of
-      # work in the Fedora kde-full cell, with the verification's plasmashell assertion passing after
-      # it. So this is not a broken name being fixed, it is an ambiguous one being made exact.
-      #
-      # Its sibling in gnome_setup was not so lucky. "@GNOME Desktop Environment" matches nothing at
-      # all, because that group is named "GNOME", and it failed every Fedora cell that installs
-      # GNOME. Two display names, one tolerated and one not, is reason enough to stop using them:
-      # an ID is what the packaging system guarantees, and dnf group info prints it first.
-      - "@kde-desktop"
-    role_packages_purpose: the KDE Plasma desktop
-  when: ih_family == 'RedHat'
-
-# The packages for every family: the Debian family's shared list, sddm beside the Fedora group, and the
-# Arch metapackages. One package per call through tasks/install_role_packages.yaml, so one that cannot
-# install costs only itself and is named. The list is install_kde_plasma's companion_packages entry in
-# vars/<OS>.yaml, which setup/ansible/verify_install.yaml reads too. The apt index is the one the
+# The packages for every family: the Debian family's shared list, Fedora's @kde-desktop group with sddm
+# beside it, and the Arch metapackages. One package per call through tasks/install_role_packages.yaml, so
+# one that cannot install costs only itself and is named.
+#
+# On Fedora the group is named by its id, kde-desktop, whose display name on Fedora 44 is simply "KDE":
+# an id is what the packaging system guarantees, and the display name "@GNOME Desktop Environment"
+# matched nothing at all for GNOME. sddm is named beside the group, not left to it, because the group
+# does not contain it, checked with dnf group info on fedora:44: without it the ownership fix below
+# failed with "chown failed: failed to look up user sddm". The verification finds the group among the
+# groups dnf records as installed, the way it finds GNOME's @gnome-desktop. Until 2026-10-19 the group
+# had its own install task and was verified by /usr/bin/plasmashell alone.
+#
+# The list is install_kde_plasma's companion_packages entry in vars/<OS>.yaml, which
+# setup/ansible/verify_install.yaml reads too. The apt index is the one the
 # pre_tasks in site.yaml refreshed through tasks/apt_cache_refresh.yaml, which is why the update_cache
 # this task used to carry is not repeated.
 #
