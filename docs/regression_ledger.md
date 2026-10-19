@@ -6740,3 +6740,17 @@ How it was proven: in plain fedora:44 containers, installing virt-manager and th
 Fix: owner decision 85. iptables-nft is first in `companion_packages.virt_manager` and `companion_packages.docker` in setup/ansible/vars/RedHat.yaml, so setup/ansible/verify_install.yaml expects it too. docs/manual/fedora/install.sh and docs/manual/fedora/fedora_manual_install.md put it first in the same two lists, because e2e/tier1/manual_linux_install.sh failed both without it, `does not install mappings that are on by default in vars/RedHat.yaml: iptables-nft`.
 
 Mechanical check: e2e/tier2 resolves the new name on fedora:44, and e2e/tier1/manual_linux_install.sh holds the manual guides to the lists. The order itself has no check below tier 3, where host_state.sh names a loaded legacy module.
+
+### Introduced while applying 10.143 to 10.148, 2026-10-19
+
+#### 10.149 wizard_root_refusal.sh tried a user namespace inside the gate container, and an agent ran a syntax check on the owner's computer
+
+Cause: two defects, both introduced by agents. First, e2e/tier1/wizard_root_refusal.sh, written on 2026-10-11 for 7.22, tried `unshare -r` before passwordless sudo to start setup.sh as uid 0, and it runs inside the gate container on the owner's computer, where rule 7 of the section "MANDATORY: never run anything on the owner's computer for testing" in AGENTS.md, added by commit 8c521fb, forbids unshare or any namespace tool inside a container. Second, on 2026-10-19 the agent applying 10.143 to 10.148 ran `bash -n` on the host against four changed scripts, a read-only syntax check that rule 1 of the same section says runs only inside the container.
+
+Effect: nothing was reached and nothing changed. The gate container runs under Docker's default seccomp profile, which refuses an unprivileged user namespace, so the `unshare -r` probe failed quietly and the check fell back to sudo every time: `PASS the wizard is started as uid 0 through passwordless sudo`. The `bash -n` run only parsed the four files. Both still broke the owner's rules, the first on every gate run since rule 7 existed.
+
+How it was proven: e2e/tier1/host_container_privileges.sh, widened as below, was run by `bash e2e/run.sh` over the tree where wizard_root_refusal.sh still carried the route and reported `host container privileges: 5 checks, 5 FAILED`, naming e2e/tier1/wizard_root_refusal.sh:42, :44, :45 and :52 (the fifth failure was the planted expectation, whose line numbers were then corrected). The scanner from 10.143 had missed it because it read only `docker run`, `docker create` and `docker exec` lines. The `bash -n` run is known from the applying agent's own session, not from a measurement.
+
+Fix: wizard_root_refusal.sh starts the wizard as uid 0 through passwordless sudo and nothing else, and reports SKIP without it. Its assertions are unchanged. e2e/tier1/host_container_privileges.sh now also fails on `unshare` or `nsenter` on any line under `e2e/` outside a comment and outside the check itself, e2e/tier3/container.sh included. e2e/README_E2E.md and capability 45 and 66 of e2e/testing/10-wizard-toggle-parse-test.md say so.
+
+Mechanical check: e2e/tier1/host_container_privileges.sh, whose planted tree now carries a bare `unshare -r`, a bare `nsenter`, one in a markdown fenced block and one in a planted container.sh, beside a commented one and the word unshared that it must not name, 19 findings in all. A command typed by hand in a session, such as the `bash -n` run, is not under `e2e/`, so for that the rule is the guard.
