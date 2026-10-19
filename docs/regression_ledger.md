@@ -6459,6 +6459,8 @@ How it will be proven: e2e/tier3/container.sh records modules, swaps and kernel,
 
 Fix so far: the units are masked and the detector is in place. Real isolation is owner decision 76.
 
+Measured since: GitHub sweep run 39231000107 on 2026-10-19 showed that masking the units did not keep sysctl.d off the kernel, see 10.145.
+
 Mechanical check: e2e/tier1/container_isolation.sh.
 
 #### 10.129 Test containers ran in the host's cgroup namespace with the host's cgroup tree writable
@@ -6652,3 +6654,89 @@ How it was proven: a copy of the finished tree with commit c99ef74's lineage rul
 Fix: `ih_snapd_with_system` reads `ih_os_release_id`, the os-release ID setup/ansible/tasks/derive_os_facts.yaml already derives, and `snapd_note` in setup/setup.sh compares `OS_RELEASE_ID`, both against `ubuntu`. The comments in setup/ansible/tasks/snap_availability.yaml, setup/ansible/roles/debian_core/tasks/main.yaml, whose three snapd task names now say `Debian family, not Ubuntu itself`, setup/ansible/roles/software_installer/tasks/dynamic_install.yaml, setup/ansible/site.yaml, setup/ansible/verify_install.yaml and setup/ansible/vars/Debian.yaml, plus setup/software.md, e2e/README_E2E.md and items 64 and 65 of e2e/testing/10-wizard-toggle-parse-test.md say Ubuntu itself.
 
 Mechanical check: e2e/tier1/snap_dependents_menu.sh, whose assertion 5 now requires the note to name the snap application on every Debian-family fixture whose ID is not `ubuntu`, Pop!_OS and Linux Mint included, and e2e/tier1/snap_dependents_summary.sh, which now drives Pop!_OS and Linux Mint beside Debian and Fedora.
+
+### Introduced while diagnosing GitHub sweep run 39231000107, 2026-10-19
+
+#### 10.143 A subagent's unconfined container wrote kernel.sysrq on the owner's kernel
+
+Cause: introduced by an agent. While the sweep was being diagnosed, a subagent started a throwaway container on the owner's computer with seccomp, AppArmor and the system paths unconfined and ran `unshare --user --map-root-user --mount-proc` inside it. Docker on that computer does not remap users, so root in the container is the real root of the owner's kernel, and with the confinement switched off nothing stood between the two.
+
+Effect: the probe printed `init now: 16`, then its write of 1 returned rc=0, and kernel.sysrq on the owner's own kernel was 1 instead of 16. It was set back, `before: 1` `after: 16`. The owner had forbidden any test on his computer, and this one changed it.
+
+How it was proven: by the probe's own output, the three values above, read from the owner's kernel before the write, after it and after the restore.
+
+Lesson: on this Docker, root in a container is root of the host kernel. A container is only isolated by the confinement Docker adds, so any flag that removes some of it, or a namespace tool run inside it, hands the host kernel to whatever runs there. Whether a write reaches the kernel is a question for a GitHub-hosted runner, never for the owner's computer.
+
+Fix: rule 7 and incident 4 of the section "MANDATORY: never run anything on the owner's computer for testing" in AGENTS.md, which forbid `--privileged`, any `--security-opt`, `--cap-add`, `--pid host`, `--network host`, `--userns host`, `unshare`, `nsenter` and any write to /proc, /proc/sys or /sys in a container on the owner's computer.
+
+Mechanical check: e2e/tier1/host_container_privileges.sh, which fails on such a `docker run`, `docker create` or `docker exec` anywhere under `e2e/` apart from e2e/tier3/container.sh. Proven by running the gate on a copy of the finished tree with a `docker run` line carrying `--security-opt seccomp=unconfined` appended to e2e/tier2/resolve_packages.sh: `host container privileges: 2 checks, 1 FAILED`, naming e2e/tier2/resolve_packages.sh:665. The check also scans a planted tree first and must name exactly its 15 forbidden commands and none of its clean lines. A command typed by hand in a session is not under `e2e/`, so for that the rule is the guard.
+
+### Found by GitHub sweep run 39231000107, 2026-10-19
+
+#### 10.144 Masking systemd-binfmt.service failed AppImageLauncher on every Fedora job and broke dpkg on Debian, Ubuntu and Pop!_OS
+
+Cause: introduced by an agent. Commit 30ac5a8 (10.126) put systemd-binfmt.service into `MASKED_UNITS` in e2e/tier3/container.sh beside the two binfmt_misc units. AppImageLauncher 2.2.0's deb postinst and rpm `%post` end in `systemctl restart systemd-binfmt`, which fails against a masked unit.
+
+Effect: on Fedora `Failed to restart systemd-binfmt.service: Unit systemd-binfmt.service is masked.` then `warning: %post(appimagelauncher-2.2.0-travis995~0f91801.x86_64) scriptlet failed, exit status 1`, which failed every Fedora job. On Debian, Ubuntu and Pop!_OS dpkg was left half configured, `old appimagelauncher package postinst maintainer script subprocess failed with exit status 1`, and every later apt call failed on it: Docker, flatpak and 19 packages.
+
+How it was proven: the messages above are in the sweep's playbook logs. systemd-binfmt.service carries `ConditionPathIsMountPoint=/proc/sys/fs/binfmt_misc`, read from the unit file of systemd 262 in archlinux:base and cachyos/cachyos-v3, 259.9 in fedora:44 and 257.13 in debian:trixie, so with both binfmt_misc units masked a restart is skipped by the condition rather than registering anything. That the restart then exits 0 is systemd's documented behaviour for a failed condition and was not measured, because starting systemd in a container needs privileges the owner's computer must not give, so the next sweep proves it. The new assertion was proven on a copy of the finished tree with e2e/tier3/container.sh taken back to commit 80a8529, where it failed with `systemd-binfmt.service` named.
+
+Fix: e2e/tier3/container.sh no longer masks systemd-binfmt.service and keeps both binfmt_misc units masked, and e2e/tier3/host_state.sh still fails the run when /proc/sys/fs/binfmt_misc is mounted.
+
+Mechanical check: e2e/tier1/container_isolation.sh now fails when systemd-binfmt.service is masked, as well as when either binfmt_misc unit is not.
+
+Lesson: a mask is a promise to every package that its maintainer script will not need the unit. Before masking a unit, look for package scripts that restart it, and prefer a unit that its own condition keeps down.
+
+#### 10.145 Package managers applied sysctl.d to the runner's kernel although systemd-sysctl.service was masked
+
+Cause: 10.128, now measured. Fedora's systemd rpm file trigger and Arch's pacman sysctl hook run /usr/lib/systemd/systemd-sysctl directly when a package ships a sysctl.d file, so masking systemd-sysctl.service never stopped them, and a privileged container writes the host's kernel, vm and fs sysctls.
+
+Effect: e2e/tier3/host_state.sh failed the run under `host_isolation`. Arch defaults: kernel.sysrq 176 to 16, vm.max_map_count 262144 to 1048576, fs.inotify.max_user_instances, fs.inotify.max_user_watches, fs.aio-max-nr, fs.protected_regular, kernel.core_pattern and kernel.core_uses_pid changed, 32 sysctl lines in its result.txt. CachyOS adds kernel.split_lock_mitigate 1 to 0, 36 lines. Fedora: kernel.sysrq 176 to 16, vm.max_map_count, kernel.yama.ptrace_scope 1 to 0 and more, 28 lines. Ubuntu and Pop!_OS changed none. Those were the GitHub runner's kernels, but on the owner's computer the same runs would have changed his.
+
+How it was proven: the host state records of the sweep, compared by e2e/tier3/container.sh against the boot record.
+
+Fix: e2e/tier3/container.sh starts every scenario container under `--entrypoint /bin/sh`, which bind mounts /proc/sys read-only over itself, mounts /proc/sys/net back read-write, and then runs the image's own CMD, read with `docker image inspect`, as PID 1. That is the shape Docker gives a container that is not privileged. e2e/tier3/host_state.sh fails the run when /proc/self/mountinfo does not show /proc/sys read-only, and a failed mount stops the shell before systemd starts, which start_run reports with the container's own output in container-start.log.
+
+Not proven yet: the mount sequence needs a privileged container, so it was not tried anywhere on the owner's computer and can only be proven on a GitHub-hosted runner. The next sweep proves it or fails at boot.
+
+Mechanical check: e2e/tier1/container_isolation.sh now requires the read-only entry and the image's own CMD in container.sh and the mountinfo guard in host_state.sh. On a copy of the finished tree with e2e/tier3/container.sh and e2e/tier3/host_state.sh taken back to commit 80a8529, `container isolation: 12 checks, 3 FAILED`: the masked systemd-binfmt.service, the missing read-only entry with all four of its parts named, and the missing mountinfo guard, and nothing else. The finished tree passes 12 of 12.
+
+#### 10.146 CachyOS installed its kernel after the kernel headers step had already named the headers
+
+Cause: introduced by an agent. setup/ansible/roles/software_installer/tasks/dynamic_install.yaml included arch_prereqs.yaml, which names the headers of every installed kernel, before the pacman and AUR sets, an order from 82c55df. Commit b398841 then made setup/ansible/verify_install.yaml expect the headers of every kernel installed at the end of the run, through the same setup/ansible/tasks/dkms_header_packages.yaml. On CachyOS the software set brings a kernel: cachyos-gaming-applications needs cachyos-gaming-meta, then winetricks, wine and ntsync-autoload, which needs NTSYNC-MODULE, which linux-cachyos provides.
+
+Effect: the CachyOS defaults and gnome-full cells failed verification with `FAIL native packages missing: linux-cachyos-headers`, and the package report read `openrazer MISSING pacman: openrazer-daemon + linux-cachyos-headers (beside it NOT installed: linux-cachyos-headers)`.
+
+How it was proven: the chain was resolved with `pacman -Sp --print-format "%n" cachyos-gaming-applications` and `pacman -Sii ntsync-autoload` in a plain cachyos/cachyos-v3 container, which listed linux-cachyos, wine and ntsync-autoload and `Required By : wine wine-staging`. The sweep's package log shows `installing linux-cachyos...` during the pacman set. Arch's 70-dkms-install.hook, read from the dkms package in archlinux:base, triggers on `usr/lib/modules/*/build/include/` as well as on `usr/src/*/dkms.conf`, so headers installed after openrazer-driver-dkms still build the module.
+
+Fix: the include moved after the AUR set, before the Snap packages, and the comments in arch_prereqs.yaml and setup/ansible/tasks/dkms_header_packages.yaml say why.
+
+Not proven yet: the order is proven by the next CachyOS cell of a sweep, not locally, because it needs the CachyOS defaults scenario.
+
+Mechanical check: none below tier 3. Only a run that installs the software set can show that it brings a kernel.
+
+#### 10.147 CachyOS lists every member of the gnome group twice, so the installed group read as missing
+
+Cause: introduced by an agent. Commit 0de82cc made setup/ansible/verify_install.yaml count an Arch group as installed when `pacman -Sgq "$group" | sort` equals `pacman -Qgq "$group" | sort`. A group carried by two repositories is listed once per repository by `pacman -Sgq`, and CachyOS carries gnome in its own repository and in extra.
+
+Effect: the CachyOS gnome-full cell failed `FAIL native packages missing: linux-cachyos-headers, gnome` with every member of gnome installed.
+
+How it was proven: in a plain cachyos/cachyos-v3 container, `pacman -Sgq gnome` printed 96 lines for 58 members. After `pacman -S --noconfirm --needed gnome` in the same container, `pacman -Qgq gnome` printed 58 lines, the comparison as committed answered missing and the comparison with `sort -u` on both sides answered installed.
+
+Fix: `sort -u` on both sides of the comparison in setup/ansible/verify_install.yaml, with the measurement in its comment.
+
+Mechanical check: none below tier 3, which is what caught it.
+
+#### 10.148 Fedora switched to iptables-legacy and loaded the legacy iptables modules into the runner's kernel
+
+Cause: setup/ansible/vars/RedHat.yaml listed the libvirt and Docker companion packages without iptables-nft, so dnf answered the iptables they need with iptables-legacy, and the iptables alternative went to xtables-legacy-multi.
+
+Effect: on the runner kde-full installed iptables-nft and loaded no legacy module. defaults, kde-configure-only, gnome-full and all-software installed iptables-legacy and loaded ip6_tables, ip6table_filter, ip6table_nat, iptable_filter and iptable_nat into the runner's kernel, which e2e/tier3/host_state.sh named as 10 module lines in the defaults and gnome-full result.txt files.
+
+Wrong hypothesis kept: iptables-nft anywhere in the Docker list was enough. Measured false: in a plain fedora:44 container, with the libvirt set as committed and then the Docker set with iptables-nft last, iptables-legacy stayed installed beside iptables-nft and the alternative stayed on xtables-legacy-multi.
+
+How it was proven: in plain fedora:44 containers, installing virt-manager and the libvirt set and then the Docker set from download.docker.com one package per call, as virtualization_config does. In the committed order iptables-legacy was installed after the libvirt set and the alternative was xtables-legacy-multi for iptables and ip6tables. With iptables-nft first in both lists iptables-legacy was not installed after either set and the alternative was xtables-nft-multi for both.
+
+Fix: owner decision 85. iptables-nft is first in `companion_packages.virt_manager` and `companion_packages.docker` in setup/ansible/vars/RedHat.yaml, so setup/ansible/verify_install.yaml expects it too. docs/manual/fedora/install.sh and docs/manual/fedora/fedora_manual_install.md put it first in the same two lists, because e2e/tier1/manual_linux_install.sh failed both without it, `does not install mappings that are on by default in vars/RedHat.yaml: iptables-nft`.
+
+Mechanical check: e2e/tier2 resolves the new name on fedora:44, and e2e/tier1/manual_linux_install.sh holds the manual guides to the lists. The order itself has no check below tier 3, where host_state.sh names a loaded legacy module.

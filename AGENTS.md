@@ -244,11 +244,12 @@ dates, error text and fixes are in the ledger.
 
 ## MANDATORY: never run anything on the owner's computer for testing
 
-This repository installs and removes software, so a test that escapes onto the real machine changes the real machine. It has happened twice, and a third time an agent inspected the machine without being asked, all three recorded in [`docs/regression_ledger.md`](docs/regression_ledger.md):
+This repository installs and removes software, so a test that escapes onto the real machine changes the real machine. It has happened three times, and once an agent inspected the machine without being asked, all four recorded in [`docs/regression_ledger.md`](docs/regression_ledger.md):
 
 1. Entry 10.64: a downloaded JetBrains Toolbox binary was run only to read its `--help`. It ignored `HOME`, started against the owner's real home, rewrote the Toolbox menu entry to a scratch path, regenerated the IDE launchers and rewrote five `.vmoptions` files.
 2. Entry 10.98: a tier 1 fixture play put its fakes under a directory that did not exist, so it ran the real `pacman -R --noconfirm opencode-desktop-bin`. It was refused only because the check was not running as root.
 3. Entry 10.124: on 2026-10-18 the main session wanted to know whether the Ubuntu desktop session PATH defect of entry 10.123 affected the owner's machine, and without being asked ran `grep PATH` over `~/.config/environment.d/*.conf` and `/etc/environment` and listed `~/.config/environment.d/`. Nothing was changed, but the owner had forbidden any test or check on his computer.
+4. Entry 10.143: on 2026-10-19 a subagent started a container with seccomp, AppArmor and the system paths unconfined and ran `unshare --user --map-root-user --mount-proc` inside it. Because Docker on this computer does not remap users, the write it made went to the owner's own kernel: `kernel.sysrq` went from 16 to 1. It set 16 back afterwards.
 
 The rules for this repository:
 
@@ -258,6 +259,7 @@ The rules for this repository:
 4. Never test, check, probe or inspect the owner's computer, not even with a read-only command such as grep, cat, ls or a package query, and not to find out whether a defect affects it. If that question matters, ask the owner and give him the exact command to run himself. The only things an agent does on the host are git and file edits inside this repository, Docker commands that start and watch the test containers, and reading the test logs under e2e/runs.
 5. A test that executes a play or a command with fakes belongs in a container. The fakes must also be proven to resolve before anything runs, as defect class 16 above requires, and that proof does not replace the container.
 6. If something on the owner's computer was changed by mistake, stop, tell the owner immediately exactly what changed, and restore it from a backup before doing anything else.
+7. A container on the owner's computer runs as the real root of his kernel, because Docker there does not remap users. Never start one with --privileged, any --security-opt, --cap-add, --pid host, --network host or --userns host, never run unshare, nsenter or another namespace tool inside one, and never write to /proc, /proc/sys or /sys inside one. Anything that needs those runs only on a GitHub-hosted runner. `e2e/tier1/host_container_privileges.sh` fails the gate on any such command under `e2e/` outside `e2e/tier3/container.sh`.
 
 ---
 
