@@ -229,6 +229,16 @@ dates, error text and fixes are in the ledger.
 18. A verification query that depends on something the run itself removes. A cache-only dnf query
     reads nothing after the playbook's own dnf clean all. Measure a verification query in the state
     the run leaves the machine in, not in the state a fresh container has.
+19. A verification that names what it covers in its own fixed list. verify_install.yaml listed the
+    package managers it checks once, when it was written, and nothing compared that list with the
+    managers the software installer dispatches, so snap and dnf_repo were installed and checked by
+    nothing for two months, unnoticed only because no mapping used either. A list of what a check
+    covers must be derived from, or compared with, the code it covers. Guarded now by the manager
+    section of `e2e/tier1/verify_wiring.sh`.
+20. Text cut from a program's output on line feeds alone. On Windows the output ends every line with
+    a carriage return, so each kept line carried it into the error message, and the Linux PowerShell
+    in the gate never sees it because it rewrites redirected output line by line. Split command
+    output on `'\r?\n'`, through `Get-CommandOutputTail` in `setup/windows/WindowsSoftware.ps1`.
 
 ---
 

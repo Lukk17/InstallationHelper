@@ -6566,3 +6566,73 @@ Cause: the pattern in e2e/tier1/timeout_indirection.sh accepted `-` before `time
 Effect: `FAIL 1 task line(s) call the bare timeout command` on curl's `--connect-timeout 30` in the rpm_url route of setup/ansible/tasks/install_role_packages.yaml.
 
 Fix and proof: e2e/tier1/timeout_indirection.sh:61 excludes `-` before the word. The check passes on the tree and still fails on a planted bare `timeout 5 sleep 1`.
+
+### Found by GitHub sweep run 39168859916, 2026-10-19
+
+#### 10.137 Windows failure text kept a carriage return on every line it cut from a program's output
+
+Cause: five places in setup/windows cut the last two lines of a program's output with ``-split "`n"``, and on Windows `Out-String` and the file `Start-Process` redirects into end each line with CRLF, so every kept line kept its `\r`, which went into the Failure and Detail of every failed winget, npm and OpenCode desktop uninstall result.
+
+Effect: found by GitHub sweep run 39168859916 on 2026-10-18. The Windows unit tests job failed two tests that pass in the Linux gate: `Expected length: 110`, `Actual length: 112`, `Strings differ at index 33`, `But was: 'npm exited 1. npm error code E404\r (attempt 4 of 4; attempts 1, 2 and 3 said npm exited 1. npm erro...'`, and `Expected like wildcard '*3221225477 (attempt 4 of 4; attempts 1, 2 and 3 said exit 1.*3221225477)'` with a line break after each 3221225477. The first stage failing skipped every Linux scenario of that sweep. On a real machine the same `\r` reaches the run summary.
+
+How it was proven: in the gate image the old expression on CRLF input gave `npm error code E404\r npm error 404 Not Found\r`, `'x' | Out-String` on Linux is the bytes 120,10, and `Invoke-BoundedWinget` on Linux against a stub printing `\r\n` returned a line ending 55,10.
+
+Wrong hypothesis kept: that a Linux stub writing CRLF would reproduce it. It did not, because PowerShell on Linux rewrites redirected output line by line, which is also why the Linux gate never saw the defect.
+
+Fix: `Get-CommandOutputTail` in setup/windows/WindowsSoftware.ps1, splitting on `'\r?\n'`, called by all five sites: one in setup/windows/WindowsSoftware.ps1, three in setup/windows/WindowsNpmTools.ps1 and one in setup/windows/WindowsCustomInstalls.ps1.
+
+Mechanical check: `Describe 'Get-CommandOutputTail'` in e2e/tier1/windows/WindowsSoftware.Tests.ps1, which fails on Linux against the old split. Defect class 20 in AGENTS.md.
+
+### Found while settling owner decisions 79 to 82, 2026-10-19
+
+#### 10.138 Tier 3 admitted a virtual machine after the owner limited it to GitHub-hosted runners
+
+Cause: e2e/lib/throwaway_machine.sh from commit 4e7f9a6 (10.130) admitted any machine where `systemd-detect-virt --vm` named a hypervisor and the kernel was not WSL 2, Docker Desktop or OrbStack, while owner decision 79 says GitHub-hosted runners only.
+
+Effect: against HEAD 3ae27ec `throwaway_machine_verdict` answered `a KVM virtual machine: expected refuse, got admit` and three more like it, and `run.sh --tier 3` under a fake `systemd-detect-virt` answering `kvm` went on to call docker instead of exiting 2.
+
+How it was proven: e2e/tier1/throwaway_machine_only.sh against a copy of HEAD gave 24 checks, 21 FAILED. Against the finished tree with only the virtual machine route put back it gave 24 checks, 15 FAILED. Against the finished tree all 24 checks passed.
+
+Fix: the library reads only `GITHUB_ACTIONS`, `RUNNER_OS` and `RUNNER_ENVIRONMENT`, and the gate image no longer installs systemd. AGENTS.md, e2e/README_E2E.md, the specs under e2e/testing, the openspec change add-playbook-e2e-capability-tests and the headers of .github/workflows/e2e-manual.yaml and .github/workflows/e2e-matrix.yml no longer offer the virtual machine route. The Fix paragraph of 10.130 describes the route as it was then.
+
+Mechanical check: e2e/tier1/throwaway_machine_only.sh.
+
+#### 10.139 The verification checked a fixed list of package managers, and snap and dnf_repo were checked by nothing
+
+Cause: setup/ansible/verify_install.yaml was written with a fixed manager list, `ih_native_managers`, in e155568 on 2026-08-18. No check compared it with the managers the software installer dispatches, and no mapping used snap or dnf_repo, so nothing failed.
+
+Effect: setup/ansible/roles/software_installer/tasks/dynamic_install.yaml dispatches snap and dnf_repo, and setup/ansible/verify_install.yaml expected neither. From reading the report template, not measured, a requested snap or dnf_repo mapping that failed to install would have shown as installed. The new check against HEAD said `the software installer installs through dnf_repo and verify_install.yaml does not check it` and the same for snap. The owner asked why this was not checked before. The agents that extended the verification in 10.121 and 10.125 checked every package of a toggle but never asked whether every manager was checked.
+
+How it was proven: e2e/tier1/verify_wiring.sh with the new section against HEAD gave 15 checks, 2 FAILED, and 14 of 14 passed on the fix. `snap list` was measured in a non-privileged ubuntu:26.04 container: with no daemon it said `error: cannot list snaps: cannot communicate with server`, with the daemon started `No snaps are installed yet.` The format of a listed snap is taken from snap's documentation, because a container cannot mount a snap.
+
+Fix: dnf_repo in `ih_native_managers`, the `List installed snaps` task, `expected_snap`, `installed_snap`, `missing_snap` and the assertion `Assert every enabled snap application is installed`, named in every container spec under e2e/testing.
+
+Mechanical check: the manager section of e2e/tier1/verify_wiring.sh, which also compares setup/windows/WindowsSoftware.ps1 with setup/windows/WindowsVerify.ps1. Defect class 19 in AGENTS.md.
+
+#### 10.140 Fedora's @kde-desktop group was verified only through /usr/bin/plasmashell
+
+Cause: setup/ansible/roles/kde_plasma_setup/tasks/install_kde.yaml installed the group in a task of its own, and e2e/tier1/unverified_role_installs.txt excused it because rpm records a group under no name of its own.
+
+Effect: the verification never asked dnf whether the group was installed, only whether one binary from it was present.
+
+How it was proven: not by a failing check. No check failed before this change, because the exception in e2e/tier1/unverified_role_installs.txt was what let it pass.
+
+Fix: owner decision 81. `@kde-desktop` beside sddm in `companion_packages.kde_plasma` in setup/ansible/vars/RedHat.yaml, installed by the family-wide task in install_kde.yaml and found by setup/ansible/verify_install.yaml among the groups dnf records as installed, the same way as GNOME's @gnome-desktop in 10.133. The exception line is gone.
+
+Mechanical check: e2e/tier1/verify_wiring.sh, which now fails if the group install returns without a `companion_packages` entry or an exception line.
+
+### Introduced while settling owner decision 74, 2026-10-19
+
+#### 10.141 debian_core put snapd under install_snapd on Ubuntu, where snapd ships with the system
+
+Cause: introduced by an agent. Commit 0de82cc (10.132) gated the snapd install and the socket enable on `install_snapd` for the whole Debian family, Ubuntu lineage included, and the verification expected snapd from the playbook there.
+
+Effect: on Ubuntu with `install_snapd` false every requested snap mapping was skipped with `[WARN] Skipping install_<key>: it installs through snap, and install_snapd is off`, and the checklist read `Snapd: turning it off skips ...` on a machine that has snapd. With it true the playbook ran `apt-get install snapd` and enabled snapd.socket on a system that already manages both. Latent for applications, because no mapping uses snap. Owner decision 80: "ubuntu has snapd by default you dont need to install it and for sure shouldnt uninstall it".
+
+How it was proven: against HEAD e2e/tier1/snap_dependents_menu.sh failed 1 of 5 and e2e/tier1/snap_dependents_summary.sh failed 5 of 6, and both pass on the fix. A scan of 126 files under setup/ and docs/manual/ found nothing that removes snapd, before or after.
+
+Fix: `ih_snapd_with_system` in setup/ansible/tasks/snap_availability.yaml, read by debian_core, setup/ansible/roles/software_installer/tasks/dynamic_install.yaml, setup/ansible/verify_install.yaml and the `[WARN]` in setup/ansible/site.yaml, plus the Ubuntu branch of `snapd_note` in setup/setup.sh.
+
+Mechanical check: e2e/tier1/snap_dependents_summary.sh and e2e/tier1/snap_dependents_menu.sh.
+
+Still open: whether Pop!_OS and Linux Mint count as Ubuntu here, owner decision 84.
