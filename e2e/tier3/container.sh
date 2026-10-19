@@ -67,9 +67,8 @@
 # named relative to the repository root, or by a path inside it.
 
 # Starting a scenario container is the one thing that changes the kernel of the machine Docker runs
-# on, so every mode but --collect, which starts nothing, runs only on a GitHub-hosted runner or in a
-# throwaway virtual machine. lib/throwaway_machine.sh decides, here through the launcher's probe and
-# again below inside the gate.
+# on, so every mode but --collect, which starts nothing, runs only on a GitHub-hosted runner.
+# lib/throwaway_machine.sh decides, here through the launcher's probe and again below inside the gate.
 #
 # shellcheck source=../lib/gate.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/gate.sh"

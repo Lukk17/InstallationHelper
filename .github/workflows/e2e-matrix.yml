@@ -181,9 +181,10 @@
 # has not been exercised in this repository's own CI as of this writing, so the first real run
 # of this workflow is still the first actual proof.
 #
-# Reproducing one cell of stage 2 without GitHub Actions is the same command each of the forty-eight
-# jobs runs, inside a throwaway virtual machine, because tier 3 refuses with exit 2 anywhere but there
-# and a GitHub-hosted runner (e2e/lib/throwaway_machine.sh):
+# One cell of stage 2 cannot be reproduced without GitHub Actions. Each of the forty-eight jobs runs
+# the command below, and tier 3 refuses with exit 2 anywhere but a GitHub-hosted runner, a virtual
+# machine included (e2e/lib/throwaway_machine.sh). Dispatch that one cell instead, with
+# gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=debian:
 #
 #   bash e2e/run.sh --tier 3 --scenario defaults --os debian
 #

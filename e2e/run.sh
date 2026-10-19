@@ -12,9 +12,9 @@
 #   run.sh --tier 3 --scenario defaults --os debian the same scenario on another distro
 #   run.sh --queue <any of the above>       the same run, detached, logged to e2e/runs/queue.log
 #
-# Tier 3, and --tier all which includes it, runs only on a GitHub-hosted runner or inside a throwaway
-# virtual machine, and exits 2 anywhere else before any container starts, --queue included. From any
-# other machine dispatch .github/workflows/e2e-manual.yaml or e2e-matrix.yml instead.
+# Tier 3, and --tier all which includes it, runs only on a GitHub-hosted runner, and exits 2 anywhere
+# else, a virtual machine included, before any container starts, --queue included. From any other
+# machine dispatch .github/workflows/e2e-manual.yaml or e2e-matrix.yml instead.
 #   run.sh --list                   show the scenarios and what each one covers
 #   run.sh --help
 #
@@ -91,8 +91,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Tier 3 starts privileged containers, which change the kernel of the machine Docker runs on, so it
-# runs only on a GitHub-hosted runner or in a throwaway virtual machine. Asked here as well as by the
-# launcher's probe, so a run started inside the gate by any route is refused before anything starts.
+# runs only on a GitHub-hosted runner. Asked here as well as by the launcher's probe, so a run
+# started inside the gate by any route is refused before anything starts.
 if [[ "${TIER}" == 3 || "${TIER}" == all ]]; then
     require_throwaway_machine
 fi

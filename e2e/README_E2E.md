@@ -51,7 +51,7 @@ bash e2e/run.sh --tier N
                                        tier 1: the checks, against /repo
                                        tier 2: probe containers beside the gate
                                        tier 3: scenario containers beside the gate, only on a
-                                               GitHub-hosted runner or a throwaway virtual machine
+                                               GitHub-hosted runner
   exit status  <-------------------  the run's own status
   e2e/runs/    <-------------------  the only thing written back
 ```
@@ -66,14 +66,11 @@ Tier 2 starts the same way:
 bash e2e/run.sh --tier 2
 ```
 
-### Tier 3 runs only on a GitHub-hosted runner or in a throwaway virtual machine
+### Tier 3 runs only on a GitHub-hosted runner
 
-A tier 3 scenario container is privileged, and privileged means no user namespace, so it shares the kernel of whatever machine runs the Docker daemon. Run on the owner's computer, scenario containers changed the owner's own kernel: the binary format table, udev, and the units that act on both, recorded as entries 10.126 to 10.129 of [../docs/regression_ledger.md](../docs/regression_ledger.md). The owner's decision is that nothing may change his computer, so tier 3 runs on a GitHub-hosted runner or inside a virtual machine that is deleted afterwards, and nowhere else.
+A tier 3 scenario container is privileged, and privileged means no user namespace, so it shares the kernel of whatever machine runs the Docker daemon. Run on the owner's computer, scenario containers changed the owner's own kernel: the binary format table, udev, and the units that act on both, recorded as entries 10.126 to 10.129 of [../docs/regression_ledger.md](../docs/regression_ledger.md). The owner's decision 76 is that nothing may change his computer, and his decision 79 is that tier 3 runs on a GitHub-hosted runner and nowhere else. No other virtual machine qualifies, a local one made for the purpose, WSL 2 and Docker Desktop alike.
 
-[lib/throwaway_machine.sh](lib/throwaway_machine.sh) decides, from inside the gate container, before any scenario container starts:
-
-1. A GitHub-hosted runner is one where `GITHUB_ACTIONS=true`, `RUNNER_OS=Linux` and `RUNNER_ENVIRONMENT=github-hosted` are all set. The runner sets all three for every step. A self-hosted runner reports `self-hosted` and does not qualify on that route. [lib/gate.sh](lib/gate.sh) hands those three variables to the gate container when they are set.
-2. A throwaway virtual machine is one where `systemd-detect-virt --vm` names a hypervisor. It reads the processor's hypervisor information and the firmware tables, which a non-privileged container sees exactly as the machine does, so the answer comes from inside the gate container without reading anything on the machine itself. The gate image installs `systemd` for this command. The virtual machines WSL 2, Docker Desktop and OrbStack run the daemon in are refused by their kernel names, because each is part of the computer it runs on and is not thrown away.
+[lib/throwaway_machine.sh](lib/throwaway_machine.sh) decides, from inside the gate container, before any scenario container starts. A GitHub-hosted runner is one where `GITHUB_ACTIONS=true`, `RUNNER_OS=Linux` and `RUNNER_ENVIRONMENT=github-hosted` are all set. The runner sets all three for every step. A self-hosted runner reports `self-hosted` and does not qualify. [lib/gate.sh](lib/gate.sh) hands those three variables to the gate container when they are set. Nothing else is asked. A GitHub-hosted runner is itself a virtual machine, so asking the machine whether it is one would only open a second route.
 
 Anywhere else, `run.sh --tier 3`, `run.sh --tier all` and `tier3/container.sh` print `REFUSED`, show what the machine answered, name the commands below and exit 2. The launcher asks first, in a short foreground gate container, so a `--queue` run is refused on the terminal and nothing is queued. `run.sh` and `container.sh` ask again inside the gate, so no route around the launcher reaches a scenario container. `container.sh --collect` starts nothing and is not refused. There is no override. [tier1/throwaway_machine_only.sh](tier1/throwaway_machine_only.sh) fails the gate when any part of the refusal is removed or weakened.
 
@@ -95,9 +92,7 @@ Every scenario on every distribution:
 gh workflow run e2e-matrix.yml
 ```
 
-Inside a throwaway virtual machine, every command in the rest of this document works as written.
-
-What a local throwaway virtual machine needs has not been built. What it would need, so it can be decided later, with only the memory figure measured: a hypervisor on the host, such as libvirt with QEMU and KVM on Linux or Hyper-V on Windows, which is a change to the owner's computer and needs his approval before anything is installed. One Linux guest with Docker Engine, not Docker Desktop, about 5 GB of memory per `--jobs` slot, and enough disk for the gate image and the distribution images. The guest is created from a fresh image for each run, receives a copy of the repository rather than a shared folder, so nothing it does can reach the host's files, and is deleted afterwards. Everything else, the gate image and the six distribution images under [tier3/](tier3/), the harness builds inside the guest by itself.
+On a GitHub-hosted runner the workflows run the tier 3 commands in the rest of this document for you. Anywhere else those commands exit 2 with the refusal above.
 
 Tier 2 reads winget manifests through `gh` when no winget can run, and the gate container has no `gh` login of its own. For tier 2 only, the launcher lends it yours: it writes the token to a temporary file only you can read, mounts that file read-only, and the entry point reads it into `GH_TOKEN` for its own processes. The token is never in the container's settings, so `docker inspect` cannot show it, and never on a command line. The launcher deletes the file when the run ends, or for a `--queue` run as soon as the container reports it has read it. Without a `gh` login the three winget assertions report SKIP.
 
@@ -109,7 +104,7 @@ See what scenarios exist and what each covers.
 bash e2e/run.sh --list
 ```
 
-Inside a throwaway virtual machine, run the cheapest container scenario that installs anything. There is no fast one: defaults carries a 180 minute ceiling, which is the honest cost of proving anything inside a container, and it is the configuration a user actually gets. On the owner's computer every command in this block exits 2 with the refusal above.
+The commands below are what a GitHub-hosted runner runs, and the workflows run them for you. The cheapest container scenario that installs anything is defaults. There is no fast one: defaults carries a 180 minute ceiling, which is the honest cost of proving anything inside a container, and it is the configuration a user actually gets. Anywhere but a GitHub-hosted runner every command in this block exits 2 with the refusal above.
 
 ```bash
 bash e2e/run.sh --tier 3 --scenario defaults
@@ -129,20 +124,20 @@ bash e2e/run.sh --tier 3 --scenario all
 
 ---
 
-### CI matrix sweep vs local runs
+### CI matrix sweep vs single platform runs
 
 The eight scenarios above cross five Linux distributions, which is 40 combinations. Nobody runs all 40 on one machine, so the harness is split across two places that prove different things.
 
 [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 48 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. Those 48 are 48 separate jobs rather than one matrix, each calling [.github/workflows/e2e-linux-cell.yml](../.github/workflows/e2e-linux-cell.yml), because GitHub's run graph collapses a matrix into a single node that names neither the distribution nor the scenario. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
 
-Runs inside a throwaway virtual machine, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: feedback on the distribution and scenario a change actually touches, without waiting on 39 others. A tier 3 run never happens on the owner's computer, so from there the single platform workflow, `e2e-manual.yaml`, is the scoped run and the sweep is the broad one.
+Runs of the single platform workflow, `e2e-manual.yaml`, and of the sweep narrowed to one scenario and one distribution stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: feedback on the distribution and scenario a change actually touches, without waiting on 39 others. A tier 3 run happens only on a GitHub-hosted runner, so the scoped run and the broad one are both dispatched.
 
 What each side proves, and does not:
 
 | | Proves | Does not prove |
 |---|---|---|
 | CI matrix sweep | The full cross product passes on GitHub's own infrastructure, including a distro/scenario pairing nobody happened to run locally | Correctness on the hardware you actually deploy to. A hosted runner's disk, memory and privileged-container behaviour differ from a personal Docker Desktop or WSL setup, and the sweep has not been observed to catch a defect that a local run would have missed, because it has not run yet |
-| Throwaway virtual machine run | The harness works in that virtual machine, against its Docker Engine, for the one scenario and distribution you are actively changing | The other 39 combinations still pass, unless you run them too |
+| Single platform run | The harness works on a GitHub-hosted runner for the one scenario and distribution you are actively changing | The other 39 combinations still pass, unless you run them too |
 
 Dispatch the sweep from the Actions tab, or narrow it to one scenario or one distribution from the same form.
 
@@ -189,7 +184,7 @@ green: what that run still does not tell you.
 
 Four rules that are easy to miss.
 
-Every row that names a tier 3 scenario runs on a GitHub-hosted runner through the command it shows, or inside a throwaway virtual machine through `bash e2e/run.sh --tier 3 --scenario <name> --os <distro>`, and never on the owner's computer, where that command exits 2.
+Every row that names a tier 3 scenario runs on a GitHub-hosted runner through the command it shows, and nowhere else. `bash e2e/run.sh --tier 3 --scenario <name> --os <distro>` exits 2 on any other machine, the owner's computer and every virtual machine included.
 
 There is no cheap container row. Most rows that name a scenario name defaults, at a 180 minute ceiling rather than the 45 the removed smoke scenario declared, and the two that name something else name it because that scenario asks a question defaults cannot: forced-failure is the cheapest of them, measured at 46 minutes on debian against a 90 minute ceiling, and it is still not a pre-commit gate. The smoke scenario is gone because every toggle it enabled was already true in defaults, so it was the same test with most of the toggles taken away, and a 20 to 30 minute run was never cheap enough either. Tier 1 is the thing that runs in seconds.
 
@@ -203,7 +198,7 @@ A tier that cannot run is not a tier that passed. Every tier needs a Docker daem
 
 The playbook always runs detached inside the container, writing its own log and exit code there, and the runner only watches it. So a run does not die with the shell that started it. That is not a nicety: the all-software scenario takes hours, and a run tied to a terminal session throws away the whole thing on an ordinary disconnect.
 
-Everything in this section starts or watches tier 3 scenario containers, so it applies inside a throwaway virtual machine. On the owner's computer `container.sh` refuses every mode but `--collect` with exit 2, and a GitHub-hosted run is watched with `gh run list --workflow e2e-matrix.yml --limit 5` instead.
+Everything in this section starts or watches tier 3 scenario containers, so it applies on a GitHub-hosted runner, where the workflows use it. Anywhere else `container.sh` refuses every mode but `--collect` with exit 2, and a GitHub-hosted run is watched with `gh run list --workflow e2e-matrix.yml --limit 5` instead.
 
 Start a scenario and get your prompt back immediately.
 
@@ -359,7 +354,7 @@ them.
 | [tier1/zshrc_env_block.sh](tier1/zshrc_env_block.sh) | `setup/config/zsh/.zshrc` setting environment outside a comment, an `export` or a PATH assignment, which a desktop session never sees because Plasma's login zsh is non-interactive. shell_zsh writing that file other than as one marked block read from the file, the shape that made a second run insert a block again in GitHub sweep run 38107292439 on Arch idempotency. Its `ZSH=` line naming a different directory from `shell_zsh_oh_my_zsh_dir`. And the zsh environment import in `env_unix.yaml` importing `~/.config/environment.d` before `typeset -U path PATH`, so a nested shell repeats every PATH entry. And `dev_env_file`, or an `environment.d` file a manual install page appends PATH to, named so it sorts before `99-environment.conf`, the link to `/etc/environment` that resets PATH on Ubuntu and took all five PATH entries from the desktop session in the Ubuntu defaults scenario of 2026-10-18 |
 | [tier1/vendor_installer_shell_init.sh](tier1/vendor_installer_shell_init.sh) | A task file that pipes a vendor installer into a shell behind a `creates` guard under the user's home and has no unconditional blockinfile beside it into `dev_env_file`, `~/.config/environment.d/50-dev.conf`, or into every file in `interactive_rc_files`, so the installer is the only thing wiring its tool into the shell and never runs again once its guard file exists. GitHub sweep run 38107292439 measured that on CachyOS GNOME full, where `sdk` and `java` were on disk and unreachable from zsh. Exceptions live in [tier1/vendor_installer_shell_init_allowed.txt](tier1/vendor_installer_shell_init_allowed.txt) with a reason, and a stale entry fails |
 | [tier1/container_isolation.sh](tier1/container_isolation.sh) | A scenario container reaching the host kernel again: the host's cgroup namespace or `/sys/fs/cgroup`, no `container=docker`, a unit that acts on the host kernel left unmasked, a missing host state record, or a scenario allowed to rewrite the host's boot. Privileged containers registered AppImageLauncher in the owner's binary format table and triggered udev for every host device |
-| [tier1/throwaway_machine_only.sh](tier1/throwaway_machine_only.sh) | Tier 3 starting anywhere but a GitHub-hosted runner or a throwaway virtual machine: a verdict that admits a bare machine, WSL 2, Docker Desktop, a self-hosted runner or a partial set of GitHub's variables, a route through `run.sh` or `container.sh` that is not refused with exit 2 before docker is called, a launcher that queues or starts the run before its probe, or a variable that overrides the decision. Privileged scenario containers changed the owner's own kernel, entries 10.126 to 10.129 |
+| [tier1/throwaway_machine_only.sh](tier1/throwaway_machine_only.sh) | Tier 3 starting anywhere but a GitHub-hosted runner: a verdict that admits a bare machine, any virtual machine (KVM, Hyper-V, VirtualBox, VMware, WSL 2, Docker Desktop, OrbStack), a self-hosted runner or a partial set of GitHub's variables, a library that asks the machine whether it is a virtual machine, a route through `run.sh` or `container.sh` that is not refused with exit 2 before docker is called, on a bare machine or in a KVM or Hyper-V guest, a launcher that queues or starts the run before its probe, or a variable that overrides the decision. Privileged scenario containers changed the owner's own kernel, entries 10.126 to 10.129 |
 | [tier1/snap_dependents_menu.sh](tier1/snap_dependents_menu.sh) | The wizard checklist not naming what turning Snapd off skips, compared with the mappings on every family and derivative |
 | [tier1/snap_dependents_summary.sh](tier1/snap_dependents_summary.sh) | `install_snapd` off still installing snapd or sending snap mappings to snap, and the end-of-run `[WARN]` missing |
 | [tier1/forced_failure_assertions.sh](tier1/forced_failure_assertions.sh) | A forced-failure assertion in [tier3/container.sh](tier3/container.sh) that fails over a rescue that worked. GitHub sweep run 38107292439 failed that scenario on Arch, CachyOS and Fedora that way: Lens was matched as the whole skipped-repository sentence when tailscale was in the same list, and the paru injection let the Arch User Repository server decide whether the clone or the build failed. It drives `log_list_names` from container.sh over that run's own lines and requires the paru address to be under `.invalid` |

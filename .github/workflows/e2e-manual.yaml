@@ -64,8 +64,9 @@
 #
 # Reproducing a run locally, without GitHub Actions:
 #
-#   Linux/macOS shell, the first line inside a throwaway virtual machine only, because tier 3
-#   refuses with exit 2 anywhere but there and a GitHub-hosted runner (e2e/lib/throwaway_machine.sh):
+#   Linux/macOS shell. The first line is what this workflow runs, and it runs only on a GitHub-hosted
+#   runner, because tier 3 refuses with exit 2 anywhere else, a virtual machine included
+#   (e2e/lib/throwaway_machine.sh):
 #     bash e2e/run.sh --tier 3 --scenario defaults --os arch
 #     bash setup/setup.sh --non-interactive --passwordless-sudo --desktop-environment skip --software defaults
 #     bash setup/setup.sh --non-interactive --passwordless-sudo --enable docker,vim --disable steam

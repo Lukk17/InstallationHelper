@@ -1,24 +1,29 @@
 #!/usr/bin/env bash
 #
-# Tier 1: tier 3 refuses to start anywhere but a GitHub-hosted runner or a throwaway virtual machine.
+# Tier 1: tier 3 refuses to start anywhere but a GitHub-hosted runner.
 #
 # A tier 3 scenario container is privileged and shares the kernel of the machine Docker runs on. Run
 # on the owner's computer it changed the owner's kernel four ways (docs/regression_ledger.md 10.126 to
-# 10.129), and the owner's decision 76 is that nothing may change his computer, so tier 3 runs on a
-# GitHub runner or in a virtual machine and nowhere else, with no override.
+# 10.129). The owner's decision 76 is that nothing may change his computer, and his decision 79 is that
+# tier 3 runs on a GitHub-hosted runner and nowhere else, not in a virtual machine either, with no
+# override.
 #
 # This proves the refusal three ways. It drives throwaway_machine_verdict over every kind of machine,
-# including the two that look like a virtual machine and are not thrown away, WSL 2 and Docker Desktop.
-# It starts e2e/run.sh and e2e/tier3/container.sh for real, by every route that reaches a scenario
-# container, with this machine made to look like a bare host and a fake docker that records any call,
-# and requires exit 2, the refusal text and no docker call at all. And it reads the launcher, which
-# cannot be started from inside a container, for the probe that refuses a queued run before it starts.
+# including KVM, Hyper-V and VirtualBox virtual machines, WSL 2 and Docker Desktop, all of which are
+# refused. It starts e2e/run.sh and e2e/tier3/container.sh for real, by every route that reaches a
+# scenario container, once with this machine made to look like a bare host and once each like a KVM
+# and a Hyper-V virtual machine, with a fake docker that records any call, and requires exit 2, the
+# refusal text and no docker call at all. And it reads the launcher, which cannot be started from inside
+# a container, for the probe that refuses a queued run before it starts.
 #
 # Proven on 2026-10-18 by pointing E2E_REPO_ROOT at a copy of the tree at commit 0eee74c, which failed
 # 1 of 1, at that copy with only lib/throwaway_machine.sh and the gate image added, which failed 7 of 13,
 # and at eight copies of the finished tree with one part of the refusal removed or weakened at a time:
 # each inner call, the GitHub runner environment test, the WSL exclusion, the launcher's probe, the
-# variables handed to the gate, the probe's status, and an override variable. Each one failed.
+# variables handed to the gate, the probe's status, and an override variable. Each one failed. Proven
+# again on 2026-10-19, after decision 79, against a copy of the tree at commit 3ae27ec, whose library
+# still admits a virtual machine, and against a copy of the finished tree with the virtual machine
+# route put back into lib/throwaway_machine.sh. Both failed.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -27,9 +32,9 @@ CONTAINER_SH="${REPO_ROOT}/e2e/tier3/container.sh"
 GATE_SH="${REPO_ROOT}/e2e/lib/gate.sh"
 THROWAWAY_SH="${REPO_ROOT}/e2e/lib/throwaway_machine.sh"
 GATE_DOCKERFILE="${REPO_ROOT}/e2e/gate/Dockerfile"
-REFUSAL_LINE="REFUSED: tier 3 runs only on a GitHub-hosted runner or inside a throwaway virtual machine"
+REFUSAL_LINE="REFUSED: tier 3 runs only on a GitHub-hosted runner, and this is not one."
 
-info "Tier 1: tier 3 runs only on a GitHub-hosted runner or in a throwaway virtual machine"
+info "Tier 1: tier 3 runs only on a GitHub-hosted runner"
 
 # A route that is not refused runs the harness it was handed, and --tier all runs this check again.
 # The nested copy stops here, and every route below has a time limit, so a missing refusal costs this
@@ -55,12 +60,17 @@ if ! declare -F throwaway_machine_verdict >/dev/null || ! declare -F require_thr
     finish "tier 3 throwaway machines only"
 fi
 
+# The two facts after GitHub's three are what systemd-detect-virt --vm and the kernel release would say
+# on that machine. The verdict is handed them as well, so a verdict that reads them again, as the one
+# before decision 79 did, admits the virtual machines below and fails here.
 # expected | GITHUB_ACTIONS | RUNNER_OS | RUNNER_ENVIRONMENT | systemd-detect-virt --vm | kernel release | which machine
 VERDICT_CASES=(
     "refuse||||none|7.2.9-2-cachyos|a bare machine, as the owner's computer is"
     "refuse||||||a machine where systemd-detect-virt gave no answer"
-    "admit||||kvm|6.12.0-1-amd64|a throwaway KVM virtual machine"
-    "admit||||oracle|6.8.0-45-generic|a throwaway VirtualBox virtual machine"
+    "refuse||||kvm|6.12.0-1-amd64|a KVM virtual machine"
+    "refuse||||microsoft|6.8.0-45-generic|a Hyper-V virtual machine"
+    "refuse||||oracle|6.8.0-45-generic|a VirtualBox virtual machine"
+    "refuse||||vmware|6.8.0-45-generic|a VMware virtual machine"
     "refuse||||microsoft|6.6.87.2-microsoft-standard-WSL2|WSL 2, whose virtual machine is part of the computer"
     "refuse||||kvm|6.10.14-linuxkit|Docker Desktop, whose virtual machine is part of the computer"
     "refuse||||apple|6.15.11-orbstack-00360-g0d6d2b1c5c4f|OrbStack, whose virtual machine is part of the computer"
@@ -83,30 +93,27 @@ for case_line in "${VERDICT_CASES[@]}"; do
     [[ "${actual}" == "${expected}" ]] || wrong_verdicts+=("${machine}: expected ${expected}, got ${actual}")
 done
 if [[ ${#wrong_verdicts[@]} -eq 0 ]]; then
-    pass "throwaway_machine_verdict answers all ${#VERDICT_CASES[@]} kinds of machine as expected, admitting only GitHub-hosted Linux runners and throwaway virtual machines"
+    pass "throwaway_machine_verdict answers all ${#VERDICT_CASES[@]} kinds of machine as expected, admitting only GitHub-hosted Linux runners and no virtual machine"
 else
     fail "throwaway_machine_verdict answers ${#wrong_verdicts[@]} of ${#VERDICT_CASES[@]} machines wrongly" \
          "$(printf '%s; ' "${wrong_verdicts[@]}")"
 fi
 
-if command -v systemd-detect-virt >/dev/null 2>&1; then
-    pass "the gate container carries systemd-detect-virt, so the virtual machine route can be answered at all"
+# Asking the machine what it is would only matter to a route that admits a virtual machine, so the
+# library must not ask at all.
+throwaway_code="$(grep -vE '^[[:space:]]*#' "${THROWAWAY_SH}")"
+if grep -qE 'systemd-detect-virt|osrelease|/proc/' <<<"${throwaway_code}"; then
+    fail "lib/throwaway_machine.sh asks the machine what it is, which only a virtual machine route needs" \
+         "$(grep -nE 'systemd-detect-virt|osrelease|/proc/' <<<"${throwaway_code}" | head -3 | tr '\n' ' ')"
 else
-    fail "the gate container has no systemd-detect-virt" \
-         "every virtual machine reads as a bare machine then, so tier 3 is refused everywhere but GitHub"
-fi
-if grep -qE '^[[:space:]]+systemd \\$' "${GATE_DOCKERFILE}"; then
-    pass "e2e/gate/Dockerfile installs systemd, which carries systemd-detect-virt"
-else
-    fail "e2e/gate/Dockerfile does not install systemd" "the next image build loses systemd-detect-virt"
+    pass "lib/throwaway_machine.sh never asks the machine whether it is a virtual machine"
 fi
 
 # A switch somebody exports would never show in the cases above or the routes below, which run with it
 # unset, so the two functions are also read for every variable they expand. Their own parameters, the
 # facts they gather and GitHub's three variables are the whole of what may decide.
-throwaway_code="$(grep -vE '^[[:space:]]*#' "${THROWAWAY_SH}")"
 decision_bodies="$(sed -n '/^throwaway_machine_verdict() {/,/^}/p; /^require_throwaway_machine() {/,/^}/p' <<<"${throwaway_code}")"
-ALLOWED_EXPANSIONS=(actions runner_os runner_environment virtualization kernel_release kind GITHUB_ACTIONS RUNNER_OS RUNNER_ENVIRONMENT)
+ALLOWED_EXPANSIONS=(actions runner_os runner_environment kind GITHUB_ACTIONS RUNNER_OS RUNNER_ENVIRONMENT)
 foreign_expansions=()
 while IFS= read -r expanded; do
     [[ -z "${expanded}" ]] && continue
@@ -119,39 +126,62 @@ done < <(grep -oE '\$\{?!?[A-Za-z_][A-Za-z0-9_]*' <<<"${decision_bodies}" | sed 
 if [[ -z "${decision_bodies}" ]]; then
     fail "throwaway_machine_verdict and require_throwaway_machine could not be read out of lib/throwaway_machine.sh" "${THROWAWAY_SH}"
 elif [[ ${#foreign_expansions[@]} -eq 0 ]]; then
-    pass "the decision reads nothing but the machine's facts and GitHub's three variables, so there is no switch to override it"
+    pass "the decision reads nothing but GitHub's three variables, so there is no switch to override it"
 else
-    fail "the decision reads a variable that is not a fact about the machine, which is an override" \
+    fail "the decision reads a variable that is not one of GitHub's three, which is an override or a second route" \
          "${foreign_expansions[*]}"
 fi
 
 # --- every route to a scenario container, started for real ---------------------------------------
 # The fakes go on PATH first: a docker that records each call and fails, and a systemd-detect-virt that
-# answers like a bare machine. GitHub's three variables are removed, so the answer is the same on the
-# owner's computer and on a GitHub runner running this gate. Each fake has to be the one that resolves
-# before anything is started with it.
+# answers like the machine under test, a bare host, a KVM guest or a Hyper-V guest. GitHub's three
+# variables are removed, so the answer is the same on the owner's computer and on a GitHub runner
+# running this gate. Each fake has to be the one that resolves before anything is started with it.
 work_dir="$(mktemp -d)"
 trap 'rm -rf "${work_dir}"' EXIT
-fake_bin="${work_dir}/bin"
 docker_calls="${work_dir}/docker_calls"
-mkdir -p "${fake_bin}"
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"%s"\nexit 1\n' "${docker_calls}" >"${fake_bin}/docker"
-printf '#!/usr/bin/env bash\necho none\nexit 1\n' >"${fake_bin}/systemd-detect-virt"
-chmod +x "${fake_bin}/docker" "${fake_bin}/systemd-detect-virt"
 
-bare_machine() {
-    env -u GITHUB_ACTIONS -u RUNNER_OS -u RUNNER_ENVIRONMENT PATH="${fake_bin}:${PATH}" NO_COLOR=1 \
+# machine label | what the fake systemd-detect-virt --vm answers
+MACHINES=(
+    "a bare machine|none"
+    "a KVM virtual machine|kvm"
+    "a Hyper-V virtual machine|microsoft"
+)
+
+machine_bin() {
+    printf '%s/bin-%s\n' "${work_dir}" "$1"
+}
+
+as_machine() {
+    local answer="$1"
+    shift
+    env -u GITHUB_ACTIONS -u RUNNER_OS -u RUNNER_ENVIRONMENT PATH="$(machine_bin "${answer}"):${PATH}" NO_COLOR=1 \
         E2E_THROWAWAY_CHECK_NESTED=1 "$@"
 }
 
-resolved_docker="$(bare_machine bash -c 'command -v docker')"
-resolved_virt="$(bare_machine bash -c 'command -v systemd-detect-virt')"
-if [[ "${resolved_docker}" != "${fake_bin}/docker" || "${resolved_virt}" != "${fake_bin}/systemd-detect-virt" ]]; then
-    fail "the fakes do not resolve first, so the routes below would reach the real docker" \
-         "docker -> ${resolved_docker}, systemd-detect-virt -> ${resolved_virt}"
-    finish "tier 3 throwaway machines only"
-fi
-pass "the fake docker and the bare-machine systemd-detect-virt are the ones that resolve"
+for machine in "${MACHINES[@]}"; do
+    answer="${machine#*|}"
+    fake_bin="$(machine_bin "${answer}")"
+    mkdir -p "${fake_bin}"
+    printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"%s"\nexit 1\n' "${docker_calls}" >"${fake_bin}/docker"
+    if [[ "${answer}" == none ]]; then
+        printf '#!/usr/bin/env bash\necho none\nexit 1\n' >"${fake_bin}/systemd-detect-virt"
+    else
+        printf '#!/usr/bin/env bash\necho %s\nexit 0\n' "${answer}" >"${fake_bin}/systemd-detect-virt"
+    fi
+    chmod +x "${fake_bin}/docker" "${fake_bin}/systemd-detect-virt"
+
+    resolved_docker="$(as_machine "${answer}" bash -c 'command -v docker')"
+    resolved_virt="$(as_machine "${answer}" bash -c 'command -v systemd-detect-virt')"
+    answered_virt="$(as_machine "${answer}" systemd-detect-virt --vm || true)"
+    if [[ "${resolved_docker}" != "${fake_bin}/docker" || "${resolved_virt}" != "${fake_bin}/systemd-detect-virt" \
+          || "${answered_virt}" != "${answer}" ]]; then
+        fail "the fakes for ${machine%%|*} do not resolve first, so the routes below would reach the real docker" \
+             "docker -> ${resolved_docker}, systemd-detect-virt -> ${resolved_virt}, answering ${answered_virt}"
+        finish "tier 3 throwaway machines only"
+    fi
+done
+pass "the fake docker and the fake systemd-detect-virt for each of ${#MACHINES[@]} machines are the ones that resolve"
 
 scenario_file="${REPO_ROOT}/e2e/tier3/scenarios/01-defaults.yaml"
 if [[ ! -f "${scenario_file}" ]]; then
@@ -168,29 +198,33 @@ ROUTES=(
     "container.sh <scenario> --detach|${CONTAINER_SH} ${scenario_file} --os fedora --detach"
 )
 ROUTE_SECONDS=30
-for route in "${ROUTES[@]}"; do
-    route_name="${route%%|*}"
-    read -r -a route_args <<<"${route#*|}"
-    : >"${docker_calls}"
-    route_rc=0
-    route_out="$(cd "${REPO_ROOT}" && bare_machine timeout --kill-after=5 "${ROUTE_SECONDS}" bash "${route_args[@]}" 2>&1)" || route_rc=$?
-    problems=()
-    [[ ${route_rc} -eq 2 ]] || problems+=("exit ${route_rc}, not 2")
-    grep -qF "${REFUSAL_LINE}" <<<"${route_out}" || problems+=("no refusal printed")
-    grep -qF "gh workflow run e2e-manual.yaml" <<<"${route_out}" || problems+=("the refusal does not name the single platform workflow")
-    if [[ -s "${docker_calls}" ]]; then
-        problems+=("docker was called: $(head -3 "${docker_calls}" | tr '\n' ' ')")
-    fi
-    if [[ ${#problems[@]} -eq 0 ]]; then
-        pass "${route_name} on a bare machine exits 2 with the refusal and never calls docker"
-    else
-        fail "${route_name} on a bare machine is not refused" \
-             "$(printf '%s; ' "${problems[@]}") output: $(tail -3 <<<"${route_out}" | tr '\n' ' ')"
-    fi
+for machine in "${MACHINES[@]}"; do
+    machine_name="${machine%%|*}"
+    answer="${machine#*|}"
+    for route in "${ROUTES[@]}"; do
+        route_name="${route%%|*}"
+        read -r -a route_args <<<"${route#*|}"
+        : >"${docker_calls}"
+        route_rc=0
+        route_out="$(cd "${REPO_ROOT}" && as_machine "${answer}" timeout --kill-after=5 "${ROUTE_SECONDS}" bash "${route_args[@]}" 2>&1)" || route_rc=$?
+        problems=()
+        [[ ${route_rc} -eq 2 ]] || problems+=("exit ${route_rc}, not 2")
+        grep -qF "${REFUSAL_LINE}" <<<"${route_out}" || problems+=("no refusal printed")
+        grep -qF "gh workflow run e2e-manual.yaml" <<<"${route_out}" || problems+=("the refusal does not name the single platform workflow")
+        if [[ -s "${docker_calls}" ]]; then
+            problems+=("docker was called: $(head -3 "${docker_calls}" | tr '\n' ' ')")
+        fi
+        if [[ ${#problems[@]} -eq 0 ]]; then
+            pass "${route_name} on ${machine_name} exits 2 with the refusal and never calls docker"
+        else
+            fail "${route_name} on ${machine_name} is not refused" \
+                 "$(printf '%s; ' "${problems[@]}") output: $(tail -3 <<<"${route_out}" | tr '\n' ' ')"
+        fi
+    done
 done
 
 : >"${docker_calls}"
-collect_out="$(cd "${REPO_ROOT}" && bare_machine timeout --kill-after=5 "${ROUTE_SECONDS}" bash "${CONTAINER_SH}" --collect "${work_dir}/no-such-run" 2>&1 || true)"
+collect_out="$(cd "${REPO_ROOT}" && as_machine none timeout --kill-after=5 "${ROUTE_SECONDS}" bash "${CONTAINER_SH}" --collect "${work_dir}/no-such-run" 2>&1 || true)"
 if grep -qF "${REFUSAL_LINE}" <<<"${collect_out}"; then
     fail "container.sh --collect is refused on a bare machine" \
          "it starts nothing, and refusing it leaves a scenario container nobody can collect or remove"

@@ -26,7 +26,7 @@ This file is an index, not a template. The schema gives a change one `tasks-temp
 
 Every one mirrors its spec's Prerequisites, Reset state, Run and Expected items as checkboxes, in the spec's order, then adds a Verdict checkbox and a Result summary block with Input tokens, Output tokens, Start (UTC), End (UTC) and Duration, then an "Additional tasks I did" section for anything done off-spec.
 
-Every template from 30 up opens its Prerequisites with a box that records where the run happened, a GitHub-hosted runner with its workflow run id or a throwaway virtual machine, because tier 3 never runs on the owner's computer and refuses there with exit 2. That box mirrors the first paragraph of each of those specs' Prerequisites.
+Every template from 30 up opens its Prerequisites with a box that records where the run happened, a GitHub-hosted runner with its workflow run id, because tier 3 runs nowhere else and refuses everywhere else with exit 2, the owner's computer and every virtual machine included. That box mirrors the first paragraph of each of those specs' Prerequisites.
 
 One shape deviates from a plain mirror, because the harness behaves that way. The template for capability 70 covers two container runs, KDE and GNOME, in one record. Every assertion box is ticked twice or not at all, and one green run beside one red run is a FAIL.
 

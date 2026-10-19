@@ -22,7 +22,7 @@ Every linked spec has the schema's seven sections in the schema's order: What th
 | 80 | all-software | [80-all-software-test.md](../../../e2e/testing/80-all-software-test.md) | detached launch of `02-all-software.yaml`, then `--collect` | 300 minute timeout |
 | 90 | idempotency | [90-idempotency-test.md](../../../e2e/testing/90-idempotency-test.md) | detached launch of `08-idempotency.yaml` with `--os debian`, then `--collect` | 300 minute timeout for two passes |
 
-Capabilities 30 to 90 are tier 3 and run only on a GitHub-hosted runner or inside a throwaway virtual machine. The invocations in the table are what runs there. On the owner's computer they exit 2 before any container starts, because privileged scenario containers changed his kernel (docs/regression_ledger.md 10.126 to 10.129), and the capability is dispatched instead with `gh workflow run e2e-matrix.yml -f scenario=<name> -f distro=<distribution>`. Each spec says so in the first paragraph of its Prerequisites, and each template from 30 up records where the run happened.
+Capabilities 30 to 90 are tier 3 and run only on a GitHub-hosted runner, by the owner's decision 79. The invocations in the table are what runs there. Anywhere else, a virtual machine included, they exit 2 before any container starts, because privileged scenario containers changed his kernel (docs/regression_ledger.md 10.126 to 10.129), and the capability is dispatched instead with `gh workflow run e2e-matrix.yml -f scenario=<name> -f distro=<distribution>`. Each spec says so in the first paragraph of its Prerequisites, and each template from 30 up records where the run happened.
 
 ---
 

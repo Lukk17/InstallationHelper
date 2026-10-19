@@ -51,7 +51,7 @@ The `{N}` prefix is setup cost, cheapest first, which is also the order a sweep 
 
 Capabilities 10 and 20 are the two static tiers. They install nothing, start no scenario container, and are the only two that are cheap enough to run on every commit. Everything from 30 up runs the real playbook inside a throwaway container, on Arch unless `--os` names another distribution.
 
-Everything from 30 up is tier 3, and tier 3 never runs on the owner's computer, because its privileged scenario containers changed his kernel. The invocations above are what runs on a GitHub-hosted runner or inside a throwaway virtual machine, and anywhere else they exit 2 before any container starts. From the owner's computer each of those capabilities is dispatched to GitHub-hosted runners instead, with its scenario name and a distribution:
+Everything from 30 up is tier 3, and tier 3 never runs on the owner's computer, because its privileged scenario containers changed his kernel. The invocations above are what runs on a GitHub-hosted runner, where the workflows run them, and anywhere else, a virtual machine included, they exit 2 before any container starts. Each of those capabilities is dispatched to GitHub-hosted runners instead, with its scenario name and a distribution:
 
 ```bash
 gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian
@@ -69,7 +69,7 @@ Capability 90 is the next free number after 80, and idempotency belongs at the e
 
 Pass criteria are observable state only. The harness reads installed packages from `pacman -Qq` and `flatpak list --app --columns=application`, unit state from `systemctl is-enabled`, group membership from `id -nG`, and file existence with `stat`. A tail of `playbook.log` is the next diagnostic step after a failed assertion, never a pass criterion.
 
-Every capability runs inside the gate container, [../gate/Dockerfile](../gate/Dockerfile), which `e2e/run.sh` builds and enters by itself, and nothing runs on the machine that starts it. For capabilities 10 and 20 that machine needs a Docker daemon and nothing else: a Linux shell, Git Bash with Docker Desktop, or WSL with Docker Desktop integration enabled all start the same run. Capabilities 30 to 90 start only on a GitHub-hosted runner or inside a throwaway virtual machine with Docker Engine, as "Tier 3 runs only on a GitHub-hosted runner or in a throwaway virtual machine" in [../README_E2E.md](../README_E2E.md) describes, and WSL 2 and Docker Desktop do not qualify for them.
+Every capability runs inside the gate container, [../gate/Dockerfile](../gate/Dockerfile), which `e2e/run.sh` builds and enters by itself, and nothing runs on the machine that starts it. For capabilities 10 and 20 that machine needs a Docker daemon and nothing else: a Linux shell, Git Bash with Docker Desktop, or WSL with Docker Desktop integration enabled all start the same run. Capabilities 30 to 90 start only on a GitHub-hosted runner, as "Tier 3 runs only on a GitHub-hosted runner" in [../README_E2E.md](../README_E2E.md) describes, and no other virtual machine qualifies for them, a local one, WSL 2 and Docker Desktop alike.
 
 Every container run writes a directory under `e2e/runs/`, which is gitignored, holding `effective-vars.yaml`, `playbook.log`, `verify.log` and `result.txt`. Keep that directory when reporting a failure. The effective variable file is the only record of what the run was actually asked for.
 
