@@ -637,6 +637,25 @@ exit 0
 }
 
 
+Describe 'Get-CommandOutputTail' {
+
+    # On Windows, Out-String and the file Start-Process redirects into end each line with a carriage
+    # return and a line feed. On Linux both end it with a line feed only, so the winget and npm tests
+    # cannot show a carriage return there, and run 39168859916 showed it only on the Windows runner.
+    It 'drops the carriage return Windows ends every line with' {
+        Get-CommandOutputTail -Text "npm error code E404`r`nnpm error 404 Not Found`r`n" |
+            Should -BeExactly 'npm error code E404 npm error 404 Not Found'
+    }
+
+    It 'keeps the last two lines that carry text' {
+        Get-CommandOutputTail -Text "first`nsecond`n   `nthird`n" | Should -BeExactly 'second third'
+    }
+
+    It 'returns an empty string when the program wrote nothing' {
+        Get-CommandOutputTail -Text $null | Should -BeExactly ''
+    }
+}
+
 Describe 'Invoke-PackageManagerRetry, the one retry rule every package manager follows' {
 
     BeforeEach {

@@ -762,6 +762,21 @@ function Test-WindowsPackageSkip {
     return ''
 }
 
+function Get-CommandOutputTail {
+    <#
+    .SYNOPSIS
+        The last two lines a program wrote that carry text, joined by spaces, for a one-line failure reason.
+    .DESCRIPTION
+        Splits on a carriage return and line feed as well as on a line feed alone, because on Windows
+        Out-String and the files Start-Process redirects into end every line with both.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()] [AllowEmptyString()] [string] $Text)
+
+    return (@($Text -split '\r?\n' | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
+}
+
 function Invoke-PackageManagerRetry {
     <#
     .SYNOPSIS
@@ -994,7 +1009,7 @@ function Install-WingetPackage {
             return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
         }
 
-        $tail = (($run.Output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
+        $tail = Get-CommandOutputTail -Text $run.Output
         return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = "exit $($run.ExitCode). $tail" }
     }
 

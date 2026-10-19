@@ -123,7 +123,7 @@ function Install-NpmToolPackage {
             if ($LASTEXITCODE -ne 0) {
                 return [PSCustomObject]@{
                     Display = $DisplayName; Package = $PackageName; Status = 'failed'
-                    Detail  = "npm uninstall -g $ReplacesPackage exited $LASTEXITCODE, so $PackageName was not attempted. $(($removal -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')"
+                    Detail  = "npm uninstall -g $ReplacesPackage exited $LASTEXITCODE, so $PackageName was not attempted. $(Get-CommandOutputTail -Text $removal)"
                 }
             }
             if ($removal -match 'removed \d+ package') {
@@ -142,7 +142,7 @@ function Install-NpmToolPackage {
                 return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
             }
             return [PSCustomObject]@{ Succeeded = $false; Final = $false
-                Failure = "npm exited $installExit. $(($output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')" }
+                Failure = "npm exited $installExit. $(Get-CommandOutputTail -Text $output)" }
         }
         $retry = Invoke-PackageManagerRetry -Package $PackageName -Attempt $installOnce
         if ($retry.Succeeded) {
@@ -159,7 +159,7 @@ function Install-NpmToolPackage {
             if ($LASTEXITCODE -eq 0) {
                 $detail += " $ReplacesPackage had been removed to make room and was installed again, so the earlier $DisplayName is still on this machine."
             } else {
-                $detail += " $ReplacesPackage had been removed to make room and could not be installed again either (npm exited $LASTEXITCODE), so there is no $DisplayName on this machine now. $(($restore -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')"
+                $detail += " $ReplacesPackage had been removed to make room and could not be installed again either (npm exited $LASTEXITCODE), so there is no $DisplayName on this machine now. $(Get-CommandOutputTail -Text $restore)"
             }
         }
         return [PSCustomObject]@{ Display = $DisplayName; Package = $PackageName; Status = 'failed'; Detail = $detail }

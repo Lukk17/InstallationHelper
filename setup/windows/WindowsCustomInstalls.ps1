@@ -1289,7 +1289,7 @@ function Remove-OpenCodeDesktop {
         return 'winget uninstall ran out of time'
     }
     if (Test-OpenCodeDesktopVersion -Path $ProofPath -Version $Version) {
-        $tail = (($run.Output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
+        $tail = Get-CommandOutputTail -Text $run.Output
         return "winget uninstall exited $($run.ExitCode) and OpenCode $Version is still at $ProofPath. $tail"
     }
     return ''
