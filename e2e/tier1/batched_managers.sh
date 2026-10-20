@@ -180,7 +180,10 @@ assert_python_ran "${report_status}" "batched managers"
 # read: a package module (pacman, apt, dnf, package, yum, homebrew, flatpak, snap) given a literal list
 # of more than one name, or a comma-separated name, with no loop, and a command, shell or raw whose
 # install verb (pacman -S, apt-get install, apt install, dnf install, yay -S, paru -S, brew install,
-# flatpak install, snap install) is followed by more than one package. A template counts as one package
+# flatpak install, snap install, and sdkmanager, whose packages follow the command itself) is followed by
+# more than one package. sdkmanager handed platforms, build-tools and platform-tools to one call until
+# 2026-10-20, and one bad Platform-Tools download failed the Pop!_OS KDE configure cell of sweep run
+# 39260381281 with nothing able to say the other two had installed. A template counts as one package
 # only when it names item, so {{ apt_raw_flags }} is not mistaken for one. A removal is not an install.
 #
 # A package module whose name is a template is read too, because a template can build the list the
@@ -218,9 +221,10 @@ MODULES = {'pacman', 'community.general.pacman', 'apt', 'ansible.builtin.apt', '
 SHELLS = {'command', 'ansible.builtin.command', 'shell', 'ansible.builtin.shell', 'raw',
           'ansible.builtin.raw'}
 INSTALL = re.compile(r'(pacman\s+-S[a-z]*|apt-get\s+install|apt\s+install|dnf\s+install|yay\s+-S[a-z]*'
-                     r'|paru\s+-S[a-z]*|brew\s+install|flatpak\s+install|snap\s+install)(?=\s|$)')
+                     r'|paru\s+-S[a-z]*|brew\s+install|flatpak\s+install|snap\s+install|sdkmanager)(?=\s|$)')
 END_OF_COMMAND = re.compile(r'\n|\||&&|;|\d*[<>]|\$\(')
-TOKEN = re.compile(r'"?\{\{.*?\}\}"?|\S+')
+TOKEN = re.compile(r'"?\{\{.*?\}\}"?|"[^"\n]*"|\'[^\'\n]*\'|\S+')
+PURE_TEMPLATE = re.compile(r'^["\']?\{\{.*\}\}["\']?$')
 
 
 def tasks(node):
@@ -242,17 +246,20 @@ def command_batches(text):
     templates = re.findall(r'\{\{.*?\}\}', text)
     for index, template in enumerate(templates):
         text = text.replace(template, '\x00%d\x00' % index, 1)
+    # A semicolon inside quotes is part of an argument, not the end of the command: sdkmanager names
+    # its packages "platforms;android-36" and "build-tools;36.0.0".
+    text = re.sub(r'"[^"\n]*"|\'[^\'\n]*\'', lambda m: m.group(0).replace(';', '\x01'), text)
     found = []
     for match in INSTALL.finditer(text):
         rest = END_OF_COMMAND.split(text[match.end():])[0]
-        rest = re.sub('\x00(\\d+)\x00', lambda m: templates[int(m.group(1))], rest)
+        rest = re.sub('\x00(\\d+)\x00', lambda m: templates[int(m.group(1))], rest).replace('\x01', ';')
         tokens = TOKEN.findall(rest)
         joined = [t for t in tokens if '{{' in t and re.search(r'\|\s*join\b', t)]
         if joined:
             found.append(['the list joined by %s' % joined[0].strip('"')])
             continue
         names = [t for t in tokens
-                 if not t.startswith('-') and ('{{' not in t or 'item' in t)]
+                 if not t.startswith('-') and (not PURE_TEMPLATE.match(t) or 'item' in t)]
         if match.group(1).startswith('flatpak') and len(names) > 1:
             names = names[1:]
         if len(names) > 1:
@@ -315,7 +322,9 @@ for path in sorted(root.rglob('*.yaml')):
                 continue
             lines.append('FAIL %s hands %s to one call, so one unavailable package loses all %d. '
                          'Install them one at a time through setup/ansible/tasks/'
-                         'install_role_packages.yaml.' % (label, ', '.join(names), len(names)))
+                         'install_role_packages.yaml, or for a manager it does not serve, such as '
+                         'sdkmanager, with a loop of one package per call.'
+                         % (label, ', '.join(names), len(names)))
 
 if not read:
     print('FAIL no task was read under %s, so this check proves nothing' % root.as_posix())

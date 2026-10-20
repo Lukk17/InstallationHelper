@@ -142,24 +142,73 @@
 
 # sdkmanager downloads several hundred MB of platforms + build-tools.
 # async+poll dodges the 2.19 ansiballz race on the long-running call.
-- name: Install Android Platform and Build Tools
+# One package per call, so one failed download names its package and loses nothing else. sdkmanager
+# keeps no package index to refresh, so it follows the rule for a manager without one: three retries
+# after the first attempt, twenty seconds apart, through until. until is evaluated on the polled
+# result: measured in python:3.13-slim with ansible-core 2.19.4, 2.20.1, 2.20.7 and 2.21.5, a looped
+# async task with poll 1 and until on rc retried each item and registered the last attempt's rc.
+- name: Install Android Platform and Build Tools, one package per call
   ansible.builtin.shell: |
     set -o pipefail
     export JAVA_HOME="{{ non_root_home }}/.sdkman/candidates/java/current"
     export PATH="$JAVA_HOME/bin:$PATH"
-    {{ ih_timeout }} 1500 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager \
-      "platforms;android-{{ android_api_level }}" \
-      "build-tools;{{ android_build_tools_version }}" \
-      "platform-tools" </dev/null
+    {{ ih_timeout }} 1500 {{ android_home }}/cmdline-tools/latest/bin/sdkmanager {{ item | quote }} </dev/null
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
+  loop:
+    - "platforms;android-{{ android_api_level }}"
+    - "build-tools;{{ android_build_tools_version }}"
+    - "platform-tools"
   register: sdk_install
   async: 1800
   poll: 30
-  changed_when: "'done' in (sdk_install.stdout | default(''))"
-  failed_when:
-    - sdk_install.rc is defined
-    - sdk_install.rc != 0
+  until: sdk_install.rc | default(1) == 0
+  retries: 3
+  delay: 20
+  changed_when:
+    - sdk_install.rc | default(1) == 0
+    - "'done' in (sdk_install.stdout | default(''))"
+  failed_when: false
   when: sdkman_java_stat.stat.exists
+
+- name: Name the Android SDK packages that did not install
+  ansible.builtin.set_fact:
+    sdk_install_failures: >-
+      {{ (sdk_install.results | default([]))
+         | rejectattr('skipped', 'defined')
+         | rejectattr('rc', 'defined')
+         | list
+         + ((sdk_install.results | default([]))
+            | selectattr('rc', 'defined')
+            | rejectattr('rc', 'equalto', 0)
+            | list) }}
+  when: sdkman_java_stat.stat.exists
+
+- name: Report every Android SDK package that did not install, and what sdkmanager said
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] {{ sdk_install_failures | map(attribute='item') | join(', ') }}, from the Android SDK,
+      did not install with sdkmanager after 4 attempts and
+      {{ 'is' if sdk_install_failures | length == 1 else 'are' }} NOT present. Every other SDK package
+      was installed on its own call.
+      {% for entry in sdk_install_failures %}
+      {{ entry.item }}: {{ (((entry.stderr | default('')).splitlines() + (entry.stdout | default('')).splitlines() + ([] if entry.rc is defined else [entry.msg | default('')])) | map('trim') | select | list)[-4:] | join(' ') | truncate(400) }}
+      {% endfor %}
+  when:
+    - sdkman_java_stat.stat.exists
+    - sdk_install_failures | length > 0
+
+- name: Record the Android SDK packages that did not install in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
+    not_installed_with_reason: >-
+      {{ (not_installed_with_reason | default([]))
+         + (sdk_install_failures
+            | map(attribute='item')
+            | map('regex_replace', '$', ' (Android SDK, sdkmanager could not install it in 4 attempts)')
+            | list) }}
+  when:
+    - sdkman_java_stat.stat.exists
+    - sdk_install_failures | length > 0

@@ -1255,6 +1255,7 @@
         flatpak_absent_after_install: >-
           {{ software_installer_batches.flatpak
              | difference(flatpak_installed_query.stdout_lines | default([]))
+             | difference(flatpak_reported_failures | default([]))
              | list }}
       when:
         - ansible_facts['system'] == 'Linux'

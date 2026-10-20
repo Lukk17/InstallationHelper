@@ -19,7 +19,7 @@
 #   1. The rule's own numbers and refreshes in the shared file: retries 3, delay 20, and the refresh
 #      each manager has, none for snap, never an install inside a refresh.
 #   2. Every package install under setup/ansible goes through the shared file, except a manager with no
-#      local index (the AUR helpers, npm, pip and pipx, SDKMAN, nvm), which must retry three times
+#      local index (the AUR helpers, npm, pip and pipx, SDKMAN, nvm, sdkmanager), which must retry three times
 #      twenty seconds apart through until. No caller passes role_packages_retry_delay or
 #      role_packages_log, which exist only for part 3.
 #   3. The shared file run for real against a fake of each manager: a package that installs at once is
@@ -143,7 +143,8 @@ UNINDEXED_COMMAND = {re.compile(r'(?<![\w-])(?:paru|yay)\s+-S'): 'the AUR',
                      re.compile(r'(?<![\w-])pipx\s+install\b'): 'pipx',
                      re.compile(r'(?<![\w-])pip3?\s+install\b'): 'pip',
                      re.compile(r'(?<![\w-])sdk\s+install\b'): 'SDKMAN',
-                     re.compile(r'(?<![\w-])nvm\s+install\b'): 'nvm'}
+                     re.compile(r'(?<![\w-])nvm\s+install\b'): 'nvm',
+                     re.compile(r'(?<![\w-])sdkmanager(?:\.bat)?\s+(?!-)\S'): 'sdkmanager'}
 
 
 def tasks(node, inherited_retry_pair=False):

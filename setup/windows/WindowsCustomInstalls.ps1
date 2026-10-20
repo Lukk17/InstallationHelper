@@ -1024,11 +1024,30 @@ function Install-AndroidSdk {
         "platforms;android-$($Versions['android_api_level'])",
         "build-tools;$($Versions['android_build_tools_version'])",
         'platform-tools')
-    $results.Add((Invoke-InstallStepWithRetry -Package "sdkmanager $($sdkPackages -join ' ')" -Step {
-        Invoke-AndroidSdkManager -Arguments $sdkPackages -Environment $sdkEnv -TimeoutMinutes 30
-    }))
+    foreach ($row in @(Install-AndroidSdkPackageSet -Packages $sdkPackages -Environment $sdkEnv)) {
+        $results.Add($row)
+    }
 
     return $results
+}
+
+function Install-AndroidSdkPackageSet {
+    <#
+    .SYNOPSIS
+        Installs each SDK package on its own sdkmanager call, each under the shared retry rule, and
+        returns one row per package.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string[]] $Packages,
+        [hashtable] $Environment = @{}
+    )
+
+    foreach ($sdkPackage in $Packages) {
+        Invoke-InstallStepWithRetry -Package "sdkmanager $sdkPackage" -Step {
+            Invoke-AndroidSdkManager -Arguments @($sdkPackage) -Environment $Environment -TimeoutMinutes 30
+        }
+    }
 }
 
 function Invoke-AndroidSdkManager {

@@ -3058,6 +3058,51 @@ Describe 'Install-AndroidSdk retries the command line tools download' {
     }
 }
 
+Describe 'Install-AndroidSdkPackageSet runs sdkmanager once per package' {
+
+    # One sdkmanager call for three packages lost all three to one bad Platform-Tools download on
+    # Pop!_OS in sweep run 39260381281, and could not say which package broke.
+    BeforeEach {
+        $global:SdkCalls = [System.Collections.Generic.List[string]]::new()
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        Mock Invoke-AndroidSdkManager {
+            $global:SdkCalls.Add($Arguments -join ' ')
+            if ($Arguments -contains 'platform-tools') {
+                return [PSCustomObject]@{ Key = 'android_sdk'; Package = "sdkmanager $($Arguments -join ' ')"; Status = 'failed'
+                                          Detail = 'exit 1. Warning: An error occurred while preparing SDK package Android SDK Platform-Tools: Error reading Zip content from a SeekableByteChannel.' }
+            }
+            [PSCustomObject]@{ Key = 'android_sdk'; Package = "sdkmanager $($Arguments -join ' ')"; Status = 'installed'; Detail = '' }
+        }
+        $script:SdkPackages = @('platforms;android-36', 'build-tools;36.0.0', 'platform-tools')
+    }
+
+    It 'hands sdkmanager one package per call' {
+        $null = @(Install-AndroidSdkPackageSet -Packages $script:SdkPackages)
+
+        @($global:SdkCalls | Where-Object { $_.Contains(' ') }) | Should -BeNullOrEmpty
+        @($global:SdkCalls | Select-Object -Unique) | Should -Be $script:SdkPackages
+    }
+
+    It 'installs the packages that work when another one never does, and names the one that failed' {
+        $r = @(Install-AndroidSdkPackageSet -Packages $script:SdkPackages)
+
+        $r.Count | Should -Be 3
+        @($r | ForEach-Object Package) | Should -Be @('sdkmanager platforms;android-36', 'sdkmanager build-tools;36.0.0', 'sdkmanager platform-tools')
+        @($r | ForEach-Object Status) | Should -Be @('installed', 'installed', 'failed')
+        $r[2].Detail | Should -BeLike '*(attempt 4 of 4; attempts 1, 2 and 3 said*'
+    }
+
+    It 'retries only the package that failed, four attempts twenty seconds apart' {
+        $null = @(Install-AndroidSdkPackageSet -Packages $script:SdkPackages)
+
+        @($global:SdkCalls | Where-Object { $_ -eq 'platforms;android-36' }).Count | Should -Be 1
+        @($global:SdkCalls | Where-Object { $_ -eq 'build-tools;36.0.0' }).Count | Should -Be 1
+        @($global:SdkCalls | Where-Object { $_ -eq 'platform-tools' }).Count | Should -Be 4
+        Should -Invoke Start-Sleep -Times 3 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+}
+
 Describe 'Install-WslDistribution retries wsl --install' {
 
     # WindowsSettings.ps1 reads its toggles through WindowsSoftware.ps1, which the top-level BeforeAll
