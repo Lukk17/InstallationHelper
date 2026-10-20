@@ -204,7 +204,10 @@ function Invoke-InstallWithRetry {
 function Get-InstallExpression($p) {
     $id = Format-Literal $p.Id
     if ($p.Manager -eq 'choco') {
-        return "Invoke-InstallWithRetry -Package $id -Install { choco install $id -y --no-progress | Out-Host; `$LASTEXITCODE } -Refresh { choco cache remove -y | Out-Host }"
+        # Chocolatey 2 exits 0 with "Chocolatey installed 0/0 packages." when the feed answers 503, so
+        # exit 0 counts only when Chocolatey then lists the package as installed.
+        $listed = Format-Literal ('^' + [regex]::Escape($p.Id) + '\|')
+        return "Invoke-InstallWithRetry -Package $id -Install { choco install $id -y --no-progress | Out-Host; if (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } elseif (@(choco list --local-only --limit-output --exact $id) -match $listed) { 0 } else { Write-Host '    choco exited 0 and does not list the package as installed'; 1 } } -Refresh { choco cache remove -y | Out-Host }"
     }
     $arguments = (Get-WingetArgument $p | ForEach-Object { Format-Literal $_ }) -join ' '
     $source = Format-Literal $(if ($p['Source']) { $p['Source'] } else { 'winget' })

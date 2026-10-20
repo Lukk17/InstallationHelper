@@ -758,12 +758,23 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
                 $global:LASTEXITCODE = $global:ChocoStubCacheExit
                 return 'removed 3 cached items'
             }
+            if ($args[0] -eq 'list') {
+                $global:LASTEXITCODE = 0
+                if ($global:ChocoStubInstalled -contains $args[-1]) { return "$($args[-1])|1.0.0" }
+                return
+            }
             if ($global:ChocoStubFailuresLeft -gt 0) {
                 $global:ChocoStubFailuresLeft--
                 $global:LASTEXITCODE = 1
                 return 'The remote file either does not exist, is unauthorized, or is forbidden for url'
             }
             $global:LASTEXITCODE = 0
+            # What Chocolatey 2 prints, and the exit code it gives, when the feed answers 503.
+            if ($global:ChocoStubSilentLeft -gt 0) {
+                $global:ChocoStubSilentLeft--
+                return @('Installing the following packages:', $args[1], 'Chocolatey installed 0/0 packages.')
+            }
+            $global:ChocoStubInstalled.Add($args[1])
             return 'The install of thing was successful.'
         }
     }
@@ -774,7 +785,9 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
 
     BeforeEach {
         $global:ChocoStubCalls = [System.Collections.Generic.List[string]]::new()
+        $global:ChocoStubInstalled = [System.Collections.Generic.List[string]]::new()
         $global:ChocoStubFailuresLeft = 0
+        $global:ChocoStubSilentLeft = 0
         $global:ChocoStubCacheExit = 0
         Mock Start-Sleep { }
         Mock Write-Host { }
@@ -785,7 +798,8 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
 
         $r.Status | Should -Be 'installed'
         $r.Attempts | Should -Be 1
-        @($global:ChocoStubCalls) | Should -Be @('install thing -y --no-progress --limit-output --execution-timeout=600')
+        @($global:ChocoStubCalls) | Should -Be @('install thing -y --no-progress --limit-output --execution-timeout=600'
+                                                 'list --local-only --limit-output --exact thing')
     }
 
     It 'empties the HTTP cache before the retry' {
@@ -795,7 +809,7 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
 
         $r.Status | Should -Be 'installed'
         $r.Detail | Should -BeLike 'installed on attempt 2 of 4, after attempt 1 said choco exited 1.*'
-        @($global:ChocoStubCalls | ForEach-Object { ($_ -split ' ')[0] }) | Should -Be @('install', 'cache', 'install')
+        @($global:ChocoStubCalls | ForEach-Object { ($_ -split ' ')[0] }) | Should -Be @('install', 'cache', 'install', 'list')
         $global:ChocoStubCalls[1] | Should -Be 'cache remove -y --limit-output'
     }
 
@@ -823,6 +837,30 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
         $r.Status | Should -Be 'installed'
         $r.Detail | Should -BeLike '*The refresh before a retry failed: choco cache remove exited 1*'
     }
+
+    It 'retries, after emptying the cache, a package Chocolatey exits 0 for without installing it' {
+        $global:ChocoStubSilentLeft = 1
+
+        $r = Install-ChocolateyPackage -PackageId 'thing'
+
+        $r.Status | Should -Be 'installed'
+        $r.Attempts | Should -Be 2
+        $r.Detail | Should -Be 'installed on attempt 2 of 4, after attempt 1 said choco exited 0 and does not list thing as installed. Chocolatey installed 0/0 packages.'
+        @($global:ChocoStubCalls | ForEach-Object { ($_ -split ' ')[0] }) | Should -Be @('install', 'list', 'cache', 'install', 'list')
+    }
+
+    It 'names a package Chocolatey exits 0 for on every attempt without installing it as failed' {
+        $global:ChocoStubSilentLeft = 99
+
+        $r = Install-ChocolateyPackage -PackageId 'thing'
+
+        $r.Status | Should -Be 'failed'
+        $r.Attempts | Should -Be 4
+        $r.ExitCode | Should -Be 0
+        $r.Detail | Should -BeLike 'choco exited 0 and does not list thing as installed. Chocolatey installed 0/0 packages. (attempt 4 of 4; attempts 1, 2 and 3 said*'
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'install *' }).Count | Should -Be 4
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'cache *' }).Count | Should -Be 3
+    }
 }
 
 Describe 'Install-ChocolateyPackageBatch runs the shared rule in its elevated child' {
@@ -840,8 +878,10 @@ function Start-Sleep { }
 function choco {
     Add-Content -LiteralPath $logLiteral -Value (`$args -join ' ')
     if (`$args[0] -eq 'cache') { `$global:LASTEXITCODE = 0; return }
+    if (`$args[0] -eq 'list') { `$global:LASTEXITCODE = 0; if (`$args[-1] -eq 'good-pkg') { return 'good-pkg|1.0.0' }; return }
     if (`$args[1] -eq 'broken-pkg') { `$global:LASTEXITCODE = 42; return 'ERROR: Running installer failed' }
     `$global:LASTEXITCODE = 0
+    if (`$args[1] -eq 'silent-pkg') { return 'Chocolatey installed 0/0 packages.' }
 }
 "@
             $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($prelude + "`n" + $Script))
@@ -864,6 +904,18 @@ function choco {
         @($calls | Where-Object { $_ -like 'install broken-pkg *' }).Count | Should -Be 4
         @($calls | Where-Object { $_ -like 'install good-pkg *' }).Count | Should -Be 1
         @($calls | Where-Object { $_ -like 'cache remove*' }).Count | Should -Be 3
+    }
+
+    It 'fails the session when Chocolatey exits 0 for a package it never installs' {
+        $batch = Install-ChocolateyPackageBatch -PackageId @('good-pkg', 'silent-pkg')
+
+        $batch.Status | Should -Be 'failed' -Because 'a package that is not installed must not leave the child exiting 0'
+        $batch.Packages['good-pkg'].Status | Should -Be 'installed'
+        $batch.Packages['silent-pkg'].Status | Should -Be 'failed'
+        $batch.Packages['silent-pkg'].Attempts | Should -Be 4
+        $batch.Packages['silent-pkg'].Detail | Should -BeLike 'choco exited 0 and does not list silent-pkg as installed. Chocolatey installed 0/0 packages. (attempt 4 of 4;*'
+        $calls = @(Get-Content -LiteralPath $global:ChildCallLog)
+        @($calls | Where-Object { $_ -like 'install silent-pkg *' }).Count | Should -Be 4
     }
 
     It 'names the failing package with its own attempts in the software phase result' {
@@ -3274,13 +3326,15 @@ Describe 'docs/manual/windows/install.ps1 follows the same retry rule' {
         $script:ManagerStubs = @'
 $global:ManualCalls = [System.Collections.Generic.List[string]]::new()
 function winget { $global:ManualCalls.Add("winget $($args -join ' ')"); if ($args[0] -eq 'source') { $global:LASTEXITCODE = 0; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'Installer failed' }; $global:LASTEXITCODE = 0 }
-function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[0] -eq 'cache') { $global:LASTEXITCODE = 0; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'The remote file either does not exist' }; $global:LASTEXITCODE = 0 }
+function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[0] -eq 'cache') { $global:LASTEXITCODE = 0; return }; if ($args[0] -eq 'list') { $global:LASTEXITCODE = 0; if ($global:ManualInstalled -contains $args[-1]) { return "$($args[-1])|1.0.0" }; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'The remote file either does not exist' }; $global:LASTEXITCODE = 0; if ($global:ManualSilent -gt 0) { $global:ManualSilent--; return 'Chocolatey installed 0/0 packages.' }; $global:ManualInstalled += @($args[1]) }
 '@
     }
 
     BeforeEach {
         . ([scriptblock]::Create($script:ManagerStubs))
         $global:ManualFailures = 0
+        $global:ManualSilent = 0
+        $global:ManualInstalled = @()
         Mock Start-Sleep { $global:ManualCalls.Add("wait $Seconds") }
         Mock Write-Host { }
     }
@@ -3321,7 +3375,22 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'maven' })))
 
         $code | Should -Be 0
-        @($global:ManualCalls) | Should -Be @('choco install maven -y --no-progress', 'wait 20', 'choco cache remove -y', 'choco install maven -y --no-progress')
+        @($global:ManualCalls) | Should -Be @('choco install maven -y --no-progress', 'wait 20', 'choco cache remove -y', 'choco install maven -y --no-progress', 'choco list --local-only --limit-output --exact maven')
+    }
+
+    It 'retries a Chocolatey package that exits 0 without being installed, and fails it when that never changes' {
+        $global:ManualSilent = 1
+
+        $retried = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'hwinfo.install' })))
+
+        $retried | Should -Be 0
+        @($global:ManualCalls) | Should -Be @('choco install hwinfo.install -y --no-progress', 'choco list --local-only --limit-output --exact hwinfo.install', 'wait 20', 'choco cache remove -y', 'choco install hwinfo.install -y --no-progress', 'choco list --local-only --limit-output --exact hwinfo.install')
+
+        $global:ManualSilent = 99
+        $never = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'dart-sdk' })))
+
+        $never | Should -Be 1
+        @($global:ManualCalls | Where-Object { $_ -eq 'choco install dart-sdk -y --no-progress' }).Count | Should -Be 4
     }
 
     It 'names a package that fails every one of its four attempts and returns its exit code' {

@@ -1063,7 +1063,15 @@ function Install-ChocolateyPackage {
             foreach ($line in $lines) { Write-Host $line }
             Write-Host "      choco exited $code for $PackageId"
             if ($code -eq 0) {
-                return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = ''; ExitCode = 0 }
+                # Chocolatey 2 exits 0 with "Chocolatey installed 0/0 packages." when the feed answers
+                # 503, so exit 0 counts only when Chocolatey then lists the package as installed.
+                $listed = @(& choco list --local-only --limit-output --exact $PackageId 2>&1 | ForEach-Object { "$_" })
+                if (@($listed | Where-Object { $_ -match ('^' + [regex]::Escape($PackageId) + '\|') }).Count -gt 0) {
+                    return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = ''; ExitCode = 0 }
+                }
+                $said = ($lines | Where-Object { $_.Trim() } | Select-Object -Last 1)
+                return [PSCustomObject]@{ Succeeded = $false; Final = $false; ExitCode = 0
+                                          Failure = "choco exited 0 and does not list $PackageId as installed. $said".Trim() }
             }
             $tail = (($lines | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
             return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = "choco exited $code. $tail"; ExitCode = $code }
@@ -1084,7 +1092,7 @@ function Install-ChocolateyPackage {
     return [PSCustomObject]@{
         Package  = $PackageId
         Status   = $(if ($retry.Succeeded) { 'installed' } else { 'failed' })
-        ExitCode = [int]$retry.Outcome.ExitCode
+        ExitCode = $retry.Outcome.ExitCode
         Attempts = $retry.Attempts
         Detail   = $retry.Detail
     }
@@ -1164,7 +1172,7 @@ if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
 foreach (`$package in @($packageLiterals)) {
     `$result = Install-ChocolateyPackage -PackageId `$package
     `$results.Add(`$result)
-    if (`$result.Status -ne 'installed') { `$worst = `$result.ExitCode }
+    if (`$result.Status -ne 'installed') { `$worst = if (`$result.ExitCode) { `$result.ExitCode } else { 1 } }
 }
 ConvertTo-Json -InputObject @(`$results) -Depth 3 | Set-Content -LiteralPath $(ConvertTo-PowerShellLiteral -Value $resultFile) -Encoding utf8
 Stop-Transcript | Out-Null
