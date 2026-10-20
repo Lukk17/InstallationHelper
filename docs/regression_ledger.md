@@ -6754,3 +6754,55 @@ How it was proven: e2e/tier1/host_container_privileges.sh, widened as below, was
 Fix: wizard_root_refusal.sh starts the wizard as uid 0 through passwordless sudo and nothing else, and reports SKIP without it. Its assertions are unchanged. e2e/tier1/host_container_privileges.sh now also fails on `unshare` or `nsenter` on any line under `e2e/` outside a comment and outside the check itself, e2e/tier3/container.sh included. e2e/README_E2E.md and capability 45 and 66 of e2e/testing/10-wizard-toggle-parse-test.md say so.
 
 Mechanical check: e2e/tier1/host_container_privileges.sh, whose planted tree now carries a bare `unshare -r`, a bare `nsenter`, one in a markdown fenced block and one in a planted container.sh, beside a commented one and the word unshared that it must not name, 19 findings in all. A command typed by hand in a session, such as the `bash -n` run, is not under `e2e/`, so for that the rule is the guard.
+
+### Found by GitHub sweep run 39260381281, 2026-10-20
+
+#### 10.150 sdkmanager installed three SDK packages in one call with no retry
+
+Cause: setup/ansible/roles/sdk_manager/tasks/android_sdk_unix.yaml handed `platforms;android-<level>`, `build-tools;<version>` and `platform-tools` to one sdkmanager call with no `until`. setup/windows/WindowsCustomInstalls.ps1 handed the same three to one call inside its retry. e2e/tier1/batched_managers.sh did not read sdkmanager as an install, and its tokenizer cut `"platforms;android-36"` at the quoted semicolon, so it could not have named the batch even if it had.
+
+Effect: the Pop!_OS KDE configure cell failed with `Warning: An error occurred while preparing SDK package Android SDK Platform-Tools: Error reading Zip content from a SeekableByteChannel.` on the only attempt, and nothing could say whether the other two packages had installed. The same file downloaded later in a plain python:3.14-slim container was 9054187 bytes and `testzip` found no bad member, so the bad download itself was a one-off. The defect is that one bad download had no second attempt and took two other packages with it.
+
+How it was proven: ansible-core 2.21.5 `task_executor.py` polls the async job inside the attempt loop before `until` is checked. In python:3.13-slim, a looped async task with `until` on `rc` retried each item on its own on ansible-core 2.19.4, 2.20.1, 2.20.7 and 2.21.5. The real task file run against a fake sdkmanager called each package on its own, retried the failing one and named it.
+
+Fix: one sdkmanager call per package in android_sdk_unix.yaml, `retries: 3` and `delay: 20` through `until`, and every package still missing after four attempts goes into `not_installed_with_reason` and sets `any_role_failed`, with what sdkmanager said in the `[ERROR]` line. On Windows, `Install-AndroidSdkPackageSet` in setup/windows/WindowsCustomInstalls.ps1 runs each package through `Invoke-InstallStepWithRetry` on its own.
+
+Mechanical check: e2e/tier1/batched_managers.sh now reads sdkmanager as an install and keeps a quoted semicolon inside its argument. It failed at HEAD naming the task. e2e/tier1/package_retry_rule.sh now lists sdkmanager among the managers with no index, which must retry three times twenty seconds apart, and it failed on a copy without `until`. The Pester block `Install-AndroidSdkPackageSet runs sdkmanager once per package` in e2e/tier1/windows/WindowsSoftware.Tests.ps1 failed 3 of 3 against a copy that batched.
+
+#### 10.151 Chocolatey exit 0 without installing anything counted as success
+
+Cause: `Install-ChocolateyPackage` in setup/windows/WindowsSoftware.ps1 treated `choco install` exit 0 as success, and Chocolatey 2 exits 0 with `Chocolatey installed 0/0 packages.` when the feed answers 503. Behind it, `[int]$retry.Outcome.ExitCode` turned a missing exit code into 0, so the elevated child exited with that 0 for a failed package. docs/manual/windows/install.ps1 trusted exit 0 the same way. This is defect classes 8 and 15 again: trusting what a tool reports instead of what it did.
+
+Effect: in the Windows all apps job, `Failed to fetch results from V2 feed at 'https://community.chocolatey.org/api/v2/Packages(Id='dart-sdk',Version='3.13.5')' ... 503 (Service Unavailable).` was followed by `Chocolatey installed 0/0 packages.` and `choco exited 0 for dart-sdk`. dart-sdk, filezilla, glasswire, hwinfo.install and razer-synapse-4 were missing at the end, and none of them was retried. The exact URL from that line answered `200 5559 0.21s` afterwards, so the 503 was temporary and the defect is in our trust of the exit code, not in the feed.
+
+How it was proven: Pester fakes that print `Chocolatey installed 0/0 packages.` and exit 0. Ten new or changed cases in e2e/tier1/windows/WindowsSoftware.Tests.ps1 failed against the old code and pass against the fix.
+
+Fix: exit 0 counts only when `choco list --local-only --limit-output --exact <id>` names the package. Otherwise the attempt fails with `choco exited 0 and does not list <id> as installed` and the last line Chocolatey printed, and the shared retry with its cache refresh runs. The `[int]` cast is gone, the elevated child exits 1 for a failed package whose code is 0 or missing, and docs/manual/windows/install.ps1 applies the same test.
+
+Not proven yet: whether Chocolatey 2 accepts `--local-only` was not measured here. The next Windows run of a sweep shows it, and a refusal there would show as every Chocolatey package failing with `does not list <id> as installed`.
+
+Mechanical check: the Pester cases above, in the `Install-ChocolateyPackage`, `Install-ChocolateyPackageBatch` and `docs/manual/windows/install.ps1 follows the same retry rule` blocks.
+
+#### 10.152 The Flatpak "reported success" warning named applications whose install had failed
+
+Cause: `flatpak_absent_after_install` in setup/ansible/roles/software_installer/tasks/dynamic_install.yaml took every requested application flatpak does not list and did not remove `flatpak_reported_failures`.
+
+Effect: `[WARN] Flatpak reported success and does not list these applications` named applications that a few lines earlier had already been reported failed after four attempts, which sends the reader to check a mapping that is not wrong.
+
+How it was proven: the three shipped tasks, lifted out of dynamic_install.yaml unchanged and run against a fixture, gave `absent=org.example.FailedLoudly,org.example.Silent` at HEAD and `absent=org.example.Silent` with the fix.
+
+Fix: `| difference(flatpak_reported_failures | default([]))` in the same expression. Every kind of Flatpak failure, which decides `any_role_failed`, still holds both kinds.
+
+Mechanical check: e2e/tier1/flatpak_absent_warning.sh, capability 67 in e2e/testing/10-wizard-toggle-parse-test.md, which lifts the same three tasks by name and fails when the warning names a reported failure or when a silent loss is no longer counted as failed.
+
+#### 10.153 An agent inspected the owner's computer while diagnosing the sweep
+
+Cause: introduced by an agent. On 2026-10-20 the agent diagnosing sweep 39260381281 ran `ls /sys/kernel/security 2>/dev/null | head -0` on the owner's computer, appended to a grep, to understand the Pop!_OS GNOME firefox snap failure.
+
+Effect: it printed nothing and changed nothing. Rule 4 of the section "MANDATORY: never run anything on the owner's computer for testing" in AGENTS.md forbids any inspection of the owner's computer, a read-only one included, so it broke the owner's rule all the same. It is the same shape as 10.124 and as the `bash -n` run in 10.149.
+
+How it was proven: by the command in the diagnosing agent's own session, not by a measurement.
+
+Fix: every subagent brief now names `ls`, `cat`, `grep` and any read of /sys, /proc and /etc on the host as forbidden, beside the rule that only git, file edits inside the repository and `bash e2e/run.sh` run there.
+
+Mechanical check: none. A command typed by hand in a session is not under `e2e/`, so for that the rule and the brief are the guard.
