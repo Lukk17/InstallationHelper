@@ -6806,3 +6806,75 @@ How it was proven: by the command in the diagnosing agent's own session, not by 
 Fix: every subagent brief now names `ls`, `cat`, `grep` and any read of /sys, /proc and /etc on the host as forbidden, beside the rule that only git, file edits inside the repository and `bash e2e/run.sh` run there.
 
 Mechanical check: none. A command typed by hand in a session is not under `e2e/`, so for that the rule and the brief are the guard.
+
+### Introduced in commit 9355aa4 and found by GitHub sweep run 39260381281, 2026-10-22
+
+#### 10.154 A read-only /proc/sys in tier 3 failed every Flatpak that applies extra data
+
+Cause: introduced by an agent in commit 9355aa4, which started every tier 3 scenario container under `--entrypoint /bin/sh`, made `/proc/sys` read-only apart from `/proc/sys/net` before systemd, and made e2e/tier3/host_state.sh fail the run when `/proc/self/mountinfo` did not show it read-only. bubblewrap opens `/proc/sys/user/max_user_namespaces` for writing inside its own user namespace whenever flatpak passes it `--disable-userns`, which it does to run an application's extra data script, so that open failed.
+
+Effect: `bwrap: cannot open /proc/sys/user/max_user_namespaces: Read-only file system`, followed by `Error: Failed to install com.usebruno.Bruno: While trying to apply extra data: apply_extra script failed, exit status 256`, in the package log of every cell that installs these applications on all six distributions of GitHub sweep run 39260381281. Bruno, Postman, Slack, Spotify and Zoom were NOT installed. openh264 failed the same way but only as `Warning: Failed to install org.freedesktop.Platform.openh264`.
+
+How it was proven: GitHub sweep run 39231000107, the last one before 9355aa4, installed com.usebruno.Bruno on all six live-profile cells, Arch, CachyOS, Debian, Fedora, Pop!_OS and Ubuntu, with no bwrap line in any of them. The bubblewrap source (containers/bubblewrap, bubblewrap.c) opens `sys/user/max_user_namespaces` with `O_WRONLY` under `opt_disable_userns` and dies with exactly `cannot open /proc/sys/user/max_user_namespaces`, and flatpak's common/flatpak-run.c adds `--disable-userns`.
+
+Wrong turn kept: the `lseek error in child setup` lines next to each bwrap line looked like part of the failure. They are noise: they appear in 2 of the 6 passing live-profile cells of sweep 39231000107 too, beside a Bruno that installed.
+
+Fix: owner decision 86. e2e/tier3/container.sh starts the container under the image's own CMD again, with no `PROC_SYS_READ_ONLY_ENTRY`, and host_state.sh no longer guards `/proc/sys`. A kernel setting or a loaded module that differs from the boot record is now reported in result.txt under a second `host_isolation:` line as information only, through `host_isolation_information`, and does not fail the run, because tier 3 runs only on a GitHub-hosted runner that is thrown away and those settings are the distribution's own defaults a real install applies too. A guard breach, binfmt_misc mounted included, a changed swap area and a missing record still fail it through `host_isolation_findings`. container.sh, e2e/README_E2E.md and the tier 3 paragraph of AGENTS.md now say plainly that the containers are privileged and change the kernel of the machine running them, which is why tier 3 refuses anywhere but a GitHub-hosted runner and must never run on the owner's computer.
+
+Mechanical check: e2e/tier1/container_isolation.sh, capability 62 in e2e/testing/10-wizard-toggle-parse-test.md, now fails when the read-only sequence, an `--entrypoint` or the mountinfo guard comes back, and drives `host_isolation_findings` and `host_isolation_information` over fixture records to require a changed sysctl or module to be information and a breach or changed swap area to be a finding. Against a copy of the tree at 674e8b0 carrying only the new check it failed 2 of 10, and against a copy of the finished tree with the mountinfo guard back and `host_isolation_findings` failing on every difference it failed exactly those 2 of 15. It is the check that let 9355aa4 through, because it required the read-only sequence, and no tier 1 check can run a Flatpak's extra data script.
+
+### Found by GitHub sweep run 39260381281, 2026-10-22
+
+#### 10.155 10.148 put iptables-nft in the wrong lists, and tailscale pulled iptables-legacy first
+
+Cause: 10.148 put iptables-nft first in `companion_packages.virt_manager` and `companion_packages.docker` in setup/ansible/vars/RedHat.yaml. The first package of the Fedora run that needs iptables is tailscale from tailscale-stable, which the software set installs long before virtualization_config reaches either list, so dnf answered it with iptables-legacy.
+
+Effect: in the defaults-fedora artefact, installation-packages.log lines 3000 to 3006 show tailscale 1.104.1 installed with iptables-legacy, iptables-legacy-libs and iptables-libs as dependencies, and iptables-nft came only at line 5478. Six Fedora cells, defaults, all-software, forced-failure, gnome-full, idempotency and kde-configure-only, each reported 10 module findings, ip6_tables, ip6table_filter, ip6table_nat, iptable_filter and iptable_nat after the first pass and again at collection. kde-full and live-profile installed no iptables-legacy and reported 0.
+
+How it was proven: in plain fedora:44 containers on 2026-10-22, one package per call. Installing tailscale from the Tailscale repository alone installed iptables-legacy and put the iptables alternative on /usr/bin/xtables-legacy-multi. Installing iptables-nft first, then tailscale, then qemu-kvm, libvirt, virt-install, bridge-utils, virtiofsd and virt-manager, then docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin and docker-compose-plugin from download.docker.com, left iptables-legacy not installed and the alternative on /usr/bin/xtables-nft-multi.
+
+Wrong turn kept: 10.148 measured only the libvirt and Docker sets in isolation and concluded the two lists were the place. The measurement was right about those two sets and wrong about the run, where an earlier package decides first.
+
+Fix: owner decision 87. iptables-nft is first in `companion_packages.system_core` in vars/RedHat.yaml, which system_core/tasks/base_utils.yaml installs before the software set, and is gone from the virt_manager and docker lists, so it lives in one place. docs/manual/fedora/install.sh and docs/manual/fedora/fedora_manual_install.md install it first among the prerequisites and no longer in the KVM and Docker lists, and e2e/tier1/manual_linux_install_allowed.txt names it, because system_core's list has no mapping beside it.
+
+Mechanical check: none for the order. e2e/tier2 resolves the name, and e2e/tier1/manual_linux_install.sh holds the manual pages to the lists: against a copy of the finished tree without the iptables-nft line in manual_linux_install_allowed.txt it failed 2 of 22, naming iptables-nft in docs/manual/fedora/install.sh and in fedora_manual_install.md. On a GitHub-hosted runner the legacy modules now show only under the information `host_isolation:` line of result.txt, by owner decision 86, so a Fedora cell that lists ip6_tables or iptable_nat there is the sign this came back.
+
+#### 10.156 Pop!_OS GNOME installed ubuntu-desktop, and its firefox snap failed
+
+Cause: `lineage_companion_packages.ubuntu.gnome` in setup/ansible/vars/Debian.yaml is `ubuntu-desktop` for all of Ubuntu lineage, so Pop!_OS, ID `pop`, gets Ubuntu's desktop metapackage instead of its own.
+
+Effect: in the gnome-full-popos cell, `ubuntu-desktop: new firefox package preinst maintainer script subprocess failed with exit status 1`, after the snap install hook said `aa_is_enabled() failed unexpectedly (No such file or directory)`, then `FAIL native packages missing: ubuntu-desktop` from the verification, playbook_rc 2 and verify_rc 2. On a real Pop!_OS machine it would also lay Ubuntu's desktop over Pop!_OS's own. The gnome-full-ubuntu cell of the same sweep shows no `aa_is_enabled` line.
+
+How it was proven: the artefact lines above. The fix was measured and stopped there: e2e/tier3/popos.Dockerfile is installationhelper-e2e-ubuntu with Pop!_OS's os-release and lsb-release written over it and adds no System76 repository, and in that image on 2026-10-22 `apt-get update` read only archive.ubuntu.com and security.ubuntu.com, `apt-cache policy pop-desktop pop-default-settings pop-session pop-gnome-initial-setup` printed nothing, and `apt-cache search --names-only '^pop-'` found only pop-icon-theme from Ubuntu's own archive.
+
+Fix: none yet. Owner decision 88 asked for a Pop!_OS GNOME list based on Pop!_OS's own desktop package, found by querying the harness image, and to stop rather than guess when the image cannot show it. It cannot, so the package names need a source that carries System76's archive, which the owner decides.
+
+Mechanical check: none yet. The gnome-full-popos cell of the sweep is what shows it.
+
+### Found by the tier 2 gate, 2026-10-22
+
+#### 10.157 The pinned location check called a slow PowerShell Gallery package gone after a HEAD 404
+
+Cause: `probe_once` in e2e/tier2/resolve_pinned_urls.sh counted a 404 from the HEAD request as gone, and when the ranged GET that follows it then timed out, it reported the pin gone without retrying. Its own comment said a 404 is seen twice before the check fails a build on it, which the code did not do.
+
+Effect: the tier 2 gate of 2026-10-22 failed with `1 of 37 pinned download locations are gone`, `gate_pester_url: HEAD answered HTTP 404 and a ranged GET timed out with no answer (curl 28): https://www.powershellgallery.com/api/v2/package/Pester/5.9.1`.
+
+How it was proven: that exact URL, asked from a plain fedora:44 container three times, answered HEAD with 404 in about 0.2 seconds each time and a one-byte ranged GET with 206 after 5.6, 16.1 and 29.0 seconds. Asked hop by hop, the gallery's own 302 took 13.5 to 28.8 seconds and https://cdn.powershellgallery.com/packages/pester.5.9.1.nupkg answered 206 in 0.1 to 0.25 seconds. The package is there and the gallery is slow, against the check's 20 second limit per request.
+
+Fix: only the ranged GET's 404 or 410 counts as gone. A HEAD 404 beside a GET with no answer is unresolved, which is asked again and then reported as a skip that names the host, the same as any location nothing could reach.
+
+Mechanical check: none that is deterministic. The tier 2 run after the fix is the evidence, and the old failure above is what the old rule did with the same URL.
+
+### Introduced while applying owner decisions 86 to 88, 2026-10-22
+
+#### 10.158 A rewrite of container_isolation.sh left half of the old test block behind, and the check still reported all passed
+
+Cause: introduced by an agent. A scripted replacement of the function test section in e2e/tier1/container_isolation.sh ended at the first `finish "container isolation"` after the section start, which was the early exit inside the old `if` block, so the old block's closing `fi` and its records tests stayed below the new section.
+
+Effect: `./e2e/tier1/container_isolation.sh: line 294: syntax error near unexpected token 'fi'` from the shell syntax check and SC1089 from ShellCheck, while the check itself printed `container isolation: 15 checks, all passed`, because bash runs a script line by line and the new final `finish` exited before it reached the broken line.
+
+How it was proven: the tier 1 gate on 2026-10-22, before any commit, which exited 1 on `shell syntax: 6 checks, 2 FAILED`.
+
+Fix: the leftover lines were removed before the commit. Nothing shipped with it.
+
+Mechanical check: e2e/tier1/shell_syntax.sh, which caught it. A check's own pass count is not proof that the whole file parses.
