@@ -15,6 +15,9 @@ Archlinux  flatpak          roles/system_core/tasks/base_utils.yaml             
 Debian     flatpak          roles/system_core/tasks/base_utils.yaml                the Flatpak runtime the flatpak mappings need
 RedHat     flatpak          roles/system_core/tasks/base_utils.yaml                the Flatpak runtime the flatpak mappings need
 
+# Installed first by system_core on Fedora, owner decision 87, so dnf never answers a later package's iptables with iptables-legacy.
+RedHat     iptables-nft     vars/RedHat.yaml                                       the nftables iptables system_core installs before tailscale, the KVM stack and Docker
+
 # What the manual route needs to add repositories, which the playbook does with its own modules.
 Debian     ca-certificates  roles/debian_core/tasks/main.yaml                      needed to fetch the third-party apt repository keys
 Debian     curl             roles/debian_core/tasks/main.yaml                      the scripts download keys and vendor files with it

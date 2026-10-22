@@ -228,16 +228,16 @@ software_mapping:
 # lines one at a time.
 companion_packages:
   openrazer: ["kernel-devel", "kernel-headers"]   # what the OpenRazer DKMS module builds against, installed by software_installer/tasks/fedora_repos.yaml
-  # iptables-nft first in both lists, owner decision 85, because otherwise dnf answers the iptables these packages need with iptables-legacy, whose tables load ip6_tables, iptable_filter and iptable_nat into the host kernel. Measured in fedora:44 on 2026-10-19: in the committed order both sets left iptables-legacy installed and the iptables alternative on xtables-legacy-multi, with iptables-nft first iptables-legacy was absent and the alternative was xtables-nft-multi.
-  virt_manager: ["iptables-nft", "qemu-kvm", "libvirt", "virt-install", "bridge-utils", "virtiofsd"]
-  docker: ["iptables-nft", "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]   # from download.docker.com, which fedora_repos.yaml adds, installed by virtualization_config
+  virt_manager: ["qemu-kvm", "libvirt", "virt-install", "bridge-utils", "virtiofsd"]
+  docker: ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]   # from download.docker.com, which fedora_repos.yaml adds, installed by virtualization_config
   waydroid: ["waydroid"]   # installed by the waydroid role
   snapper: ["snapper"]   # installed by the snapper role on a btrfs root only, which setup/ansible/tasks/snapper_applicability.yaml decides
   snapd: ["snapd"]   # installed by fedora_core
   # What pyenv builds Python against, installed by sdk_manager/tasks/pyenv_unix.yaml. zlib-ng-compat-devel, because Fedora 44 moved to zlib-ng and has no zlib-devel, confirmed with dnf info.
   python: ["gcc", "make", "patch", "zlib-ng-compat-devel", "bzip2-devel", "readline-devel", "sqlite-devel", "openssl-devel", "tk-devel", "libffi-devel", "xz-devel", "curl"]
   setup_zsh: ["zsh", "curl", "git"]   # the shell, and what Oh-My-Zsh is fetched and cloned with, installed by shell_zsh
-  system_core: ["flatpak", "unzip", "zip", "patch", "git", "glibc-langpack-pl"]   # installed by system_core/tasks/base_utils.yaml
+  # iptables-nft first, owner decisions 85 and 87, because otherwise dnf answers the iptables a later package needs with iptables-legacy, whose tables load ip6_tables, iptable_filter and iptable_nat into the kernel. system_core installs this list before the software set, and tailscale from tailscale-stable is the first package that needs iptables, before the KVM stack and Docker. Measured in plain fedora:44 containers on 2026-10-22: tailscale alone installed iptables-legacy and put the iptables alternative on xtables-legacy-multi, with iptables-nft installed first tailscale, the KVM stack and Docker left iptables-legacy absent and the alternative on xtables-nft-multi.
+  system_core: ["iptables-nft", "flatpak", "unzip", "zip", "patch", "git", "glibc-langpack-pl"]   # installed by system_core/tasks/base_utils.yaml
   kde_plasma: ["@kde-desktop", "sddm"]   # installed by kde_plasma_setup/tasks/install_kde.yaml. @kde-desktop is the dnf group id, display name "KDE" on Fedora 44, which the verification finds among the groups dnf records as installed. sddm is not in the group, checked with dnf group info on fedora:44
   # The applet-window-buttons build dependencies, installed by kde_plasma_setup/tasks/configure_kde.yaml.
   configure_kde_plasma: ["gcc-c++", "extra-cmake-modules", "qt6-qtbase-devel", "qt6-qtdeclarative-devel", "kf6-kcoreaddons-devel", "kf6-kdeclarative-devel", "kf6-kpackage-devel", "kf6-ksvg-devel", "kf6-ki18n-devel", "kf6-kservice-devel", "kf6-kconfigwidgets-devel", "kf6-kcmutils-devel", "libplasma-devel", "kdecoration-devel", "gettext", "cmake"]

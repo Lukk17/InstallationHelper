@@ -122,7 +122,7 @@ OPENRAZER_REPO="$(pinned_value openrazer_fedora_repo_url)"
 DNF_PACKAGES=(
   git maven openssl filezilla keepassxc vlc rawtherapee speedtest-cli
   boinc-client lynis chkrootkit clamav hardinfo2 lm_sensors baobab gparted
-  kde-partitionmanager iptables-nft qemu-kvm libvirt virt-manager virt-install
+  kde-partitionmanager qemu-kvm libvirt virt-manager virt-install
   bridge-utils virtiofsd zsh helm gh jq fzf ripgrep uv pipx golang syncthing putty rclone
   qastools
 )
@@ -142,8 +142,10 @@ FLATPAK_APPS=(
   net.lutris.Lutris com.overwolf.curseforge io.podman_desktop.PodmanDesktop
 )
 
+# iptables-nft before anything else, as system_core installs it, so dnf never answers the iptables
+# tailscale, the KVM stack or Docker needs with iptables-legacy, which loads the legacy iptables modules.
 log "Installing prerequisites"
-for prerequisite in dnf5-plugins curl flatpak; do
+for prerequisite in iptables-nft dnf5-plugins curl flatpak; do
   sudo dnf install -y "${prerequisite}"
 done
 
@@ -236,7 +238,7 @@ for package in "${DNF_REPO_PACKAGES[@]}"; do
 done
 
 log "Installing Docker CE"
-for package in iptables-nft docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do
+for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do
   install_one "${package}" refresh_dnf sudo dnf install -y "${package}"
 done
 

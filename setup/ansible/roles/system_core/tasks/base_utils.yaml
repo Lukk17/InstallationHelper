@@ -13,8 +13,9 @@
 # costs only itself and is named. The list is install_system_core's companion_packages entry in
 # vars/<OS>.yaml, which setup/ansible/verify_install.yaml reads too: flatpak, which the Flathub task
 # below needs, unzip, zip and git, which pyenv's bootstrap script and several other SDK installers need
-# and minimal Debian and Ubuntu machines do not ship, patch on Fedora, locales on the Debian family, and
-# Fedora's Polish langpack. All of them first, so every task that needs one of them runs after it.
+# and minimal Debian and Ubuntu machines do not ship, patch on Fedora, locales on the Debian family,
+# Fedora's Polish langpack, and on Fedora iptables-nft ahead of the rest, so dnf never answers a later
+# package's iptables with iptables-legacy. All of them first, so every task that needs one of them runs after it.
 #
 # Arch was once missing from the flatpak install entirely, while the Flathub task below runs on every
 # Linux, so on Arch it shelled out to a binary that was not there and failed every run that reached it.
