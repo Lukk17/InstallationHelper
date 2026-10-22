@@ -14,10 +14,11 @@
 # This reads container.sh and requires what closes those routes: --cgroupns=private and never the
 # host's, no bind of /sys/fs/cgroup, container=docker in the container's environment, a read-only
 # /dev/null over each unit that acts on the host kernel but none over a unit a package's maintainer
-# script restarts, /proc/sys made read-only before systemd starts, the guard and host state record at boot,
-# after each pass and at collection, and the refusal of a scenario that would rewrite the boot.
-# Then it drives host_isolation_findings, lifted out of container.sh, over records written here, so
-# the comparison that fails a run is itself proven to fail.
+# script restarts, no read-only /proc/sys, the guard and host state record at boot, after each pass
+# and at collection, and the refusal of a scenario that would rewrite the boot. Then it drives
+# host_isolation_findings and host_isolation_information, lifted out of container.sh, over records
+# written here, so the comparison that fails a run is itself proven to fail, and a changed kernel
+# setting or module is proven to be reported without failing it.
 #
 # Proven on 2026-10-18 by pointing E2E_REPO_ROOT at a copy of the tree at commit c4f06c2, which had
 # none of this and failed 7 of 7, and at a copy of the finished tree with one mask, container=docker,
@@ -25,7 +26,14 @@
 # those 4 of 10. Since 2026-10-19 it also requires systemd-binfmt.service unmasked, the read-only
 # /proc/sys entry and the mountinfo guard in host_state.sh, proven by running the gate on a copy of the
 # finished tree with container.sh and host_state.sh taken back to commit 80a8529, which failed exactly
-# those 3 of 12.
+# those 3 of 12. Owner decision 86 took the read-only /proc/sys out again on 2026-10-22, because it
+# failed every Flatpak that applies extra data, and made a changed kernel setting or module information
+# only, because tier 3 runs only on a throwaway GitHub-hosted runner. Since then it requires the
+# read-only sequence and its mountinfo guard to be absent and a changed sysctl or module to be reported
+# under host_isolation without failing the run. Proven on 2026-10-22 by running the gate on a copy of
+# the tree at commit 674e8b0 carrying only this file, which failed 2 of 10, the read-only /proc/sys and
+# the two missing functions, and on a copy of the finished tree with the mountinfo guard put back and
+# host_isolation_findings failing on every difference again, which failed exactly those 2 of 15.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -54,8 +62,6 @@ REQUIRED_MASKS=(
 # Debian, Ubuntu and Pop!_OS on the mask. The two binfmt_misc units above stay masked, which is what
 # keeps systemd-binfmt.service skipped by its own ConditionPathIsMountPoint=/proc/sys/fs/binfmt_misc.
 FORBIDDEN_MASKS=(systemd-binfmt.service)
-# What makes /proc/sys read-only, apart from the network namespace's own part, before systemd starts.
-PROC_SYS_READ_ONLY_ENTRY_EXPECTED='mount --bind /proc/sys /proc/sys && mount -o remount,bind,ro,nosuid,nodev,noexec /proc/sys && mount --bind /proc/sys/net /proc/sys/net && mount -o remount,bind,rw,nosuid,nodev,noexec /proc/sys/net && exec "$0"'
 REQUIRED_BOOT_SETTINGS=(setup_systemd_boot setup_grub remove_distro_grub remove_distro_systemd_boot setup_hibernate)
 
 info "Tier 1: a scenario container is isolated from the host kernel"
@@ -140,21 +146,28 @@ else
          "${wrongly_masked[*]}"
 fi
 
-# --- /proc/sys read-only before systemd starts ----------------------------------------------
+# --- no read-only /proc/sys, owner decision 86 --------------------------------------------------
+# bubblewrap writes /proc/sys/user/max_user_namespaces inside its own user namespace when flatpak passes
+# it --disable-userns, so a read-only /proc/sys failed every Flatpak that applies extra data in GitHub
+# sweep run 39260381281. The container starts under the image's own CMD with /proc/sys as Docker
+# mounts it for a privileged container.
 proc_sys_gaps=()
-grep -qxF -- "PROC_SYS_READ_ONLY_ENTRY='${PROC_SYS_READ_ONLY_ENTRY_EXPECTED}'" <<<"${code}" \
-    || proc_sys_gaps+=("PROC_SYS_READ_ONLY_ENTRY is not the read-only mount sequence ending in exec \"\$0\"")
-grep -qE -- '--entrypoint[= ]+/bin/sh([[:space:]]|$)' <<<"${run_block}" \
-    || proc_sys_gaps+=("the container does not start under --entrypoint /bin/sh")
-grep -qF -- '"${IMAGE}" -c "${PROC_SYS_READ_ONLY_ENTRY}" "${image_init}"' <<<"${run_block}" \
-    || proc_sys_gaps+=("the image is not handed -c \"\${PROC_SYS_READ_ONLY_ENTRY}\" with its own CMD as \$0")
-grep -qF -- "docker image inspect --format '{{index .Config.Cmd 0}}' \"\${IMAGE}\"" <<<"${code}" \
-    || proc_sys_gaps+=("image_init is not read from the image's own CMD")
+grep -qE -- '--entrypoint' <<<"${run_block}" \
+    && proc_sys_gaps+=("the container starts under --entrypoint instead of the image's own CMD")
+grep -qF -- 'PROC_SYS_READ_ONLY_ENTRY' <<<"${code}" \
+    && proc_sys_gaps+=("container.sh still carries PROC_SYS_READ_ONLY_ENTRY")
+grep -qE -- 'remount[^ ]*,ro[, ].*/proc/sys|/proc/sys.*remount[^ ]*,ro[, ]' <<<"${code}" \
+    && proc_sys_gaps+=("container.sh still remounts /proc/sys read-only")
+grep -qE -- '"\$\{IMAGE\}" >/dev/null$' <<<"${run_block}" \
+    || proc_sys_gaps+=("the run block does not end in \"\${IMAGE}\" with nothing handed to the image")
+if [[ -f "${HOST_STATE_SH}" ]] && grep -vE '^[[:space:]]*#' "${HOST_STATE_SH}" | grep -qE '/proc/self/mountinfo|\$5 == "/proc/sys"'; then
+    proc_sys_gaps+=("host_state.sh still guards /proc/sys as read-only in /proc/self/mountinfo")
+fi
 if [[ ${#proc_sys_gaps[@]} -eq 0 ]]; then
-    pass "the scenario container makes /proc/sys read-only, apart from /proc/sys/net, before it hands PID 1 to systemd"
+    pass "the scenario container leaves /proc/sys as Docker mounts it, so bubblewrap can apply a Flatpak's extra data"
 else
     proc_sys_gap_text="$(printf '%s, ' "${proc_sys_gaps[@]}")"
-    fail "a package's sysctl.d file can still reach the host kernel through /proc/sys" "${proc_sys_gap_text%, }"
+    fail "the read-only /proc/sys that failed every extra-data Flatpak is still there" "${proc_sys_gap_text%, }"
 fi
 
 # --- the guard and the host state records -------------------------------------------
@@ -175,15 +188,11 @@ if [[ -f "${HOST_STATE_SH}" ]]; then
     guard_gaps=()
     grep -qF 'systemd-detect-virt --container' "${HOST_STATE_SH}" || guard_gaps+=("systemd-detect-virt")
     grep -qF '/proc/sys/fs/binfmt_misc' "${HOST_STATE_SH}" || guard_gaps+=("binfmt_misc mount")
-    if ! grep -qF '$5 == "/proc/sys"' "${HOST_STATE_SH}" || ! grep -qF '/proc/self/mountinfo' "${HOST_STATE_SH}" \
-        || ! grep -qF '*,ro,*' "${HOST_STATE_SH}"; then
-        guard_gaps+=("/proc/sys read-only in /proc/self/mountinfo")
-    fi
     grep -qF '/proc/modules' "${HOST_STATE_SH}" || guard_gaps+=("/proc/modules")
     grep -qF '/proc/swaps' "${HOST_STATE_SH}" || guard_gaps+=("/proc/swaps")
     grep -qF '/proc/sys/kernel /proc/sys/vm /proc/sys/fs' "${HOST_STATE_SH}" || guard_gaps+=("kernel, vm and fs sysctls")
     if [[ ${#guard_gaps[@]} -eq 0 ]]; then
-        pass "host_state.sh guards binfmt_misc, a read-only /proc/sys and container detection, and records modules, swap and sysctls"
+        pass "host_state.sh guards binfmt_misc and container detection, and records modules, swap and sysctls"
     else
         fail "host_state.sh no longer looks at everything the isolation depends on" "missing: ${guard_gaps[*]}"
     fi
@@ -204,14 +213,37 @@ else
     fail "a scenario could still rewrite the boot of the machine the container runs on" "${boot_gap_text%, }"
 fi
 
-# --- the comparison that fails a run ------------------------------------------------------
-function_text="$(sed -n '/^host_isolation_findings()/,/^}/p' "${CONTAINER_SH}")"
-if [[ -z "${function_text}" ]]; then
-    fail "container.sh defines no host_isolation_findings, so nothing compares the host state records" \
-         "expected a top-level function of that name in ${CONTAINER_SH}"
+# --- the comparison that fails a run, and the one that only reports ---------------------------
+missing_functions=()
+for function_name in host_state_differences host_isolation_findings host_isolation_information; do
+    function_text="$(sed -n "/^${function_name}()/,/^}/p" "${CONTAINER_SH}")"
+    if [[ -z "${function_text}" ]]; then
+        missing_functions+=("${function_name}")
+        continue
+    fi
+    eval "${function_text}"
+done
+if [[ ${#missing_functions[@]} -gt 0 ]]; then
+    fail "container.sh does not define every function that compares the host state records" \
+         "missing top-level function(s) in ${CONTAINER_SH}: ${missing_functions[*]}"
     finish "container isolation"
 fi
-eval "${function_text}"
+
+wiring_gaps=()
+grep -qF 'mapfile -t isolation_information < <(host_isolation_information "${isolation_records}" "${isolation_labels[@]}")' <<<"${code}" \
+    || wiring_gaps+=("collect_and_verify does not call host_isolation_information")
+grep -qE 'echo "host_isolation: \$\{#isolation_information\[@\]\} .*information only, they do not fail the run"' <<<"${code}" \
+    || wiring_gaps+=("result.txt has no host_isolation line for the information")
+grep -qF 'if [[ ${#isolation_findings[@]} -eq 0 ]]; then' <<<"${code}" \
+    || wiring_gaps+=("the pass or fail of the isolation does not read isolation_findings")
+grep -qF "printf '  %s\\n' \"\${isolation_information[@]:0:60}\"" <<<"${code}" \
+    || wiring_gaps+=("result.txt does not list the differences under that line")
+if [[ ${#wiring_gaps[@]} -eq 0 ]]; then
+    pass "result.txt reports a changed kernel setting or module under host_isolation, and only the findings decide the run"
+else
+    wiring_gap_text="$(printf '%s, ' "${wiring_gaps[@]}")"
+    fail "the kernel setting and module differences are not reported the way owner decision 86 asks" "${wiring_gap_text%, }"
+fi
 
 records="$(mktemp -d)"
 trap 'rm -rf -- "${records}"' EXIT
@@ -221,21 +253,37 @@ cp "${records}/host-state-boot.txt" "${records}/host-state-after-pass1.txt"
 : >"${records}/host-guard-after-pass1.txt"
 
 findings="$(host_isolation_findings "${records}" after-pass1)"
+information="$(host_isolation_information "${records}" after-pass1)"
 assert_eq "host_isolation_findings: identical records give no finding" "" "${findings}"
+assert_eq "host_isolation_information: identical records give no information" "" "${information}"
 
-printf '%s\n' 'module br_netfilter' 'module overlay' 'swap /dev/zram0 partition 32770044 100' 'sysctl vm.swappiness = 10' >"${records}/host-state-after-pass1.txt"
-echo 'systemd-udevd.service is active although container.sh masked it' >"${records}/host-guard-after-pass1.txt"
+printf '%s\n' 'module br_netfilter' 'module overlay' 'swap /dev/zram1 partition 8388604 100' 'sysctl vm.swappiness = 10' >"${records}/host-state-after-pass1.txt"
+printf '%s\n' 'systemd-udevd.service is active although container.sh masked it' \
+    "binfmt_misc is mounted at /proc/sys/fs/binfmt_misc, which is the host kernel's one binary format table" >"${records}/host-guard-after-pass1.txt"
 findings="$(host_isolation_findings "${records}" after-pass1)"
+information="$(host_isolation_information "${records}" after-pass1)"
+
 finding_gaps=()
-grep -qxF 'after-pass1: systemd-udevd.service is active although container.sh masked it' <<<"${findings}" || finding_gaps+=("the guard's breach")
-grep -qxF 'after-pass1: new since boot: module br_netfilter' <<<"${findings}" || finding_gaps+=("the loaded module")
-grep -qxF 'after-pass1: gone since boot: sysctl vm.swappiness = 60' <<<"${findings}" || finding_gaps+=("the old sysctl value")
-grep -qxF 'after-pass1: new since boot: sysctl vm.swappiness = 10' <<<"${findings}" || finding_gaps+=("the new sysctl value")
+grep -qxF 'after-pass1: systemd-udevd.service is active although container.sh masked it' <<<"${findings}" || finding_gaps+=("the masked unit breach")
+grep -qxF "after-pass1: binfmt_misc is mounted at /proc/sys/fs/binfmt_misc, which is the host kernel's one binary format table" <<<"${findings}" || finding_gaps+=("the binfmt_misc breach")
+grep -qxF 'after-pass1: gone since boot: swap /dev/zram0 partition 32770044 100' <<<"${findings}" || finding_gaps+=("the swap area gone")
+grep -qxF 'after-pass1: new since boot: swap /dev/zram1 partition 8388604 100' <<<"${findings}" || finding_gaps+=("the swap area added")
 if [[ ${#finding_gaps[@]} -eq 0 && "$(grep -c . <<<"${findings}")" -eq 4 ]]; then
-    pass "host_isolation_findings names a breach, a loaded module and a changed sysctl, and nothing else"
+    pass "host_isolation_findings fails the run on a guard breach, binfmt_misc included, and a changed swap area, and on nothing else"
 else
-    fail "host_isolation_findings does not name every change between two records" \
+    fail "host_isolation_findings does not fail the run on exactly the breaches and the swap areas" \
          "missing: ${finding_gaps[*]:-none}, it printed: $(tr '\n' '|' <<<"${findings}")"
+fi
+
+information_gaps=()
+grep -qxF 'after-pass1: new since boot: module br_netfilter' <<<"${information}" || information_gaps+=("the loaded module")
+grep -qxF 'after-pass1: gone since boot: sysctl vm.swappiness = 60' <<<"${information}" || information_gaps+=("the old sysctl value")
+grep -qxF 'after-pass1: new since boot: sysctl vm.swappiness = 10' <<<"${information}" || information_gaps+=("the new sysctl value")
+if [[ ${#information_gaps[@]} -eq 0 && "$(grep -c . <<<"${information}")" -eq 3 ]]; then
+    pass "host_isolation_information reports a loaded module and a changed sysctl, and nothing else"
+else
+    fail "host_isolation_information does not report exactly the changed modules and sysctls" \
+         "missing: ${information_gaps[*]:-none}, it printed: $(tr '\n' '|' <<<"${information}")"
 fi
 
 findings="$(host_isolation_findings "${records}" after-pass1 at-collect)"

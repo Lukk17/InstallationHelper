@@ -184,20 +184,6 @@ MASKED_UNITS=(
     systemd-zram-setup@.service
 )
 
-# Masking systemd-sysctl.service does not keep sysctl.d away from the host kernel, because the
-# package managers call the binary itself: Fedora's systemd rpm file trigger and Arch's pacman sysctl
-# hook both run /usr/lib/systemd/systemd-sysctl when a package ships a sysctl.d file. GitHub sweep run
-# 39231000107 measured it on the runner kernel, Arch moving kernel.sysrq from 176 to 16 along with
-# vm.max_map_count, fs.inotify.* and kernel.core_pattern, CachyOS also kernel.split_lock_mitigate and
-# Fedora kernel.yama.ptrace_scope. So the container starts under /bin/sh, which makes /proc/sys
-# read-only except the network namespace's own /proc/sys/net, the same shape Docker gives a container
-# that is not privileged, and then hands PID 1 to the image's own CMD, passed as $0. A write to a
-# kernel, vm or fs sysctl then fails inside the container instead of landing on the host. A failed
-# mount ends the shell before systemd starts, which start_run reports as systemd never coming up.
-# This sequence needs a privileged container, so it is proven only on a GitHub-hosted runner, never
-# on the owner's computer, and host_state.sh fails the run when /proc/sys is not read-only.
-PROC_SYS_READ_ONLY_ENTRY='mount --bind /proc/sys /proc/sys && mount -o remount,bind,ro,nosuid,nodev,noexec /proc/sys && mount --bind /proc/sys/net /proc/sys/net && mount -o remount,bind,rw,nosuid,nodev,noexec /proc/sys/net && exec "$0"'
-
 # Settings that rewrite the boot loader, the kernel command line or the resume device of whatever
 # machine they run on, which for a privileged container is the host. container_limits.yaml turns
 # every one of them off, and start_run refuses a scenario whose effective value is still true.
@@ -564,20 +550,25 @@ start_run() {
     for masked_unit in "${MASKED_UNITS[@]}"; do
         mask_mounts+=(-v "/dev/null:/etc/systemd/system/${masked_unit}:ro")
     done
-    local image_init
-    image_init="$(docker image inspect --format '{{index .Config.Cmd 0}}' "${IMAGE}" 2>/dev/null || true)"
-    if [[ "${image_init}" != /* ]]; then
-        echo "the ${OS} image names no absolute CMD to start as PID 1, it said '${image_init:-nothing}', aborting" | tee "${RUN_DIR}/result.txt"
-        exit 1
-    fi
+    # This container is privileged and changes the kernel of the machine that runs it: its kernel
+    # settings under /proc/sys, its binfmt_misc table, its device events and its loaded modules. That
+    # is why tier 3 refuses to start anywhere but a GitHub-hosted runner, e2e/lib/throwaway_machine.sh
+    # decides that, and it must never run on the owner's computer, a virtual machine on it included.
+    #
+    # /proc/sys stays writable here on purpose, owner decision 86. Commit 9355aa4 started the
+    # container under /bin/sh and made /proc/sys read-only before systemd, and bubblewrap then failed
+    # every Flatpak that applies extra data with "bwrap: cannot open /proc/sys/user/max_user_namespaces:
+    # Read-only file system" on all six distributions in GitHub sweep run 39260381281. The kernel
+    # settings a package's sysctl.d file applies are the distribution's own defaults, which a real
+    # install applies too, and the runner is thrown away afterwards, so host_state.sh still records
+    # them and container.sh reports them in result.txt as information without failing the run.
     docker run -d --name "${CONTAINER}" \
         --privileged \
         --cgroupns=private \
         -e container=docker \
         "${mask_mounts[@]}" \
         --tmpfs /run --tmpfs /run/lock \
-        --entrypoint /bin/sh \
-        "${IMAGE}" -c "${PROC_SYS_READ_ONLY_ENTRY}" "${image_init}" >/dev/null
+        "${IMAGE}" >/dev/null
 
     # Poll rather than sleep blindly, and accept `degraded`: getty and firstboot always
     # fail in a container and neither matters here.
@@ -1148,7 +1139,8 @@ collect_and_verify() {
     # One more record now, after the playbook and its verification have both finished, then every
     # record is copied out and compared with the one taken at boot. The exit code of this last record
     # is not read: a breach is in its guard file, and a record that could not be written is missing,
-    # which host_isolation_findings reports either way.
+    # which host_isolation_findings reports either way. A kernel setting or a module that differs from
+    # boot is reported by host_isolation_information and does not fail the run, owner decision 86.
     local isolation_records="${RUN_DIR}/host-state"
     local -a isolation_labels=(after-pass1)
     [[ "${SCENARIO_RUN_TWICE:-}" == "true" ]] && isolation_labels+=(after-pass2)
@@ -1159,6 +1151,8 @@ collect_and_verify() {
     docker cp "${CONTAINER}:${HOST_STATE_DIR_IN_CONTAINER}/." "$(host_path "${isolation_records}")" &>/dev/null || true
     local -a isolation_findings=()
     mapfile -t isolation_findings < <(host_isolation_findings "${isolation_records}" "${isolation_labels[@]}")
+    local -a isolation_information=()
+    mapfile -t isolation_information < <(host_isolation_information "${isolation_records}" "${isolation_labels[@]}")
 
     {
         echo "scenario:      ${SCENARIO_NAME}"
@@ -1233,6 +1227,12 @@ collect_and_verify() {
         echo "host_isolation: ${#isolation_findings[@]} finding(s), records in ${isolation_records}"
         if [[ ${#isolation_findings[@]} -gt 0 ]]; then
             printf '  %s\n' "${isolation_findings[@]:0:60}"
+        else
+            echo "  none"
+        fi
+        echo "host_isolation: ${#isolation_information[@]} kernel setting and module difference(s) since boot, information only, they do not fail the run"
+        if [[ ${#isolation_information[@]} -gt 0 ]]; then
+            printf '  %s\n' "${isolation_information[@]:0:60}"
         else
             echo "  none"
         fi
@@ -1369,7 +1369,7 @@ collect_and_verify() {
     # Not inverted for the forced-failure scenario: a run made to fail on purpose still must not reach
     # the host kernel.
     if [[ ${#isolation_findings[@]} -eq 0 ]]; then
-        pass "${SCENARIO_NAME}: the host kernel's modules, swap and sysctls matched boot after every pass, no masked unit ran, and systemd knew it was in a container"
+        pass "${SCENARIO_NAME}: the host kernel's swap matched boot after every pass, binfmt_misc stayed unmounted, no masked unit ran, and systemd knew it was in a container"
     else
         fail "${SCENARIO_NAME}: the container reached the host kernel, ${#isolation_findings[@]} finding(s), the first is: ${isolation_findings[0]}" \
              "every finding is under host_isolation in ${RESULT_FILE}, the records are in ${isolation_records}"
@@ -1388,15 +1388,25 @@ collect_and_verify() {
     fi
 }
 
-# One line per way the run reached the host kernel, read from the records host_state.sh left in $1:
-# every breach its guard named after boot, and every line of a later snapshot that differs from the
-# boot one. A record that is missing is a finding too, because a missing record proves nothing.
+# Every line of the snapshot labelled $2 in the records directory $1 that differs from the boot one,
+# prefixed with the label and whether it is gone or new since boot. Prints nothing when either is missing.
+host_state_differences() {
+    local records="$1" label="$2"
+    [[ -f "${records}/host-state-boot.txt" && -f "${records}/host-state-${label}.txt" ]] || return 0
+    diff "${records}/host-state-boot.txt" "${records}/host-state-${label}.txt" \
+        | sed -nE "s/^< /${label}: gone since boot: /p; s/^> /${label}: new since boot: /p" || true
+}
+
+# One line per way the run reached the host kernel that fails it, read from the records host_state.sh
+# left in $1: every breach its guard named after boot, and every line of a later snapshot that differs
+# from the boot one apart from a kernel setting or a module, which today leaves the swap areas. A
+# record that is missing is a finding too, because a missing record proves nothing.
 host_isolation_findings() {
     local records="$1"
     shift
-    local label baseline="${records}/host-state-boot.txt"
+    local label
 
-    if [[ ! -f "${baseline}" ]]; then
+    if [[ ! -f "${records}/host-state-boot.txt" ]]; then
         echo "boot: no host state record, so nothing can be compared"
         return 0
     fi
@@ -1406,8 +1416,19 @@ host_isolation_findings() {
             continue
         fi
         sed "s/^/${label}: /" "${records}/host-guard-${label}.txt"
-        diff "${baseline}" "${records}/host-state-${label}.txt" \
-            | sed -nE "s/^< /${label}: gone since boot: /p; s/^> /${label}: new since boot: /p" || true
+        host_state_differences "${records}" "${label}" | grep -vE '^[^:]+: (gone|new) since boot: (module|sysctl) ' || true
+    done
+}
+
+# One line per kernel setting or loaded module that differs from boot, which result.txt reports as
+# information and which does not fail the run, owner decision 86: tier 3 runs only on a GitHub-hosted
+# runner that is thrown away, and these are the distribution's own defaults a real install applies too.
+host_isolation_information() {
+    local records="$1"
+    shift
+    local label
+    for label in "$@"; do
+        host_state_differences "${records}" "${label}" | grep -E '^[^:]+: (gone|new) since boot: (module|sysctl) ' || true
     done
 }
 

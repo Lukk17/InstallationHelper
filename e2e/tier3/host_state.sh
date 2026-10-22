@@ -11,10 +11,12 @@
 #   host-state-<label>.txt  one line per loaded kernel module, swap area, and kernel, vm and fs
 #                           sysctl. None of these belong to the container: a privileged container
 #                           reads and writes the host kernel's own copy, so container.sh compares
-#                           every later file against the boot one and fails the run on a difference.
+#                           every later file against the boot one. A changed swap area fails the
+#                           run, and a changed module or sysctl is reported in result.txt as
+#                           information only, owner decision 86.
 #   host-guard-<label>.txt  one line per isolation breach, and nothing when there is none. A breach
-#                           is a mounted binfmt_misc table, a /proc/sys that is not read-only, a
-#                           systemd that does not know it is in a container, or a masked unit running.
+#                           is a mounted binfmt_misc table, a systemd that does not know it is in a
+#                           container, or a masked unit running.
 #
 # Exits 0 when the guard found nothing, 1 when it found a breach, which it also prints, and 2 on
 # misuse. The snapshot is written either way, so a breach never hides the rest of the evidence.
@@ -61,13 +63,6 @@ write_breaches() {
 
     if grep -q ' /proc/sys/fs/binfmt_misc ' /proc/self/mounts; then
         echo "binfmt_misc is mounted at /proc/sys/fs/binfmt_misc, which is the host kernel's one binary format table"
-    fi
-
-    # The topmost mount at /proc/sys is the last one listed, and its sixth field holds its options.
-    local proc_sys_options
-    proc_sys_options="$(awk '$5 == "/proc/sys" { options = $6 } END { print options }' /proc/self/mountinfo)"
-    if [[ ",${proc_sys_options}," != *,ro,* ]]; then
-        echo "/proc/sys is mounted '${proc_sys_options:-without a mount of its own}' rather than read-only, so a sysctl.d file a package ships reaches the host kernel"
     fi
 
     detected="$(systemd-detect-virt --container 2>/dev/null || true)"
