@@ -15,13 +15,16 @@
 #   1. no task file under setup/ansible reads the release from anywhere but the derivation, and the
 #      Debian manual route does not ask lsb_release for it;
 #   2. the derivation still sets ih_apt_codename, which keeps 1 from passing on an empty tree;
-#   3. per os-release fixture of Debian 13, Ubuntu 26.04, Linux Mint 22 and 22.2 and LMDE 6 and 7,
+#   3. per os-release fixture of Debian 13, Ubuntu 26.04, Linux Mint 22 and 22.2, LMDE 6 and 7 and Pop!_OS 22.04,
 #      the Docker, Tailscale and HashiCorp lines carry the lineage path and the codename the vendor
 #      publishes, rendered from the shipped task files with the facts the shipped derivation gives;
 #   4. no rendered line that depends on the release names a derivative's own codename, or names
 #      a variable nothing defines;
 #   5. the UPSTREAM_DISTRO and UPSTREAM_CODENAME lines of docs/manual/debian-ubuntu/install.sh give
-#      the same answer per fixture, and its guide carries the same two lines.
+#      the same answer per fixture, and its guide carries the same two lines;
+#   6. the OpenRazer PPA is rendered for Pop!_OS, the one distribution os_release_ids names in
+#      vars/Debian.yaml, with its Ubuntu codename, and for no other fixture, docs/regression_ledger.md
+#      10.186.
 # e2e/tier2/resolve_apt_repositories.sh then asks every vendor whether those lines answer.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
@@ -116,6 +119,19 @@ while IFS= read -r case_json; do
     else
         fail "${fixture}: rendered lines name the distribution's own codename ${own}, which its vendors do not publish, or an undefined variable" \
              "$(tr '\n' ' ' <<<"${wrong}${undefined}")"
+    fi
+done <<<"${APT_CASES}"
+
+# --- 6. the OpenRazer PPA only where vars/Debian.yaml names the distribution ----------------------
+while IFS= read -r case_json; do
+    [[ -z "${case_json}" ]] && continue
+    fixture="$(apt_case_field "${case_json}" fixture)"
+    if [[ "${fixture}" == pop-os ]]; then
+        expect_line "${fixture}" "the OpenRazer PPA" "https://ppa.launchpadcontent.net/openrazer/stable/ubuntu $(apt_case_field "${case_json}" codename) main"
+    elif awk -F'\t' -v f="${fixture}" '$1 == f { print $5 }' <<<"${APT_LINES}" | grep -qF 'ppa.launchpadcontent.net/openrazer'; then
+        fail "${fixture}: the OpenRazer PPA is rendered, and vars/Debian.yaml names it for Pop!_OS only" "$(awk -F'\t' -v f="${fixture}" '$1 == f && /openrazer/ { print $4 }' <<<"${APT_LINES}")"
+    else
+        pass "${fixture}: the OpenRazer PPA is not rendered"
     fi
 done <<<"${APT_CASES}"
 

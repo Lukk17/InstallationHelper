@@ -121,7 +121,15 @@ def applies(conditions, context):
     return True
 
 
-def context_of(case):
+def family_repositories(repo_root, family):
+    """The third_party_repositories of vars/<family>.yaml, which a repository's when may read."""
+    path = repo_root / "setup" / "ansible" / "vars" / f"{family}.yaml"
+    if not family or not path.is_file():
+        return {}
+    return (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("third_party_repositories") or {}
+
+
+def context_of(case, repo_root):
     release = case.get("reported_release", "")
     facts = {
         "architecture": "x86_64",
@@ -132,6 +140,8 @@ def context_of(case):
         "ih_family": case.get("ih_family", ""),
         "ih_base": case.get("ih_base", ""),
         "ih_apt_codename": case.get("ih_apt_codename", ""),
+        "ih_os_release_id": case.get("ih_os_release_id", ""),
+        "os_dict": {"third_party_repositories": family_repositories(repo_root, case.get("ih_family", ""))},
         "ansible_facts": facts,
         "ansible_architecture": facts["architecture"],
         "ansible_distribution_release": release,
@@ -151,7 +161,7 @@ def main():
 
     environment = jinja2.Environment(undefined=VisibleUndefined)
     for case in cases:
-        context = context_of(case)
+        context = context_of(case, repo_root)
         for kind, template, task_vars, conditions, where in templates:
             if not applies(conditions, context):
                 continue

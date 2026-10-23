@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Tier 2: every apt repository the playbook writes, and every key it fetches for one, answers for
-# Debian 13, Ubuntu 26.04, Linux Mint 22 and 22.2 and LMDE 6 and 7.
+# Debian 13, Ubuntu 26.04, Linux Mint 22 and 22.2, LMDE 6 and 7 and Pop!_OS 22.04.
 #
 # e2e/tier1/apt_vendor_repositories.sh proves the lines say what this repository believes the vendors
 # publish. This asks the vendors. The lines come from e2e/lib/apt_repositories.sh, the same rendering

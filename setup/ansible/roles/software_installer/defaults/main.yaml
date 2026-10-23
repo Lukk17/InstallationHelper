@@ -34,3 +34,8 @@ flatpak_force_repo_reset: false
 # same host that answers 404 and prove that one third-party repository that cannot be added is
 # reported, skips only what installs from it, and leaves the rest of the software phase running.
 software_installer_lens_key_url: https://downloads.k8slens.dev/keys/gpg
+
+# The signing key of ppa:openrazer/stable, as Launchpad publishes it at
+# https://api.launchpad.net/1.0/~openrazer/+archive/ubuntu/stable under signing_key_fingerprint, read on
+# 2026-10-23. debian_repos.yaml refuses a downloaded key with any other fingerprint.
+software_installer_openrazer_key_fingerprint: "903936CAB6049E2E6C33D5D8073E051D7B2AEE37"

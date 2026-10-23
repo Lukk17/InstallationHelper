@@ -189,6 +189,17 @@ echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive
 # Docker CE, on the same distribution and codename as Tailscale above.
 curl -fsSL "https://download.docker.com/linux/${UPSTREAM_DISTRO}/gpg" | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME} stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+# OpenRazer PPA, on Pop!_OS only, as debian_repos.yaml adds it: Ubuntu's openrazer-driver-dkms does not build against
+# the newer Pop!_OS kernel, and the PPA's driver does. The key is checked against Launchpad's fingerprint for the PPA.
+# shellcheck source=/dev/null
+if [ "$(. /etc/os-release && echo "${ID:-}")" = pop ]; then
+  curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x903936CAB6049E2E6C33D5D8073E051D7B2AEE37" | sudo gpg --dearmor -o /etc/apt/keyrings/openrazer.gpg
+  if ! gpg --show-keys --with-colons /etc/apt/keyrings/openrazer.gpg | grep -q 903936CAB6049E2E6C33D5D8073E051D7B2AEE37; then
+    printf 'ERROR: the OpenRazer PPA signing key does not carry fingerprint 903936CAB6049E2E6C33D5D8073E051D7B2AEE37.\n' >&2
+    exit 1
+  fi
+  echo "deb [signed-by=/etc/apt/keyrings/openrazer.gpg] https://ppa.launchpadcontent.net/openrazer/stable/ubuntu ${UPSTREAM_CODENAME} main" | sudo tee /etc/apt/sources.list.d/openrazer.list >/dev/null
+fi
 
 log "Refreshing apt after repo changes"
 sudo apt-get update

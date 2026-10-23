@@ -26,6 +26,7 @@
       - { fixture: linux-mint-22.2, reported_distribution: "Linux Mint",                reported_release: zara,     base: ubuntu, codename: noble }
       - { fixture: lmde,            reported_distribution: "Linux Mint Debian Edition", reported_release: faye,     base: debian, codename: bookworm }
       - { fixture: lmde-7,          reported_distribution: "Linux Mint Debian Edition", reported_release: gigi,     base: debian, codename: trixie }
+      - { fixture: pop-os,          reported_distribution: "Pop!_OS",                   reported_release: jammy,    base: ubuntu, codename: jammy }
 
   tasks:
     - name: Derive and report one case

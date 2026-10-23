@@ -28,6 +28,12 @@
 #      already installed snap counts as installed whatever snap exits.
 #   4. install_one in each manual script, sourced and run against the same fakes, does the same, with
 #      the same numbers, and the Arch script's refresh is a full upgrade, never a bare -Syy.
+#   3a. apt only, against a fake dpkg: an attempt whose maintainer script fails leaves dpkg unusable for
+#      every later package, so the shared file runs dpkg --configure -a and has apt remove what that
+#      cannot finish, names each removed package and fails the run, and the next package installs on
+#      its first attempt. A package that dpkg --configure -a finishes is not removed. Pop!_OS lost
+#      docker and about 25 other packages to one failed DKMS build before this,
+#      docs/regression_ledger.md 10.186.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -274,8 +280,39 @@ case "${tool} $*" in
     "apt-get update"*|"dnf makecache"*|"pacman -Syy"*|"pacman -Syu"*|"flatpak update"*|"brew update"*)
         echo "${tool} refresh" >> "${log}"; echo "refreshed"; exit 0 ;;
 esac
+# The dpkg state of part 3a, one "<status> <package>" line per package dpkg has not finished.
+state="${log}.dpkg"
+if [[ "${tool}" == apt-get && "${1:-}" == remove ]]; then
+    shift
+    removed=()
+    for arg in "$@"; do
+        [[ "${arg}" == -* ]] && continue
+        removed+=("${arg}")
+        [[ -f "${state}" ]] && grep -v " ${arg}$" "${state}" > "${state}.next"; mv -f "${state}.next" "${state}" 2>/dev/null
+    done
+    echo "apt-get remove ${removed[*]}" >> "${log}"; exit 0
+fi
 package="${!#}"
 echo "${tool} install ${package}" >> "${log}"
+if [[ "${tool}" == apt-get && -s "${state}" ]]; then
+    echo "E: Sub-process /usr/bin/dpkg returned an error code (1)"; exit 100
+fi
+case "${package}" in
+    halfconf-*)
+        if [[ "${tool}" == apt-get ]]; then
+            echo "half-configured ${package}-dkms" >> "${state}"
+            echo "Error! Bad return status for module build on kernel: 7.2.6-76070206-generic (x86_64)"
+            echo "E: Sub-process /usr/bin/dpkg returned an error code (1)"; exit 100
+        fi ;;
+    settles-*)
+        if [[ "${tool}" == apt-get ]]; then
+            if grep -qx "${package}" "${log}.configured" 2>/dev/null; then
+                echo "0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded."; exit 0
+            fi
+            echo "half-configured ${package}" >> "${state}"
+            echo "E: Sub-process /usr/bin/dpkg returned an error code (1)"; exit 100
+        fi ;;
+esac
 case "${package}" in
     ok-*) echo "Installing ${package}"; exit 0 ;;
     present-*)
@@ -305,6 +342,32 @@ exit 1
 FAKE
 chmod +x "${work}/bin/fakepm"
 for tool in apt-get dnf pacman flatpak snap brew; do ln -s fakepm "${work}/bin/${tool}"; done
+# dpkg-query answers from the state above: the status of one package, or every unfinished package
+# beside one installed one. dpkg --configure -a finishes settles-* and nothing else.
+cat > "${work}/bin/dpkg-query" <<'FAKE'
+#!/usr/bin/env bash
+state="${FAKE_PM_LOG:?}.dpkg"
+package="${4:-}"
+if [[ -n "${package}" ]]; then
+    found="$(grep " ${package}$" "${state}" 2>/dev/null | cut -d ' ' -f 1)"
+    [[ -n "${found}" ]] || { echo "dpkg-query: no packages found matching ${package}" >&2; exit 1; }
+    printf '%s' "${found}"; exit 0
+fi
+echo "installed base-files"
+cat "${state}" 2>/dev/null
+exit 0
+FAKE
+cat > "${work}/bin/dpkg" <<'FAKE'
+#!/usr/bin/env bash
+log="${FAKE_PM_LOG:?}"
+state="${log}.dpkg"
+[[ " $* " == *" --configure -a "* ]] || { echo "the fake dpkg knows only --configure -a, not: $*" >&2; exit 2; }
+echo "dpkg configure" >> "${log}"
+grep -oE ' settles-[^ ]+$' "${state}" 2>/dev/null | tr -d ' ' >> "${log}.configured"
+grep -v ' settles-' "${state}" > "${state}.next" 2>/dev/null; mv -f "${state}.next" "${state}" 2>/dev/null
+[[ ! -s "${state}" ]]
+FAKE
+chmod +x "${work}/bin/dpkg-query" "${work}/bin/dpkg"
 printf '#!/usr/bin/env bash\nexec "$@"\n' > "${work}/bin/sudo"
 chmod +x "${work}/bin/sudo"
 
@@ -364,7 +427,7 @@ cat > "${work}/play.yaml" <<'PLAY'
       ansible.builtin.include_tasks:
         file: "{{ repo }}/setup/ansible/tasks/install_role_packages.yaml"
       vars:
-        role_packages: ["ok-x", "flaky-x", "broken-x", "present-x"]
+        role_packages: "{{ packages | default(['ok-x', 'flaky-x', 'broken-x', 'present-x']) }}"
         role_packages_purpose: the fake set
         role_packages_manager: "{{ manager }}"
         role_packages_retry_delay: 0
@@ -399,6 +462,54 @@ for manager in apt dnf pacman flatpak snap brew brew_cask; do
     judge "${manager}: one attempt without a refresh, then wait, $([[ ${indexed} == yes ]] && echo "refresh ${tool}'s index, " )retry, four attempts, the failure named" \
         "${log}" "${tool}" "${indexed}" "${missing}" x
 done
+
+# --- part 3a: apt leaves dpkg usable after a maintainer script fails ----------------------------
+fakes_resolved=yes
+for tool in apt-get dpkg dpkg-query; do
+    resolved="$(PATH="${work}/bin:${PATH}" command -v "${tool}" || true)"
+    if [[ "${resolved}" != "${work}/bin/${tool}" ]]; then
+        fail "the fake ${tool} is the one the shared file runs" "${tool} resolves to ${resolved:-nothing}"
+        fakes_resolved=no
+    fi
+done
+if [[ "${fakes_resolved}" == yes ]]; then
+    log="${work}/dpkg.log"
+    : > "${log}"
+    out="$(FAKE_PM_LOG="${log}" PATH="${work}/bin:${PATH}" ANSIBLE_STDOUT_CALLBACK=default \
+        ansible-playbook "${work}/play.yaml" -i localhost, \
+        -e ansible_become=false -e "repo=${REPO_ROOT}" -e manager=apt \
+        -e '{"packages": ["halfconf-x", "ok-after", "settles-x"]}' \
+        -e "fake_log=${work}/dpkg.tee" </dev/null 2>&1)" || true
+    result="$(grep -o 'FAKE-RESULT[^"]*' <<<"${out}" | head -1 || true)"
+    problems=()
+    [[ -n "${result}" ]] || problems+=("the play did not finish: $(grep -m3 -E 'ERROR|fatal' <<<"${out}" | tr '\n' ' ')")
+    [[ "$(calls "${log}" apt-get ok-after)" -eq 1 ]] \
+        || problems+=("ok-after, after a package whose maintainer script failed, was tried $(calls "${log}" apt-get ok-after) times, not once, so dpkg was left unusable")
+    [[ "$(calls "${log}" apt-get halfconf-x)" -eq 4 ]] \
+        || problems+=("halfconf-x was tried $(calls "${log}" apt-get halfconf-x) times, not four")
+    [[ "$(calls "${log}" apt-get settles-x)" -eq 2 ]] \
+        || problems+=("settles-x, which dpkg --configure -a finishes, was tried $(calls "${log}" apt-get settles-x) times, not twice")
+    configure_at="$(grep -n '^dpkg configure$' "${log}" | head -1 | cut -d: -f1 || true)"
+    remove_at="$(grep -n '^apt-get remove halfconf-x-dkms$' "${log}" | head -1 | cut -d: -f1 || true)"
+    [[ -n "${configure_at}" && -n "${remove_at}" && "${configure_at}" -lt "${remove_at}" ]] \
+        || problems+=("dpkg --configure -a did not run before apt removed halfconf-x-dkms")
+    ! grep -q '^apt-get remove .*settles-x' "${log}" \
+        || problems+=("settles-x was removed although dpkg --configure -a finished it")
+    [[ ! -s "${log}.dpkg" ]] || problems+=("dpkg was left with $(tr '\n' ' ' < "${log}.dpkg")")
+    [[ "${result}" == *"failed=True"* ]] || problems+=("the run did not fail")
+    [[ "${result}" == *"missing=halfconf-x failed="* ]] || problems+=("the missing list is not halfconf-x alone")
+    [[ "${result}" == *"halfconf-x-dkms (the fake set, its maintainer script failed and apt removed it"* ]] \
+        || problems+=("halfconf-x-dkms is not named as removed in the play summary")
+    [[ "${result}" != *"settles-x ("* ]] || problems+=("settles-x is named in the play summary")
+    grep -qE '\[ERROR\] halfconf-x-dkms, pulled in for the fake set, failed in a maintainer script' <<<"${out}" \
+        || problems+=("no [ERROR] line names halfconf-x-dkms as removed")
+    if [[ ${#problems[@]} -eq 0 ]]; then
+        pass "apt: a failed maintainer script gets dpkg --configure -a, then apt removes what that cannot finish, names it, fails the run, and the next package installs on its first attempt"
+    else
+        fail "apt: a failed maintainer script leaves dpkg usable for the next package, and is named" \
+             "$(printf '%s; ' "${problems[@]}")calls: $(tr '\n' ' ' < "${log}")"
+    fi
+fi
 
 # --- part 4: install_one in the manual scripts ----------------------------------------------------
 # The rule's numbers are the shared file's: retries 3 is four attempts, and the delay is twenty seconds.

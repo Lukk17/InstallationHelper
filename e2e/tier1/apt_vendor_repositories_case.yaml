@@ -16,4 +16,5 @@
   ansible.builtin.debug:
     msg: >-
       IH_APT_FACTS {{ ih_apt_case | combine({'ih_family': ih_family, 'ih_base': ih_base,
-                                             'ih_apt_codename': ih_apt_codename | default('')}) | to_json }}
+                                             'ih_apt_codename': ih_apt_codename | default(''),
+                                             'ih_os_release_id': ih_os_release_id | default('')}) | to_json }}

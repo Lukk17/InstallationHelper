@@ -451,6 +451,66 @@
         repository_key: gh
       tags: [always]
 
+# --- OpenRazer PPA, only where vars/Debian.yaml names the distribution ---
+# The key is fetched from the Ubuntu keyserver by the fingerprint Launchpad publishes for
+# ppa:openrazer/stable, and refused unless gpg reads that same fingerprint out of what arrived.
+- name: Add the OpenRazer repository
+  when:
+    - install_openrazer | default(false) | bool
+    - ih_os_release_id | default('') in os_dict.third_party_repositories.openrazer.os_release_ids
+  block:
+    - name: Download the OpenRazer PPA signing key
+      ansible.builtin.get_url:
+        url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x{{ software_installer_openrazer_key_fingerprint }}"
+        dest: /tmp/openrazer.asc
+        mode: '0644'
+        force: true
+      register: download_openrazer_signing_key_fetch
+      retries: 3
+      delay: 10
+      until: download_openrazer_signing_key_fetch is succeeded
+
+    - name: Convert the OpenRazer key to a binary keyring, refusing any other key
+      ansible.builtin.shell: |
+        set -o pipefail
+        found="$(gpg --show-keys --with-colons /tmp/openrazer.asc | awk -F: '$1 == "fpr" { print $10; exit }')"
+        if [ "${found}" != "{{ software_installer_openrazer_key_fingerprint }}" ]; then
+            echo "the OpenRazer PPA key has fingerprint ${found:-none}, not {{ software_installer_openrazer_key_fingerprint }}" >&2
+            exit 1
+        fi
+        gpg --dearmor < /tmp/openrazer.asc > /etc/apt/keyrings/openrazer.gpg
+        chmod 0644 /etc/apt/keyrings/openrazer.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/openrazer.gpg
+      become: true
+
+    - name: Add OpenRazer apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/openrazer.gpg] https://ppa.launchpadcontent.net/openrazer/stable/ubuntu {{ ih_apt_codename }} main"
+        filename: openrazer
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the OpenRazer package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: openrazer
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the OpenRazer repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: openrazer
+      tags: [always]
+
 # --- Lens Desktop ---
 - name: Add the Lens repository
   when: install_lens | default(false) | bool

@@ -73,6 +73,16 @@ third_party_repositories:
     vendor: "Syncthing"
     files: ["/etc/apt/sources.list.d/syncthing.list"]
     keyrings: ["/etc/apt/keyrings/syncthing-archive-keyring.gpg"]
+  # Added only on the distributions os_release_ids names, by the ID field of /etc/os-release. Pop!_OS
+  # ships a newer kernel than Ubuntu, 7.2.6-76070206-generic on 2026-10-23, and Ubuntu's
+  # openrazer-driver-dkms 3.11.0 fails its DKMS build against those headers, while the OpenRazer
+  # project's own PPA, which openrazer.github.io names for Ubuntu and Pop!_OS, carries 3.12.4 and builds.
+  # Measured in the Pop!_OS image of e2e/tier3/popos.Dockerfile, docs/regression_ledger.md 10.186.
+  openrazer:
+    vendor: "OpenRazer"
+    os_release_ids: ["pop"]
+    files: ["/etc/apt/sources.list.d/openrazer.list"]
+    keyrings: ["/etc/apt/keyrings/openrazer.gpg"]
   tailscale:
     vendor: "Tailscale"
     files: ["/etc/apt/sources.list.d/tailscale.list"]
@@ -226,7 +236,7 @@ software_mapping:
   lm_sensors: { manager: "apt", package: "lm-sensors", is_alternative_for: "HWInfo" }
   greenenvy: { manager: "flatpak", package: "com.leinardi.gwe", is_alternative_for: "MSI Afterburner" }
   baobab: { manager: "apt", package: "baobab", is_alternative_for: "WizTree" }
-  openrazer: { manager: "apt", package: "openrazer-meta" }   # In Debian proper since bookworm and in Ubuntu universe on every current series, no PPA needed.
+  openrazer: { manager: "apt", package: "openrazer-meta" }   # In Debian proper since bookworm and in Ubuntu universe on every current series. Pop!_OS takes it from the OpenRazer PPA, see third_party_repositories.
   polychromatic: { manager: "flatpak", package: "app.polychromatic.controller", is_alternative_for: "Razer Synapse" }
   balena_etcher: { manager: "apt_url", package: "balena-etcher", is_alternative_for: "Rufus", is_deb_url: true }
   # gputest: custom binary download in custom_installs.yaml
