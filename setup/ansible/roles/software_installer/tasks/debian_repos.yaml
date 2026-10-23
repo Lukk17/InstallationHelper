@@ -473,7 +473,7 @@
     - name: Convert the OpenRazer key to a binary keyring, refusing any other key
       ansible.builtin.shell: |
         set -o pipefail
-        found="$(gpg --show-keys --with-colons /tmp/openrazer.asc | awk -F: '$1 == "fpr" { print $10; exit }')"
+        found="$(gpg --show-keys --with-colons /tmp/openrazer.asc | awk -F: '$1 == "fpr" && !done { print $10; done = 1 }')"
         if [ "${found}" != "{{ software_installer_openrazer_key_fingerprint }}" ]; then
             echo "the OpenRazer PPA key has fingerprint ${found:-none}, not {{ software_installer_openrazer_key_fingerprint }}" >&2
             exit 1

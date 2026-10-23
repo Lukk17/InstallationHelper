@@ -77,10 +77,9 @@
 # what's installed where. Pre-refactor versions of this task had the bug.
 - name: "Check if {{ npm_display_name }} is already installed (Unix)"
   ansible.builtin.shell: |
-    set -o pipefail
     source {{ non_root_home }}/.nvm/nvm.sh
     nvm use --lts >/dev/null 2>&1
-    npm list -g {{ npm_pkg }} --depth=0 2>/dev/null | grep -q -F '{{ npm_pkg }}'
+    grep -q -F '{{ npm_pkg }}' <<<"$(npm list -g {{ npm_pkg }} --depth=0 2>/dev/null)"
   args:
     executable: /bin/bash
     chdir: "{{ non_root_home }}"

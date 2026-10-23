@@ -472,7 +472,7 @@ ensure_ansible_version() {
 
 ensure_ansible() {
     if command -v ansible-playbook &>/dev/null; then
-        say "Ansible: already installed ($(ansible-playbook --version 2>/dev/null | head -1))"
+        say "Ansible: already installed ($(ansible-playbook --version 2>/dev/null | sed -n 1p))"
         return 0
     fi
     say "Ansible not found - installing for ${OS_FAMILY}..."

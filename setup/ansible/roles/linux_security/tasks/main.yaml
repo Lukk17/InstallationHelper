@@ -2,7 +2,7 @@
 - name: Determine swap topology
   ansible.builtin.shell: |
     set -o pipefail
-    swapon --show --noheadings --raw 2>/dev/null | awk '{print $1, $2, $3}' | head -1
+    swapon --show --noheadings --raw 2>/dev/null | awk '{print $1, $2, $3}' | sed -n 1p
   register: swap_info
   changed_when: false
   failed_when: false

@@ -768,14 +768,14 @@
             how: "NVM-managed Node under ~/.nvm/versions/node/*/bin"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name node 2>/dev/null | grep -q .
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name node 2>/dev/null)"
           - key: npm
             toggle: install_nodejs
             shell_bin: npm
             how: "NVM-managed npm under ~/.nvm/versions/node/*/bin"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name npm 2>/dev/null | grep -q .
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name npm 2>/dev/null)"
           - key: nvm
             toggle: install_nodejs
             shell_bin: nvm
@@ -789,49 +789,49 @@
             how: "npm package @anthropic-ai/claude-code under ~/.nvm/versions/node/*/bin"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name claude 2>/dev/null | grep -q .
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name claude 2>/dev/null)"
           - key: opencode
             toggle: install_opencode
             shell_bin: opencode
             how: "npm package {{ opencode_cli_package }} under ~/.nvm/versions/node/*/lib/node_modules"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/{{ opencode_cli_package }}/package.json' 2>/dev/null | grep -q .
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/{{ opencode_cli_package }}/package.json' 2>/dev/null)"
           - key: kilo
             toggle: install_kilo_code
             shell_bin: kilo
             how: "npm package @kilocode/cli under ~/.nvm/versions/node/*/lib/node_modules"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/@kilocode/cli/package.json' 2>/dev/null | grep -q .
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/@kilocode/cli/package.json' 2>/dev/null)"
           - key: openspec
             toggle: install_openspec
             shell_bin: openspec
             how: "npm package @fission-ai/openspec under ~/.nvm/versions/node/*/bin"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name openspec 2>/dev/null | grep -q .
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name openspec 2>/dev/null)"
           - key: codex
             toggle: install_codex
             shell_bin: codex
             how: "npm package @openai/codex under ~/.nvm/versions/node/*/bin"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name codex 2>/dev/null | grep -q .
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name codex 2>/dev/null)"
           - key: grok
             toggle: install_grok
             shell_bin: grok
             how: "npm package @xai-official/grok under ~/.nvm/versions/node/*/bin"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name grok 2>/dev/null | grep -q .
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name grok 2>/dev/null)"
           - key: bru
             toggle: ih_bru_applies
             shell_bin: bru
             how: "npm package @usebruno/cli under ~/.nvm/versions/node/*/bin (macOS uses the Homebrew formula bruno-cli instead, checked above)"
             expected_path: ""
             disk_cmd: >-
-              find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name bru 2>/dev/null | grep -q .
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 3 -name bru 2>/dev/null)"
           - key: yay
             toggle: ih_yay_applies
             shell_bin: yay
@@ -1232,10 +1232,9 @@
 
     - name: Ask whether the OpenCode command line package of the version not selected is still installed
       ansible.builtin.shell: |
-        set -o pipefail
         source {{ non_root_home }}/.nvm/nvm.sh
         nvm use --lts >/dev/null 2>&1
-        npm list -g {{ opencode_other_cli_package | quote }} --depth=0 2>/dev/null | grep -q -F {{ opencode_other_cli_package | quote }}
+        grep -q -F {{ opencode_other_cli_package | quote }} <<<"$(npm list -g {{ opencode_other_cli_package | quote }} --depth=0 2>/dev/null)"
       args:
         executable: /bin/bash
         chdir: "{{ non_root_home }}"

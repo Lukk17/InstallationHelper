@@ -57,7 +57,7 @@
   ansible.builtin.set_fact:
     opencode_desktop_commands:
       apt_url:
-        probe: "dpkg-query -W -f='${Status}' PKG 2>/dev/null | grep -qx 'install ok installed'"
+        probe: "dpkg-query -W -f='${Status}' PKG 2>/dev/null | grep -x 'install ok installed'"
         remove: "DEBIAN_FRONTEND=noninteractive apt-get remove -y PKG"
         as_user: false
       dnf_url:

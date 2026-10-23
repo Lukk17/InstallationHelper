@@ -131,9 +131,10 @@
     dest: /etc/profile.d/sbin-path.sh
     content: |
       # Ensure /sbin and /usr/sbin are in PATH (needed for ldconfig, etc.)
-      if ! echo "$PATH" | grep -q "/sbin"; then
-        export PATH="$PATH:/sbin:/usr/sbin"
-      fi
+      case "$PATH" in
+        */sbin*) ;;
+        *) export PATH="$PATH:/sbin:/usr/sbin" ;;
+      esac
     mode: '0644'
 
 # The Antigravity apt repository used to be set up here, as critical bootstrap with no rescue, so a key

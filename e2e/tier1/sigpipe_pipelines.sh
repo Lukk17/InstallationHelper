@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Tier 1: nothing feeds a command from a program that never stops writing, and no e2e script pipes into
-# a reader that stops reading early.
+# Tier 1: nothing feeds a command from a program that never stops writing, and no script under e2e/ or
+# setup/ pipes into a reader that stops reading early.
 #
 # `yes` writes the letter y forever. It is still running when the program on the right of the pipe
 # finishes, so the kernel kills it with SIGPIPE, and a process killed by a signal reports 128 plus the
@@ -39,7 +39,11 @@
 # reader to enable docker.service, in 56 of 2000 runs in the gate image on one CPU, while tr's exit
 # status was 141 and grep's was 0 (docs/regression_ledger.md 10.190). The answer is the same: no pipe. A
 # grep reads a here-string, `grep -q pattern <<<"$(producer)"`, and a pipe that wants the first lines
-# ends in `sed -n 1,Np`, which reads to the end. This half covers the shell scripts under e2e/ only.
+# ends in `sed -n 1,Np`, which reads to the end. An awk program that wants the first match keeps a flag
+# instead of calling exit. This half covers the shell scripts under e2e/, and since 2026-10-23 every
+# string in the YAML under setup/ and every shell script there too, where verify_install.yaml ran
+# `find ... | grep -q .` and `npm list -g ... | grep -q -F` under pipefail (docs/regression_ledger.md
+# 10.196).
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -129,9 +133,13 @@ for root in ROOTS:
             except UnicodeDecodeError:
                 continue
 
-# A pipe into a reader that can exit before its input ends: `head`, or a grep whose options before the
-# pattern hold -q, -m, --quiet, --silent or --max-count. A single bar only, so `||` is not a pipe.
-EARLY_READER = re.compile(r'(?<!\|)\|(?!\|)&?[ \t]*(?:\\?\n[ \t]*)?(head(?=[ \t\n;)]|$)|grep((?:[ \t]+-[^ \t\n]*)*))')
+# A pipe into a reader that can exit before its input ends: `head`, `read`, an awk program that calls
+# exit outside its END block, or a grep whose options before the pattern hold -q, -m, -l, -L, --quiet,
+# --silent, --max-count, --files-with-matches or --files-without-match. A single bar only, so `||` is
+# not a pipe, and a pipe may continue on the next line.
+EARLY_READER = re.compile(r'(?<!\|)\|(?!\|)&?[ \t]*(?:\\?\n[ \t]*)?'
+                          r'(head(?=[ \t\n;)]|$)|grep((?:[ \t]+-[^ \t\n]*)*)|awk(?=[ \t])|'
+                          r'\{?[ \t]*(?:IFS=[^ \t\n]*[ \t]+)?read(?=[ \t\n;]|$))')
 
 
 def early_exit_options(options):
@@ -140,11 +148,86 @@ def early_exit_options(options):
         if option == '--':
             return False
         if option.startswith('--'):
-            if option.split('=')[0] in ('--quiet', '--silent', '--max-count'):
+            if option.split('=')[0] in ('--quiet', '--silent', '--max-count',
+                                        '--files-with-matches', '--files-without-match'):
                 return True
-        elif any(letter in option[1:] for letter in 'qm'):
+        elif any(letter in option[1:] for letter in 'qmlL'):
             return True
     return False
+
+
+def awk_command(body, start):
+    """The awk command from `start` to the first newline, pipe, semicolon or `)` outside single quotes."""
+    quoted = False
+    for index in range(start, len(body)):
+        character = body[index]
+        if character == "'":
+            quoted = not quoted
+        elif not quoted and character in '\n|;)':
+            return body[start:index]
+    return body[start:]
+
+
+def awk_exits_early(command):
+    """True when an awk program calls exit anywhere but in its END block, which runs after the last line."""
+    return re.search(r'\bexit\b', re.sub(r'\bEND[ \t]*\{[^}]*\}', '', command)) is not None
+
+
+def early_readers(body):
+    """Every (line number, snippet) in `body` where a pipe feeds a reader that can exit before its input ends."""
+    found_readers = []
+    for found in EARLY_READER.finditer(body):
+        reader = found.group(1)
+        if reader == 'awk':
+            command = awk_command(body, found.start(1))
+            if not awk_exits_early(command):
+                continue
+            snippet = '| ' + command
+        elif reader.startswith('grep'):
+            if not early_exit_options(found.group(2) or ''):
+                continue
+            snippet = found.group(0)
+        else:
+            snippet = found.group(0)
+        line_number = body.count('\n', 0, found.start()) + 1
+        found_readers.append((line_number, ' '.join(snippet.split())))
+    return found_readers
+
+
+def strings_in(node, path=''):
+    """Every string scalar in a parsed YAML document, with the dotted path of keys that leads to it."""
+    if isinstance(node, str):
+        yield path, node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            yield from strings_in(value, '%s.%s' % (path, key) if path else str(key))
+    elif isinstance(node, list):
+        for index, item in enumerate(node):
+            yield from strings_in(item, '%s[%d]' % (path, index))
+
+
+# The setup/ half reads every string in every YAML file under setup/, not only the shell and command
+# modules, because a script also arrives through a variable: the probes in tasks/opencode_version.yaml
+# and the disk_cmd lines in verify_install.yaml are set_fact values a shell task runs later. A Jinja
+# filter is written `| name` too, and none of them is called head, grep, awk or read, so a filter is
+# never taken for a reader. Shell scripts under setup/ are read whole.
+setup_texts = []   # (label, text)
+for path in sorted((REPO / 'setup').rglob('*')):
+    if not path.is_file():
+        continue
+    rel = path.as_posix()
+    if path.suffix in ('.yaml', '.yml'):
+        try:
+            doc = yaml.safe_load(path.read_text(encoding='utf-8'))
+        except (yaml.YAMLError, UnicodeDecodeError):
+            continue
+        for key_path, value in strings_in(doc):
+            setup_texts.append(('%s :: %s' % (rel, key_path or 'document'), value))
+    elif path.suffix in ('.sh', '.bash', '.zsh') or path.name.endswith('zshrc'):
+        try:
+            setup_texts.append((rel, path.read_text(encoding='utf-8')))
+        except UnicodeDecodeError:
+            continue
 
 
 lines = []
@@ -157,10 +240,12 @@ for label, text in scripts:
     if match:
         offenders.append((label, match.group(1).strip()))
     if label.startswith('e2e/') and ' :: ' not in label:
-        for found in EARLY_READER.finditer(body):
-            if found.group(1) == 'head' or early_exit_options(found.group(2) or ''):
-                line_number = body.count('\n', 0, found.start()) + 1
-                readers.append((label, line_number, ' '.join(found.group(0).split())))
+        for line_number, snippet in early_readers(body):
+            readers.append((label, line_number, snippet))
+
+for label, text in setup_texts:
+    for line_number, snippet in early_readers(strip_comments(text)):
+        readers.append((label, line_number, snippet))
 
 # An assertion over an empty set passes and is indistinguishable from one that found no problem, so
 # the count is part of the result rather than a detail. Checklist item 11 in the regression ledger.
@@ -179,12 +264,16 @@ else:
         lines.append('READER %s, line %d, pipes into `%s`, which can exit before its '
                      'input ends. The writer is then killed by SIGPIPE and pipefail fails the pipeline '
                      'whatever the reader found. Give a grep a here-string, grep -q pattern <<<"$(producer)", '
-                     'and end a pipe that wants the first lines in sed -n 1,Np.' % (label, line_number, snippet))
+                     'end a pipe that wants the first lines in sed -n 1,Np, and let an awk program keep a '
+                     'flag rather than call exit.' % (label, line_number, snippet))
     e2e_scripts = sum(1 for label, _ in scripts if label.startswith('e2e/') and ' :: ' not in label)
-    if not readers and e2e_scripts:
-        lines.append('OK %d e2e scripts read, none pipes into a reader that stops early' % e2e_scripts)
-    elif not e2e_scripts:
-        lines.append('FAIL no e2e script was read, so the early reader half proves nothing')
+    if not readers and e2e_scripts and setup_texts:
+        lines.append('OK %d e2e scripts and %d strings and scripts under setup/ read, none pipes into a '
+                     'reader that stops early' % (e2e_scripts, len(setup_texts)))
+    if not e2e_scripts:
+        lines.append('FAIL no e2e script was read, so the early reader half proves nothing for e2e/')
+    if not setup_texts:
+        lines.append('FAIL nothing under setup/ was read, so the early reader half proves nothing for setup/')
 
 print('\n'.join(lines))
 PYEOF
@@ -195,7 +284,7 @@ while IFS= read -r line; do
     case "${line}" in
         OK*)   pass "${line#OK }" ;;
         FAIL*) fail "a command is fed from a program that never stops writing" "${line#FAIL }" ;;
-        READER*) fail "an e2e script pipes into a reader that stops early" "${line#READER }" ;;
+        READER*) fail "a script pipes into a reader that stops early" "${line#READER }" ;;
         *)     [[ -n "${line}" ]] && fail "the SIGPIPE pipeline check printed something unexpected" "${line}" ;;
     esac
 done <<<"${report}"
