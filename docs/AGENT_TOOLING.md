@@ -204,6 +204,8 @@ Three kinds of file stay out of the refresh:
 git diff agent-standards/master -- .mcp.json opencode.json .codex/config.toml .claude/settings.json
 ```
 
+`opencode.json` carries the top-level `permission` block of agent-standards, taken from its commit a28f240 with the owner's approval: `external_directory`, `edit`, `bash` and `read` are all `allow`, so OpenCode runs those without asking. Kilo Code gets the same block, because it reads a project `opencode.json` as its legacy configuration file, "./kilo.json[c], legacy ./opencode.json[c], or config inside ./.kilo/" in the [Kilo Code CLI documentation](https://kilo.ai/docs/cli), checked on 2026-10-23. A read-only subagent keeps its own `edit` and `bash` deny entries, because "Agent permissions are merged with the global config, and agent rules take precedence", as the [OpenCode permissions page](https://opencode.ai/docs/permissions/), last updated 2026-10-23, says. The same page names shell commands `shell` rather than `bash`, and says: Most permissions default to `"allow"`. `doom_loop` and `external_directory` default to `"ask"`. `read` is `"allow"`, but `.env` files are denied by default. So two entries change what OpenCode does: `external_directory` stops asking before a tool touches a path outside the repository, and `read` as one plain `allow` replaces the default rule that denies `*.env` files, so an agent can read an `.env` file, `~/.local/state/agents/workspace/homelab.env` included, without asking. That last point is read from the documentation and was not measured. The preflight gate in the plugin still checks every call.
+
 ---
 
 ### Skills this project uses
