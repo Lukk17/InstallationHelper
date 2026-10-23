@@ -14,11 +14,16 @@
 #                              repository would go false. That is the defect the derived ih_family
 #                              exists for, and this image is the only place it is exercised against a
 #                              real playbook run rather than against a fixture.
-#   the package set            identical to Ubuntu's, because Pop is Ubuntu plus System76's own
-#                              repositories, and the playbook installs nothing from those.
+#   the package set            Ubuntu's plus System76's own archive, apt.pop-os.org release and
+#                              proprietary, for the Ubuntu release underneath, pinned at 1001 the way
+#                              pop-default-settings pins it on a real machine (owner decision 88.1).
+#                              Without it apt answered the way Ubuntu does, ubuntu-desktop resolved and
+#                              its firefox came from a snap, while on Pop!_OS firefox is System76's deb
+#                              and ubuntu-desktop cannot be installed at all (docs/regression_ledger.md
+#                              10.163).
 #
-# What it therefore does NOT prove: anything about System76's packages, their kernel, their firmware
-# tooling, their NVIDIA handling, or a Pop-specific default that ships in one of their packages. If
+# What it therefore does NOT prove: anything about System76's kernel, their firmware tooling, their
+# NVIDIA handling, or a Pop-specific default that ships in a package this image does not install. If
 # a defect lives there, this image cannot see it, and neither can any container.
 #
 # The os-release below is written from the base image's own values rather than copied from a fixed
@@ -28,6 +33,36 @@
 # only the identity fields Pop actually changes. The real thing, captured from System76's own archive,
 # is at e2e/tier1/os_release_fixtures/pop-os and is what the tier 1 derivation check asserts against.
 FROM installationhelper-e2e-ubuntu:latest
+
+# System76's archive, as a Pop!_OS install has it. The key is the one pop-keyring ships in
+# /usr/share/keyrings/pop-archive-keyring.gpg, "Pop OS (ISO Signing Key) <info@system76.com>", which
+# signs apt.pop-os.org/release/dists/resolute/Release (gpgv: Good signature, 2026-10-23). It is fetched
+# from the Ubuntu keyserver and refused unless its primary fingerprint is the one pinned here. gnupg is
+# installed for that, and pop-default-settings depends on it on a real machine anyway. The preferences
+# file is pop-default-settings' own /etc/apt/preferences.d/pop-default-settings, and the upgrade after it
+# moves every installed package to System76's version, as installing Pop!_OS does. This runs before the
+# identity below is written, so no package it upgrades can write over it.
+ARG DEBIAN_FRONTEND=noninteractive
+ARG POP_ARCHIVE_KEY_FINGERPRINT=63C46DF0140D738961429F4E204DD8AEC33A7AFF
+RUN apt-get update && apt-get install -y gnupg \
+    && python3 -c 'import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen(sys.argv[1], timeout=60).read())' \
+        "http://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${POP_ARCHIVE_KEY_FINGERPRINT}" \
+        | gpg --dearmor >/usr/share/keyrings/pop-archive-keyring.gpg \
+    && FOUND="$(gpg --show-keys --with-colons /usr/share/keyrings/pop-archive-keyring.gpg | awk -F: '$1 == "fpr" { print $10; exit }')" \
+    && { [ "${FOUND}" = "${POP_ARCHIVE_KEY_FINGERPRINT}" ] || { echo "the Pop!_OS archive key has fingerprint ${FOUND:-none}, not ${POP_ARCHIVE_KEY_FINGERPRINT}" >&2; exit 1; }; } \
+    && . /etc/os-release \
+    && printf '%s\n' 'X-Repolib-Name: Pop_OS Release Sources' 'Enabled: yes' 'Types: deb' 'URIs: http://apt.pop-os.org/release' \
+        "Suites: ${UBUNTU_CODENAME}" 'Components: main' 'Signed-By: /usr/share/keyrings/pop-archive-keyring.gpg' \
+        >/etc/apt/sources.list.d/pop-os-release.sources \
+    && printf '%s\n' 'X-Repolib-Name: Pop_OS Apps' 'Enabled: yes' 'Types: deb' 'URIs: http://apt.pop-os.org/proprietary' \
+        "Suites: ${UBUNTU_CODENAME}" 'Components: main' 'Signed-By: /usr/share/keyrings/pop-archive-keyring.gpg' \
+        >/etc/apt/sources.list.d/pop-os-apps.sources \
+    && printf '%s\n' 'Package: *' 'Pin: release o=pop-os-release' 'Pin-Priority: 1001' \
+        >/etc/apt/preferences.d/pop-default-settings \
+    && apt-get update \
+    && apt-get -y --allow-downgrades dist-upgrade \
+    && apt-cache policy | grep -q 'o=pop-os-release' \
+    && rm -rf /var/lib/apt/lists/*
 
 # Written with the base image's own version fields so the result is internally consistent. Pop
 # dpkg-diverts /etc/os-release onto /etc/pop-os/os-release on a real machine, and both paths are

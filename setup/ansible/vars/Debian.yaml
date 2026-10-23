@@ -279,8 +279,16 @@ companion_packages:
 # puts each list in front of the companion_packages entry of the same key, which therefore has to exist.
 # ubuntu-desktop does not exist in Debian, and gnome-core is Debian's desktop without the full gnome
 # task's extras, both checked with apt-cache policy in debian:trixie and ubuntu:26.04.
+# A distribution that differs from its lineage has its own entry under its os-release ID, which replaces
+# the lineage's entry of the same key. Pop!_OS, ID pop, is Ubuntu lineage, and with System76's archive
+# for resolute pinned at 1001 as pop-default-settings pins it, apt cannot satisfy ubuntu-desktop at all,
+# pop-desktop is the COSMIC desktop (it pulls pop-de-cosmic and cosmic-session) and no Pop!_OS package
+# carries GNOME, while gnome-core resolves. Measured with apt-cache policy and apt-get install -s in
+# ubuntu:26.04 with that archive on 2026-10-23, docs/regression_ledger.md 10.163.
 lineage_companion_packages:
   ubuntu:
     gnome: ["ubuntu-desktop"]
   debian:
+    gnome: ["gnome-core"]
+  pop:
     gnome: ["gnome-core"]

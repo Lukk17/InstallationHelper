@@ -5,7 +5,9 @@
 # group, and on the Debian family the lineage's metapackage, ubuntu-desktop on Ubuntu lineage and
 # gnome-core on Debian lineage, which setup/ansible/tasks/load_os_dict.yaml puts in front from
 # lineage_companion_packages in vars/Debian.yaml. ubuntu-desktop does not exist in Debian, and ih_base
-# rather than the distribution name, because Pop!_OS and Linux Mint are Ubuntu lineage under another name.
+# rather than the distribution name, because Linux Mint is Ubuntu lineage under another name. Pop!_OS is
+# too, but has its own entry under its os-release ID there, gnome-core, because apt cannot install
+# ubuntu-desktop against System76's archive.
 #
 # One package per call through tasks/install_role_packages.yaml, so one that cannot install costs only
 # itself and is named. Until 2026-10-18 all four installs here ran only while /usr/bin/gnome-shell was

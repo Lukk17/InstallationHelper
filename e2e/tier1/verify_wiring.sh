@@ -272,7 +272,8 @@ fi
 #      native-package assertion compares with the machine, and resolves a key with no mapping through
 #      its toggle;
 #   4. every line of unverified_role_installs.txt still names such an include and gives a reason;
-#   5. every lineage_companion_packages entry names a lineage ih_base takes on its family and a key its
+#   5. every lineage_companion_packages entry names a lineage ih_base takes on its family, or the
+#      os-release ID of a distribution of that family, and a key its
 #      companion_packages carries, with a list of literal names.
 # The number of role installs under a toggle is reported and must not be zero, so a rewrite that hides
 # them from this parser fails here rather than passing over nothing.
@@ -533,6 +534,15 @@ lineages = {'Debian': set(re.findall(r"\(\('(\w+)' if", debian_branch)) | set(re
 if not lineages['Debian']:
     lines.append('FAIL the Debian lineages could not be read out of setup/ansible/tasks/derive_os_facts.yaml, '
                  'so no lineage_companion_packages entry was checked')
+# A distribution's own entry sits under its os-release ID and replaces its lineage's entry, so an ID that
+# a captured os-release of the Debian family carries is accepted too: one whose ID_LIKE names debian or
+# ubuntu, and which is not itself a lineage name.
+for fixture in sorted((ALLOWED_FILE.parent / 'os_release_fixtures').glob('*')):
+    text = fixture.read_text(encoding='utf-8', errors='replace')
+    fixture_id = re.search(r'^ID="?([^"\n]*)', text, re.M)
+    fixture_like = re.search(r'^ID_LIKE="?([^"\n]*)', text, re.M)
+    if fixture_id and fixture_like and re.search(r'\b(debian|ubuntu)\b', fixture_like.group(1)):
+        lineages['Debian'].add(fixture_id.group(1).strip().lower())
 lineage_entries = 0
 for family in FAMILIES:
     for base, entries in sorted((dictionaries[family].get('lineage_companion_packages') or {}).items()):
