@@ -220,6 +220,7 @@ The skills present in [.agents/skills/](../.agents/skills/), each linked to its 
 | [api-design](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/api-design/SKILL.md) | Designing or reviewing an HTTP API contract |
 | [arch-linux](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/arch-linux/SKILL.md) | Changing or diagnosing an Arch Linux machine outside the playbook |
 | [architecture-decision-records](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/architecture-decision-records/SKILL.md) | Recording a design decision with its alternatives |
+| [ascend-web-hunter](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/ascend-web-hunter/SKILL.md) | Reading a page a plain fetch cannot, through the AscendWebSearch service in [homelab/ascend_web_search.md](../homelab/ascend_web_search.md), when `research` meets a block |
 | [automation-inventory](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/automation-inventory/SKILL.md) | Listing the hooks under [.agents/hooks/](../.agents/hooks/), the workflows under [.github/workflows/](../.github/workflows/) and the MCP servers in [.mcp.json](../.mcp.json) that are really live |
 | [bash](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/bash/SKILL.md) | [setup/setup.sh](../setup/setup.sh) and the checks under [e2e/](../e2e/) |
 | [cachyos](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/cachyos/SKILL.md) | Changing or diagnosing a CachyOS machine outside the playbook |
@@ -238,6 +239,7 @@ The skills present in [.agents/skills/](../.agents/skills/), each linked to its 
 | [jetbrains-ide-ops](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/jetbrains-ide-ops/SKILL.md) | The run configuration [.run/local-dev.run.xml](../.run/local-dev.run.xml) |
 | [kde-plasma](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/kde-plasma/SKILL.md) | Changing or diagnosing a KDE Plasma desktop outside the playbook |
 | [keycloak-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/keycloak-patterns/SKILL.md) | The `local` realm under [local-dev/auth/Keycloak/](../local-dev/auth/Keycloak/) |
+| [machine-health](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/machine-health/SKILL.md) | Checking the health and configuration of a machine this repository set up, only where the owner asks for it, because [AGENTS.md](../AGENTS.md) forbids inspecting his computer otherwise |
 | [macos](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/macos/SKILL.md) | Changing or diagnosing a Mac outside the playbook |
 | [markdown-writer](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/markdown-writer/SKILL.md) | Every document a person reads |
 | [mongodb-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/mongodb-patterns/SKILL.md) | The MongoDB service in [local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) |
@@ -245,6 +247,7 @@ The skills present in [.agents/skills/](../.agents/skills/), each linked to its 
 | [powershell](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/powershell/SKILL.md) | [setup/setup.ps1](../setup/setup.ps1) and the modules in [setup/windows/](../setup/windows/) |
 | [proxmox](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/proxmox/SKILL.md) | Reading the Proxmox host through the API token in [homelab/agent_access.md](../homelab/agent_access.md) |
 | [python-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/python-patterns/SKILL.md) | Python code such as [setup/pinned_values/pinned_values.py](../setup/pinned_values/pinned_values.py), and its tests |
+| [research](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/research/SKILL.md) | Answering a question about a tool or vendor from its documentation or source, quoted and dated, the way `agent-engineer` does it for the main thread |
 | [review-duplication](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/review-duplication/SKILL.md) | Finding duplicated logic in a change |
 | [security-review](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/security-review/SKILL.md) | Checking a change for leaked secrets and other security defects |
 | [syncthing](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/syncthing/SKILL.md) | Reading Syncthing on the Docker VM through the API key in [homelab/agent_access.md](../homelab/agent_access.md) |
@@ -256,19 +259,19 @@ These skills are present only because a subagent in [.agents/agents/](../.agents
 | Skill | Preloaded by |
 |---|---|
 | [angular](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/angular/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `design-system-architect`, `legacy-modernizer`, `security-auditor`, `test-automator`, `ui-ux-designer` |
-| [backend-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/backend-patterns/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `devops-troubleshooter`, `docs-architect`, `error-detective`, `legacy-modernizer`, `observability-engineer`, `performance-engineer`, `python-pro`, `security-auditor` |
-| [build-dependency-management](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/build-dependency-management/SKILL.md) | `code-archaeologist`, `code-reviewer`, `design-system-architect`, `devops-automator`, `home-assistant-engineer`, `legacy-modernizer`, `python-pro`, `security-auditor`, `test-automator` |
-| [dart-flutter-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/dart-flutter-patterns/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `legacy-modernizer`, `performance-engineer`, `test-automator`, `ui-ux-designer` |
+| [backend-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/backend-patterns/SKILL.md) | `code-archaeologist`, `code-reviewer`, `database-expert`, `debugger`, `devops-troubleshooter`, `docs-architect`, `error-detective`, `legacy-modernizer`, `observability-engineer`, `performance-engineer`, `python-pro`, `security-auditor` |
+| [build-dependency-management](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/build-dependency-management/SKILL.md) | `code-archaeologist`, `code-reviewer`, `design-system-architect`, `devops-automator`, `flutter-expert`, `home-assistant-engineer`, `legacy-modernizer`, `python-pro`, `release-manager`, `security-auditor`, `test-automator` |
+| [dart-flutter-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/dart-flutter-patterns/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `flutter-expert`, `legacy-modernizer`, `performance-engineer`, `test-automator`, `ui-ux-designer` |
 | [e2e-testing](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/e2e-testing/SKILL.md) | `test-automator` |
 | [golang-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/golang-patterns/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `legacy-modernizer`, `performance-engineer`, `test-automator` |
-| [hexagonal-architecture](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/hexagonal-architecture/SKILL.md) | `code-archaeologist`, `code-reviewer`, `docs-architect`, `legacy-modernizer`, `python-pro` |
+| [hexagonal-architecture](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/hexagonal-architecture/SKILL.md) | `code-archaeologist`, `code-reviewer`, `database-expert`, `docs-architect`, `legacy-modernizer`, `python-pro` |
 | [java-coding-standards](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/java-coding-standards/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `legacy-modernizer` |
 | [nextjs-app-router-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/nextjs-app-router-patterns/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `design-system-architect`, `legacy-modernizer`, `performance-engineer`, `security-auditor`, `ui-ux-designer` |
 | [observability-and-logging](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/observability-and-logging/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `devops-automator`, `devops-troubleshooter`, `docs-architect`, `error-detective`, `home-assistant-engineer`, `legacy-modernizer`, `observability-engineer`, `performance-engineer`, `python-pro`, `security-auditor` |
-| [performance-optimization](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/performance-optimization/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `devops-troubleshooter`, `docs-architect`, `error-detective`, `observability-engineer`, `performance-engineer`, `python-pro` |
+| [performance-optimization](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/performance-optimization/SKILL.md) | `code-archaeologist`, `code-reviewer`, `database-expert`, `debugger`, `devops-troubleshooter`, `docs-architect`, `error-detective`, `observability-engineer`, `performance-engineer`, `python-pro` |
 | [react-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/react-patterns/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `design-system-architect`, `docs-architect`, `legacy-modernizer`, `performance-engineer`, `security-auditor`, `test-automator`, `ui-ux-designer` |
 | [soap-webservices](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/soap-webservices/SKILL.md) | `security-auditor` |
-| [springboot-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/springboot-patterns/SKILL.md) | `code-archaeologist`, `code-reviewer`, `debugger`, `legacy-modernizer`, `performance-engineer`, `security-auditor`, `test-automator` |
+| [springboot-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/springboot-patterns/SKILL.md) | `code-archaeologist`, `code-reviewer`, `database-expert`, `debugger`, `legacy-modernizer`, `performance-engineer`, `security-auditor`, `test-automator` |
 | [web-accessibility](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/web-accessibility/SKILL.md) | `design-system-architect`, `ui-ux-designer` |
 
 The four OpenSpec skills come from `openspec init`, not from agent-standards, so the link goes to the copy in this repository:
@@ -289,7 +292,9 @@ modify a subagent permanently, change its canonical source in the agent-standard
 `python tools/gen-subagents.py` there, and re-import via Step 2.
 
 The subagents cover code review, architecture, debugging, Python, DevOps, observability, performance,
-security, design, docs, Home Assistant, end-to-end test running, and legal. List them with
+security, design, docs, Home Assistant, end-to-end test running, legal, the agent tooling and research,
+databases, Flutter for the desktop front end planned in `openspec/changes/add-flutter-desktop-frontend/`,
+and releases. List them with
 `ls .agents/agents/` rather than trusting a count written here, because a number in prose goes stale the
 first time somebody adds one, and this sentence said 26 for a while after the set had become 18.
 
