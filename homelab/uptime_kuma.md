@@ -35,7 +35,7 @@ Two kinds of monitor live here: service checks that confirm each container answe
 | Homepage | HTTP(s) | `http://<docker-vm-ip>:7778` |
 | Syncthing | HTTP(s) | `http://<docker-vm-ip>:7780` |
 | Perlite notes | HTTP(s) | `http://<docker-vm-ip>:7781` |
-| AscendWebSearch | HTTP(s) | `http://<docker-vm-ip>:7021/health` |
+| ascend-web-hunter | HTTP(s) | `http://<docker-vm-ip>:7021/health` |
 | File Browser | HTTP(s) | `http://<docker-vm-ip>:7782/health` |
 | Samba network drive | TCP Port | Hostname `<docker-vm-ip>`, Port `445` |
 | Plex | HTTP(s) | `http://<docker-vm-ip>:32400/identity` |
@@ -92,9 +92,9 @@ Point it at a reliable public name that will not disappear, and remember that a 
 
 ---
 
-### Why AscendWebSearch gets the shallow check
+### Why ascend-web-hunter gets the shallow check
 
-That service also answers `/ready`, which probes its Redis connection, SearXNG and FlareSolverr individually and is the right endpoint for diagnosing a problem by hand, covered in [ascend_web_search.md](ascend_web_search.md). It is the wrong endpoint for a monitor that polls every minute, for the same reason the other monitors above avoid the proxy: a single dependency having a bad moment would paint the whole service red, when only one piece actually broke. `/health` only confirms the process itself is up and answering, which is the correct question for this table to ask.
+That service also answers `/ready`, which probes its Redis connection and SearXNG individually and is the right endpoint for diagnosing a problem by hand, covered in [ascend_web_hunter.md](ascend_web_hunter.md). It is the wrong endpoint for a monitor that polls every minute, for the same reason the other monitors above avoid the proxy: a single dependency having a bad moment would paint the whole service red, when only one piece actually broke. `/health` only confirms the process itself is up and answering, which is the correct question for this table to ask.
 
 ---
 

@@ -256,7 +256,8 @@ Released under the [MIT License](LICENSE).
 | [homelab/home_assistant_backup.md](homelab/home_assistant_backup.md)    | Home Assistant's own backups, encryption key, restore paths       |
 | [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, upstream resolvers, rate limit, blocklists, 30 days of query log, router DNS |
 | [homelab/nginx_proxy_manager.md](homelab/nginx_proxy_manager.md)        | Reverse proxy entries for each internal name, and verification    |
-| [homelab/ascend_web_search.md](homelab/ascend_web_search.md)            | AscendWebSearch stack: containers, secrets, resource limits, ngrok exposure |
+| [homelab/ascend_web_hunter.md](homelab/ascend_web_hunter.md)            | ascend-web-hunter stack, formerly AscendWebSearch: containers, secrets, resource limits, ngrok exposure |
+| [homelab/ascend-web-hunter_deploy/README.md](homelab/ascend-web-hunter_deploy/README.md) | ascend-web-hunter deploy directory: quick start, configuration, upgrading, differences from the AscendAI bundle |
 | [homelab/syncthing.md](homelab/syncthing.md)                            | Pairing devices, folder paths, ownership, file versioning         |
 | [homelab/perlite_notes.md](homelab/perlite_notes.md)                    | Publishing a synced notes vault as a website                      |
 | [homelab/homepage_dashboard.md](homelab/homepage_dashboard.md)          | Dashboard tiles, allowed hosts, status checks that bypass DNS     |

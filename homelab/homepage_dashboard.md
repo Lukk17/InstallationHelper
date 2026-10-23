@@ -89,9 +89,9 @@ cat > /opt/docker-stack/homepage/config/services.yaml <<'EOF'
         href: http://nginx-proxmox.internal
         siteMonitor: http://<docker-vm-ip>:81
         description: Reverse proxy
-    - AscendWebSearch:
+    - ascend-web-hunter:
         icon: mdi-magnify
-        href: http://ascend-scrapper.internal
+        href: http://ascend-web-hunter.internal
         siteMonitor: http://<docker-vm-ip>:7021/health
         description: Web search and scraping API
 

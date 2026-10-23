@@ -7452,3 +7452,61 @@ How it was proven: the job logs of 120652876471 and 120652876479 and the `e2e-st
 Fix: [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) has one function, `Test-WingetVerifyPath`, which the install check before winget, the check after winget exits 0 and the verification in [setup/windows/WindowsVerify.ps1](../setup/windows/WindowsVerify.ps1) all call. After an exit 0 the scoped list is asked first, and the mapping's `verify_path` only when that finds nothing, so a package without one is held to the scoped list exactly as 10.187 intended. Python's mapping in [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) carries `verify_path: "%ProgramFiles%/Python311/python.exe"`, a path a per-user install never creates, so a later run reports it present instead of as a per-user copy. [docs/manual/windows/install.ps1](manual/windows/install.ps1) carries the same `VerifyPath` on its Tor and Python rows and asks it the same way.
 
 Mechanical check: [e2e/tier1/manual_windows_install.sh](../e2e/tier1/manual_windows_install.sh) now compares the `verify_path` of every default mapping with the `VerifyPath` of its row in the manual script, and the Pester cases in [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) named after sweep 40004770702.
+
+### Found when the Proxmox proxy host answered 500, 2026-10-24
+
+#### 10.199 The Proxmox proxy host carried the port in the hostname field too, and every request answered 500 while the proxy page showed it Online
+
+Cause: the Proxmox entry in Nginx Proxy Manager on the lab had `192.168.1.10:8006` in Forward Hostname / IP and `8006` in Forward Port. Version 2.15.1 joins the two fields with a colon, so the upstream became `192.168.1.10:8006:8006`. [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md) said only "Forward Hostname / IP: the container name" and gave `<proxmox-host>` in the Proxmox row, and never said that the port stays out of the hostname field. Who typed the entry is not known. Not introduced by this change.
+
+Effect: every request to `proxmox.internal` answered 500, and `/data/logs/proxy-host-<id>_error.log` in the proxy container said `invalid port in upstream "192.168.1.10:8006:8006/"`. The proxy host page still showed the entry as Online, because `nginx -t` does not check an address built from variables.
+
+How it was proven: measured read only on the lab on 2026-10-24, the two fields of the proxy host and the log line above. The join is in the source of tag v2.15.1, read the same day: `backend/templates/proxy_host.conf` sets `set $server "{{ forward_host }}";` and `set $port {{ forward_port }};`, and `docker/rootfs/etc/nginx/conf.d/include/proxy.conf` has `proxy_pass $forward_scheme://$server:$port$request_uri;`.
+
+Fix: steps 3 and 4 of "Add a proxy host" in [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md) say the hostname field takes the name or address alone and the port goes only into Forward Port, the page explains the doubled port with the log line, and the Proxmox section shows this lab's two fields. The entry on the lab itself is not changed by this commit. The owner removes `:8006` from its hostname field.
+
+Mechanical check: none. The proxy hosts live in the database on the lab, which no tier of the harness reads.
+
+#### 10.200 The proxy page sent Proxmox through plain http, where its Secure login cookie is most likely dropped
+
+Status: read in the code, not yet seen in a browser.
+
+Cause: the Proxmox section of [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md) proxied `proxmox.internal` with the SSL tab on None, so a browser reaches it over plain HTTP. Proxmox sets its login cookie with the Secure flag, `Ext.util.Cookies.set(..., true, "lax")` at line 322 of `proxmoxlib.js` on the lab's Proxmox host, and RFC 6265bis says a browser ignores a secure only cookie on a request that is not secure. The section also gave none of the settings the Proxmox wiki page Web Interface Via Nginx Proxy lists for the console. Not introduced by this change.
+
+Effect: most likely the login form comes back after every login through `http://proxmox.internal`. This has not been observed.
+
+How it was proven: `proxmoxlib.js` read only on the lab's Proxmox host on 2026-10-24, and the wiki page read the same day. No browser login through the proxy was tried.
+
+Fix: the Proxmox section says to type `http://` because the proxy has no certificate for the name, then gives two ways that avoid the cookie problem: a certificate from a local certificate authority the browsers trust, or opening `https://<proxmox-host>:8006` directly. It lists the Advanced lines from the wiki page, without `proxy_connect_timeout`, which nginx caps at about 75 seconds, and without `proxy_set_header` lines or `location` blocks, because Nginx Proxy Manager puts the Advanced text at server level and its own `location /` sets the headers.
+
+Mechanical check: none. Whether a login survives is a browser question no tier asks.
+
+### Found when the homelab pages were moved to the ascend-web-hunter name, 2026-10-24
+
+#### 10.201 The homelab pages and the deploy copy still described AscendWebSearch and FlareSolverr after AscendAI had renamed the service ascend-web-hunter
+
+Status: fixed in this repository. Open outside it: on 2026-10-24 the image under the new name had no published tag.
+
+Cause: AscendAI renamed AscendWebSearch to ascend-web-hunter in its commit `ebe3476` on 2026-09-10: the directory, the container `ascend-web-hunter`, the tunnel container `ngrok-ascend-web-hunter`, the image `lukk17/ascend-ai-ascend-web-hunter`, and the deploy file `compose.yaml`. On 2026-10-20 its commit `6f8e45b`, on a local branch not yet on GitHub `master`, removed the FlareSolverr container. The copy in `homelab/ascend-web-search_deploy/` kept the old names, the old image `lukk17/ascend-web-search:latest` and FlareSolverr, and nothing compares the copy with AscendAI. Not introduced by this change.
+
+Effect: a fresh setup by the old pages would have run the old image, last built on 2026-08-14, with a container FlareSolverr that the new service no longer calls, and the proxy, dashboard and monitor entries named `ascend-scrapper.internal` and `ascend-web-search`. Two more things only appeared while adapting the new bundle. AscendAI's bundle now runs a Redis container named `redis`, the same container name the homelab [compose.yaml](../homelab/compose.yaml) uses, so it would refuse to start next to it. And the new `/mcp` endpoint accepts only the Host headers in `MCP_ALLOWED_HOST_HEADERS`, `ascend-web-hunter,localhost,127.0.0.1` by default, so a request through the proxy name would get `421 Misdirected Request`.
+
+How it was proven: read in the AscendAI clone on 2026-10-24, `git log --diff-filter=R` for the rename, and the bundle at commit `aa82a35`. The host check read in FastMCP 4.1.1, `_host_matches` in `fastmcp/server/http.py`, which compares the header without its port, and Nginx Proxy Manager 2.15.1 sets `proxy_set_header Host $host`. Not measured against a running container. The registry measured with curl the same day: `hub.docker.com/v2/repositories/lukk17/ascend-ai-ascend-web-hunter/tags` answered `"count": 0`, and `registry-1.docker.io` answered 404 `MANIFEST_UNKNOWN` for `latest` and `v0.0.3`.
+
+Fix: the guide is [homelab/ascend_web_hunter.md](../homelab/ascend_web_hunter.md) and the copy is [homelab/ascend-web-hunter_deploy/](../homelab/ascend-web-hunter_deploy/), both renamed, with the new names, the new image on `latest`, no FlareSolverr, no bundled Redis, `ascend-web-hunter.internal` added to the accepted Host headers, a check that the image tag exists before the first start, and a table of every difference from the AscendAI bundle. The proxy entry, the dashboard tile, the monitor, both documentation maps and [docs/AGENT_TOOLING.md](AGENT_TOOLING.md) use the new names.
+
+Mechanical check: none. The source of the copy is another repository that the gate container does not have.
+
+#### 10.202 The adapted hunter compose file gave the ngrok service its logging key twice
+
+Status: introduced by an agent in this change and fixed in it before the commit.
+
+Cause: the script that adapted AscendAI's `compose.yaml` for [homelab/ascend-web-hunter_deploy/compose.yaml](../homelab/ascend-web-hunter_deploy/compose.yaml) added `logging: *default-logging` to `ngrok-ascend-web-hunter` on the belief that AscendAI's ngrok service had no log cap. That belief was wrong: the AscendAI file already sets the line there, so the service carried it twice. The same wrong belief had put a row about the ngrok log cap into the differences table of the deploy README.
+
+Effect: the tier 1 gate failed with `ascend-web-hunter_deploy/compose.yaml: failed to parse /repo/homelab/ascend-web-hunter_deploy/compose.yaml: yaml: construct errors: line 1: line 58: mapping key "logging" already defined at line 57`, so Docker Compose would have refused the file on the lab.
+
+How it was proven: that gate output, and the AscendAI file read again, which has the line right after `restart: unless-stopped` in the ngrok service.
+
+Fix: the second line is gone, and so is the table row. A diff against the AscendAI file now shows no logging difference except the line of the Redis service this copy leaves out.
+
+Mechanical check: the existing compose resolve check in [e2e/tier1/compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh) caught it.

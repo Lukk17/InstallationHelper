@@ -34,8 +34,8 @@ Go to Hosts, then Proxy Hosts, then Add Proxy Host, and fill in the Details tab.
 
 1. Domain Names: type the name and press Enter so it turns into a chip.
 2. Scheme: `http`.
-3. Forward Hostname / IP: the container name.
-4. Forward Port: the port inside the container, not the published host port.
+3. Forward Hostname / IP: the container name or the address alone, never with a `:port` after it.
+4. Forward Port: the port inside the container, not the published host port. This field is the only place the port goes.
 5. Turn on Block Common Exploits and Websockets Support.
 6. SSL tab: leave it on None. A `.internal` name cannot get a public certificate, and plain HTTP inside your own
    network is fine here.
@@ -53,15 +53,22 @@ Go to Hosts, then Proxy Hosts, then Add Proxy Host, and fill in the Details tab.
 | `adguard.internal` | http | `adguard-home` | 7777 | on |
 | `nginx-proxmox.internal` | http | `nginx-proxy-manager` | 81 | on |
 | `notes.internal` | http | `perlite-web` | 80 | on |
-| `ascend-scrapper.internal` | http | `ascend-web-search` | 7021 | on |
+| `ascend-web-hunter.internal` | http | `ascend-web-hunter` | 7021 | on |
 | `files.internal` | http | `filebrowser` | 80 | on |
 
 The forward port is the container port from the right hand side of each Compose port mapping. Using the published
 host port instead is the usual reason a new entry returns 502.
 
-`ascend-web-search` is the one entry above where the forward port and the published host port are the same number,
+`ascend-web-hunter` is the one entry above where the forward port and the published host port are the same number,
 7021. That is not a mistake to "fix" by looking for a different container port, the service happens to publish and
-listen on the same port. See [ascend_web_search.md](ascend_web_search.md) for how that stack joins this network.
+listen on the same port. See [ascend_web_hunter.md](ascend_web_hunter.md) for how that stack joins this network.
+
+Never type the port into Forward Hostname / IP as well. Nginx Proxy Manager 2.15.1 puts the two fields together as
+`proxy_pass $forward_scheme://$server:$port$request_uri`, so `192.168.1.10:8006` in the hostname field and `8006` in
+the port field become the upstream `192.168.1.10:8006:8006`. Every request then answers 500, and
+`/data/logs/proxy-host-<id>_error.log` inside the container says `invalid port in upstream "192.168.1.10:8006:8006/"`.
+The proxy host page still shows the entry as Online, because the configuration test does not check an address built
+from variables.
 
 ---
 
@@ -74,9 +81,52 @@ certificate.
 |---|---|---|---|---|
 | `proxmox.internal` | https | `<proxmox-host>` | 8006 | on |
 
-This is the only entry with scheme `https`. The proxy does not verify the upstream certificate, so the self signed
-one is not a problem. Websockets matter here because the browser console and the live statistics stop working
-without them.
+Fill in the Details tab like this:
+
+1. Domain Names: `proxmox.internal`.
+2. Scheme: `https`. This is the only entry with scheme `https`. The proxy does not verify the upstream certificate,
+   so the self signed one is not a problem.
+3. Forward Hostname / IP: the address alone, `<proxmox-host>`, with no `:8006` after it.
+4. Forward Port: `8006`.
+5. Turn on Block Common Exploits and Websockets Support. The browser console of a virtual machine and the live
+   statistics stop working without websockets.
+
+Then open the Advanced tab and paste these lines into Custom Nginx Configuration:
+
+```nginx
+proxy_buffering off;
+client_max_body_size 0;
+proxy_read_timeout 3600s;
+proxy_send_timeout 3600s;
+send_timeout 3600s;
+```
+
+They come from the Proxmox wiki page [Web Interface Via Nginx Proxy](https://pve.proxmox.com/wiki/Web_Interface_Via_Nginx_Proxy),
+read on 2026-10-24. Buffering off and the long timeouts keep a console session open, and `client_max_body_size 0`
+lets an ISO image upload through. Three things from that page are left out on purpose. `proxy_connect_timeout` is
+left out, because nginx caps it at about 75 seconds whatever the value says. `proxy_set_header` lines and `location`
+blocks are left out, because Nginx Proxy Manager puts the Advanced text at server level and its own `location /`
+already sets the headers and the websocket upgrade.
+
+In this lab the two fields read like this:
+
+```text
+Forward Hostname / IP: 192.168.1.10
+Forward Port: 8006
+```
+
+Type the address as `http://proxmox.internal`, with the scheme. The proxy has no certificate for a `.internal` name,
+and a browser that tries `https://` first fails with `ERR_SSL_UNRECOGNIZED_NAME_ALERT`.
+
+Even with `http://`, the login most likely does not work through this name yet. Proxmox sets its login cookie with
+the Secure flag, `Ext.util.Cookies.set(..., true, "lax")` at line 322 of `proxmoxlib.js` on the lab's Proxmox host,
+and a browser ignores a Secure cookie on a plain HTTP page, so the login form keeps coming back. This was read in the
+code and has not been seen in a browser yet. Two ways work around it:
+
+1. Give `proxmox.internal` a certificate from a local certificate authority that every browser in the house trusts,
+   add it in the SSL tab of this entry, and open `https://proxmox.internal`.
+2. Open Proxmox directly at `https://<proxmox-host>:8006`, which is what the Homepage tile in
+   [homepage_dashboard.md](homepage_dashboard.md) does, and accept the self signed certificate once per browser.
 
 Home Assistant deliberately has no entry. It lives on its own virtual machine at `<ha-vm-ip>:8123`, and every phone
 in the house already has that bookmarked or uses the app, so putting it behind a name that only resolves on the home

@@ -35,9 +35,9 @@ search:
 
 server:
   # SearXNG's per-IP rate limiter assumes a public-facing instance
-  # behind a CDN. Internal callers from AscendWebSearch share the
+  # behind a CDN. Internal callers from ascend-web-hunter share the
   # docker-network IP, so the limiter trips them in lockstep. Keep
-  # it off; we already rate-limit upstream in AscendWebSearch.
+  # it off; we already rate-limit upstream in ascend-web-hunter.
   limiter: false
   public_instance: false
   # `secret_key` is deliberately absent. SearXNG reads it from the

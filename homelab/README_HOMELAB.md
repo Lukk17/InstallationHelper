@@ -95,8 +95,8 @@ graph TB
 | Uptime Kuma | `uptime.internal` | 7779 | 3001 | Polls the other services and alerts when one dies |
 | Syncthing | `syncthing.internal` | 7780 | 8384 | File sync between machines |
 | Perlite | `notes.internal` | 7781 | 80 | Renders the synced notes folder as a read only website |
-| Redis | none, TCP only | 6379 | 6379 | In-memory cache, unauthenticated and with no data volume, used by AscendWebSearch below |
-| AscendWebSearch | `ascend-scrapper.internal` | 7021 | 7021 | Web search and scraping API, a separate Compose project joined to this one only through the shared proxy network |
+| Redis | none, TCP only | 6379 | 6379 | In-memory cache, unauthenticated and with no data volume, used by ascend-web-hunter below |
+| ascend-web-hunter | `ascend-web-hunter.internal` | 7021 | 7021 | Web search and scraping API from AscendAI, a separate Compose project joined to this one only through the shared proxy network |
 | File Browser | `files.internal` | 7782 | 80 | Web access to the whole USB data disk |
 | Samba | `\\files.internal\files`, not proxied | 445 | 445 | The same folder as a network drive |
 | Plex | `plex.internal`, host network | 32400 | 32400 | Films and series from the USB data disk, direct play only |
@@ -106,7 +106,7 @@ Nginx Proxy Manager also binds 80 and 443 for proxied traffic, AdGuard binds 53 
 
 Perlite is two containers rather than one. The engine renders the markdown and has no published port, and `perlite-web` is the nginx that serves it. Setting it up takes a few extra steps, so it has its own page: [perlite_notes.md](perlite_notes.md).
 
-Redis has no proxy entry because it speaks its own wire protocol, not HTTP, so Nginx Proxy Manager has nothing to forward. AscendWebSearch lives in its own directory with its own Compose file rather than in `compose.yaml`, since it is a different project with a different lifecycle. Both are covered together in [ascend_web_search.md](ascend_web_search.md).
+Redis has no proxy entry because it speaks its own wire protocol, not HTTP, so Nginx Proxy Manager has nothing to forward. ascend-web-hunter lives in its own directory, [ascend-web-hunter_deploy/](ascend-web-hunter_deploy/), with its own Compose file rather than in `compose.yaml`, since it is a different project with a different lifecycle. Both are covered together in [ascend_web_hunter.md](ascend_web_hunter.md).
 
 Telegraf has no proxy entry and no published port either. It runs on `network_mode: host`, writes its rows straight into a folder, and has no web interface for anyone to open. [network_watch.md](network_watch.md) covers what it records and why.
 
@@ -261,11 +261,11 @@ The values in the Compose file that are host specific sit in the file directly, 
 
 The Compose file carries no passwords or tokens. The Samba login, and the one-time Plex claim token, come from `/opt/docker-stack/.env` on the VM, which never enters version control. Every other service sets its own credentials on first run and stores them under `/opt/docker-stack/`.
 
-The `proxy-tier` network in `compose.yaml` carries an explicit `name: proxy-tier` rather than letting Docker derive one from the directory, so that the separate AscendWebSearch Compose project can join it reliably. Applying that on a stack that is already running takes `docker compose down` followed by `docker compose up -d`, which recreates every container here. No data is lost, since every service in this file keeps its state on the bind mounts under `/opt/docker-stack/` listed below, not inside the container. Details on what joins that network and why are in [ascend_web_search.md](ascend_web_search.md).
+The `proxy-tier` network in `compose.yaml` carries an explicit `name: proxy-tier` rather than letting Docker derive one from the directory, so that the separate ascend-web-hunter Compose project can join it reliably. Applying that on a stack that is already running takes `docker compose down` followed by `docker compose up -d`, which recreates every container here. No data is lost, since every service in this file keeps its state on the bind mounts under `/opt/docker-stack/` listed below, not inside the container. Details on what joins that network and why are in [ascend_web_hunter.md](ascend_web_hunter.md).
 
 Persistent data lives under `/opt/docker-stack/`, one directory per service, bind mounted into the containers. The shared files, with the Plex library inside them, are the exception: they live on the USB data disk under `/mnt/data`, which Proxmox backups skip on purpose. The Compose file alone will not restore your setup, because AdGuard filters, proxy hosts, dashboard layout, uptime monitors and Syncthing keys all live in those directories.
 
-Every image tag in this file is pinned to an exact version rather than `latest`. An unattended pull with floating tags can hand you a breaking major release on a random Tuesday. Bump a tag deliberately, one service at a time. The separate AscendWebSearch stack makes one deliberate exception for the one image published from this account, described in [ascend_web_search.md](ascend_web_search.md).
+Every image tag in this file is pinned to an exact version rather than `latest`. An unattended pull with floating tags can hand you a breaking major release on a random Tuesday. Bump a tag deliberately, one service at a time. The separate ascend-web-hunter stack makes one deliberate exception for the one image published from this account, described in [ascend_web_hunter.md](ascend_web_hunter.md).
 
 ---
 
@@ -331,6 +331,7 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [network_watch.md](network_watch.md) | Telegraf recording proof of short provider outages, and reading it back afterward |
 | [lan_storage.md](lan_storage.md) | The USB data disk handed to the Docker VM, a new ext4 disk or an existing NTFS one, shared at its root through File Browser at `files.internal` and the Samba network drive, and opening the VM in Dolphin |
 | [plex_media_server.md](plex_media_server.md) | Plex with host networking, the CPU cap, the transcoding settings, and which file formats to store |
-| [ascend_web_search.md](ascend_web_search.md) | AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
+| [ascend_web_hunter.md](ascend_web_hunter.md) | ascend-web-hunter, formerly AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
+| [ascend-web-hunter_deploy/README.md](ascend-web-hunter_deploy/README.md) | The ascend-web-hunter deploy directory: prerequisites, quick start, configuration, upgrading, and how it differs from the AscendAI bundle |
 | [backup_restore.md](backup_restore.md) | Backing up the VMs and the service data, and restoring both |
 | [agent_access.md](agent_access.md) | Access for an AI agent without a password: a Proxmox admin API token with narrower tokens as alternatives, one SSH key for the Proxmox host, the Docker VM and the router, the Syncthing and Uptime Kuma API keys, and how to revoke each |
