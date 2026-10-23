@@ -97,8 +97,8 @@ graph TB
 | Perlite | `notes.internal` | 7781 | 80 | Renders the synced notes folder as a read only website |
 | Redis | none, TCP only | 6379 | 6379 | In-memory cache, unauthenticated and with no data volume, used by AscendWebSearch below |
 | AscendWebSearch | `ascend-scrapper.internal` | 7021 | 7021 | Web search and scraping API, a separate Compose project joined to this one only through the shared proxy network |
-| File Browser | `drive.internal` | 7782 | 80 | Web access to the whole USB data disk |
-| Samba | `\\drive.internal\files`, not proxied | 445 | 445 | The same folder as a network drive |
+| File Browser | `files.internal` | 7782 | 80 | Web access to the whole USB data disk |
+| Samba | `\\files.internal\files`, not proxied | 445 | 445 | The same folder as a network drive |
 | Plex | `plex.internal`, host network | 32400 | 32400 | Films and series from the USB data disk, direct play only |
 | Telegraf | none, host network | none | none | Records a ping and DNS row every second, an HTTP row every 5 seconds, and a download, upload and latency row every hour, as proof of short provider outages, written into the Syncthing folder |
 
@@ -110,7 +110,7 @@ Redis has no proxy entry because it speaks its own wire protocol, not HTTP, so N
 
 Telegraf has no proxy entry and no published port either. It runs on `network_mode: host`, writes its rows straight into a folder, and has no web interface for anyone to open. [network_watch.md](network_watch.md) covers what it records and why.
 
-File Browser and Samba serve the same folder, `/mnt/data`, the top of a USB disk the Proxmox host hands whole to the Docker VM. The Plex library is the `media` folder at the top of that disk, so films are copied in through the network drive or File Browser like any other file, and Plex mounts only that folder, read only. Samba has no proxy entry because SMB is not web traffic: `drive.internal` reaches it only because the AdGuard wildcard rewrite sends every `.internal` name to the VM. Plex runs on `network_mode: host` with a hard limit of 1.5 CPU cores, so its proxy entry points at the VM's address and port 32400. The disk is covered in [lan_storage.md](lan_storage.md), Plex in [plex_media_server.md](plex_media_server.md).
+File Browser and Samba serve the same folder, `/mnt/data`, the top of a USB disk the Proxmox host hands whole to the Docker VM. The Plex library is the `media` folder at the top of that disk, so films are copied in through the network drive or File Browser like any other file, and Plex mounts only that folder, read only. Samba has no proxy entry because SMB is not web traffic: `files.internal` reaches it only because the AdGuard wildcard rewrite sends every `.internal` name to the VM. Plex runs on `network_mode: host` with a hard limit of 1.5 CPU cores, so its proxy entry points at the VM's address and port 32400. The disk is covered in [lan_storage.md](lan_storage.md), Plex in [plex_media_server.md](plex_media_server.md).
 
 Proxmox is not a container and is not in the Compose file, so its proxy entry points at an address rather than a container name. [nginx_proxy_manager.md](nginx_proxy_manager.md) covers that case. Home Assistant is reached directly on `<ha-vm-ip>:8123`, since it is the one service you open constantly from phones that already have it bookmarked.
 
@@ -329,7 +329,7 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [homepage_dashboard.md](homepage_dashboard.md) | Dashboard tiles, allowed hosts, and why the status check bypasses DNS |
 | [uptime_kuma.md](uptime_kuma.md) | Service monitors and network monitors, why Proxmox is a ping, why AdGuard gets two checks |
 | [network_watch.md](network_watch.md) | Telegraf recording proof of short provider outages, and reading it back afterward |
-| [lan_storage.md](lan_storage.md) | The USB data disk handed to the Docker VM, a new ext4 disk or an existing NTFS one, shared at its root through File Browser at `drive.internal` and the Samba network drive, and opening the VM in Dolphin |
+| [lan_storage.md](lan_storage.md) | The USB data disk handed to the Docker VM, a new ext4 disk or an existing NTFS one, shared at its root through File Browser at `files.internal` and the Samba network drive, and opening the VM in Dolphin |
 | [plex_media_server.md](plex_media_server.md) | Plex with host networking, the CPU cap, the transcoding settings, and which file formats to store |
 | [ascend_web_search.md](ascend_web_search.md) | AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
 | [backup_restore.md](backup_restore.md) | Backing up the VMs and the service data, and restoring both |

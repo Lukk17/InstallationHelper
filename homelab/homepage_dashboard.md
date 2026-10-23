@@ -120,9 +120,9 @@ cat > /opt/docker-stack/homepage/config/services.yaml <<'EOF'
         description: Markdown notes viewer
     - File Browser:
         icon: filebrowser
-        href: http://drive.internal
+        href: http://files.internal
         siteMonitor: http://<docker-vm-ip>:7782/health
-        description: Shared files on the USB disk, also at \\drive.internal\files
+        description: Shared files on the USB disk, also at \\files.internal\files
 
 - Media:
     - Plex:

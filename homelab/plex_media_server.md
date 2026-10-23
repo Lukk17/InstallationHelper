@@ -41,8 +41,8 @@ The data disk has to be attached and mounted at `/mnt/data`, with a `media` fold
 
 The library is the `media` folder at the top of the shared disk from [lan_storage.md](lan_storage.md), so films go in the same way as any other file:
 
-1. Over the network drive, copy them to `\\drive.internal\files\media` on Windows, or `smb://drive.internal/files/media` on macOS and Linux.
-2. In a browser, open `http://drive.internal`, go into the `media` folder and upload them in File Browser.
+1. Over the network drive, copy them to `\\files.internal\files\media` on Windows, or `smb://files.internal/files/media` on macOS and Linux.
+2. In a browser, open `http://files.internal`, go into the `media` folder and upload them in File Browser.
 
 Keep the folders the library points at, for example `media\films` and `media\series`. New files appear in Plex after a library scan. To scan at once, open the library in the web app and choose Scan Library Files.
 
@@ -146,7 +146,7 @@ awk -F= '{print $1, length($2)}' /opt/docker-stack/.env
 
 If the token ran out before the first start, the server comes up unclaimed. Stop it, get a fresh token, remove the old line with the `sed` command from step 5, add the new token with the commands from step 2, and start it again.
 
-Add a library in the wizard or later under Settings, then Manage, then Libraries. Point it at `/data` or a folder under it, for example `/data/films` and `/data/series`, which are `/mnt/data/media/films` and `/mnt/data/media/series` on the VM and `\\drive.internal\files\media\films` and `\\drive.internal\files\media\series` on the network drive. Paths in Plex are paths inside the container.
+Add a library in the wizard or later under Settings, then Manage, then Libraries. Point it at `/data` or a folder under it, for example `/data/films` and `/data/series`, which are `/mnt/data/media/films` and `/mnt/data/media/series` on the VM and `\\files.internal\files\media\films` and `\\files.internal\files\media\series` on the network drive. Paths in Plex are paths inside the container.
 
 ---
 

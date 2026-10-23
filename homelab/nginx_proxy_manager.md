@@ -53,7 +53,7 @@ Go to Hosts, then Proxy Hosts, then Add Proxy Host, and fill in the Details tab.
 | `nginx-proxmox.internal` | http | `nginx-proxy-manager` | 81 | on |
 | `notes.internal` | http | `perlite-web` | 80 | on |
 | `ascend-scrapper.internal` | http | `ascend-web-search` | 7021 | on |
-| `drive.internal` | http | `filebrowser` | 80 | on |
+| `files.internal` | http | `filebrowser` | 80 | on |
 
 The forward port is the container port from the right hand side of each Compose port mapping. Using the published
 host port instead is the usual reason a new entry returns 502.
@@ -93,7 +93,7 @@ Plex is a container, but it runs with host networking rather than on `proxy-tier
 
 Open it as `http://plex.internal/web`. TV and phone apps do not use this name, they connect to `<docker-vm-ip>:32400` directly.
 
-Samba, the network drive at `\\drive.internal\files`, has no entry at all. It is not web traffic, and it answers on the VM's address directly, see [lan_storage.md](lan_storage.md).
+Samba, the network drive at `\\files.internal\files`, has no entry at all. It is not web traffic, and it answers on the VM's address directly, see [lan_storage.md](lan_storage.md).
 
 ---
 

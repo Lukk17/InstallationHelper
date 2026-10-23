@@ -1,6 +1,6 @@
 # LAN Storage
 
-> A USB disk on the Proxmox host, handed whole to the Docker VM and shared at its root, which you open in a browser at `http://drive.internal` and as a network drive at `\\drive.internal\files`.
+> A USB disk on the Proxmox host, handed whole to the Docker VM and shared at its root, which you open in a browser at `http://files.internal` and as a network drive at `\\files.internal\files`.
 
 ---
 
@@ -10,8 +10,8 @@ The whole disk, mounted at `/mnt/data` on the Docker VM, reached two ways.
 
 | Way in | Address | Good for |
 |---|---|---|
-| File Browser, in a browser | `http://drive.internal` | Phones, someone else's laptop, a quick upload or download |
-| Samba, as a network drive | `\\drive.internal\files` on Windows, `smb://drive.internal/files` everywhere else | Working on files in place from a desktop, copying many files at once |
+| File Browser, in a browser | `http://files.internal` | Phones, someone else's laptop, a quick upload or download |
+| Samba, as a network drive | `\\files.internal\files` on Windows, `smb://files.internal/files` everywhere else | Working on files in place from a desktop, copying many files at once |
 
 `files` is only the name of the network share. It is not a folder on the disk: the share opens at the top of the disk.
 
@@ -347,7 +347,7 @@ On this lab, after path B, `findmnt` printed:
 | `/mnt/data` | Everything on the disk: documents, photos, anything you share | File Browser and Samba, read and write |
 | `/mnt/data/media` | Films and series in the formats from [plex_media_server.md](plex_media_server.md) | File Browser and Samba, read and write, and Plex, read only |
 
-The `media` folder sits on the shared disk on purpose, so you copy films to `\\drive.internal\files\media` or upload them in File Browser, with no separate login and no other tool. The cost is that anyone with the Samba login or a File Browser account can also rename or delete a film. Plex cannot, because it mounts the folder read only, but that protects nothing from the people who share the drive.
+The `media` folder sits on the shared disk on purpose, so you copy films to `\\files.internal\files\media` or upload them in File Browser, with no separate login and no other tool. The cost is that anyone with the Samba login or a File Browser account can also rename or delete a film. Plex cannot, because it mounts the folder read only, but that protects nothing from the people who share the drive.
 
 The name is `media` in lower case. Linux tells `Media` and `media` apart, so a folder called `Media` is not the library.
 
@@ -434,7 +434,7 @@ docker logs filebrowser 2>&1 | grep "initial admin password"
 
 A fresh install creates the user `admin` with a random password and prints it once, in a line like `Generated initial admin password for user "admin"`. That is what the 2.0.0 changelog means by "Fresh installs with default admin/admin generate a random initial password and log it once (#2977)", and it is what `backend/internal/state/bootstrap_admin_password.go` does at the `v2.0.0-stable` tag. The password is three parts joined by dashes, a word and two short codes.
 
-Open `http://drive.internal`, or `http://<docker-vm-ip>:7782` before the proxy entry exists, and sign in as `admin` with that password.
+Open `http://files.internal`, or `http://<docker-vm-ip>:7782` before the proxy entry exists, and sign in as `admin` with that password.
 
 Change it straight away: open Settings, then User management, edit `admin`, and set a new password of at least 12 characters. Then create a normal account for yourself the same way and use that day to day.
 
@@ -546,7 +546,7 @@ Start Samba:
 cd /opt/docker-stack && docker compose up -d samba
 ```
 
-Samba is not web traffic, so Nginx Proxy Manager does not see it and needs no entry. The name `drive.internal` still works for it only because the AdGuard wildcard rewrite from [adguard_dns.md](adguard_dns.md) answers every `.internal` name with the Docker VM's address, and Samba listens on that address directly. Any other `.internal` name would reach the same share, `drive` is just the one that makes sense.
+Samba is not web traffic, so Nginx Proxy Manager does not see it and needs no entry. The name `files.internal` still works for it only because the AdGuard wildcard rewrite from [adguard_dns.md](adguard_dns.md) answers every `.internal` name with the Docker VM's address, and Samba listens on that address directly. Any other `.internal` name would reach the same share, `files` is just the one that makes sense.
 
 ---
 
@@ -555,20 +555,20 @@ Samba is not web traffic, so Nginx Proxy Manager does not see it and needs no en
 Windows, in File Explorer's address bar:
 
 ```text
-\\drive.internal\files
+\\files.internal\files
 ```
 
 To keep it as a drive letter, run this in PowerShell and enter the Samba user and password when asked:
 
 ```powershell
-net use Z: \\drive.internal\files /persistent:yes /user:<samba-user>
+net use Z: \\files.internal\files /persistent:yes /user:<samba-user>
 ```
 
-macOS: in Finder, choose Go, then Connect to Server, and enter `smb://drive.internal/files`.
+macOS: in Finder, choose Go, then Connect to Server, and enter `smb://files.internal/files`.
 
-Linux: in the file manager's address bar, enter `smb://drive.internal/files`. In Dolphin, see the next section.
+Linux: in the file manager's address bar, enter `smb://files.internal/files`. In Dolphin, see the next section.
 
-Android and iOS: in a file manager app that speaks SMB (the iOS Files app does, under Connect to Server), enter `smb://drive.internal/files`.
+Android and iOS: in a file manager app that speaks SMB (the iOS Files app does, under Connect to Server), enter `smb://files.internal/files`.
 
 The server will not appear by itself under Network in Windows, because the image runs no WS-Discovery service, as its README says. Type the address.
 
@@ -612,7 +612,7 @@ For the shared disk, press Ctrl+L again and enter the Samba address, then sign i
 smb://<docker-vm-ip>/files
 ```
 
-On this lab that is `smb://192.168.1.12/files`. `smb://drive.internal/files` works as well once your machine uses AdGuard for DNS.
+On this lab that is `smb://192.168.1.12/files`. `smb://files.internal/files` works as well once your machine uses AdGuard for DNS.
 
 ---
 
@@ -623,13 +623,13 @@ From your own machine, check the web side through the proxy.
 Unix shell:
 
 ```bash
-curl -sI http://drive.internal/health | head -1
+curl -sI http://files.internal/health | head -1
 ```
 
 PowerShell:
 
 ```powershell
-curl.exe -sI http://drive.internal/health
+curl.exe -sI http://files.internal/health
 ```
 
 A 200 means File Browser answers through the proxy. Then check that the network drive port answers.
@@ -637,13 +637,13 @@ A 200 means File Browser answers through the proxy. Then check that the network 
 Unix shell:
 
 ```bash
-nc -zv drive.internal 445
+nc -zv files.internal 445
 ```
 
 PowerShell:
 
 ```powershell
-Test-NetConnection drive.internal -Port 445
+Test-NetConnection files.internal -Port 445
 ```
 
 Last, the check that matters: upload a text file in File Browser, open it over the network drive, change a line and save. Then open it again in File Browser. Both sides editing the same file without a permission error means the ownership is right, and that writes reach the USB disk rather than the protected mount point.
@@ -664,8 +664,8 @@ The whole Docker VM will not start. The USB disk is missing, see When the USB di
 
 A file saved over Samba cannot be changed in File Browser, or the other way round, on an ext4 disk from path A. Something wrote into `/mnt/data` as another user, usually a copy made with `sudo`. Fix it with `sudo chown -R 1000:1000 /mnt/data`. On an NTFS disk from path B every file belongs to `1000` through the mount options, so this cannot happen there.
 
-Windows says the network name cannot be found. The PC is not using AdGuard for DNS, so `drive.internal` does not resolve. Try `\\<docker-vm-ip>\files` to tell a DNS problem from a Samba problem.
+Windows says the network name cannot be found. The PC is not using AdGuard for DNS, so `files.internal` does not resolve. Try `\\<docker-vm-ip>\files` to tell a DNS problem from a Samba problem.
 
 Windows refuses the password. Windows may offer your Windows login instead of the Samba one. Use `/user:<samba-user>` as in the `net use` command above, or remove the saved entry under Credential Manager.
 
-`drive.internal` returns 502. File Browser is stopped, or the proxy entry uses port 7782 instead of the container port 80.
+`files.internal` returns 502. File Browser is stopped, or the proxy entry uses port 7782 instead of the container port 80.
