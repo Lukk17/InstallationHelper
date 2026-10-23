@@ -6,6 +6,7 @@
 #   run.sh                          tier 1 only, the pre-commit gate (minutes)
 #   run.sh --tier 1                 static checks against the working tree
 #   run.sh --tier 2                 resolve every package name against real repositories
+#   run.sh --tier 2 --only <check>  one tier 2 check, named as its file under e2e/tier2/ without .sh
 #   run.sh --tier 3 --scenario defaults     one scenario in a container
 #   run.sh --tier 3 --scenario all          every scenario, sequentially (hours)
 #   run.sh --tier 3 --scenario all --jobs 3 every scenario, three at a time
@@ -32,7 +33,7 @@
 # tier3/, and container.sh refuses a name that has none rather than quietly falling back
 # to arch, because testing the wrong distribution is worse than testing nothing.
 
-usage() { sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 GATE_MODE="wait"
 GATE_ARGS=()
@@ -61,6 +62,7 @@ TIER="1"
 SCENARIO=""
 JOBS="1"
 OS="arch"
+ONLY=""
 
 list_scenarios() {
     printf '%-22s %s\n' "SCENARIO" "COVERS"
@@ -84,6 +86,8 @@ while [[ $# -gt 0 ]]; do
         --jobs=*)   JOBS="${1#--jobs=}" ;;
         --os)       shift; OS="${1:?--os needs a value}" ;;
         --os=*)     OS="${1#--os=}" ;;
+        --only)     shift; ONLY="${1:?--only needs a value}" ;;
+        --only=*)   ONLY="${1#--only=}" ;;
         --queue)    echo "ERROR: --queue starts the gate container from the host, and this is already inside it" >&2; exit 2 ;;
         *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -134,17 +138,21 @@ run_tier1() {
     return ${rc}
 }
 
+TIER2_CHECKS=(resolve_packages resolve_role_packages resolve_pinned_urls resolve_apt_repositories pacman_database_check rpm_file_conflicts)
+
 run_tier2() {
-    local rc=0
-    bash "${E2E_ROOT}/tier2/resolve_packages.sh" || rc=1
-    echo
-    bash "${E2E_ROOT}/tier2/resolve_role_packages.sh" || rc=1
-    echo
-    bash "${E2E_ROOT}/tier2/resolve_pinned_urls.sh" || rc=1
-    echo
-    bash "${E2E_ROOT}/tier2/resolve_apt_repositories.sh" || rc=1
-    echo
-    bash "${E2E_ROOT}/tier2/rpm_file_conflicts.sh" || rc=1
+    local rc=0 check checks=("${TIER2_CHECKS[@]}")
+    if [[ -n "${ONLY}" ]]; then
+        if [[ " ${TIER2_CHECKS[*]} " != *" ${ONLY} "* ]]; then
+            echo "ERROR: --only ${ONLY} names no tier 2 check. The tier 2 checks are: ${TIER2_CHECKS[*]}" >&2
+            return 2
+        fi
+        checks=("${ONLY}")
+    fi
+    for check in "${checks[@]}"; do
+        bash "${E2E_ROOT}/tier2/${check}.sh" || rc=1
+        echo
+    done
     return ${rc}
 }
 
@@ -282,6 +290,11 @@ EOF
     fi
     return ${rc}
 }
+
+if [[ -n "${ONLY}" && "${TIER}" != 2 ]]; then
+    echo "ERROR: --only picks one tier 2 check and needs --tier 2" >&2
+    exit 2
+fi
 
 case "${TIER}" in
     1)   run_tier1 ;;

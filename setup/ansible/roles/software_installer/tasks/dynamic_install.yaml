@@ -773,9 +773,27 @@
     # The guard that replaces the single solve. `pacman -Dk` checks the local database for missing
     # dependencies and for packages whose dependencies are not satisfied, which is exactly the state
     # a per-package loop can produce and one solve cannot. Read-only and takes a second.
+    #
+    # It reads a copy of the local database, never the real one. CachyOS keeps its own marker file,
+    # CACHY_UPDATE_NOTICE, beside the package directories in <DBPath>local, and a bare `pacman -Dk`
+    # stops at it with "error: 'CACHY_UPDATE_NOTICE': description file is missing" and exit 1, then
+    # skips the dependency and conflict checks (CachyOS/pacman issue 10). Filtering that line out of
+    # the output would hide the skipped checks, so the copy leaves out every entry that is not a
+    # package directory and not ALPM_DB_VERSION, names each one, and pacman checks the rest. The sync
+    # databases are linked rather than copied, because pacman only reads them here.
     - name: Ask pacman whether the installed set is consistent
-      ansible.builtin.command:
-        cmd: pacman -Dk
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          db_path="$(pacman-conf DBPath)"
+          copy="$(mktemp -d)"
+          trap 'rm -rf -- "${copy}"' EXIT
+          cp -a "${db_path%/}/local" "${copy}/local"
+          ln -s "${db_path%/}/sync" "${copy}/sync"
+          find "${copy}/local" -mindepth 1 -maxdepth 1 ! -type d ! -name ALPM_DB_VERSION \
+            -printf 'not a package record, left out of the copy pacman checks: %f\n' -delete
+          pacman -Dk --dbpath "${copy}/"
+        executable: /bin/bash
       become: true
       register: pacman_consistency
       changed_when: false

@@ -225,7 +225,8 @@ dates, error text and fixes are in the ledger.
     ship Electron's chrome-sandbox, so both rpms claim the same /usr/lib/.build-id link and dnf
     refuses whichever comes second. Every name and every location check passed. A mapping whose rpm
     must leave a path out carries exclude_path, and e2e/tier2/rpm_file_conflicts.sh downloads the
-    default Fedora set and fails on any path two packages claim.
+    default Fedora set and fails on any path two packages claim. It runs only on a GitHub-hosted
+    runner, in the sweep's stage 1, because its downloads filled the owner's Docker disk.
 18. A verification query that depends on something the run itself removes. A cache-only dnf query
     reads nothing after the playbook's own dnf clean all. Measure a verification query in the state
     the run leaves the machine in, not in the state a fresh container has.
@@ -281,6 +282,12 @@ The gate refuses to run anywhere but in its container. Starting one check direct
 
 ```bash
 bash e2e/run.sh --tier 2
+```
+
+One tier 2 check does not run on the owner's computer. `e2e/tier2/rpm_file_conflicts.sh` downloads about two dozen Fedora packages, and on 2026-10-22 that filled the disk Docker writes to and stopped the owner's own containers, so by owner decision 91 it runs only on a GitHub-hosted runner, asked through `e2e/lib/throwaway_machine.sh` like tier 3. Anywhere else it reports one SKIP and downloads nothing. The sweep runs it in stage 1, in the `Tier 1 checks` job of `.github/workflows/e2e-matrix.yml`, with `--only`, which runs one tier 2 check by its file name:
+
+```bash
+bash e2e/run.sh --tier 2 --only rpm_file_conflicts
 ```
 
 **Tier 3 does not run on the owner's computer.** Its scenario containers are privileged, so they share the kernel of whatever machine runs Docker and change it: its kernel settings under `/proc/sys`, its binfmt_misc table, its device events and its loaded modules. On the owner's computer they changed his kernel. Since owner decision 86 `/proc/sys` is writable in them again, because a read-only one failed every Flatpak that applies extra data, and a changed kernel setting or module is reported in `result.txt` as information rather than failing the run, which is safe only because the runner is thrown away afterwards. `e2e/run.sh --tier 3`, `--tier all` and `e2e/tier3/container.sh` ask `e2e/lib/throwaway_machine.sh` first, from inside the gate container, and run only when the answer is a GitHub-hosted runner (`GITHUB_ACTIONS=true`, `RUNNER_OS=Linux` and `RUNNER_ENVIRONMENT=github-hosted`). Anywhere else, a virtual machine included, they print `REFUSED`, say what to do instead and exit 2 before any container starts. There is no override. Dispatch the run to a GitHub-hosted runner instead, where the workflow calls `e2e/run.sh --tier 3` for you:

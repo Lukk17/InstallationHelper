@@ -26,8 +26,24 @@
 #
 # One download per call, for the reason recorded as defect class 9 in AGENTS.md: a batch loses the
 # whole set to one failure and cannot name which one broke.
+#
+# It runs only on a GitHub-hosted runner, owner decision 91, and anywhere else it reports one SKIP and
+# downloads nothing. On 2026-10-22 the downloads of a local tier 2 run filled the disk Docker writes
+# to on the owner's computer (docs/regression_ledger.md 10.162). The sweep runs it in stage 1, in the
+# "Tier 1 checks" job of .github/workflows/e2e-matrix.yml, with bash e2e/run.sh --tier 2 --only
+# rpm_file_conflicts.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+# shellcheck source=../lib/throwaway_machine.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/throwaway_machine.sh"
+
+if ! throwaway_machine_verdict "${GITHUB_ACTIONS:-}" "${RUNNER_OS:-}" "${RUNNER_ENVIRONMENT:-}" >/dev/null; then
+    info "Tier 2: no two packages of the default Fedora set claim the same file"
+    skip "rpm file conflicts, which downloads the default Fedora set and runs only on a GitHub-hosted runner" \
+         "nothing was downloaded here (owner decision 91). The sweep runs it in stage 1, or dispatch: gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=fedora"
+    finish "rpm file conflicts"
+fi
+
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/package_probe.sh"
 # The shell end of the pinned values port, the one thing here that reads a pin. See setup/pinned_values.
 source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
