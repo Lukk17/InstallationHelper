@@ -77,7 +77,7 @@ Now that both stacks share `proxy-tier`, `redis://redis:6379/0` would also work,
 
 ### The three secrets
 
-Everything sensitive lives in `.env` inside [ascend-web-search_deploy/](ascend-web-search_deploy/), copied from `.env.example` and filled in before the first start. Compose refuses to start and names the missing variable if any of the three is blank.
+Everything sensitive lives in `.env` inside [ascend-web-search_deploy/](ascend-web-search_deploy/), written before the first start with the commands in the [Quick start](ascend-web-search_deploy/README.md#quick-start) of its README. Compose refuses to start and names the missing variable if any of the three is blank.
 
 | Variable | Real constraint |
 |---|---|

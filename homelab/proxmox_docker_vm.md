@@ -210,16 +210,16 @@ identifier. [syncthing.md](syncthing.md) covers that case.
 AdGuard Home needs port 53, and Ubuntu already has `systemd-resolved` listening there. AdGuard will fail to start
 until you move it out of the way. Do this before the first `docker compose up`.
 
-Open the resolver configuration:
+Turn the stub listener off in the resolver configuration. Ubuntu ships the line commented out, as `#DNSStubListener=yes`, and this command removes the leading hash and sets it to `no`:
 
 ```bash
-sudo nano /etc/systemd/resolved.conf
+sudo sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
 ```
 
-Find the `DNSStubListener` line, remove the leading hash, and set it to `no`:
+Check it. This must print `DNSStubListener=no`:
 
-```text
-DNSStubListener=no
+```bash
+grep '^DNSStubListener=' /etc/systemd/resolved.conf
 ```
 
 The VM still needs to resolve names for itself, and `/etc/resolv.conf` currently points at the stub listener you just
@@ -229,14 +229,16 @@ disabled. Replace it with a static file.
 sudo rm /etc/resolv.conf
 ```
 
+Write the new file, which holds one line:
+
 ```bash
-sudo nano /etc/resolv.conf
+printf 'nameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf
 ```
 
-Put one line in it:
+Check it. This must print only `nameserver 1.1.1.1`:
 
-```text
-nameserver 1.1.1.1
+```bash
+cat /etc/resolv.conf
 ```
 
 Restart the resolver:

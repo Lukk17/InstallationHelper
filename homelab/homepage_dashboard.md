@@ -15,7 +15,7 @@ Homepage is configured by files, not by a settings screen. They sit on the host 
 | `widgets.yaml` | The header strip, clock, weather, system resources |
 | `bookmarks.yaml` | Plain links with no status check |
 
-The container writes a default set of these on first start, so bring the stack up once before editing them.
+The container writes a default set of these on first start, so bring the stack up once before you change them.
 
 Homepage reloads most changes on its own within a few seconds. If a change does not appear, restart the one container:
 
@@ -67,9 +67,10 @@ Proxmox and Home Assistant are not in the Compose stack, so they get their real 
 
 ### services.yaml
 
-Replace the placeholders with your own addresses. The concrete example block is at the top of [README_HOMELAB.md](README_HOMELAB.md).
+Write the whole file in one command. It replaces the default file the container wrote on first start. The file is too long for a one-line command, so this is a heredoc: paste everything from `cat` down to the closing `EOF` line at once:
 
-```yaml
+```bash
+cat > /opt/docker-stack/homepage/config/services.yaml <<'EOF'
 - Smart Home:
     - Home Assistant:
         icon: home-assistant
@@ -129,6 +130,25 @@ Replace the placeholders with your own addresses. The concrete example block is 
         href: http://plex.internal/web
         siteMonitor: http://<docker-vm-ip>:32400/identity
         description: Films and series, direct play only
+EOF
+```
+
+Then put your own addresses in place of the three placeholders, one `-e` for each:
+
+```bash
+sed -i -e 's/<ha-vm-ip>/<your-ha-vm-ip>/g' -e 's/<proxmox-host>/<your-proxmox-host>/g' -e 's/<docker-vm-ip>/<your-docker-vm-ip>/g' /opt/docker-stack/homepage/config/services.yaml
+```
+
+On this lab, with the addresses from the concrete example block at the top of [README_HOMELAB.md](README_HOMELAB.md):
+
+```bash
+sed -i -e 's/<ha-vm-ip>/192.168.1.11/g' -e 's/<proxmox-host>/192.168.1.10/g' -e 's/<docker-vm-ip>/192.168.1.12/g' /opt/docker-stack/homepage/config/services.yaml
+```
+
+Check that no placeholder is left. This must print 0:
+
+```bash
+grep -c '<' /opt/docker-stack/homepage/config/services.yaml
 ```
 
 The indentation is load bearing. A group is a list item whose value is a list of services, and each service is a mapping with one key. Homepage fails quietly on a malformed file, showing an empty dashboard rather than an error, so check your indentation first when nothing renders.
@@ -141,6 +161,6 @@ Icon names come from a bundled set that already covers most self-hosted software
 
 The Proxmox tile stays a plain link. Proxmox serves HTTPS with a self signed certificate and rejects unauthenticated requests, so the status dot next to it is less trustworthy than the one next to a container. [uptime_kuma.md](uptime_kuma.md) checks it properly, with a ping.
 
-The dashboard is the one thing everyone opens first, which makes it the worst place to discover that a name is wrong. After editing, click every tile once.
+The dashboard is the one thing everyone opens first, which makes it the worst place to discover that a name is wrong. After changing it, click every tile once.
 
 Homepage can also read live data from some services through widgets, which means putting an API key in the configuration. Nothing here does that, and nothing here should, because `/opt/docker-stack/` gets copied to other machines as a backup.

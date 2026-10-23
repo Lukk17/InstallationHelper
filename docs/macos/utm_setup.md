@@ -125,10 +125,16 @@ Clipboard sharing is built into UTM — no configuration required. Toggle it in 
     sudo mount -t virtiofs share ~/Documents/VM-Share
     ```
 
-6. To make permanent, add to `/etc/fstab` inside the guest (replace `<username>`):
+6. To make permanent, add this line to `/etc/fstab` inside the guest. `$HOME` puts in the full path of your home folder. Run it once, because every run adds one more line:
 
-    ```text
-    share /home/<username>/Documents/VM-Share virtiofs defaults 0 0
+    ```bash
+    echo "share $HOME/Documents/VM-Share virtiofs defaults 0 0" | sudo tee -a /etc/fstab
+    ```
+
+    Check it. This must print the one line:
+
+    ```bash
+    grep -n 'VM-Share' /etc/fstab
     ```
 
 7. Apply:

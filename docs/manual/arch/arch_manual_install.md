@@ -16,7 +16,19 @@ sudo pacman -Syu --needed --noconfirm flatpak
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 ```
 
-Steam requires the **multilib** repo. Uncomment the `[multilib]` section in `/etc/pacman.conf`, then refresh and upgrade together, because a refresh without the upgrade leaves every later install running against an index newer than the system:
+Steam requires the **multilib** repo. Uncomment the `[multilib]` section in `/etc/pacman.conf`. Arch ships it as two commented lines, `#[multilib]` and `#Include = /etc/pacman.d/mirrorlist`, and this command removes the hash from both. It changes nothing when the section is already on, as on CachyOS. That matters, because with a second `[multilib]` section every pacman call prints `error: could not register 'multilib' database (database already registered)`:
+
+```bash
+grep -q '^\[multilib\]' /etc/pacman.conf || sudo sed -i '/^#\[multilib\]$/,/^#Include/ s/^#//' /etc/pacman.conf
+```
+
+Check it. This must print one `[multilib]` line and its `Include` line, without a hash:
+
+```bash
+grep -n -A1 '^\[multilib\]' /etc/pacman.conf
+```
+
+Then refresh and upgrade together, because a refresh without the upgrade leaves every later install running against an index newer than the system:
 
 ```bash
 sudo pacman -Syu

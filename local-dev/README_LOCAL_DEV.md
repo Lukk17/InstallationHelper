@@ -116,10 +116,34 @@ machine needs that name, because every documented command points at `keycloak.te
 
 The file's contents are the same everywhere, only its path and the privilege needed to write it differ.
 
-| Platform | Path | How to edit it |
-| -------- | ---- | -------------- |
-| Ubuntu, Debian, Arch Linux, macOS | `/etc/hosts` | any editor under `sudo` |
-| Windows | `C:\Windows\System32\drivers\etc\hosts` | an editor started as Administrator |
+| Platform | Path | Privilege |
+| -------- | ---- | --------- |
+| Ubuntu, Debian, Arch Linux, macOS | `/etc/hosts` | `sudo` |
+| Windows | `C:\Windows\System32\drivers\etc\hosts` | PowerShell started as Administrator |
+
+Add the line once, because every run adds one more line. Ubuntu, Debian, Arch Linux, macOS:
+
+```bash
+echo '127.0.0.1 keycloak.test' | sudo tee -a /etc/hosts
+```
+
+Check it:
+
+```bash
+grep -n 'keycloak.test' /etc/hosts
+```
+
+Windows, in PowerShell started as Administrator. The value starts with a line break, because `Add-Content` writes onto the end of the last line when the file does not end with one:
+
+```powershell
+Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "`r`n127.0.0.1 keycloak.test"
+```
+
+Check it:
+
+```powershell
+Select-String -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Pattern 'keycloak.test'
+```
 
 Why `keycloak.test` rather than `localhost`, and why it is not interchangeable with the bare `keycloak` container
 name, is in [auth/README.md](./auth/README.md).

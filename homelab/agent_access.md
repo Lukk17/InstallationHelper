@@ -113,17 +113,94 @@ Check the mode on a Unix machine. The line must start with `-rw-------`:
 ls -l ~/.local/state/agents/workspace/homelab.env
 ```
 
-Then fill the keys as the sections below describe. For this lab the values that are not secret are:
+Then set the keys as the sections below describe, with the commands in [Set a key](#set-a-key).
 
-```text
-PROXMOX_URL=https://192.168.1.10:8006
-PROXMOX_SSH=root@192.168.1.10
-DOCKER_VM_SSH=<your-user>@192.168.1.12
-SYNCTHING_SERVER_URL=http://192.168.1.12:7780
-HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519
-ASUS_ROUTER_SSH=admin@192.168.1.1
-ASUS_ROUTER_SSH_PORT=22
-UPTIME_KUMA_URL=http://192.168.1.12:7779
+---
+
+### Set a key
+
+Every key is one line of the file, and one command replaces that line. Put the key's name in place of `<KEY>` and its value in place of `<value>`.
+
+A value that is not secret. Unix shell:
+
+```bash
+sed -i 's|^<KEY>=.*|<KEY>=<value>|' ~/.local/state/agents/workspace/homelab.env
+```
+
+On macOS, write `sed -i ''` instead of `sed -i`, because the sed that macOS ships takes the next word after `-i` as the name of a backup file.
+
+PowerShell:
+
+```powershell
+(Get-Content "$HOME\.local\state\agents\workspace\homelab.env") -replace '^<KEY>=.*', '<KEY>=<value>' | Set-Content "$HOME\.local\state\agents\workspace\homelab.env"
+```
+
+A secret: `PROXMOX_TOKEN_SECRET`, `SYNCTHING_SERVER_API_KEY` and `UPTIME_KUMA_API_KEY`. Type or paste it at the prompt. It is not shown, and it never reaches the shell history. Unix shell, the same in bash and zsh:
+
+```bash
+printf 'Secret: '; read -rs value; echo
+```
+
+Write it. `perl` puts the value in exactly as it is, where `sed` would read a `&`, `|` or `\` inside it as part of the command:
+
+```bash
+value="$value" perl -pi -e 's/^<KEY>=.*/<KEY>=$ENV{value}/' ~/.local/state/agents/workspace/homelab.env
+```
+
+Remove it from the shell:
+
+```bash
+unset value
+```
+
+PowerShell:
+
+```powershell
+$value = [Net.NetworkCredential]::new('', (Read-Host 'Secret' -AsSecureString)).Password
+```
+
+```powershell
+(Get-Content "$HOME\.local\state\agents\workspace\homelab.env") | ForEach-Object { if ($_ -like '<KEY>=*') { "<KEY>=$value" } else { $_ } } | Set-Content "$HOME\.local\state\agents\workspace\homelab.env"
+```
+
+```powershell
+Remove-Variable value
+```
+
+Check the file without printing any value. This prints each key and the length of its value. Unix shell:
+
+```bash
+awk -F= '{print $1, length($2)}' ~/.local/state/agents/workspace/homelab.env
+```
+
+PowerShell:
+
+```powershell
+Get-Content "$HOME\.local\state\agents\workspace\homelab.env" | ForEach-Object { $name, $rest = $_ -split '=', 2; "$name $($rest.Length)" }
+```
+
+Find the keys that still hold a placeholder. No output means none is left. Unix shell:
+
+```bash
+grep -n '<' ~/.local/state/agents/workspace/homelab.env
+```
+
+PowerShell:
+
+```powershell
+Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '<'
+```
+
+For this lab, all eight values that are not secret in one command. Put your user name in place of `<your-user>` first. Unix shell:
+
+```bash
+sed -i -e 's|^PROXMOX_URL=.*|PROXMOX_URL=https://192.168.1.10:8006|' -e 's|^PROXMOX_SSH=.*|PROXMOX_SSH=root@192.168.1.10|' -e 's|^DOCKER_VM_SSH=.*|DOCKER_VM_SSH=<your-user>@192.168.1.12|' -e 's|^SYNCTHING_SERVER_URL=.*|SYNCTHING_SERVER_URL=http://192.168.1.12:7780|' -e 's|^HOMELAB_SSH_KEY=.*|HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519|' -e 's|^ASUS_ROUTER_SSH=.*|ASUS_ROUTER_SSH=admin@192.168.1.1|' -e 's|^ASUS_ROUTER_SSH_PORT=.*|ASUS_ROUTER_SSH_PORT=22|' -e 's|^UPTIME_KUMA_URL=.*|UPTIME_KUMA_URL=http://192.168.1.12:7779|' ~/.local/state/agents/workspace/homelab.env
+```
+
+PowerShell:
+
+```powershell
+(Get-Content "$HOME\.local\state\agents\workspace\homelab.env") -replace '^PROXMOX_URL=.*', 'PROXMOX_URL=https://192.168.1.10:8006' -replace '^PROXMOX_SSH=.*', 'PROXMOX_SSH=root@192.168.1.10' -replace '^DOCKER_VM_SSH=.*', 'DOCKER_VM_SSH=<your-user>@192.168.1.12' -replace '^SYNCTHING_SERVER_URL=.*', 'SYNCTHING_SERVER_URL=http://192.168.1.12:7780' -replace '^HOMELAB_SSH_KEY=.*', 'HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519' -replace '^ASUS_ROUTER_SSH=.*', 'ASUS_ROUTER_SSH=admin@192.168.1.1' -replace '^ASUS_ROUTER_SSH_PORT=.*', 'ASUS_ROUTER_SSH_PORT=22' -replace '^UPTIME_KUMA_URL=.*', 'UPTIME_KUMA_URL=http://192.168.1.12:7779' | Set-Content "$HOME\.local\state\agents\workspace\homelab.env"
 ```
 
 ---
@@ -158,7 +235,7 @@ Run these in a shell on the Proxmox host, which [proxmox_host_install.md](proxmo
     pveum user token add agent@pve agent -privsep 0
     ```
 
-    The output shows `full-tokenid`, here `agent@pve!agent`, and `value`. Put the first into `PROXMOX_TOKEN_ID` and the second into `PROXMOX_TOKEN_SECRET`. Proxmox shows the value only this once.
+    The output shows `full-tokenid`, here `agent@pve!agent`, and `value`. Set the first as `PROXMOX_TOKEN_ID` and the second, as a secret, as `PROXMOX_TOKEN_SECRET`, with the commands in [Set a key](#set-a-key). Proxmox shows the value only this once.
 
 3. Give the user the administrator role on everything:
 
@@ -286,7 +363,7 @@ Run these in a shell on the Proxmox host, which [proxmox_host_install.md](proxmo
     pveum user token add agent@pve readonly -privsep 1
     ```
 
-    The output shows `full-tokenid`, here `agent@pve!readonly`, and `value`. Put the first into `PROXMOX_TOKEN_ID` and the second into `PROXMOX_TOKEN_SECRET`. Proxmox shows the value only this once.
+    The output shows `full-tokenid`, here `agent@pve!readonly`, and `value`. Set the first as `PROXMOX_TOKEN_ID` and the second, as a secret, as `PROXMOX_TOKEN_SECRET`, with the commands in [Set a key](#set-a-key). Proxmox shows the value only this once.
 
 4. Give the token the same read only role, because a separated token has none of its own:
 
@@ -358,7 +435,7 @@ Run these in a shell on the Proxmox host:
     pveum user token add agent@pve agent -privsep 0
     ```
 
-    The output shows `full-tokenid`, here `agent@pve!agent`, and `value`. Put the first into `PROXMOX_TOKEN_ID` and the second into `PROXMOX_TOKEN_SECRET`. Proxmox shows the value only this once.
+    The output shows `full-tokenid`, here `agent@pve!agent`, and `value`. Set the first as `PROXMOX_TOKEN_ID` and the second, as a secret, as `PROXMOX_TOKEN_SECRET`, with the commands in [Set a key](#set-a-key). Proxmox shows the value only this once.
 
 Check what the token can do. From your own machine, ask the API for the token's own permissions. Unix shell:
 
@@ -525,7 +602,7 @@ The key works whether or not you set a GUI login.
 1. Open `http://<docker-vm-ip>:7780`.
 2. Choose Actions, then Settings, and stay on the General tab.
 3. If the API Key field shows only a dash, press Generate next to it, then Save, then open Settings again.
-4. Copy the value in the API Key field into `SYNCTHING_SERVER_API_KEY`.
+4. Copy the value in the API Key field and set it, as a secret, as `SYNCTHING_SERVER_API_KEY`, with the commands in [Set a key](#set-a-key).
 
 Test it from your own machine. Unix shell:
 
@@ -574,7 +651,7 @@ Turn it on in the router's web page, where the field names below are the ones AS
 1. Open `http://<router-ip>` and log in.
 2. Choose Administration, then the System tab, and scroll to the Service section.
 3. Set Enable SSH to LAN only. Never LAN & WAN, which opens the shell to the internet.
-4. Set SSH Port to the port you chose, `<ssh-port>`, and put the same number into `ASUS_ROUTER_SSH_PORT`.
+4. Set SSH Port to the port you chose, `<ssh-port>`, and set the same number as `ASUS_ROUTER_SSH_PORT`, with the commands in [Set a key](#set-a-key).
 5. Set Allow Password Login to No, so the router accepts only a key.
 6. Paste the whole public key into Authorized Keys, the one line from this file. Unix shell:
 
@@ -637,7 +714,7 @@ Create it:
 1. Open `http://<docker-vm-ip>:7779` and log in.
 2. Choose Settings, then API Keys, then Add API Key.
 3. Give it a name, such as `agent`, and either an Expiry date or Don't expire.
-4. Press Generate. The key starts with `uk` and Uptime Kuma shows it only this once, so copy it into `UPTIME_KUMA_API_KEY` now.
+4. Press Generate. The key starts with `uk` and Uptime Kuma shows it only this once, so copy it now and set it, as a secret, as `UPTIME_KUMA_API_KEY`, with the commands in [Set a key](#set-a-key).
 
 Test it from your own machine. The colon before the key is an empty user name. Unix shell:
 
@@ -659,4 +736,4 @@ Revoke it on the same page, Settings, then API Keys: Disable stops the key until
 
 ### When a credential may have leaked
 
-Revoke it first. Each section above ends with its revoke step, and none of them needs another credential changed. Then create a new one with the same steps and put it into `~/.local/state/agents/workspace/homelab.env`.
+Revoke it first. Each section above ends with its revoke step, and none of them needs another credential changed. Then create a new one with the same steps and set it in `~/.local/state/agents/workspace/homelab.env` with the commands in [Set a key](#set-a-key).

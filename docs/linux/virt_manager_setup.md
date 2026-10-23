@@ -156,10 +156,16 @@ Use this only when the systemd service does not bridge clipboard under KDE Plasm
     sudo mount -t virtiofs VM-Share ~/Documents/VM-Share
     ```
 
-3. To make the mount permanent, add this line to `/etc/fstab` inside the virtual machine (replace `<username>` with your actual username):
+3. To make the mount permanent, add this line to `/etc/fstab` inside the virtual machine. `$HOME` puts in the full path of your home folder. Run it once, because every run adds one more line:
 
-    ```text
-    VM-Share /home/<username>/Documents/VM-Share virtiofs defaults 0 0
+    ```bash
+    echo "VM-Share $HOME/Documents/VM-Share virtiofs defaults 0 0" | sudo tee -a /etc/fstab
+    ```
+
+    Check it. This must print the one line:
+
+    ```bash
+    grep -n 'VM-Share' /etc/fstab
     ```
 
 4. Apply the fstab change:

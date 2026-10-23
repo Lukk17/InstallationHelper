@@ -50,19 +50,51 @@ When this deployment sits inside a homelab that already runs Redis on a shared `
 
 Copy this whole directory to the host. It needs all four files, including `searxng/settings.yaml`, which SearXNG will not start without.
 
-Create the secrets file from the example.
-
-```bash
-cp .env.example .env
-```
-
-Fill in all three values. What each one has to satisfy:
+Create the secrets file, `.env`, with the commands below. What each value has to satisfy:
 
 | Variable | Must be |
 |---|---|
 | SEARXNG_SECRET | At least 32 characters, unique to this deployment, and not the literal `ultrasecretkey`, which SearXNG rejects. Nothing ever types this by hand. |
 | VNC_PASSWORD | 8 characters or fewer. The VNC protocol truncates anything longer, so only the first 8 count. See [NoVNC and CAPTCHA solving](#novnc-and-captcha-solving). |
 | NGROK_AUTHTOKEN | Your account token from [the ngrok dashboard](https://dashboard.ngrok.com/get-started/your-authtoken). |
+
+Type the VNC password. It is not shown, and the `echo` only moves to a new line afterwards. Leave out `$`, `#` and quotes, because the Docker Compose page [Interpolation](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/) says a `$` in an unquoted value of this file starts a variable name, and a space followed by `#` starts a comment:
+
+```bash
+read -r -s -p 'VNC password, 8 characters at most: ' VNC_PASSWORD; echo
+```
+
+Paste the ngrok token. It is not shown either:
+
+```bash
+read -r -s -p 'ngrok auth token: ' NGROK_AUTHTOKEN; echo
+```
+
+Write the file, from inside this directory. The SearXNG secret is made in the same step, 64 random hexadecimal characters from `openssl`, so nobody types it:
+
+```bash
+printf 'SEARXNG_SECRET=%s\nVNC_PASSWORD=%s\nNGROK_AUTHTOKEN=%s\n' "$(openssl rand -hex 32)" "$VNC_PASSWORD" "$NGROK_AUTHTOKEN" > .env
+```
+
+Keep it readable by you alone:
+
+```bash
+chmod 600 .env
+```
+
+Remove the two values from the shell:
+
+```bash
+unset VNC_PASSWORD NGROK_AUTHTOKEN
+```
+
+Check that no value is empty, without printing them. This prints each name and the length of its value:
+
+```bash
+awk -F= '{print $1, length($2)}' .env
+```
+
+`SEARXNG_SECRET` must show 64, `VNC_PASSWORD` a number from 1 to 8, and `NGROK_AUTHTOKEN` a number above 0.
 
 Start the stack.
 
@@ -219,7 +251,29 @@ docker compose up -d ascend-web-search
 
 The pull rewrites what `latest` points at locally, and the recreate is what swaps the running container onto it. Naming the service keeps both commands off the other three containers, which stay untouched.
 
-To go back to a build you know worked, put the exact tag of that build on the `image:` line, run the same pull and recreate, and set the line back to `latest` once the newer build is fixed. Published tags are listed at [hub.docker.com/r/lukk17/ascend-web-search/tags](https://hub.docker.com/r/lukk17/ascend-web-search/tags). The same images are published to `ghcr.io/lukk17/ascend-web-search` if you prefer GitHub's registry. Both are public and neither needs a login to pull.
+To go back to a build you know worked, put the exact tag of that build on the `image:` line, run the same pull and recreate, and set the line back to `latest` once the newer build is fixed. Unix shell, from inside this directory:
+
+```bash
+sed -i 's|^\([[:space:]]*image: lukk17/ascend-web-search:\).*|\1<tag>|' docker-compose.yaml
+```
+
+PowerShell, from inside this directory. It reads and writes the file as UTF-8 through .NET rather than with `Get-Content` and `Set-Content`, so the box-drawing characters in its comments come through Windows PowerShell 5.1 unchanged:
+
+```powershell
+$f = (Resolve-Path docker-compose.yaml).Path; [IO.File]::WriteAllText($f, ([IO.File]::ReadAllText($f) -replace '(image: lukk17/ascend-web-search:)\S+', '${1}<tag>'))
+```
+
+Check it. The line must show the tag you chose:
+
+```bash
+grep -n 'image: lukk17/ascend-web-search' docker-compose.yaml
+```
+
+```powershell
+Select-String -Path docker-compose.yaml -Pattern 'image: lukk17/ascend-web-search'
+```
+
+To set the line back, run the same command with `latest` in place of `<tag>`. Published tags are listed at [hub.docker.com/r/lukk17/ascend-web-search/tags](https://hub.docker.com/r/lukk17/ascend-web-search/tags). The same images are published to `ghcr.io/lukk17/ascend-web-search` if you prefer GitHub's registry. Both are public and neither needs a login to pull.
 
 Upstream images move on their own schedule and need their tag edited by hand. SearXNG ships a new build most days and its search engines break as the sites they scrape change, so it is worth bumping every few months even when nothing appears wrong.
 

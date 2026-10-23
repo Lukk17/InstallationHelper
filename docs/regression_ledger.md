@@ -7247,3 +7247,29 @@ How it was proven: in the gate image (PowerShell 7.6.7, Pester 5.9.1), that one 
 Fix: `Invoke-BoundedWinget` calls `$process.WaitForExit()` after the bounded wait has returned true and before it reads the files. On Windows that call returns at once. The test 'returns a line the program wrote after it exited, while its output was still open' in the Pester file starts a stub that exits at once and leaves a child writing its line half a second later, so it fails every time without the fix rather than now and then. It is skipped on Windows, where that wait does not exist. `Invoke-ManagedTool` and `Invoke-AndroidSdkManager` in [setup/windows/WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1) and the WSL step in [setup/windows/WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1) read redirected output after a bounded wait in the same way. They run only on Windows, and the Pester file mocks the first two and the `Start-Process` the third calls, so none of them starts a real process in the gate and they were left as they are.
 
 Mechanical check: the new Pester test, which the `windows_pester` check of the tier 1 gate runs. Without the fix it failed 10 of 10 runs with `Expected like wildcard '*Installer failed with exit code: 3221225477*' to match <empty>`, and with it 0 of 10.
+
+### Found while replacing the editor steps with one-line commands, 2026-10-23
+
+#### 10.184 The File Browser password reset put the new admin password on screen and into the shell history
+
+Cause: [homelab/lan_storage.md](../homelab/lan_storage.md) wrote the new password into `config.yaml` with `echo '  adminPassword: "<new-password>"' >> /opt/docker-stack/filebrowser/data/config.yaml`, a command line that holds the password itself.
+
+Effect: the password showed in the terminal, and bash saved the whole line in its history file, where it stayed after the guide's next step removed the line from `config.yaml` again.
+
+How it was proven: in an `ubuntu:26.04` container, an interactive bash with `HISTFILE=/tmp/hist` ran the old `echo` line with the password `new-pass-123456` and then the guide's `sed -i '/^  adminPassword:/d'`. `config.yaml` no longer held the password, and `/tmp/hist` held `echo '  adminPassword: "new-pass-123456"' >> /opt/docker-stack/filebrowser/data/config.yaml`. The same harness with the new commands wrote the password into `config.yaml` and `grep -c new-pass-123456 /tmp/hist` printed 0.
+
+Fix: the page reads the password with `read -r -s -p` into a variable, writes the line with `printf`, removes the variable with `unset`, and checks the line with `grep -c`, which prints a count and not the password. It also says to leave out double quotes and backslashes, because the value sits between double quotes in the YAML file.
+
+Mechanical check: none. A check cannot tell a secret from any other value on a command line without guessing from a placeholder's name.
+
+#### 10.185 The network watch page changed telegraf.conf on the Docker VM only, so the next deployment would put the old file back
+
+Cause: the step that changes the speed test interval in [homelab/network_watch.md](../homelab/network_watch.md) edited `/opt/docker-stack/telegraf/telegraf.conf` on the VM, and the steps that move a ping target and turn the speed test off named the file without saying which copy, while "Deploying from your clone" in [homelab/README_HOMELAB.md](../homelab/README_HOMELAB.md) copies the whole file from the clone over the VM's copy.
+
+Effect: a change made on the VM alone lasts only until the next deployment, which replaces it with the clone's file without a word. It is the same drift between the VM and the repository as 10.181, from the other side.
+
+How it was proven: read, not run. The `scp` command in "Deploying from your clone" writes `<repo>/homelab/telegraf/telegraf.conf` to `/opt/docker-stack/telegraf/telegraf.conf`, and nothing in it reads the VM's copy first.
+
+Fix: each of the three steps is now a command on the VM, `sed -i` for the interval and the ping target and an `awk` that drops the two speed test blocks, followed by a check command and `docker restart telegraf`, and each ends with the sentence to make the same change in [homelab/telegraf/telegraf.conf](../homelab/telegraf/telegraf.conf) in the clone. The commands were run against a copy of that file in an `ubuntu:26.04` container, and a `diff` showed only the intended lines changed.
+
+Mechanical check: none. Nothing in the repository can read the VM.

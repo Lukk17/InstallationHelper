@@ -156,7 +156,31 @@ current address on the router before believing it, over the SSH access that
 ssh -i ~/.ssh/homelab_agent_ed25519 -p <ssh-port> <router-admin-user>@<router-ip> nvram get wan0_gateway
 ```
 
-and put the new address into the `urls` list of `[[inputs.ping]]` in `telegraf/telegraf.conf`.
+Then put the new address in place of the old one in the `urls` list of `[[inputs.ping]]`, on the Docker VM:
+
+```bash
+sed -i 's/"<old-gateway-ip>"/"<new-gateway-ip>"/' /opt/docker-stack/telegraf/telegraf.conf
+```
+
+On this lab the old address is `83.1.5.230`:
+
+```bash
+sed -i 's/"83.1.5.230"/"<new-gateway-ip>"/' /opt/docker-stack/telegraf/telegraf.conf
+```
+
+Check the list. It must show the new address and not the old one:
+
+```bash
+sed -n '/^\[\[inputs\.ping\]\]/,/^$/p' /opt/docker-stack/telegraf/telegraf.conf
+```
+
+Telegraf reads its config only when it starts, so restart it:
+
+```bash
+docker restart telegraf
+```
+
+Make the same change in [telegraf/telegraf.conf](telegraf/telegraf.conf) in your clone as well, because the next copy from [Deploying from your clone](README_HOMELAB.md#deploying-from-your-clone) replaces the file on the VM.
 
 `194.204.159.1` is the second Orange target because it does not move. It is one of Orange's own DNS resolvers, a
 fixed address inside Orange's network. Measured 2026-10-09 from the home network, `194.204.159.1` and a second
@@ -260,17 +284,31 @@ speed, the latency and the jitter into `speed.csv`, with `result_code` style pas
 test an hour. It ran every 10 minutes until 2026-10-23, as a diagnostic burst. To change it again, or to turn the
 test off entirely, follow the steps further down.
 
-To change the interval, edit the one line on the Docker VM and restart the container:
+To change the interval, change the one line under `[[inputs.internet_speed]]` that reads `interval = "1h"`, on the Docker VM. The command changes only the `interval` line of that block, not the ones of the other checks:
 
 ```bash
-nano /opt/docker-stack/telegraf/telegraf.conf
+sed -i '/^\[\[inputs\.internet_speed\]\]/,/^\[\[/ s/^\([[:space:]]*interval = \).*/\1"<interval>"/' /opt/docker-stack/telegraf/telegraf.conf
 ```
+
+For example, back to the 10 minute burst it ran until 2026-10-23:
+
+```bash
+sed -i '/^\[\[inputs\.internet_speed\]\]/,/^\[\[/ s/^\([[:space:]]*interval = \).*/\1"10m"/' /opt/docker-stack/telegraf/telegraf.conf
+```
+
+Check the block. It must show the new interval:
+
+```bash
+sed -n '/^\[\[inputs\.internet_speed\]\]/,/^$/p' /opt/docker-stack/telegraf/telegraf.conf
+```
+
+Restart the container:
 
 ```bash
 docker restart telegraf
 ```
 
-The line to change sits under `[[inputs.internet_speed]]` and reads `interval = "1h"`.
+Make the same change in [telegraf/telegraf.conf](telegraf/telegraf.conf) in your clone as well, because the next copy from [Deploying from your clone](README_HOMELAB.md#deploying-from-your-clone) replaces the file on the VM.
 
 Each test fills the line it is measuring for the time the test itself runs, not the whole gap between tests.
 An earlier measurement here read 10 minutes 26 seconds and 8 minutes 50 seconds for one test, which was
@@ -316,13 +354,25 @@ Starting it again:
 cd /opt/docker-stack && docker compose start telegraf
 ```
 
-To turn off only the speed test and keep the ping, DNS and HTTP checks running, remove the
-`[[inputs.internet_speed]]` block and its matching `[[outputs.file]]` block writing `speed.csv` from
-`telegraf.conf`, then restart the container the same way:
+To turn off only the speed test and keep the ping, DNS and HTTP checks running, remove the `[[inputs.internet_speed]]` block and its matching `[[outputs.file]]` block writing `speed.csv` from `telegraf.conf`. The blocks in the file are separated by empty lines, and these two are the only ones that name `internet_speed`, so this command writes the file again without them:
+
+```bash
+awk -v RS= -v ORS='\n\n' '!/internet_speed/' /opt/docker-stack/telegraf/telegraf.conf > /opt/docker-stack/telegraf/telegraf.conf.new && mv /opt/docker-stack/telegraf/telegraf.conf.new /opt/docker-stack/telegraf/telegraf.conf
+```
+
+Check it. This must print 0:
+
+```bash
+grep -c internet_speed /opt/docker-stack/telegraf/telegraf.conf
+```
+
+Then restart the container the same way:
 
 ```bash
 docker restart telegraf
 ```
+
+Make the same change in [telegraf/telegraf.conf](telegraf/telegraf.conf) in your clone as well, because the next copy from [Deploying from your clone](README_HOMELAB.md#deploying-from-your-clone) replaces the file on the VM.
 
 ---
 

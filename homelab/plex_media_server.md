@@ -100,11 +100,17 @@ If you ever give Plex a bigger share, change the number in [compose.yaml](compos
 
 Claiming links this server to your Plex account. Use a free account.
 
-1. Sign in at `https://www.plex.tv/claim` and copy the token. It is only valid for a few minutes, so do the next steps straight away.
-2. Add it to `/opt/docker-stack/.env`, next to the Samba entries from [lan_storage.md](lan_storage.md):
+1. Sign in at `https://www.plex.tv/claim` and copy the token. It works only about 4 minutes, so run steps 2 and 3 back to back, with no pause between them.
+2. Add it to `/opt/docker-stack/.env`, next to the Samba entries from [lan_storage.md](lan_storage.md), with your token in place of `<claim-token>`:
 
-```text
-PLEX_CLAIM=<claim-token>
+```bash
+echo 'PLEX_CLAIM=<claim-token>' >> /opt/docker-stack/.env
+```
+
+Check it without printing any value. This prints each name in the file and the length of its value, and `PLEX_CLAIM` must show a number above 0:
+
+```bash
+awk -F= '{print $1, length($2)}' /opt/docker-stack/.env
 ```
 
 3. Start Plex:
@@ -116,7 +122,17 @@ cd /opt/docker-stack && docker compose up -d plex
 4. Open `http://<docker-vm-ip>:32400/web` and sign in with the same account. The setup wizard names the server and offers to add a library.
 5. Remove the `PLEX_CLAIM` line from `.env`. The README says the claim is a first-run parameter that is ignored once the server is logged in, so leaving a used token behind only leaves clutter.
 
-If the token ran out before the first start, the server comes up unclaimed. Stop it, get a fresh token, put it in `.env`, and start it again.
+```bash
+sed -i '/^PLEX_CLAIM=/d' /opt/docker-stack/.env
+```
+
+Check it. `PLEX_CLAIM` must no longer be in the list:
+
+```bash
+awk -F= '{print $1, length($2)}' /opt/docker-stack/.env
+```
+
+If the token ran out before the first start, the server comes up unclaimed. Stop it, get a fresh token, remove the old line with the `sed` command from step 5, add the new token with the `echo` command from step 2, and start it again.
 
 Add a library in the wizard or later under Settings, then Manage, then Libraries. Point it at `/data` or a folder under it, for example `/data/films` and `/data/series`, which are `/mnt/data/media/films` and `/mnt/data/media/series` on the VM and `\\drive.internal\files\media\films` and `\\drive.internal\files\media\series` on the network drive. Paths in Plex are paths inside the container.
 

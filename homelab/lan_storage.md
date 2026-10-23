@@ -438,10 +438,30 @@ Open `http://drive.internal`, or `http://<docker-vm-ip>:7782` before the proxy e
 
 Change it straight away: open Settings, then User management, edit `admin`, and set a new password of at least 12 characters. Then create a normal account for yourself the same way and use that day to day.
 
-Lost the admin password later? Add an `adminPassword` line to the `auth:` part of the config. `auth:` is the last part of the file, so a line added at the end with two spaces in front belongs to it:
+Lost the admin password later? Add an `adminPassword` line to the `auth:` part of the config. `auth:` is the last part of the file, so a line added at the end with two spaces in front belongs to it.
+
+Type the new password. It is not shown, and the `echo` only moves to a new line afterwards. Leave out double quotes and backslashes, because the value goes between double quotes in the file, where a `"` ends it and a `\` starts an escape:
 
 ```bash
-echo '  adminPassword: "<new-password>"' >> /opt/docker-stack/filebrowser/data/config.yaml
+read -r -s -p 'New File Browser admin password: ' FB_ADMIN_PASS; echo
+```
+
+Add the line:
+
+```bash
+printf '  adminPassword: "%s"\n' "$FB_ADMIN_PASS" >> /opt/docker-stack/filebrowser/data/config.yaml
+```
+
+Remove the value from the shell:
+
+```bash
+unset FB_ADMIN_PASS
+```
+
+Check that the line is there, without printing it. This must print 1:
+
+```bash
+grep -c '^  adminPassword:' /opt/docker-stack/filebrowser/data/config.yaml
 ```
 
 Restart the container, and on startup File Browser writes that password into the `admin` account. That is `ConfigTriggersAdminPasswordReset` in `backend/pkg/settings/auth.go`, which resets on every start while the value is anything other than blank or `admin`.
@@ -454,6 +474,12 @@ Sign in, then delete the line again and restart once more, so the password stays
 
 ```bash
 sed -i '/^  adminPassword:/d' /opt/docker-stack/filebrowser/data/config.yaml
+```
+
+Check it. This must print 0:
+
+```bash
+grep -c '^  adminPassword:' /opt/docker-stack/filebrowser/data/config.yaml
 ```
 
 ```bash
