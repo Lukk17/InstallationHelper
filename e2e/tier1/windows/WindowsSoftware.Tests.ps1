@@ -666,6 +666,122 @@ exit 1
 }
 
 
+Describe 'Every other bounded wait reads the output only once the program has finished writing it' {
+
+    # The same late writer as the Invoke-BoundedWinget test above, one per function that starts a
+    # program with redirected output and reads it after a deadline wait, entry 10.183 of
+    # docs/regression_ledger.md. Each stub exits 1 at once, so the function reads the files to
+    # explain the failure, and the line it must find arrives half a second after the exit. Skipped
+    # on Windows, where Start-Process hands the files to the program itself and that wait does not
+    # exist. WindowsSettings.ps1 is dot-sourced after WindowsSoftware.ps1, the order setup.ps1 uses.
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsSettings.ps1')
+
+        function global:New-LateWriterStub {
+            param([Parameter(Mandatory)] [string] $Path)
+
+            New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
+            Set-Content -LiteralPath $Path -Encoding ascii -Value @'
+#!/usr/bin/env bash
+( sleep 0.5; echo "late line from a child that still holds the output" ) &
+exit 1
+'@
+            & chmod +x $Path
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:New-LateWriterStub -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        $script:StubDir = Join-Path ([System.IO.Path]::GetTempPath()) ('boundedwait-' + [guid]::NewGuid().ToString('N'))
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $script:StubDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'Invoke-ManagedTool reports a line the tool wrote after it exited' -Skip:$IsWindows {
+        $stub = Join-Path $script:StubDir 'managedtool'
+        New-LateWriterStub -Path $stub
+
+        $r = Invoke-ManagedTool -Key 'k' -FilePath $stub -ArgumentList @('install') -TimeoutMinutes 1
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'exit 1.*late line from a child that still holds the output*'
+    }
+
+    It 'Invoke-AndroidSdkManager reports a line sdkmanager wrote after it exited' -Skip:$IsWindows {
+        $saved = $script:AndroidSdkRoot
+        try {
+            $script:AndroidSdkRoot = $script:StubDir
+            New-LateWriterStub -Path (Join-Path $script:AndroidSdkRoot 'cmdline-tools\latest\bin\sdkmanager.bat')
+
+            $r = Invoke-AndroidSdkManager -Arguments @('platform-tools') -TimeoutMinutes 1
+        } finally {
+            $script:AndroidSdkRoot = $saved
+        }
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'exit 1.*late line from a child that still holds the output*'
+    }
+
+    It 'Install-WslDistribution reports a line wsl wrote after it exited' -Skip:$IsWindows {
+        $stub = Join-Path $script:StubDir 'wsl.exe'
+        New-LateWriterStub -Path $stub
+        Mock Get-Command { [PSCustomObject]@{ Source = 'wsl.exe' } } -ParameterFilter { $Name -contains 'wsl' }
+        Mock Get-WslDistributionName { @() }
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        $savedPath = $env:PATH
+        try {
+            $env:PATH = $script:StubDir + [System.IO.Path]::PathSeparator + $savedPath
+            # Defect class 16: the stub must be the wsl.exe Start-Process finds, proven before it runs.
+            (Microsoft.PowerShell.Core\Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction Stop)[0].Source | Should -Be $stub
+
+            $r = @(Install-WslDistribution -TimeoutMinutes 1)
+        } finally {
+            $env:PATH = $savedPath
+        }
+
+        $r[0].Status | Should -Be 'failed'
+        $r[0].Detail | Should -BeLike 'wsl --install exited 1. late line from a child that still holds the output*'
+    }
+
+    # Read from the syntax tree, so a new function that reads redirected output after its own
+    # deadline wait fails here by name rather than now and then in the gate.
+    It 'waits through Wait-BoundedProcess in every function that redirects a program''s output' {
+        $files = @(
+            (Join-Path $script:RepoRoot 'setup\setup.ps1')
+            @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'setup\windows') -Filter '*.ps1' | ForEach-Object FullName)
+        )
+        $redirecting = foreach ($file in $files) {
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors)
+            if ($errors) { throw "$file does not parse: $($errors[0].Message)" }
+            foreach ($function in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+                $redirects = $function.Body.FindAll({ param($n)
+                    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Start-Process' -and
+                    @($n.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'RedirectStandardOutput' }).Count -gt 0 }, $true)
+                if (@($redirects).Count -eq 0) { continue }
+                $ownWaits = $function.Body.FindAll({ param($n)
+                    $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Extent.Text -eq 'WaitForExit' }, $true)
+                $sharedWaits = $function.Body.FindAll({ param($n)
+                    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Wait-BoundedProcess' }, $true)
+                [PSCustomObject]@{ Name = $function.Name; OwnWaits = @($ownWaits).Count; SharedWaits = @($sharedWaits).Count }
+            }
+        }
+
+        @($redirecting.Name) | Should -Contain 'Invoke-BoundedWinget'
+        @($redirecting.Name) | Should -Contain 'Invoke-ManagedTool'
+        @($redirecting.Name) | Should -Contain 'Invoke-AndroidSdkManager'
+        @($redirecting.Name) | Should -Contain 'Install-WslDistribution'
+        @($redirecting | Where-Object { $_.OwnWaits -gt 0 -or $_.SharedWaits -eq 0 } | ForEach-Object Name) | Should -BeNullOrEmpty
+    }
+}
+
+
 Describe 'Get-CommandOutputTail' {
 
     # On Windows, Out-String and the file Start-Process redirects into end each line with a carriage

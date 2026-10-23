@@ -572,6 +572,38 @@ try {
     }
 }
 
+function Wait-BoundedProcess {
+    <#
+    .SYNOPSIS
+        Waits for a started process until a deadline, and answers true only once its redirected
+        output is complete as well.
+    .DESCRIPTION
+        Every caller that starts a program with Start-Process -RedirectStandardOutput and reads the
+        files afterwards waits through this, so the rule lives in one place. On Linux and macOS,
+        Start-Process copies the output into the files through .NET's asynchronous readers, and
+        WaitForExit with a deadline returns when the process ends, before they have finished, so
+        about one read in 140 found an empty file. So a true answer from the deadline wait is
+        followed by WaitForExit with no deadline, which waits for those readers. On Windows the
+        process writes the files itself and the second wait returns at once. Entry 10.183 of
+        docs/regression_ledger.md.
+
+        False means the deadline passed and the process is still running, and the caller decides
+        what to do with it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNull()] [object] $Process,
+        [Parameter(Mandatory)] [ValidateRange(1, [int]::MaxValue)] [int] $TimeoutMilliseconds
+    )
+
+    if (-not $Process.WaitForExit($TimeoutMilliseconds)) {
+        return $false
+    }
+    $Process.WaitForExit()
+    return $true
+}
+
 function Invoke-BoundedWinget {
     <#
     .SYNOPSIS
@@ -593,11 +625,8 @@ function Invoke-BoundedWinget {
         silent pass. TimedOut is returned separately from the exit code so the caller can say which
         of the two happened.
 
-        The files are read only after WaitForExit with no deadline has returned too. On Linux and
-        macOS, Start-Process copies the output into the files through .NET's asynchronous readers,
-        and WaitForExit with a deadline returns when the process ends, before they have finished, so
-        about one read in 140 found an empty file. On Windows the process writes the files itself
-        and the second wait returns at once. Entry 10.183 of docs/regression_ledger.md.
+        The files are read only after Wait-BoundedProcess says the output is complete, entry 10.183
+        of docs/regression_ledger.md.
 
     .PARAMETER TimeoutSeconds
         The deadline. 900 by default, which is fifteen minutes for a single package: generous next to
@@ -615,16 +644,15 @@ function Invoke-BoundedWinget {
     try {
         $process = Start-Process -FilePath $WingetPath -ArgumentList $Arguments -PassThru -NoNewWindow `
             -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        if (-not (Wait-BoundedProcess -Process $process -TimeoutMilliseconds ($TimeoutSeconds * 1000))) {
             try { $process.Kill($true) } catch { Write-Verbose "could not kill winget: $($_.Exception.Message)" }
-            $null = $process.WaitForExit(30000)
+            $null = Wait-BoundedProcess -Process $process -TimeoutMilliseconds 30000
             return [PSCustomObject]@{
                 Output   = (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue)
                 ExitCode = -1
                 TimedOut = $true
             }
         }
-        $process.WaitForExit()
         $text = @(
             (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue)
             (Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue)
