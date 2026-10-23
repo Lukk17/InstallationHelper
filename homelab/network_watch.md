@@ -242,7 +242,7 @@ built this for, a permanent local copy, quietly stops being permanent.
 
 ### Uptime Kuma: watch the same layers live
 
-The CSV files are the record. Uptime Kuma is the thing that notices while it is still happening. The six
+The CSV files are the record. Uptime Kuma is the thing that alerts you while an outage lasts, at the 30 second interval [uptime_kuma.md](uptime_kuma.md#network-monitors) gives the six monitors. The six
 monitors, their fields, and the click steps to add them from scratch live in
 [uptime_kuma.md](uptime_kuma.md#network-monitors), under "Network monitors", so set them up there.
 
@@ -290,10 +290,10 @@ To change the interval, change the one line under `[[inputs.internet_speed]]` th
 sed -i '/^\[\[inputs\.internet_speed\]\]/,/^\[\[/ s/^\([[:space:]]*interval = \).*/\1"<interval>"/' /opt/docker-stack/telegraf/telegraf.conf
 ```
 
-For example, back to the 10 minute burst it ran until 2026-10-23:
+For example, one test every 2 hours:
 
 ```bash
-sed -i '/^\[\[inputs\.internet_speed\]\]/,/^\[\[/ s/^\([[:space:]]*interval = \).*/\1"10m"/' /opt/docker-stack/telegraf/telegraf.conf
+sed -i '/^\[\[inputs\.internet_speed\]\]/,/^\[\[/ s/^\([[:space:]]*interval = \).*/\1"2h"/' /opt/docker-stack/telegraf/telegraf.conf
 ```
 
 Check the block. It must show the new interval:

@@ -100,7 +100,7 @@ graph TB
 | File Browser | `drive.internal` | 7782 | 80 | Web access to the whole USB data disk |
 | Samba | `\\drive.internal\files`, not proxied | 445 | 445 | The same folder as a network drive |
 | Plex | `plex.internal`, host network | 32400 | 32400 | Films and series from the USB data disk, direct play only |
-| Telegraf | none, host network | none | none | Records a ping and DNS row every second, an HTTP row every 5 seconds, and a download, upload and latency row every 10 minutes, as proof of short provider outages, written into the Syncthing folder |
+| Telegraf | none, host network | none | none | Records a ping and DNS row every second, an HTTP row every 5 seconds, and a download, upload and latency row every hour, as proof of short provider outages, written into the Syncthing folder |
 
 Nginx Proxy Manager also binds 80 and 443 for proxied traffic, AdGuard binds 53 for plain DNS plus 853 and 784 for the encrypted variants, and Syncthing binds 22000 and 21027 for its own peer protocol.
 
@@ -256,6 +256,7 @@ The values in the Compose file that are host specific sit in the file directly, 
 | `SAMBA_USER`, `SAMBA_PASS` | none, set in `.env` | The network drive login, see [lan_storage.md](lan_storage.md) |
 | `PLEX_CLAIM` | empty, set in `.env` once | One-time token linking Plex to your account, see [plex_media_server.md](plex_media_server.md) |
 | Plex `cpus` | `1.5` | Hard CPU ceiling for Plex, out of the Docker VM's four cores |
+| Container logs | `json-file`, three files of 10 MB per container | The `logging` block at the top of [compose.yaml](compose.yaml), given to every service, so a container that floods its log cannot fill the disk, see [uptime_kuma.md](uptime_kuma.md#after-adding-a-new-tag-restart-the-container) |
 | Telegraf `network_mode` | `host` | Telegraf shares the VM's network namespace instead of the bridge network, which the ping checks in [network_watch.md](network_watch.md) need |
 
 The Compose file carries no passwords or tokens. The Samba login, and the one-time Plex claim token, come from `/opt/docker-stack/.env` on the VM, which never enters version control. Every other service sets its own credentials on first run and stores them under `/opt/docker-stack/`.

@@ -10,7 +10,7 @@ Open `http://<docker-vm-ip>:7779`, or `http://uptime.internal` once the proxy en
 
 The setup wizard asks you to create an administrator account and to choose a database.
 
-Choose SQLite, the embedded option. It keeps everything in a single file under `/app/data`, which is mounted from `/opt/docker-stack/uptime-kuma/data` on the host, which is the directory [backup_restore.md](backup_restore.md) tells you to copy off the box. The external database option means a second service to run and back up separately, for a workload of about 180 checks a minute from the six network monitors alone, below.
+Choose SQLite, the embedded option. It keeps everything in a single file under `/app/data`, which is mounted from `/opt/docker-stack/uptime-kuma/data` on the host, which is the directory [backup_restore.md](backup_restore.md) tells you to copy off the box. The external database option means a second service to run and back up separately, for a workload of 12 checks a minute from the six network monitors, below, plus the service monitors.
 
 ---
 
@@ -22,8 +22,7 @@ The Compose file pins `louislam/uptime-kuma:2.5.5` ([compose.yaml](compose.yaml)
 
 ### The monitors
 
-Two kinds of monitor live here: service checks that confirm each container answers, and network checks that
-catch a short provider outage before you would otherwise notice it.
+Two kinds of monitor live here: service checks that confirm each container answers, and network checks that alert you when the router, the provider or the internet stops answering.
 
 #### Service monitors
 
@@ -45,14 +44,15 @@ Every target is an address and port, never an `.internal` name, for the same rea
 
 #### Network monitors
 
-These six catch the thirty second provider drops that [network_watch.md](network_watch.md) records to disk.
+These six are for alerts only. The record of every short provider drop is the Telegraf data in [network_watch.md](network_watch.md), which checks the same layers every second, so these monitors check every 30 seconds. With one retry 30 seconds later, a monitor goes red after two failed checks in a row, so a drop shorter than that can pass unseen here and still shows in the Telegraf files. Every check is a row in the Uptime Kuma database, which is why they no longer run every 2 to 7 seconds, as the six did on this lab until 2026-10-23.
+
 Add each one from scratch:
 
 1. Click Add New Monitor.
 2. Set Monitor Type to the type in the table below.
 3. Set Friendly Name to the name in the table below.
 4. Fill in the type-specific fields from the table below.
-5. Set Heartbeat Interval to 2, Retries to 1, and Heartbeat Retry Interval to 2.
+5. Set Heartbeat Interval to 30, Retries to 1, and Heartbeat Retry Interval to 30.
 6. Click Save.
 
 | Friendly Name | Monitor Type | Fields |
@@ -104,7 +104,7 @@ A monitoring system nobody is watching is a log file with a nicer font.
 
 Set up at least one notification channel under Settings, then Notifications. Uptime Kuma supports the usual chat and push services, and any of them beats none.
 
-Attach it to every monitor rather than a few, and set the retry count high enough that a single missed poll does not wake you. For the service monitors, two or three retries at sixty seconds is a reasonable starting point on a home network, where a brief blip is usually a device deciding to renew a lease rather than an outage. The six network monitors keep their own tighter setting instead, interval 2, retries 1, retry interval 2, because they exist to catch a thirty second outage rather than to wait out a lease renewal.
+Attach it to every monitor rather than a few, and set the retry count high enough that a single missed poll does not wake you. For the service monitors, two or three retries at sixty seconds is a reasonable starting point on a home network, where a brief blip is usually a device deciding to renew a lease rather than an outage. The six network monitors keep their own setting instead, interval 30, retries 1, retry interval 30, as [Network monitors](#network-monitors) explains.
 
 ---
 
