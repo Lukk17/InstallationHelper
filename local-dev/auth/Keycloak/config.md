@@ -202,7 +202,7 @@ docker cp keycloak:/tmp/local-realm-export.json .\local-dev\auth\Keycloak\export
 Then rebuild the image, because the file is baked in rather than mounted.
 
 There used to be a second file here, `full-export.json`, produced by `kc.sh export` with no `--realm`. It is gone. It
-described the `master` realm plus a second, contradictory copy of `local` carrying a `pharmaApp-client` that this
+described the `master` realm plus a second, contradictory copy of `local` carrying another project's client that this
 stack has never had, and once a true export of `local` exists, a second description of the same realm sitting beside
 it is a trap rather than a reference. Take a full export if you ever need one, do not commit it next to the file the
 image imports.

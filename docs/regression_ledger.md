@@ -2861,35 +2861,35 @@ service in the stack that needs the name. The standalone command needs the same 
 #### An export command in config.md naming a realm this stack has never had
 
 [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) told the reader to run
-`kc.sh export --realm pharma --file /tmp/pharma-realm-export.json`, and its user interface section said to select the
-realm to export, "pharma" in your case. This stack runs one realm and it is called `local`. Run verbatim against the
+`kc.sh export --realm <other-realm> --file /tmp/<other-realm>-realm-export.json`, with the realm of another project in
+place of `<other-realm>`, and its user interface section said to select that same realm to export. This stack runs one realm and it is called `local`. Run verbatim against the
 running container, the command does not half work or export something empty, it refuses:
 
 ```text
-ERROR: realm not found by realm name 'pharma'
+ERROR: realm not found by realm name '<other-realm>'
 ```
 
-The name came from the sibling Pharmacy project at `D:/Development/projekty-IT/Pharmacy`, along with the two files
+The name came from another of the owner's projects, along with the two files
 under [local-dev/auth/Keycloak/export/config](../local-dev/auth/Keycloak/export/config) that the command produces. The
 fix renames the realm inside both exports to `local` and points the documented commands at `--realm local`. The same
 run proves the corrected command works, `KC-SERVICES0035: Export finished successfully`, as does the unchanged full
 export.
 
 Renaming a realm inside a Keycloak export is not one string. Measured by exporting the real `local` realm out of the
-running container and diffing the shape against the pharma file, Keycloak writes the realm name into seven distinct
+running container and diffing the shape against the other project's file, Keycloak writes the realm name into seven distinct
 places: `"realm"`, the `default-roles-<realm>` role and both `realmRoles` lists that reference it, the `account` and
 `account-console` clients' `baseUrl` and `redirectUris` under `/realms/<realm>/account/`, the
 `security-admin-console` client's `/admin/<realm>/console/`, and in a full export the master realm's generated
 `<realm>-realm` management client and its `"<realm> Realm"` display name. The line numbers of those entries in the
-live `local` export and in the pharma export are identical, 357, 415, 429, 451, 456, 482, 487, 723 and 728, which is
+live `local` export and in the other project's export are identical, 357, 415, 429, 451, 456, 482, 487, 723 and 728, which is
 what proves they are generated from the realm name rather than chosen by a person. Names somebody chose keep their
-spelling on purpose: `pharmaApp-client`, `service-account-pharmaapp-client`, the `pharma-gateway` redirect URI and the
-`com.pharmacyclient.app` callback.
+spelling on purpose: the other project's own client, the service account user named after it, its gateway redirect
+URI and its mobile app callback.
 
 #### The documented copy step named a file no command in the same document produces
 
 Three lines below the export commands, the same file said `cp /tmp/realm-export.json /mnt/c/tmp/`. Neither export
-above it ever writes that path: the realm export wrote `/tmp/pharma-realm-export.json` and the full export writes
+above it ever writes that path: the realm export wrote `/tmp/<other-realm>-realm-export.json` and the full export writes
 `/tmp/full-export.json`. Proven by running both exports in the container and listing the directory, which holds
 `/tmp/local-realm-export.json` at 80637 bytes and `/tmp/full-export.json` at 254874 bytes and nothing called
 `realm-export.json`. The fix points the copy at the file the command above it actually writes. The destination
@@ -2903,7 +2903,7 @@ or directory`, which is the document's own stated precondition about mounted loc
 `nZUMlOQZufa5ljWW5hHXOtGKLn0mpTkN` appears once in
 `local-dev/auth/Keycloak/export/database/keycloak-dump.sql` (deleted in e8d4821)
 and zero times in either file under `export/config`. That mattered more after the rename than before it, because an
-export that now declares the realm `local` while carrying `pharmaApp-client` instead of `local-client` is exactly the
+export that now declares the realm `local` while carrying the other project's client instead of `local-client` is exactly the
 file a reader would go looking in. The fix names the dump, and both
 [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) and [AGENTS.md](../AGENTS.md) now say the
 exports are reference copies that nothing imports and that importing one would collide with what the dump creates.
@@ -7133,3 +7133,17 @@ How it was proven: `git log -S'verification step' -- AGENTS.md` printed no commi
 Fix: item 6 of the "NEVER RUN IN CI" list and the step comment beside the `installation_*.log` glob in e2e-matrix.yml state what setup.ps1 writes today. The jobs themselves are unchanged.
 
 Mechanical check: none.
+
+### Found while removing private project names, 2026-10-23
+
+#### 10.176 Pages in this public repository named another, private project of the owner
+
+Cause: agents recording where wrong values came from wrote the private project's name, its local path, its realm, its client and module names and its Java package into this repository, and the jetbrains-ide-ops skill was imported with the same kind of names from upstream.
+
+Effect: the Keycloak export entry above, a paragraph of [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) and five files of `.agents/skills/jetbrains-ide-ops/` published names and a path from a repository that is not public.
+
+How it was proven: `git grep -n -i -E` over the project's name, its company package and its module prefixes listed 29 lines in those files on 2026-10-23, 18 of them in the skill, and printed nothing after the fix.
+
+Fix: the Keycloak entry and config.md describe the realm, the clients and the callback as another project's, and `.agents/skills/jetbrains-ide-ops/` is the agent-standards copy at 82ed7ab, which made the same skill generic. Lines that name this repository's own Windows checkout path were left as they are, by the owner's decision.
+
+Mechanical check: none. A check would have to list the private names, which is the leak it is meant to stop.
