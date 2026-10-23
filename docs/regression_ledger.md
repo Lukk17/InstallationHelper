@@ -6906,3 +6906,57 @@ How it was proven: only partly. Both addresses answered 200 shortly after, from 
 Fix: `fetch_url` runs curl with `--retry 5 --retry-delay 10 --retry-all-errors`, so an HTTP error is retried as well, and names the address when it still fails. curl 8.14.1 in the gate's Debian trixie base supports `--retry-all-errors`, which needs 7.71 or later.
 
 Mechanical check: e2e/tier1/gate_build_output.sh requires `--retry-all-errors` among the arguments `fetch_verified` hands curl. Whether the retry is enough against a real burst is shown only by the next sweep.
+
+Second fix, owner decision 90 on 2026-10-23: the burst itself is gone. .github/workflows/e2e-gate-image.yml builds the gate image once per run of e2e-matrix.yml and e2e-manual.yaml with the harness's own `gate_build`, saves it with `docker save` as the artifact `e2e-gate-image`, and the tier 1 job and every Linux cell load it through .github/actions/load-gate-image, which sets `E2E_GATE_IMAGE_PRELOADED=1`. `gate_build` then uses the loaded image and builds nothing, and refuses with exit 2 when the variable is set and the image is not there. So one runner downloads PowerShell and Pester per run instead of about 48, and a failed download fails one job named "Gate image" instead of random cells.
+
+#### 10.161 CachyOS's own marker file made the pacman consistency check fail every CachyOS cell that installs pacman packages
+
+Cause: the check after the per-package pacman installs in setup/ansible/roles/software_installer/tasks/dynamic_install.yaml ran a bare `pacman -Dk`, and CachyOS keeps a marker file, `CACHY_UPDATE_NOTICE`, in `<DBPath>local` beside the package directories, which pacman reads as a package record without its files (CachyOS/pacman issue 10).
+
+Effect: in GitHub sweep run 39850886667 the CachyOS defaults, all software, KDE full and live profile cells each logged `error: 'CACHY_UPDATE_NOTICE': description file is missing` and `error: 'CACHY_UPDATE_NOTICE': file list is missing` under `[ERROR] pacman reports the installed set is not consistent`, the only `[ERROR]` line in each, and ended with playbook_rc 2. pacman exits 1 there and skips the dependency and conflict checks, so on CachyOS the check could neither pass nor find a real problem.
+
+How it was proven: the four cells' artefacts, downloaded into e2e/runs/sweep-39850886667. Then in a plain `cachyos/cachyos-v3:latest` container, the image e2e/tier3/cachyos.Dockerfile pins, with pacman 7.1.0.r9.g54d9411-5 and the marker written into `/var/lib/pacman/local`: the bare `pacman -Dk` printed both error lines and exited 1. The new command, taken out of the task file, printed `not a package record, left out of the copy pacman checks: CACHY_UPDATE_NOTICE` and `No database errors have been found!` and exited 0, and the marker was still in the real database afterwards. With the marker and the `readline` record also removed it exited 1 with `error: missing 'readline' dependency for 'bash'` and eleven more such lines, so the copy does not hide a real missing dependency.
+
+Wrong turns kept: the first suspects were commit 42b1d85, the qastools packages, the kernel packages and commit 0515fb4. None was involved, the error names a file no package owns. Filtering the two lines out of the output would also have been wrong, because pacman stops checking at them, so a filtered run would read as clean while the dependency and conflict checks never ran.
+
+Fix: the task copies `<DBPath>local` into a mktemp directory with `cp -a`, links the sync databases, removes from the copy every entry that is neither a directory nor `ALPM_DB_VERSION` and prints each, and runs `pacman -Dk --dbpath <copy>/`. The real database is never written. register, changed_when, failed_when, when and tags are unchanged.
+
+Mechanical check: e2e/tier2/pacman_database_check.sh reads the task's command out of the YAML and runs the three cases above in the pinned CachyOS image. Against the bare `pacman -Dk` it fails the clean-database assertion, which is the defect.
+
+#### 10.162 A local tier 2 run filled the disk Docker writes to on the owner's computer
+
+Cause: e2e/tier2/rpm_file_conflicts.sh downloads about two dozen Fedora packages into a throwaway container, and it ran on the owner's computer with every other tier 2 check.
+
+Effect: on 2026-10-22 at 23:14 a local `bash e2e/run.sh --tier 2` stopped with `no space left on device`. The owner's own sky containers exited in the same minute. That they stopped because of this disk fill is likely and not proven.
+
+How it was proven: only the error line and the times above. Nothing on the owner's computer was inspected to measure the disk afterwards, under the rule that forbids it.
+
+Fix: owner decision 91. The check asks `throwaway_machine_verdict` in e2e/lib/throwaway_machine.sh, the same question tier 3 asks, and anywhere but a GitHub-hosted runner it reports one SKIP and downloads nothing. The sweep's stage 1 job `Tier 1 checks` runs it with `bash e2e/run.sh --tier 2 --only rpm_file_conflicts`, the new `--only` option of e2e/run.sh.
+
+Mechanical check: none beyond the SKIP itself, which the tier 2 tally names on every local run.
+
+#### 10.163 Pop!_OS GNOME had no list of its own, because the Pop!_OS image carried no System76 archive
+
+Cause: `lineage_companion_packages` in setup/ansible/vars/Debian.yaml is keyed by lineage alone, so Pop!_OS, Ubuntu lineage, got `ubuntu-desktop`, and e2e/tier3/popos.Dockerfile was Ubuntu with Pop!_OS's identity and no System76 archive, so nothing could measure what Pop!_OS itself resolves. Follows 10.156.
+
+Effect: the gnome-full-popos cell failed as 10.156 records, and a real Pop!_OS machine would have been asked for Ubuntu's desktop.
+
+How it was proven: owner decision 88.1. In a plain ubuntu:26.04 container, after the exact archive step now in e2e/tier3/popos.Dockerfile ran with exit 0: http://apt.pop-os.org/release and /proprietary publish `resolute`, the key is `63C46DF0140D738961429F4E204DD8AEC33A7AFF`, "Pop OS (ISO Signing Key)", the one pop-keyring ships, and gpgv called its signature on the resolute Release good. `apt-cache policy` gave pop-desktop 3.0.0~1792081217~26.04~bce9565, which depends on nothing GNOME and whose sibling pop-de-cosmic depends on cosmic-session, so Pop!_OS 26.04's desktop is COSMIC and no System76 package carries GNOME. `apt-get install -s ubuntu-desktop` failed with `Unable to satisfy dependencies`, while `apt-get install -s gnome-core gnome-tweaks gnome-shell-extension-manager` planned 812 packages, firefox among them as System76's deb 1:158.0.1~1792606753~26.04~cab074c rather than a snap. Without the dist-upgrade in that step, two packages would have had to be downgraded and `apt-get -y` refused.
+
+Fix: e2e/tier3/popos.Dockerfile adds both System76 archives with the key fetched by its pinned fingerprint and refused otherwise, pop-default-settings' own 1001 pin, and a dist-upgrade. `lineage_companion_packages` takes an os-release ID beside the two lineages, and setup/ansible/tasks/load_os_dict.yaml lets the entry under ih_os_release_id replace the lineage's entry of the same key, so Pop!_OS GNOME is gnome-core for the install and for verify_install.yaml alike. Not yet run in a Pop!_OS cell, the next sweep is the first.
+
+Mechanical check: e2e/tier1/verify_wiring.sh accepts a `lineage_companion_packages` key only when it is a lineage or the ID of a captured Debian-family os-release under e2e/tier1/os_release_fixtures.
+
+### Found on the homelab Docker VM, 2026-10-23
+
+#### 10.164 The Docker VM's root volume kept the installer's half of the disk, and the full disk stopped Syncthing and lost Telegraf rows
+
+Cause: the Docker VM was created with the Ubuntu Server installer's default root logical volume, half of the volume group, nothing in [proxmox_docker_vm.md](../homelab/proxmox_docker_vm.md) said to grow it, and nothing watched disk space.
+
+Effect: `lsblk` showed `sda3` at 88G and `ubuntu--vg-ubuntu--lv` at 44G, so half the disk sat unused while the 44 GiB root file system filled. At 2026-10-22 23:58 the Syncthing container stopped both folders with `insufficient space on disk for database (/config/index-v2): current 0.00 % < required 1 %` and failed to save its configuration with `no space left on device`, and Telegraf could not write its network watch rows, so the rows from that time are lost. Growing the volume then hit a second trap: with the root file system completely full, `pvresize /dev/sda3` failed with `/etc/lvm/archive/...: write error failed: No space left on device` and `Failed to store physical volume "/dev/sda3" in volume group "ubuntu-vg"`, because LVM writes a metadata backup under /etc/lvm first. `sudo apt clean` and `sudo journalctl --vacuum-size=100M` freed about 64 MB, and `pvresize` then succeeded. Afterwards the root volume was 138 GiB and `df -h /` showed 136G size, 43G used and 87G free. What filled the 43 GB is not yet measured.
+
+How it was proven: `lsblk` and `df -h /` output on the Docker VM on 2026-10-23, before and after the fix, and the Syncthing REST status read from the server, which carried both error texts.
+
+Fix: [proxmox_docker_vm.md](../homelab/proxmox_docker_vm.md). The section "Give the root volume the whole disk" tells a new VM to give `ubuntu-lv` the whole volume group in the installer or right after it, and the section "Grow the Docker VM disk" gives the Proxmox resize, the growpart, pvresize and lvextend steps inside the VM, the full-disk trap with its measured way out, and the `--config 'backup { backup = 0 archive = 0 }'` fallback.
+
+Mechanical check: none. The homelab has no automated checks, and nothing on the VM warns before the root file system fills.
