@@ -424,9 +424,11 @@ Describe 'Install-WingetPackage retries under the shared rule, refreshing its so
     # A stub winget rather than a Pester mock, because the code under test never calls winget through
     # PowerShell: Invoke-BoundedWinget starts a process and reads two redirected files, so a mock
     # would prove nothing about the path that actually runs. The stub answers the `list` probe as
-    # "not installed", leaves a marker file per install attempt, so the file count is the attempt
-    # count, which is the only state that survives between two separate processes, and appends one
-    # line per install or `source update` to calls.log, so the order of the two can be read back.
+    # "not installed" until an install has succeeded, leaves a marker file per install attempt, so the
+    # file count is the attempt count, which is the only state that survives between two separate
+    # processes, and appends one line per install or `source update` to calls.log, so the order of the
+    # two can be read back. -InstallsNothing makes it say "Successfully installed" and exit 0 without
+    # ever listing the package, which is what winget did for Prime Video and Slack.
     #
     # Defined as a global function in BeforeAll, and every It owns its own directory. Pester 5 runs
     # the Describe body at discovery and each It at run time, so a plain function in the body does not
@@ -437,7 +439,8 @@ Describe 'Install-WingetPackage retries under the shared rule, refreshing its so
             param(
                 [Parameter(Mandatory)] [string] $Directory,
                 [Parameter(Mandatory)] [int] $FailFirstN,
-                [switch] $Hang
+                [switch] $Hang,
+                [switch] $InstallsNothing
             )
 
             $marker1 = Join-Path $Directory 'a1'
@@ -445,6 +448,8 @@ Describe 'Install-WingetPackage retries under the shared rule, refreshing its so
             $marker3 = Join-Path $Directory 'a3'
             $marker4 = Join-Path $Directory 'a4'
             $callLog = Join-Path $Directory 'calls.log'
+            $installed = Join-Path $Directory 'installed'
+            $markInstalled = if ($InstallsNothing) { '' } else { "echo x>`"$installed`"" }
 
             if ($IsWindows) {
                 $stub = Join-Path $Directory 'winget.cmd'
@@ -460,7 +465,10 @@ exit /b 0
                 } else {
                     $body = @"
 @echo off
-if "%1"=="list" exit /b 1
+if "%1"=="list" (
+  if exist "$installed" exit /b 0
+  exit /b 1
+)
 if "%1"=="source" (
   echo refresh %2 %3 %4>>"$callLog"
   exit /b 0
@@ -483,6 +491,7 @@ if %ATTEMPT% LEQ $FailFirstN (
   echo Installer failed with exit code: 3221225477
   exit /b 1
 )
+$markInstalled
 echo Successfully installed
 exit /b 0
 "@
@@ -509,7 +518,7 @@ exit 0
                 } else {
                     $body = @"
 #!/usr/bin/env bash
-if [ "`$1" = "list" ]; then exit 1; fi
+if [ "`$1" = "list" ]; then [ -f "$installed" ]; exit `$?; fi
 if [ "`$1" = "source" ]; then echo "refresh `$2 `$3 `$4" >> "$callLog"; exit 0; fi
 echo install >> "$callLog"
 if [ ! -f "$marker1" ]; then
@@ -525,6 +534,7 @@ if [ "`$attempt" -le "$FailFirstN" ]; then
   echo "Installer failed with exit code: 3221225477"
   exit 1
 fi
+$markInstalled
 echo "Successfully installed"
 exit 0
 "@
@@ -617,6 +627,22 @@ exit 0
             $r.Status | Should -Be 'failed'
             $r.Detail | Should -Not -BeLike '*said*'
             @(Get-StubCall -Directory $dir) | Should -Be @('install')
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'fails an attempt that exits 0 when winget then lists nothing, and retries it under the rule' {
+        $dir = New-StubDirectory
+        try {
+            $stub = New-WingetStub -Directory $dir -FailFirstN 0 -InstallsNothing
+
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId '9P6RC76MSMMJ' -Source 'msstore' -RetryPauseSeconds 0
+
+            $r.Status | Should -Be 'failed'
+            $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id 9P6RC76MSMMJ finds nothing, so 9P6RC76MSMMJ is not installed. Successfully installed (attempt 4 of 4*'
+            Get-StubAttemptCount -Directory $dir | Should -Be 4
+            @(Get-StubCall -Directory $dir) | Should -Be @(
+                'install', 'refresh update --name msstore', 'install', 'refresh update --name msstore',
+                'install', 'refresh update --name msstore', 'install')
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
@@ -1151,6 +1177,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $global:MachineCopy = $false
         $global:UserCopy = $false
         $global:InstallFailuresLeft = 0
+        $global:InstallsNothing = $false
         Mock Start-Sleep { }
         Mock Write-Host { }
         Mock Test-IsAdministrator { $false }
@@ -1172,6 +1199,9 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
                 $global:InstallFailuresLeft--
                 return [PSCustomObject]@{ Output = 'Installer failed with exit code: 3221225477'; ExitCode = 1; TimedOut = $false }
             }
+            if (-not $global:InstallsNothing) {
+                if ($scope -eq 'machine') { $global:MachineCopy = $true } else { $global:UserCopy = $true }
+            }
             return [PSCustomObject]@{ Output = 'Successfully installed'; ExitCode = 0; TimedOut = $false }
         }
         Mock Invoke-BoundedWinget { Invoke-WingetAnswer -Route 'bounded' -Arguments $Arguments }
@@ -1182,14 +1212,14 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'machine' -InstallerType 'msix' -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'installed'
-        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine')
+        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine', 'elevated list machine')
     }
 
     It 'elevates only the install of a machine-scope portable, whose machine copy any user can list' {
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Syncthing.Syncthing' -Scope 'machine' -InstallerType 'portable' -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'installed'
-        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'elevated install machine')
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'elevated install machine', 'bounded list machine')
     }
 
     It 'keeps a machine-scope installer that elevates itself in this process' {
@@ -1197,7 +1227,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
 
         $r.Status | Should -Be 'installed'
         Should -Invoke Invoke-ElevatedWinget -Times 0 -Exactly
-        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine')
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine', 'bounded list machine')
     }
 
     It 'runs everything in this process when the wizard is already elevated' {
@@ -1215,6 +1245,34 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $r.Status | Should -Be 'installed'
         $r.Detail | Should -BeLike '*attempt 2*3221225477*'
         @($global:WingetCalls | Where-Object { $_ -eq 'elevated install machine' }).Count | Should -Be 2
+    }
+
+    It 'fails a machine-wide install that exits 0 and leaves no machine-wide copy, asking in the scope it installed to' {
+        $global:InstallsNothing = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Git.Git' -Scope 'machine' -InstallerType 'inno' -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id Git.Git --scope machine finds nothing, so Git.Git is not installed. Successfully installed (attempt 4 of 4*'
+        @($global:WingetCalls | Where-Object { $_ -eq 'bounded install machine' }).Count | Should -Be 4
+        @($global:WingetCalls | Select-Object -Skip 2 -First 2) | Should -Be @('bounded install machine', 'bounded list machine')
+    }
+
+    It 'asks the elevated child after an elevated msix install exits 0, and fails it when that finds nothing' {
+        $global:InstallsNothing = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'machine' -InstallerType 'msix' -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike '*--scope machine finds nothing*'
+        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine', 'elevated list machine')
+    }
+
+    It 'fails a per-user install that exits 0 and leaves nothing, asking in the user scope' {
+        $global:InstallsNothing = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'user' -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id SlackTechnologies.Slack --scope user finds nothing*'
+        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list user')
     }
 
     It 'reports a machine-wide copy as present and installs nothing' {
@@ -3470,7 +3528,7 @@ Describe 'docs/manual/windows/install.ps1 follows the same retry rule' {
         # ManualFailures installs.
         $script:ManagerStubs = @'
 $global:ManualCalls = [System.Collections.Generic.List[string]]::new()
-function winget { $global:ManualCalls.Add("winget $($args -join ' ')"); if ($args[0] -eq 'source') { $global:LASTEXITCODE = 0; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'Installer failed' }; $global:LASTEXITCODE = 0 }
+function winget { $global:ManualCalls.Add("winget $($args -join ' ')"); if ($args[0] -eq 'source') { $global:LASTEXITCODE = 0; return }; if ($args[0] -eq 'list') { $global:LASTEXITCODE = $(if ($global:ManualInstalled -contains $args[3]) { 0 } else { -1978335212 }); return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'Installer failed' }; $global:LASTEXITCODE = 0; if ($global:ManualSilent -gt 0) { $global:ManualSilent--; return 'Successfully installed' }; $global:ManualInstalled += @($args[3]) }
 function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[0] -eq 'cache') { $global:LASTEXITCODE = 0; return }; if ($args[0] -eq 'list') { $global:LASTEXITCODE = 0; if ($global:ManualInstalled -contains $args[-1]) { return "$($args[-1])|1.0.0" }; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'The remote file either does not exist' }; $global:LASTEXITCODE = 0; if ($global:ManualSilent -gt 0) { $global:ManualSilent--; return 'Chocolatey installed 0/0 packages.' }; $global:ManualInstalled += @($args[1]) }
 '@
     }
@@ -3501,7 +3559,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Git.Git'; Scope = 'machine' })))
 
         $code | Should -Be 0
-        @($global:ManualCalls) | Should -Be @("winget install --exact --id Git.Git --source winget --silent --accept-source-agreements --accept-package-agreements --disable-interactivity --scope machine")
+        @($global:ManualCalls) | Should -Be @("winget install --exact --id Git.Git --source winget --silent --accept-source-agreements --accept-package-agreements --disable-interactivity --scope machine", 'winget list --exact --id Git.Git --scope machine --accept-source-agreements')
     }
 
     It 'waits, updates the package source, then installs a winget package again after a failure' {
@@ -3510,7 +3568,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = '9WZDNCRFJ3TJ'; Source = 'msstore' })))
 
         $code | Should -Be 0
-        @($global:ManualCalls | ForEach-Object { ($_ -split ' ')[0..1] -join ' ' }) | Should -Be @('winget install', 'wait 20', 'winget source', 'winget install')
+        @($global:ManualCalls | ForEach-Object { ($_ -split ' ')[0..1] -join ' ' }) | Should -Be @('winget install', 'wait 20', 'winget source', 'winget install', 'winget list')
         $global:ManualCalls[2] | Should -Be 'winget source update --name msstore --disable-interactivity'
     }
 
@@ -3538,6 +3596,23 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         @($global:ManualCalls | Where-Object { $_ -eq 'choco install dart-sdk -y --no-progress' }).Count | Should -Be 4
     }
 
+    It 'retries a winget package that exits 0 without being installed, and fails it when that never changes' {
+        $global:ManualSilent = 1
+
+        $retried = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'SlackTechnologies.Slack'; Scope = 'user' })))
+
+        $retried | Should -Be 0
+        @($global:ManualCalls | Where-Object { $_ -like 'winget list *' }) | Should -Be @('winget list --exact --id SlackTechnologies.Slack --scope user --accept-source-agreements', 'winget list --exact --id SlackTechnologies.Slack --scope user --accept-source-agreements')
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *' }).Count | Should -Be 2
+
+        $global:ManualSilent = 99
+        $never = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = '9P6RC76MSMMJ'; Source = 'msstore' })))
+
+        $never | Should -Be 1
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install --exact --id 9P6RC76MSMMJ *' }).Count | Should -Be 4
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*winget exited 0 and does not list the package as installed*' }
+    }
+
     It 'names a package that fails every one of its four attempts and returns its exit code' {
         $global:ManualFailures = 99
 
@@ -3550,7 +3625,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
     }
 
     It 'treats winget answering already installed as success, without a retry' {
-        function global:winget { $global:ManualCalls.Add("winget $($args -join ' ')"); $global:LASTEXITCODE = -1978335189 }
+        function winget { $global:ManualCalls.Add("winget $($args -join ' ')"); $global:LASTEXITCODE = -1978335189 }
 
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Git.Git' })))
 

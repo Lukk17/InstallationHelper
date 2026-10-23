@@ -1038,13 +1038,31 @@ function Install-WingetPackage {
             return [PSCustomObject]@{ Succeeded = $false; Final = $true; Failure = $run.ElevationFailure }
         }
 
+        $tail = Get-CommandOutputTail -Text $run.Output
+
+        # winget exited 0 for Prime Video and Slack in a Windows all apps run and its own list found
+        # neither afterwards, so exit 0 counts only when winget then lists the package in the same
+        # scope, asked the same way as before the install. docs/regression_ledger.md 10.187.
+        if ($run.ExitCode -eq 0) {
+            $after = Get-WingetPackagePresence -WingetPath $WingetPath -PackageId $PackageId -Scope $Scope -Elevated:$probeElevated
+            if ($after.Installed) {
+                return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
+            }
+            $listed = "winget list --exact --id $PackageId$(if ($Scope) { " --scope $Scope" })"
+            if (-not $after.Answered) {
+                return [PSCustomObject]@{ Succeeded = $false; Final = $true
+                    Failure = "winget exited 0, and whether $PackageId is now installed is unknown, because $listed could not run: $($after.Reason) $tail".Trim() }
+            }
+            return [PSCustomObject]@{ Succeeded = $false; Final = $false
+                Failure = "winget exited 0 and $listed finds nothing, so $PackageId is not installed. $tail".Trim() }
+        }
+
         # winget reports an already-installed package as a failure code with a specific
         # message, so treat that text as success rather than reporting a false failure.
-        if ($run.ExitCode -eq 0 -or $run.Output -match 'already installed') {
+        if ($run.Output -match 'already installed') {
             return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
         }
 
-        $tail = Get-CommandOutputTail -Text $run.Output
         return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = "exit $($run.ExitCode). $tail" }
     }
 

@@ -211,7 +211,10 @@ function Get-InstallExpression($p) {
     }
     $arguments = (Get-WingetArgument $p | ForEach-Object { Format-Literal $_ }) -join ' '
     $source = Format-Literal $(if ($p['Source']) { $p['Source'] } else { 'winget' })
-    return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } else { `$LASTEXITCODE } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
+    # winget exited 0 for Prime Video and Slack without installing either, so exit 0 counts only when
+    # winget then lists the package in the scope it installed to.
+    $listed = "winget list --exact --id $id$(if ($p['Scope']) { ' --scope ' + (Format-Literal $p.Scope) }) --accept-source-agreements"
+    return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } elseif (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } else { $listed | Out-Host; if (`$LASTEXITCODE -eq 0) { 0 } else { Write-Host '    winget exited 0 and does not list the package as installed'; 1 } } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
 }
 
 # The script an elevated window runs. It carries Invoke-InstallWithRetry with it, counts its own
