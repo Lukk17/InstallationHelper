@@ -7162,6 +7162,8 @@ Fix: an `x-logging` anchor in [homelab/compose.yaml](../homelab/compose.yaml), d
 
 Mechanical check: e2e/tier1/compose_log_limits.sh fails on any service in a compose file under `homelab/` whose logging options carry no `max-size`. Against the compose file before the fix it failed 12 of 13, one per service.
 
+Follow-up, 2026-10-23: the owner deployed the capped Compose file on the Docker VM the same day. `df -h /` showed 44G used before `docker compose up -d` and 20G used after it, because recreating the containers removed the old uptime-kuma container together with its 24.7 GB log.
+
 ### Found in sweep 39931619762, 2026-10-23
 
 #### 10.178 pipx on Arch Linux and CachyOS could not install anything, because python-pipx 1.18.4 imports filelock without depending on it
@@ -7217,6 +7219,20 @@ How it was proven: the file on the VM was compared with the repository's on 2026
 Fix: the setup section of [homelab/network_watch.md](../homelab/network_watch.md) says copying `telegraf.conf` again, then `docker restart telegraf`, is a step of every deployment. The same change adds the PPPoE gateway `83.1.5.230` as a fifth ping target and sets the speed test to one an hour in [homelab/telegraf/telegraf.conf](../homelab/telegraf/telegraf.conf).
 
 Mechanical check: none. Nothing in the repository can read the VM.
+
+### Found while sharing the LAN storage disk at its root, 2026-10-23
+
+#### 10.182 The LAN storage guide had only a path that formats the disk, so following it on the owner's NTFS disk would have erased his films
+
+Cause: [homelab/lan_storage.md](../homelab/lan_storage.md) assumed a new empty disk. Its only path partitioned and formatted the disk, no step asked what was already on it, nothing covered an NTFS disk that Windows had left marked dirty, and it edited `/etc/fstab` and `/opt/docker-stack/.env` in `nano` with no check of the result.
+
+Effect: three findings on the lab on 2026-10-23. First, the owner's disk is an existing 120 GB NTFS disk with his films and series in a `media` folder at its top. The guide's `sudo parted --script /dev/sdb mklabel gpt mkpart data ext4 0% 100%` and `sudo mkfs.ext4 -L data /dev/sdb1` would have erased it, and [homelab/compose.yaml](../homelab/compose.yaml) shared a `files` folder that disk does not have. Second, mounted with the kernel's ntfs3 driver, the first `sudo mount -a` failed with `wrong fs type, bad option, bad superblock`, and the kernel log said `ntfs3(sdb1): volume is dirty and "force" flag is not set!`, because the disk had left Windows without safe removal. Third, the first attempt at the `.env` file left `SAMBA_USER` empty, and Compose refused with `required variable SAMBA_USER is missing a value`.
+
+How it was proven: on the Docker VM, `sudo blkid /dev/sdb1` printed `TYPE="ntfs"`, Ubuntu kernel `7.0.0-34-generic` has ntfs3, and ntfs-3g 2022.10.3 is installed. After `sudo ntfsfix -d /dev/sdb1` the mount worked and `findmnt` showed `/mnt/data /dev/sdb1 ntfs3 rw,relatime,uid=1000,gid=1000,acl,iocharset=utf8,prealloc`. The Compose error was read on the VM. The erase was not run: it is read from the two commands, which write a new partition table and a new file system. Why the first attempt left `SAMBA_USER` empty was not recorded.
+
+Fix: the owner decided on 2026-10-23 to share the disk at its root, so [homelab/compose.yaml](../homelab/compose.yaml) binds `/mnt/data` for File Browser and Samba and `/mnt/data/media` read only for Plex. [homelab/lan_storage.md](../homelab/lan_storage.md) now asks `blkid` first and splits into path A, a new empty disk formatted as ext4, and path B, an existing NTFS disk mounted with ntfs3 and never formatted, with a section on the dirty mark and `ntfsfix -d`. Every file edit is a one-line command: the fstab line through `echo ... | sudo tee -a /etc/fstab`, the `.env` file through `read` and `printf` with a length check that prints no value. Sharing the root took away the protection `create_host_path: false` gave File Browser and Samba, because the mount point always exists, so the page sets the immutable flag on the empty mount point with `sudo chattr +i /mnt/data` before the fstab line. That rests on the chattr manual of e2fsprogs 1.47.4, `may_create_dentry` and `inode_permission` in the kernel's `fs/namei.c`, and the mount manual of util-linux, and was not measured on this lab. Deploying is described once, in "Deploying from your clone" in [homelab/README_HOMELAB.md](../homelab/README_HOMELAB.md), with `scp` from the clone instead of a GitHub raw link, and [homelab/plex_media_server.md](../homelab/plex_media_server.md), [homelab/network_watch.md](../homelab/network_watch.md), [homelab/agent_access.md](../homelab/agent_access.md) and [README.md](../README.md) follow the new paths and links.
+
+Mechanical check: none. The commands run on the owner's VM against a real disk, which no tier reaches.
 
 ### Found while chasing a Pester test that failed now and then, 2026-10-23
 

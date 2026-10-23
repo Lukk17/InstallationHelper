@@ -157,7 +157,7 @@ services:
     volumes:
       - /opt/docker-stack/filebrowser/data:/home/filebrowser/data
       - type: bind
-        source: /mnt/data/files
+        source: /mnt/data
         target: /srv
         bind:
           create_host_path: false
@@ -177,7 +177,7 @@ services:
       - "445:445/tcp"
     volumes:
       - type: bind
-        source: /mnt/data/files
+        source: /mnt/data
         target: /shared
         bind:
           create_host_path: false
@@ -198,7 +198,7 @@ services:
       - /opt/docker-stack/plex/config:/config
       - /opt/docker-stack/plex/transcode:/transcode
       - type: bind
-        source: /mnt/data/files/media
+        source: /mnt/data/media
         target: /data
         read_only: true
         bind:

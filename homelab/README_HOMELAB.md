@@ -18,6 +18,7 @@ Instructions are written against placeholders in angle brackets so they stay reu
 | `<docker-vm-ip>` | The Ubuntu virtual machine running the Compose stack |
 | `<user>` | The login you create during the Ubuntu install |
 | `<vmid>` | A virtual machine's number in Proxmox |
+| `<repo>` | The folder of your local clone of this repository |
 
 Concrete example, the lab these documents were written from:
 
@@ -35,7 +36,7 @@ Concrete example, the lab these documents were written from:
 ```mermaid
 graph TB
     accTitle: Home lab architecture
-    accDescr: A router hands out the Docker VM as DNS for the LAN. A Proxmox host runs a Home Assistant VM and a Docker VM. AdGuard Home resolves every query and routes internal names through Nginx Proxy Manager to the service containers. A USB disk on the host is handed to the Docker VM and holds the shared files for File Browser and Samba, with the Plex library as a folder inside them.
+    accDescr: A router hands out the Docker VM as DNS for the LAN. A Proxmox host runs a Home Assistant VM and a Docker VM. AdGuard Home resolves every query and routes internal names through Nginx Proxy Manager to the service containers. A USB disk on the host is handed to the Docker VM and shared at its root by File Browser and Samba, with the Plex library in its media folder.
 
     NET([Internet]) --> R["Router"]
     R -->|hands out the Docker VM as DNS| C([Phones, PCs, TVs])
@@ -72,9 +73,9 @@ graph TB
     NPM --> FB
     NPM -->|VM address, port 32400| PX
     C -->|network drive, port 445| SMB
-    DISK -->|"/mnt/data/files"| FB
-    DISK -->|"/mnt/data/files"| SMB
-    DISK -->|"/mnt/data/files/media, read only"| PX
+    DISK -->|"/mnt/data"| FB
+    DISK -->|"/mnt/data"| SMB
+    DISK -->|"/mnt/data/media, read only"| PX
     SY -->|synced folder on disk| PL
     TG -->|rows written every second| SY
     USB[/Zigbee USB dongle/] --> Z2M
@@ -96,7 +97,7 @@ graph TB
 | Perlite | `notes.internal` | 7781 | 80 | Renders the synced notes folder as a read only website |
 | Redis | none, TCP only | 6379 | 6379 | In-memory cache, unauthenticated and with no data volume, used by AscendWebSearch below |
 | AscendWebSearch | `ascend-scrapper.internal` | 7021 | 7021 | Web search and scraping API, a separate Compose project joined to this one only through the shared proxy network |
-| File Browser | `drive.internal` | 7782 | 80 | Web access to the shared folder on the USB data disk |
+| File Browser | `drive.internal` | 7782 | 80 | Web access to the whole USB data disk |
 | Samba | `\\drive.internal\files`, not proxied | 445 | 445 | The same folder as a network drive |
 | Plex | `plex.internal`, host network | 32400 | 32400 | Films and series from the USB data disk, direct play only |
 | Telegraf | none, host network | none | none | Records a ping and DNS row every second, an HTTP row every 5 seconds, and a download, upload and latency row every 10 minutes, as proof of short provider outages, written into the Syncthing folder |
@@ -109,7 +110,7 @@ Redis has no proxy entry because it speaks its own wire protocol, not HTTP, so N
 
 Telegraf has no proxy entry and no published port either. It runs on `network_mode: host`, writes its rows straight into a folder, and has no web interface for anyone to open. [network_watch.md](network_watch.md) covers what it records and why.
 
-File Browser and Samba serve the same folder, `/mnt/data/files`, on a USB disk the Proxmox host hands whole to the Docker VM. The Plex library is the `media` folder inside it, so films are copied in through the network drive or File Browser like any other file, and Plex mounts only that folder, read only. Samba has no proxy entry because SMB is not web traffic: `drive.internal` reaches it only because the AdGuard wildcard rewrite sends every `.internal` name to the VM. Plex runs on `network_mode: host` with a hard limit of 1.5 CPU cores, so its proxy entry points at the VM's address and port 32400. The disk is covered in [lan_storage.md](lan_storage.md), Plex in [plex_media_server.md](plex_media_server.md).
+File Browser and Samba serve the same folder, `/mnt/data`, the top of a USB disk the Proxmox host hands whole to the Docker VM. The Plex library is the `media` folder at the top of that disk, so films are copied in through the network drive or File Browser like any other file, and Plex mounts only that folder, read only. Samba has no proxy entry because SMB is not web traffic: `drive.internal` reaches it only because the AdGuard wildcard rewrite sends every `.internal` name to the VM. Plex runs on `network_mode: host` with a hard limit of 1.5 CPU cores, so its proxy entry points at the VM's address and port 32400. The disk is covered in [lan_storage.md](lan_storage.md), Plex in [plex_media_server.md](plex_media_server.md).
 
 Proxmox is not a container and is not in the Compose file, so its proxy entry points at an address rather than a container name. [nginx_proxy_manager.md](nginx_proxy_manager.md) covers that case. Home Assistant is reached directly on `<ha-vm-ip>:8123`, since it is the one service you open constantly from phones that already have it bookmarked.
 
@@ -125,17 +126,7 @@ This stack runs from a plain copy of two files on the virtual machine, not a clo
 mkdir -p /opt/docker-stack/telegraf
 ```
 
-Copy [compose.yaml](compose.yaml) to `/opt/docker-stack/compose.yaml`, with FileZilla, with `scp`, or by downloading it directly:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Lukk17/InstallationHelper/master/homelab/compose.yaml -o /opt/docker-stack/compose.yaml
-```
-
-Copy [telegraf/telegraf.conf](telegraf/telegraf.conf) to `/opt/docker-stack/telegraf/telegraf.conf` the same way:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Lukk17/InstallationHelper/master/homelab/telegraf/telegraf.conf -o /opt/docker-stack/telegraf/telegraf.conf
-```
+Copy [compose.yaml](compose.yaml) and [telegraf/telegraf.conf](telegraf/telegraf.conf) onto the VM from your clone, with the two `scp` commands in [Deploying from your clone](#deploying-from-your-clone) below. Leave its `docker compose` steps for the end of this quick start.
 
 Create the per-service folders the other containers bind mount into, so Docker never has to invent one of them itself and hand it to root. `/opt/docker-stack` already belongs to you, from [proxmox_docker_vm.md](proxmox_docker_vm.md), so none of this needs `sudo`:
 
@@ -143,14 +134,9 @@ Create the per-service folders the other containers bind mount into, so Docker n
 mkdir -p /opt/docker-stack/{nginx/data,nginx/letsencrypt,adguard/work,adguard/conf,homepage/config,uptime-kuma/data,syncthing/config,syncthing/data,syncthing/data/network-watch,filebrowser/data,plex/config,plex/transcode}
 ```
 
-Create `/opt/docker-stack/.env` with the network drive login before the first start, because the Compose file refuses to start without it rather than fall back to the Samba image's default password. The file holds placeholders here, fill in your own values:
+Create `/opt/docker-stack/.env` with the network drive login before the first start, because the Compose file refuses to start without it rather than fall back to the Samba image's default password. The commands, and a check that neither value is empty, are in [The Samba login file](lan_storage.md#the-samba-login-file).
 
-```text
-SAMBA_USER=<samba-user>
-SAMBA_PASS=<samba-password>
-```
-
-File Browser, Samba and Plex also need the USB data disk mounted at `/mnt/data` and a config file for File Browser, both covered in [lan_storage.md](lan_storage.md). Until the disk is there those three cannot start, because the Compose file binds their data folder with `create_host_path: false`. Whether `docker compose up -d` still starts every other service in that case, or stops at the first one it cannot create, has not been measured yet. If the stack does not come up, start the other services by name:
+File Browser, Samba and Plex also need the USB data disk mounted at `/mnt/data` and a config file for File Browser, both covered in [lan_storage.md](lan_storage.md). Until the disk is there Plex cannot start, because the Compose file binds its library folder, `/mnt/data/media`, with `create_host_path: false`, and that folder exists only on the disk. File Browser and Samba need only the mount point `/mnt/data`, so they start without the disk, and the immutable flag from [Protect the empty mount point](lan_storage.md#protect-the-empty-mount-point) keeps them from writing anything onto the system disk. Whether `docker compose up -d` still starts every other service when Plex cannot start, or stops at the first one it cannot create, has not been measured yet. If the stack does not come up, start the other services by name:
 
 ```bash
 cd /opt/docker-stack && docker compose up -d nginx-proxy-manager adguard-home homepage uptime-kuma syncthing perlite perlite-web redis telegraf
@@ -164,11 +150,94 @@ Start everything:
 cd /opt/docker-stack && docker compose up -d
 ```
 
-Updating later means copying the newer `compose.yaml` and `telegraf.conf` over the old ones the same way, then running that same `cd /opt/docker-stack && docker compose up -d` again.
+Updating later means following [Deploying from your clone](#deploying-from-your-clone).
 
 Upgrade note for a deployment set up before 2026-10-10: the Compose file now reads the Samba login from `SAMBA_USER` and `SAMBA_PASS` in `/opt/docker-stack/.env` and refuses to run without them, instead of falling back to the Samba image's default password. Compose checks those two values whenever it reads the file, so until both lines are in `.env`, every `docker compose` command for the whole stack stops with an error naming the missing variable, not only the one for Samba. Add both lines, as shown above, before you copy the newer `compose.yaml` over the old one. Use the login the drive already had, so the machines that map it keep working.
 
 Then configure the two services that need it: [adguard_dns.md](adguard_dns.md) first, because AdGuard owns the `.internal` names, and [nginx_proxy_manager.md](nginx_proxy_manager.md) second.
+
+---
+
+### Deploying from your clone
+
+Every change to [compose.yaml](compose.yaml) or [telegraf/telegraf.conf](telegraf/telegraf.conf) reaches the VM the same way: copy both files from your local clone of this repository, then pull and start on the VM. This is the one place these pages describe it, and the others link here.
+
+Do not download them from a GitHub raw link instead. A raw link gives the file as it is on GitHub, which is only what has been pushed, so a change you committed in your clone, or have not committed yet, would not reach the VM, and nothing would tell you.
+
+From your own machine, copy the Compose file. Unix shell:
+
+```bash
+scp <repo>/homelab/compose.yaml <user>@<docker-vm-ip>:/opt/docker-stack/compose.yaml
+```
+
+PowerShell:
+
+```powershell
+scp <repo>\homelab\compose.yaml <user>@<docker-vm-ip>:/opt/docker-stack/compose.yaml
+```
+
+Then the Telegraf config. Unix shell:
+
+```bash
+scp <repo>/homelab/telegraf/telegraf.conf <user>@<docker-vm-ip>:/opt/docker-stack/telegraf/telegraf.conf
+```
+
+PowerShell:
+
+```powershell
+scp <repo>\homelab\telegraf\telegraf.conf <user>@<docker-vm-ip>:/opt/docker-stack/telegraf/telegraf.conf
+```
+
+On this lab, from a clone in `~/Projects/InstallationHelper`:
+
+```bash
+scp ~/Projects/InstallationHelper/homelab/compose.yaml lukk@192.168.1.12:/opt/docker-stack/compose.yaml
+```
+
+```bash
+scp ~/Projects/InstallationHelper/homelab/telegraf/telegraf.conf lukk@192.168.1.12:/opt/docker-stack/telegraf/telegraf.conf
+```
+
+With the `docker-vm` name from [Open the Docker VM in Dolphin](lan_storage.md#open-the-docker-vm-in-dolphin) in your SSH config, `docker-vm` can stand in for `<user>@<docker-vm-ip>`.
+
+Before the first `docker compose up -d` on a VM, three things must already be there, all created as your own login and not with `sudo`:
+
+1. The folders File Browser and Plex bind mount. The `mkdir` in [Quick start](#quick-start) creates them with every other folder. On a VM that had the stack before File Browser and Plex were added, create these three:
+
+    ```bash
+    mkdir -p /opt/docker-stack/filebrowser/data /opt/docker-stack/plex/config /opt/docker-stack/plex/transcode
+    ```
+
+    A folder that is missing is created by Docker itself, owned by `root`, and File Browser, which runs as user `1000`, then cannot write to it.
+
+2. File Browser's `config.yaml`, written with the one `printf` command in [File Browser](lan_storage.md#file-browser).
+3. `/opt/docker-stack/.env` with the Samba login, from [The Samba login file](lan_storage.md#the-samba-login-file).
+
+The owner deployed this way on this lab on 2026-10-23, and it worked.
+
+Then, on the VM, fetch any image whose tag changed:
+
+```bash
+cd /opt/docker-stack && docker compose pull
+```
+
+Recreate every container whose settings or image changed:
+
+```bash
+cd /opt/docker-stack && docker compose up -d
+```
+
+And check that every service is up:
+
+```bash
+cd /opt/docker-stack && docker compose ps
+```
+
+`docker compose up -d` leaves a container alone when only a file it mounts has changed, and Telegraf reads its config only when it starts, so after a change to `telegraf.conf` restart it as well:
+
+```bash
+docker restart telegraf
+```
 
 ---
 
@@ -236,7 +305,7 @@ Syncthing cannot write its files. The host directories under `/opt/docker-stack/
 
 The notes site is empty. The Syncthing folder path is not `/data/notes`. See [perlite_notes.md](perlite_notes.md).
 
-File Browser, Samba or Plex will not start and the error names `/mnt/data`. The USB data disk is not mounted. See [lan_storage.md](lan_storage.md).
+Plex will not start and the error names `/mnt/data/media`, or File Browser shows an empty folder and every upload fails. The USB data disk is not mounted. See [lan_storage.md](lan_storage.md).
 
 A film buffers or fails to play. Plex is not allowed to convert video, so the file is in a format that player cannot play directly. See [plex_media_server.md](plex_media_server.md).
 
@@ -259,8 +328,8 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [homepage_dashboard.md](homepage_dashboard.md) | Dashboard tiles, allowed hosts, and why the status check bypasses DNS |
 | [uptime_kuma.md](uptime_kuma.md) | Service monitors and network monitors, why Proxmox is a ping, why AdGuard gets two checks |
 | [network_watch.md](network_watch.md) | Telegraf recording proof of short provider outages, and reading it back afterward |
-| [lan_storage.md](lan_storage.md) | The USB data disk handed to the Docker VM, File Browser at `drive.internal`, and the Samba network drive |
+| [lan_storage.md](lan_storage.md) | The USB data disk handed to the Docker VM, a new ext4 disk or an existing NTFS one, shared at its root through File Browser at `drive.internal` and the Samba network drive, and opening the VM in Dolphin |
 | [plex_media_server.md](plex_media_server.md) | Plex with host networking, the CPU cap, the transcoding settings, and which file formats to store |
 | [ascend_web_search.md](ascend_web_search.md) | AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
 | [backup_restore.md](backup_restore.md) | Backing up the VMs and the service data, and restoring both |
-| [agent_access.md](agent_access.md) | Access for an AI agent without a password: a Proxmox admin API token with narrower tokens as alternatives, one SSH key for the Docker VM and the router, the Syncthing and Uptime Kuma API keys, and how to revoke each |
+| [agent_access.md](agent_access.md) | Access for an AI agent without a password: a Proxmox admin API token with narrower tokens as alternatives, one SSH key for the Proxmox host, the Docker VM and the router, the Syncthing and Uptime Kuma API keys, and how to revoke each |

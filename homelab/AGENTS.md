@@ -4,7 +4,7 @@ Rules for the home lab documents and its one Compose file. What the lab is, and 
 
 ### Before you work here
 
-1. Before reaching the lab itself, through the Proxmox API, SSH to the Docker VM or the router, Syncthing or Uptime Kuma, read [agent_access.md](agent_access.md).
+1. Before reaching the lab itself, through the Proxmox API, SSH to the Proxmox host, the Docker VM or the router, Syncthing or Uptime Kuma, read [agent_access.md](agent_access.md).
 2. Before adding a page here, add it to the documentation map of [README_HOMELAB.md](README_HOMELAB.md).
 
 ### Rules no check catches

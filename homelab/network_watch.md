@@ -81,13 +81,9 @@ creates this folder too, but if you skipped it:
 mkdir -p /opt/docker-stack/telegraf
 ```
 
-Then put the config in it, either by downloading it directly:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Lukk17/InstallationHelper/master/homelab/telegraf/telegraf.conf -o /opt/docker-stack/telegraf/telegraf.conf
-```
-
-or by uploading `homelab/telegraf/telegraf.conf` to that path with FileZilla or `scp`.
+Then copy the config into it from your clone with `scp`, as "Deploying from your clone" in
+[README_HOMELAB.md](README_HOMELAB.md#deploying-from-your-clone) shows. A GitHub raw link gives only what has been
+pushed, so it is not used here.
 
 Nothing copies a later change of `telegraf.conf` to the VM for you, so copying it again is a step of every
 deployment, followed by `docker restart telegraf`. On 2026-10-23 the copy on the VM was found to still be the

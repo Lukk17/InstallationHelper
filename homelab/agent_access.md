@@ -1,6 +1,6 @@
 # Agent access
 
-> How an AI agent reaches this lab without a password: one Proxmox API token, one SSH key for the Docker VM and the router, one Syncthing API key and one Uptime Kuma API key, kept in a file on your own machine that only you can read.
+> How an AI agent reaches this lab without a password: one Proxmox API token, one SSH key for the Proxmox host, the Docker VM and the router, one Syncthing API key and one Uptime Kuma API key, kept in a file on your own machine that only you can read.
 
 ---
 
@@ -23,6 +23,7 @@ So one rule covers every credential here: the agent reads freely, asks you befor
 | `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, admin token | Proxmox API token of a user with `PVEAdmin` on `/`, and `PVEAdmin` with `AgentDownload` on the node | Everything the sentence above lists. Not the host's system settings, not rebooting the host, not permissions. What the token holds was measured and is listed under the admin token below |
 | `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, read only alternative | Proxmox API token with the `PVEAuditor` role | Reading nodes, virtual machines, storage and tasks. Proxmox refuses every change |
 | `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, edit alternative | Proxmox API token of a user with `PVEAuditor` on `/`, `PVEVMAdmin` on `/vms` and `PVEDatastoreUser` on `/storage` | Reading everything the read only alternative reads, plus every `VM.*` privilege on every virtual machine, and using space on storage. What the token can do was measured and is listed under the edit alternative below |
+| `PROXMOX_SSH`, `HOMELAB_SSH_KEY` | SSH key for `root` on the Proxmox host | Everything on the host: every virtual machine, every disk, the host's own settings and a reboot |
 | `DOCKER_VM_SSH`, `HOMELAB_SSH_KEY` | SSH key for your login on the Docker VM | Everything your login can do. Your login is in the `docker` group from [proxmox_docker_vm.md](proxmox_docker_vm.md), which is the same as root on that VM |
 | `ASUS_ROUTER_SSH`, `ASUS_ROUTER_SSH_PORT`, `HOMELAB_SSH_KEY` | The same SSH key, for the router's administrator login | A shell as the router's administrator: every setting, the firewall and a reboot |
 | `SYNCTHING_SERVER_API_KEY` | Syncthing API key | The whole Syncthing REST API, including changing folders and devices |
@@ -116,6 +117,7 @@ Then fill the keys as the sections below describe. For this lab the values that 
 
 ```text
 PROXMOX_URL=https://192.168.1.10:8006
+PROXMOX_SSH=root@192.168.1.10
 DOCKER_VM_SSH=<your-user>@192.168.1.12
 SYNCTHING_SERVER_URL=http://192.168.1.12:7780
 HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519
@@ -396,6 +398,54 @@ pveum user delete agent@pve
 
 ---
 
+### PROXMOX_SSH
+
+The value is `root@<proxmox-host>`, on this lab `root@192.168.1.10`. What makes it work without a password is the key from [HOMELAB_SSH_KEY](#homelab_ssh_key), accepted by `root` on the Proxmox host.
+
+Why a shell as well as the API token: some steps run only as `root` in a shell on the host, and the token cannot do them. Attaching a whole physical disk to a virtual machine is one, `qm set <vmid> -scsi1 /dev/disk/by-id/<disk-id>` in [lan_storage.md](lan_storage.md).
+
+The risk, in one sentence: this key is `root` on the host, so whoever holds it has full control of the host, of every virtual machine and of every disk. The agent reads freely and asks you before every change, then waits for your yes, as [What each credential allows](#what-each-credential-allows) says.
+
+1. Create the key first, step 1 of [DOCKER_VM_SSH](#docker_vm_ssh), if it does not exist yet.
+
+2. Copy the public key to the host. This asks for the host's `root` password once, and you type it, not the agent. Unix shell:
+
+    ```bash
+    ssh-copy-id -i ~/.ssh/homelab_agent_ed25519.pub root@<proxmox-host>
+    ```
+
+    Windows has no `ssh-copy-id`. PowerShell:
+
+    ```powershell
+    Get-Content "$HOME\.ssh\homelab_agent_ed25519.pub" | ssh root@<proxmox-host> "cat >> ~/.ssh/authorized_keys"
+    ```
+
+    On this lab, on 2026-10-23, `ssh-copy-id -i ~/.ssh/homelab_agent_ed25519.pub root@192.168.1.10` printed `Number of key(s) added: 1`.
+
+3. Check that the key works with no password. `BatchMode=yes` makes `ssh` fail instead of asking for one. Unix shell:
+
+    ```bash
+    ssh -o BatchMode=yes -i ~/.ssh/homelab_agent_ed25519 root@<proxmox-host> pveversion
+    ```
+
+    PowerShell:
+
+    ```powershell
+    ssh -o BatchMode=yes -i "$HOME\.ssh\homelab_agent_ed25519" root@<proxmox-host> pveversion
+    ```
+
+    A line starting with `pve-manager/` means the key works.
+
+Revoke the key on the Proxmox host. This removes every line that ends with the `homelab-agent` comment:
+
+```bash
+sed -i --follow-symlinks '/ homelab-agent$/d' /root/.ssh/authorized_keys
+```
+
+`--follow-symlinks` is there because on a Proxmox host this file can be a link into `/etc/pve`, the cluster file system, and without it `sed -i` would replace the link with a plain copy.
+
+---
+
 ### DOCKER_VM_SSH
 
 The value is `<your-user>@<docker-vm-ip>`. What makes it work without a password is an SSH key that the Docker VM accepts for your login. Use a separate ed25519 key for the agent, so you can remove it without touching your own keys.
@@ -440,7 +490,9 @@ An agent cannot type a key passphrase either. Either leave the passphrase empty,
 
 The agent connects the same way, with `-i` and the value of `HOMELAB_SSH_KEY`, and the value of `DOCKER_VM_SSH`.
 
-The same key opens the router too, as [ASUS_ROUTER_SSH](#asus_router_ssh) describes. To take it back from both, remove it on the router as that section says, then here. Revoke the key on the Docker VM. This removes every line that ends with the `homelab-agent` comment from step 1:
+The same key also opens the VM's `/opt/docker-stack` folder in Dolphin over SFTP, with a short host name in your SSH config, as [Open the Docker VM in Dolphin](lan_storage.md#open-the-docker-vm-in-dolphin) shows.
+
+The same key opens the router and the Proxmox host too, as [ASUS_ROUTER_SSH](#asus_router_ssh) and [PROXMOX_SSH](#proxmox_ssh) describe. To take it back from all three, remove it on the router and on the Proxmox host as those sections say, then here. Revoke the key on the Docker VM. This removes every line that ends with the `homelab-agent` comment from step 1:
 
 ```bash
 sed -i '/ homelab-agent$/d' ~/.ssh/authorized_keys
@@ -495,9 +547,9 @@ Revoke the key in the same place: press Generate next to the API Key field, then
 
 ### HOMELAB_SSH_KEY
 
-The path of the private key the agent uses, `~/.ssh/homelab_agent_ed25519`. It is the key that [DOCKER_VM_SSH](#docker_vm_ssh) creates, and the same key opens the router. One key for both means one file to protect and one key to take back, and the agent passes it with `-i` to every `ssh` it runs here.
+The path of the private key the agent uses, `~/.ssh/homelab_agent_ed25519`. It is the key that [DOCKER_VM_SSH](#docker_vm_ssh) creates, and the same key opens the router and `root` on the Proxmox host. One key for all three means one file to protect and one key to take back, and the agent passes it with `-i` to every `ssh` it runs here.
 
-Create it with step 1 of [DOCKER_VM_SSH](#docker_vm_ssh), and give it to the Docker VM with step 2 there and to the router as [ASUS_ROUTER_SSH](#asus_router_ssh) says. Both sections test it.
+Create it with step 1 of [DOCKER_VM_SSH](#docker_vm_ssh), and give it to the Docker VM with step 2 there, to the router as [ASUS_ROUTER_SSH](#asus_router_ssh) says, and to the Proxmox host as [PROXMOX_SSH](#proxmox_ssh) says. Each section tests it.
 
 Check that the file is there and that only you can read it. The line must start with `-rw-------`:
 
@@ -505,7 +557,7 @@ Check that the file is there and that only you can read it. The line must start 
 ls -l ~/.ssh/homelab_agent_ed25519
 ```
 
-Revoke it by removing the public key on the router and on the Docker VM, as those two sections say, then deleting both key files, the last step of [DOCKER_VM_SSH](#docker_vm_ssh). Deleting only the files on your machine does not revoke anything, because a copy elsewhere would still be accepted.
+Revoke it by removing the public key on the router, on the Proxmox host and on the Docker VM, as those three sections say, then deleting both key files, the last step of [DOCKER_VM_SSH](#docker_vm_ssh). Deleting only the files on your machine does not revoke anything, because a copy elsewhere would still be accepted.
 
 ---
 
