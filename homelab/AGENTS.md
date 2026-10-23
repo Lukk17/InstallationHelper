@@ -1,6 +1,6 @@
 # AGENTS.md for homelab/
 
-Rules for the home lab documents and its one Compose file. What the lab is, and the map of every page, is in [README_HOMELAB.md](README_HOMELAB.md). No Ansible runs here and no e2e tier covers this folder.
+Rules for the home lab documents and its one Compose file. What the lab is, and the map of every page, is in [README_HOMELAB.md](README_HOMELAB.md). No Ansible runs here. Tier 1 checks only that the compose files resolve, that every homelab service caps its log, and that the links work.
 
 ### Before you work here
 

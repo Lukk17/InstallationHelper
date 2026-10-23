@@ -7147,3 +7147,17 @@ How it was proven: `git grep -n -i -E` over the project's name, its company pack
 Fix: the Keycloak entry and config.md describe the realm, the clients and the callback as another project's, and `.agents/skills/jetbrains-ide-ops/` is the agent-standards copy at 82ed7ab, which made the same skill generic. Lines that name this repository's own Windows checkout path were left as they are, by the owner's decision.
 
 Mechanical check: none. A check would have to list the private names, which is the leak it is meant to stop.
+
+### Found on the homelab Docker VM, 2026-10-23, second time
+
+#### 10.177 No container in the homelab stack capped its log, and the Uptime Kuma log took 24.7 GB of the root disk
+
+Cause: [homelab/compose.yaml](../homelab/compose.yaml) gave no service a `logging` block and the Docker VM has no `/etc/docker/daemon.json`, so every container used the json-file driver with no options, which keeps the whole log, and Uptime Kuma 2.5.5 then wrote a stack trace on every heartbeat.
+
+Effect: on 2026-10-23 the VM's root file system had 44 GB used, and 24.7 GB of it was one file, the uptime-kuma container's `/var/lib/docker/containers/<id>/<id>-json.log`. It grew 1,607,027 bytes in 60 seconds, about 2.3 GB a day, each heartbeat adding `[PROMETHEUS] ERROR: Error: Added label "networkwatch" is not included in initial labelset` and its stack trace, because the tag `networkwatch` had been added to monitors without a restart, and Uptime Kuma reads tag names only when it starts. Together with the half-sized root volume of 10.164 this is what filled the disk.
+
+How it was proven: `docker inspect` on the VM showed the json-file driver with empty options on the container, `du` on the log file gave its size, its growth was measured over 60 seconds, and the error text was read from the log. After `docker restart uptime-kuma` at 12:16 UTC the file grew 0 bytes in 60 seconds. The restart rule is stated in Uptime Kuma's own `server/prometheus.js` at 2.5.5: "New tags will NOT be added dynamically, a restart is sadly required to add new tags to the metrics."
+
+Fix: an `x-logging` anchor in [homelab/compose.yaml](../homelab/compose.yaml), driver json-file with `max-size: "10m"` and `max-file: "3"`, used by all twelve services, the same shape the AscendWebSearch compose file already had. [homelab/uptime_kuma.md](../homelab/uptime_kuma.md) says to restart the container after creating a tag, how to see that the error is gone, and that the cap needs the containers recreated once with `docker compose up -d`.
+
+Mechanical check: e2e/tier1/compose_log_limits.sh fails on any service in a compose file under `homelab/` whose logging options carry no `max-size`. Against the compose file before the fix it failed 12 of 13, one per service.

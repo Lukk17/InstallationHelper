@@ -108,6 +108,36 @@ Attach it to every monitor rather than a few, and set the retry count high enoug
 
 ---
 
+### After adding a new tag, restart the container
+
+Uptime Kuma 2.5.5 reads the tag names once, when it starts, and uses them as the labels of its Prometheus metrics. Its own source, `server/prometheus.js`, says so: "New tags will NOT be added dynamically, a restart is sadly required to add new tags to the metrics." A monitor that carries a tag created after the start then fails to write its metrics on every heartbeat, and each failure writes a stack trace to the container log that starts with:
+
+```text
+[PROMETHEUS] ERROR: Error: Added label "networkwatch" is not included in initial labelset
+```
+
+On this lab, on 2026-10-23, after the tag `networkwatch` was added to the network monitors, that log grew 1,607,027 bytes in 60 seconds, about 2.3 GB a day, and had reached 24.7 GB before anybody saw it. The restart stopped it at once: 0 bytes in the next 60 seconds. The `logging` block in [compose.yaml](compose.yaml) now keeps each container log to three files of 10 MB, so a flood like this one can no longer fill the disk, but it still hides every other line in the log until the restart.
+
+The cap applies only to a container created after it was added to the file. Recreate the stack once on the Docker VM, which replaces every container whose settings changed and, with it, its old log:
+
+```bash
+cd /opt/docker-stack && docker compose up -d
+```
+
+So after you create a tag, and before you leave it on a monitor, restart Uptime Kuma on the Docker VM:
+
+```bash
+docker restart uptime-kuma
+```
+
+Then check that the error is gone. A count of 0 means it is:
+
+```bash
+docker logs --since 1m uptime-kuma 2>&1 | grep -c PROMETHEUS
+```
+
+---
+
 ### One thing this cannot tell you
 
 Every monitor here lives on the same virtual machine as most of the things it checks. If that machine dies, Uptime Kuma dies with it, and it will not notify you about anything, including itself.
