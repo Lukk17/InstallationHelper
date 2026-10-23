@@ -247,6 +247,21 @@
     role_packages_purpose: QasTools
   when: ih_family == 'Debian' and install_qastools | default(false) | bool
 
+# --- pipx: the Python modules it imports without depending on them ---
+# python-pipx 1.18.4 on Arch imports filelock, and the package does not pull python-filelock, so every
+# pipx install fails with ModuleNotFoundError until it is there. The pipx entry of companion_packages
+# in vars/<OS>.yaml names them, which verify_install.yaml reads too, and kde_plasma_setup installs the
+# same entry beside pipx for Konsave.
+- name: Install what pipx imports beside pipx
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: "{{ os_dict.companion_packages.pipx }}"
+    role_packages_purpose: pipx
+  when: os_dict.companion_packages.pipx is defined and install_pipx | default(false) | bool
+
 # The Fedora Docker CE repository used to be added a second time here, after fedora_repos.yaml had
 # already added the same file, which is one rule in two places. It is added there only now, as its own
 # block with a rescue.

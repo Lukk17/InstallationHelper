@@ -7162,6 +7162,20 @@ Fix: an `x-logging` anchor in [homelab/compose.yaml](../homelab/compose.yaml), d
 
 Mechanical check: e2e/tier1/compose_log_limits.sh fails on any service in a compose file under `homelab/` whose logging options carry no `max-size`. Against the compose file before the fix it failed 12 of 13, one per service.
 
+### Found in sweep 39931619762, 2026-10-23
+
+#### 10.178 pipx on Arch Linux and CachyOS could not install anything, because python-pipx 1.18.4 imports filelock without depending on it
+
+Cause: python-pipx 1.18.4 imports `filelock` in `pipx/venv.py`, and the Arch package does not depend on python-filelock, so a machine with only python-pipx has no such module. 1.15.0, which sweep 39850886667 installed, did not import it.
+
+Effect: `kde_plasma_setup : Install Konsave via pipx` failed on all 4 Arch and CachyOS KDE cells of sweep 39931619762, each with `from filelock import FileLock` and `ModuleNotFoundError: No module named 'filelock'`. Every other `pipx install` on the Arch family fails the same way.
+
+How it was proven: in a plain `archlinux:base` container on 2026-10-23, `pacman -Syu python-pipx` installed python-pipx 1.18.4-1 with Python 3.14.8, `pacman -Q python-filelock` answered `package 'python-filelock' was not found`, and `pipx install konsave` failed with the same `ModuleNotFoundError`. After `pacman -S python-filelock` (4.0.10-1) the same command answered `installed package konsave 2.3.0`.
+
+Fix: a `pipx: ["python-filelock"]` entry in companion_packages of [setup/ansible/vars/Archlinux.yaml](../setup/ansible/vars/Archlinux.yaml). [setup/ansible/roles/software_installer/tasks/custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) installs it under install_pipx, [setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) installs it beside pipx before Konsave, and verify_install.yaml expects it through the companion set it already reads. The manual route, [docs/manual/arch/install.sh](manual/arch/install.sh) and [docs/manual/arch/arch_manual_install.md](manual/arch/arch_manual_install.md), installs it beside python-pipx.
+
+Mechanical check: tier 2 resolves python-filelock against the Arch repositories like every companion package, and the tier 3 KDE cells run `pipx install konsave`, which is what caught it. No check can see a missing dependency inside a distribution package before that package ships it.
+
 ### Found while setting the AdGuard Home query log retention, 2026-10-23
 
 #### 10.180 The AdGuard page said the query log rotates by size, and nothing set how long it is kept

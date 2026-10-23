@@ -158,4 +158,5 @@ companion_packages:
   kde_plasma: ["plasma-meta", "kde-applications-meta", "sddm"]   # installed by kde_plasma_setup/tasks/install_kde.yaml
   # The applet-window-buttons build dependencies, installed by kde_plasma_setup/tasks/configure_kde.yaml. libplasma, not the Plasma 5 plasma-framework5, which no Arch repository carries any more.
   configure_kde_plasma: ["gcc", "extra-cmake-modules", "qt6-base", "qt6-declarative", "kcoreaddons", "kdeclarative", "kpackage", "ksvg", "ki18n", "kservice", "kconfigwidgets", "kcmutils", "kuserfeedback", "libplasma", "kdecoration", "gettext", "cmake"]
+  pipx: ["python-filelock"]   # python-pipx 1.18.4 imports filelock without depending on python-filelock, so pipx install fails with ModuleNotFoundError until it is there. Installed beside the pipx mapping by software_installer/tasks/custom_installs.yaml and kde_plasma_setup/tasks/configure_kde.yaml
   gnome: ["gnome", "gnome-tweaks"]   # gnome is a pacman group, 58 members on 2026-10-18, installed by gnome_setup/tasks/install_gnome.yaml, which the verification counts installed once every member pacman -Sg lists is

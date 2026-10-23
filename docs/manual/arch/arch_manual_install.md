@@ -50,7 +50,7 @@ sudo pacman -Syu
 | fzf | `sudo pacman -S --needed fzf` |
 | ripgrep | `sudo pacman -S --needed ripgrep` |
 | uv | `sudo pacman -S --needed uv` |
-| pipx | `sudo pacman -S --needed python-pipx` |
+| pipx | `for package in python-pipx python-filelock; do sudo pacman -S --needed "${package}" \|\| echo "FAILED: ${package}"; done` |
 | Go | `sudo pacman -S --needed go` |
 | Lens | AUR `yay -S lens-bin` |
 | FileZilla | `sudo pacman -S --needed filezilla` |

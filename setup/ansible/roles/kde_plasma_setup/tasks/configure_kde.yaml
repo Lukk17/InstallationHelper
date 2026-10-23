@@ -32,6 +32,8 @@
 # That role runs after this one, so Konsave would find no pipx on a fresh machine, and it needs pipx
 # even when install_pipx is off. So the same mapping is installed here first rather than a second
 # name being written into this file, which is what the three lists above carried until 2026-10-13.
+# The pipx entry of companion_packages comes with it, python-filelock on Arch, which pipx imports
+# without depending on it.
 # On a machine where software_installer already put it there this reports ok. Through
 # tasks/install_role_packages.yaml, the retry rule every package manager follows.
 - name: Install pipx, which Konsave is installed with
@@ -40,8 +42,7 @@
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - "{{ os_dict.software_mapping.pipx.package }}"
+    role_packages: "{{ [os_dict.software_mapping.pipx.package] + (os_dict.companion_packages.pipx | default([])) }}"
     role_packages_purpose: pipx, which Konsave is installed with
   when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
