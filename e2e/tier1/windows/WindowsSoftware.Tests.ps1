@@ -637,6 +637,35 @@ exit 0
 }
 
 
+Describe 'Invoke-BoundedWinget reads the output only once the program has finished writing it' {
+
+    # The stub exits at once and leaves a child that still holds its output open and writes one line
+    # half a second later, so a read that does not wait for the end of the output finds nothing every
+    # time, rather than in about one call of 140 as the plain stub did, entry 10.183 of
+    # docs/regression_ledger.md. Skipped on Windows, where Start-Process hands the files to the
+    # program itself and that wait does not exist.
+    It 'returns a line the program wrote after it exited, while its output was still open' -Skip:$IsWindows {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('boundedwinget-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            $stub = Join-Path $dir 'winget'
+            Set-Content -LiteralPath $stub -Encoding ascii -Value @'
+#!/usr/bin/env bash
+( sleep 0.5; echo "Installer failed with exit code: 3221225477" ) &
+exit 1
+'@
+            & chmod +x $stub
+
+            $r = Invoke-BoundedWinget -WingetPath $stub -Arguments @('install') -TimeoutSeconds 30
+
+            $r.TimedOut | Should -BeFalse
+            $r.ExitCode | Should -Be 1
+            $r.Output | Should -BeLike '*Installer failed with exit code: 3221225477*'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+
 Describe 'Get-CommandOutputTail' {
 
     # On Windows, Out-String and the file Start-Process redirects into end each line with a carriage

@@ -593,6 +593,12 @@ function Invoke-BoundedWinget {
         silent pass. TimedOut is returned separately from the exit code so the caller can say which
         of the two happened.
 
+        The files are read only after WaitForExit with no deadline has returned too. On Linux and
+        macOS, Start-Process copies the output into the files through .NET's asynchronous readers,
+        and WaitForExit with a deadline returns when the process ends, before they have finished, so
+        about one read in 140 found an empty file. On Windows the process writes the files itself
+        and the second wait returns at once. Entry 10.183 of docs/regression_ledger.md.
+
     .PARAMETER TimeoutSeconds
         The deadline. 900 by default, which is fifteen minutes for a single package: generous next to
         the couple of minutes a large installer takes, and a fraction of the job ceiling.
@@ -618,6 +624,7 @@ function Invoke-BoundedWinget {
                 TimedOut = $true
             }
         }
+        $process.WaitForExit()
         $text = @(
             (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue)
             (Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue)
