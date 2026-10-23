@@ -44,11 +44,13 @@ gate_build() {
     local repo_root="$1" log
     log="$(mktemp)"
     info_line "building the gate image ${E2E_GATE_IMAGE} from e2e/gate/Dockerfile (minutes the first time, cached after)"
-    if ! docker build -q \
+    if ! docker build --progress=plain \
             -f "$(host_path "${repo_root}/e2e/gate/Dockerfile")" \
             --build-arg "GATE_UID=$(id -u)" --build-arg "GATE_GID=$(id -g)" \
             -t "${E2E_GATE_IMAGE}" "$(host_path "${repo_root}")" >"${log}" 2>&1; then
-        echo "ERROR: the gate image did not build, so nothing was run. The build said:" >&2
+        echo "ERROR: the gate image did not build, so nothing was run. Download and provisioning lines from the build:" >&2
+        grep -E 'curl:|provision:' "${log}" >&2 || echo "(none)" >&2
+        echo "The last lines of the build:" >&2
         tail -30 "${log}" >&2
         rm -f "${log}"
         exit 2

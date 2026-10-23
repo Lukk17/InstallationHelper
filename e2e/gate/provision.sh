@@ -40,7 +40,7 @@ enter_gate() {
 # fetch_verified <url> <sha256> <destination>  downloads, and keeps the file only when it matches
 fetch_verified() {
     local url="$1" expected="$2" destination="$3" actual
-    curl -fsSL --retry 3 --connect-timeout 15 --max-time 600 -o "${destination}" "${url}"
+    fetch_url provision "${url}" "${destination}" || return 1
     actual="$(sha256_of "${destination}")"
     if [[ "${actual}" != "${expected}" ]]; then
         rm -f "${destination}"

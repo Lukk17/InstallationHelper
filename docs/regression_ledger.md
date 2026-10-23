@@ -6878,3 +6878,31 @@ How it was proven: the tier 1 gate on 2026-10-22, before any commit, which exite
 Fix: the leftover lines were removed before the commit. Nothing shipped with it.
 
 Mechanical check: e2e/tier1/shell_syntax.sh, which caught it. A check's own pass count is not proof that the whole file parses.
+
+### Found by GitHub sweep run 39850886667, 2026-10-22
+
+#### 10.159 The gate image build hid which download failed
+
+Cause: `gate_build` in e2e/lib/gate.sh built the gate image with `docker build -q`, which drops the output of every RUN step, and `fetch_verified` in e2e/gate/provision.sh let curl end the step without naming the address it was fetching.
+
+Effect: three stage 2 cells of sweep run 39850886667, Debian GNOME full, CachyOS GNOME full and Arch idempotency, failed after 2 to 6 minutes with no e2e/runs artefact. All each one said was `Dockerfile:57`, `>>> RUN bash e2e/gate/provision.sh tools` and `ERROR: failed to build: failed to solve: process "/bin/sh -c bash e2e/gate/provision.sh tools" did not complete successfully: exit code: 22`. Exit 22 is curl -f on an HTTP status of 400 or more, and that step makes two such downloads, PowerShell 7.6.7 from github.com and Pester 5.9.1 from powershellgallery.com, so nobody could tell which one failed or with what status.
+
+How it was proven: the logs of jobs 120078456951, 120078457350 and 120078457873, read through the GitHub interface, end with `ERROR: the gate image did not build, so nothing was run. The build said:`, the BuildKit summary above and `Process completed with exit code 2`, with no line of any step's own output. In `provision.sh tools` only `fetch_verified` calls curl -f, so only it can exit 22 there.
+
+Wrong turn kept: the first hypothesis was that commit 0515fb4, which made /proc/sys writable in tier 3, broke the start of the container. It cannot have: the build fails before any tier 3 code runs, and `git diff --stat a0f22491 HEAD -- e2e/gate e2e/lib setup/pinned_values` is empty, so nothing the gate image is built from changed since sweep run 39260381281, where none of the 49 jobs that built the gate image failed to build it.
+
+Fix: `gate_build` runs `docker build --progress=plain`, and on a failure prints every `curl:` and `provision:` line of the build before the last 30 lines, so a long build cannot push the failing step out of that window. Nothing read the image ID that -q printed. Downloading moved into one helper, `fetch_url` in e2e/lib/common.sh, which both `fetch_verified` and `pinned_shellcheck` call: on failure it removes the partial file, prints `<label>: downloading <url> failed, curl exited <status>` and returns 1.
+
+Mechanical check: e2e/tier1/gate_build_output.sh, capability 68 in e2e/testing/10-wizard-toggle-parse-test.md. It fails when `gate_build` calls docker build with -q or --quiet or without --progress=plain, or has no grep for the curl and provision lines, and it runs `fetch_verified` against a fake curl that writes a partial file and exits 22. Against a copy of the tree at `HEAD` it failed 7 of 8, among them `expected [1], got [22]` and `expected the line [provision: downloading https://downloads.example.invalid/pester.nupkg failed, curl exited 22] on stderr, got []`.
+
+#### 10.160 A gate image download failed when about 48 runners fetched it at once
+
+Cause: every stage 2 cell of the sweep builds the gate image from nothing on its own runner, so close to 48 runners fetch the same two files within a minute, and `fetch_verified` retried only what curl calls transient by default, three times.
+
+Effect: the three failures of 10.159, each `exit code: 22` in `provision.sh tools`.
+
+How it was proven: only partly. Both addresses answered 200 shortly after, from a throwaway container: https://github.com/PowerShell/PowerShell/releases/download/v7.6.7/powershell-7.6.7-linux-x64.tar.gz with 75,913,191 bytes in 1.75 s and https://www.powershellgallery.com/api/v2/package/Pester/5.9.1 with 328,088 bytes in 1.02 s. The HTTP status of the failures is unknown because of 10.159, so the burst explanation is likely but unproven.
+
+Fix: `fetch_url` runs curl with `--retry 5 --retry-delay 10 --retry-all-errors`, so an HTTP error is retried as well, and names the address when it still fails. curl 8.14.1 in the gate's Debian trixie base supports `--retry-all-errors`, which needs 7.71 or later.
+
+Mechanical check: e2e/tier1/gate_build_output.sh requires `--retry-all-errors` among the arguments `fetch_verified` hands curl. Whether the retry is enough against a real burst is shown only by the next sweep.

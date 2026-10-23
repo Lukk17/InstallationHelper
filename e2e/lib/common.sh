@@ -190,6 +190,21 @@ sha256_of() {
     fi
 }
 
+# fetch_url <label> <url> <destination>  ->  downloads to the destination, retrying every error
+#
+# Returns 1 when curl gives up, with the partial destination removed and
+# "<label>: downloading <url> failed, curl exited <status>" on stderr.
+fetch_url() {
+    local label="$1" url="$2" destination="$3" curl_status=0
+    curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 15 --max-time 600 \
+        -o "${destination}" "${url}" || curl_status=$?
+    if [[ ${curl_status} -ne 0 ]]; then
+        rm -f "${destination}"
+        printf '%s: downloading %s failed, curl exited %d\n' "${label}" "${url}" "${curl_status}" >&2
+        return 1
+    fi
+}
+
 # The version a shellcheck binary reports, or nothing. Not written in the `name <args>  ->` form the
 # other helpers use, because ShellCheck reads a comment that opens with its own name as a directive
 # and stops analysing the file. The Windows build ends its lines with a carriage return.
@@ -260,13 +275,8 @@ pinned_shellcheck() {
         fi
         mkdir -p "${cache_dir}" || return 2
         printf 'e2e: fetching ShellCheck %s for %s from %s\n' "${version}" "${platform}" "${url}" >&2
-        local curl_status=0
-        curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 -o "${archive}.part" "${url}" \
-            || curl_status=$?
-        if [[ ${curl_status} -ne 0 ]]; then
-            rm -f "${archive}.part"
-            printf 'e2e: downloading %s failed, curl exited %d. It is needed once, after which it is kept in %s\n' \
-                "${url}" "${curl_status}" "${cache_dir}" >&2
+        if ! fetch_url e2e "${url}" "${archive}.part"; then
+            printf 'e2e: ShellCheck %s is needed once, after which it is kept in %s\n' "${version}" "${cache_dir}" >&2
             return 2
         fi
         mv -f "${archive}.part" "${archive}" || return 2
