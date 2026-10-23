@@ -94,6 +94,50 @@ That failure was measured in an `ubuntu:24.04` container after installing the `d
 where it does start, it still could not read this file, because the top-level `name:` key and `build.tags` are Compose
 v2 additions, and that half is reasoning rather than measurement. Ubuntu packages Compose v2 as `docker-compose-v2`.
 
+### Port already in use
+
+---
+
+Every service runs on the host's own network, so each one needs its ports free on the machine itself. Keycloak needs `9443` for HTTPS and `9000` for its management endpoints. When another program already holds one of them, Keycloak stops at startup and Docker starts it again, over and over. The container shows `Restarting` in `docker compose -f ./local-dev/local-dev-docker-compose.yaml ps`, and its log ends with the bind error:
+
+```bash
+docker logs --tail 20 keycloak
+```
+
+```text
+io.quarkus.runtime.QuarkusBindException: Port already bound: 9443: Address already in use
+```
+
+To see which program holds the port, on Linux. `sudo` is needed to see the name of a program that another user started, such as Docker's own `docker-proxy`:
+
+```bash
+sudo ss -ltnp 'sport = :9443'
+```
+
+On Windows, in PowerShell:
+
+```powershell
+Get-NetTCPConnection -LocalPort 9443 -State Listen
+```
+
+To see which container publishes the port:
+
+```bash
+docker ps --format '{{.Names}} {{.Ports}}' | grep 9443
+```
+
+```powershell
+docker ps --format '{{.Names}} {{.Ports}}' | Select-String 9443
+```
+
+Run the same checks with `9000` in place of `9443`. Only one stack can use host ports `9443` and `9000` at a time, so another stack with its own Keycloak on those ports has to stop before this one starts. Stop its containers by name, which keeps them and their data:
+
+```bash
+docker stop <container-name>
+```
+
+The Compose healthcheck asks for the `local` realm's OpenID configuration at `https://keycloak.test:9443` and accepts the answer only when its issuer is `https://keycloak.test:9443/realms/local`. A Keycloak from another stack holding the same port does not pass it, so the container shows `unhealthy` rather than `healthy` while the ports are taken.
+
 ### Hosts file
 
 ---
@@ -111,8 +155,7 @@ listed, so there is no second file to check.
 
 Every other address in this stack is written against `localhost`, which needs nothing configured. The bare `keycloak`
 name used to have a line here too and no longer does. Every service runs on the host's own network, `network_mode: host`
-in the Compose file, so the Compose healthcheck reaches `https://127.0.0.1:9000/health/ready`, and nothing on the
-machine needs that name, because every documented command points at `keycloak.test` instead.
+in the Compose file, and nothing on the machine needs that name, because every documented command points at `keycloak.test` instead. The Compose healthcheck needs no hosts line either: it asks for `https://keycloak.test:9443/realms/local/.well-known/openid-configuration` and points the name at `127.0.0.1` with curl's own `--resolve` option.
 
 The file's contents are the same everywhere, only its path and the privilege needed to write it differ.
 

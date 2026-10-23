@@ -118,7 +118,7 @@ services:
       "--https-port=9443"
     ]
     healthcheck:
-      test: [ "CMD", "curl", "-f", "-L", "-k", "https://127.0.0.1:9000/health/ready" ]
+      test: [ "CMD", "bash", "-c", '[[ "$$(curl -fsSk --resolve keycloak.test:9443:127.0.0.1 https://keycloak.test:9443/realms/local/.well-known/openid-configuration)" == *"\"issuer\":\"https://keycloak.test:9443/realms/local\""* ]]' ]
       interval: 5s
       timeout: 3s
       retries: 30

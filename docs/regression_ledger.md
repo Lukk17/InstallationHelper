@@ -7372,3 +7372,41 @@ How it was proven: in throwaway containers on 2026-10-23, with a self-signed cer
 Fix: the page converts the PEM files to `pkcs.p12` with openssl, gives the file to user 1000 with `sudo chown 1000 pkcs.p12`, and drops the keytool step. Keycloak gets the file read-only at `/opt/keycloak/conf/server.p12` with `--https-key-store-file`, and the password through `KC_HTTPS_KEY_STORE_PASSWORD` from an environment file, never on the command line. No `--https-key-store-type` is needed, because the `.p12` extension names the type, and no file name had to change for Keycloak to read the old `keystore.jks`. The JVM section now says the trust store is PKCS12 in Java 21. [local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) is unchanged, because the local stack hands Keycloak the PEM files of the local authority and uses no keystore.
 
 Mechanical check: none. No tier of the harness starts Keycloak or any service of [local-dev/](../local-dev/), so only a run like the one above shows what Keycloak accepts.
+
+### Found when the local Keycloak would not stay up, 2026-10-23
+
+#### 10.193 Keycloak crashed with SIGBUS while the disk of the owner's computer was full
+
+Cause: the JVM in the `keycloak` container of [local-dev/](../local-dev/) keeps its performance counters in a file it maps into memory, `/tmp/hsperfdata_keycloak/<pid>`, and `/tmp` in the container is stored on the disk of the computer. Around 00:00 on 2026-10-23 that disk had 0.37 % free, so a page of the mapped file could not be given disk space when the JVM first wrote to it. Not a defect in the repository and not introduced by this change.
+
+Effect: Keycloak stopped with `SIGBUS`, code `BUS_ADRERR`, its `si_addr` inside `/tmp/hsperfdata_keycloak/<pid>`, in the frame `PerfClassTraceTime::initialize`, and Docker started it again.
+
+How it was proven: reported by the owner's session that read the JVM crash report and the free space, and freeing space on the disk ended the crashes. Not measured by this change, because agents here do not inspect the owner's computer. The mechanism is OpenJDK bug JDK-7007769, https://bugs.openjdk.org/browse/JDK-7007769, read on 2026-10-23: "If there is very little /tmp space, the VM will be able to successfully mmap the performance data area in /tmp but when the VM attempts to access this memory region, it will crash with a SIGBUS if there is insufficient disk space in /tmp." The owner's first idea was a port conflict. That idea was wrong for this crash and right for the later failure in 10.194.
+
+Fix: free space on the disk. Nothing in the repository changed for this entry.
+
+Mechanical check: none. The crash depends on the free space of the computer at the moment the JVM writes the file, which no check of the repository can see.
+
+#### 10.194 Docker showed the local Keycloak healthy while a Keycloak from another stack answered its healthcheck
+
+Cause: the healthcheck of the `keycloak` service in [local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) asked `https://127.0.0.1:9000/health/ready` with `curl -f -L -k`. Since cc32cee on 2026-09-16 every service of the stack runs on the host's own network, `network_mode: host`, so `127.0.0.1:9000` is whichever program on the computer holds port 9000, not necessarily this container's Keycloak. Not introduced by this change.
+
+Effect: on 2026-10-23, after 10.193, a Keycloak container of another stack published host ports 9000 and 9443. The local Keycloak stopped at every start with `io.quarkus.runtime.QuarkusBindException: Port already bound: 9443: Address already in use`, and Docker showed it `healthy` on every restart, because the other Keycloak answered the readiness request on 9000.
+
+How it was proven: the bind error and the healthy status were measured by the owner's session. This change measured the healthcheck itself on 2026-10-23, from a throwaway container of the `keycloak-local:latest` image on Docker's default bridge network, with the other stack's Keycloak holding host ports 9000 and 9443 and reached through the host gateway, 172.17.0.1. The old check, `curl -f -L -k https://172.17.0.1:9000/health/ready`, got HTTP 200 and exited 0. The new check, the same request the Compose file now makes with `--resolve keycloak.test:9443:172.17.0.1`, got HTTP 404 for the `local` realm and exited 1. After the other stack's containers were stopped and the local stack was recreated, the new check exited 0 on every run, `docker inspect` showed `keycloak` healthy with a restart count of 0, the configuration began `{"issuer":"https://keycloak.test:9443/realms/local",`, the same request for an absent realm exited 22 on HTTP 404, and without `-k` it exited 60 on the certificate of the local authority, which the container does not trust. The image holds curl 7.76.1 and bash 5.1.8, measured in a throwaway container. The Keycloak page "Configuring the hostname (v2)", https://www.keycloak.org/server/hostname, read on 2026-10-23, says of `hostname`: "Can be a full URL, or just a hostname. When only hostname is provided, scheme, port and context path are resolved from the request." So `KC_HOSTNAME=keycloak.test` and a request on port 9443 give that issuer.
+
+Fix: the healthcheck asks for `https://keycloak.test:9443/realms/local/.well-known/openid-configuration`, points the name at `127.0.0.1` with curl's `--resolve`, and passes only when the answer holds `"issuer":"https://keycloak.test:9443/realms/local"`, compared by bash, which the image already has for `kc.sh`. A Keycloak of another stack holding the port has no `local` realm or another issuer, so the container shows `unhealthy`. "Port already in use" in [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md#port-already-in-use) gives the symptom, the commands that show which program or container holds a port, and that only one stack can use host ports 9443 and 9000 at a time.
+
+Mechanical check: none. No tier of the harness starts the local stack, so only a run on a computer where another program holds the ports shows what the healthcheck answers. A check that the healthcheck names port 9443 would only restate the Compose file.
+
+#### 10.195 Two Keycloak pages described a healthcheck that asks the container name on port 9000
+
+Cause: [local-dev/auth/README.md](../local-dev/auth/README.md) and [local-dev/auth/Keycloak/README.md](../local-dev/auth/Keycloak/README.md) said the Compose healthcheck reaches `https://keycloak:9000/health/ready` through Docker's embedded resolver, and the second page said port 9000 is published to the host. Both stopped being true in cc32cee on 2026-09-16, which moved every service to the host's network, where Docker publishes no port and resolves no container name. 10.171 corrected [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md) after cc32cee and did not reach these two pages. Not introduced by this change, found while making 10.194.
+
+Effect: a reader was told the healthcheck depends on a resolver the stack no longer uses, and that the port is published by Compose, when Keycloak listens on the host directly.
+
+How it was proven: read against the Compose file, which has `network_mode: host` on every service and no `ports` key.
+
+Fix: both pages now describe the healthcheck of 10.194 and say that Keycloak listens on 9000 on the host's own network.
+
+Mechanical check: none. A check cannot tell whether a sentence about a healthcheck matches the healthcheck without restating it.

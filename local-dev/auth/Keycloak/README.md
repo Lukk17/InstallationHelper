@@ -333,8 +333,8 @@ Realm exports, client setup, and operational knobs are documented in
 ---
 
 Health and metrics both live on Keycloak's management port (`9000`), not the public HTTPS port. The hostname is
-`keycloak.test` for the same reason as everywhere else, and 9000 is published to the host by
-[local-dev-docker-compose.yaml](../../local-dev-docker-compose.yaml) so a browser or curl on the machine reaches it
+`keycloak.test` for the same reason as everywhere else, and Keycloak listens on 9000 on the host's own network,
+`network_mode: host` in [local-dev-docker-compose.yaml](../../local-dev-docker-compose.yaml), so a browser or curl on the machine reaches it
 directly. All five were measured returning HTTP 200 against a running container, and the byte counts below are from
 that run rather than from the pattern.
 
@@ -392,9 +392,7 @@ import:
 curl: (60) schannel: SEC_E_UNTRUSTED_ROOT (0x80090325) - The certificate chain was issued by an authority that is not trusted.
 ```
 
-The compose healthcheck for this same port uses `https://keycloak:9000/health/ready` with `-k`, which is correct
-there and wrong here. It runs inside the container, where Docker's embedded resolver answers the container name and
-the host's hosts file does not exist.
+The compose healthcheck does not use this port. Another program holding `9000` on the host would answer it in Keycloak's place, so the healthcheck asks for the `local` realm's OpenID configuration on `9443` instead and checks its issuer, as "Port already in use" in [README_LOCAL_DEV.md](../../README_LOCAL_DEV.md#port-already-in-use) describes. It passes `-k` because it runs inside the container, which does not trust the local authority.
 
 ### OIDC discovery endpoint
 
