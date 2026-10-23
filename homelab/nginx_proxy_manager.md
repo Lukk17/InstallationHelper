@@ -19,8 +19,9 @@ network, and Docker resolves container names on it, so `homepage` or `uptime-kum
 
 Open `http://<docker-vm-ip>:81`.
 
-A fresh install signs in with `admin@example.com` and the password `changeme`, then immediately forces you to set a
-real email and password. Do that before anything else, since port 81 is reachable from your whole network.
+A fresh install of 2.15.1 has no account and no default login. The first page is a setup wizard that asks for a full name, an email address and a password of at least 8 characters, and makes that account the administrator. Fill it in before anything else: port 81 is reachable from your whole network, and until the wizard is done anyone who opens the page can create the administrator.
+
+The old default login, `admin@example.com` with `changeme`, does not exist in this version. Nginx Proxy Manager creates an account by itself only when the environment variables `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD` are both set and no account exists yet, and it then writes that password in plain text into the container log, where `docker logs nginx-proxy-manager` shows it to every account in the `docker` group. Use the wizard instead. If you did set the two variables, remove them and change the password in the web interface.
 
 The credentials are stored hashed in `/opt/docker-stack/nginx/data/database.sqlite`. Losing them means resetting
 through that database or wiping the directory and starting over.
