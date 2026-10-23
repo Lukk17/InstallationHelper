@@ -236,6 +236,7 @@ The skills present in [.agents/skills/](../.agents/skills/), each linked to its 
 | [git-workflow](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/git-workflow/SKILL.md) | Commits, commit messages and branches |
 | [github-ops](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/github-ops/SKILL.md) | Dispatching and watching workflow runs with `gh` |
 | [home-assistant](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/home-assistant/SKILL.md) | The Home Assistant OS VM in [homelab/home_assistant_vm.md](../homelab/home_assistant_vm.md) |
+| [homelab-services](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/homelab-services/SKILL.md) | The services of [homelab/compose.yaml](../homelab/compose.yaml) on the Docker VM, from AdGuard Home and Nginx Proxy Manager to the USB data disk, read through the SSH key in [homelab/agent_access.md](../homelab/agent_access.md) |
 | [jetbrains-ide-ops](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/jetbrains-ide-ops/SKILL.md) | The run configuration [.run/local-dev.run.xml](../.run/local-dev.run.xml) |
 | [kde-plasma](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/kde-plasma/SKILL.md) | Changing or diagnosing a KDE Plasma desktop outside the playbook |
 | [keycloak-patterns](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/keycloak-patterns/SKILL.md) | The `local` realm under [local-dev/auth/Keycloak/](../local-dev/auth/Keycloak/) |
