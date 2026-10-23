@@ -101,10 +101,22 @@ If you ever give Plex a bigger share, change the number in [compose.yaml](compos
 Claiming links this server to your Plex account. Use a free account.
 
 1. Sign in at `https://www.plex.tv/claim` and copy the token. It works only about 4 minutes, so run steps 2 and 3 back to back, with no pause between them.
-2. Add it to `/opt/docker-stack/.env`, next to the Samba entries from [lan_storage.md](lan_storage.md), with your token in place of `<claim-token>`:
+2. Add it to `/opt/docker-stack/.env`, next to the Samba entries from [lan_storage.md](lan_storage.md). Paste the token at the prompt. It is not shown, and it never reaches the shell history:
 
 ```bash
-echo 'PLEX_CLAIM=<claim-token>' >> /opt/docker-stack/.env
+read -r -s -p 'Plex claim token: ' PLEX_CLAIM; echo
+```
+
+Write it:
+
+```bash
+printf 'PLEX_CLAIM=%s\n' "$PLEX_CLAIM" >> /opt/docker-stack/.env
+```
+
+Remove it from the shell:
+
+```bash
+unset PLEX_CLAIM
 ```
 
 Check it without printing any value. This prints each name in the file and the length of its value, and `PLEX_CLAIM` must show a number above 0:
@@ -132,7 +144,7 @@ Check it. `PLEX_CLAIM` must no longer be in the list:
 awk -F= '{print $1, length($2)}' /opt/docker-stack/.env
 ```
 
-If the token ran out before the first start, the server comes up unclaimed. Stop it, get a fresh token, remove the old line with the `sed` command from step 5, add the new token with the `echo` command from step 2, and start it again.
+If the token ran out before the first start, the server comes up unclaimed. Stop it, get a fresh token, remove the old line with the `sed` command from step 5, add the new token with the commands from step 2, and start it again.
 
 Add a library in the wizard or later under Settings, then Manage, then Libraries. Point it at `/data` or a folder under it, for example `/data/films` and `/data/series`, which are `/mnt/data/media/films` and `/mnt/data/media/series` on the VM and `\\drive.internal\files\media\films` and `\\drive.internal\files\media\series` on the network drive. Paths in Plex are paths inside the container.
 

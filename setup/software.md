@@ -301,16 +301,22 @@ Windows:
 npm install -g @xai-official/grok
 ```
 
-First launch opens a browser to sign in. On a headless box export the key instead, Unix shell:
+First launch opens a browser to sign in. On a headless box set the key for the shell instead. Paste it at the prompt. It is not shown, and it never reaches the shell history. Unix shell, the same in bash and zsh:
 
 ```bash
-export XAI_API_KEY="xai-..."
+printf 'xAI API key: '; read -rs XAI_API_KEY; echo
+```
+
+Then export it, so `grok` sees it:
+
+```bash
+export XAI_API_KEY
 ```
 
 Headless on Windows:
 
 ```powershell
-$env:XAI_API_KEY = "xai-..."
+$env:XAI_API_KEY = [Net.NetworkCredential]::new('', (Read-Host 'xAI API key' -AsSecureString)).Password
 ```
 
 Then start it inside the repository you want it to work on:

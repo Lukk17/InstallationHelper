@@ -86,40 +86,70 @@ Only for the servers you use.
 
 Set them for your whole login rather than for one shell, so every agent and editor inherits them. The examples set `GRAFANA_SERVICE_ACCOUNT_TOKEN`, and the other variables work the same way.
 
+Every step below reads the value at a hidden prompt and writes it from a variable, so it never shows on the screen and never reaches the shell history. Only the one macOS step that says so hands it to another program as an argument, which any account on the machine can read in the process list. Do not type a token into a command instead.
+
 #### Windows
 
-For your user. New processes see it after a restart of the terminal:
+Type or paste the token at the prompt. It is not shown:
 
 ```powershell
-[Environment]::SetEnvironmentVariable('GRAFANA_SERVICE_ACCOUNT_TOKEN', 'glsa_xxxxxxxxxxxx', 'User')
+$value = [Net.NetworkCredential]::new('', (Read-Host 'Token' -AsSecureString)).Password
 ```
 
-Check it in a new PowerShell window:
+Write it for your user. New processes see it after a restart of the terminal:
 
 ```powershell
-$env:GRAFANA_SERVICE_ACCOUNT_TOKEN
+[Environment]::SetEnvironmentVariable('GRAFANA_SERVICE_ACCOUNT_TOKEN', $value, 'User')
 ```
 
-#### Linux
+Remove it from the shell:
 
-For your user only, then log out and back in:
-
-```bash
-echo 'GRAFANA_SERVICE_ACCOUNT_TOKEN=glsa_xxxxxxxxxxxx' >> ~/.profile
+```powershell
+Remove-Variable value
 ```
 
-#### macOS
+Check it in a new PowerShell window without printing it. This prints the length of the value, and 0 means it is not set:
 
-For Terminal and anything started from it:
-
-```bash
-echo 'export GRAFANA_SERVICE_ACCOUNT_TOKEN=glsa_xxxxxxxxxxxx' >> ~/.zprofile
+```powershell
+"$env:GRAFANA_SERVICE_ACCOUNT_TOKEN".Length
 ```
 
-For applications started from Finder. This does not survive a reboot:
+#### Linux and macOS
+
+Type or paste the token at the prompt. It is not shown. The same in bash and zsh:
 
 ```bash
-launchctl setenv GRAFANA_SERVICE_ACCOUNT_TOKEN glsa_xxxxxxxxxxxx
+printf 'Token: '; read -rs value; echo
+```
+
+Write it. On Linux, for your user only, then log out and back in:
+
+```bash
+printf "export GRAFANA_SERVICE_ACCOUNT_TOKEN='%s'\n" "$value" >> ~/.profile
+```
+
+On macOS, for Terminal and anything started from it:
+
+```bash
+printf "export GRAFANA_SERVICE_ACCOUNT_TOKEN='%s'\n" "$value" >> ~/.zprofile
+```
+
+On macOS, also for applications started from Finder. This does not survive a reboot. `launchctl` takes the value only as an argument, so for the moment it runs, another account on the same Mac could see the token in the process list. The screen and the history still show only `$value`:
+
+```bash
+launchctl setenv GRAFANA_SERVICE_ACCOUNT_TOKEN "$value"
+```
+
+Remove it from the shell:
+
+```bash
+unset value
+```
+
+Check the file without printing the token. This prints how many lines set the variable, and it must be 1. Use `~/.zprofile` on macOS:
+
+```bash
+grep -c '^export GRAFANA_SERVICE_ACCOUNT_TOKEN=' ~/.profile
 ```
 
 Restart your terminal, your editor and every running agent after setting a variable.

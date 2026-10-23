@@ -203,6 +203,10 @@ PowerShell:
 (Get-Content "$HOME\.local\state\agents\workspace\homelab.env") -replace '^PROXMOX_URL=.*', 'PROXMOX_URL=https://192.168.1.10:8006' -replace '^PROXMOX_SSH=.*', 'PROXMOX_SSH=root@192.168.1.10' -replace '^DOCKER_VM_SSH=.*', 'DOCKER_VM_SSH=<your-user>@192.168.1.12' -replace '^SYNCTHING_SERVER_URL=.*', 'SYNCTHING_SERVER_URL=http://192.168.1.12:7780' -replace '^HOMELAB_SSH_KEY=.*', 'HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519' -replace '^ASUS_ROUTER_SSH=.*', 'ASUS_ROUTER_SSH=admin@192.168.1.1' -replace '^ASUS_ROUTER_SSH_PORT=.*', 'ASUS_ROUTER_SSH_PORT=22' -replace '^UPTIME_KUMA_URL=.*', 'UPTIME_KUMA_URL=http://192.168.1.12:7779' | Set-Content "$HOME\.local\state\agents\workspace\homelab.env"
 ```
 
+#### Use a key in a command
+
+The test commands on this page read a secret from the file with `grep` and `cut` and hand it to `curl` on standard input, `-H @-` for a header and `-K -` for a configuration line. So the secret is not shown, the history holds only the command, and it is never an argument of `curl`, which any account on the machine can read in the process list. Never type a secret into a command instead, and never source the file, because a line that still holds a placeholder has `<` and `>` in it, which a shell reads as redirections.
+
 ---
 
 ### PROXMOX_URL
@@ -267,13 +271,13 @@ The web interface does the same under Datacenter, then Permissions:
 Test it from your own machine. Proxmox uses a self signed certificate by default, so `-k` skips the certificate check. Unix shell:
 
 ```bash
-curl -k -H 'Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>' https://<proxmox-host>:8006/api2/json/version
+{ printf 'Authorization: PVEAPIToken='; grep '^PROXMOX_TOKEN_ID=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2- | tr -d '\n'; printf '='; grep '^PROXMOX_TOKEN_SECRET=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2-; } | curl -k -H @- https://<proxmox-host>:8006/api2/json/version
 ```
 
-The single quotes matter in bash and zsh, which would read the `!` inside double quotes as a history command. PowerShell:
+PowerShell:
 
 ```powershell
-curl.exe -k -H "Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>" https://<proxmox-host>:8006/api2/json/version
+"Authorization: PVEAPIToken=$((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^PROXMOX_TOKEN_ID=(.*)').Matches[0].Groups[1].Value)=$((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^PROXMOX_TOKEN_SECRET=(.*)').Matches[0].Groups[1].Value)" | curl.exe -k -H '@-' https://<proxmox-host>:8006/api2/json/version
 ```
 
 An answer with a `version` field means the token works.
@@ -281,16 +285,16 @@ An answer with a `version` field means the token works.
 Then check what the token can do. Ask the API for the token's own permissions. Unix shell:
 
 ```bash
-curl -k -H 'Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>' https://<proxmox-host>:8006/api2/json/access/permissions
+{ printf 'Authorization: PVEAPIToken='; grep '^PROXMOX_TOKEN_ID=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2- | tr -d '\n'; printf '='; grep '^PROXMOX_TOKEN_SECRET=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2-; } | curl -k -H @- https://<proxmox-host>:8006/api2/json/access/permissions
 ```
 
 PowerShell:
 
 ```powershell
-curl.exe -k -H "Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>" https://<proxmox-host>:8006/api2/json/access/permissions
+"Authorization: PVEAPIToken=$((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^PROXMOX_TOKEN_ID=(.*)').Matches[0].Groups[1].Value)=$((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^PROXMOX_TOKEN_SECRET=(.*)').Matches[0].Groups[1].Value)" | curl.exe -k -H '@-' https://<proxmox-host>:8006/api2/json/access/permissions
 ```
 
-Measured on 2026-10-23 against Proxmox VE 8.3.2 with exactly the commands above, the token holds:
+Measured on 2026-10-23 against Proxmox VE 8.3.2 with the same requests as above, the token holds:
 
 | Path | Privileges |
 |---|---|
@@ -382,13 +386,13 @@ The web interface does the same under Datacenter, then Permissions: Users, then 
 Test it from your own machine. Proxmox uses a self signed certificate by default, so `-k` skips the certificate check. Unix shell:
 
 ```bash
-curl -k -H 'Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>' https://<proxmox-host>:8006/api2/json/version
+{ printf 'Authorization: PVEAPIToken='; grep '^PROXMOX_TOKEN_ID=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2- | tr -d '\n'; printf '='; grep '^PROXMOX_TOKEN_SECRET=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2-; } | curl -k -H @- https://<proxmox-host>:8006/api2/json/version
 ```
 
-The single quotes matter in bash and zsh, which would read the `!` inside double quotes as a history command. PowerShell:
+PowerShell:
 
 ```powershell
-curl.exe -k -H "Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>" https://<proxmox-host>:8006/api2/json/version
+"Authorization: PVEAPIToken=$((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^PROXMOX_TOKEN_ID=(.*)').Matches[0].Groups[1].Value)=$((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^PROXMOX_TOKEN_SECRET=(.*)').Matches[0].Groups[1].Value)" | curl.exe -k -H '@-' https://<proxmox-host>:8006/api2/json/version
 ```
 
 An answer with a `version` field means the token works.
@@ -440,16 +444,16 @@ Run these in a shell on the Proxmox host:
 Check what the token can do. From your own machine, ask the API for the token's own permissions. Unix shell:
 
 ```bash
-curl -k -H 'Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>' https://<proxmox-host>:8006/api2/json/access/permissions
+{ printf 'Authorization: PVEAPIToken='; grep '^PROXMOX_TOKEN_ID=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2- | tr -d '\n'; printf '='; grep '^PROXMOX_TOKEN_SECRET=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2-; } | curl -k -H @- https://<proxmox-host>:8006/api2/json/access/permissions
 ```
 
 PowerShell:
 
 ```powershell
-curl.exe -k -H "Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>" https://<proxmox-host>:8006/api2/json/access/permissions
+"Authorization: PVEAPIToken=$((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^PROXMOX_TOKEN_ID=(.*)').Matches[0].Groups[1].Value)=$((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^PROXMOX_TOKEN_SECRET=(.*)').Matches[0].Groups[1].Value)" | curl.exe -k -H '@-' https://<proxmox-host>:8006/api2/json/access/permissions
 ```
 
-Measured on 2026-10-23 against Proxmox VE 8.3.2 with exactly the commands above, the token holds:
+Measured on 2026-10-23 against Proxmox VE 8.3.2 with the same requests as above, the token holds:
 
 | Path | Privileges |
 |---|---|
@@ -607,13 +611,13 @@ The key works whether or not you set a GUI login.
 Test it from your own machine. Unix shell:
 
 ```bash
-curl -H "X-API-Key: <key>" http://<docker-vm-ip>:7780/rest/system/status
+{ printf 'X-API-Key: '; grep '^SYNCTHING_SERVER_API_KEY=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2-; } | curl -H @- http://<docker-vm-ip>:7780/rest/system/status
 ```
 
 PowerShell:
 
 ```powershell
-curl.exe -H "X-API-Key: <key>" http://<docker-vm-ip>:7780/rest/system/status
+"X-API-Key: $((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^SYNCTHING_SERVER_API_KEY=(.*)').Matches[0].Groups[1].Value)" | curl.exe -H '@-' http://<docker-vm-ip>:7780/rest/system/status
 ```
 
 An answer with a `myID` field means the key works.
@@ -716,16 +720,16 @@ Create it:
 3. Give it a name, such as `agent`, and either an Expiry date or Don't expire.
 4. Press Generate. The key starts with `uk` and Uptime Kuma shows it only this once, so copy it now and set it, as a secret, as `UPTIME_KUMA_API_KEY`, with the commands in [Set a key](#set-a-key).
 
-Test it from your own machine. The colon before the key is an empty user name. Unix shell:
+Test it from your own machine. The key goes to curl as the line `user = ":<key>"` of a configuration read from standard input, see [Use a key in a command](#use-a-key-in-a-command), and the colon before the key is an empty user name. Unix shell:
 
 ```bash
-curl -u ":<key>" http://<docker-vm-ip>:7779/metrics
+{ printf 'user = ":'; grep '^UPTIME_KUMA_API_KEY=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2- | tr -d '\n'; printf '"\n'; } | curl -K - http://<docker-vm-ip>:7779/metrics
 ```
 
 PowerShell:
 
 ```powershell
-curl.exe -u ":<key>" http://<docker-vm-ip>:7779/metrics
+"user = `":$((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^UPTIME_KUMA_API_KEY=(.*)').Matches[0].Groups[1].Value)`"" | curl.exe -K - http://<docker-vm-ip>:7779/metrics
 ```
 
 Lines starting with `monitor_status` mean the key works. A `401` answer means it does not.

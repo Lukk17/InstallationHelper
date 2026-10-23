@@ -146,10 +146,10 @@ Keycloak reads a JKS keystore, so convert the PEM bundle to PKCS12 first. Replac
 sudo openssl pkcs12 -export -in /etc/letsencrypt/live/your_domain/fullchain.pem -inkey /etc/letsencrypt/live/your_domain/privkey.pem -out pkcs.p12 -name your_alias -CAfile /etc/letsencrypt/live/your_domain/chain.pem -caname root
 ```
 
-Then import the PKCS12 into a JKS keystore. Replace the four `your_*` placeholders:
+Then import the PKCS12 into a JKS keystore. Replace `your_alias`. keytool asks for the new keystore password twice and then for the PKCS12 password, so no password lands on the command line or in the shell history:
 
 ```bash
-sudo keytool -importkeystore -deststorepass your_keystore_password -destkeypass your_key_password -destkeystore keystore.jks -srckeystore pkcs.p12 -srcstoretype PKCS12 -srcstorepass your_p12_password -alias your_alias
+sudo keytool -importkeystore -destkeystore keystore.jks -srckeystore pkcs.p12 -srcstoretype PKCS12 -alias your_alias
 ```
 
 Drop the resulting `keystore.jks` into Keycloak's expected location and restart the container.
