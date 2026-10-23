@@ -252,7 +252,7 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [proxmox_docker_vm.md](proxmox_docker_vm.md) | Creating the Ubuntu VM, installing Docker Engine, freeing port 53, growing its disk |
 | [home_assistant_vm.md](home_assistant_vm.md) | Building the Home Assistant OS VM with `qm`, and Zigbee USB passthrough |
 | [home_assistant_backup.md](home_assistant_backup.md) | Home Assistant's own backups, the encryption key, and restoring |
-| [adguard_dns.md](adguard_dns.md) | AdGuard first run, the `.internal` wildcard rewrite, upstream resolvers, rate limit, blocklists, router DNS cutover |
+| [adguard_dns.md](adguard_dns.md) | AdGuard first run, the `.internal` wildcard rewrite, upstream resolvers, rate limit, blocklists, 30 days of query log, router DNS cutover |
 | [nginx_proxy_manager.md](nginx_proxy_manager.md) | Adding the proxy host entries and verifying them |
 | [syncthing.md](syncthing.md) | Pairing devices, folder paths, ownership, versioning |
 | [perlite_notes.md](perlite_notes.md) | Publishing the synced notes folder as a website |

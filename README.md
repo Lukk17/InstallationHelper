@@ -254,7 +254,7 @@ Released under the [MIT License](LICENSE).
 | [homelab/proxmox_docker_vm.md](homelab/proxmox_docker_vm.md)            | Building the Ubuntu VM on Proxmox, installing Docker Engine, and growing its disk |
 | [homelab/home_assistant_vm.md](homelab/home_assistant_vm.md)            | Home Assistant OS VM via `qm`, and Zigbee USB passthrough         |
 | [homelab/home_assistant_backup.md](homelab/home_assistant_backup.md)    | Home Assistant's own backups, encryption key, restore paths       |
-| [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, upstream resolvers, rate limit, blocklists, router DNS |
+| [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, upstream resolvers, rate limit, blocklists, 30 days of query log, router DNS |
 | [homelab/nginx_proxy_manager.md](homelab/nginx_proxy_manager.md)        | Reverse proxy entries for each internal name, and verification    |
 | [homelab/ascend_web_search.md](homelab/ascend_web_search.md)            | AscendWebSearch stack: containers, secrets, resource limits, ngrok exposure |
 | [homelab/syncthing.md](homelab/syncthing.md)                            | Pairing devices, folder paths, ownership, file versioning         |

@@ -162,8 +162,8 @@ The log itself lives on the Docker VM as JSON lines, one object per line, at
 `/opt/docker-stack/adguard/work/data/querylog.json`. That is the AdGuard work directory bind mount from
 [compose.yaml](compose.yaml), `/opt/docker-stack/adguard/work` on the host mapped to `/opt/adguardhome/work` inside
 the container, with `querylog.json` the file AdGuard Home writes inside that directory's `data` subfolder. AdGuard
-rotates that file to `querylog.json.1` once it grows past its limit, so a search for anything older than the
-newest entries has to read both. Grep both directly when the web interface itself will not load:
+rotates that file to `querylog.json.1` once its oldest entry is older than the rotation interval, as the next
+section explains, so a search for anything older than the newest entries has to read both. Grep both directly when the web interface itself will not load:
 
 ```bash
 grep google.com /opt/docker-stack/adguard/work/data/querylog.json /opt/docker-stack/adguard/work/data/querylog.json.1
@@ -171,6 +171,50 @@ grep google.com /opt/docker-stack/adguard/work/data/querylog.json /opt/docker-st
 
 The last few minutes may not be on disk yet either way, since AdGuard keeps the newest entries in memory before
 it flushes them to the file.
+
+---
+
+### Keep 30 days of query log
+
+AdGuard Home rotates its query log by age, not by size. Once an hour it reads the time of the oldest entry in
+`querylog.json`, and when that entry is older than the rotation interval it renames `querylog.json` to
+`querylog.json.1`, replacing the older `querylog.json.1`. So the two files hold between one and two intervals of
+queries. The default interval is 90 days, and on 2026-10-23 the two files held 4.0 GB on this lab,
+`querylog.json.1` 2.8 GB and `querylog.json` 1.2 GB.
+
+Set both the query log and the statistics to 30 days:
+
+1. Go to Settings, then General settings.
+2. On the Logs configuration card, set Query logs rotation to 30 days and press Save. AdGuard asks "Are you sure
+   you want to change query log rotation? If you decrease the interval value, some data will be lost". Confirm.
+3. On the Statistics configuration card, set Statistics retention to 30 days and press Save. AdGuard's default
+   is 24 hours, so 30 days keeps a month of the charts on the dashboard.
+
+AdGuard writes both values into `AdGuardHome.yaml`, which on the Docker VM is
+`/opt/docker-stack/adguard/conf/AdGuardHome.yaml`, under the key `interval` of the `querylog` block and of the
+`statistics` block. The version this lab runs writes 30 days as `30d`, and it also reads hours, `720h`:
+
+```yaml
+querylog:
+  interval: 30d
+statistics:
+  interval: 30d
+```
+
+Use the web page rather than editing the file. AdGuard Home rewrites `AdGuardHome.yaml` itself, so a change made
+while the container runs can be overwritten, and a change made while it is stopped only takes effect at the next
+start.
+
+The shorter interval does not delete anything at once. The old `querylog.json.1` goes at the next rotation, which
+comes once the oldest entry in `querylog.json` is more than 30 days old. To free the space today, Clear query logs
+on the same Logs configuration card deletes both files and everything AdGuard holds in memory, so the log starts
+empty.
+
+Checked on 2026-10-23 in the AdGuard Home source at v0.107.78, the version [compose.yaml](compose.yaml) runs: the
+rotation in `internal/querylog/querylogfile.go`, the keys and the 90 day and 1 day defaults in
+`internal/home/config.go`, the field names and the 6 hour to 90 day choices in `client/src/__locales/en.json` and
+`client/src/helpers/constants.ts`, the clearing of both files in `internal/querylog/qlog.go`, and the `30d` form in
+`timeutil/duration.go` of the golibs v0.35.14 library it builds with.
 
 ---
 

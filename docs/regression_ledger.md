@@ -7161,3 +7161,17 @@ How it was proven: `docker inspect` on the VM showed the json-file driver with e
 Fix: an `x-logging` anchor in [homelab/compose.yaml](../homelab/compose.yaml), driver json-file with `max-size: "10m"` and `max-file: "3"`, used by all twelve services, the same shape the AscendWebSearch compose file already had. [homelab/uptime_kuma.md](../homelab/uptime_kuma.md) says to restart the container after creating a tag, how to see that the error is gone, and that the cap needs the containers recreated once with `docker compose up -d`.
 
 Mechanical check: e2e/tier1/compose_log_limits.sh fails on any service in a compose file under `homelab/` whose logging options carry no `max-size`. Against the compose file before the fix it failed 12 of 13, one per service.
+
+### Found while setting the AdGuard Home query log retention, 2026-10-23
+
+#### 10.180 The AdGuard page said the query log rotates by size, and nothing set how long it is kept
+
+Cause: [homelab/adguard_dns.md](../homelab/adguard_dns.md) described the rotation of `querylog.json` from a guess instead of the source, and left the rotation interval at AdGuard Home's default of 90 days.
+
+Effect: the page said AdGuard rotates the file "once it grows past its limit", while AdGuard rotates by the age of the oldest entry and keeps one older file, so the log holds up to twice the interval. On 2026-10-23 the query log on the homelab Docker VM was 4.0 GB, `querylog.json.1` 2.8 GB and `querylog.json` 1.2 GB.
+
+How it was proven: the sizes were read in `/opt/docker-stack/adguard/work/data` on the VM. The rotation is `checkAndRotate` and `rotate` in `internal/querylog/querylogfile.go` of AdGuard Home v0.107.78, which compares the oldest entry's time with the interval and renames `querylog.json` to `querylog.json.1`, and the 90 day default is in `internal/home/config.go`.
+
+Fix: the section "Keep 30 days of query log" in [homelab/adguard_dns.md](../homelab/adguard_dns.md) sets the query log rotation and the statistics retention to 30 days, names the `interval` keys in `AdGuardHome.yaml`, and says how the old file goes. The sentence about rotation now describes the age rule.
+
+Mechanical check: none. The retention is a setting on the VM, which no tier reaches.
