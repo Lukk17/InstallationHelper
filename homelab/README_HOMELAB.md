@@ -263,4 +263,4 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [plex_media_server.md](plex_media_server.md) | Plex with host networking, the CPU cap, the transcoding settings, and which file formats to store |
 | [ascend_web_search.md](ascend_web_search.md) | AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
 | [backup_restore.md](backup_restore.md) | Backing up the VMs and the service data, and restoring both |
-| [agent_access.md](agent_access.md) | Access for an AI agent without a password: a Proxmox API token, read only or able to change virtual machines, an SSH key for the Docker VM, the Syncthing API key, and how to revoke each |
+| [agent_access.md](agent_access.md) | Access for an AI agent without a password: a Proxmox admin API token with narrower tokens as alternatives, an SSH key for the Docker VM, the Syncthing API key, and how to revoke each |

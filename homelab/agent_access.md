@@ -8,20 +8,21 @@
 
 Agents do not type passwords into login pages. A login page is built for a person: it shows a form, may ask for a second factor, and hands back a session that expires. An agent works from a command line. It calls an API with a header or connects with `ssh`, and every service in this lab offers a credential made for exactly that.
 
-Those credentials are also safer to hand over than a password. Each one belongs to the agent alone, so you can take it back without changing your own password, and the Proxmox one can be limited to reading. A password given to an agent is your whole account, it ends up in chat logs, and the only way to take it back is to change it everywhere you use it.
+Those credentials are also safer to hand over than a password. Each one belongs to the agent alone, so you can take it back without changing your own password. A password given to an agent is your whole account, it ends up in chat logs, and the only way to take it back is to change it everywhere you use it.
 
 ---
 
 ### What each credential allows
 
-The Proxmox token comes in two options. The default is read only by itself: Proxmox refuses every change it asks for. The edit option can also change, stop, snapshot, roll back, back up, create and delete virtual machines. This lab uses the edit option. The other two credentials always give more than read access.
+The Proxmox token this lab uses is an admin token. It can create, change and delete virtual machines and storage content, manage storages and SDN, create users and groups but not grant permissions, and download ISO files. Two narrower tokens are described further down as alternatives. The other two credentials always give more than read access.
 
-So one rule covers every credential here: the agent reads freely, and asks you before any change, and waits for your yes. With the read only token, that rule is backed by Proxmox itself. With the edit token, the SSH key and the Syncthing key, the rule is all that stops a change, because the credential does not.
+So one rule covers every credential here: the agent reads freely, asks you before any change, and waits for your yes. Before every delete it asks again, one virtual machine per yes. With the admin token, the SSH key and the Syncthing key, the rule is all that stops a change, because the credential does not.
 
 | Key in the file | Credential | What it allows |
 |---|---|---|
-| `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, read only option | Proxmox API token with the `PVEAuditor` role | Reading nodes, virtual machines, storage and tasks. Proxmox refuses every change |
-| `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, edit option | Proxmox API token of a user with `PVEAuditor` on `/`, `PVEVMAdmin` on `/vms` and `PVEDatastoreUser` on `/storage` | Reading everything the read only option reads, plus every `VM.*` privilege on every virtual machine, and using space on storage. What the token can do was measured and is listed under the edit option below |
+| `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, admin token | Proxmox API token of a user with `PVEAdmin` on `/`, and `PVEAdmin` with `AgentDownload` on the node | Everything the sentence above lists. Not the host's system settings, not rebooting the host, not permissions. What the token holds was measured and is listed under the admin token below |
+| `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, read only alternative | Proxmox API token with the `PVEAuditor` role | Reading nodes, virtual machines, storage and tasks. Proxmox refuses every change |
+| `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, edit alternative | Proxmox API token of a user with `PVEAuditor` on `/`, `PVEVMAdmin` on `/vms` and `PVEDatastoreUser` on `/storage` | Reading everything the read only alternative reads, plus every `VM.*` privilege on every virtual machine, and using space on storage. What the token can do was measured and is listed under the edit alternative below |
 | `DOCKER_VM_SSH` | SSH key for your login on the Docker VM | Everything your login can do. Your login is in the `docker` group from [proxmox_docker_vm.md](proxmox_docker_vm.md), which is the same as root on that VM |
 | `SYNCTHING_SERVER_API_KEY` | Syncthing API key | The whole Syncthing REST API, including changing folders and devices |
 
@@ -37,6 +38,7 @@ The generic skills tell an agent how to use these keys and which calls only read
 | Placeholder | Meaning |
 |---|---|
 | `<proxmox-host>` | The Proxmox machine, reached on port 8006 |
+| `<node>` | The Proxmox node name, shown under Datacenter in the web page |
 | `<docker-vm-ip>` | The Ubuntu virtual machine running the Compose stack |
 | `<your-user>` | Your login on the Docker VM, the one called `<user>` in [proxmox_docker_vm.md](proxmox_docker_vm.md) |
 | `<user@realm!token-name>` | The full name of the Proxmox API token, printed when you create it |
@@ -46,6 +48,7 @@ Concrete example, the lab these documents were written from:
 
 ```text
 <proxmox-host>   192.168.1.10
+<node>           proxmox
 <docker-vm-ip>   192.168.1.12
 ```
 
@@ -119,9 +122,133 @@ The address of the Proxmox web interface, `https://<proxmox-host>:8006`, the sam
 
 ### PROXMOX_TOKEN_ID and PROXMOX_TOKEN_SECRET
 
-An API token belongs to a user. There are two options below. Use the read only option unless you want the agent to change virtual machines for you. Create only one of them, because both use the same user, `agent@pve`.
+An API token belongs to a user. This lab gives the agent the admin token below. The read only and edit alternatives after it are the narrower ones. Create only one of them, because all three use the same user, `agent@pve`.
 
-#### Read only option, the default
+#### The admin token, the one this lab uses
+
+The token can create, change and delete virtual machines and storage content, manage storages and SDN, create users and groups but not grant permissions, and download ISO files. The agent still asks you before every change and before every delete, one virtual machine per yes.
+
+The token is created without privilege separation, `-privsep 0`, so it has exactly the rights of its user and needs no roles of its own. On a user that exists only for this token, that gives the same result as giving the same roles to the token itself.
+
+Run these in a shell on the Proxmox host, which [proxmox_host_install.md](proxmox_host_install.md) shows how to open over SSH. They are the exact commands run on this lab on 2026-10-23, against Proxmox VE 8.3.2. `proxmox` in step 5 is this lab's node name, `<node>` in the placeholders above.
+
+1. Create the user in the Proxmox realm. It has no password, so it cannot log in to the web page:
+
+    ```bash
+    pveum user add agent@pve -comment "AI agent"
+    ```
+
+2. Create the token without privilege separation:
+
+    ```bash
+    pveum user token add agent@pve agent -privsep 0
+    ```
+
+    The output shows `full-tokenid`, here `agent@pve!agent`, and `value`. Put the first into `PROXMOX_TOKEN_ID` and the second into `PROXMOX_TOKEN_SECRET`. Proxmox shows the value only this once.
+
+3. Give the user the administrator role on everything:
+
+    ```bash
+    pveum acl modify / -user agent@pve -role PVEAdmin
+    ```
+
+4. Create a role that lets the host download a file from a URL:
+
+    ```bash
+    pveum role add AgentDownload -privs Sys.AccessNetwork
+    ```
+
+5. Give the user that role on the node, with `PVEAdmin` again beside it:
+
+    ```bash
+    pveum acl modify /nodes/proxmox -user agent@pve -role PVEAdmin,AgentDownload
+    ```
+
+Why steps 4 and 5: `PVEAdmin` does not have `Sys.AccessNetwork`, and downloading an ISO by URL needs it on the node. No built-in role has it except `Administrator`, so step 4 makes a role with only that right. A role given on a deeper path, here one node, replaces the roles inherited from above for that path, so step 5 names `PVEAdmin` again. Without it the agent would lose `PVEAdmin` on that node. `Sys.AccessNetwork` exists on Proxmox VE 8 from `libpve-access-control` 8.1.2. An older host refuses step 4.
+
+The web interface does the same under Datacenter, then Permissions:
+
+1. Users, then Add, for the user, with no password.
+2. API Tokens, then Add, with Privilege Separation not ticked, for the token.
+3. Roles, then Create, with the name `AgentDownload` and the privilege `Sys.AccessNetwork`.
+4. Permissions, then Add, then User Permission, once for the path `/` with the role `PVEAdmin`, and twice for the path `/nodes/proxmox`, once with `PVEAdmin` and once with `AgentDownload`.
+
+Test it from your own machine. Proxmox uses a self signed certificate by default, so `-k` skips the certificate check. Unix shell:
+
+```bash
+curl -k -H 'Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>' https://<proxmox-host>:8006/api2/json/version
+```
+
+The single quotes matter in bash and zsh, which would read the `!` inside double quotes as a history command. PowerShell:
+
+```powershell
+curl.exe -k -H "Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>" https://<proxmox-host>:8006/api2/json/version
+```
+
+An answer with a `version` field means the token works.
+
+Then check what the token can do. Ask the API for the token's own permissions. Unix shell:
+
+```bash
+curl -k -H 'Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>' https://<proxmox-host>:8006/api2/json/access/permissions
+```
+
+PowerShell:
+
+```powershell
+curl.exe -k -H "Authorization: PVEAPIToken=<user@realm!token-name>=<token secret>" https://<proxmox-host>:8006/api2/json/access/permissions
+```
+
+Measured on 2026-10-23 against Proxmox VE 8.3.2 with exactly the commands above, the token holds:
+
+| Path | Privileges |
+|---|---|
+| `/` | `Datastore.Allocate`, `Datastore.AllocateSpace`, `Datastore.AllocateTemplate`, `Datastore.Audit`, `Group.Allocate`, `Mapping.Audit`, `Mapping.Use`, `Pool.Allocate`, `Pool.Audit`, `Realm.AllocateUser`, `SDN.Allocate`, `SDN.Audit`, `SDN.Use`, `Sys.Audit`, `Sys.Console`, `Sys.Syslog`, `User.Modify`, `VM.Allocate`, `VM.Audit`, `VM.Backup`, `VM.Clone`, `VM.Config.CDROM`, `VM.Config.CPU`, `VM.Config.Cloudinit`, `VM.Config.Disk`, `VM.Config.HWType`, `VM.Config.Memory`, `VM.Config.Network`, `VM.Config.Options`, `VM.Console`, `VM.Migrate`, `VM.Monitor`, `VM.PowerMgmt`, `VM.Snapshot`, `VM.Snapshot.Rollback`, 35 in all |
+| `/nodes/proxmox` | the same 35 and `Sys.AccessNetwork` |
+
+It does not hold `Sys.Modify`, `Sys.PowerMgmt`, `Permissions.Modify` or `Realm.Allocate`, so it cannot change the host's system settings, cannot reboot the host, and cannot change permissions.
+
+Revoke the token, on the Proxmox host:
+
+```bash
+pveum user token remove agent@pve agent
+```
+
+Remove the user as well when no agent needs access any more:
+
+```bash
+pveum user delete agent@pve
+```
+
+And the download role, once no user has it:
+
+```bash
+pveum role delete AgentDownload
+```
+
+#### Switching from a narrower token
+
+Remove every role the narrower setup gave the user, path by path, and every custom role nothing else uses. Then follow the admin token steps above, skipping step 1 because the user already exists. This lab came from a setup with `PVEAuditor` on `/`, `PVEDatastoreUser` on `/storage` and a custom role `AgentVM` on `/vms`, and removed them with:
+
+```bash
+pveum acl delete /vms -user agent@pve -role AgentVM
+```
+
+```bash
+pveum acl delete /storage -user agent@pve -role PVEDatastoreUser
+```
+
+```bash
+pveum acl delete / -user agent@pve -role PVEAuditor
+```
+
+```bash
+pveum role delete AgentVM
+```
+
+Coming from the edit alternative as written below, the first command names `PVEVMAdmin` instead, and there is no custom role to delete. Its token, `agent@pve!agent`, already has no privilege separation, so it can stay and step 2 is skipped as well. Coming from the read only alternative, remove its token with `pveum user token remove agent@pve readonly` and create the new one in step 2.
+
+#### Read only alternative
 
 Create a separate user for the agent, give it the read only role `PVEAuditor`, then create a token for it with privilege separation. Privilege separation means the token starts with no rights at all and gets only what you grant it, and Proxmox never lets it do more than its user can. If the token leaks, you remove the token and the user stays.
 
@@ -181,9 +308,9 @@ Revoke the token, on the Proxmox host:
 pveum user token remove agent@pve readonly
 ```
 
-#### Edit option, the one this lab uses
+#### Edit alternative
 
-This option lets the agent change virtual machines, not only read them. The user gets three roles, and the token is created without privilege separation, `-privsep 0`, so it has exactly the rights of its user and needs no roles of its own. The cost: a leaked token can do everything the user can, including stopping, rolling back and deleting virtual machines, until you revoke it.
+This alternative lets the agent change virtual machines, not only read them. The user gets three roles, and the token is created without privilege separation, `-privsep 0`, so it has exactly the rights of its user and needs no roles of its own. The cost: a leaked token can do everything the user can, including stopping, rolling back and deleting virtual machines, until you revoke it.
 
 Run these in a shell on the Proxmox host:
 
@@ -249,7 +376,7 @@ pveum user token remove agent@pve agent
 
 #### Removing the user
 
-Remove the user as well when no agent needs access any more, whichever option you used:
+Remove the user as well when no agent needs access any more, whichever alternative you used:
 
 ```bash
 pveum user delete agent@pve

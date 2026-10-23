@@ -265,7 +265,7 @@ Released under the [MIT License](LICENSE).
 | [homelab/lan_storage.md](homelab/lan_storage.md)                        | The USB data disk handed to the Docker VM, File Browser at `drive.internal`, and the Samba network drive |
 | [homelab/plex_media_server.md](homelab/plex_media_server.md)            | Plex with host networking, the CPU cap, the transcoding settings, and which file formats to store |
 | [homelab/backup_restore.md](homelab/backup_restore.md)                  | vzdump, qmrestore, and backing up the service data directories    |
-| [homelab/agent_access.md](homelab/agent_access.md)                      | Access for an AI agent without a password: a Proxmox API token, read only or able to change virtual machines, an SSH key for the Docker VM, the Syncthing API key, and how to revoke each |
+| [homelab/agent_access.md](homelab/agent_access.md)                      | Access for an AI agent without a password: a Proxmox admin API token with narrower tokens as alternatives, an SSH key for the Docker VM, the Syncthing API key, and how to revoke each |
 | [e2e/README_E2E.md](e2e/README_E2E.md)                                  | End-to-end harness: the pre-commit gate, and running the playbook in containers |
 | [docs/regression_ledger.md](docs/regression_ledger.md)                  | Every regression the playbook has suffered, grouped by failure mechanism, with a prevention checklist |
 | [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md)                          | Agent-standards, OpenSpec, per-agent integration notes            |
