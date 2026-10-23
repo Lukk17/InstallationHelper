@@ -7091,3 +7091,19 @@ How it was proven: every macOS `runs-on` in [.github/workflows/e2e-matrix.yml](.
 Fix: the four rows read `macos-26`.
 
 Mechanical check: none.
+
+### Found while reading the network watch files, 2026-10-23
+
+#### 10.173 The outage finder recognised a ping file by a header row that Telegraf writes only into a new file
+
+Introduced by an agent in b2fc4f9.
+
+Cause: the `gawk` command in [homelab/network_watch.md](../homelab/network_watch.md) decided that a file holds pings from its header row, `$4=="percent_packet_loss"`, while Telegraf writes the header only when it creates a file and not after the midnight rotation.
+
+Effect: on 2026-10-23 the live `ping.csv` in the synced network watch folder held 0 header lines and the rotated `ping.2026-10-11-*.csv` held 3. Against a file with no header the command never set its ping flag, so a row with `result_code` 0 and `percent_packet_loss` 100, a plain timeout the ping plugin scores as a success, was not counted as a failure and the outage was not printed. The same flag also leaked from one file to the next: given a rotated ping file and then a `dns.csv` with no header, it read `rcode_value` 100 as packet loss and printed a DNS outage that never happened.
+
+How it was proven: built CSV files run in a throwaway container from the gate image, `--network none` and read-only mounts, GNU Awk 5.2.1. The old command printed nothing for a headerless `ping.csv` with two rows at `result_code` 0 and loss 100, and printed `DOWN 2026-10-09 16:00:01 1.1.1.1` for a rotated ping file followed by a headerless `dns.csv` with `rcode_value` 100 in two rows. The new command printed `DOWN 2026-10-23 15:00:01 1.1.1.1` and `UP   2026-10-23 15:00:03 1.1.1.1 after 2 s` for the first and nothing for the second, and still printed the three results the page documents for its earlier tests.
+
+Fix: the command sets its ping flag once per file from the file name, `FNR==1{is_ping=(FILENAME~/(^|\/)ping[^\/]*$/)}`, and still skips every header line, in "Finding an outage in the files afterward" of [homelab/network_watch.md](../homelab/network_watch.md).
+
+Mechanical check: none. The homelab has no automated checks, and the command lives in a documentation page.

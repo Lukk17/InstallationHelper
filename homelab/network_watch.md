@@ -312,10 +312,13 @@ A target is down once it has failed two rows in a row, which filters out a singl
 out anything that matters. In `ping.csv` and `dns.csv`, which both get a row every second, that is two seconds.
 In `http.csv`, which gets a row every 5 seconds, the same two rows in a row is ten seconds. Failed means either
 `result_code` is not 0, or, in `ping.csv` specifically, the fourth column is `percent_packet_loss` sitting at
-100, which catches a plain timeout that the ping plugin itself scored as a success. The command below reads that distinction straight off each file's own header, so it never
-misreads `rcode_value` or `http_response_code` in the other two files as a loss figure. It also skips every header
-line, and there can be more than one in a file, since a container restart mid-day appends a fresh header to that
-day's file.
+100, which catches a plain timeout that the ping plugin itself scored as a success. The command below tells a ping
+file from the others by its file name, `ping.csv` or a rotated `ping.<date>.csv`, so it never misreads
+`rcode_value` or `http_response_code` in the other two files as a loss figure. It cannot use the header row for
+this, because Telegraf writes a header only when it creates a file, not after the midnight rotation: measured on
+2026-10-23, that day's `ping.csv` held no header line at all while a rotated `ping.2026-10-11-*.csv` held three.
+It also skips every header line it does find, and there can be more than one in a file, since a container restart
+mid-day appends a fresh header to that day's file.
 
 It needs `gawk`. Git Bash on Windows already ships it. On the Docker VM, install it once if `awk --version` does
 not say GNU Awk:
@@ -327,7 +330,7 @@ sudo apt install -y gawk
 The command itself, run from inside the folder that holds the CSV files:
 
 ```bash
-gawk -F, '$0~/^timestamp,/{is_ping=($4=="percent_packet_loss");next} {t=$1;tg=$2;rc=$3;loss=$4;gsub(/[-:]/," ",t);ts=mktime(t);bad=(rc!=0)||(is_ping&&loss==100);if(bad){f[tg]++;if(f[tg]==1)d[tg]=ts;if(f[tg]==2&&!r[tg]){print "DOWN",strftime("%Y-%m-%d %H:%M:%S",d[tg]),tg;r[tg]=1}}else{if(r[tg]){print "UP  ",strftime("%Y-%m-%d %H:%M:%S",ts),tg,"after",ts-d[tg],"s"};f[tg]=0;r[tg]=0}}' ping.csv
+gawk -F, 'FNR==1{is_ping=(FILENAME~/(^|\/)ping[^\/]*$/)} $0~/^timestamp,/{next} {t=$1;tg=$2;rc=$3;loss=$4;gsub(/[-:]/," ",t);ts=mktime(t);bad=(rc!=0)||(is_ping&&loss==100);if(bad){f[tg]++;if(f[tg]==1)d[tg]=ts;if(f[tg]==2&&!r[tg]){print "DOWN",strftime("%Y-%m-%d %H:%M:%S",d[tg]),tg;r[tg]=1}}else{if(r[tg]){print "UP  ",strftime("%Y-%m-%d %H:%M:%S",ts),tg,"after",ts-d[tg],"s"};f[tg]=0;r[tg]=0}}' ping.csv
 ```
 
 Tested against a built CSV with a 31 second outage planted in it, it printed exactly this:
@@ -349,6 +352,11 @@ And tested a third time against a file shaped like `dns.csv`, where the fourth c
 than `percent_packet_loss` and happened to sit at 100 for two rows, the command printed nothing at all, which is
 the correct answer, since a DNS failure is already carried by `result_code` and `rcode_value` is not a loss
 figure.
+
+Tested a fourth time against a `ping.csv` with no header row at all, the shape of every file after a midnight
+rotation, with two seconds of 100 percent loss at `result_code` 0, it printed one `DOWN` line and one `UP` line
+two seconds apart, the same shape as the second test. The older version of this command, which looked for
+`percent_packet_loss` in the header, printed nothing for that file.
 
 Run it against `dns.csv` or `http.csv` the same way, the column layout is the same shape in every file, timestamp
 first, the target second, the result code third.
