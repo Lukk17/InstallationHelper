@@ -67,6 +67,7 @@ while IFS= read -r line; do
     kind="$(yaml_field installer_type "${line}")"
     client="$(yaml_field client_only "${line}")"
     nvidia="$(yaml_field requires_nvidia_gpu "${line}")"
+    verify="$(sed -nE 's/.*verify_path:[[:space:]]*"([^"]*)".*/\1/p' <<<"${line}")"
 
     if [[ "${manager}" == "winget" ]]; then
         command="winget install -e --id ${package}"
@@ -82,7 +83,7 @@ while IFS= read -r line; do
     mapped_command["${command}"]=1
 
     if [[ "${default_on[${key}]:-false}" == "true" ]]; then
-        expected_script+=("${manager}|${package}|${source_name}|${scope}|${kind}|${client:-false}|${nvidia:-false}")
+        expected_script+=("${manager}|${package}|${source_name}|${scope}|${kind}|${client:-false}|${nvidia:-false}|${verify}")
     fi
 done < <(tr -d '\r' <"${MAPPING_YAML}" | grep -E '^  [a-z0-9_]+: \{')
 
@@ -97,7 +98,7 @@ ps_flag() { if grep -qE "[{;][[:space:]]*$1 = \\\$true" <<<"$2"; then echo true;
 
 actual_script=()
 while IFS= read -r line; do
-    actual_script+=("$(ps_value Manager "${line}")|$(ps_value Id "${line}")|$(ps_value Source "${line}")|$(ps_value Scope "${line}")|$(ps_value InstallerType "${line}")|$(ps_flag ClientOnly "${line}")|$(ps_flag RequiresNvidiaGpu "${line}")")
+    actual_script+=("$(ps_value Manager "${line}")|$(ps_value Id "${line}")|$(ps_value Source "${line}")|$(ps_value Scope "${line}")|$(ps_value InstallerType "${line}")|$(ps_flag ClientOnly "${line}")|$(ps_flag RequiresNvidiaGpu "${line}")|$(ps_value VerifyPath "${line}")")
 done < <(tr -d '\r' <"${MANUAL_PS1}" | sed -n '/^\$Packages = @($/,/^)$/p' | grep -E '^[[:space:]]+@\{')
 
 if [[ ${#actual_script[@]} -eq 0 ]]; then
@@ -105,9 +106,9 @@ if [[ ${#actual_script[@]} -eq 0 ]]; then
 else
     script_diff="$(diff <(printf '%s\n' "${expected_script[@]}" | sort) <(printf '%s\n' "${actual_script[@]}" | sort) || true)"
     if [[ -z "${script_diff}" ]]; then
-        pass "install.ps1 installs exactly the ${#expected_script[@]} mappings on by default, with the id, source, scope, installer type and conditions vars/Windows.yaml names"
+        pass "install.ps1 installs exactly the ${#expected_script[@]} mappings on by default, with the id, source, scope, installer type, conditions and verify path vars/Windows.yaml names"
     else
-        fail "install.ps1 and the default-on mappings in vars/Windows.yaml disagree (< mapping, > script; manager|id|source|scope|installer_type|client_only|requires_nvidia_gpu)" \
+        fail "install.ps1 and the default-on mappings in vars/Windows.yaml disagree (< mapping, > script; manager|id|source|scope|installer_type|client_only|requires_nvidia_gpu|verify_path)" \
              "$(grep -E '^[<>]' <<<"${script_diff}" | tr '\n' ' ')"
     fi
 fi

@@ -1178,6 +1178,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $global:UserCopy = $false
         $global:InstallFailuresLeft = 0
         $global:InstallsNothing = $false
+        $global:InstallCreates = ''
         Mock Start-Sleep { }
         Mock Write-Host { }
         Mock Test-IsAdministrator { $false }
@@ -1202,6 +1203,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
             if (-not $global:InstallsNothing) {
                 if ($scope -eq 'machine') { $global:MachineCopy = $true } else { $global:UserCopy = $true }
             }
+            if ($global:InstallCreates) { New-Item -ItemType Directory -Path $global:InstallCreates -Force | Out-Null }
             return [PSCustomObject]@{ Output = 'Successfully installed'; ExitCode = 0; TimedOut = $false }
         }
         Mock Invoke-BoundedWinget { Invoke-WingetAnswer -Route 'bounded' -Arguments $Arguments }
@@ -1273,6 +1275,42 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $r.Status | Should -Be 'failed'
         $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id SlackTechnologies.Slack --scope user finds nothing*'
         @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list user')
+    }
+
+    It 'counts a per-user install winget cannot list as installed once its verify_path exists, as Tor Browser in sweep 40004770702' {
+        $global:InstallsNothing = $true
+        $global:InstallCreates = Join-Path $TestDrive 'Tor Browser'
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'TorProject.TorBrowser' -Scope 'user' -VerifyPath $global:InstallCreates -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list user')
+    }
+
+    It 'counts a machine-wide install winget lists only per user as installed once its verify_path exists, as Python in sweep 40004770702' {
+        $global:InstallsNothing = $true
+        $global:InstallCreates = Join-Path $TestDrive 'Python311'
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Python.Python.3.11' -Scope 'machine' -InstallerType 'burn' -VerifyPath $global:InstallCreates -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine', 'bounded list machine')
+    }
+
+    It 'still fails an install that exits 0 when winget lists nothing and the verify_path does not exist, naming the path' {
+        $global:InstallsNothing = $true
+        $missing = Join-Path $TestDrive 'Never Created'
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'TorProject.TorBrowser' -Scope 'user' -VerifyPath $missing -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike "winget exited 0 and winget list --exact --id TorProject.TorBrowser --scope user finds nothing and $missing does not exist, so TorProject.TorBrowser is not installed.*"
+    }
+
+    It 'reports a machine-wide copy winget lists only per user as present when its verify_path exists, rather than as a per-user copy' {
+        $global:UserCopy = $true
+        $onDisk = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'Python311Present') -Force
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Python.Python.3.11' -Scope 'machine' -InstallerType 'burn' -VerifyPath $onDisk.FullName
+
+        $r.Status | Should -Be 'present'
+        @($global:WingetCalls) | Should -Be @('bounded list machine')
     }
 
     It 'reports a machine-wide copy as present and installs nothing' {
@@ -3594,6 +3632,21 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
 
         $never | Should -Be 1
         @($global:ManualCalls | Where-Object { $_ -eq 'choco install dart-sdk -y --no-progress' }).Count | Should -Be 4
+    }
+
+    It 'counts a winget package winget cannot list as installed when its VerifyPath exists, and fails it when the path is missing' {
+        $global:ManualSilent = 99
+        $onDisk = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'Tor Browser') -Force
+
+        $found = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'TorProject.TorBrowser'; Scope = 'user'; VerifyPath = $onDisk.FullName })))
+
+        $found | Should -Be 0
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *' }).Count | Should -Be 1
+
+        $missing = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Python.Python.3.11'; Scope = 'machine'; VerifyPath = (Join-Path $TestDrive 'Python311') })))
+
+        $missing | Should -Be 1
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *Python*' }).Count | Should -Be 4
     }
 
     It 'retries a winget package that exits 0 without being installed, and fails it when that never changes' {

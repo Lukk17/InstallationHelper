@@ -379,12 +379,11 @@ function Invoke-WindowsVerification {
                     # question rather than a softer verdict.
                     $probe = if ($mapping.PSObject.Properties['VerifyPath']) { $mapping.VerifyPath } else { '' }
                     if ($probe) {
-                        $expanded = [Environment]::ExpandEnvironmentVariables($probe)
-                        if (Test-Path -LiteralPath $expanded) {
+                        if (Test-WingetVerifyPath -VerifyPath $probe) {
                             & $add $key 'winget' $mapping.Package $script:VerdictInstalled ''
                         } else {
                             & $add $key 'winget' $mapping.Package $script:VerdictMissing `
-                                ("winget list --exact --id $($mapping.Package) found nothing and $expanded does not exist either, so it is not installed")
+                                ("winget list --exact --id $($mapping.Package) found nothing and $([Environment]::ExpandEnvironmentVariables($probe)) does not exist either, so it is not installed")
                         }
                     } else {
                         & $add $key 'winget' $mapping.Package $script:VerdictMissing `

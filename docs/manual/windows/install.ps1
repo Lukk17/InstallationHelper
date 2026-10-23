@@ -24,16 +24,16 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 
-# One line per package, in vars/Windows.yaml order. Source, Scope and InstallerType only where the
+# One line per package, in vars/Windows.yaml order. Source, Scope, InstallerType and VerifyPath only where the
 # mapping names them. ClientOnly and RequiresNvidiaGpu are the mapping's own conditions.
 $Packages = @(
     @{ Manager = 'winget'; Id = 'Google.Chrome' }
     @{ Manager = 'winget'; Id = 'Brave.Brave'; Scope = 'machine'; InstallerType = 'exe' }
-    @{ Manager = 'winget'; Id = 'TorProject.TorBrowser'; Scope = 'user' }
+    @{ Manager = 'winget'; Id = 'TorProject.TorBrowser'; Scope = 'user'; VerifyPath = '%USERPROFILE%/Desktop/Tor Browser' }
     @{ Manager = 'winget'; Id = 'Git.Git'; Scope = 'machine'; InstallerType = 'inno' }
     @{ Manager = 'choco'; Id = 'maven' }
     @{ Manager = 'choco'; Id = 'gradle' }
-    @{ Manager = 'winget'; Id = 'Python.Python.3.11'; Scope = 'machine'; InstallerType = 'burn' }
+    @{ Manager = 'winget'; Id = 'Python.Python.3.11'; Scope = 'machine'; InstallerType = 'burn'; VerifyPath = '%ProgramFiles%/Python311/python.exe' }
     @{ Manager = 'choco'; Id = 'dart-sdk' }
     @{ Manager = 'winget'; Id = 'Google.AndroidStudio' }
     @{ Manager = 'winget'; Id = 'Postman.Postman'; Scope = 'user' }
@@ -212,9 +212,11 @@ function Get-InstallExpression($p) {
     $arguments = (Get-WingetArgument $p | ForEach-Object { Format-Literal $_ }) -join ' '
     $source = Format-Literal $(if ($p['Source']) { $p['Source'] } else { 'winget' })
     # winget exited 0 for Prime Video and Slack without installing either, so exit 0 counts only when
-    # winget then lists the package in the scope it installed to.
+    # winget then lists the package in the scope it installed to, or, for a package winget cannot list
+    # there, when its VerifyPath exists.
     $listed = "winget list --exact --id $id$(if ($p['Scope']) { ' --scope ' + (Format-Literal $p.Scope) }) --accept-source-agreements"
-    return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } elseif (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } else { $listed | Out-Host; if (`$LASTEXITCODE -eq 0) { 0 } else { Write-Host '    winget exited 0 and does not list the package as installed'; 1 } } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
+    $onDisk = if ($p['VerifyPath']) { "Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($(Format-Literal $p.VerifyPath)))" } else { '$false' }
+    return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } elseif (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } else { $listed | Out-Host; if (`$LASTEXITCODE -eq 0 -or ($onDisk)) { 0 } else { Write-Host '    winget exited 0 and does not list the package as installed'; 1 } } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
 }
 
 # The script an elevated window runs. It carries Invoke-InstallWithRetry with it, counts its own

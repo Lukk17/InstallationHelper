@@ -399,6 +399,20 @@ function Test-WingetPackageInstalled {
     return (Get-WingetPackagePresence -WingetPath $WingetPath -PackageId $PackageId -Scope $Scope).Installed
 }
 
+function Test-WingetVerifyPath {
+    <#
+    .SYNOPSIS
+        Whether the mapping's verify_path exists, the second question for a package winget installs
+        but cannot list back in the scope it installed to. False when the mapping carries none.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string] $VerifyPath = '')
+
+    if (-not $VerifyPath) { return $false }
+    return (Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($VerifyPath)))
+}
+
 function Test-WingetElevationRequired {
     <#
     .SYNOPSIS
@@ -966,6 +980,8 @@ function Install-WingetPackage {
         [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900,
         # The directory to install into, passed to winget as --location. Empty means the installer's own default.
         [string] $Location = '',
+        # The mapping's verify_path, asked when winget cannot list the package in its scope. See Test-WingetVerifyPath.
+        [string] $VerifyPath = '',
 
         # Parameters so a test can run the retries with no pause, defaulting to the shared rule.
         [ValidateRange(0, 10)] [int] $Retries = $script:PackageRetryCount,
@@ -991,7 +1007,7 @@ function Install-WingetPackage {
             }
             return [PSCustomObject]@{ Package = $PackageId; Status = 'failed'; Detail = $detail }
         }
-        if ($machine.Installed) {
+        if ($machine.Installed -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
             Write-Verbose "$PackageId already installed machine-wide"
             return [PSCustomObject]@{ Package = $PackageId; Status = 'present'; Detail = '' }
         }
@@ -1005,7 +1021,7 @@ function Install-WingetPackage {
                 Detail  = "installed for this user only, the machine-wide install was skipped. To install it machine-wide, remove the per-user copy with 'winget uninstall --exact --id $PackageId --scope user' and run the wizard again."
             }
         }
-    } elseif (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) {
+    } elseif ((Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
         Write-Verbose "$PackageId already installed"
         return [PSCustomObject]@{ Package = $PackageId; Status = 'present'; Detail = '' }
     }
@@ -1042,19 +1058,23 @@ function Install-WingetPackage {
 
         # winget exited 0 for Prime Video and Slack in a Windows all apps run and its own list found
         # neither afterwards, so exit 0 counts only when winget then lists the package in the same
-        # scope, asked the same way as before the install. docs/regression_ledger.md 10.187.
+        # scope, asked the same way as before the install. docs/regression_ledger.md 10.187. A package
+        # winget cannot list in that scope carries verify_path, and its existence is the second
+        # question: Tor Browser registers nothing, and winget list --scope machine does not list
+        # Python's machine-wide burn bundle. docs/regression_ledger.md 10.198.
         if ($run.ExitCode -eq 0) {
             $after = Get-WingetPackagePresence -WingetPath $WingetPath -PackageId $PackageId -Scope $Scope -Elevated:$probeElevated
-            if ($after.Installed) {
+            if ($after.Installed -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
                 return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
             }
             $listed = "winget list --exact --id $PackageId$(if ($Scope) { " --scope $Scope" })"
+            $notOnDisk = if ($VerifyPath) { " and $([Environment]::ExpandEnvironmentVariables($VerifyPath)) does not exist" } else { '' }
             if (-not $after.Answered) {
                 return [PSCustomObject]@{ Succeeded = $false; Final = $true
                     Failure = "winget exited 0, and whether $PackageId is now installed is unknown, because $listed could not run: $($after.Reason) $tail".Trim() }
             }
             return [PSCustomObject]@{ Succeeded = $false; Final = $false
-                Failure = "winget exited 0 and $listed finds nothing, so $PackageId is not installed. $tail".Trim() }
+                Failure = "winget exited 0 and $listed finds nothing$notOnDisk, so $PackageId is not installed. $tail".Trim() }
         }
 
         # winget reports an already-installed package as a failure code with a specific
@@ -1787,7 +1807,7 @@ function Invoke-WindowsSoftwareInstall {
                 Write-Host ("  ... [{0}/{1}] {2} ({3})" -f $index, $wingetItems.Count, $item.Key, $item.Package)
                 $started = [datetime]::UtcNow
                 $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source `
-                    -Scope $item.Scope -InstallerType $item.InstallerType
+                    -Scope $item.Scope -InstallerType $item.InstallerType -VerifyPath $item.VerifyPath
                 $seconds = [int]([datetime]::UtcNow - $started).TotalSeconds
                 Write-Host ("      {0} after {1}s{2}" -f $r.Status, $seconds,
                     $(if ($r.Detail) { ": $($r.Detail)" } else { '' }))

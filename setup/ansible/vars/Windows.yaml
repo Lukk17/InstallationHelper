@@ -40,7 +40,13 @@ software_mapping:
   # leaves no Python behind, so the toggle would still install nothing usable. A single interpreter
   # matching default_python is the honest translation. e2e/tier1/windows_mapping.sh asserts the minor
   # version here still matches default_python in setup/pinned_values/pinned_values.toml.
-  python: { manager: "winget", package: "Python.Python.3.11", scope: "machine", installer_type: "burn" }   # Manifest 3.11.9, read 2026-10-11: user (InstallAllUsers=0) and machine (InstallAllUsers=1) burn.
+  # verify_path, because winget list --scope machine never finds this machine-wide install: its
+  # burn bundle, ProductCode {1da2e09b-199c-4def-9a99-93a8c1b8ddf2} for both scopes in manifest
+  # 3.11.9, is not listed in the machine scope, measured in sweep 40004770702 where the scoped list found
+  # nothing four times and the unscoped list in the verification found it. The path is the
+  # DefaultAllUsersTargetDir of CPython v3.11.9 Tools/msi/bundle/bundle.wxs, which the manifest's
+  # machine installer uses, and a per-user install lands in LocalAppData instead.
+  python: { manager: "winget", package: "Python.Python.3.11", scope: "machine", installer_type: "burn", verify_path: "%ProgramFiles%/Python311/python.exe" }   # Manifest 3.11.9, read 2026-10-11: user (InstallAllUsers=0) and machine (InstallAllUsers=1) burn.
   # Dart on Windows arrives with Flutter through FVM as well, but the toggle is independent and
   # Chocolatey carries the standalone SDK (verified dart-sdk 3.13.0 on the community feed).
   dart: { manager: "choco", package: "dart-sdk" }
