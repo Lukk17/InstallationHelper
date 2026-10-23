@@ -157,21 +157,12 @@
 #      installation_full.log, installation_errors.log, installation_warnings.log,
 #      installation_skipped.log and installation_verify.log under $HOME on Linux and macOS
 #      (see finish_run and its VERIFY_LOG constant), so the macOS jobs below collect all five by
-#      name. setup.ps1 writes no log file at all today: the run log is only ever what
-#      Write-Host printed to the console, and AGENTS.md says a verification step is being added
-#      to it in a separate, concurrent change whose file names are not known yet. Rather than
-#      naming a file that may not exist, the Windows jobs below capture their own transcript as
-#      the run log, and separately glob for `installation_*.log` under $env:USERPROFILE, on the
-#      assumption that whatever verification step lands there follows the same naming convention
-#      the Linux and macOS side already use ($env:USERPROFILE being the Windows analogue of
-#      $HOME). As of writing this file, that concurrent change already exists on disk
-#      (setup/windows/WindowsVerify.ps1) though it is uncommitted and not part of this change,
-#      and its own -LogPath default is installation_verify.log under $env:USERPROFILE, which
-#      matches the glob below. That was read to sanity check the assumption, not to depend on
-#      an uncommitted file, so the glob stays a pattern rather than a literal file name: if the
-#      final, committed shape of that change differs, the glob still finds nothing gracefully
-#      rather than failing this job outright, `if-no-files-found: warn` says so in the job log,
-#      and the transcript is still uploaded.
+#      name. setup.ps1 writes one log file, installation_verify.log under $env:USERPROFILE,
+#      through setup/windows/WindowsVerify.ps1, and the rest of its run is only what it printed
+#      to the console. So the Windows jobs below capture their own transcript as the run log,
+#      and separately glob for `installation_*.log` under $env:USERPROFILE. If the glob finds
+#      nothing, `if-no-files-found: warn` says so in the job log and the transcript is still
+#      uploaded.
 #   7. Whether Assert-NotAdmin's -AllowAdministrator escape hatch and Assert-KnownSelectionKey's
 #      handling of enable_hyperv and setup_wsl as ordinary selectable
 #      keys behave as read here, since e2e-manual.yml's own equivalent job has never run either
@@ -1529,11 +1520,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'wizard-logs') | Out-Null
           Copy-Item (Join-Path $env:RUNNER_TEMP 'wizard-run.log') (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
-          # NEVER RUN IN CI: a verification step is being added to setup.ps1 in a concurrent
-          # change, and its log file name is not known yet. This assumes it follows the same
-          # installation_*.log convention already used on Linux and macOS, under the Windows
-          # analogue of $HOME. If that assumption is wrong, this glob finds nothing and the
-          # upload step below warns rather than failing the job.
+          # setup.ps1 writes installation_verify.log under $env:USERPROFILE. If the glob finds
+          # nothing, the upload step below warns rather than failing the job.
           Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
             Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
 

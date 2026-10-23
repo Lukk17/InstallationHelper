@@ -7107,3 +7107,29 @@ How it was proven: built CSV files run in a throwaway container from the gate im
 Fix: the command sets its ping flag once per file from the file name, `FNR==1{is_ping=(FILENAME~/(^|\/)ping[^\/]*$/)}`, and still skips every header line, in "Finding an outage in the files afterward" of [homelab/network_watch.md](../homelab/network_watch.md).
 
 Mechanical check: none. The homelab has no automated checks, and the command lives in a documentation page.
+
+### Found while checking the e2e page and the sweep workflow against each other, 2026-10-23
+
+#### 10.174 The e2e page counted five Linux distributions and forty sweep jobs after Pop!_OS became the sixth
+
+Cause: Pop!_OS was added to [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) as a sixth distribution, and the counts and job tables in [e2e/README_E2E.md](../e2e/README_E2E.md) were not updated with it.
+
+Effect: the page said "The eight scenarios above cross five Linux distributions, which is 40 combinations", and that a single platform run leaves "the other 39". Its stage 2 table listed five distributions per scenario with job numbers 6 to 45, called stage 2 "Forty jobs" and the whole sweep "Fifty-two jobs in total". It also said the tier 1 job builds the gate image, which the Gate image job has done since b6d46d7, and named the stage 3 jobs "macOS everything" and "Windows from nothing", while the workflow names them "macOS all apps" and "Windows four apps only".
+
+How it was proven: the `distro:` and `scenario:` lines of the stage 2 jobs in e2e-matrix.yml, read on 2026-10-23, give six distributions (debian, ubuntu, popos, fedora, arch, cachyos) with eight jobs each and eight scenarios with six jobs each, 48 cells, beside six `e2e/tier3/*.Dockerfile` files and eight files under `e2e/tier3/scenarios/`. The `name:` lines of the stage 3 jobs give the seven names.
+
+Fix: "CI matrix sweep vs single platform runs" and "The exact order every pipeline runs in" in [e2e/README_E2E.md](../e2e/README_E2E.md) now say six distributions, 48 combinations, 47 others, 48 stage 2 jobs numbered 6 to 53, the stage 3 jobs by their workflow names numbered 54 to 60, and the Gate image job.
+
+Mechanical check: none. The counts are prose, and a check would be a second list of the same cells, defect class 2.
+
+#### 10.175 A workflow comment cited AGENTS.md for a statement no version of AGENTS.md made
+
+Cause: db7db22 wrote in [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) that "AGENTS.md says a verification step is being added" to setup.ps1, while the change that added it, d788b4c with setup/windows/WindowsVerify.ps1, was in progress beside it and no instruction file said so.
+
+Effect: the comment sent a reader to AGENTS.md for a claim that is not there, and it and a step comment in the Windows defaults job still described the Windows verification log as a future change whose file name was not known, two months after setup.ps1 began writing `installation_verify.log` under `$env:USERPROFILE`.
+
+How it was proven: `git log -S'verification step' -- AGENTS.md` printed no commit, so no version of AGENTS.md held the phrase. `-LogPath` in setup/windows/WindowsVerify.ps1 defaults to `installation_verify.log` in the user profile, and `grep` over setup/setup.ps1 and setup/windows/ finds no other `installation_*.log` name.
+
+Fix: item 6 of the "NEVER RUN IN CI" list and the step comment beside the `installation_*.log` glob in e2e-matrix.yml state what setup.ps1 writes today. The jobs themselves are unchanged.
+
+Mechanical check: none.

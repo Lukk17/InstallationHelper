@@ -126,18 +126,18 @@ bash e2e/run.sh --tier 3 --scenario all
 
 ### CI matrix sweep vs single platform runs
 
-The eight scenarios above cross five Linux distributions, which is 40 combinations. Nobody runs all 40 on one machine, so the harness is split across two places that prove different things.
+The eight scenarios above cross six Linux distributions, which is 48 combinations. Nobody runs all 48 on one machine, so the harness is split across two places that prove different things.
 
 [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 48 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. Those 48 are 48 separate jobs rather than one matrix, each calling [.github/workflows/e2e-linux-cell.yml](../.github/workflows/e2e-linux-cell.yml), because GitHub's run graph collapses a matrix into a single node that names neither the distribution nor the scenario. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
 
-Runs of the single platform workflow, `e2e-manual.yaml`, and of the sweep narrowed to one scenario and one distribution stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: feedback on the distribution and scenario a change actually touches, without waiting on 39 others. A tier 3 run happens only on a GitHub-hosted runner, so the scoped run and the broad one are both dispatched.
+Runs of the single platform workflow, `e2e-manual.yaml`, and of the sweep narrowed to one scenario and one distribution stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: feedback on the distribution and scenario a change actually touches, without waiting on 47 others. A tier 3 run happens only on a GitHub-hosted runner, so the scoped run and the broad one are both dispatched.
 
 What each side proves, and does not:
 
 | | Proves | Does not prove |
 |---|---|---|
 | CI matrix sweep | The full cross product passes on GitHub's own infrastructure, including a distro/scenario pairing nobody happened to run locally | Correctness on the hardware you actually deploy to. A hosted runner's disk, memory and privileged-container behaviour differ from a personal Docker Desktop or WSL setup, and the sweep has not been observed to catch a defect that a local run would have missed, because it has not run yet |
-| Single platform run | The harness works on a GitHub-hosted runner for the one scenario and distribution you are actively changing | The other 39 combinations still pass, unless you run them too |
+| Single platform run | The harness works on a GitHub-hosted runner for the one scenario and distribution you are actively changing | The other 47 combinations still pass, unless you run them too |
 
 Dispatch the sweep from the Actions tab, or narrow it to one scenario or one distribution from the same form.
 
@@ -333,8 +333,9 @@ Every job that installs anything ends by verifying, and uploads two logs: what t
 the machine looks like afterwards. Those are different claims, and only the second one is evidence.
 
 Stage 1, static and parse only. Nothing is installed anywhere. Five jobs, all finish inside about
-five minutes, and the whole sweep stops here if any of them fails. The tier 1 job also builds the gate
-image first, about a minute on Linux on 2026-10-15, and has not been timed on a runner since.
+five minutes, and the whole sweep stops here if any of them fails. Before them, the Gate image job builds the
+gate image once for the whole run, and the tier 1 job and every stage 2 cell load it instead of building their
+own. A build took about a minute on Linux on 2026-10-15, and has not been timed on a runner since.
 
 | Order | Job | Runner | What it proves |
 |---|---|---|---|
@@ -348,7 +349,7 @@ Jobs 3 to 5 are what "parse only" means: the wizard runs its own resolution, pri
 plan it would execute, and exits. They cost seconds and they catch a broken toggle file, a renamed
 option or a wizard that no longer agrees with the YAML, before anything spends an hour installing.
 
-Stage 2, the container sweep. Forty jobs, twenty at a time. Linux goes before the other two
+Stage 2, the container sweep. Forty-eight jobs, twenty at a time. Linux goes before the other two
 platforms because it is where the playbook does the most and where a real defect is most likely.
 
 The order inside the stage is deliberate. Defaults runs first on all six distributions, because it
@@ -359,14 +360,14 @@ group rather than inserted into it, so adding them moved nothing that was alread
 
 | Order | Scenario | Distributions | Ceiling |
 |---|---|---|---|
-| 6 to 10 | defaults | arch, debian, ubuntu, fedora, cachyos | 180 minutes |
-| 11 to 15 | all-software | the same five | 300 minutes |
-| 16 to 20 | kde-full | the same five | 300 minutes |
-| 21 to 25 | gnome-full | the same five | 300 minutes |
-| 26 to 30 | idempotency | the same five | 300 minutes, for two passes |
-| 31 to 35 | live-profile | the same five | 120 minutes |
-| 36 to 40 | kde-configure-only | the same five | 90 minutes |
-| 41 to 45 | forced-failure | the same five | 90 minutes |
+| 6 to 11 | defaults | debian, ubuntu, popos, fedora, arch, cachyos | 180 minutes |
+| 12 to 17 | all-software | the same six | 300 minutes |
+| 18 to 23 | kde-full | the same six | 300 minutes |
+| 24 to 29 | gnome-full | the same six | 300 minutes |
+| 30 to 35 | idempotency | the same six | 300 minutes, for two passes |
+| 36 to 41 | live-profile | the same six | 120 minutes |
+| 42 to 47 | kde-configure-only | the same six | 90 minutes |
+| 48 to 53 | forced-failure | the same six | 90 minutes |
 
 Stage 3, the short real installs on the other two platforms. Seven jobs, each a real wizard run on a
 real machine, each ending in verification. The stage took 78, 95 and 123 minutes across the three full
@@ -376,15 +377,15 @@ its own cap of five concurrent macOS jobs.
 
 | Order | Job | Runner | Selection |
 |---|---|---|---|
-| 46 | macOS defaults | macos-26 | the toggles as they ship |
-| 47 | macOS everything | macos-26 | every selectable toggle on |
-| 48 | macOS from nothing | macos-26 | every toggle off, then a handful enabled by name |
-| 49 | Windows defaults | windows-latest | the toggles as they ship |
-| 50 | Windows everything | windows-latest | every selectable toggle on |
-| 51 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
-| 52 | Windows settings only | windows-latest | the three native system settings, no software |
+| 54 | macOS default apps | macos-26 | the toggles as they ship |
+| 55 | macOS all apps | macos-26 | every selectable toggle on |
+| 56 | macOS four apps only | macos-26 | every toggle off, then four enabled by name |
+| 57 | Windows default apps | windows-latest | the toggles as they ship |
+| 58 | Windows all apps | windows-latest | every selectable toggle on |
+| 59 | Windows four apps only | windows-latest | every toggle off, then four enabled by name |
+| 60 | Windows settings only | windows-latest | the three native system settings, no software |
 
-Fifty-two jobs in total. Those ceilings are timeouts rather than measurements. Three full sweeps have
+Sixty jobs in total, beside the Gate image job and the two jobs that only decide, Gate: checks passed and Verdict: Linux installs. Those ceilings are timeouts rather than measurements. Three full sweeps have
 run on GitHub runners, and the measured time of every cell, with its average, fastest and slowest,
 is in [run_durations.md](run_durations.md).
 
