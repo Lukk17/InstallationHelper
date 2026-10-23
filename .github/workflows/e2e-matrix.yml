@@ -16,8 +16,12 @@
 # matrix into a single node reading "Matrix: stage2_sweep, 1/48 job completed", which names neither
 # the distribution nor the scenario, so nobody can see what failed without opening the run.
 #
+# Before stage 1, "Gate image" builds the gate image once for the run (e2e-gate-image.yml), and the
+# tier 1 job and every stage 2 cell load it instead of building their own (owner decision 90).
+#
 # Stage 1, static and parse only, five jobs, nothing installed anywhere:
-#   Tier 1 checks          ubuntu-latest   the whole static gate, every check
+#   Tier 1 checks          ubuntu-latest   the whole static gate, every check, then the one tier 2
+#                                          check that runs only on a GitHub-hosted runner
 #   Windows unit tests     windows-latest  the Pester suite over the Windows installer logic
 #   Linux wizard plan      ubuntu-latest   setup.sh --print-command
 #   macOS wizard plan      macos-26        setup.sh --print-command, Darwin toggles
@@ -252,6 +256,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The gate image, built once for the whole run and handed to every job that runs e2e/run.sh as an
+  # artifact, owner decision 90: the tier 1 job below and every stage 2 cell load it instead of
+  # building their own. It runs whenever stage 1 or stage 2 does, because stage 2 needs it even when
+  # stage 1 is bypassed. The stage 1 gate below refuses stage 2 when it did not succeed.
+  gate_image:
+    name: "Gate image"
+    if: contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+    uses: ./.github/workflows/e2e-gate-image.yml
+
   # ===========================================================================================
   # STAGE 1 - static and parse only. Nothing here installs anything. Five jobs, matching
   # e2e/README_E2E.md's stage 1 table in order.
@@ -261,20 +274,32 @@ jobs:
   # container from e2e/gate/Dockerfile and runs every check inside it, exactly as it does on a
   # developer machine, so the runner needs Docker and nothing else: no ansible-core, collections,
   # ShellCheck or PowerShell are installed on it.
+  #
+  # It also runs the one tier 2 check that may run only on a GitHub-hosted runner, owner decision 91:
+  # e2e/tier2/rpm_file_conflicts.sh downloads about two dozen Fedora packages, which filled the disk of
+  # the owner's computer, and anywhere but here it reports SKIP.
   stage1_tier1_gate:
     name: "Tier 1 checks"
+    needs: gate_image
     if: inputs.start_from_stage == 'stage-1'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/load-gate-image
+
       - name: Run the tier 1 gate
         run: |
           set -euo pipefail
           bash e2e/run.sh
+
+      - name: Look for a file two packages of the default Fedora set both claim
+        run: |
+          set -euo pipefail
+          bash e2e/run.sh --tier 2 --only rpm_file_conflicts
 
   # 2. The Pester suite over the Windows installer's own logic. Run directly on the runner,
   # excluding the one Describe block tagged Slow and Network (the Chocolatey bootstrap, which
@@ -404,7 +429,7 @@ jobs:
   # 1 failure, sets ok=false and stage 2 stays off.
   stage1_gate:
     name: "Gate: checks passed"
-    needs: [stage1_tier1_gate, stage1_windows_pester, stage1_linux_wizard_plan, stage1_macos_wizard_plan, stage1_windows_wizard_plan]
+    needs: [gate_image, stage1_tier1_gate, stage1_windows_pester, stage1_linux_wizard_plan, stage1_macos_wizard_plan, stage1_windows_wizard_plan]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -427,10 +452,21 @@ jobs:
           R3: ${{ needs.stage1_linux_wizard_plan.result }}
           R4: ${{ needs.stage1_macos_wizard_plan.result }}
           R5: ${{ needs.stage1_windows_wizard_plan.result }}
+          R6: ${{ needs.gate_image.result }}
         run: |
           set -euo pipefail
+          if [[ "${START_FROM}" == "stage-3" ]]; then
+            echo "Stage 1 and stage 2 intentionally bypassed by start_from_stage=${START_FROM}."
+            echo "ok=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if [[ "${R6}" != "success" ]]; then
+            echo "The gate image every stage 2 cell loads was not built, found a job result of '${R6}'."
+            echo "ok=false" >> "${GITHUB_OUTPUT}"
+            exit 1
+          fi
           if [[ "${START_FROM}" != "stage-1" ]]; then
-            echo "Stage 1 intentionally bypassed by start_from_stage=${START_FROM}."
+            echo "Stage 1 intentionally bypassed by start_from_stage=${START_FROM}, and the gate image was built."
             echo "ok=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi

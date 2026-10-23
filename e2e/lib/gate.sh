@@ -40,8 +40,20 @@ EOF
 }
 
 # gate_build <repository root>  ->  builds the gate image, quietly when nothing changed
+#
+# A workflow that built the image once and loaded it on this runner says so with
+# E2E_GATE_IMAGE_PRELOADED=1 (owner decision 90), and then the loaded image is used and nothing is
+# built. With the variable set and no such image here, it refuses rather than building a second one.
 gate_build() {
     local repo_root="$1" log
+    if [[ "${E2E_GATE_IMAGE_PRELOADED:-}" == 1 ]]; then
+        if docker image inspect "${E2E_GATE_IMAGE}" >/dev/null 2>&1; then
+            info_line "using the gate image ${E2E_GATE_IMAGE} this workflow built once and loaded here, nothing is built"
+            return 0
+        fi
+        echo "ERROR: E2E_GATE_IMAGE_PRELOADED=1 says the gate image was loaded, but ${E2E_GATE_IMAGE} is not on this machine, so nothing was run" >&2
+        exit 2
+    fi
     log="$(mktemp)"
     info_line "building the gate image ${E2E_GATE_IMAGE} from e2e/gate/Dockerfile (minutes the first time, cached after)"
     if ! docker build --progress=plain \

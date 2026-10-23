@@ -1,0 +1,23 @@
+# Loads the gate image .github/workflows/e2e-gate-image.yml built once for this workflow run, and tells
+# e2e/lib/gate.sh to use it rather than build one, owner decision 90. Run it after any step that prunes
+# images, because a prune would remove what it loaded.
+name: Load the e2e gate image
+description: Download the gate image this run built once, load it, and make gate_build use it
+
+runs:
+  using: composite
+  steps:
+    - name: Download the gate image
+      uses: actions/download-artifact@v4
+      with:
+        name: e2e-gate-image
+        path: ${{ runner.temp }}/e2e-gate-image
+
+    - name: Load the gate image and tell gate_build to use it
+      shell: bash
+      run: |
+        set -euo pipefail
+        gunzip -c "${RUNNER_TEMP}/e2e-gate-image/e2e-gate-image.tar.gz" | docker load
+        rm -rf "${RUNNER_TEMP}/e2e-gate-image"
+        docker image inspect installationhelper-e2e-gate:latest --format 'loaded {{.Id}}'
+        echo "E2E_GATE_IMAGE_PRELOADED=1" >> "${GITHUB_ENV}"

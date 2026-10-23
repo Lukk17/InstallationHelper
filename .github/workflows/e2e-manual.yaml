@@ -285,8 +285,16 @@ jobs:
   # scenario file generated from this dispatch's own inputs so it can exercise an arbitrary
   # toggle selection, not just the eight scenarios checked into e2e/tier3/scenarios/.
   # -----------------------------------------------------------------------
-  linux-e2e:
+  # The gate image, built by the same reusable workflow the sweep calls and loaded by linux-e2e below
+  # rather than built there, owner decision 90, so both workflows run e2e/run.sh on an image made
+  # the same way.
+  gate-image:
     needs: plan
+    if: needs.plan.outputs.run_linux == 'true'
+    uses: ./.github/workflows/e2e-gate-image.yml
+
+  linux-e2e:
+    needs: [plan, gate-image]
     if: needs.plan.outputs.run_linux == 'true'
     runs-on: ubuntu-latest
     # The slowest shipped tier-3 scenarios (all-software, kde-full, gnome-full and idempotency)
@@ -327,6 +335,9 @@ jobs:
 
           echo "Disk space after cleanup:"
           df -h /
+
+      # After the cleanup, because its image prune would remove what this loads.
+      - uses: ./.github/actions/load-gate-image
 
       # Ubuntu's AppArmor profile for unix_chkpwd withholds a capability that PAM needs, and a
       # container process is confined by it because AppArmor attaches profiles by binary path, so

@@ -1,0 +1,48 @@
+# Builds the e2e gate image once per workflow run and hands it to every job that needs it as an artifact,
+# owner decision 90. e2e-matrix.yml and e2e-manual.yaml both call it, and every job that runs e2e/run.sh
+# then loads the image through .github/actions/load-gate-image instead of building its own, so one
+# download failure while provisioning the image fails this one job, named, rather than any of the cells.
+#
+# The image is built by e2e/lib/gate.sh's own gate_build, the function a developer's run uses, so the
+# build arguments cannot drift. Every job of one run is on the same runner image under the same user, so
+# the GATE_UID and GATE_GID baked in here are the ones each consumer has.
+#
+# Call-only, like e2e-linux-cell.yml: it starts only when one of the two dispatch workflows calls it.
+
+name: E2E gate image
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the gate image with the harness's own gate_build
+        run: |
+          set -euo pipefail
+          bash -c 'source e2e/lib/gate.sh && gate_build "${PWD}"'
+          docker image inspect installationhelper-e2e-gate:latest --format 'built {{.Id}}, {{.Size}} bytes'
+
+      - name: Save the gate image
+        run: |
+          set -euo pipefail
+          docker save installationhelper-e2e-gate:latest | gzip -1 > "${RUNNER_TEMP}/e2e-gate-image.tar.gz"
+          ls -l "${RUNNER_TEMP}/e2e-gate-image.tar.gz"
+
+      - name: Upload the gate image
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-gate-image
+          path: ${{ runner.temp }}/e2e-gate-image.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 1
