@@ -249,7 +249,7 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | Doc | What's in it |
 |---|---|
 | [proxmox_host_install.md](proxmox_host_install.md) | Installing Proxmox on the mini PC, updating it, node shell, backup retention |
-| [proxmox_docker_vm.md](proxmox_docker_vm.md) | Creating the Ubuntu VM, installing Docker Engine, freeing port 53 |
+| [proxmox_docker_vm.md](proxmox_docker_vm.md) | Creating the Ubuntu VM, installing Docker Engine, freeing port 53, growing its disk |
 | [home_assistant_vm.md](home_assistant_vm.md) | Building the Home Assistant OS VM with `qm`, and Zigbee USB passthrough |
 | [home_assistant_backup.md](home_assistant_backup.md) | Home Assistant's own backups, the encryption key, and restoring |
 | [adguard_dns.md](adguard_dns.md) | AdGuard first run, the `.internal` wildcard rewrite, upstream resolvers, rate limit, blocklists, router DNS cutover |
@@ -263,3 +263,4 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [plex_media_server.md](plex_media_server.md) | Plex with host networking, the CPU cap, the transcoding settings, and which file formats to store |
 | [ascend_web_search.md](ascend_web_search.md) | AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
 | [backup_restore.md](backup_restore.md) | Backing up the VMs and the service data, and restoring both |
+| [agent_access.md](agent_access.md) | Access for an AI agent without a password: a Proxmox API token, read only or able to change virtual machines, an SSH key for the Docker VM, the Syncthing API key, and how to revoke each |

@@ -18,6 +18,8 @@ The Proxmox host has to exist first. If you have not built it yet, do [proxmox_h
 | `<proxmox-host>` | Address of the Proxmox node, the machine you open on port 8006 |
 | `<docker-vm-ip>` | Address the VM gets from your router once it boots |
 | `<user>` | Login you create during the Ubuntu install |
+| `<vmid>` | The VM ID Proxmox assigns in the General tab of Create VM |
+| `<size>` | How many GiB to add to the VM disk, a whole number |
 
 Concrete example, the lab these documents were written from:
 
@@ -99,6 +101,24 @@ sudo apt install -y qemu-guest-agent
 
 ```bash
 sudo systemctl enable --now qemu-guest-agent
+```
+
+---
+
+### Give the root volume the whole disk
+
+The Ubuntu Server installer puts the system on LVM and, by default, gives the root logical volume only part of the volume group. On this lab it gave `ubuntu-lv` 44 GiB of an 88 GiB partition, and the other half sat unused until the disk filled, see [Grow the Docker VM disk](#grow-the-docker-vm-disk).
+
+Either change the size in the installer's storage screen, by editing `ubuntu-lv` and setting it to the largest size offered, or give it the rest of the volume group right after the first login:
+
+```bash
+sudo lvextend -r -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
+```
+
+`-l +100%FREE` adds every free extent of `ubuntu-vg`, and `-r` grows the file system in the same step. Check that the size of `/` now matches the partition:
+
+```bash
+df -h /
 ```
 
 ---
@@ -236,6 +256,110 @@ Empty output means the port is free. If something still holds it, find out what 
 Masking `systemd-resolved` outright is the heavier alternative. It also frees the port, and the static
 `/etc/resolv.conf` above keeps name resolution working, but it removes the resolver from the system entirely rather
 than just moving it off the port.
+
+---
+
+### Grow the Docker VM disk
+
+Growing the disk takes two halves. Proxmox makes the virtual disk bigger, and then Ubuntu has to grow the partition, the LVM physical volume, the root logical volume and the file system on it, in that order. A reboot alone does not grow the partition or the file system. The Proxmox side is covered in more depth by the [proxmox skill](https://github.com/Lukk17/agent-standards/blob/master/.agents/skills/proxmox/SKILL.md).
+
+In the Proxmox web interface, select the VM, open Hardware, select Hard Disk (scsi0), click Disk Action, then Resize, and enter the number of GiB to add. The same thing from the shell of the Proxmox host:
+
+```bash
+qm disk resize <vmid> scsi0 +<size>G
+```
+
+Concrete example, the lab these documents were written from. The Docker VM there is ID 101, named `docker-vm`, on the Proxmox node `proxmox`, running Proxmox VE 8.3.2. Adding 50 GiB to it:
+
+```bash
+qm disk resize 101 scsi0 +50G
+```
+
+The disk can only grow. Proxmox cannot shrink it again, so add only what you need.
+
+Do the rest inside the VM over SSH rather than in the Proxmox console, because the console has no copy and paste and the commands below are long. Unix shell:
+
+```bash
+ssh <user>@<docker-vm-ip>
+```
+
+PowerShell:
+
+```powershell
+ssh <user>@<docker-vm-ip>
+```
+
+Look at the disks first:
+
+```bash
+lsblk
+```
+
+The commands below assume the system disk is `sda`, the one that holds `sda3` and `ubuntu--vg-ubuntu--lv`. The USB data disk from [lan_storage.md](lan_storage.md) is usually `sdb`. If the names are the other way round on your VM, use the system disk's name in every command.
+
+If `sda` still shows the old size, tell the kernel to read it again:
+
+```bash
+echo 1 | sudo tee /sys/class/block/sda/device/rescan
+```
+
+Grow partition 3 into the new space:
+
+```bash
+sudo growpart /dev/sda 3
+```
+
+Tell LVM the physical volume on it is bigger:
+
+```bash
+sudo pvresize /dev/sda3
+```
+
+Give the root logical volume all the free space in the volume group, and grow its file system in the same step:
+
+```bash
+sudo lvextend -r -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
+```
+
+Check the result:
+
+```bash
+df -h /
+```
+
+#### When the disk is already full
+
+If the root file system is completely full, `pvresize` fails, because LVM first writes a backup of its metadata under `/etc/lvm` and has no room for it. Measured on this lab on 2026-10-23, the output was:
+
+```text
+/etc/lvm/archive/...: write error failed: No space left on device
+Failed to store physical volume "/dev/sda3" in volume group "ubuntu-vg"
+```
+
+Free a little space first and run `pvresize` again. These two commands freed about 64 MB on this lab, which was enough:
+
+```bash
+sudo apt clean
+```
+
+```bash
+sudo journalctl --vacuum-size=100M
+```
+
+If nothing can be freed, skip the metadata backup for this one run:
+
+```bash
+sudo pvresize --config 'backup { backup = 0 archive = 0 }' /dev/sda3
+```
+
+#### What a full disk did on this lab
+
+The root logical volume had been left at the installer's 44 GiB while `sda3` was 88 GiB, which `lsblk` showed as `sda3 88G` and `ubuntu--vg-ubuntu--lv 44G`. When the 44 GiB filled, at 2026-10-22 23:58:
+
+1. Syncthing stopped both folders with `insufficient space on disk for database (/config/index-v2): current 0.00 % < required 1 %`, and failed to save its configuration with `no space left on device`. See [syncthing.md](syncthing.md).
+2. Telegraf could not write its rows for [network_watch.md](network_watch.md), so the rows from that time are lost.
+
+After the disk was grown and the steps above were run, the root volume was 138 GiB and `df -h /` showed a size of 136G, 43G used and 87G free. What filled the 43 GB has not been measured yet. Nothing in this lab warns before the root file system fills, so look at `df -h /` whenever you are on the VM. To avoid the trap on a new VM, see [Give the root volume the whole disk](#give-the-root-volume-the-whole-disk).
 
 ---
 
