@@ -84,7 +84,7 @@ RUN . /etc/os-release \
         "UBUNTU_CODENAME=${UBUNTU_CODENAME}" \
         'LOGO=distributor-logo-pop-os' \
         > /etc/pop-os/os-release \
-    && cp /etc/pop-os/os-release /etc/os-release
+    && { [ /etc/os-release -ef /etc/pop-os/os-release ] || cp /etc/pop-os/os-release /etc/os-release; }
 
 # /etc/lsb-release matters as much as /etc/os-release here, and getting this wrong made the first
 # version of this image test the easy case instead of the hard one.
@@ -109,7 +109,7 @@ RUN . /etc/os-release \
         "DISTRIB_CODENAME=${UBUNTU_CODENAME}" \
         "DISTRIB_DESCRIPTION=\"${PRETTY_NAME}\"" \
         > /etc/pop-os/lsb-release \
-    && cp /etc/pop-os/lsb-release /etc/lsb-release
+    && { [ /etc/lsb-release -ef /etc/pop-os/lsb-release ] || cp /etc/pop-os/lsb-release /etc/lsb-release; }
 
 # Asserted at build time rather than discovered during a run, and the second assertion is the one
 # that matters. If the identity did not take, this image is Ubuntu wearing a different tag and every

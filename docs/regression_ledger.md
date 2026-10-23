@@ -6960,3 +6960,19 @@ How it was proven: `lsblk` and `df -h /` output on the Docker VM on 2026-10-23, 
 Fix: [proxmox_docker_vm.md](../homelab/proxmox_docker_vm.md). The section "Give the root volume the whole disk" tells a new VM to give `ubuntu-lv` the whole volume group in the installer or right after it, and the section "Grow the Docker VM disk" gives the Proxmox resize, the growpart, pvresize and lvextend steps inside the VM, the full-disk trap with its measured way out, and the `--config 'backup { backup = 0 archive = 0 }'` fallback.
 
 Mechanical check: none. The homelab has no automated checks, and nothing on the VM warns before the root file system fills.
+
+### Found by GitHub sweep run 39931619762, 2026-10-23
+
+#### 10.165 The Pop!_OS image copied its release files onto themselves, because the dist-upgrade of 10.163 made them links
+
+Introduced by an agent in 64812ac, the fix of 10.163.
+
+Cause: the dist-upgrade that 64812ac added to e2e/tier3/popos.Dockerfile installs pop-default-settings, whose postinst diverts /etc/os-release and /etc/lsb-release and leaves them as links to pop-os/os-release and pop-os/lsb-release, so the later `cp /etc/pop-os/os-release /etc/os-release` copied a file onto itself.
+
+Effect: every Pop!_OS cell of sweep 39931619762 failed before a task ran, with `process "/bin/sh -c . /etc/os-release && install -d /etc/pop-os ... > /etc/pop-os/os-release && cp /etc/pop-os/os-release /etc/os-release" did not complete successfully: exit code: 1`. The line that names the cause, `cp: '/etc/pop-os/os-release' and '/etc/os-release' are the same file`, never reached the log: e2e/tier3/container.sh built with `docker build -q`, which keeps no step output at all, and printed `tail -20` of what was left, which was the Dockerfile excerpt and the final ERROR line.
+
+How it was proven: on 2026-10-23 a plain local build of the unchanged e2e/tier3/popos.Dockerfile over a fresh installationhelper-e2e-ubuntu failed at step 3/6 with exactly that `cp` line, after the dist-upgrade had logged `Adding 'diversion of /etc/os-release to /etc/os-release.diverted by pop-default-settings'`. The same build with `-q` produced 24 lines and no `cp` line. With the fix the build exited 0, and `docker run --rm` on the image showed `/etc/os-release -> pop-os/os-release` and `/etc/lsb-release -> pop-os/lsb-release`, with `NAME="Pop!_OS"`, `ID=pop`, `VERSION_ID="26.04"` and `DISTRIB_ID=Pop`.
+
+Fix: e2e/tier3/popos.Dockerfile copies each file only when the two paths are not already the same file, `[ /etc/os-release -ef /etc/pop-os/os-release ] || cp ...`, so Pop's own links stay. e2e/tier3/container.sh builds with `--progress=plain` and, on the final failure, prints the ERROR lines and the failing step's output block before the `tail -20`. Run against the saved log of the failing build, that printed the `cp` line.
+
+Mechanical check: none beyond the build itself, which now fails with its cause on the terminal.

@@ -519,9 +519,11 @@ start_run() {
     # buried by a retry loop is worse than the flake it was hiding.
     build_attempt=1
     build_log="$(mktemp)"
-    until docker build -q -f "$(host_path "${DOCKERFILE}")" -t "${IMAGE}" "$(host_path "${TIER3_DIR}")" >"${build_log}" 2>&1; do
+    until docker build --progress=plain -f "$(host_path "${DOCKERFILE}")" -t "${IMAGE}" "$(host_path "${TIER3_DIR}")" >"${build_log}" 2>&1; do
         if [[ "${build_attempt}" -ge 3 ]]; then
             warn "the ${OS} image failed to build three times, the last attempt said:"
+            grep -E '^(#[0-9]+ )?ERROR' "${build_log}" | sed 's/^/       /' || true
+            awk '/^ > \[/ { show = 1 } show && /^-+$/ { exit } show' "${build_log}" | sed 's/^/       /'
             tail -20 "${build_log}" | sed 's/^/       /'
             rm -f "${build_log}"
             return 1
