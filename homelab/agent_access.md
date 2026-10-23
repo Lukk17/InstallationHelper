@@ -1,6 +1,6 @@
 # Agent access
 
-> How an AI agent reaches this lab without a password: one Proxmox API token, one SSH key for the Docker VM and one Syncthing API key, kept in a file on your own machine that only you can read.
+> How an AI agent reaches this lab without a password: one Proxmox API token, one SSH key for the Docker VM and the router, one Syncthing API key and one Uptime Kuma API key, kept in a file on your own machine that only you can read.
 
 ---
 
@@ -14,7 +14,7 @@ Those credentials are also safer to hand over than a password. Each one belongs 
 
 ### What each credential allows
 
-The Proxmox token this lab uses is an admin token. It can create, change and delete virtual machines and storage content, manage storages and SDN, create users and groups but not grant permissions, and download ISO files. Two narrower tokens are described further down as alternatives. The other two credentials always give more than read access.
+The Proxmox token this lab uses is an admin token. It can create, change and delete virtual machines and storage content, manage storages and SDN, create users and groups but not grant permissions, and download ISO files. Two narrower tokens are described further down as alternatives. The SSH key and the Syncthing key always give more than read access. The Uptime Kuma key is the one credential here that can only read.
 
 So one rule covers every credential here: the agent reads freely, asks you before any change, and waits for your yes. Before every delete it asks again, one virtual machine per yes. With the admin token, the SSH key and the Syncthing key, the rule is all that stops a change, because the credential does not.
 
@@ -23,8 +23,10 @@ So one rule covers every credential here: the agent reads freely, asks you befor
 | `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, admin token | Proxmox API token of a user with `PVEAdmin` on `/`, and `PVEAdmin` with `AgentDownload` on the node | Everything the sentence above lists. Not the host's system settings, not rebooting the host, not permissions. What the token holds was measured and is listed under the admin token below |
 | `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, read only alternative | Proxmox API token with the `PVEAuditor` role | Reading nodes, virtual machines, storage and tasks. Proxmox refuses every change |
 | `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, edit alternative | Proxmox API token of a user with `PVEAuditor` on `/`, `PVEVMAdmin` on `/vms` and `PVEDatastoreUser` on `/storage` | Reading everything the read only alternative reads, plus every `VM.*` privilege on every virtual machine, and using space on storage. What the token can do was measured and is listed under the edit alternative below |
-| `DOCKER_VM_SSH` | SSH key for your login on the Docker VM | Everything your login can do. Your login is in the `docker` group from [proxmox_docker_vm.md](proxmox_docker_vm.md), which is the same as root on that VM |
+| `DOCKER_VM_SSH`, `HOMELAB_SSH_KEY` | SSH key for your login on the Docker VM | Everything your login can do. Your login is in the `docker` group from [proxmox_docker_vm.md](proxmox_docker_vm.md), which is the same as root on that VM |
+| `ASUS_ROUTER_SSH`, `ASUS_ROUTER_SSH_PORT`, `HOMELAB_SSH_KEY` | The same SSH key, for the router's administrator login | A shell as the router's administrator: every setting, the firewall and a reboot |
 | `SYNCTHING_SERVER_API_KEY` | Syncthing API key | The whole Syncthing REST API, including changing folders and devices |
+| `UPTIME_KUMA_API_KEY` | Uptime Kuma API key | Reading the `/metrics` page and nothing else. It cannot open the web page and cannot change a monitor |
 
 The generic skills tell an agent how to use these keys and which calls only read. Read them for the details instead of a copy here:
 
@@ -40,6 +42,9 @@ The generic skills tell an agent how to use these keys and which calls only read
 | `<proxmox-host>` | The Proxmox machine, reached on port 8006 |
 | `<node>` | The Proxmox node name, shown under Datacenter in the web page |
 | `<docker-vm-ip>` | The Ubuntu virtual machine running the Compose stack |
+| `<router-ip>` | The router's address on your own network |
+| `<router-admin-user>` | The user name you log in to the router's web page with |
+| `<ssh-port>` | The port you choose for SSH on the router |
 | `<your-user>` | Your login on the Docker VM, the one called `<user>` in [proxmox_docker_vm.md](proxmox_docker_vm.md) |
 | `<user@realm!token-name>` | The full name of the Proxmox API token, printed when you create it |
 | `<token secret>` | The secret of that token, printed once when you create it |
@@ -50,6 +55,7 @@ Concrete example, the lab these documents were written from:
 <proxmox-host>   192.168.1.10
 <node>           proxmox
 <docker-vm-ip>   192.168.1.12
+<router-ip>      192.168.1.1
 ```
 
 ---
@@ -104,12 +110,15 @@ Check the mode on a Unix machine. The line must start with `-rw-------`:
 ls -l ~/.local/state/agents/workspace/homelab.env
 ```
 
-Then fill the keys as the sections below describe. For this lab the three values that are not secret are:
+Then fill the keys as the sections below describe. For this lab the values that are not secret are:
 
 ```text
 PROXMOX_URL=https://192.168.1.10:8006
 DOCKER_VM_SSH=<your-user>@192.168.1.12
 SYNCTHING_SERVER_URL=http://192.168.1.12:7780
+HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519
+ASUS_ROUTER_SSH=<router-admin-user>@192.168.1.1
+UPTIME_KUMA_URL=http://192.168.1.12:7779
 ```
 
 ---
@@ -426,9 +435,9 @@ An agent cannot type a key passphrase either. Either leave the passphrase empty,
     ssh -o BatchMode=yes -i "$HOME\.ssh\homelab_agent_ed25519" <your-user>@<docker-vm-ip> docker ps
     ```
 
-The agent connects the same way, with `-i ~/.ssh/homelab_agent_ed25519` and the value of `DOCKER_VM_SSH`.
+The agent connects the same way, with `-i` and the value of `HOMELAB_SSH_KEY`, and the value of `DOCKER_VM_SSH`.
 
-Revoke the key on the Docker VM. This removes every line that ends with the `homelab-agent` comment from step 1:
+The same key opens the router too, as [ASUS_ROUTER_SSH](#asus_router_ssh) describes. To take it back from both, remove it on the router as that section says, then here. Revoke the key on the Docker VM. This removes every line that ends with the `homelab-agent` comment from step 1:
 
 ```bash
 sed -i '/ homelab-agent$/d' ~/.ssh/authorized_keys
@@ -481,6 +490,118 @@ Revoke the key in the same place: press Generate next to the API Key field, then
 
 ---
 
+### HOMELAB_SSH_KEY
+
+The path of the private key the agent uses, `~/.ssh/homelab_agent_ed25519`. It is the key that [DOCKER_VM_SSH](#docker_vm_ssh) creates, and the same key opens the router. One key for both means one file to protect and one key to take back, and the agent passes it with `-i` to every `ssh` it runs here.
+
+Create it with step 1 of [DOCKER_VM_SSH](#docker_vm_ssh), and give it to the Docker VM with step 2 there and to the router as [ASUS_ROUTER_SSH](#asus_router_ssh) says. Both sections test it.
+
+Check that the file is there and that only you can read it. The line must start with `-rw-------`:
+
+```bash
+ls -l ~/.ssh/homelab_agent_ed25519
+```
+
+Revoke it by removing the public key on the router and on the Docker VM, as those two sections say, then deleting both key files, the last step of [DOCKER_VM_SSH](#docker_vm_ssh). Deleting only the files on your machine does not revoke anything, because a copy elsewhere would still be accepted.
+
+---
+
+### ASUS_ROUTER_SSH
+
+The value is `<router-admin-user>@<router-ip>`, the user name of the router's web page at the router's address. SSH on an Asus router logs in with that same administrator account, and the router accepts the key from [HOMELAB_SSH_KEY](#homelab_ssh_key) once you paste its public half into the router's settings.
+
+What the agent may do there: read. That means the system log, which the router keeps in `/tmp/syslog.log`, or in `/jffs/syslog.log` when it keeps the log across restarts, and the state commands that only print, such as `uptime`, `ifconfig` and `nvram get <name>`. It asks you before any change, which on this router is anything that writes: `nvram set` and `nvram commit`, `service restart_<name>`, editing a file under `/jffs`, and `reboot`.
+
+On this lab, measured on 2026-10-23, the router's web page answered and TCP port 22 refused the connection, so SSH was off and has to be turned on first.
+
+Turn it on in the router's web page, where the field names below are the ones ASUS firmware shows:
+
+1. Open `http://<router-ip>` and log in.
+2. Choose Administration, then the System tab, and scroll to the Service section.
+3. Set Enable SSH to LAN only. Never LAN & WAN, which opens the shell to the internet.
+4. Set SSH Port to the port you chose, `<ssh-port>`, and put the same number into `ASUS_ROUTER_SSH_PORT`.
+5. Set Allow Password Login to No, so the router accepts only a key.
+6. Paste the whole public key into Authorized Keys, the one line from this file. Unix shell:
+
+    ```bash
+    cat ~/.ssh/homelab_agent_ed25519.pub
+    ```
+
+    PowerShell:
+
+    ```powershell
+    Get-Content "$HOME\.ssh\homelab_agent_ed25519.pub"
+    ```
+
+7. Press Apply.
+
+Sources for those names, checked on 2026-10-23: the ASUS FAQ [How to log in ASUS router via Telnet](https://www.asus.com/support/faq/1048201/), last updated 2025/04/30, says "Find [Service]>[Enable SSH]. Click the dropdown list and choose [LAN only] or [LAN & WAN]" under Administration, then System. The SSH Port, Allow Password Login and Authorized Keys labels come from the System page of the Asuswrt-Merlin source, [Advanced_System_Content.asp](https://github.com/RMerl/asuswrt-merlin.ng/blob/master/release/src/router/www/Advanced_System_Content.asp) and its English labels in `EN.dict`, at the commit of 2026-10-17 that merged the ASUS GPL release 3006.102_40585, which is the page the stock firmware ships. Those were read in the source, not on this router's own screen.
+
+Check that the key works with no password. `BatchMode=yes` makes `ssh` fail instead of asking for one. Unix shell:
+
+```bash
+ssh -o BatchMode=yes -i ~/.ssh/homelab_agent_ed25519 -p <ssh-port> <router-admin-user>@<router-ip> uptime
+```
+
+PowerShell:
+
+```powershell
+ssh -o BatchMode=yes -i "$HOME\.ssh\homelab_agent_ed25519" -p <ssh-port> <router-admin-user>@<router-ip> uptime
+```
+
+A line with the router's uptime means the key works. `Permission denied (publickey)` means the router refused the key. The Asuswrt-Merlin wiki names RSA and ECDSA keys, and the Dropbear in the Asuswrt-Merlin source, 2026.94, also takes ed25519, but which Dropbear the stock firmware on this router carries was not checked. If it refuses the ed25519 key, create an ECDSA key for the router alone with `ssh-keygen -t ecdsa`, paste that one instead, and the router then needs its own key path rather than `HOMELAB_SSH_KEY`.
+
+Revoke it in the same place: delete the key's line from Authorized Keys and press Apply. To close the shell completely, set Enable SSH to No and press Apply.
+
+---
+
+### ASUS_ROUTER_SSH_PORT
+
+The port you set in SSH Port in step 4 above. The agent passes it with `-p`, as the test above does. A port other than 22 keeps the noise of scans that try 22 out of the router's log, though with SSH on the LAN only and password login off, the key is what protects it, not the port.
+
+---
+
+### UPTIME_KUMA_URL
+
+The Uptime Kuma web page on the Docker VM, `http://<docker-vm-ip>:7779`. Port 7779 on the VM leads to port 3001 inside the container, as [uptime_kuma.md](uptime_kuma.md) describes. Use the VM address and not `http://uptime.internal`, so the agent still reaches Uptime Kuma when AdGuard Home or Nginx Proxy Manager is down, which is exactly when it is most useful.
+
+---
+
+### UPTIME_KUMA_API_KEY
+
+An API key in Uptime Kuma opens one thing, the `/metrics` page, which lists every monitor with its name, its address, its status, its response time and the days left on its certificate, in the Prometheus text format. The key cannot open the web page and cannot add, change, pause or delete a monitor, because those go through the logged in web page and not through the key. So this is the one credential here that cannot change anything.
+
+Checked on 2026-10-23 in the source of Uptime Kuma 2.5.5, the version [compose.yaml](compose.yaml) runs, and in its wiki page [Prometheus API Keys](https://github.com/louislam/uptime-kuma/wiki/Prometheus-API-Keys), last changed 2026-10-11:
+
+1. `server/server.js` puts the key check on one route only, `app.get("/metrics", apiAuth, prometheusAPIMetrics())`.
+2. `server/auth.js` reads the key as the password of HTTP basic authentication and ignores the user name, and allows 60 key requests a minute.
+3. The wiki says "As soon as you add your first API key, the use of basic authentication for the endpoint will be permanently disabled", meaning your own user name and password stop working on `/metrics` from then on, and "The API key cannot be used to access the web interface".
+
+Create it:
+
+1. Open `http://<docker-vm-ip>:7779` and log in.
+2. Choose Settings, then API Keys, then Add API Key.
+3. Give it a name, such as `agent`, and either an Expiry date or Don't expire.
+4. Press Generate. The key starts with `uk` and Uptime Kuma shows it only this once, so copy it into `UPTIME_KUMA_API_KEY` now.
+
+Test it from your own machine. The colon before the key is an empty user name. Unix shell:
+
+```bash
+curl -u ":<key>" http://<docker-vm-ip>:7779/metrics
+```
+
+PowerShell:
+
+```powershell
+curl.exe -u ":<key>" http://<docker-vm-ip>:7779/metrics
+```
+
+Lines starting with `monitor_status` mean the key works. A `401` answer means it does not.
+
+Revoke it on the same page, Settings, then API Keys: Disable stops the key until you Enable it again, and Delete removes it for good.
+
+---
+
 ### When a credential may have leaked
 
-Revoke it first. Each section above ends with its revoke step, and none of them needs the other two credentials changed. Then create a new one with the same steps and put it into `~/.local/state/agents/workspace/homelab.env`.
+Revoke it first. Each section above ends with its revoke step, and none of them needs another credential changed. Then create a new one with the same steps and put it into `~/.local/state/agents/workspace/homelab.env`.
