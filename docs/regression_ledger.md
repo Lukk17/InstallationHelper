@@ -7317,3 +7317,17 @@ Fix: [docs/MCP_SETUP.md](MCP_SETUP.md) reads the token with `printf 'Token: '; r
 Not changed, found while measuring the keytool step: in Java 21 `keytool -importkeystore -destkeystore keystore.jks` writes a PKCS12 file, `keytool -list` said "Keystore type: PKCS12", while the page says Keycloak reads a JKS keystore. Whether Keycloak needs `-deststoretype JKS` was not measured. Not changed either: the `client_secret` and passwords in the local development Keycloak, Floci and keytool `changeit` commands under `local-dev/`, which are fixed development values committed in this repository and not secrets of any machine, and the File Browser step in [homelab/lan_storage.md](../homelab/lan_storage.md) that prints the generated first password, which a person must read once to log in and then replaces.
 
 Mechanical check: none, for the reason in 10.184. A check cannot tell a secret from any other value on a command line without guessing from a placeholder's name.
+
+### Found when the AdGuard query log interval was lowered on the lab, 2026-10-23
+
+#### 10.189 The AdGuard page said a shorter query log interval deletes nothing at once, and the lab lost its DNS history from before 2026-09-13
+
+Cause: "Keep 30 days of query log" in [homelab/adguard_dns.md](../homelab/adguard_dns.md) described what a shorter interval does from reasoning about the rotation, not from a measurement. It said the age check runs once an hour and that "The shorter interval does not delete anything at once", and it missed that `periodicRotate` in `internal/querylog/querylogfile.go` also checks once when AdGuard Home starts.
+
+Effect: on the lab Docker VM, AdGuard Home v0.107.78 had `querylog.interval` at `90d`, with `querylog.json` at 1.3G and `querylog.json.1` at 2.9G in `du -h`, 4.2G together. After `querylog.interval` was set to `30d` in `AdGuardHome.yaml` and the container was started, AdGuard read the oldest entry of `querylog.json`, from 2026-09-13 and so older than 30 days, renamed `querylog.json` to `querylog.json.1` and so replaced the old 2.9G `querylog.json.1` at once. Every DNS query of the owner's network before 2026-09-13 was deleted, and it cannot be restored, because no copy existed. Free disk in `df -h` went from 110G to 113G.
+
+How it was proven: measured on the lab VM on 2026-10-23 by the session that made the change, and reported to this one: `du -h` of both files before, the file names, sizes and first entry dates after the start, and `df -h` before and after. The mechanism is in the source at v0.107.78, read again on 2026-10-23 from https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/v0.107.78/internal/querylog/querylogfile.go: `periodicRotate` calls `l.checkAndRotate(ctx)` before it starts the ticker of `rotationCheckIvl = 1 * time.Hour`, and `rotate` is a plain `os.Rename(from, to)` of `querylog.json` onto `querylog.json.1`.
+
+Fix: the section in [homelab/adguard_dns.md](../homelab/adguard_dns.md) says the age check runs at start and then every hour, that a shorter interval deletes the older file at the next start or hourly check, with this lab's numbers, and gives a `sudo cp` command that copies `querylog.json*` out of `/opt/docker-stack/adguard/work/data/` before the interval is lowered. It also says that this lab keeps the statistics at 1 day, the default, until the page's 30 day statistics step is followed.
+
+Mechanical check: none. The wrong sentence was a claim about a running program, which only a measurement of that program could have caught.
