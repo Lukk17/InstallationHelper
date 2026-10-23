@@ -124,7 +124,7 @@ KEY_LAST="${EXPECTED_KEYS[$((${#EXPECTED_KEYS[@]} - 1))]}"
 # The four desktop key names come out of DE_KEYS in setup.sh and are checked against group_vars
 # below, so a desktop toggle renamed in one place and not the other fails here rather than resolving
 # to a variable the playbook has never heard of.
-de_key_matching() { printf '%s\n' "${DE_KEYS[@]}" | grep -m1 -E "$1" || true; }
+de_key_matching() { grep -m1 -E "$1" <<<"$(printf '%s\n' "${DE_KEYS[@]}")" || true; }
 
 KDE_INSTALL="$(de_key_matching '^install_.*kde')"
 KDE_CONFIGURE="$(de_key_matching '^configure_.*kde')"

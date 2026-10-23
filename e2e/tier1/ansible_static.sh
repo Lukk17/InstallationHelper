@@ -42,14 +42,14 @@ if [[ "${actual_warnings}" -le "${EXPECTED_WARNINGS}" ]]; then
     pass "syntax check emits at most ${EXPECTED_WARNINGS} warnings (got ${actual_warnings})"
 else
     fail "syntax check emits ${actual_warnings} warnings, budget is ${EXPECTED_WARNINGS}" \
-         "$(grep -E '\[WARNING\]|as an inventory source' <<<"${syntax_out}" | sort -u | head -5 | tr '\n' ' ')"
+         "$(grep -E '\[WARNING\]|as an inventory source' <<<"${syntax_out}" | sort -u | sed -n 1,5p | tr '\n' ' ')"
 fi
 
 # --- nothing may be parsed as inventory -------------------------------------
 # Guards the specific failure above rather than only its symptom count.
 if grep -qE 'as an inventory source|not a valid group definition' <<<"${syntax_out}"; then
     fail "files under setup/ansible are being parsed as inventory" \
-         "$(grep -oE '[^ ]+ as an inventory source' <<<"${syntax_out}" | head -3 | tr '\n' ' ')"
+         "$(grep -oE '[^ ]+ as an inventory source' <<<"${syntax_out}" | sed -n 1,3p | tr '\n' ' ')"
 else
     pass "no repository file is mistaken for an inventory source"
 fi
@@ -519,7 +519,7 @@ if command -v yamllint &>/dev/null; then
     if yamllint -d "{extends: relaxed, rules: {line-length: disable}}" "${ANSIBLE_DIR}" &>/dev/null; then
         pass "yamllint clean"
     else
-        fail "yamllint reports problems" "$(yamllint -d '{extends: relaxed, rules: {line-length: disable}}' "${ANSIBLE_DIR}" 2>&1 | head -5 | tr '\n' ' ')"
+        fail "yamllint reports problems" "$(yamllint -d '{extends: relaxed, rules: {line-length: disable}}' "${ANSIBLE_DIR}" 2>&1 | sed -n 1,5p | tr '\n' ' ')"
     fi
 else
     warn "yamllint not installed, skipping. Install with: pip install --user yamllint"
@@ -530,7 +530,7 @@ if command -v ansible-lint &>/dev/null; then
         pass "ansible-lint clean"
     else
         warn "ansible-lint reports findings, not treated as a failure yet:"
-        ansible-lint --nocolor -q site.yaml 2>&1 | head -15 | sed 's/^/       /'
+        { ansible-lint --nocolor -q site.yaml 2>&1 || true; } | sed -n 1,15p | sed 's/^/       /'
     fi
 else
     warn "ansible-lint not installed, skipping. Install with: pip install --user ansible-lint"

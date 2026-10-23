@@ -146,7 +146,7 @@ if [[ "${declared_features}" == "${ps_features}" ]]; then
     pass "Get-WindowsOptionalFeatureName returns the ${n_declared} declared optional features, in the declared order"
 else
     fail "Get-WindowsOptionalFeatureName and the declaration in the same file disagree about the optional features enable_hyperv turns on" \
-         "$(diff <(echo "${declared_features}") <(echo "${ps_features}") | head -12 | tr '\n' ' ')"
+         "$(diff <(echo "${declared_features}") <(echo "${ps_features}") | sed -n 1,12p | tr '\n' ' ')"
 fi
 # --- invariant 2, forward: every declared key is a real toggle ---------------------------------
 # The pair of files is all.yaml overlaid by windows.yaml, which is what Get-WindowsGroupVarToggle
@@ -244,7 +244,7 @@ fi
 #
 # Both sets are read out of the file rather than listed here, so neither side can drift alone.
 written="$(grep -oE 'lines\.Add\("[a-z]+\|' "${PS_FILE}" | sed -E 's/.*\("([a-z]+)\|/\1/' | sort -u)"
-accepted="$(grep -oE '\(\?<state>[a-z|]+\)' "${PS_FILE}" | head -1 | sed -E 's/.*<state>//; s/\)$//' | tr '|' '\n' | sort -u)"
+accepted="$(grep -oE '\(\?<state>[a-z|]+\)' "${PS_FILE}" | sed -n 1p | sed -E 's/.*<state>//; s/\)$//' | tr '|' '\n' | sort -u)"
 
 if [[ -z "${written}" || -z "${accepted}" ]]; then
     fail "could not find the feature result format in WindowsSettings.ps1, so this check proves nothing" \

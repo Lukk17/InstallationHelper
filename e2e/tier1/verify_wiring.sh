@@ -144,8 +144,8 @@ fi
 # verification call from setup.ps1, which is the exact defect this block exists to catch and which
 # ended the script silently after the last Unix check.
 ps_dotsources=$(grep -cF 'windows\WindowsVerify.ps1' "${SETUP_PS1}" || true)
-run_line=$( { grep -nF '$phases = Invoke-WindowsRun' "${SETUP_PS1}" || true; } | head -1 | cut -d: -f1)
-verify_line=$( { grep -n 'Invoke-AndShowVerification -' "${SETUP_PS1}" || true; } | head -1 | cut -d: -f1)
+run_line=$( { grep -nF '$phases = Invoke-WindowsRun' "${SETUP_PS1}" || true; } | sed -n 1p | cut -d: -f1)
+verify_line=$( { grep -n 'Invoke-AndShowVerification -' "${SETUP_PS1}" || true; } | sed -n 1p | cut -d: -f1)
 
 if [[ "${ps_dotsources}" -eq 0 ]]; then
     fail "setup.ps1 does not dot-source setup/windows/WindowsVerify.ps1, so it cannot verify anything" \
@@ -166,8 +166,8 @@ fi
 # reports it missing, which makes the whole step noise on the first customised install. Compared as
 # text so a divergence in either direction fails, and the function definitions are excluded because
 # a parameter block naturally names the same things a call site does.
-run_args=$( { grep -F 'Invoke-WindowsRun -' "${SETUP_PS1}" || true; } | { grep -v '^function' || true; } | head -1 | sed -E 's/^.*Invoke-WindowsRun //')
-verify_args=$( { grep -F 'Invoke-AndShowVerification -' "${SETUP_PS1}" || true; } | { grep -v '^function' || true; } | head -1 | sed -E 's/^.*Invoke-AndShowVerification //')
+run_args=$( { grep -F 'Invoke-WindowsRun -' "${SETUP_PS1}" || true; } | { grep -v '^function' || true; } | sed -n 1p | sed -E 's/^.*Invoke-WindowsRun //')
+verify_args=$( { grep -F 'Invoke-AndShowVerification -' "${SETUP_PS1}" || true; } | { grep -v '^function' || true; } | sed -n 1p | sed -E 's/^.*Invoke-AndShowVerification //')
 
 if [[ -n "${run_args}" && "${run_args}" == "${verify_args}" ]]; then
     pass "the Windows verification is handed the same selection as the run (${run_args})"

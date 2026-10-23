@@ -79,7 +79,7 @@ PYEOF
 # family_of_id <os-release ID>  ->  the family whose dictionary the derivative is merged over
 family_of_id() {
     local fixture like
-    fixture="$(grep -lE "^ID=\"?$1\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | head -1 || true)"
+    fixture="$(grep -lE "^ID=\"?$1\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | sed -n 1p || true)"
     [[ -n "${fixture}" ]] || return 0
     like=" $(sed -nE 's/^ID_LIKE="?([^"]*)"?$/\1/p' "${fixture}") "
     case "${like}" in

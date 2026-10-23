@@ -100,7 +100,7 @@ report_templated() {
 
 where_is() {
     local pkg="$1" body="$2"
-    grep -F -- "	${pkg}" <<<"${body}" | head -1 | awk -F'\t' '{n=split($2,p,"/"); print p[n]}'
+    grep -F -- "	${pkg}" <<<"${body}" | sed -n 1p | awk -F'\t' '{n=split($2,p,"/"); print p[n]}'
 }
 
 # Called back by the probe for every missing name, so a failure says which task file to open.

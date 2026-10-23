@@ -95,7 +95,7 @@ if ! grep -q 'IH_FLATPAK absent=' <<<"${output}"; then
     problems+=("the play did not finish: $(grep -m3 -E 'ERROR|fatal' <<<"${output}" | tr '\n' ' ')")
 else
     grep -q 'IH_FLATPAK absent=org.example.Silent failed=org.example.FailedLoudly,org.example.Silent"' <<<"${output}" \
-        || problems+=("it decided [$(grep -o 'IH_FLATPAK [^"]*' <<<"${output}" | head -1)], expected absent=org.example.Silent alone and failed=org.example.FailedLoudly,org.example.Silent")
+        || problems+=("it decided [$(grep -o 'IH_FLATPAK [^"]*' <<<"${output}" | sed -n 1p)], expected absent=org.example.Silent alone and failed=org.example.FailedLoudly,org.example.Silent")
     warn="$(grep '"msg": "\[WARN\] Flatpak reported success' <<<"${output}" || true)"
     [[ -n "${warn}" ]] || problems+=("no [WARN] names org.example.Silent, whose install reported success and which flatpak does not list")
     grep -q 'org.example.FailedLoudly' <<<"${warn}" \

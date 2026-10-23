@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Tier 1: nothing feeds a command from a program that never stops writing.
+# Tier 1: nothing feeds a command from a program that never stops writing, and no e2e script pipes into
+# a reader that stops reading early.
 #
 # `yes` writes the letter y forever. It is still running when the program on the right of the pipe
 # finishes, so the kernel kills it with SIGPIPE, and a process killed by a signal reports 128 plus the
@@ -29,6 +30,16 @@
 #
 # There is no allowlist. A pipeline from an unbounded writer has a working alternative that costs
 # three lines, so there is no case to forgive.
+#
+# The same 141 comes from the other end of a pipe. `grep -q` and `grep -m` exit at the first match and
+# `head` after its last line, so a writer that still has output to send is killed by SIGPIPE, and
+# under pipefail the pipeline fails although the reader found what it looked for. Every script under
+# e2e/ runs under pipefail through e2e/lib/common.sh. On 2026-10-23 manual_linux_install.sh read the
+# Fedora guide through `tr -d '\r' <guide | grep -qE ...` and reported that the guide never tells the
+# reader to enable docker.service, in 56 of 2000 runs in the gate image on one CPU, while tr's exit
+# status was 141 and grep's was 0 (docs/regression_ledger.md 10.190). The answer is the same: no pipe. A
+# grep reads a here-string, `grep -q pattern <<<"$(producer)"`, and a pipe that wants the first lines
+# ends in `sed -n 1,Np`, which reads to the end. This half covers the shell scripts under e2e/ only.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -62,7 +73,7 @@ SHELL_KEYS = ('ansible.builtin.shell', 'shell', 'ansible.builtin.raw', 'raw',
 
 
 def strip_comments(text):
-    """Drop whole-line and trailing shell comments, so a comment naming the hazard is not the hazard.
+    """Blank whole-line and drop trailing shell comments, so a comment naming the hazard is not the hazard.
 
     Deliberately crude: a `#` inside a quoted string is rare in these scripts and treating it as a
     comment can only lose a detection, never invent one, and losing one is caught by the count guard
@@ -72,6 +83,7 @@ def strip_comments(text):
     for line in text.splitlines():
         stripped = line.lstrip()
         if stripped.startswith('#'):
+            out.append('')
             continue
         out.append(re.sub(r'\s#.*$', '', line))
     return '\n'.join(out)
@@ -117,14 +129,38 @@ for root in ROOTS:
             except UnicodeDecodeError:
                 continue
 
+# A pipe into a reader that can exit before its input ends: `head`, or a grep whose options before the
+# pattern hold -q, -m, --quiet, --silent or --max-count. A single bar only, so `||` is not a pipe.
+EARLY_READER = re.compile(r'(?<!\|)\|(?!\|)&?[ \t]*(?:\\?\n[ \t]*)?(head(?=[ \t\n;)]|$)|grep((?:[ \t]+-[^ \t\n]*)*))')
+
+
+def early_exit_options(options):
+    """True when grep's leading options make it stop at the first match."""
+    for option in options.split():
+        if option == '--':
+            return False
+        if option.startswith('--'):
+            if option.split('=')[0] in ('--quiet', '--silent', '--max-count'):
+                return True
+        elif any(letter in option[1:] for letter in 'qm'):
+            return True
+    return False
+
+
 lines = []
 offenders = []
+readers = []
 
 for label, text in scripts:
     body = strip_comments(text)
     match = UNBOUNDED.search(body)
     if match:
         offenders.append((label, match.group(1).strip()))
+    if label.startswith('e2e/') and ' :: ' not in label:
+        for found in EARLY_READER.finditer(body):
+            if found.group(1) == 'head' or early_exit_options(found.group(2) or ''):
+                line_number = body.count('\n', 0, found.start()) + 1
+                readers.append((label, line_number, ' '.join(found.group(0).split())))
 
 # An assertion over an empty set passes and is indistinguishable from one that found no problem, so
 # the count is part of the result rather than a detail. Checklist item 11 in the regression ledger.
@@ -139,6 +175,16 @@ else:
                      'roles/arch_core/tasks/main.yaml both do.' % (label, snippet))
     if not offenders:
         lines.append('OK %d scripts read, none fed from an unbounded writer' % len(scripts))
+    for label, line_number, snippet in readers:
+        lines.append('READER %s, line %d, pipes into `%s`, which can exit before its '
+                     'input ends. The writer is then killed by SIGPIPE and pipefail fails the pipeline '
+                     'whatever the reader found. Give a grep a here-string, grep -q pattern <<<"$(producer)", '
+                     'and end a pipe that wants the first lines in sed -n 1,Np.' % (label, line_number, snippet))
+    e2e_scripts = sum(1 for label, _ in scripts if label.startswith('e2e/') and ' :: ' not in label)
+    if not readers and e2e_scripts:
+        lines.append('OK %d e2e scripts read, none pipes into a reader that stops early' % e2e_scripts)
+    elif not e2e_scripts:
+        lines.append('FAIL no e2e script was read, so the early reader half proves nothing')
 
 print('\n'.join(lines))
 PYEOF
@@ -149,6 +195,7 @@ while IFS= read -r line; do
     case "${line}" in
         OK*)   pass "${line#OK }" ;;
         FAIL*) fail "a command is fed from a program that never stops writing" "${line#FAIL }" ;;
+        READER*) fail "an e2e script pipes into a reader that stops early" "${line#READER }" ;;
         *)     [[ -n "${line}" ]] && fail "the SIGPIPE pipeline check printed something unexpected" "${line}" ;;
     esac
 done <<<"${report}"

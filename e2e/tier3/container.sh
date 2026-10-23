@@ -283,7 +283,7 @@ start_run() {
     # through pipefail into the assignment and set -e kills the run before it starts.
     scenario_get() {
         grep -E "^${1}:" "${SCENARIO_FILE}" 2>/dev/null \
-            | head -1 \
+            | sed -n 1p \
             | sed -E "s/^${1}:[[:space:]]*//; s/[[:space:]]*(#.*)?$//" \
             | tr -d '"' || true
     }
@@ -741,22 +741,22 @@ start_run() {
             # to the perms changes, the uid at each step and anything that names an error. What sudo
             # was running as when it called pam_acct_mgmt is the number that would explain this, and a
             # tail of the surrounding lines kept cutting it off.
-            docker exec "${CONTAINER}" bash -c 'awk "/-> sudo_pam_approval/,/<- sudo_pam_approval/" /var/log/sudo_debug | grep -iE "set_perms|PERM_|uid:|gid:|pam_|shadow|errno|denied|open" | head -40' 2>&1
+            docker exec "${CONTAINER}" bash -c 'awk "/-> sudo_pam_approval/,/<- sudo_pam_approval/" /var/log/sudo_debug | grep -iE "set_perms|PERM_|uid:|gid:|pam_|shadow|errno|denied|open" | sed -n 1,40p' 2>&1
             docker exec "${CONTAINER}" bash -c 'grep -iE "set_perms|seteuid|setresuid|shadow|errno|EACCES|denied" /var/log/sudo_debug | tail -12' 2>&1
             echo "--- pam_unix's own debug output, which names the call that failed ---"
             # Everything cheaper has been asked and answered. pam_unix takes a debug option and logs
             # the reason it returns AUTHINFO_UNAVAIL, which is the one sentence nobody has read yet.
             # Turning it on edits the running container only, which is already being torn down, so
             # nothing under test is changed by it.
-            docker exec "${CONTAINER}" bash -c "sed -i 's/^account\( *\)required\( *\)pam_unix.so$/account\1required\2pam_unix.so debug/' /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null; grep -h '^account' /etc/authselect/system-auth 2>/dev/null | head -3" 2>&1
+            docker exec "${CONTAINER}" bash -c "sed -i 's/^account\( *\)required\( *\)pam_unix.so$/account\1required\2pam_unix.so debug/' /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null; grep -h '^account' /etc/authselect/system-auth 2>/dev/null | sed -n 1,3p" 2>&1
             docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n true >/dev/null 2>&1 || true
             docker exec "${CONTAINER}" bash -c 'journalctl -n 40 --no-pager 2>&1 | grep -iE "pam_unix|pam_|sudo" | tail -12'
             echo "--- which PAM profile this image resolved, and whether sssd got pulled in ---"
-            docker exec "${CONTAINER}" bash -c 'authselect current 2>&1 | head -4; echo; grep -h "^account" /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null | sort -u; echo; rpm -q sssd sssd-client 2>&1 | head -2; echo; grep -E "^(passwd|shadow|group)" /etc/nsswitch.conf'
+            docker exec "${CONTAINER}" bash -c 'authselect current 2>&1 | sed -n 1,4p; echo; grep -h "^account" /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null | sort -u; echo; rpm -q sssd sssd-client 2>&1 | sed -n 1,2p; echo; grep -E "^(passwd|shadow|group)" /etc/nsswitch.conf'
             echo "--- the helper pam_unix falls back to, and the capability sets it inherits ---"
             docker exec "${CONTAINER}" bash -c 'ls -l /usr/sbin/unix_chkpwd 2>&1; grep -E "CapBnd|CapEff" /proc/self/status'
             echo "--- what sudo itself thinks it may do ---"
-            docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n -l 2>&1 | head -20
+            docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n -l 2>&1 | sed -n 1,20p
             echo "--- the daemon, because overlay copy-up and a nosuid docker root have both done this before ---"
             docker info --format 'driver={{.Driver}} root={{.DockerRootDir}} kernel={{.KernelVersion}} server={{.ServerVersion}} security={{json .SecurityOptions}}' 2>&1
         } >>"${RUN_DIR}/sudo-preflight.log" 2>&1
@@ -1001,7 +1001,7 @@ wait_for_playbook() {
         if docker exec "${CONTAINER}" test -f /work/playbook.rc 2>/dev/null; then
             return 0
         fi
-        if ! docker inspect -f '{{.State.Running}}' "${CONTAINER}" 2>/dev/null | grep -q true; then
+        if ! grep -q true <<<"$(docker inspect -f '{{.State.Running}}' "${CONTAINER}" 2>/dev/null)"; then
             warn "the container stopped before the playbook finished"
             return 1
         fi
@@ -1118,7 +1118,7 @@ collect_and_verify() {
 
         local t
         for t in "${SECOND_CHANGED[@]+"${SECOND_CHANGED[@]}"}"; do
-            if printf '%s\n' "${allow_names[@]+"${allow_names[@]}"}" | grep -qxF -- "${t}"; then
+            if grep -qxF -- "${t}" <<<"$(printf '%s\n' "${allow_names[@]+"${allow_names[@]}"}")"; then
                 SECOND_EXCUSED+=("${t}")
             else
                 SECOND_UNEXPECTED+=("${t}")
@@ -1184,7 +1184,7 @@ collect_and_verify() {
 
         echo "installed:"
         sed -n '/═══ INSTALLED/,/^.*═══ [A-Z]*[^I]/p' "${PLAYBOOK_LOG}" \
-            | sed -E 's/^\[[0-9:]+\] //' | grep -vE '═══|^\s*$' | head -20 | sed 's/^/  /' || echo "  (none)"
+            | sed -E 's/^\[[0-9:]+\] //' | grep -vE '═══|^\s*$' | sed -n 1,20p | sed 's/^/  /' || echo "  (none)"
 
         echo "failures:"
         # Everything under the FAILED banner, timestamps stripped. Reported as an
@@ -1198,7 +1198,7 @@ collect_and_verify() {
         # the install alone.
         local fails
         fails="$(sed -n '/═══ FAILED/,/Verifying what actually landed/p' "${PLAYBOOK_LOG}" | sed -E 's/^\[[0-9:]+\] //' \
-            | grep -vE '^Playbook finished|^\s*$|^Verifying what actually landed' | head -40 || true)"
+            | grep -vE '^Playbook finished|^\s*$|^Verifying what actually landed' | sed -n 1,40p || true)"
         [[ -n "${fails}" ]] && sed 's/^/  /' <<<"${fails}" \
             || echo "  no FAILED section in the log. If the exit code is non-zero the run died before the recap, read the log directly."
 
@@ -1211,7 +1211,7 @@ collect_and_verify() {
         # that this log never produces. A non-zero exit with no such line means the play crashed
         # before it reached an assertion, which is said out loud rather than reported as "none".
         local vfails
-        vfails="$(grep -F 'FAIL ' "${VERIFY_LOG}" 2>/dev/null | sed -E 's/^[[:space:]]+//' | head -20 || true)"
+        vfails="$(grep -F 'FAIL ' "${VERIFY_LOG}" 2>/dev/null | sed -E 's/^[[:space:]]+//' | sed -n 1,20p || true)"
         if [[ -n "${vfails}" ]]; then
             sed 's/^/  /' <<<"${vfails}"
         elif [[ ${VERIFY_RC} -ne 0 ]]; then
@@ -1282,7 +1282,7 @@ collect_and_verify() {
         # one "═══ FAILED (n) ═══" banner with one bullet per failing task.
         local named_task
         named_task="$(sed -n '/═══ FAILED (/,$p' "${PLAYBOOK_LOG}" | sed -E 's/^\[[0-9:]+\] //' \
-            | grep -m1 '^  • ' | sed -E 's/^  • //' || true)"
+            | grep '^  • ' | sed -n -E '1s/^  • //p' || true)"
         if [[ -n "${named_task}" ]]; then
             pass "${SCENARIO_NAME}: the terminal summary names a failing task"
             dim "first named: ${named_task}"

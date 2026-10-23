@@ -181,7 +181,7 @@ fi
 # --- 4. the rows that need an elevated winget say so -----------------------------------------------
 unsaid=()
 for package in "${elevated_ids[@]}"; do
-    grep -F -- "--id ${package} --scope machine\`" "${MANUAL_MD}" | grep -qF 'elevated PowerShell' || unsaid+=("${package}")
+    grep -qF 'elevated PowerShell' <<<"$(grep -F -- "--id ${package} --scope machine\`" "${MANUAL_MD}")" || unsaid+=("${package}")
 done
 if [[ ${#elevated_ids[@]} -eq 0 ]]; then
     fail "no mapping needs an elevated winget, which cannot be true while Syncthing is a machine-wide portable" "${MAPPING_YAML}"

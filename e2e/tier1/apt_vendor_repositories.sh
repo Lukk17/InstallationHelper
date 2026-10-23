@@ -128,7 +128,7 @@ while IFS= read -r case_json; do
     fixture="$(apt_case_field "${case_json}" fixture)"
     if [[ "${fixture}" == pop-os ]]; then
         expect_line "${fixture}" "the OpenRazer PPA" "https://ppa.launchpadcontent.net/openrazer/stable/ubuntu $(apt_case_field "${case_json}" codename) main"
-    elif awk -F'\t' -v f="${fixture}" '$1 == f { print $5 }' <<<"${APT_LINES}" | grep -qF 'ppa.launchpadcontent.net/openrazer'; then
+    elif grep -qF 'ppa.launchpadcontent.net/openrazer' <<<"$(awk -F'\t' -v f="${fixture}" '$1 == f { print $5 }' <<<"${APT_LINES}")"; then
         fail "${fixture}: the OpenRazer PPA is rendered, and vars/Debian.yaml names it for Pop!_OS only" "$(awk -F'\t' -v f="${fixture}" '$1 == f && /openrazer/ { print $4 }' <<<"${APT_LINES}")"
     else
         pass "${fixture}: the OpenRazer PPA is not rendered"

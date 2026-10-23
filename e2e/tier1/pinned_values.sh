@@ -611,7 +611,7 @@ if [[ "${core_pairs}" == "${ps_pairs}" ]]; then
     pass "the PowerShell adapter and the reader agree on all ${#pin_names[@]} pins, name and value"
 else
     fail "the PowerShell adapter and the reader disagree, so Windows would install from different pins than Ansible" \
-         "$(diff <(printf '%s\n' "${core_pairs}") <(printf '%s\n' "${ps_pairs}") | head -12 | tr '\n' ' ')"
+         "$(diff <(printf '%s\n' "${core_pairs}") <(printf '%s\n' "${ps_pairs}") | sed -n 1,12p | tr '\n' ' ')"
 fi
 
 finish "pinned values"

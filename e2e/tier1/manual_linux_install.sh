@@ -98,7 +98,7 @@ family_mapping_lines() {
 # family_of_derivative <id>  ->  Archlinux, Debian or RedHat from the fixture's ID_LIKE, or nothing
 family_of_derivative() {
     local fixture like
-    fixture="$(grep -lE "^ID=\"?$1\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | head -1 || true)"
+    fixture="$(grep -lE "^ID=\"?$1\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | sed -n 1p || true)"
     [[ -n "${fixture}" ]] || return 0
     like=" $(sed -nE 's/^ID_LIKE="?([^"]*)"?$/\1/p' "${fixture}") "
     case "${like}" in
@@ -431,13 +431,13 @@ for family in "${FAMILIES[@]}"; do
     script_rel="${script#"${REPO_ROOT}"/}"
     guide_rel="${guide#"${REPO_ROOT}"/}"
 
-    if tr -d '\r' <"${script}" | grep -qE "^[[:space:]]*sudo systemctl enable --now docker(\.service)?[[:space:]]+\|\|[[:space:]]+printf '   Skipped: "; then
+    if grep -qE "^[[:space:]]*sudo systemctl enable --now docker(\.service)?[[:space:]]+\|\|[[:space:]]+printf '   Skipped: " <<<"$(tr -d '\r' <"${script}")"; then
         pass "${family}: ${script_rel} enables and starts docker.service, and says so when Docker did not install"
     else
         fail "${family}: ${script_rel} installs Docker and never enables and starts docker.service, guarded like the docker group line" \
              "expected a line: sudo systemctl enable --now docker || printf '   Skipped: ...'"
     fi
-    if tr -d '\r' <"${guide}" | grep -qE '^[[:space:]]*sudo systemctl enable --now docker(\.service)?[[:space:]]*$'; then
+    if grep -qE '^[[:space:]]*sudo systemctl enable --now docker(\.service)?[[:space:]]*$' <<<"$(tr -d '\r' <"${guide}")"; then
         pass "${family}: ${guide_rel} tells the reader to enable and start docker.service"
     else
         fail "${family}: ${guide_rel} installs Docker and never tells the reader to enable and start docker.service" \

@@ -169,7 +169,7 @@ for name in "${CASE_ORDER[@]}"; do
     # is wrong: the traced line is +191+ exit 2, so that would hand back 1912 and every recorded
     # site would be a number the file does not have.
     site="$(grep -oE '^\+[0-9]+\+ exit 2$' "${WORK_DIR}/${name}.trace" 2>/dev/null \
-            | head -1 | grep -oE '[0-9]+' | head -1 || true)"
+            | sed -n 1p | grep -oE '[0-9]+' | sed -n 1p || true)"
     [[ -n "${site}" ]] && COVERED_SITES+=("${site}")
 
     if [[ "${rc}" != "2" ]]; then
@@ -203,7 +203,7 @@ done
 # a newer bash whenever one is installed. The range is located by its condition rather than by a
 # line number, so removing or moving that block makes those sites required again instead of quietly
 # staying excluded.
-bash4_start="$(grep -n 'BASH_VERSINFO\[0\]:-0}" -lt 4' "${SETUP_SH}" | head -1 | cut -d: -f1)"
+bash4_start="$(grep -n 'BASH_VERSINFO\[0\]:-0}" -lt 4' "${SETUP_SH}" | sed -n 1p | cut -d: -f1)"
 bash4_end=""
 if [[ -n "${bash4_start}" ]]; then
     bash4_end="$(awk -v start="${bash4_start}" 'NR > start && /^fi$/ { print NR; exit }' "${SETUP_SH}")"

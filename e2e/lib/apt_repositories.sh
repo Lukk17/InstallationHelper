@@ -43,7 +43,7 @@ apt_repositories_render() {
     )"
     expected="$(grep -cE '^[[:space:]]*- \{ fixture:' "${APT_REPOSITORIES_PLAY}" || true)"
     if ! grep -q "IH_APT_DONE cases=${expected}\b" <<<"${play_out}"; then
-        APT_RENDER_FAULT="the derivation play did not finish: $(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | head -4 | tr '\n' ' ')"
+        APT_RENDER_FAULT="the derivation play did not finish: $(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | sed -n 1,4p | tr '\n' ' ')"
         return 1
     fi
     APT_CASES="$(grep -oE 'IH_APT_FACTS \{.*\}' <<<"${play_out}" | sed -E 's/^IH_APT_FACTS //; s/\\"/"/g' || true)"

@@ -84,7 +84,7 @@ if [[ "${yaml_mappings}" == "${ps_mappings}" ]]; then
     pass "PowerShell and the YAML agree on all ${n_yaml} mappings, including manager, source, scope and installer type"
 else
     fail "the PowerShell parser disagrees with the YAML" \
-         "$(diff <(echo "${yaml_mappings}") <(echo "${ps_mappings}") | head -12 | tr '\n' ' ')"
+         "$(diff <(echo "${yaml_mappings}") <(echo "${ps_mappings}") | sed -n 1,12p | tr '\n' ' ')"
 fi
 
 # A mapping with no toggle is dead data, and a toggle the installer will never see. The one exception is a

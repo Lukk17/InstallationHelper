@@ -316,7 +316,7 @@ check_winget_downloads() {
         # the vendor still publishes the release at all, so asking once keeps this near one request
         # per package instead of six.
         url="$("${winget_cmd}" show --id "${id}" --exact --disable-interactivity --accept-source-agreements 2>/dev/null \
-               | grep -iE '^[[:space:]]*Installer Url:' | head -1 | sed -E 's/.*Installer Url:[[:space:]]*//' | tr -d '\r')"
+               | grep -iE '^[[:space:]]*Installer Url:' | sed -n 1p | sed -E 's/.*Installer Url:[[:space:]]*//' | tr -d '\r')"
         if [[ -z "${url}" ]]; then
             unproven+=("${id} (winget printed no installer URL)")
             continue
@@ -399,7 +399,7 @@ check_winget_scopes() {
                 "repos/microsoft/winget-pkgs/contents/${base}/${version}/${id}.installer.yaml" 2>/dev/null)" && break
             manifest=""
         done < <(gh api "repos/microsoft/winget-pkgs/contents/${base}" --jq '.[] | select(.type == "dir") | .name' 2>/dev/null \
-                    | tr -d '\r' | grep -E '^[0-9]' | sort -V -r | head -3)
+                    | tr -d '\r' | grep -E '^[0-9]' | sort -V -r | sed -n 1,3p)
         if [[ -z "${manifest}" ]]; then
             unread+=("${id}")
             continue
@@ -526,7 +526,7 @@ check_dictionary() {
 # it over vars/Archlinux.yaml would check it against the wrong family.
 derivative_dockerfile_runs_pacman() {
     local dockerfile="${PROBE_TIER3_DIR}/$1.Dockerfile"
-    [[ -f "${dockerfile}" ]] && grep -vE '^\s*#' "${dockerfile}" | grep -qE '(^|[^[:alnum:]_-])pacman -S'
+    [[ -f "${dockerfile}" ]] && grep -qE '(^|[^[:alnum:]_-])pacman -S' <<<"$(grep -vE '^\s*#' "${dockerfile}")"
 }
 
 check_derivatives() {

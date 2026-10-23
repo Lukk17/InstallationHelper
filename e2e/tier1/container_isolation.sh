@@ -85,7 +85,7 @@ fi
 # --- namespaces and environment ------------------------------------------------
 if grep -qE -- '--cgroupns[= ]+host' <<<"${code}"; then
     fail "container.sh starts a scenario container in the host's cgroup namespace" \
-         "$(grep -nE -- '--cgroupns[= ]+host' "${CONTAINER_SH}" | head -3 | tr '\n' ' ')"
+         "$(grep -nE -- '--cgroupns[= ]+host' "${CONTAINER_SH}" | sed -n 1,3p | tr '\n' ' ')"
 elif grep -qE -- '--cgroupns[= ]+private' <<<"${run_block}"; then
     pass "the scenario container gets a private cgroup namespace"
 else
@@ -95,7 +95,7 @@ fi
 
 if grep -qE '/sys/fs/cgroup' <<<"${code}"; then
     fail "container.sh binds /sys/fs/cgroup into a scenario container" \
-         "$(grep -nE '/sys/fs/cgroup' "${CONTAINER_SH}" | grep -vE '^[0-9]+:[[:space:]]*#' | head -3 | tr '\n' ' ')"
+         "$(grep -nE '/sys/fs/cgroup' "${CONTAINER_SH}" | grep -vE '^[0-9]+:[[:space:]]*#' | sed -n 1,3p | tr '\n' ' ')"
 else
     pass "nothing binds the host's /sys/fs/cgroup into a scenario container"
 fi
@@ -160,7 +160,7 @@ grep -qE -- 'remount[^ ]*,ro[, ].*/proc/sys|/proc/sys.*remount[^ ]*,ro[, ]' <<<"
     && proc_sys_gaps+=("container.sh still remounts /proc/sys read-only")
 grep -qE -- '"\$\{IMAGE\}" >/dev/null$' <<<"${run_block}" \
     || proc_sys_gaps+=("the run block does not end in \"\${IMAGE}\" with nothing handed to the image")
-if [[ -f "${HOST_STATE_SH}" ]] && grep -vE '^[[:space:]]*#' "${HOST_STATE_SH}" | grep -qE '/proc/self/mountinfo|\$5 == "/proc/sys"'; then
+if [[ -f "${HOST_STATE_SH}" ]] && grep -qE '/proc/self/mountinfo|\$5 == "/proc/sys"' <<<"$(grep -vE '^[[:space:]]*#' "${HOST_STATE_SH}")"; then
     proc_sys_gaps+=("host_state.sh still guards /proc/sys as read-only in /proc/self/mountinfo")
 fi
 if [[ ${#proc_sys_gaps[@]} -eq 0 ]]; then

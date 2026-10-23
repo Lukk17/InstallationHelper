@@ -285,9 +285,9 @@ for machine in "Debian:debian:debian" "Debian:ubuntu:pop" "Debian:ubuntu:linuxmi
         continue
     fi
     grep -q 'IH_SNAP skipped=fixture_snap_wanted with_system=False"' <<<"${off}" \
-        || problems+=("${id}: with install_snapd off it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${off}" | head -1)], expected fixture_snap_wanted alone and snapd not part of the system")
+        || problems+=("${id}: with install_snapd off it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${off}" | sed -n 1p)], expected fixture_snap_wanted alone and snapd not part of the system")
     grep -q 'IH_SNAP skipped= with_system=False"' <<<"${on}" \
-        || problems+=("${id}: with install_snapd on it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${on}" | head -1)], expected nothing")
+        || problems+=("${id}: with install_snapd on it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${on}" | sed -n 1p)], expected nothing")
     grep -q '\[WARN\] Skipping install_fixture_snap_wanted:' <<<"${off}" \
         || problems+=("${id}: the software installer's [WARN] does not name install_fixture_snap_wanted")
     grep -qE '\[WARN\] install_snapd is off.*install_fixture_snap_wanted' <<<"${off}" \
@@ -300,7 +300,7 @@ done
 for toggle in false true; do
     ubuntu="$(drive "${toggle}" Debian ubuntu ubuntu)"
     grep -q 'IH_SNAP skipped= with_system=True"' <<<"${ubuntu}" \
-        || problems+=("ubuntu: with install_snapd ${toggle} it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${ubuntu}" | head -1)], expected nothing skipped and snapd part of the system")
+        || problems+=("ubuntu: with install_snapd ${toggle} it decided [$(grep -o 'IH_SNAP skipped=[^"]*' <<<"${ubuntu}" | sed -n 1p)], expected nothing skipped and snapd part of the system")
     grep -q '"msg": "\[WARN\]' <<<"${ubuntu}" \
         && problems+=("ubuntu: with install_snapd ${toggle} a [WARN] claims a snap mapping is skipped: $(grep -m1 '\[WARN\]' <<<"${ubuntu}")")
 done

@@ -329,7 +329,7 @@ case "${package}" in
         if [[ "${tool}" == snap && "$(grep -c "^${tool} install ${package}$" "${log}")" -gt 1 ]]; then
             echo "${package} installed"; exit 0
         fi
-        last_fail="$(grep -n "^${tool} install ${package}$" "${log}" | tail -2 | head -1 | cut -d: -f1)"
+        last_fail="$(grep -n "^${tool} install ${package}$" "${log}" | tail -2 | sed -n 1p | cut -d: -f1)"
         last_refresh="$(grep -n "^${tool} refresh$" "${log}" | tail -1 | cut -d: -f1)"
         if [[ -n "${last_refresh}" && "$(grep -c "^${tool} install ${package}$" "${log}")" -gt 1 \
               && "${last_refresh}" -gt "${last_fail}" ]]; then
@@ -397,8 +397,8 @@ judge() {
         [[ "$(refreshed_between "${log}" "${tool}" "flaky-${suffix}")" == yes ]] \
             || problems+=("flaky-${suffix} was retried without a refresh of ${tool}'s index before it")
         local first_refresh first_flaky
-        first_refresh="$(grep -n "^${tool} refresh$" "${log}" | head -1 | cut -d: -f1 || true)"
-        first_flaky="$(grep -n "^${tool} install flaky-${suffix}$" "${log}" | head -1 | cut -d: -f1 || true)"
+        first_refresh="$(grep -n "^${tool} refresh$" "${log}" | sed -n 1p | cut -d: -f1 || true)"
+        first_flaky="$(grep -n "^${tool} install flaky-${suffix}$" "${log}" | sed -n 1p | cut -d: -f1 || true)"
         [[ -n "${first_refresh}" && -n "${first_flaky}" && "${first_refresh}" -gt "${first_flaky}" ]] \
             || problems+=("${tool} refreshed before any attempt had failed")
     elif grep -q "^${tool} refresh$" "${log}"; then
@@ -449,15 +449,15 @@ for manager in apt dnf pacman flatpak snap brew brew_cask; do
         ansible-playbook "${work}/play.yaml" -i localhost, \
         -e ansible_become=false -e "repo=${REPO_ROOT}" -e "manager=${manager}" \
         -e "fake_log=${work}/${manager}.tee" </dev/null 2>&1)" || true
-    missing="$(grep -o 'FAKE-RESULT missing=[^ ]*' <<<"${out}" | head -1 || true)"
+    missing="$(grep -o 'FAKE-RESULT missing=[^ ]*' <<<"${out}" | sed -n 1p || true)"
     if [[ -z "${missing}" ]]; then
         fail "the shared file runs against a fake ${manager}" "the play did not finish: $(grep -m3 -E 'ERROR|fatal' <<<"${out}" | tr '\n' ' ')"
         continue
     fi
-    if ! grep -q 'failed=True' <<<"$(grep -o 'FAKE-RESULT.*' <<<"${out}" | head -1 || true)" \
+    if ! grep -q 'failed=True' <<<"$(grep -o 'FAKE-RESULT.*' <<<"${out}" | sed -n 1p || true)" \
         || ! grep -qE '\[ERROR\] ([a-z-]+, )*broken-x(, [a-z-]+)*, from the fake set' <<<"${out}"; then
         fail "${manager}: a package that never installs fails the run and is named in an [ERROR] line" \
-             "$(grep -o 'FAKE-RESULT[^"]*' <<<"${out}" | head -1)"
+             "$(grep -o 'FAKE-RESULT[^"]*' <<<"${out}" | sed -n 1p)"
     fi
     judge "${manager}: one attempt without a refresh, then wait, $([[ ${indexed} == yes ]] && echo "refresh ${tool}'s index, " )retry, four attempts, the failure named" \
         "${log}" "${tool}" "${indexed}" "${missing}" x
@@ -480,7 +480,7 @@ if [[ "${fakes_resolved}" == yes ]]; then
         -e ansible_become=false -e "repo=${REPO_ROOT}" -e manager=apt \
         -e '{"packages": ["halfconf-x", "ok-after", "settles-x"]}' \
         -e "fake_log=${work}/dpkg.tee" </dev/null 2>&1)" || true
-    result="$(grep -o 'FAKE-RESULT[^"]*' <<<"${out}" | head -1 || true)"
+    result="$(grep -o 'FAKE-RESULT[^"]*' <<<"${out}" | sed -n 1p || true)"
     problems=()
     [[ -n "${result}" ]] || problems+=("the play did not finish: $(grep -m3 -E 'ERROR|fatal' <<<"${out}" | tr '\n' ' ')")
     [[ "$(calls "${log}" apt-get ok-after)" -eq 1 ]] \
@@ -489,8 +489,8 @@ if [[ "${fakes_resolved}" == yes ]]; then
         || problems+=("halfconf-x was tried $(calls "${log}" apt-get halfconf-x) times, not four")
     [[ "$(calls "${log}" apt-get settles-x)" -eq 2 ]] \
         || problems+=("settles-x, which dpkg --configure -a finishes, was tried $(calls "${log}" apt-get settles-x) times, not twice")
-    configure_at="$(grep -n '^dpkg configure$' "${log}" | head -1 | cut -d: -f1 || true)"
-    remove_at="$(grep -n '^apt-get remove halfconf-x-dkms$' "${log}" | head -1 | cut -d: -f1 || true)"
+    configure_at="$(grep -n '^dpkg configure$' "${log}" | sed -n 1p | cut -d: -f1 || true)"
+    remove_at="$(grep -n '^apt-get remove halfconf-x-dkms$' "${log}" | sed -n 1p | cut -d: -f1 || true)"
     [[ -n "${configure_at}" && -n "${remove_at}" && "${configure_at}" -lt "${remove_at}" ]] \
         || problems+=("dpkg --configure -a did not run before apt removed halfconf-x-dkms")
     ! grep -q '^apt-get remove .*settles-x' "${log}" \
@@ -538,7 +538,7 @@ for script in docs/manual/arch/install.sh docs/manual/debian-ubuntu/install.sh d
         fail "${script}: each manager has a refresh function install_one calls before a retry" "none was found"
         continue
     fi
-    if [[ "${script}" == *arch* ]] && ! grep -A3 '^refresh_pacman() {' "${functions}" | grep -qE 'pacman -Syu\b'; then
+    if [[ "${script}" == *arch* ]] && ! grep -qE 'pacman -Syu\b' <<<"$(grep -A3 '^refresh_pacman() {' "${functions}")"; then
         fail "${script}: the pacman refresh before a retry is a full upgrade" \
              "refresh_pacman must run pacman -Syu, because a bare -Syy followed by an install is a partial upgrade"
     fi

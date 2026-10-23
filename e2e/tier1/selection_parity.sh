@@ -109,14 +109,14 @@ else
     fail "container.sh no longer leaves off what the wizard's --software all leaves off" \
          "it must read wizard_all_software_keeps_off and apply all_software_keeps_off where it writes each generated toggle"
 fi
-if sed -n '/^wizard_all_software_keeps_off()/,/^}/p' "${COMMON_SH}" | grep -q 'setup/setup\.sh'; then
+if grep -q 'setup/setup\.sh' <<<"$(sed -n '/^wizard_all_software_keeps_off()/,/^}/p' "${COMMON_SH}")"; then
     pass "wizard_all_software_keeps_off reads ALL_SOFTWARE_KEEPS_OFF out of setup.sh"
 else
     fail "wizard_all_software_keeps_off no longer reads setup/setup.sh" \
          "the shared reader now carries its own copy of what --software all leaves off"
 fi
 
-if sed -n '/^wizard_toggle_keys()/,/^}/p' "${COMMON_SH}" | grep -q 'setup/setup\.sh'; then
+if grep -q 'setup/setup\.sh' <<<"$(sed -n '/^wizard_toggle_keys()/,/^}/p' "${COMMON_SH}")"; then
     pass "wizard_toggle_keys still reads the rule out of setup.sh rather than keeping its own copy"
 else
     fail "wizard_toggle_keys no longer reads setup/setup.sh" \

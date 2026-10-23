@@ -205,7 +205,7 @@ statistics:
   interval: 30d
 ```
 
-This lab runs the query log at 30 days and keeps the statistics at 1 day, AdGuard's default, for now. The statistics move to 30 days only when step 3 is followed.
+This lab runs both at 30 days. The statistics were at 1 day, AdGuard's default, until step 3 was followed on 2026-10-23 at 18:44 UTC, and `statistics` now holds `interval: 30d`. At 1 day `stats.db` measured 256 KiB, so 30 days needs about 8 MiB, which is an estimate from that number and not a measurement.
 
 Use the web page rather than editing the file. AdGuard Home rewrites `AdGuardHome.yaml` itself, so a change made
 while the container runs can be overwritten, and a change made while it is stopped only takes effect at the next

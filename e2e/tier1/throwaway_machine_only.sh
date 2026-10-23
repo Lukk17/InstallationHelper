@@ -104,7 +104,7 @@ fi
 throwaway_code="$(grep -vE '^[[:space:]]*#' "${THROWAWAY_SH}")"
 if grep -qE 'systemd-detect-virt|osrelease|/proc/' <<<"${throwaway_code}"; then
     fail "lib/throwaway_machine.sh asks the machine what it is, which only a virtual machine route needs" \
-         "$(grep -nE 'systemd-detect-virt|osrelease|/proc/' <<<"${throwaway_code}" | head -3 | tr '\n' ' ')"
+         "$(grep -nE 'systemd-detect-virt|osrelease|/proc/' <<<"${throwaway_code}" | sed -n 1,3p | tr '\n' ' ')"
 else
     pass "lib/throwaway_machine.sh never asks the machine whether it is a virtual machine"
 fi
@@ -247,9 +247,9 @@ awk '/^GATE_REQUIRES_THROWAWAY=1$/{set=NR} /^gate_enter /{enter=NR} END{exit !(s
     || launcher_gaps+=("container.sh does not set GATE_REQUIRES_THROWAWAY=1 before gate_enter")
 
 gate_enter_body="$(sed -n '/^gate_enter() {/,/^}/p' <<<"${gate_code}")"
-probe_line="$(grep -nF 'gate_probe_throwaway_machine "${repo_root}"' <<<"${gate_enter_body}" | head -1 | cut -d: -f1 || true)"
-queue_line="$(grep -nF 'docker run -d --name "${E2E_GATE_QUEUE_NAME}"' <<<"${gate_enter_body}" | head -1 | cut -d: -f1 || true)"
-wait_line="$(grep -nF 'docker run --rm "${run_opts[@]}"' <<<"${gate_enter_body}" | head -1 | cut -d: -f1 || true)"
+probe_line="$(grep -nF 'gate_probe_throwaway_machine "${repo_root}"' <<<"${gate_enter_body}" | sed -n 1p | cut -d: -f1 || true)"
+queue_line="$(grep -nF 'docker run -d --name "${E2E_GATE_QUEUE_NAME}"' <<<"${gate_enter_body}" | sed -n 1p | cut -d: -f1 || true)"
+wait_line="$(grep -nF 'docker run --rm "${run_opts[@]}"' <<<"${gate_enter_body}" | sed -n 1p | cut -d: -f1 || true)"
 if [[ -z "${probe_line}" || -z "${queue_line}" || -z "${wait_line}" ]]; then
     launcher_gaps+=("gate_enter has no probe, or no queued or waiting run to put it in front of")
 elif (( probe_line > queue_line || probe_line > wait_line )); then
@@ -266,9 +266,9 @@ grep -qF '"${E2E_GATE_RUNNER_ENV[@]}"' <<<"$(sed -n '/local run_opts=(/,/^    )/
 grep -qxF 'E2E_GATE_RUNNER_ENV=(-e GITHUB_ACTIONS -e RUNNER_OS -e RUNNER_ENVIRONMENT)' <<<"${gate_code}" \
     || launcher_gaps+=("E2E_GATE_RUNNER_ENV does not name exactly GITHUB_ACTIONS, RUNNER_OS and RUNNER_ENVIRONMENT")
 
-grep -A1 -xF 'if [[ "${TIER}" == 3 || "${TIER}" == all ]]; then' <<<"${run_code}" | grep -qxF '    require_throwaway_machine' \
+grep -qxF '    require_throwaway_machine' <<<"$(grep -A1 -xF 'if [[ "${TIER}" == 3 || "${TIER}" == all ]]; then' <<<"${run_code}")" \
     || launcher_gaps+=("run.sh does not ask require_throwaway_machine, unconditionally, for --tier 3 and --tier all")
-grep -A1 -xF 'if [[ "${MODE}" != "collect" ]]; then' <<<"${container_code}" | grep -qxF '    require_throwaway_machine' \
+grep -qxF '    require_throwaway_machine' <<<"$(grep -A1 -xF 'if [[ "${MODE}" != "collect" ]]; then' <<<"${container_code}")" \
     || launcher_gaps+=("container.sh does not ask require_throwaway_machine, unconditionally, for every mode but --collect")
 
 if [[ ${#launcher_gaps[@]} -eq 0 ]]; then

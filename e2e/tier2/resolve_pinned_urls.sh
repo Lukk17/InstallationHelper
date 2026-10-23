@@ -253,7 +253,7 @@ fi
 stale=()
 while read -r key _; do
     [[ -z "${key}" || "${key}" == \#* ]] && continue
-    printf '%s\n' "${entries[@]}" | grep -qE "^${key} " || stale+=("${key}")
+    grep -qE "^${key} " <<<"$(printf '%s\n' "${entries[@]}")" || stale+=("${key}")
 done < <(grep -vE '^\s*(#|$)' "${ALLOWED_FILE}" 2>/dev/null || true)
 
 if [[ ${#stale[@]} -eq 0 ]]; then

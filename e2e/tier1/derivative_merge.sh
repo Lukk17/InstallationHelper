@@ -29,7 +29,7 @@ cases=()
 for f in "${VARS_DIR}"/derivatives/*.yaml; do
     [[ -f "${f}" ]] || continue
     id="$(basename "${f}" .yaml)"
-    fixture="$(grep -lE "^ID=\"?${id}\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | head -1 || true)"
+    fixture="$(grep -lE "^ID=\"?${id}\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | sed -n 1p || true)"
     if [[ -z "${fixture}" ]]; then
         fail "${id}: no os-release fixture in e2e/tier1/os_release_fixtures carries ID=${id}, so its merge cannot be derived" "${f}"
         continue
@@ -54,7 +54,7 @@ play_out="$(
         ansible-playbook -i localhost, "${play_dir}/derivative_merge.yaml" -e "${extra}" 2>&1 || true
 )"
 if ! grep -q "IH_MERGE_DONE cases=${#cases[@]}" <<<"${play_out}"; then
-    fail "the merge play did not finish" "$(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | head -4 | tr '\n' ' ')"
+    fail "the merge play did not finish" "$(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | sed -n 1,4p | tr '\n' ' ')"
     finish "derivative merge"
 fi
 

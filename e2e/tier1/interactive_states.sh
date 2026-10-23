@@ -360,7 +360,7 @@ else
     else
         fail "the checklist header does not say what select-all leaves off" "select_all_note printed [${note}]"
     fi
-    if sed -n '/^pick_software()/,/^}/p' "${SETUP_SH}" | grep -q 'select_all_note'; then
+    if grep -q 'select_all_note' <<<"$(sed -n '/^pick_software()/,/^}/p' "${SETUP_SH}")"; then
         pass "pick_software puts that note in the checklist header"
     else
         fail "pick_software no longer shows the select-all note" "no call to select_all_note inside pick_software in ${SETUP_SH}"

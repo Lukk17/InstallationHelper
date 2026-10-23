@@ -215,7 +215,7 @@ EOF
             name="${name// /}"
             [[ -z "${name}" ]] && continue
             found="$(grep -lE "^e2e_scenario_name:[[:space:]]*\"?${name}\"?[[:space:]]*$" \
-                "${E2E_ROOT}"/tier3/scenarios/*.yaml | head -1 || true)"
+                "${E2E_ROOT}"/tier3/scenarios/*.yaml | sed -n 1p || true)"
             [[ -n "${found}" ]] || { echo "ERROR: no scenario named '${name}'. Try --list." >&2; exit 2; }
             files+=("${found}")
         done
