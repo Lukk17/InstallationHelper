@@ -7176,6 +7176,20 @@ Fix: a `pipx: ["python-filelock"]` entry in companion_packages of [setup/ansible
 
 Mechanical check: tier 2 resolves python-filelock against the Arch repositories like every companion package, and the tier 3 KDE cells run `pipx install konsave`, which is what caught it. No check can see a missing dependency inside a distribution package before that package ships it.
 
+### Found in sweep 39931619762, 2026-10-23, macOS
+
+#### 10.179 macOS default apps and all apps broke at 12:03 after a failed FreeCAD download, cause not proven
+
+Cause: not proven. Most likely the runner disk filled up, measured by the new disk step in the next sweep.
+
+Effect: on both cells `freecad -- rc 1` and `::error::freecad: Download failed for freecad.` came first, and every step after that failed on files that had been there: `Cannot resolve 'ansible.builtin.raw'`, a missing Homebrew portable-ruby, `Bus error: 10` and `sudo: account validation failure`.
+
+How it was proven: it was not. The job logs could not be read while the sweep was still running (`gh run view --job 120387851067 --log` answered `run 39931619762 is still in progress`), and no step of the macOS jobs printed the free disk space.
+
+Fix: the three macOS jobs of [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) and the macOS job of [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) run `df -h /` before the wizard and after it, the second with `if: always()`, so the next sweep shows whether the disk was full when the run broke. The cause gets its fix once that number is read.
+
+Mechanical check: e2e/tier1/workflow_parity.sh keeps the macOS job of e2e-manual.yaml in step with the sweep's macOS jobs.
+
 ### Found while setting the AdGuard Home query log retention, 2026-10-23
 
 #### 10.180 The AdGuard page said the query log rotates by size, and nothing set how long it is kept

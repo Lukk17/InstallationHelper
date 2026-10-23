@@ -1258,10 +1258,17 @@ jobs:
       - name: Install bash 4, which macOS does not ship
         run: brew install bash
 
+      - name: Show the free disk space before the wizard
+        run: df -h /
+
       - name: Run the bootstrap wizard, toggles as shipped
         run: |
           set -euo pipefail
           bash setup/setup.sh --non-interactive --passwordless-sudo --skip-system-upgrade
+
+      - name: Show the free disk space after the wizard
+        if: always()
+        run: df -h /
 
       - name: Collect wizard log artefacts
         if: always()
@@ -1311,10 +1318,17 @@ jobs:
       - name: Install bash 4, which macOS does not ship
         run: brew install bash
 
+      - name: Show the free disk space before the wizard
+        run: df -h /
+
       - name: Run the bootstrap wizard, every selectable toggle on
         run: |
           set -euo pipefail
           bash setup/setup.sh --non-interactive --passwordless-sudo --skip-system-upgrade --software all
+
+      - name: Show the free disk space after the wizard
+        if: always()
+        run: df -h /
 
       - name: Collect wizard log artefacts
         if: always()
@@ -1364,10 +1378,17 @@ jobs:
       - name: Install bash 4, which macOS does not ship
         run: brew install bash
 
+      - name: Show the free disk space before the wizard
+        run: df -h /
+
       - name: Run the bootstrap wizard, everything off then a handful enabled by name
         run: |
           set -euo pipefail
           bash setup/setup.sh --non-interactive --passwordless-sudo --skip-system-upgrade --software none --enable install_git,install_chrome,install_docker,install_vscode
+
+      - name: Show the free disk space after the wizard
+        if: always()
+        run: df -h /
 
       - name: Collect wizard log artefacts
         if: always()
