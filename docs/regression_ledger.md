@@ -7175,3 +7175,17 @@ How it was proven: the sizes were read in `/opt/docker-stack/adguard/work/data` 
 Fix: the section "Keep 30 days of query log" in [homelab/adguard_dns.md](../homelab/adguard_dns.md) sets the query log rotation and the statistics retention to 30 days, names the `interval` keys in `AdGuardHome.yaml`, and says how the old file goes. The sentence about rotation now describes the age rule.
 
 Mechanical check: none. The retention is a setting on the VM, which no tier reaches.
+
+### Found while changing the network watch targets, 2026-10-23
+
+#### 10.181 The Telegraf configuration on the Docker VM was two weeks older than the repository's, so the speed test never ran there
+
+Cause: [homelab/network_watch.md](../homelab/network_watch.md) told the reader to download `telegraf.conf` once, at setup, and nothing said to copy it again after the repository changed it.
+
+Effect: on 2026-10-23 the `telegraf.conf` on the Docker VM was still the 2026-10-09 version, without the `[[inputs.internet_speed]]` block, so no `speed.csv` row had been written there, while the page described a speed test every 10 minutes.
+
+How it was proven: the file on the VM was compared with the repository's on 2026-10-23 and carried no speed test block.
+
+Fix: the setup section of [homelab/network_watch.md](../homelab/network_watch.md) says copying `telegraf.conf` again, then `docker restart telegraf`, is a step of every deployment. The same change adds the PPPoE gateway `83.1.5.230` as a fifth ping target and sets the speed test to one an hour in [homelab/telegraf/telegraf.conf](../homelab/telegraf/telegraf.conf).
+
+Mechanical check: none. Nothing in the repository can read the VM.

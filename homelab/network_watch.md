@@ -22,8 +22,10 @@ checks below each point at a different layer, so the pattern in the rows tells y
 | Everything is fine in the rows | The problem is elsewhere, one device or its Wi-Fi |
 | No rows at all for a stretch | The Docker VM stopped, since Telegraf runs on that same VM |
 
-The ping targets are the router (`192.168.1.1`), one of Orange's own DNS resolvers (`194.204.159.1`), and two
-public resolvers (`1.1.1.1`, `8.8.8.8`). The DNS checks ask AdGuard Home (`192.168.1.12`) and Cloudflare
+The ping targets are the router (`192.168.1.1`), the far end of the lab's PPPoE session with Orange
+(`83.1.5.230`), one of Orange's own DNS resolvers (`194.204.159.1`), and two public resolvers (`1.1.1.1`,
+`8.8.8.8`). Why both Orange addresses are pinged is explained below, under "Why the probe pings both Orange
+addresses". The DNS checks ask AdGuard Home (`192.168.1.12`) and Cloudflare
 (`1.1.1.1`) the same question, a lookup of `connectivitycheck.gstatic.com`, which is Android's own connectivity
 check domain and is built to be queried constantly. The HTTP check asks the matching endpoint,
 `http://connectivitycheck.gstatic.com/generate_204`, which exists only to answer a lightweight 204 with no page
@@ -87,6 +89,10 @@ curl -fsSL https://raw.githubusercontent.com/Lukk17/InstallationHelper/master/ho
 
 or by uploading `homelab/telegraf/telegraf.conf` to that path with FileZilla or `scp`.
 
+Nothing copies a later change of `telegraf.conf` to the VM for you, so copying it again is a step of every
+deployment, followed by `docker restart telegraf`. On 2026-10-23 the copy on the VM was found to still be the
+2026-10-09 version, without the speed test, two weeks after the repository had gained it.
+
 A missing bind mount source behaves differently depending on whether Docker expects a file or a folder there.
 The config file is mounted into a single file inside the container, and a missing source there fails the start
 itself, with `error mounting "/opt/docker-stack/telegraf/telegraf.conf" to rootfs at
@@ -136,22 +142,39 @@ unprivileged socket itself is refused.
 
 ---
 
-### Why the probe uses Orange's own DNS, not the gateway
+### Why the probe pings both Orange addresses
 
-`194.204.159.1` is one of Orange's own DNS resolvers, a fixed address inside Orange's network, used here as the
-Orange-side ping target instead of the first hop past the router. That first hop is Orange's gateway, and Orange
-hands out a new address for it every time its own box reconnects, so a ping fixed to that address shows down
-forever after a restart, not because the internet is down but because the address under it changed.
+`83.1.5.230` is the far end of the lab's PPPoE session, the Orange gateway the router sends everything to. It is
+the first hop past the router and the address all the evidence about Orange's drops is about, so a failure there
+with the router still answering is the most direct proof that the line itself went down. Measured from the router
+on 2026-10-23: `nvram get wan0_gateway` and the pppd "remote IP address" line in the router's log both gave
+`83.1.5.230`, and the log showed the same address for the 14 days it covered.
 
-Measured 2026-10-09 from the home network, `194.204.159.1` and a second Orange resolver, `194.204.152.34`, both
-answered 4 of 4 pings, about 4.5 ms and 4.8 ms, and both resolved `google.com`. The route to `194.204.159.1` goes
-through the Asus router (`192.168.1.1`), then the Orange gateway, then into Orange's own network beyond it, which
-is the trade-off: a failure here sits a few steps past the gateway and cannot tell the Orange box itself apart
-from the rest of Orange's network, since both sit on Orange's side of the line regardless. What it buys back is
-a target that does not move.
+The risk with it is that the address can change. Orange can hand out a new one when it restarts its own box, and
+a ping fixed to the old address would then show down forever, not because the line is down but because the
+address under it moved. If `83.1.5.230` stays red while `194.204.159.1` and the public resolvers answer, check the
+current address on the router before believing it, over the SSH access that
+[agent_access.md](agent_access.md#asus_router_ssh) sets up:
 
-`traceroute` and `tracert` are still useful for seeing that path, they are just no longer something to edit back
-into `telegraf/telegraf.conf` after every restart.
+```bash
+ssh -i ~/.ssh/homelab_agent_ed25519 -p <ssh-port> <router-admin-user>@<router-ip> nvram get wan0_gateway
+```
+
+and put the new address into the `urls` list of `[[inputs.ping]]` in `telegraf/telegraf.conf`.
+
+`194.204.159.1` is the second Orange target because it does not move. It is one of Orange's own DNS resolvers, a
+fixed address inside Orange's network. Measured 2026-10-09 from the home network, `194.204.159.1` and a second
+Orange resolver, `194.204.152.34`, both answered 4 of 4 pings, about 4.5 ms and 4.8 ms, and both resolved
+`google.com`. The route to it goes through the Asus router (`192.168.1.1`), then the Orange gateway, then into
+Orange's own network beyond it, so on its own a failure there cannot tell the gateway apart from the rest of
+Orange's network.
+
+Together the two answer more than either alone. Both red with the router green is the Orange line. Only
+`194.204.159.1` red is Orange's network behind the gateway. Only `83.1.5.230` red, for good, is most likely a new
+gateway address, and the check above settles it. So both stay.
+
+`traceroute` and `tracert` show that path, and the second line is the gateway address to compare with
+`83.1.5.230`.
 
 On the Docker VM, or any Linux machine on the same network:
 
@@ -166,7 +189,7 @@ tracert -d 1.1.1.1
 ```
 
 The first line is your own router, the second is the Orange gateway, and everything after it is further into
-Orange's network than `194.204.159.1` typically needs to go to answer a ping.
+Orange's network.
 
 ---
 
@@ -205,23 +228,25 @@ monitors, their fields, and the click steps to add them from scratch live in
 
 Read the six together rather than one at a time. Asus Router green while Orange DNS, Internet 1.1.1.1, DNS
 direct 1.1.1.1 and Internet web check are all red at once points at the Orange line itself. Only AdGuard Home
-DNS red, with everything else green, points at AdGuard Home rather than the line. There is no monitor for the
-Orange gateway itself, for the same reason the ping target above is Orange's own DNS rather than the gateway:
-the gateway's own address changes on every reconnect, so a fixed monitor against it would eventually monitor
-the wrong thing.
+DNS red, with everything else green, points at AdGuard Home rather than the line. Uptime Kuma has no monitor
+for the Orange gateway, `83.1.5.230`. Telegraf pings it every second and the CSV files carry that record, and
+because the address can change, as the section above explains, a monitor fixed to it would be one more place to
+update.
 
 ---
 
 ### Expected size
 
-Measured from a short real run of this exact configuration on 2026-10-09, not a guess: Telegraf writes about
-535,000 rows a day across the three files, roughly 23 MB a day, and roughly 680 MB for the full 30 day window the
-rotation keeps. That is well under the original back of the envelope figure of 70 to 80 MB a day, because the CSV
+Measured from a short real run of the 2026-10-09 configuration, four ping targets, not a guess: Telegraf wrote
+about 535,000 rows a day across the three files, 22.6 MiB a day, and roughly 680 MiB for the full 30 day window
+the rotation keeps. The fifth ping target, `83.1.5.230`, adds 86,400 rows a day to `ping.csv`, a quarter more ping
+rows. Assuming its rows are as long as the others, which was not measured, that is about 3.6 MiB more a day, so
+about 26 MiB a day and about 790 MiB for 30 days. That is well under the original back of the envelope figure of 70 to 80 MB a day, because the CSV
 columns are pinned to a short, fixed list per file rather than every field and tag Telegraf happens to produce.
 
-`speed.csv` does not change any of that. One row every 10 minutes is 144 rows a day, well under a tenth of a
-percent of the 535,000 rows the other three files already write between them, so it adds no meaningful disk
-weight even though the test behind each of its rows moves real data over the line, covered below.
+`speed.csv` does not change any of that. One row an hour is 24 short rows a day, nothing beside the rows the
+other three files write, even though the test behind each of its rows moves real data over the line, covered
+below. That traffic is on the network, not on the disk.
 
 Replace this with your own number after a full day of real data:
 
@@ -231,14 +256,13 @@ du -sh /opt/docker-stack/syncthing/data/network-watch
 
 ---
 
-### Speed test: download, upload and latency every 10 minutes
+### Speed test: download, upload and latency every hour
 
 Telegraf's `internet_speed` plugin runs a real speedtest.net test and writes the download speed, the upload
 speed, the latency and the jitter into `speed.csv`, with `result_code` style pass or fail logic replaced by a
-`packet_loss` field, which the plugin sets to -1 when it has nothing to report. It is configured for `10m`, one
-test every 10 minutes, which is meant as a diagnostic burst of a few weeks rather than a permanent setting. Once
-enough runs have landed next to a real Orange drop, drop the interval to 30 minutes, or turn the test off
-entirely, the same way described further down.
+`packet_loss` field, which the plugin sets to -1 when it has nothing to report. It is configured for `1h`, one
+test an hour. It ran every 10 minutes until 2026-10-23, as a diagnostic burst. To change it again, or to turn the
+test off entirely, follow the steps further down.
 
 To change the interval, edit the one line on the Docker VM and restart the container:
 
@@ -250,10 +274,10 @@ nano /opt/docker-stack/telegraf/telegraf.conf
 docker restart telegraf
 ```
 
-The line to change sits under `[[inputs.internet_speed]]` and reads `interval = "10m"`.
+The line to change sits under `[[inputs.internet_speed]]` and reads `interval = "1h"`.
 
-Each test fills the line it is measuring for the time the test itself runs, not the whole 10 minute gap between
-tests. An earlier measurement here read 10 minutes 26 seconds and 8 minutes 50 seconds for one test, which was
+Each test fills the line it is measuring for the time the test itself runs, not the whole gap between tests.
+An earlier measurement here read 10 minutes 26 seconds and 8 minutes 50 seconds for one test, which was
 wrong: that measured Telegraf waiting for its own first 10 minute collection window, not the test, and overstated
 the real figure by more than an order of magnitude. Measured directly with `telegraf --test --input-filter
 internet_speed` against the real telegraf:1.40.1 image on this development machine's connection on 2026-10-09,
@@ -265,20 +289,20 @@ turning it on trades real accuracy away, and this line is well above that. Measu
 with `--test`: `memory_saving_mode` on read download and upload around 120 and 90 Mbps, off read around 200 Mbps
 on both, against different test servers each run, so the comparison is not exact, but it points the same
 direction as the README's own warning. Telegraf also rounds a plugin's own collection times to the clock by
-default, so a 10 minute interval starts at :00, :10, :20, :30, :40 and :50 past the hour. A ping, DNS or HTTP
-failure landing within about a minute after one of those marks may be this test saturating the connection, not
-Orange. Check `speed.csv` for a row close to that timestamp before counting a failure there as a real outage.
+default, so a one hour interval starts at :00 past every hour. A ping, DNS or HTTP failure landing within about a
+minute after the full hour may be this test saturating the connection, not Orange. Check `speed.csv` for a row close to that timestamp before counting a failure there as a real outage.
 
 Data volume is the other cost of running this often. Measured directly with that same `--test` run,
 `memory_saving_mode` off, reading the container's own `/proc/net/dev` on an isolated bridge network right after
 the test completed: eth0 received 282,184,059 bytes and sent 402,764,399 bytes, about 685 MB total, at roughly
 200 Mbps on this development machine's own connection. That number was measured here, not on the homelab's own
 Orange line. The real line runs at 300 to 600 Mbps and the test runs for a fixed amount of time rather than a
-fixed amount of data, so the real homelab figure will be higher. At one test every 10 minutes, 144 tests a day,
-that puts the estimate at roughly 100 GB a day or more, which the owner's unlimited Orange plan can absorb but is
-still worth knowing before leaving the short interval running for longer than the diagnosis needs. Replace the
-estimate with a real measurement taken on the homelab VM itself once it has run there for a day, the same way the
-Expected size section above replaces its own estimate with a real `du -sh` figure.
+fixed amount of data, so the real homelab figure will be higher. At one test an hour, 24 tests a day, that puts
+the estimate at roughly 16 GB a day of traffic on the line, more on the faster real line, which the owner's
+unlimited Orange plan can absorb. It was roughly 100 GB a day at the earlier 10 minute interval. This is network
+traffic, not disk: each test adds one short row to `speed.csv`. Replace the estimate with a real measurement
+taken on the homelab VM itself once it has run there for a day, the same way the Expected size section above
+replaces its own estimate with a real `du -sh` figure.
 
 Compare the `download` and `upload` fields against the contract speed, for example 300 megabit, and check the
 actual Orange contract for the confirmed number rather than relying on this note.
