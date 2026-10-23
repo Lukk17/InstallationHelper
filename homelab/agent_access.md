@@ -52,10 +52,12 @@ The generic skills tell an agent how to use these keys and which calls only read
 Concrete example, the lab these documents were written from:
 
 ```text
-<proxmox-host>   192.168.1.10
-<node>           proxmox
-<docker-vm-ip>   192.168.1.12
-<router-ip>      192.168.1.1
+<proxmox-host>       192.168.1.10
+<node>               proxmox
+<docker-vm-ip>       192.168.1.12
+<router-ip>          192.168.1.1
+<router-admin-user>  admin
+<ssh-port>           22
 ```
 
 ---
@@ -117,7 +119,8 @@ PROXMOX_URL=https://192.168.1.10:8006
 DOCKER_VM_SSH=<your-user>@192.168.1.12
 SYNCTHING_SERVER_URL=http://192.168.1.12:7780
 HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519
-ASUS_ROUTER_SSH=<router-admin-user>@192.168.1.1
+ASUS_ROUTER_SSH=admin@192.168.1.1
+ASUS_ROUTER_SSH_PORT=22
 UPTIME_KUMA_URL=http://192.168.1.12:7779
 ```
 
@@ -512,7 +515,7 @@ The value is `<router-admin-user>@<router-ip>`, the user name of the router's we
 
 What the agent may do there: read. That means the system log, which the router keeps in `/tmp/syslog.log`, or in `/jffs/syslog.log` when it keeps the log across restarts, and the state commands that only print, such as `uptime`, `ifconfig` and `nvram get <name>`. It asks you before any change, which on this router is anything that writes: `nvram set` and `nvram commit`, `service restart_<name>`, editing a file under `/jffs`, and `reboot`.
 
-On this lab, measured on 2026-10-23, the router's web page answered and TCP port 22 refused the connection, so SSH was off and has to be turned on first.
+On this lab, measured on 2026-10-23 before these steps, the router's web page answered and TCP port 22 refused the connection, so SSH was off and had to be turned on first.
 
 Turn it on in the router's web page, where the field names below are the ones ASUS firmware shows:
 
@@ -549,7 +552,7 @@ PowerShell:
 ssh -o BatchMode=yes -i "$HOME\.ssh\homelab_agent_ed25519" -p <ssh-port> <router-admin-user>@<router-ip> uptime
 ```
 
-A line with the router's uptime means the key works. `Permission denied (publickey)` means the router refused the key. The Asuswrt-Merlin wiki names RSA and ECDSA keys, and the Dropbear in the Asuswrt-Merlin source, 2026.94, also takes ed25519, but which Dropbear the stock firmware on this router carries was not checked. If it refuses the ed25519 key, create an ECDSA key for the router alone with `ssh-keygen -t ecdsa`, paste that one instead, and the router then needs its own key path rather than `HOMELAB_SSH_KEY`.
+A line with the router's uptime means the key works. `Permission denied (publickey)` means the router refused the key. An ed25519 key works on stock firmware. Measured on 2026-10-23 on this lab's GT-AX6000 with stock firmware build 386, the test above answered with the uptime, and the router's log showed `Pubkey auth succeeded for 'admin'`. The current stock image, 3.0.0.6.102_37437, carries Dropbear 2020.81, and Dropbear takes ed25519 keys since 2020.79.
 
 Revoke it in the same place: delete the key's line from Authorized Keys and press Apply. To close the shell completely, set Enable SSH to No and press Apply.
 
@@ -557,7 +560,7 @@ Revoke it in the same place: delete the key's line from Authorized Keys and pres
 
 ### ASUS_ROUTER_SSH_PORT
 
-The port you set in SSH Port in step 4 above. The agent passes it with `-p`, as the test above does. A port other than 22 keeps the noise of scans that try 22 out of the router's log, though with SSH on the LAN only and password login off, the key is what protects it, not the port.
+The port you set in SSH Port in step 4 above. The agent passes it with `-p`, as the test above does. This lab keeps 22. A port other than 22 keeps the noise of scans that try 22 out of the router's log, though with SSH on the LAN only and password login off, the key is what protects it, not the port.
 
 ---
 
