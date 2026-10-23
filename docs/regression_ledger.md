@@ -8,6 +8,33 @@ The older, pre-Ansible bash-script era of this repository (2022 to early 2024, t
 
 ---
 
+### Defect classes already introduced in this repository
+
+Every one of these was written by an agent working on this project, shipped, and then found by a pipeline or by the owner. They are listed by shape, because the shape is what recurs, and the entries further down hold the instances, dates, error text and fixes. [AGENTS.md](../AGENTS.md) and the folder rules beside the code refer to them by number, so a class keeps its number. Until 2026-10-23 this list lived in the root `AGENTS.md`, where every agent loaded it in every session. It moved here when that file was split, [decisions/0001_split_agents_md.md](decisions/0001_split_agents_md.md).
+
+1. Deleting a block at the end of a function took the next statement with it. Removing one product's install block took the whole function's `return` with it, so the function handed its caller nothing and the wizard died in the reporting code two files away from the deletion. When you delete a trailing block, read what is underneath it.
+2. The same rule implemented in two places, which then disagreed. Three machine conditions decided whether a package can install, and the winget path, the Chocolatey path and the verification each decided separately. One phase installed a package the other phase reported as not applicable, in the same run, and the run passed. If two phases must agree, they call one function.
+3. A vendor's support matrix treated as the installer's behaviour. Razer lists Windows 10 and 11 and no Server edition, so the package was marked client-only. It installs on Server and exits 0. A support matrix says what the vendor will support, not what the installer refuses to do. Measure the installer.
+4. `return @($list)` does not survive assignment in PowerShell. A one-element array unrolls to a bare string, and `.Count` on a string is a terminating error under `Set-StrictMode -Version Latest`. Wrap at the call site, `@(Get-Thing)`, never trust the function's own `@( )`.
+5. Two parsers reading the same file with different escaping rules. `vars/Windows.yaml` is read by Ansible, which unescapes a double-quoted YAML scalar, and by a PowerShell regex that takes the raw text. A path with backslashes arrived as one character in one and two in the other, and every `Test-Path` against it answered false. Use a separator that needs no escape.
+6. Splatting an array instead of a hashtable in PowerShell. An array splat supplies positional arguments with the dashes still attached, so `-NonInteractive` bound to the first positional parameter and the error named a parameter nobody had passed. Guarded now by `e2e/tier1/powershell_splat.sh`.
+7. A second entry point drifting from the primary one. The single-platform workflow could not bind its arguments, allowed 60 minutes for work the sweep gives 150, and never freed disk space. All three were things the sweep already did correctly, and all three were found within two hours of the first time anybody dispatched that workflow. Guarded now by `e2e/tier1/workflow_timeouts.sh` and `e2e/tier1/workflow_parity.sh`.
+8. A `changed_when` reading stdout for a message the tool writes to stderr. This one has five instances. pacman prints ` there is nothing to do` on stdout and `warning: <pkg> is up to date -- skipping` on stderr, and the condition read the wrong stream, so the task reported a change on every rerun. Run the tool twice and look at which stream each line comes out on.
+9. Batching independent downloads. A batch is one call with one exit code, so one failure loses the whole set and nothing can name the package that broke. It cost twenty-two flatpak applications on twenty of forty-eight cells, roughly thirty Homebrew casks twice in two days, and every package in a Chocolatey batch. Nothing in this project batches now, and `e2e/tier1/batched_managers.sh` fails on any manager that tries.
+10. A watcher that could go quiet. A background monitor wrote its state with a bash redirect to `/tmp` and read it back from Python, where that path resolves elsewhere, so it caught the exception and exited silently. An hour of ten-minute reports never happened and it looked identical to a run with nothing to report. Every branch of a watcher must emit, including its own failure.
+11. Measuring something adjacent to the failure instead of the exact thing it named. A log said one URL had timed out. A different Flathub path was fetched instead, answered 503, and that became "Flathub is down". The URL the error named answered 200 with 1.6 MB in 0.29 seconds. Take the identifier out of the failure and test that.
+12. Asserting a benefit without measuring it. Batching apt, dnf and pacman was defended on the grounds that the solver and the trigger phase run once instead of N times. Measured, it was worth at most about two per cent of a container scenario, inside run-to-run noise of the same size, and on one of the two sets looping was faster.
+13. Reading a queue state as progress when it was a block. A dispatched sweep sat at `pending` with no jobs, which is indistinguishable from a slow start, because `e2e-matrix.yml` has a concurrency group and another run of the same workflow was still open. Before dispatching a sweep, check whether one is already open and decide deliberately whether it still has anything to prove.
+14. Measuring the right thing at the wrong time. Both Windows download caches were listed on a developer machine and held 728 and 1,326 directories with no installer in either, which read as "nothing to free here". Chocolatey's own log said otherwise: it downloads to `%TEMP%\chocolatey\<package>\<version>`, installs from there and leaves the file, and the directory was empty only because Windows had cleaned its temporary directory over the following nineteen days, which a one hour job never gets. A listing taken days after the run says nothing about what the disk held during it.
+15. Trusting a subcommand to do what its name suggests. `choco cache remove` sounds like the command that empties the download cache and is not: asked directly, `choco cache --help` on 2.7.3 says it works on the User HTTP Cache and, when elevated, the System HTTP Cache, which is the NuGet metadata. Find out what a command really does before building on its name: read the tool's own documentation, or ask the tool itself inside a container, never by running it on the owner's computer, as the rule in [AGENTS.md](../AGENTS.md) requires.
+16. A test fake that is not found falls through to the real tool. A fixture play put its fake package managers on PATH under a directory that did not exist, so the removal it was testing ran the real `pacman -R --noconfirm opencode-desktop-bin` on the owner's machine, and only the missing root privilege stopped it. A check that drives anything able to remove or install must prove, under the exact environment it hands the code, that every command resolves to its fake before running it. Guarded now inside `e2e/tier1/opencode_switch_pass.yaml`.
+17. Two packages that each install cleanly and refuse each other. OpenCode desktop and Lens both ship Electron's chrome-sandbox, so both rpms claim the same /usr/lib/.build-id link and dnf refuses whichever comes second. Every name and every location check passed. A mapping whose rpm must leave a path out carries exclude_path, and e2e/tier2/rpm_file_conflicts.sh downloads the default Fedora set and fails on any path two packages claim. It runs only on a GitHub-hosted runner, in the sweep's stage 1, because its downloads filled the owner's Docker disk.
+18. A verification query that depends on something the run itself removes. A cache-only dnf query reads nothing after the playbook's own dnf clean all. Measure a verification query in the state the run leaves the machine in, not in the state a fresh container has.
+19. A verification that names what it covers in its own fixed list. verify_install.yaml listed the package managers it checks once, when it was written, and nothing compared that list with the managers the software installer dispatches, so snap and dnf_repo were installed and checked by nothing for two months, unnoticed only because no mapping used either. A list of what a check covers must be derived from, or compared with, the code it covers. Guarded now by the manager section of `e2e/tier1/verify_wiring.sh`.
+20. Text cut from a program's output on line feeds alone. On Windows the output ends every line with a carriage return, so each kept line carried it into the error message, and the Linux PowerShell in the gate never sees it because it rewrites redirected output line by line. Split command output on `'\r?\n'`, through `Get-CommandOutputTail` in `setup/windows/WindowsSoftware.ps1`.
+
+---
+
 ### Checklist before calling playbook work done
 
 1. If you touched anything that names a Linux group, a package name, or a service name, check whether that name is the same string on Debian, Fedora and Arch. If it is not, the mapping belongs in the per-distribution `vars/{OS}.yaml` dictionary, never hardcoded in a shared task file. This is the exact mistake in the Arch OpenRazer device group entry below.
@@ -32,7 +59,7 @@ Note added 2026-08-20: the coverage sentences below count seven scenarios, and t
 
 A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5 are fully covered by its tier 1 checks, which run in minutes and are proven to fail against the code from before each fix. Item 2 is covered by tier 2, in two halves that cover different things. The `vars/{OS}.yaml` dictionary names are resolved over HTTP for Arch, the Arch User Repository, Flathub, Homebrew, Chocolatey and winget, and deliberately not for apt or dnf, because most of those names come from repositories the playbook adds while it runs and resolving them beforehand would report healthy packages as missing. The names written directly into role task files are resolved for all four Linux families, apt and dnf included, inside the same pinned base images the tier 3 scenarios use, with the handful that genuinely need a run-time repository listed in [runtime_repo_packages.txt](../e2e/tier2/runtime_repo_packages.txt) rather than silently forgiven. So for apt and dnf, a stale name in a role is caught in seconds and a stale name in a dictionary is caught only by tier 3. Items 1 and 6 are covered by tier 3, which runs the real playbook in a container. Coverage there is uneven and worth stating exactly, because a green tier 3 is easy to read as more than it is. Arch has run all seven scenarios. Debian and Fedora have since also run the defaults scenario, on 2026-08-17: Fedora passed clean, Debian did not, failing on a balena-etcher dependency the container image cannot satisfy (`Dependency is not satisfiable: polkit-1-auth-agent|policykit-1-gnome|polkit-kde-1`, run `2026-08-17T10-13-03Z_debian_defaults`), an open finding not yet triaged. Ubuntu has run smoke and nothing else. So five of the seven scenarios remain something a person has to do by hand on Debian and Fedora, six on Ubuntu, and the desktop environment scenarios in particular have never run outside Arch. macOS has no container at all and Windows has never been run in one, its gate being a separate PowerShell entry point that needs a Docker daemon already serving Windows containers, which this project's machine is not and will not be. Items 3, 7, 8, 9 and 10 are not mechanised at all and remain review discipline.
 
-[AGENTS.md](../AGENTS.md) carries the mandatory recurring check for the upstream ansible-core deserialization bug referenced at the bottom of this ledger, and that file is the authoritative copy, this ledger only summarises it.
+[setup/ansible/ansible_architecture.md](../setup/ansible/ansible_architecture.md) carries the mandatory recurring check for the upstream ansible-core deserialization bug referenced at the bottom of this ledger, and that file is the authoritative copy, this ledger only summarises it. It lived in the root `AGENTS.md` until 2026-10-23.
 
 ---
 
@@ -6976,3 +7003,91 @@ How it was proven: on 2026-10-23 a plain local build of the unchanged e2e/tier3/
 Fix: e2e/tier3/popos.Dockerfile copies each file only when the two paths are not already the same file, `[ /etc/os-release -ef /etc/pop-os/os-release ] || cp ...`, so Pop's own links stay. e2e/tier3/container.sh builds with `--progress=plain` and, on the final failure, prints the ERROR lines and the failing step's output block before the `tail -20`. Run against the saved log of the failing build, that printed the `cp` line.
 
 Mechanical check: none beyond the build itself, which now fails with its cause on the terminal.
+
+### Found while splitting AGENTS.md, 2026-10-23
+
+Every one of these was found by comparing a statement that moved out of the root `AGENTS.md`, or a page beside it, with the code it describes. None was found by a run, because nothing executes documentation. The split itself is [decisions/0001_split_agents_md.md](decisions/0001_split_agents_md.md).
+
+#### 10.166 The root AGENTS.md had outgrown what Codex reads, so Codex worked from a truncated copy
+
+Cause: every rule was added to one file that every agent loads whole in every session, and nothing measured its size.
+
+Effect: on 2026-10-23 the root `AGENTS.md` was 671 lines and 66,904 bytes, about 13,000 tokens by the estimate of words times 1.3, twice the 32 KiB that Codex reads before it stops adding instruction files without saying so.
+
+How it was proven: `wc -lc AGENTS.md` printed `671 66904`, and the new check below failed against that file in the whole gate with `AGENTS.md has 671 lines, the limit is fewer than 200.` and `AGENTS.md is 66904 bytes, the limit is under 32768 bytes, the most Codex reads by default.`
+
+Fix: the root file holds only what applies everywhere, and each folder's rules moved into its own `AGENTS.md` or into the docs that already explained them. After the split the root is 111 lines and 13,959 bytes, and the largest nested file, [e2e/AGENTS.md](../e2e/AGENTS.md), is 45 lines.
+
+Mechanical check: e2e/tier1/agents_md_size.sh, which also fails on any `CLAUDE.md` or `CLAUDE.local.md` and on a nested `AGENTS.md` of 60 lines or more.
+
+#### 10.167 The playbook order and the dispatched managers in AGENTS.md no longer matched site.yaml and the software installer
+
+Cause: the "Ansible Architecture" section was written by hand once and nothing compared it with [setup/ansible/site.yaml](../setup/ansible/site.yaml) afterwards.
+
+Effect: it put `systemd_boot` among the Linux roles at the end, while site.yaml runs it right after the core roles, and it left out `jetbrains_toolbox` and `snapper` entirely. It said the `software_installer` role dispatches `choco` and `winget`, which no task in [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) does, because those mappings are read by the PowerShell installer and the playbook never runs on Windows. It also listed `ai_tools` as Claude Code, Claude Desktop, OpenCode and OpenSpec, while the role carries task files for Claude Code, Codex, Grok, Kilo Code, OpenCode, OpenSpec, the Bruno command line tool and the local model tools.
+
+How it was proven: the role names in the `Run <role>` blocks of site.yaml, in file order, and the manager names compared in dynamic_install.yaml, read on 2026-10-23.
+
+Fix: [setup/ansible/ansible_architecture.md](../setup/ansible/ansible_architecture.md) states the order and the managers as the code has them.
+
+Mechanical check: none. The page names roles in prose, and a check over prose would be a second list of the same roles, defect class 2.
+
+#### 10.168 AGENTS.md counted three workflow files and three jobs where there are four
+
+Cause: b6d46d7 added [.github/workflows/e2e-gate-image.yml](../.github/workflows/e2e-gate-image.yml) and a `gate-image` job to the single platform workflow, and the prose describing both was not updated.
+
+Effect: "All three workflow files are dispatch-only or call-only" and "Its three jobs are gated on the plan job's outputs" were both one short.
+
+How it was proven: `ls .github/workflows/` listed four files, and the `on:` block of each holds only `workflow_dispatch` or `workflow_call`. The single platform workflow has a `gate-image` job gated on `run_linux` beside the three platform jobs.
+
+Fix: the CI section of [e2e/README_E2E.md](../e2e/README_E2E.md) now says every workflow file and names the platform jobs without a count.
+
+Mechanical check: none for the prose. Whether a workflow starts on an automatic event is not checked either, and is a rule in [e2e/AGENTS.md](../e2e/AGENTS.md).
+
+#### 10.169 The MCP pages described servers and defaults this project does not have
+
+Cause: [docs/MCP_SETUP.md](MCP_SETUP.md) was written when only `context7` was declared and was never updated when five more servers were added, and the root `AGENTS.md` summarised the defaults of [.mcp.json](../.mcp.json) without reading them.
+
+Effect: MCP_SETUP.md said one server is configured, while [.mcp.json](../.mcp.json), [opencode.json](../opencode.json) and [.codex/config.toml](../.codex/config.toml) each declare six. [docs/AGENT_TOOLING.md](AGENT_TOOLING.md) said eight default servers ship as `.example` templates and told the reader to run `cp .mcp.json.example .mcp.json.example`, a copy of a file onto itself that does not exist here. AGENTS.md said every server but two reads its endpoint from a variable with an empty default, while `GRAFANA_URL`, `REDIS_URL` and `N8N_API_URL` default to `http://localhost:3000`, `redis://localhost:6379/0` and `http://localhost:5678`, and only the credentials default empty.
+
+How it was proven: the three configuration files, read on 2026-10-23.
+
+Fix: MCP_SETUP.md is rewritten for the six servers, and the MCP section of AGENT_TOOLING.md and the root `AGENTS.md` name them.
+
+Mechanical check: none.
+
+#### 10.170 AGENT_TOOLING.md described subagent folders, a Codex limit and an OpenSpec command that are not what this project has
+
+Cause: the page was imported from agent-standards and kept as this project's own, and the upstream changes after that were not carried over.
+
+Effect: it said subagents live in `.claude/agents/` and `.opencode/agents/`, while the canonical set is `.agents/agents/`, with `.opencode/agents` and `.kilo/agents` as symlinks and generated copies in `.claude/agents/`, `.codex/agents/` and `.github/agents/`. It said Codex has no per-agent file mechanism, while `.codex/agents/` holds 18 `.toml` definitions. It told the reader to initialise OpenSpec with `--tools "claude,opencode,codex"`, where agent-standards now uses `--tools agents`, and it described `.opencode/skills` and `.codex/skills` symlinks and per-tool command folders, none of which exist here.
+
+How it was proven: `ls -l` over each of those folders on 2026-10-23, and the "Initialising it" section of `docs/AGENT_TOOLING.md` in agent-standards at be76040.
+
+Fix: the introduction, the Subagents section, the MCP section and the OpenSpec section of [docs/AGENT_TOOLING.md](AGENT_TOOLING.md).
+
+Mechanical check: none.
+
+#### 10.171 The local-dev page kept the bridge network's ports and names after cc32cee moved every service to the host's network
+
+Cause: cc32cee put every service on `network_mode: host` on 2026-09-16 and changed the Compose file, but not the ports, the alias and the image tag the documentation named.
+
+Effect: [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md) and the root `AGENTS.md` sent the reader to Floci on `9070` and its console on `9071`, which nothing listens on any more, because Floci now answers on its own `4566` and the console on `4500`. Both said Qdrant also answers to `mem0_store` on the Compose network, an alias that went with the bridge network. The page named `mongo:8.3.8`, while cc32cee pinned `mongo:8.0.4` because 8.3.8 crashes on Linux 6.19 and later. It also said the Compose healthcheck reaches Keycloak by its container name, while the healthcheck now asks `https://127.0.0.1:9000/health/ready`, and that the ports are published on `0.0.0.0`, while host networking publishes nothing.
+
+How it was proven: [local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) read on 2026-10-23: the `x-host-network` anchor, Floci's healthcheck on `127.0.0.1:4566`, the console's `PORT: "4500"` and `FLOCI_ENDPOINT: http://127.0.0.1:4566`, and the mongo image line. The stack was not started, because that runs on the owner's computer.
+
+Fix: the Services table, the hosts file note and the Object storage section of [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md). The measurements on that page that were taken on 9070 and 9071 now say so instead of being restated as if taken on the new ports.
+
+Mechanical check: none. With host networking the Compose file declares no ports, so nothing in it states what the page should say.
+
+#### 10.172 The e2e page named a macOS runner the workflows no longer use
+
+Cause: the macOS jobs moved to `macos-26`, and the stage tables in [e2e/README_E2E.md](../e2e/README_E2E.md) kept `macos-14`.
+
+Effect: four rows named a runner image no job runs on.
+
+How it was proven: every macOS `runs-on` in [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) and [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) reads `macos-26`.
+
+Fix: the four rows read `macos-26`.
+
+Mechanical check: none.

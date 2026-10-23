@@ -1,7 +1,7 @@
 ---
 # Which OpenCode version this machine gets, version 2 by default and version 1 when opencode_use_v1 is true, and
 # which one has to go. Loaded here and nowhere else, after tasks/load_os_dict.yaml, because site.yaml installs and
-# verify_install.yaml checks, and two answers to the same question is AGENTS.md defect class 2.
+# verify_install.yaml checks, and two answers to the same question is docs/regression_ledger.md defect class 2.
 #
 # The two versions cannot sit side by side. Both command line packages claim the opencode command, so npm refuses
 # the second with EEXIST, and both keep their data in one folder, $XDG_DATA_HOME/opencode, where version 1 refuses

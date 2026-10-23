@@ -96,7 +96,7 @@
     - "'already exists' not in (flathub_remote_add.stderr | default(''))"
 
 # apt full-upgrade can run 5 to 10 minutes and trips the 2.19 ansiballz race, so raw bypasses the
-# Python module entirely. See the workaround section in AGENTS.md before touching this.
+# Python module entirely. See the workaround section in setup/ansible/ansible_architecture.md before touching this.
 #
 # Three defects were fixed here at once, all of them making the task lie about what happened.
 #

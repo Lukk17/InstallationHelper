@@ -405,7 +405,7 @@ detect_os() {
 # 2.22 does not exist yet, and a branch nobody has run is not a branch this repository can claim.
 #
 # Note what the range deliberately does NOT promise. Every release inside it carries the ansiballz
-# result-deserialization race documented in AGENTS.md, because the upstream fix, pull request 86739
+# result-deserialization race documented in setup/ansible/ansible_architecture.md, because the upstream fix, pull request 86739
 # against ansible/ansible, is still unmerged. There is no version to move to that escapes it, so the
 # mitigations in this repository stay whatever version this check accepts.
 ANSIBLE_CORE_MIN_VERSION="2.19.0"

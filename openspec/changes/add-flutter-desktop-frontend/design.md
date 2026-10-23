@@ -35,11 +35,11 @@ The verification reports are human tables. Unix: [setup/ansible/verify_install.y
 
 ### Constraints from this repository
 
-1. One source of truth. The application must not read group_vars, keep a toggle list, or decide anything the wizards decide. Defect classes 2 and 7 in [AGENTS.md](../../../AGENTS.md).
+1. One source of truth. The application must not read group_vars, keep a toggle list, or decide anything the wizards decide. Defect classes 2 and 7 in [docs/regression_ledger.md](../../../docs/regression_ledger.md).
 2. No workflow may start on an automatic event, quoted from the header of [.github/workflows/e2e-manual.yaml](../../../.github/workflows/e2e-manual.yaml): "No workflow in this repository may start on push or on any other automatic event".
 3. Never elevated. Running per-user installs elevated puts them into the wrong profile. [docs/regression_ledger.md](../../../docs/regression_ledger.md) records Tor Browser as a `Scope: user` winget package installed to `Desktop\Tor Browser` (line 1055), Spotify refusing "The installer cannot be run from an administrator context" (line 1871), and Bruno's per-user installer crashing when run elevated (line 1979).
 4. The scripts directory is large. `git archive --format=tar.gz HEAD setup | wc -c` printed 29945449 on 2026-10-10. Without [setup/config/](../../../setup/config/) and [setup/wallpapers/](../../../setup/wallpapers/) it is 308579. [setup/config/lukk_desktop_profile.knsv](../../../setup/config/lukk_desktop_profile.knsv) is 18 MB and the wallpapers 13 MB, and the playbook reads both through relative paths, so they cannot simply be dropped. The owner decided on 2026-10-11 to bundle the whole `setup/` directory, KDE profile and wallpapers included (answer 1 under Open Questions).
-5. Every change under `setup/` runs the tier 1 gate, and the table in [AGENTS.md](../../../AGENTS.md) adds container scenarios for `setup.sh`, `verify_install.yaml` and the Windows wizard. Decision 14 maps them.
+5. Every change under `setup/` runs the tier 1 gate, and the table in [e2e/README_E2E.md](../../../e2e/README_E2E.md), "What to run when you change something", adds container scenarios for `setup.sh`, `verify_install.yaml` and the Windows wizard. Decision 14 maps them.
 
 ## Goals / Non-Goals
 
@@ -752,7 +752,7 @@ The fake wizards are test fixtures that stay in the repository, not throwaway sc
 1. [README.md](../../../README.md): a new section "Install the desktop app" after "Quick start", following the README standard in the owner's rules: one command per block, PowerShell and Unix shell forms, every format. Also the docs map gains [desktop/README_DESKTOP.md](../../../desktop/README_DESKTOP.md).
 2. [desktop/README_DESKTOP.md](../../../desktop/README_DESKTOP.md): hub page for the directory, architecture diagram from decision 2, how to build each artifact locally, how to run the tests, how a release is cut and the Flatpak repository deployed, the three owner commands of decision 12.5 that commit the filled cask to `Casks/installation-helper.rb` after each published release, how the signing key was made and where it lives (never the key itself), the privilege rule and why, and the section "How the app asks for passwords and administrator rights" from this document in user words.
 3. [setup/README_SETUP.md](../../../setup/README_SETUP.md): the new options.
-4. [AGENTS.md](../../../AGENTS.md): "What This Repo Is" gains `desktop/` as the fourth part and one sentence saying the top-level `Casks/` folder is the Homebrew tap and no `.rb` file may sit in the repository root, the hub list in "Documentation Conventions" gains its hub page, and the CI section names the release workflow and the Flatpak Pages workflow as the third and fourth dispatch-only workflows, with the two GitHub Actions secrets the Pages workflow reads.
+4. [AGENTS.md](../../../AGENTS.md): "What this repository is" gains `desktop/` as the fourth part and one sentence saying the top-level `Casks/` folder is the Homebrew tap and no `.rb` file may sit in the repository root, the hub list in "Documentation Conventions" gains its hub page, and the CI section names the release workflow and the Flatpak Pages workflow as the third and fourth dispatch-only workflows, with the two GitHub Actions secrets the Pages workflow reads.
 5. [docs/regression_ledger.md](../../../docs/regression_ledger.md): every defect found or introduced, as AGENTS.md requires.
 
 ## Risks / Trade-offs

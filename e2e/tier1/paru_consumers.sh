@@ -13,7 +13,7 @@
 # That is a convention, and a convention is exactly what the next consumer forgets: a new
 # kewlfft.aur.aur task written the way the existing ones used to be works perfectly on every run where
 # paru builds, and on the first one where it does not, it fails with "paru: command not found" in a
-# role that may have no rescue, which is the defect this whole change removed. AGENTS.md defect class
+# role that may have no rescue, which is the defect this whole change removed. docs/regression_ledger.md defect class
 # 2 is the other half: if a second place decides whether paru is usable, the playbook and the
 # verification can disagree about why a package is missing.
 #

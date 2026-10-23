@@ -1229,7 +1229,7 @@
     # Through the shared file with flatpak: one attempt, then for an application that failed, wait,
     # flatpak update --appstream to fetch the remote's summary and appstream data again, try again, four
     # attempts in all. raw, for the ansible-core 2.19 deserialization race in the workaround section of
-    # AGENTS.md, and the shared file reads rc rather than the result's failed key.
+    # setup/ansible/ansible_architecture.md, and the shared file reads rc rather than the result's failed key.
     - name: Install Flatpak applications, one at a time
       ansible.builtin.include_tasks:
         file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"

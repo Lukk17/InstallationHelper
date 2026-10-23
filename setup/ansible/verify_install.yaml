@@ -984,7 +984,7 @@
     # Run as the same account every install task above ran as, become_user rather than whoever
     # connected, because a restrictive home directory permission would otherwise make this read fail
     # differently from how the tool itself was written, which is the two-readers-disagreeing shape
-    # AGENTS.md already has one entry for. ignore_errors matches the Flathub-remote check above: a
+    # docs/regression_ledger.md already has a defect class for, class 5. ignore_errors matches the Flathub-remote check above: a
     # task that dies escalating privilege never reaches failed_when, so a run without a usable sudo
     # password would abort the whole play here instead of reporting these as unverifiable.
     - name: Check whether each enabled tool exists on disk where its installer put it

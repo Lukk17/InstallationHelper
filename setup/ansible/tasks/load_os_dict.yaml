@@ -1,7 +1,7 @@
 ---
 # os_dict: the software dictionary for this machine. Loaded here and nowhere else, because site.yaml
 # and verify_install.yaml both need it and two loaders are two answers to what this machine installs.
-# AGENTS.md defect class 2 is what that costs.
+# docs/regression_ledger.md defect class 2 is what that costs.
 #
 # The family's dictionary, vars/<ih_family>.yaml, is the whole answer on every machine except a
 # derivative that maps something differently from its family. CachyOS is the one today: it shares

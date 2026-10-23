@@ -127,7 +127,7 @@ Do this once, as part of whichever of the three tasks is finished last. Not befo
 
 - [ ] 4.1 Prove the failing direction first. Copy the tree to a scratch directory, point `E2E_REPO_ROOT` at the copy, append one line such as `setup_nonexistent_thing: true` to its `group_vars/linux.yaml`, and confirm the changed check names that toggle and fails. This is the method recorded in the ledger entry for this check, and [AGENTS.md](../../../AGENTS.md) requires it of any change to a check.
 - [ ] 4.2 In [e2e/tier1/toggle_coverage.sh](../../../e2e/tier1/toggle_coverage.sh), turn the `skip` at the end of the declared-toggle direction into a `fail`, and remove the comment block above it that explains the skip is deliberate and temporary, along with the reference to this change directory.
-- [ ] 4.3 Run the whole gate from Git Bash and from WSL, per the rule in [AGENTS.md](../../../AGENTS.md) for any change under `e2e/`:
+- [ ] 4.3 Run the whole gate from Git Bash and from WSL, per the rule in [e2e/AGENTS.md](../../../e2e/AGENTS.md) for any change under `e2e/`:
   ```bash
   bash e2e/run.sh
   ```

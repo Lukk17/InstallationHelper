@@ -301,7 +301,7 @@
 # iptables-nft state needs a moment to settle before dockerd can register
 # its NAT chains. Without this pause, Docker.service failed 4s after the
 # libvirtd restart with "Job for docker.service failed because the control
-# process exited with error code." See AGENTS.md for full context.
+# process exited with error code." See docs/regression_ledger.md, "Arch libvirt and Docker fight over the iptables backend".
 - name: Pause briefly to let iptables-nft state settle (Arch)
   ansible.builtin.pause:
     seconds: 5

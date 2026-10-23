@@ -16,7 +16,7 @@
 # Each is its own block with a rescue now, in the shape the paru fix in arch_core set: the rescue sets
 # any_role_failed, which site.yaml turns into a failed run, and names the step with an [ERROR] line,
 # which callback_plugins/dual_logger.py writes to ~/installation_errors.log. A rescue without the
-# first is a failure turned into a pass, and AGENTS.md forbids that. A rescue without the second is a
+# first is a failure turned into a pass, and setup/ansible/AGENTS.md forbids that. A rescue without the second is a
 # failure nobody can find. So this asserts, mechanically:
 #
 #   1. in site.yaml, every role is imported inside a block of its own whose rescue sets

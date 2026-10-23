@@ -96,7 +96,7 @@ On a GitHub-hosted runner the workflows run the tier 3 commands in the rest of t
 
 Tier 2 reads winget manifests through `gh` when no winget can run, and the gate container has no `gh` login of its own. For tier 2 only, the launcher lends it yours: it writes the token to a temporary file only you can read, mounts that file read-only, and the entry point reads it into `GH_TOKEN` for its own processes. The token is never in the container's settings, so `docker inspect` cannot show it, and never on a command line. The launcher deletes the file when the run ends, or for a `--queue` run as soon as the container reports it has read it. Without a `gh` login the three winget assertions report SKIP.
 
-Nothing has to be prefixed or exported from Git Bash. Under MSYS the shell rewrites any argument that looks like an absolute POSIX path before a Windows executable sees it, which turns `-v /sys/fs/cgroup:/sys/fs/cgroup:rw` into `mkdir C:\Program Files\Git\sys: Access is denied` and `-w /work/setup/ansible` into `Cwd must be an absolute path`. So [lib/host.sh](lib/host.sh) wraps `docker` in a function that disables the rewriting for the whole command, and every argument that names a location on this machine, rather than one inside a container, goes through its `host_path` helper and comes out as a Windows path.
+Nothing has to be prefixed or exported from Git Bash. Under MSYS the shell rewrites any argument that looks like an absolute POSIX path before a Windows executable sees it, which turns `-v /sys/fs/cgroup:/sys/fs/cgroup:rw` into `mkdir C:\Program Files\Git\sys: Access is denied` and `-w /work/setup/ansible` into `Cwd must be an absolute path`. So [lib/host.sh](lib/host.sh) wraps `docker` in a function that disables the rewriting for the whole command, and every argument that names a location on this machine, rather than one inside a container, goes through its `host_path` helper and comes out as a Windows path. That covers the harness. If you ever call `docker` yourself from Git Bash, prefix `MSYS_NO_PATHCONV=1` and pass every host path through `cygpath -w`.
 
 See what scenarios exist and what each covers.
 
@@ -151,6 +151,85 @@ Run everything.
 gh workflow run e2e-matrix.yml -f scenario=all -f distro=all
 ```
 
+#### Nothing starts on its own
+
+Every workflow file in [.github/workflows/](../.github/workflows/) is dispatch-only or call-only, deliberately. [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) states the rule in its own header: "No workflow in this repository may start on push or on any other automatic event: every run here is a deliberate, explicit action by whoever clicks 'Run workflow', exactly the same decision as running setup/setup.sh or setup/setup.ps1 by hand, just on a throwaway runner or throwaway container instead of a real machine."
+
+So choosing between the two workflows is a decision you make, not one the repository makes for you. Reach for the single platform workflow when the change touches one operating system, which is most changes. Reach for the sweep when the change is broad enough that one distribution cannot answer for the rest. An earlier version of the agent instructions described the local tiers at length and mentioned the dispatch workflows twice in passing, and an agent reading it concluded a sweep was the only thing on offer and dispatched one for a Linux change.
+
+#### One operating system
+
+[.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml), named "E2E - single platform" in the Actions tab, takes one `target_platform` and runs that and nothing else. Its platform jobs are gated on the plan job's `run_linux`, `run_macos` and `run_windows` outputs, so the platforms you did not ask for never start.
+
+```bash
+gh workflow run e2e-manual.yaml -f target_platform=debian
+```
+
+`arch`, `debian`, `ubuntu`, `fedora`, `cachyos` and `popos` never touch the runner itself. Each one builds the gate image and runs `e2e/run.sh --tier 3` against a systemd container built from `e2e/tier3/<distro>.Dockerfile`, so a Linux dispatch is the only way to run that harness at all. `macos` and `windows` have no container to run in, so they run the real wizard directly on the runner, `setup/setup.sh` on `macos-26` and `setup/setup.ps1` on `windows-latest`. The workflow's own header explains the rest, including why both of those jobs are always non-interactive and what a hosted Windows runner's disabled User Account Control does to `Assert-NotAdmin`.
+
+Eight inputs, and one of them is a trap. `skip_system_upgrade` defaults to true, so a dispatch that leaves it alone never runs the system upgrade `setup.sh` performs before Ansible starts. Turn it back on when that upgrade is the part you changed:
+
+```bash
+gh workflow run e2e-manual.yaml -f target_platform=debian -f skip_system_upgrade=false
+```
+
+| Input | Default | What it does |
+|---|---|---|
+| `target_platform` | `arch` | `arch`, `debian`, `ubuntu`, `fedora`, `cachyos`, `popos`, `macos` or `windows` |
+| `desktop_environment` | `skip` | `skip`, `kde` or `gnome`. Anything but `skip` is refused on `macos` and `windows` |
+| `desktop_action` | `full` | `full`, `install` or `configure`, read only when `desktop_environment` is not `skip` |
+| `software_mode` | `unset` | `unset`, `defaults`, `all` or `none`. `unset` passes no flag at all, leaving the `group_vars` toggles as they are |
+| `profile_name` | empty | a file under `setup/ansible/profiles/`, without the extension. Refused alongside `software_mode` on Linux and macOS, a documented no-op on Windows |
+| `enable_keys` | empty | comma-separated toggle keys forced on. A key in neither `group_vars/all.yaml` nor `group_vars/linux.yaml` fails the job rather than being quietly ignored |
+| `disable_keys` | empty | comma-separated toggle keys forced off, applied after `enable_keys`, so a key named in both ends up off |
+| `skip_system_upgrade` | `true` | see above |
+
+#### The whole sweep
+
+[.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) is three gated stages, cheapest first, and it costs hours rather than minutes. Its inputs default to `start_from_stage: stage-1`, `scenario: all` and `distro: all`, so a dispatch with nothing filled in is the whole sweep:
+
+```bash
+gh workflow run e2e-matrix.yml
+```
+
+Three things about it are not visible on the dispatch form:
+
+1. `distro` narrows stage 2 and only stage 2. The macOS and Windows jobs live in stage 3, and no value of `distro` reaches them. A dispatch with a `scenario` and a `distro` therefore runs stage 1, that one stage 2 cell, and stage 3.
+2. A stage skipped by `start_from_stage` counts as passed, so the stage after it still runs. Starting at stage 3 does not require stage 1 and stage 2 to have run in the same dispatch.
+3. Its concurrency group, `e2e-matrix-sweep`, does not cancel, so a second dispatch queues behind a sweep that is still open instead of replacing it. A run sitting at `pending` with no jobs of its own is usually that rather than a slow start, defect class 13 in [docs/regression_ledger.md](../docs/regression_ledger.md). Before dispatching a sweep, check whether one is already open and decide whether it still has anything to prove.
+
+Both workflows upload their logs as run artefacts.
+
+#### Watching a run, every ten minutes
+
+A container scenario takes 90 to 300 minutes by declared ceiling and a sweep takes hours. Neither tells you it is stuck, and a run that has hung looks exactly like a run that is working until you go and ask. So ask, roughly every ten minutes. A tier 3 scenario runs only on a GitHub-hosted runner, so it is watched through the workflow runs:
+
+```bash
+gh run list --workflow e2e-manual.yaml --limit 5
+```
+
+```bash
+gh run list --workflow e2e-matrix.yml --limit 5
+```
+
+The jobs of one run, and which of them are still going, where `<run-id>` is the first column of the list above:
+
+```bash
+gh run view <run-id>
+```
+
+A queued tier 1 or tier 2 run on your own machine is watched through the containers and the queue log:
+
+```bash
+docker ps --filter name=e2e --format '{{.Names}}\t{{.Status}}'
+```
+
+```bash
+tail -5 e2e/runs/queue.log
+```
+
+Watching only for completion is the mistake. A queue that died leaves no notification, and one that did exactly that started two scenarios of three, exited, and nobody noticed for four hours. Check progress rather than presence: the same status ten minutes later is a stall, and a container being alive proves nothing about whether the playbook inside it is still doing anything.
+
 ---
 
 ### What to run when you change something
@@ -169,7 +248,7 @@ green: what that run still does not tell you.
 | anything in `roles/` touching groups, systemd units or per-distribution behaviour | the defaults scenario on every distribution, `gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=all` | anything needing a graphical session, a real kernel module, or hardware |
 | a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `gh workflow run e2e-matrix.yml -f scenario=idempotency -f distro=debian` | whether the task is idempotent on any distribution other than the one you ran, because a guard that is right on apt can be missing entirely on pacman |
 | a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, the callback plugin's failure rendering, or `verify_install.yaml`'s assertions | `gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian` | that a real defect would be caught, only that a failure which does happen is reported in all four places, and it is the cheapest container scenario so there is no excuse for skipping it |
-| the desktop environment roles | `gh workflow run e2e-matrix.yml -f scenario=kde-full -f distro=debian` and the same with `scenario=gnome-full` | that the desktop actually starts, since no container has a display |
+| the desktop environment roles | `gh workflow run e2e-matrix.yml -f scenario=kde-full -f distro=debian` and the same with `scenario=gnome-full`, or one platform at a time with `gh workflow run e2e-manual.yaml -f target_platform=debian -f desktop_environment=kde -f desktop_action=full` and the same with `desktop_environment=gnome` | that the desktop actually starts, since no container has a display |
 | `profiles/linux_live.yaml` | `gh workflow run e2e-matrix.yml -f scenario=live-profile -f distro=debian` | that a real live USB behaves the same, since the container has a writable root |
 | `setup/setup.sh` | `./e2e/run.sh`, then any one tier 3 scenario end to end, `gh workflow run e2e-manual.yaml -f target_platform=debian -f skip_system_upgrade=false` | the interactive screens, which need a terminal no test has |
 | `setup/setup.ps1` or anything in `setup/windows/` | `./e2e/run.sh` for the logic, then `pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1` for a real install | anything needing a reboot, WSL, or a hypervisor, none of which a sandbox has |
@@ -240,6 +319,8 @@ The container stays after it exits, so its status stays readable, and the next `
 docker rm e2e-queue
 ```
 
+A scenario takes roughly 5 GB of memory, measured on the owner's computer before tier 3 was moved off it. A GitHub-hosted Linux runner has 16 GB and each cell of the sweep runs one scenario on a runner of its own, so the figure decides nothing there. It matters only when `--jobs` is raised inside one runner, where each extra slot adds roughly 5 GB against the runner's 16.
+
 ---
 
 ### The exact order every pipeline runs in
@@ -260,7 +341,7 @@ image first, about a minute on Linux on 2026-10-15, and has not been timed on a 
 | 1 | tier 1 gate | ubuntu-latest | the whole static gate, every check, from a clean checkout, inside the gate container exactly as on a developer machine |
 | 2 | Windows unit tests | windows-latest | the Pester suite over the Windows installer's own logic |
 | 3 | Linux wizard plan | ubuntu-latest | `setup.sh --print-command` resolves a real selection into a real playbook command |
-| 4 | macOS wizard plan | macos-14 | the same on Darwin, where the toggle files and the OS dictionary differ |
+| 4 | macOS wizard plan | macos-26 | the same on Darwin, where the toggle files and the OS dictionary differ |
 | 5 | Windows wizard plan | windows-latest | `setup.ps1 -PrintPlan` resolves without installing |
 
 Jobs 3 to 5 are what "parse only" means: the wizard runs its own resolution, prints the command or
@@ -295,9 +376,9 @@ its own cap of five concurrent macOS jobs.
 
 | Order | Job | Runner | Selection |
 |---|---|---|---|
-| 46 | macOS defaults | macos-14 | the toggles as they ship |
-| 47 | macOS everything | macos-14 | every selectable toggle on |
-| 48 | macOS from nothing | macos-14 | every toggle off, then a handful enabled by name |
+| 46 | macOS defaults | macos-26 | the toggles as they ship |
+| 47 | macOS everything | macos-26 | every selectable toggle on |
+| 48 | macOS from nothing | macos-26 | every toggle off, then a handful enabled by name |
 | 49 | Windows defaults | windows-latest | the toggles as they ship |
 | 50 | Windows everything | windows-latest | every selectable toggle on |
 | 51 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
@@ -361,6 +442,7 @@ them.
 | [tier1/snap_dependents_summary.sh](tier1/snap_dependents_summary.sh) | `install_snapd` off still installing snapd or sending snap mappings to snap, and the end-of-run `[WARN]` missing. On Ubuntu itself, snapd installed or its socket touched by the playbook, or a snap mapping skipped, on Pop!_OS and Linux Mint a snap mapping not skipped, and anything that removes snapd |
 | [tier1/flatpak_absent_warning.sh](tier1/flatpak_absent_warning.sh) | The end-of-run Flatpak `[WARN]` saying Flatpak reported success for an application whose install the shared install file had already named as failed, or a silently absent application no longer counted as failed |
 | [tier1/gate_build_output.sh](tier1/gate_build_output.sh) | A gate image build in [lib/gate.sh](lib/gate.sh) that runs `docker build` with `-q` or `--quiet` or without `--progress=plain`, which drops every RUN step's output, or whose failure branch does not print the `curl:` and `provision:` lines before the tail. And `fetch_verified` in [gate/provision.sh](gate/provision.sh) that, run against a fake curl failing with 22, does not return 1, does not print `provision: downloading <url> failed, curl exited 22`, leaves the partial file, or does not ask curl to `--retry-all-errors`. GitHub sweep run 39850886667 lost three cells to `exit code: 22` in `provision.sh tools` with nothing naming the download |
+| [tier1/agents_md_size.sh](tier1/agents_md_size.sh) | The agent instruction files growing past what an agent reads whole: a root [AGENTS.md](../AGENTS.md) of 200 lines or 32 KiB, which Codex stops reading at, a nested `AGENTS.md` of 60 lines, or a `CLAUDE.md` or `CLAUDE.local.md` anywhere, which switches off Claude Code's loading of the nested files. The root had reached 671 lines and 66,904 bytes. The scanner is [lib/check_agents_md.py](lib/check_agents_md.py), and the reasons are in [docs/decisions/0001_split_agents_md.md](../docs/decisions/0001_split_agents_md.md) |
 | [tier1/forced_failure_assertions.sh](tier1/forced_failure_assertions.sh) | A forced-failure assertion in [tier3/container.sh](tier3/container.sh) that fails over a rescue that worked. GitHub sweep run 38107292439 failed that scenario on Arch, CachyOS and Fedora that way: Lens was matched as the whole skipped-repository sentence when tailscale was in the same list, and the paru injection let the Arch User Repository server decide whether the clone or the build failed. It drives `log_list_names` from container.sh over that run's own lines and requires the paru address to be under `.invalid` |
 | [tier1/winget_scope_pins.sh](tier1/winget_scope_pins.sh) | A winget mapping that leaves the installer to winget although its manifest offers a user and a machine installer, or a user one beside unscoped ones. The wizard runs elevated, and Bruno, CurseForge and then Lens in GitHub sweep run 38107292439 failed while winget chose. The list of such packages is [tier1/winget_scoped_packages.txt](tier1/winget_scoped_packages.txt), which tier 2 reads again from winget-pkgs. It also fails a machine pin whose `installer_type` is missing or differs from the type winget selects for `--scope machine`, because that type decides whether the wizard runs winget elevated, and an msix or portable sent to an unelevated winget dies on `APPINSTALLER_CLI_ERROR_COMMAND_REQUIRES_ADMIN` |
 | [tier1/repo_metadata_keys.sh](tier1/repo_metadata_keys.sh) | A dnf repository with `repo_gpgcheck` whose metadata check would stop at a key prompt, or whose key would be accepted unchecked. Every `dnf makecache` must pass `-y`, which GitHub sweep run 38107292439 lacked on every Fedora scenario, and because `-y` accepts any key, `gpgkey` must be a local file that the same block downloaded from a pin and compared by fingerprint with a pin before the repository is written |
@@ -570,6 +652,7 @@ Then prove it. Copy the tree, reintroduce the defect, and confirm the check fail
 | [windows-sandbox/](windows-sandbox/) | The local Windows route: a launcher that writes the sandbox configuration and starts it, and the bootstrap that runs inside at logon. Windows only, which is why the directory says so |
 | [docs/regression_ledger.md](../docs/regression_ledger.md) | Every regression this project has suffered, and the prevention checklist this harness mechanises |
 | [AGENTS.md](../AGENTS.md) | The mandatory gate, and the rest of the agent contract |
+| [AGENTS.md](AGENTS.md) | The rules for working in this folder, with links back to the sections of this page they come from |
 | [setup/README_SETUP.md](../setup/README_SETUP.md) | Running the playbook for real |
 | [setup/ansible/tags.md](../setup/ansible/tags.md) | Partial runs by tag, useful when triaging a scenario failure |
 | [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) | The full CI sweep, every scenario against every Linux distribution, dispatch-only |

@@ -2,7 +2,7 @@
 
 Read [proposal.md](proposal.md), [design.md](design.md) and the three specs under [specs/](specs/) before starting. Decision numbers below refer to design.md. Group 1 runs first because its answers can change groups 5 and 7. Groups 2 and 3 do not depend on group 1 and may run in parallel with it. Commit only when the owner says so, one verified unit per commit, following the backdating rule in the owner's global instructions.
 
-Every task that changes anything under `setup/` ends with the tier 1 gate from Git Bash at the repository root, `bash e2e/run.sh`, exit code 0, plus the extra runs the [AGENTS.md](../../../AGENTS.md) table names for that file. Every defect found or introduced gets an entry in [docs/regression_ledger.md](../../../docs/regression_ledger.md) in the same task.
+Every task that changes anything under `setup/` ends with the tier 1 gate from Git Bash at the repository root, `bash e2e/run.sh`, exit code 0, plus the extra runs the [e2e/README_E2E.md](../../../e2e/README_E2E.md) table names for that file. Every defect found or introduced gets an entry in [docs/regression_ledger.md](../../../docs/regression_ledger.md) in the same task.
 
 ## 1. Spikes
 
@@ -100,7 +100,7 @@ Every task that changes anything under `setup/` ends with the tier 1 gate from G
 
 ## 10. Final integration check
 
-- [ ] 10.1 Run the whole gate from Git Bash, `bash e2e/run.sh`, and from WSL with the command in [AGENTS.md](../../../AGENTS.md). Both exit 0 with no new SKIP that is not explained in its own output.
+- [ ] 10.1 Run the whole gate from Git Bash, `bash e2e/run.sh`, and from WSL with the command in [e2e/README_E2E.md](../../../e2e/README_E2E.md). Both exit 0 with no new SKIP that is not explained in its own output.
 - [ ] 10.2 Review every changed file against the three specs, requirement by requirement, and record in the owner's chat which scenarios each test or manual run covers, and any scenario with no proof. Done when no scenario is unproven.
 - [ ] 10.3 Confirm [docs/regression_ledger.md](../../../docs/regression_ledger.md) has an entry for every defect found or introduced during this change, each with cause, effect with the real output, how it was proven, and where the fix lives.
 - [ ] 10.4 Run `openspec validate add-flutter-desktop-frontend --strict` and mark every task in this file `[x]` that is done.

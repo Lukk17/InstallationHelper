@@ -12,12 +12,12 @@
 | ------- | ------- | ---------------- | -------- | -------- | ----- |
 | MySQL | `mysql://root:local@localhost:3306/test-spring` | `test-spring` | `root` | `local` | `mysql:9.7.2` |
 | PostgreSQL | `postgresql://postgres:local@localhost:5432/postgres` | `keycloak`, `postgres` | `postgres` | `local` | custom, built from `postgres:17.11`. See [postgresql/](./postgresql/README.md). |
-| MongoDB | `mongodb://localhost:27017/articles` | none, see below | (none) | (none) | `mongo:8.3.8` |
-| Qdrant | dashboard at [http://localhost:6333/dashboard](http://localhost:6333/dashboard), REST API on the same port, gRPC on `localhost:6334` | collections, also reachable on the Compose network as `mem0_store` | (none) | (none) | `qdrant/qdrant:v1.19` |
+| MongoDB | `mongodb://localhost:27017/articles` | none, see below | (none) | (none) | `mongo:8.0.4` |
+| Qdrant | dashboard at [http://localhost:6333/dashboard](http://localhost:6333/dashboard), REST API on the same port, gRPC on `localhost:6334` | collections | (none) | (none) | `qdrant/qdrant:v1.19` |
 | Redis | `redis://localhost:6379/0` | numbered databases `0` to `15` | (none) | (none) | `redis:8.10.1-alpine` |
 | Keycloak | admin console at [https://keycloak.test:9443/admin/](https://keycloak.test:9443/admin/), health at [https://localhost:9000/health/ready](https://localhost:9000/health/ready) | realm `local` | `admin` | `admin` | custom, built from `keycloak:26.5`. See [auth/Keycloak/](./auth/Keycloak/README.md). |
-| Floci | S3 endpoint at `http://localhost:9070`, health at [http://localhost:9070/_floci/health](http://localhost:9070/_floci/health) | S3 buckets | `admin` | `password` | `floci/floci:2.0.1` |
-| Floci UI | console at [http://localhost:9071](http://localhost:9071) | fifteen Amazon service pages | (none) | (none) | `floci/floci-ui:0.4.0` |
+| Floci | S3 endpoint at `http://localhost:4566`, health at [http://localhost:4566/_floci/health](http://localhost:4566/_floci/health) | S3 buckets | `admin` | `password` | `floci/floci:2.0.1` |
+| Floci UI | console at [http://localhost:4500](http://localhost:4500) | fifteen Amazon service pages | (none) | (none) | `floci/floci-ui:0.4.0` |
 
 Nothing on that list answers until the containers are running, which is [Start the stack](#start-the-stack), the next section.
 
@@ -110,10 +110,9 @@ listed, so there is no second file to check.
 | `keycloak.test` | The canonical Keycloak name and the issuer in every token it mints. Point applications, browsers and HTTP clients here. |
 
 Every other address in this stack is written against `localhost`, which needs nothing configured. The bare `keycloak`
-name used to have a line here too and no longer does: it is the container name, so Docker's embedded resolver answers
-it inside the Compose network whether or not any hosts file mentions it, which is why the Compose healthcheck reaches
-`https://keycloak:9000/health/ready` and works. Nothing on the machine itself needs that name, because every documented
-command points at `keycloak.test` instead.
+name used to have a line here too and no longer does. Every service runs on the host's own network, `network_mode: host`
+in the Compose file, so the Compose healthcheck reaches `https://127.0.0.1:9000/health/ready`, and nothing on the
+machine needs that name, because every documented command points at `keycloak.test` instead.
 
 The file's contents are the same everywhere, only its path and the privilege needed to write it differ.
 
@@ -129,36 +128,37 @@ name, is in [auth/README.md](./auth/README.md).
 
 ---
 
-[Floci](https://github.com/floci-io/floci) emulates the Amazon Web Services interfaces and serves all of them from one gateway port. Only S3 is used here. It took over from MinIO because MinIO's community repository is archived, so the tag that was pinned in the Compose file is the last image Docker Hub will ever serve for it. The host port stayed `9070`, so anything already pointing at the old S3 endpoint keeps working without an edit.
+[Floci](https://github.com/floci-io/floci) emulates the Amazon Web Services interfaces and serves all of them from one gateway port. Only S3 is used here. It took over from MinIO because MinIO's community repository is archived, so the tag that was pinned in the Compose file is the last image Docker Hub will ever serve for it. It was published on host port `9070` until every service moved to the host's own network on 2026-09-16. Since then it answers on its own port, `4566`, so anything still pointing at `9070` needs an edit.
 
-[Floci UI](https://github.com/floci-io/floci-ui) is the browser side: Floci's own console, holding port `9071` after
-s3manager, which held it after the MinIO console. It talks to Floci over the Compose network at `floci:4566` and starts
-only once Floci reports healthy. It is MIT licensed, like Floci itself.
+[Floci UI](https://github.com/floci-io/floci-ui) is the browser side: Floci's own console, on port `4500`, which `PORT`
+sets in the Compose file. Port `9071` was its port, and s3manager's and the MinIO console's before it, until the move
+to the host's network. It talks to Floci at `http://127.0.0.1:4566`, its `FLOCI_ENDPOINT`, and starts only once Floci
+reports healthy. It is MIT licensed, like Floci itself.
 
 Floci can start that console for you, and this stack deliberately does not let it. Left to itself the gateway reaches
 the host's Docker daemon to launch the console container, which is why `/_floci/ui` on a stock setup fails with
 `java.net.SocketException: No such file or directory` and why the usual fix is to mount the Docker socket into the
 container. Do not. A container holding that socket has root-equivalent control of the whole machine, and the console
-does not need it: it is an ordinary web server that speaks the S3 wire protocol to the gateway over the Compose
-network, so running it as its own service costs nothing and mounts nothing. `FLOCI_SERVICES_UI_ENABLED` is set to
+does not need it: it is an ordinary web server that speaks the S3 wire protocol to the gateway over the
+loopback, so running it as its own service costs nothing and mounts nothing. `FLOCI_SERVICES_UI_ENABLED` is set to
 `false` on the `floci` service so the gateway stops trying, and `/_floci/ui` then answers with a plain
 `Floci UI unavailable` and the line `The Floci UI is disabled (set floci.services.ui.enabled=true to enable it).`
 Neither container has any mount other than the `floci_data` volume, which `docker inspect` will confirm.
 
 Both ports are plain HTTP. A TLS handshake against either is refused outright, measured as `curl` exit 35 on 9070 and
-on 9071, so no certificate is involved anywhere here and none of the trust store work under
+on 9071, the ports both were published on before the move to the host's network, so no certificate is involved anywhere here and none of the trust store work under
 [auth/](./auth/README.md) applies to object storage.
 
 Point an application at these values:
 
 | Setting | Value |
 | ------- | ----- |
-| Endpoint | `http://localhost:9070` |
+| Endpoint | `http://localhost:4566` |
 | Region | `us-east-1` |
 | Access key id | `admin` |
 | Secret access key | `password` |
-| Path style addressing | works, `http://localhost:9070/<bucket>/<key>` |
-| Virtual hosted addressing | works, `http://<bucket>.localhost:9070/<key>` |
+| Path style addressing | works, `http://localhost:4566/<bucket>/<key>` |
+| Virtual hosted addressing | works, `http://<bucket>.localhost:4566/<key>` |
 
 Both addressing styles were exercised against the running container, so a client library that insists on one or the other is fine either way. Any subdomain of `localhost` resolves to the loopback with nothing configured, measured on both Windows and Ubuntu, which is what makes the virtual hosted style work here without a single line of setup.
 
@@ -167,39 +167,40 @@ The AWS command line interface is not a prerequisite. `curl` signs Signature Ver
 Create a bucket:
 
 ```bash
-curl -X PUT "http://localhost:9070/local-dev-bucket" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl -X PUT "http://localhost:4566/local-dev-bucket" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 ```powershell
-curl.exe -X PUT "http://localhost:9070/local-dev-bucket" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl.exe -X PUT "http://localhost:4566/local-dev-bucket" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 Upload a file into it:
 
 ```bash
-curl -X PUT --upload-file ./first.txt "http://localhost:9070/local-dev-bucket/first.txt" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl -X PUT --upload-file ./first.txt "http://localhost:4566/local-dev-bucket/first.txt" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 ```powershell
-curl.exe -X PUT --upload-file ./first.txt "http://localhost:9070/local-dev-bucket/first.txt" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl.exe -X PUT --upload-file ./first.txt "http://localhost:4566/local-dev-bucket/first.txt" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 List what is in it:
 
 ```bash
-curl "http://localhost:9070/local-dev-bucket?list-type=2" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl "http://localhost:4566/local-dev-bucket?list-type=2" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
 ```powershell
-curl.exe "http://localhost:9070/local-dev-bucket?list-type=2" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
+curl.exe "http://localhost:4566/local-dev-bucket?list-type=2" --aws-sigv4 "aws:amz:us-east-1:s3" --user "admin:password"
 ```
 
-The six commands above were run verbatim against the running stack from Git Bash on Windows. They need no hosts entry
+The six commands above were run against the running stack from Git Bash on Windows, with port 9070, before the move to
+the host's network. They need no hosts entry
 and no AWS command line interface.
 
-For clicking around instead, open [http://localhost:9071](http://localhost:9071) in a browser. Under Storage it lists
+For clicking around instead, open [http://localhost:4500](http://localhost:4500) in a browser. Under Storage it lists
 the buckets and the objects inside them. Everything it shows comes from its own backend, which reads the gateway over
-the Compose network: `/api/clouds/aws/services/storage/resources` returns the buckets and
+the loopback: `/api/clouds/aws/services/storage/resources` returns the buckets and
 `/api/clouds/aws/services/storage/resources/<bucket>/objects` returns the keys inside one. Those two are worth knowing
 because the page itself is rendered in the browser, so `curl` against the root gets an empty shell rather than a bucket
 list.
@@ -218,11 +219,11 @@ answers `application/json`. It runs under BusyBox `wget` because the image ships
 
 Objects live in the `floci_data` named volume, mounted at `/app/data` because `FLOCI_STORAGE_MODE` is set to `persistent`. A `docker restart floci` keeps them, and so does destroying the container and recreating it from the Compose file. Both were verified. What does remove them is `docker compose down -v`, which deletes the volume along with every other volume in the stack.
 
-Health lives at [http://localhost:9070/_floci/health](http://localhost:9070/_floci/health) and answers with a JSON map of every emulated service. Two behaviours differ from MinIO and will bite if you assume otherwise.
+Health lives at [http://localhost:4566/_floci/health](http://localhost:4566/_floci/health) and answers with a JSON map of every emulated service. Two behaviours differ from MinIO and will bite if you assume otherwise.
 
-Floci implements no MinIO admin interface. The old `http://localhost:9070/minio/health/live` path answers `404`, and any tool built on MinIO's admin API, `mc` included, has nothing to talk to here.
+Floci implements no MinIO admin interface. The old `/minio/health/live` path answers `404`, and any tool built on MinIO's admin API, `mc` included, has nothing to talk to here.
 
-Nothing on either port asks for a credential. The console on `9071` ships no authentication at all, so whoever reaches that page can read, write and delete in every bucket. That was measured rather than assumed: a `DELETE` to its own backend carrying no credential of any kind removed an object and answered `{"ok":true}`. The Floci gateway on `9070` is no better: it accepts a wrong secret key, a wrong region, and requests carrying no signature whatsoever, all with the same `200`. A plain unsigned `PUT` and a plain unsigned `DELETE` both succeeded during testing. The credentials above exist so that client libraries which demand a key have one to send, not because anything checks them. The MinIO service this replaced was configured with a root user and password, so the same values now buy you nothing. Both ports are published on `0.0.0.0`, so this is open to your whole network segment, not only to the machine. Keep real data out of it, and bind the ports to `127.0.0.1` in the Compose file if the machine sits on a network you do not control.
+Nothing on either port asks for a credential. The console on `4500` ships no authentication at all, so whoever reaches that page can read, write and delete in every bucket. That was measured rather than assumed: a `DELETE` to its own backend carrying no credential of any kind removed an object and answered `{"ok":true}`. The Floci gateway on `4566` is no better: it accepts a wrong secret key, a wrong region, and requests carrying no signature whatsoever, all with the same `200`. A plain unsigned `PUT` and a plain unsigned `DELETE` both succeeded during testing. The credentials above exist so that client libraries which demand a key have one to send, not because anything checks them. The MinIO service this replaced was configured with a root user and password, so the same values now buy you nothing. Both run on the host's own network, so there is no port mapping to narrow: whatever interface they listen on is the host's, and if that is every interface, they are open to your whole network segment, not only to the machine. Keep real data out of it, and do not run the stack on a network you do not control.
 
 ### Configuration deep-dives
 

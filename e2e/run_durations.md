@@ -202,4 +202,5 @@ One trap worth knowing. Dispatching a sweep while another run of the same workfl
 | [manual_test_matrix.md](manual_test_matrix.md) | What no pipeline here can prove, and where to prove it by hand |
 | [testing/README.md](testing/README.md) | The per-scenario specifications the harness checks itself against |
 | [../docs/regression_ledger.md](../docs/regression_ledger.md) | Every regression this project has suffered, and the prevention checklist |
-| [../AGENTS.md](../AGENTS.md) | The mandatory gate, the defect classes, and the rest of the agent contract |
+| [../AGENTS.md](../AGENTS.md) | The mandatory gate, and the rest of the agent contract |
+| [AGENTS.md](AGENTS.md) | The rules for working in this folder and which run a change owes |

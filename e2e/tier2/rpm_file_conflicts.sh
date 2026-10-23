@@ -24,7 +24,7 @@
 # same field. It fails as well when a repository, a download or a listing does not come back, naming
 # it, because a package that was never listed is a package nobody checked.
 #
-# One download per call, for the reason recorded as defect class 9 in AGENTS.md: a batch loses the
+# One download per call, for the reason recorded as defect class 9 in docs/regression_ledger.md: a batch loses the
 # whole set to one failure and cannot name which one broke.
 #
 # It runs only on a GitHub-hosted runner, owner decision 91, and anywhere else it reports one SKIP and

@@ -1,184 +1,143 @@
-# MCP Setup
+# MCP setup
 
-Human setup guide for the Model Context Protocol (MCP) servers used in this project.
+> The six Model Context Protocol servers this project declares, what each one needs on your machine, and how to give it a key.
 
-This file is for the **person** configuring the machine. The AI agent reads `AGENTS.md` and uses whatever MCP tools the running agent exposes — it doesn't need this document.
-
----
-
-## What this project uses
-
-One MCP server is configured here:
-
-| Server     | Purpose                          | External dependency                            |
-| ---------- | -------------------------------- | ---------------------------------------------- |
-| `context7` | Up-to-date library docs lookup   | none (hosted HTTP, free tier without API key)  |
-
-The agent-standards repo ships seven other servers in its template (`mongodb`, `grafana`, `playwright`, `chrome-devtools`, `redis`, `sonarqube`, `n8n`). This project doesn't use any of them and they've been removed from the local configs. If you ever want them back, copy the relevant block from [agent-standards](https://github.com/Lukk17/agent-standards) into `.mcp.json` and `opencode.json`.
+This page is for the person setting up the machine. An agent reads [AGENTS.md](../AGENTS.md) and uses whatever MCP tools its own client exposes, and never runs any of this.
 
 ---
 
-## Where it's configured
+### What this project declares
 
-Both files are committed at the repo root:
+| Server | What it is for | What it needs |
+|---|---|---|
+| `context7` | Current documentation for libraries, frameworks, SDKs and APIs | nothing, it is hosted, and the free tier needs no key |
+| `grafana` | Dashboards, metrics and alert rules on a Grafana instance | `uv`, a running Grafana and a service account token |
+| `playwright` | Driving a browser for end-to-end web testing | Node.js, and about 500 MB of browsers on the first run |
+| `chrome-devtools` | Reading console output, network requests and the page from Chrome | Node.js and a local Chrome |
+| `redis` | Querying a Redis instance | `uv` and a running Redis, for example the one in [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md) |
+| `n8n` | Reading and building n8n automation workflows | Node.js, and an n8n instance and API key to manage workflows rather than only read node documentation |
 
-- `.mcp.json` — Claude Code project scope. Schema key `mcpServers`. Env-var syntax: `${VAR}` and `${VAR:-default}`.
-- `opencode.json` — OpenCode + Kilo Code project scope (shared file). Schema key `mcp` alongside `instructions`. Env-var syntax: `{env:VAR}` (no `$`).
-
-Both contain only the `context7` block. Nothing else to copy — checkout is enough.
+A server whose backing service is not running still starts, then fails to connect, and the other servers keep working.
 
 ---
 
-## Step 1 — Optional: set `CONTEXT7_API_KEY`
+### Where they are declared
 
-Without a key, Context7 still works on the free tier (lower rate limits). Get a key only if you hit those limits.
+All three files are committed, so a checkout is enough. Each tool reads its own:
 
-Source: <https://context7.com/dashboard>
+| File | Read by | How it fills in a variable |
+|---|---|---|
+| [.mcp.json](../.mcp.json) | Claude Code | `${VAR:-default}`, so every server resolves with nothing set |
+| [opencode.json](../opencode.json) | OpenCode and Kilo Code | no references at all, because one `{env:VAR}` makes Kilo Code reject the whole file. The addresses are written in, and a token reaches a server only through the environment the agent was started from |
+| [.codex/config.toml](../.codex/config.toml) | Codex | no substitution, the addresses are written in and the two tokens are empty strings |
 
-### Linux
+The defaults written into those files:
 
-System-wide:
+| Variable | Server | When it is not set |
+|---|---|---|
+| `CONTEXT7_API_KEY` | `context7` | sent empty from [.mcp.json](../.mcp.json), and not sent at all from the other two, so Context7 serves its free tier |
+| `GRAFANA_URL` | `grafana` | `http://localhost:3000` |
+| `GRAFANA_SERVICE_ACCOUNT_TOKEN` | `grafana` | empty, so Grafana refuses the connection |
+| `REDIS_URL` | `redis` | `redis://localhost:6379/0` |
+| `N8N_API_URL` | `n8n` | `http://localhost:5678` |
+| `N8N_API_KEY` | `n8n` | empty, so the server only answers questions about n8n nodes |
+
+`playwright` and `chrome-devtools` read no variable.
+
+When a server answers nothing, check its variable before deciding the service is down.
+
+---
+
+### Install what the servers run
+
+Node.js runs `context7` under Codex, `playwright`, `chrome-devtools` and `n8n`. Check it is there. PowerShell or Unix shell, same command:
 
 ```bash
-echo 'CONTEXT7_API_KEY=ctx7_xxxxxxxxxxxx' | sudo tee -a /etc/environment
+node --version
 ```
 
-Current user only:
-
-```bash
-echo 'export CONTEXT7_API_KEY=ctx7_xxxxxxxxxxxx' >> ~/.profile
-```
-
-Log out and back in to apply. For interactive shells only, append to `~/.zshrc` or `~/.bashrc`.
-
-### macOS
-
-For Terminal and IDE shells:
-
-```bash
-echo 'export CONTEXT7_API_KEY=ctx7_xxxxxxxxxxxx' >> ~/.zprofile
-```
-
-For GUI apps launched from Finder (Claude Desktop):
-
-```bash
-launchctl setenv CONTEXT7_API_KEY ctx7_xxxxxxxxxxxx
-```
-
-`launchctl` resets on reboot. Persist via `~/Library/LaunchAgents/setenv.CONTEXT7_API_KEY.plist` or [direnv](https://direnv.net/) per project.
-
-### Windows
-
-Current user (visible to new processes after restart):
+`uv` runs `grafana` and `redis`. Install it on Windows:
 
 ```powershell
-[Environment]::SetEnvironmentVariable('CONTEXT7_API_KEY', 'ctx7_xxxxxxxxxxxx', 'User')
+winget install --id=astral-sh.uv
 ```
 
-System-wide (Administrator):
-
-```powershell
-[Environment]::SetEnvironmentVariable('CONTEXT7_API_KEY', 'ctx7_xxxxxxxxxxxx', 'Machine')
-```
-
-Verify in a fresh PowerShell session:
-
-```powershell
-$env:CONTEXT7_API_KEY
-```
-
-Restart your terminal, IDE, and any running agent shell after changing system variables. Claude Desktop must be fully quit (system-tray icon) and relaunched.
-
----
-
-## Step 2 — Verify the MCP loaded
-
-After restarting your agent:
-
-- **Claude Code** — run `claude mcp list`. `context7` should show as connected.
-- **OpenCode / Kilo Code** — run `/mcp` inside the agent shell.
-- **Claude Desktop** — open the Developer panel; the MCP indicator in the input box shows connected servers.
-- **Codex CLI** — `codex` then `/mcp` (Codex 0.20+).
-
-If `context7` fails to connect:
-
-- Claude Code logs the reason to its standard log.
-- Claude Desktop logs land in `~/Library/Logs/Claude/` (macOS) or `%APPDATA%\Claude\logs\` (Windows). File: `mcp-server-context7.log`.
-
-The free tier needs nothing. A 401 means your `CONTEXT7_API_KEY` is set but wrong — unset it and Context7 falls back to free tier.
-
----
-
-## User-global configs (per machine, optional)
-
-The committed `.mcp.json` covers Claude Code's project scope. Three other files run user-global; none ship in this repo.
-
-### Claude Code user-global — `~/.claude.json`
-
-Same `mcpServers` schema. Same `${VAR}` substitution. Used when you're outside any project that defines its own `.mcp.json`. Project file wins on name collisions.
-
-Populate from the project file:
+On Linux or macOS:
 
 ```bash
-cp .mcp.json ~/.claude.json
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-
-If `~/.claude.json` already exists, merge the `mcpServers` block by hand — Claude Code keeps other top-level keys there (`theme`, `editorMode`, etc.).
-
-### Claude Desktop
-
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- Linux: no official Claude Desktop build.
-
-Same `mcpServers` schema. **Does not support env-var substitution** — inline the actual API key (the file is per-machine personal, so inlining is acceptable; never commit it).
-
-```json
-{
-  "mcpServers": {
-    "context7": {
-      "type": "http",
-      "url": "https://mcp.context7.com/mcp",
-      "headers": {
-        "CONTEXT7_API_KEY": "ctx7_actual_value_or_empty"
-      }
-    }
-  }
-}
-```
-
-### Codex CLI — `~/.codex/config.toml`
-
-Different format (TOML, not JSON). Global-only, no project scope.
-
-```toml
-[mcp_servers.context7]
-command = "npx"
-args = ["-y", "@upstash/context7-mcp@latest"]
-```
-
-Codex has no built-in env-var substitution. If you want the API key out of the file, wrap the command in a small shell script that reads from your secrets manager.
 
 ---
 
-## Env-var substitution support matrix
+### Get the keys you need
 
-| Tool / config file                              | Substitution syntax            |
-| ----------------------------------------------- | ------------------------------ |
-| Claude Code, `.mcp.json` and `~/.claude.json`   | `${VAR}`, `${VAR:-default}`    |
-| OpenCode / Kilo Code, `opencode.json`           | `{env:VAR}`                    |
-| Claude Desktop, `claude_desktop_config.json`    | **not supported** — inline     |
-| Codex CLI, `~/.codex/config.toml`               | TOML; no built-in substitution |
+Only for the servers you use.
+
+| Key | Where to get it |
+|---|---|
+| `CONTEXT7_API_KEY` | [Context7 dashboard](https://context7.com/dashboard), only for higher rate limits than the free tier |
+| `GRAFANA_SERVICE_ACCOUNT_TOKEN` | Grafana, Administration, Service accounts, add an account, then add a token. The `Viewer` role is enough for reading dashboards |
+| `N8N_API_KEY` | n8n, Settings, API, Create API key |
 
 ---
 
-## Adding more MCP servers later
+### Set the variables for every program
 
-To add one of the seven removed servers (`mongodb`, `grafana`, `playwright`, etc.) or any other MCP:
+Set them for your whole login rather than for one shell, so every agent and editor inherits them. The examples set `GRAFANA_SERVICE_ACCOUNT_TOKEN`, and the other variables work the same way.
 
-1. Copy the relevant block from [agent-standards `.mcp.json.example`](https://github.com/Lukk17/agent-standards) and from `opencode.json.example` into the local files here.
-2. Install any external dependency (`uv` for grafana/redis; Docker for sonarqube; a running backing service for mongodb/redis/n8n).
-3. Set the relevant env var(s) — see the agent-standards version of this doc for the full key/URL table.
-4. Restart your agent and verify with `claude mcp list` / `/mcp`.
+#### Windows
 
-The committed `.mcp.json` here is intentionally minimal. Don't add servers you won't actually use — each one spawns a subprocess on every agent launch.
+For your user. New processes see it after a restart of the terminal:
+
+```powershell
+[Environment]::SetEnvironmentVariable('GRAFANA_SERVICE_ACCOUNT_TOKEN', 'glsa_xxxxxxxxxxxx', 'User')
+```
+
+Check it in a new PowerShell window:
+
+```powershell
+$env:GRAFANA_SERVICE_ACCOUNT_TOKEN
+```
+
+#### Linux
+
+For your user only, then log out and back in:
+
+```bash
+echo 'GRAFANA_SERVICE_ACCOUNT_TOKEN=glsa_xxxxxxxxxxxx' >> ~/.profile
+```
+
+#### macOS
+
+For Terminal and anything started from it:
+
+```bash
+echo 'export GRAFANA_SERVICE_ACCOUNT_TOKEN=glsa_xxxxxxxxxxxx' >> ~/.zprofile
+```
+
+For applications started from Finder. This does not survive a reboot:
+
+```bash
+launchctl setenv GRAFANA_SERVICE_ACCOUNT_TOKEN glsa_xxxxxxxxxxxx
+```
+
+Restart your terminal, your editor and every running agent after setting a variable.
+
+---
+
+### Check the servers loaded
+
+Claude Code, from the repository root. Each server shows as connected or failed:
+
+```bash
+claude mcp list
+```
+
+OpenCode, Kilo Code and Codex each list their servers with `/mcp` typed inside the running agent.
+
+---
+
+### Adding or removing a server
+
+Change all three files in the same change, [.mcp.json](../.mcp.json), [opencode.json](../opencode.json) and [.codex/config.toml](../.codex/config.toml), and update the server table in [AGENTS.md](../AGENTS.md) and on this page. The blocks for other servers are in the MCP setup page of [agent-standards](https://github.com/Lukk17/agent-standards). Every server you declare starts with every agent session, so declare only the ones you use.

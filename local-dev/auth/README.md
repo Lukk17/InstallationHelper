@@ -38,7 +38,7 @@ services:
 
 `host-gateway` is resolved by Docker itself and works on Linux, Windows and macOS from Docker 20.10 onward. It is the same mechanism the `keycloak` service already uses for `host.docker.internal`.
 
-Be clear about what it costs. The container leaves the bridge network, goes out to the host, and comes back in through the published 9443. Two containers on the same network end up talking through the host, which is slower than a direct hop and means 9443 has to stay published. A Compose network alias would remove that hairpin in one line, and it is rejected for the reason ADR-008 in the sibling Pharmacy stack gives: an alias resolves to a container from the inside and to nothing at all from the outside, and an issuer URI has to resolve to the same service from both.
+Be clear about what it costs. The container leaves the bridge network, goes out to the host, and comes back in through the published 9443. Two containers on the same network end up talking through the host, which is slower than a direct hop and means 9443 has to stay published. A Compose network alias would remove that hairpin in one line, and it is rejected because an alias resolves to a container from the inside and to nothing at all from the outside, and an issuer URI has to resolve to the same service from both.
 
 Measured with a throwaway container started with `--add-host keycloak.test:host-gateway`, which is the `docker run` spelling of that compose entry. It reached Keycloak on 9443 and got HTTP 200 back.
 

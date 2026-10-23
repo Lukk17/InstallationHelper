@@ -2,7 +2,7 @@
 #
 # Tier 1: the wizard and the container harness must resolve the same software selection.
 #
-# This used to be two implementations of one rule, which is defect class 2 in AGENTS.md, sitting
+# This used to be two implementations of one rule, which is defect class 2 in docs/regression_ledger.md, sitting
 # inside the harness meant to catch that class. setup.sh decides what the software set is in
 # software_override_vars, working from the keys preload_toggles collected, and container.sh decided
 # it again by sweeping install_ toggles out of group_vars/all.yaml and group_vars/linux.yaml. The

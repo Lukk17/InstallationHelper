@@ -545,7 +545,7 @@ exit 0
 
         # One marker file per attempt, counted here. @() around Get-ChildItem on purpose: a single
         # file comes back as one object rather than an array, and .Count on that is a terminating
-        # error under Set-StrictMode -Version Latest, which is defect class 4 in AGENTS.md and was
+        # error under Set-StrictMode -Version Latest, which is defect class 4 in docs/regression_ledger.md and was
         # hit by the first draft of these very tests.
         function global:Get-StubAttemptCount {
             param([Parameter(Mandatory)] [string] $Directory)
@@ -1984,7 +1984,7 @@ Describe 'Assert-NotAdmin in setup.ps1' {
 Describe 'Test-IsAdministrator is the only elevation check' {
 
     # setup.ps1, WindowsSettings.ps1 and WindowsSoftware.ps1 each asked the WindowsPrincipal question
-    # on their own until 2026-10-11, which is defect class 2 in AGENTS.md waiting to happen. Every
+    # on their own until 2026-10-11, which is defect class 2 in docs/regression_ledger.md waiting to happen. Every
     # IsInRole call and every WindowsBuiltInRole Administrator reference under setup/ must sit inside
     # the one Test-IsAdministrator in WindowsSoftware.ps1.
     It 'finds no elevation check under setup/ outside Test-IsAdministrator' {
@@ -2019,7 +2019,7 @@ Describe 'Test-IsAdministrator is the only elevation check' {
 Describe 'Invoke-ElevatedPowerShell is the only route to elevation' {
 
     # The Chocolatey batch and the optional features step each carried their own copy of the RunAs
-    # start until 2026-10-11, which is defect class 2 in AGENTS.md: three implementations of one
+    # start until 2026-10-11, which is defect class 2 in docs/regression_ledger.md: three implementations of one
     # elevation, and three places a refusal or a deadline could be handled differently. Every RunAs
     # under setup/ must sit inside the one Invoke-ElevatedPowerShell in WindowsSoftware.ps1. Comments
     # are not code and are not counted.

@@ -37,7 +37,7 @@
 # the log. No playbook caller passes either, and that check fails on one that does.
 #
 # raw for every manager, which is the mitigation for the ansible-core 2.19 deserialization race
-# documented in AGENTS.md, and which reports rc without the result's failed key that
+# documented in setup/ansible/ansible_architecture.md, and which reports rc without the result's failed key that
 # e2e/tier1/failed_key_reads.sh forbids reading. raw honours neither the environment keyword nor
 # chdir, so the apt variables are inline, and set -o pipefail is what lets rc be the manager's status
 # rather than tee's. Both output streams are merged, so each changed_when reads every line the manager

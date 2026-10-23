@@ -74,7 +74,7 @@ fi
 # a derivative's overrides over it, so the order asked about is that import against the derivation.
 # The second assertion keeps it the only loader: a task that read vars/{{ ih_family }}.yaml itself would
 # hand its play the family's dictionary without the derivative's entries, and the playbook and the
-# verification would then disagree about what CachyOS installs, AGENTS.md defect class 2.
+# verification would then disagree about what CachyOS installs, docs/regression_ledger.md defect class 2.
 import_line="$(grep -n 'import_tasks: tasks/derive_os_facts.yaml' "${SITE}" | head -1 | cut -d: -f1 || true)"
 vars_line="$(grep -n 'import_tasks: tasks/load_os_dict.yaml' "${SITE}" | head -1 | cut -d: -f1 || true)"
 if [[ -n "${import_line}" && -n "${vars_line}" && "${import_line}" -lt "${vars_line}" ]] \

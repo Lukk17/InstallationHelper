@@ -431,7 +431,7 @@ prepare_detect_os() {
 # once as a `^install_` sweep inside container.sh, and the two disagreed in both directions for as
 # long as they both existed: the sweep could not see the four system settings whose names do not
 # begin with install_, and it swept up the two desktop keys the wizard deliberately keeps off the
-# checklist because the desktop has a screen of its own. That is defect class 2 in AGENTS.md, the
+# checklist because the desktop has a screen of its own. That is defect class 2 in docs/regression_ledger.md, the
 # same rule implemented twice and then disagreeing, sitting inside the harness meant to catch it.
 #
 # Run under setup.sh's own IFS, because that file sets IFS to newline and tab at the top and its

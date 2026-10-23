@@ -15,7 +15,7 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 - The default software set still installs alongside a full desktop environment build. Both scenarios leave the software toggles at their [../../setup/ansible/group_vars/](../../setup/ansible/group_vars/) values, so verification asserts the whole default expected set against `pacman -Qq` and `flatpak list --app --columns=application`. Same guard as the "Pacman batch failure marked as success" and "Install block rescue hides which task failed" ledger entries.
 - The per-distribution group names and the systemd unit still resolve on this path, and the temporary passwordless sudoers entry is gone. `id -nG` must contain `os_dict.openrazer_device_group` and `docker`, `systemctl is-enabled tailscaled.service` must exit 0, and `/etc/sudoers.d/99-ansible-user` must not exist. Same ledger entries as capability 60.
 
-[AGENTS.md](../../AGENTS.md) names both of these scenarios as mandatory when a change touches the desktop environment roles, which is why they are one capability rather than two: neither answer to the desktop environment question is covered until both have run.
+"What to run when you change something" in [../README_E2E.md](../README_E2E.md) names both of these scenarios as mandatory when a change touches the desktop environment roles, which is why they are one capability rather than two: neither answer to the desktop environment question is covered until both have run.
 
 ---
 

@@ -641,5 +641,6 @@ The projects folder it asks about is the one this playbook already created and e
 | [bootstrap_machine_prompt.md](bootstrap_machine_prompt.md) | Prompt that makes an agent discover this machine read-only and write `MACHINE.md` |
 | [MACHINE.md.example](MACHINE.md.example) | Template that prompt fills in, kept under the name of the file it produces |
 | [ansible/tags.md](ansible/tags.md) | Ansible `--tags` taxonomy for surgical partial runs |
+| [ansible/ansible_architecture.md](ansible/ansible_architecture.md) | How the playbook is put together, how a toggle becomes a package, the package manager order per OS, and the ansible-core deserialization workaround |
 | [../docs/AGENT_TOOLING.md](../docs/AGENT_TOOLING.md) | Agent-standards, OpenSpec, per-agent integration notes |
-| [../docs/MCP_SETUP.md](../docs/MCP_SETUP.md) | MCP server setup (Context7 only in this project) |
+| [../docs/MCP_SETUP.md](../docs/MCP_SETUP.md) | MCP server setup for the six servers this project declares |

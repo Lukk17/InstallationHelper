@@ -5,7 +5,7 @@
 # setup/ansible/tasks/load_os_dict.yaml merges vars/derivatives/<id>.yaml over the family dictionary,
 # each derivative entry replacing the family entry of the same key whole. e2e/tier2/resolve_packages.sh
 # cannot run Ansible inside the image it probes, so derivative_package_names_for in
-# e2e/lib/package_probe.sh restates that rule in bash, and a second copy of one rule is AGENTS.md
+# e2e/lib/package_probe.sh restates that rule in bash, and a second copy of one rule is docs/regression_ledger.md
 # defect class 2: the day the two disagree, tier 2 resolves a package set no run installs. So this
 # drives the shipped loader through derivative_merge.yaml, the way os_family_derivation.sh drives
 # derive_os_facts.yaml, and fails for any derivative and manager whose two package lists differ.

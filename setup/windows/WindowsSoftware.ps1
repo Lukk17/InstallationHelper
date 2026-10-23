@@ -1595,7 +1595,7 @@ function Set-SyncthingFirewallRule {
     $missingRules = { @($script:SyncthingFirewallRules | Where-Object { -not (Get-NetFirewallRule -Name $_.Name -ErrorAction SilentlyContinue) }) }
     $describe = { param($rules) (@($rules) | ForEach-Object { "$($_.Protocol) $($_.Port)" }) -join ', ' }
 
-    # @( ) at the call site, AGENTS.md defect class 4: the block's own @( ) does not survive the
+    # @( ) at the call site, docs/regression_ledger.md defect class 4: the block's own @( ) does not survive the
     # return, and the first draft of this function died on .Count exactly that way.
     $missing = @(& $missingRules)
     if ($missing.Count -eq 0) {
