@@ -5,7 +5,7 @@
 # setup/ansible/tasks/load_os_dict.yaml merges vars/derivatives/<id>.yaml over the family dictionary,
 # each derivative entry replacing the family entry of the same key whole. e2e/tier2/resolve_packages.sh
 # cannot run Ansible inside the image it probes, so derivative_package_names_for in
-# e2e/lib/package_probe.sh restates that rule in bash, and a second copy of one rule is AGENTS.md
+# e2e/lib/package_probe.sh restates that rule in bash, and a second copy of one rule is docs/regression_ledger.md
 # defect class 2: the day the two disagree, tier 2 resolves a package set no run installs. So this
 # drives the shipped loader through derivative_merge.yaml, the way os_family_derivation.sh drives
 # derive_os_facts.yaml, and fails for any derivative and manager whose two package lists differ.
@@ -16,9 +16,8 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/package_probe.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
-delegate_to_wsl_when_no_ansible e2e/tier1/derivative_merge.sh
+require_cmd ansible-playbook
 
 TIER1_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIXTURE_DIR="${TIER1_DIR}/os_release_fixtures"
@@ -30,7 +29,7 @@ cases=()
 for f in "${VARS_DIR}"/derivatives/*.yaml; do
     [[ -f "${f}" ]] || continue
     id="$(basename "${f}" .yaml)"
-    fixture="$(grep -lE "^ID=\"?${id}\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | head -1 || true)"
+    fixture="$(grep -lE "^ID=\"?${id}\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | sed -n 1p || true)"
     if [[ -z "${fixture}" ]]; then
         fail "${id}: no os-release fixture in e2e/tier1/os_release_fixtures carries ID=${id}, so its merge cannot be derived" "${f}"
         continue
@@ -55,7 +54,7 @@ play_out="$(
         ansible-playbook -i localhost, "${play_dir}/derivative_merge.yaml" -e "${extra}" 2>&1 || true
 )"
 if ! grep -q "IH_MERGE_DONE cases=${#cases[@]}" <<<"${play_out}"; then
-    fail "the merge play did not finish" "$(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | head -4 | tr '\n' ' ')"
+    fail "the merge play did not finish" "$(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | sed -n 1,4p | tr '\n' ' ')"
     finish "derivative merge"
 fi
 

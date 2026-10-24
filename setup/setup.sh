@@ -128,8 +128,9 @@ EXCLUDED_VARS="non_root_user|non_root_home|allow_callback_failure|default_wallpa
 # Checklist keys --software all leaves off rather than on, because turning one on is not more software but a
 # switch away from the default. opencode_use_v1 replaces OpenCode version 2 with version 1 and removes version
 # 2, so "install all" would downgrade OpenCode, which the owner ruled out on 2026-10-15. --enable still turns
-# one on. Must stay identical to $AllSoftwareKeepsOff in setup.ps1, and e2e/tier1/wizard_parse.sh fails if the
-# two ever disagree.
+# one on. The checklist's select-all leaves them off too, through select_all_leaves_off, and ticking one on
+# its own still turns it on. Must stay identical to $AllSoftwareKeepsOff in setup.ps1, and
+# e2e/tier1/wizard_parse.sh fails if the two ever disagree.
 ALL_SOFTWARE_KEEPS_OFF="opencode_use_v1"
 
 # System settings share the checklist with software, so their labels have to say what
@@ -342,6 +343,7 @@ debian_lineage() {
 detect_os() {
     IS_WSL=false
     DEBIAN_LINEAGE=""
+    OS_RELEASE_ID=""
     if grep -qi microsoft /proc/version 2>/dev/null; then
         IS_WSL=true
     fi
@@ -361,6 +363,7 @@ detect_os() {
     _id=$(. /etc/os-release 2>/dev/null; printf '%s\n' "${ID:-}")
     _id_like=$(. /etc/os-release 2>/dev/null; printf '%s\n' "${ID_LIKE:-}")
     DISTRO="${_name:-Linux}"
+    OS_RELEASE_ID="${_id:-}"
     ${IS_WSL} && DISTRO="${DISTRO} (WSL)"
     case "${_id_like:-${_id:-}}" in
         *arch*)                     OS_FAMILY="Archlinux" ;;
@@ -402,7 +405,7 @@ detect_os() {
 # 2.22 does not exist yet, and a branch nobody has run is not a branch this repository can claim.
 #
 # Note what the range deliberately does NOT promise. Every release inside it carries the ansiballz
-# result-deserialization race documented in AGENTS.md, because the upstream fix, pull request 86739
+# result-deserialization race documented in setup/ansible/ansible_architecture.md, because the upstream fix, pull request 86739
 # against ansible/ansible, is still unmerged. There is no version to move to that escapes it, so the
 # mitigations in this repository stay whatever version this check accepts.
 ANSIBLE_CORE_MIN_VERSION="2.19.0"
@@ -469,7 +472,7 @@ ensure_ansible_version() {
 
 ensure_ansible() {
     if command -v ansible-playbook &>/dev/null; then
-        say "Ansible: already installed ($(ansible-playbook --version 2>/dev/null | head -1))"
+        say "Ansible: already installed ($(ansible-playbook --version 2>/dev/null | sed -n 1p))"
         return 0
     fi
     say "Ansible not found - installing for ${OS_FAMILY}..."
@@ -1186,6 +1189,76 @@ pick_review_mode() {
     SCREEN_RESULT="${SCREEN_RESULT%% *}"
 }
 
+# The checklist keys with the ones select-all leaves off removed, when every key the checklist offers is
+# ticked. gum's select-all cannot leave one item out, so a full selection is read as select-all, the way
+# --software all reads. Anything less than everything is kept as ticked. Prints one key per line.
+select_all_leaves_off() {
+    local key picked
+    for key in "${PRELOADED_KEYS[@]}"; do
+        for picked in "$@"; do
+            [[ "${picked}" == "${key}" ]] && continue 2
+        done
+        printf '%s\n' "$@"
+        return 0
+    done
+    for picked in "$@"; do
+        [[ "${picked}" =~ ^(${ALL_SOFTWARE_KEEPS_OFF})$ ]] || printf '%s\n' "${picked}"
+    done
+}
+
+# The checklist header line that says which toggles select-all leaves off, empty when none is offered.
+select_all_note() {
+    local key labels=""
+    for key in "${PRELOADED_KEYS[@]}"; do
+        [[ "${key}" =~ ^(${ALL_SOFTWARE_KEEPS_OFF})$ ]] && labels+="${labels:+, }\"${LABEL_OVERRIDES[${key}]:-${key}}\""
+    done
+    [[ -z "${labels}" ]] && return 0
+    printf 'Select-all leaves %s off. Tick it on its own to turn it on.' "${labels}"
+}
+
+# The toggles whose mapping installs through snap on this machine, one install_<key> per line. Read from
+# vars/<family>.yaml with the entries of vars/derivatives/<os-release ID>.yaml replacing the family's of
+# the same key, the merge setup/ansible/tasks/load_os_dict.yaml does, so this names exactly what
+# setup/ansible/tasks/snap_availability.yaml skips when install_snapd is off, everywhere but Ubuntu
+# itself, where it skips nothing.
+snap_dependents() {
+    local family_file="${ANSIBLE_DIR}/vars/${OS_FAMILY}.yaml"
+    local derivative_file="${ANSIBLE_DIR}/vars/derivatives/${OS_RELEASE_ID:-none}.yaml"
+    [[ -f "${family_file}" ]] || return 0
+    {
+        awk '/^software_mapping:/ { inside = 1; next } /^[^[:space:]#]/ { inside = 0 } inside && /^  [a-z0-9_]+: \{/' "${family_file}"
+        if [[ -f "${derivative_file}" ]]; then grep -E '^  [a-z0-9_]+: \{' "${derivative_file}" || true; fi
+    } | tr -d '\r' \
+        | sed -nE 's/^  ([a-z0-9_]+): \{.*manager: *"([a-z_]+)".*/\1 \2/p' \
+        | awk '{ manager[$1] = $2 } END { for (key in manager) if (manager[key] == "snap") print "install_" key }' \
+        | sort
+}
+
+# The checklist header line that says what turning Snapd off skips on this machine, empty when the
+# checklist offers no Snapd entry. On Ubuntu itself, os-release ID ubuntu, snapd ships with the system and
+# the playbook neither installs nor removes it, so the toggle skips nothing there, the answer
+# setup/ansible/tasks/snap_availability.yaml gives as ih_snapd_with_system from the same ID. Pop!_OS and
+# Linux Mint follow install_snapd like Debian.
+snapd_note() {
+    local key labels="" offered=false
+    for key in "${PRELOADED_KEYS[@]}"; do
+        [[ "${key}" == install_snapd ]] && offered=true
+    done
+    [[ "${offered}" == true ]] || return 0
+    if [[ "${OS_FAMILY:-}" == Debian && "${OS_RELEASE_ID:-}" == ubuntu ]]; then
+        printf 'Snapd: it ships with Ubuntu, so the playbook neither installs nor removes it, and every application that installs through snap installs whatever this says.'
+        return 0
+    fi
+    while IFS= read -r key; do
+        [[ -n "${key}" ]] && labels+="${labels:+, }\"$(format_label "${key}")\""
+    done < <(snap_dependents)
+    if [[ -z "${labels}" ]]; then
+        printf 'Snapd: nothing on this machine installs through snap, so turning it off skips no application.'
+    else
+        printf 'Snapd: turning it off skips %s, because each installs through snap on this machine.' "${labels}"
+    fi
+}
+
 # Multi-select software picker. `gum choose --no-limit` supports `--selected` for
 # pre-selection (`gum filter` does not). Items already enabled in group_vars show
 # up as pre-selected so the user only changes what they actually want to change.
@@ -1204,10 +1277,15 @@ pick_software() {
         fi
     done
 
-    local picked
+    local picked header note
+    header="arrows move | Space toggle | a select-all | A deselect-all | Enter confirm | Esc cancel"
+    note="$(select_all_note)"
+    [[ -n "${note}" ]] && header+=$'\n'"${note}"
+    note="$(snapd_note)"
+    [[ -n "${note}" ]] && header+=$'\n'"${note}"
     picked=$(gum choose \
         --no-limit \
-        --header "arrows move | Space toggle | a select-all | A deselect-all | Enter confirm | Esc cancel" \
+        --header "${header}" \
         --selected="${preselect_csv}" \
         --cursor.foreground=10 --selected.foreground=10 \
         "${options[@]}" \
@@ -1321,6 +1399,7 @@ main_interactive() {
                 if [[ -z "${SCREEN_RESULT}" ]]; then state="review"; continue; fi
                 local -a selected_keys=()
                 mapfile -t selected_keys <<<"${SCREEN_RESULT}"
+                mapfile -t selected_keys < <(select_all_leaves_off "${selected_keys[@]}")
                 pkg_vars=()
                 local key found sel
                 for key in "${PRELOADED_KEYS[@]}"; do

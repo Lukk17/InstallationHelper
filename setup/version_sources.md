@@ -296,7 +296,7 @@ Pinned in `requirements.yaml`.
 | PR #86739 (the 2.19 deserialization bug fix) | <https://github.com/ansible/ansible/pull/86739> |
 | Per-branch release notes | `https://docs.ansible.com/ansible-core/<minor>/release_and_maintenance.html` |
 
-`AGENTS.md` lists the mandatory recheck steps before reverting the `raw:` workarounds.
+[ansible/ansible_architecture.md](ansible/ansible_architecture.md) lists the mandatory recheck steps before reverting the `raw:` workarounds.
 
 ## Generic vendor channels
 

@@ -19,7 +19,7 @@
 #   1. The rule's own numbers and refreshes in the shared file: retries 3, delay 20, and the refresh
 #      each manager has, none for snap, never an install inside a refresh.
 #   2. Every package install under setup/ansible goes through the shared file, except a manager with no
-#      local index (the AUR helpers, npm, pip and pipx, SDKMAN, nvm), which must retry three times
+#      local index (the AUR helpers, npm, pip and pipx, SDKMAN, nvm, sdkmanager), which must retry three times
 #      twenty seconds apart through until. No caller passes role_packages_retry_delay or
 #      role_packages_log, which exist only for part 3.
 #   3. The shared file run for real against a fake of each manager: a package that installs at once is
@@ -28,11 +28,16 @@
 #      already installed snap counts as installed whatever snap exits.
 #   4. install_one in each manual script, sourced and run against the same fakes, does the same, with
 #      the same numbers, and the Arch script's refresh is a full upgrade, never a bare -Syy.
+#   3a. apt only, against a fake dpkg: an attempt whose maintainer script fails leaves dpkg unusable for
+#      every later package, so the shared file runs dpkg --configure -a and has apt remove what that
+#      cannot finish, names each removed package and fails the run, and the next package installs on
+#      its first attempt. A package that dpkg --configure -a finishes is not removed. Pop!_OS lost
+#      docker and about 25 other packages to one failed DKMS build before this,
+#      docs/regression_ledger.md 10.186.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
-delegate_to_wsl_when_no_ansible e2e/tier1/package_retry_rule.sh
+require_cmd ansible-playbook
 
 info "Tier 1: every package manager follows the one retry rule"
 
@@ -58,6 +63,7 @@ lines = []
 REFRESH = {
     'apt': (r'\bapt-get update$', 'apt-get update'),
     'dnf': (r'^dnf makecache --refresh$', 'dnf makecache --refresh'),
+    'rpm_url': (r'^dnf makecache --refresh$', 'dnf makecache --refresh, because dnf resolves what the rpm requires'),
     'pacman': (r'^pacman -Syy --noconfirm$', 'pacman -Syy on its own'),
     'flatpak': (r'^flatpak update --system --appstream\b', 'flatpak update --appstream'),
     'snap': (r'^$', 'no refresh, snapd keeps no index'),
@@ -143,7 +149,8 @@ UNINDEXED_COMMAND = {re.compile(r'(?<![\w-])(?:paru|yay)\s+-S'): 'the AUR',
                      re.compile(r'(?<![\w-])pipx\s+install\b'): 'pipx',
                      re.compile(r'(?<![\w-])pip3?\s+install\b'): 'pip',
                      re.compile(r'(?<![\w-])sdk\s+install\b'): 'SDKMAN',
-                     re.compile(r'(?<![\w-])nvm\s+install\b'): 'nvm'}
+                     re.compile(r'(?<![\w-])nvm\s+install\b'): 'nvm',
+                     re.compile(r'(?<![\w-])sdkmanager(?:\.bat)?\s+(?!-)\S'): 'sdkmanager'}
 
 
 def tasks(node, inherited_retry_pair=False):
@@ -273,8 +280,39 @@ case "${tool} $*" in
     "apt-get update"*|"dnf makecache"*|"pacman -Syy"*|"pacman -Syu"*|"flatpak update"*|"brew update"*)
         echo "${tool} refresh" >> "${log}"; echo "refreshed"; exit 0 ;;
 esac
+# The dpkg state of part 3a, one "<status> <package>" line per package dpkg has not finished.
+state="${log}.dpkg"
+if [[ "${tool}" == apt-get && "${1:-}" == remove ]]; then
+    shift
+    removed=()
+    for arg in "$@"; do
+        [[ "${arg}" == -* ]] && continue
+        removed+=("${arg}")
+        [[ -f "${state}" ]] && grep -v " ${arg}$" "${state}" > "${state}.next"; mv -f "${state}.next" "${state}" 2>/dev/null
+    done
+    echo "apt-get remove ${removed[*]}" >> "${log}"; exit 0
+fi
 package="${!#}"
 echo "${tool} install ${package}" >> "${log}"
+if [[ "${tool}" == apt-get && -s "${state}" ]]; then
+    echo "E: Sub-process /usr/bin/dpkg returned an error code (1)"; exit 100
+fi
+case "${package}" in
+    halfconf-*)
+        if [[ "${tool}" == apt-get ]]; then
+            echo "half-configured ${package}-dkms" >> "${state}"
+            echo "Error! Bad return status for module build on kernel: 7.2.6-76070206-generic (x86_64)"
+            echo "E: Sub-process /usr/bin/dpkg returned an error code (1)"; exit 100
+        fi ;;
+    settles-*)
+        if [[ "${tool}" == apt-get ]]; then
+            if grep -qx "${package}" "${log}.configured" 2>/dev/null; then
+                echo "0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded."; exit 0
+            fi
+            echo "half-configured ${package}" >> "${state}"
+            echo "E: Sub-process /usr/bin/dpkg returned an error code (1)"; exit 100
+        fi ;;
+esac
 case "${package}" in
     ok-*) echo "Installing ${package}"; exit 0 ;;
     present-*)
@@ -291,7 +329,7 @@ case "${package}" in
         if [[ "${tool}" == snap && "$(grep -c "^${tool} install ${package}$" "${log}")" -gt 1 ]]; then
             echo "${package} installed"; exit 0
         fi
-        last_fail="$(grep -n "^${tool} install ${package}$" "${log}" | tail -2 | head -1 | cut -d: -f1)"
+        last_fail="$(grep -n "^${tool} install ${package}$" "${log}" | tail -2 | sed -n 1p | cut -d: -f1)"
         last_refresh="$(grep -n "^${tool} refresh$" "${log}" | tail -1 | cut -d: -f1)"
         if [[ -n "${last_refresh}" && "$(grep -c "^${tool} install ${package}$" "${log}")" -gt 1 \
               && "${last_refresh}" -gt "${last_fail}" ]]; then
@@ -304,6 +342,32 @@ exit 1
 FAKE
 chmod +x "${work}/bin/fakepm"
 for tool in apt-get dnf pacman flatpak snap brew; do ln -s fakepm "${work}/bin/${tool}"; done
+# dpkg-query answers from the state above: the status of one package, or every unfinished package
+# beside one installed one. dpkg --configure -a finishes settles-* and nothing else.
+cat > "${work}/bin/dpkg-query" <<'FAKE'
+#!/usr/bin/env bash
+state="${FAKE_PM_LOG:?}.dpkg"
+package="${4:-}"
+if [[ -n "${package}" ]]; then
+    found="$(grep " ${package}$" "${state}" 2>/dev/null | cut -d ' ' -f 1)"
+    [[ -n "${found}" ]] || { echo "dpkg-query: no packages found matching ${package}" >&2; exit 1; }
+    printf '%s' "${found}"; exit 0
+fi
+echo "installed base-files"
+cat "${state}" 2>/dev/null
+exit 0
+FAKE
+cat > "${work}/bin/dpkg" <<'FAKE'
+#!/usr/bin/env bash
+log="${FAKE_PM_LOG:?}"
+state="${log}.dpkg"
+[[ " $* " == *" --configure -a "* ]] || { echo "the fake dpkg knows only --configure -a, not: $*" >&2; exit 2; }
+echo "dpkg configure" >> "${log}"
+grep -oE ' settles-[^ ]+$' "${state}" 2>/dev/null | tr -d ' ' >> "${log}.configured"
+grep -v ' settles-' "${state}" > "${state}.next" 2>/dev/null; mv -f "${state}.next" "${state}" 2>/dev/null
+[[ ! -s "${state}" ]]
+FAKE
+chmod +x "${work}/bin/dpkg-query" "${work}/bin/dpkg"
 printf '#!/usr/bin/env bash\nexec "$@"\n' > "${work}/bin/sudo"
 chmod +x "${work}/bin/sudo"
 
@@ -333,8 +397,8 @@ judge() {
         [[ "$(refreshed_between "${log}" "${tool}" "flaky-${suffix}")" == yes ]] \
             || problems+=("flaky-${suffix} was retried without a refresh of ${tool}'s index before it")
         local first_refresh first_flaky
-        first_refresh="$(grep -n "^${tool} refresh$" "${log}" | head -1 | cut -d: -f1 || true)"
-        first_flaky="$(grep -n "^${tool} install flaky-${suffix}$" "${log}" | head -1 | cut -d: -f1 || true)"
+        first_refresh="$(grep -n "^${tool} refresh$" "${log}" | sed -n 1p | cut -d: -f1 || true)"
+        first_flaky="$(grep -n "^${tool} install flaky-${suffix}$" "${log}" | sed -n 1p | cut -d: -f1 || true)"
         [[ -n "${first_refresh}" && -n "${first_flaky}" && "${first_refresh}" -gt "${first_flaky}" ]] \
             || problems+=("${tool} refreshed before any attempt had failed")
     elif grep -q "^${tool} refresh$" "${log}"; then
@@ -363,7 +427,7 @@ cat > "${work}/play.yaml" <<'PLAY'
       ansible.builtin.include_tasks:
         file: "{{ repo }}/setup/ansible/tasks/install_role_packages.yaml"
       vars:
-        role_packages: ["ok-x", "flaky-x", "broken-x", "present-x"]
+        role_packages: "{{ packages | default(['ok-x', 'flaky-x', 'broken-x', 'present-x']) }}"
         role_packages_purpose: the fake set
         role_packages_manager: "{{ manager }}"
         role_packages_retry_delay: 0
@@ -385,19 +449,67 @@ for manager in apt dnf pacman flatpak snap brew brew_cask; do
         ansible-playbook "${work}/play.yaml" -i localhost, \
         -e ansible_become=false -e "repo=${REPO_ROOT}" -e "manager=${manager}" \
         -e "fake_log=${work}/${manager}.tee" </dev/null 2>&1)" || true
-    missing="$(grep -o 'FAKE-RESULT missing=[^ ]*' <<<"${out}" | head -1 || true)"
+    missing="$(grep -o 'FAKE-RESULT missing=[^ ]*' <<<"${out}" | sed -n 1p || true)"
     if [[ -z "${missing}" ]]; then
         fail "the shared file runs against a fake ${manager}" "the play did not finish: $(grep -m3 -E 'ERROR|fatal' <<<"${out}" | tr '\n' ' ')"
         continue
     fi
-    if ! grep -q 'failed=True' <<<"$(grep -o 'FAKE-RESULT.*' <<<"${out}" | head -1 || true)" \
+    if ! grep -q 'failed=True' <<<"$(grep -o 'FAKE-RESULT.*' <<<"${out}" | sed -n 1p || true)" \
         || ! grep -qE '\[ERROR\] ([a-z-]+, )*broken-x(, [a-z-]+)*, from the fake set' <<<"${out}"; then
         fail "${manager}: a package that never installs fails the run and is named in an [ERROR] line" \
-             "$(grep -o 'FAKE-RESULT[^"]*' <<<"${out}" | head -1)"
+             "$(grep -o 'FAKE-RESULT[^"]*' <<<"${out}" | sed -n 1p)"
     fi
     judge "${manager}: one attempt without a refresh, then wait, $([[ ${indexed} == yes ]] && echo "refresh ${tool}'s index, " )retry, four attempts, the failure named" \
         "${log}" "${tool}" "${indexed}" "${missing}" x
 done
+
+# --- part 3a: apt leaves dpkg usable after a maintainer script fails ----------------------------
+fakes_resolved=yes
+for tool in apt-get dpkg dpkg-query; do
+    resolved="$(PATH="${work}/bin:${PATH}" command -v "${tool}" || true)"
+    if [[ "${resolved}" != "${work}/bin/${tool}" ]]; then
+        fail "the fake ${tool} is the one the shared file runs" "${tool} resolves to ${resolved:-nothing}"
+        fakes_resolved=no
+    fi
+done
+if [[ "${fakes_resolved}" == yes ]]; then
+    log="${work}/dpkg.log"
+    : > "${log}"
+    out="$(FAKE_PM_LOG="${log}" PATH="${work}/bin:${PATH}" ANSIBLE_STDOUT_CALLBACK=default \
+        ansible-playbook "${work}/play.yaml" -i localhost, \
+        -e ansible_become=false -e "repo=${REPO_ROOT}" -e manager=apt \
+        -e '{"packages": ["halfconf-x", "ok-after", "settles-x"]}' \
+        -e "fake_log=${work}/dpkg.tee" </dev/null 2>&1)" || true
+    result="$(grep -o 'FAKE-RESULT[^"]*' <<<"${out}" | sed -n 1p || true)"
+    problems=()
+    [[ -n "${result}" ]] || problems+=("the play did not finish: $(grep -m3 -E 'ERROR|fatal' <<<"${out}" | tr '\n' ' ')")
+    [[ "$(calls "${log}" apt-get ok-after)" -eq 1 ]] \
+        || problems+=("ok-after, after a package whose maintainer script failed, was tried $(calls "${log}" apt-get ok-after) times, not once, so dpkg was left unusable")
+    [[ "$(calls "${log}" apt-get halfconf-x)" -eq 4 ]] \
+        || problems+=("halfconf-x was tried $(calls "${log}" apt-get halfconf-x) times, not four")
+    [[ "$(calls "${log}" apt-get settles-x)" -eq 2 ]] \
+        || problems+=("settles-x, which dpkg --configure -a finishes, was tried $(calls "${log}" apt-get settles-x) times, not twice")
+    configure_at="$(grep -n '^dpkg configure$' "${log}" | sed -n 1p | cut -d: -f1 || true)"
+    remove_at="$(grep -n '^apt-get remove halfconf-x-dkms$' "${log}" | sed -n 1p | cut -d: -f1 || true)"
+    [[ -n "${configure_at}" && -n "${remove_at}" && "${configure_at}" -lt "${remove_at}" ]] \
+        || problems+=("dpkg --configure -a did not run before apt removed halfconf-x-dkms")
+    ! grep -q '^apt-get remove .*settles-x' "${log}" \
+        || problems+=("settles-x was removed although dpkg --configure -a finished it")
+    [[ ! -s "${log}.dpkg" ]] || problems+=("dpkg was left with $(tr '\n' ' ' < "${log}.dpkg")")
+    [[ "${result}" == *"failed=True"* ]] || problems+=("the run did not fail")
+    [[ "${result}" == *"missing=halfconf-x failed="* ]] || problems+=("the missing list is not halfconf-x alone")
+    [[ "${result}" == *"halfconf-x-dkms (the fake set, its maintainer script failed and apt removed it"* ]] \
+        || problems+=("halfconf-x-dkms is not named as removed in the play summary")
+    [[ "${result}" != *"settles-x ("* ]] || problems+=("settles-x is named in the play summary")
+    grep -qE '\[ERROR\] halfconf-x-dkms, pulled in for the fake set, failed in a maintainer script' <<<"${out}" \
+        || problems+=("no [ERROR] line names halfconf-x-dkms as removed")
+    if [[ ${#problems[@]} -eq 0 ]]; then
+        pass "apt: a failed maintainer script gets dpkg --configure -a, then apt removes what that cannot finish, names it, fails the run, and the next package installs on its first attempt"
+    else
+        fail "apt: a failed maintainer script leaves dpkg usable for the next package, and is named" \
+             "$(printf '%s; ' "${problems[@]}")calls: $(tr '\n' ' ' < "${log}")"
+    fi
+fi
 
 # --- part 4: install_one in the manual scripts ----------------------------------------------------
 # The rule's numbers are the shared file's: retries 3 is four attempts, and the delay is twenty seconds.
@@ -426,7 +538,7 @@ for script in docs/manual/arch/install.sh docs/manual/debian-ubuntu/install.sh d
         fail "${script}: each manager has a refresh function install_one calls before a retry" "none was found"
         continue
     fi
-    if [[ "${script}" == *arch* ]] && ! grep -A3 '^refresh_pacman() {' "${functions}" | grep -qE 'pacman -Syu\b'; then
+    if [[ "${script}" == *arch* ]] && ! grep -qE 'pacman -Syu\b' <<<"$(grep -A3 '^refresh_pacman() {' "${functions}")"; then
         fail "${script}: the pacman refresh before a retry is a full upgrade" \
              "refresh_pacman must run pacman -Syu, because a bare -Syy followed by an install is a partial upgrade"
     fi

@@ -13,7 +13,7 @@
 # and a preinstalled convenience would hide it if that ever broke.
 #
 # systemd runs as PID 1 so tasks that enable units are genuinely exercised. That
-# needs --privileged and the host cgroup mount at run time, see container.sh.
+# needs --privileged and a private cgroup namespace at run time, see container.sh.
 FROM ubuntu:26.04
 
 # DEBIAN_FRONTEND only needs to exist for the length of this build step. An ARG

@@ -1,0 +1,17 @@
+---
+# snapper_applies: whether Snapper has anything to snapshot on this machine. Snapper keeps snapshots of a
+# btrfs root and of nothing else, so on any other root filesystem roles/snapper installs and configures
+# nothing. Answered once, here, and read by roles/snapper to decide whether to install snapper and by
+# verify_install.yaml to decide whether to expect it, so the two cannot disagree. root_fs_type stays
+# registered for the configuration tasks in roles/snapper, which read the filesystem type itself.
+#
+# findmnt is util-linux, which every Linux this playbook supports carries and macOS does not.
+- name: Detect the root filesystem type (Linux)
+  ansible.builtin.command: findmnt -no FSTYPE /
+  register: root_fs_type
+  changed_when: false
+  when: ansible_facts['system'] == 'Linux'
+
+- name: Record whether Snapper applies to the root filesystem
+  ansible.builtin.set_fact:
+    snapper_applies: "{{ (root_fs_type.stdout | default('')) == 'btrfs' }}"

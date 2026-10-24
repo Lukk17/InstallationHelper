@@ -59,7 +59,9 @@ http_ask() {
     for (( attempt = 1; attempt <= HTTP_ASK_ATTEMPTS; attempt++ )); do
         HTTP_ATTEMPTS_MADE=${attempt}
         status=0
-        raw="$(curl -s -w '\n%{http_code}' --connect-timeout 10 --max-time 20 "${url}" 2>/dev/null)" || status=$?
+        # The null bytes of a binary answer, such as a signing key, are dropped here rather than by
+        # bash, which warns on stderr for each one. pipefail keeps curl's own status.
+        raw="$(curl -s -w '\n%{http_code}' --connect-timeout 10 --max-time 20 "${url}" 2>/dev/null | tr -d '\000')" || status=$?
         HTTP_CODE="${raw##*$'\n'}"
         HTTP_BODY="${raw%$'\n'*}"
         if [[ ${status} -ne 0 ]]; then

@@ -46,7 +46,7 @@ out="$("${PWSH}" -NoProfile -NonInteractive -Command "
     if (-not \$m) { Write-Output 'PESTER_ABSENT'; exit 0 }
     Import-Module \$m.Path -Force
     \$c = New-PesterConfiguration
-    \$c.Run.Path = '$(to_windows_path "${SUITE}")'
+    \$c.Run.Path = '${SUITE}'
     \$c.Run.PassThru = \$true
     \$c.Filter.ExcludeTag = @('Slow', 'Network')
     \$c.Output.Verbosity = 'None'
@@ -63,7 +63,7 @@ fi
 
 # `|| true` because grep exits 1 when it matches nothing, and under pipefail that status would end
 # the script on this assignment, which is the branch below never running rather than a quiet pass.
-totals="$(grep -o 'TOTALS .*' <<<"${out}" | head -1 || true)"
+totals="$(grep -o 'TOTALS .*' <<<"${out}" | sed -n 1p || true)"
 if [[ -z "${totals}" ]]; then
     fail "the Pester run printed no totals, so this check proves nothing" \
          "${PWSH} exited ${pester_status}: $(tr '\n' ' ' <<<"${out}" | tail -c 400)"
@@ -73,7 +73,7 @@ elif [[ "${totals}" == *"failed=0 "* ]]; then
     pass "the Windows installer unit tests pass (${totals#TOTALS })"
 else
     fail "the Windows installer unit tests fail, and CI would refuse the whole sweep for it" \
-         "${totals#TOTALS } | $(grep '^FAILED ' <<<"${out}" | head -3 | tr '\n' ' ')"
+         "${totals#TOTALS } | $(grep '^FAILED ' <<<"${out}" | sed -n 1,3p | tr '\n' ' ')"
 fi
 
 finish "Windows installer unit tests"

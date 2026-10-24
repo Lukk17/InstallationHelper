@@ -24,12 +24,12 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 
-# One line per package, in vars/Windows.yaml order. Source, Scope and InstallerType only where the
+# One line per package, in vars/Windows.yaml order. Source, Scope, InstallerType and VerifyPath only where the
 # mapping names them. ClientOnly and RequiresNvidiaGpu are the mapping's own conditions.
 $Packages = @(
     @{ Manager = 'winget'; Id = 'Google.Chrome' }
     @{ Manager = 'winget'; Id = 'Brave.Brave'; Scope = 'machine'; InstallerType = 'exe' }
-    @{ Manager = 'winget'; Id = 'TorProject.TorBrowser'; Scope = 'user' }
+    @{ Manager = 'winget'; Id = 'TorProject.TorBrowser'; Scope = 'user'; VerifyPath = '%USERPROFILE%/Desktop/Tor Browser' }
     @{ Manager = 'winget'; Id = 'Git.Git'; Scope = 'machine'; InstallerType = 'inno' }
     @{ Manager = 'choco'; Id = 'maven' }
     @{ Manager = 'choco'; Id = 'gradle' }
@@ -204,11 +204,19 @@ function Invoke-InstallWithRetry {
 function Get-InstallExpression($p) {
     $id = Format-Literal $p.Id
     if ($p.Manager -eq 'choco') {
-        return "Invoke-InstallWithRetry -Package $id -Install { choco install $id -y --no-progress | Out-Host; `$LASTEXITCODE } -Refresh { choco cache remove -y | Out-Host }"
+        # Chocolatey 2 exits 0 with "Chocolatey installed 0/0 packages." when the feed answers 503, so
+        # exit 0 counts only when Chocolatey then lists the package as installed.
+        $listed = Format-Literal ('^' + [regex]::Escape($p.Id) + '\|')
+        return "Invoke-InstallWithRetry -Package $id -Install { choco install $id -y --no-progress | Out-Host; if (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } elseif (@(choco list --local-only --limit-output --exact $id) -match $listed) { 0 } else { Write-Host '    choco exited 0 and does not list the package as installed'; 1 } } -Refresh { choco cache remove -y | Out-Host }"
     }
     $arguments = (Get-WingetArgument $p | ForEach-Object { Format-Literal $_ }) -join ' '
     $source = Format-Literal $(if ($p['Source']) { $p['Source'] } else { 'winget' })
-    return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } else { `$LASTEXITCODE } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
+    # winget exited 0 for Prime Video and Slack without installing either, so exit 0 counts only when
+    # winget then lists the package with no scope, or, for a package winget cannot list, when its
+    # VerifyPath exists. The wizard's install and its verification ask the same.
+    $listed = "winget list --exact --id $id --accept-source-agreements"
+    $onDisk = if ($p['VerifyPath']) { "Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($(Format-Literal $p.VerifyPath)))" } else { '$false' }
+    return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } elseif (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } else { $listed | Out-Host; if (`$LASTEXITCODE -eq 0 -or ($onDisk)) { 0 } else { Write-Host '    winget exited 0 and does not list the package as installed'; 1 } } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
 }
 
 # The script an elevated window runs. It carries Invoke-InstallWithRetry with it, counts its own

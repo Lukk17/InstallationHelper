@@ -399,6 +399,42 @@ function Test-WingetPackageInstalled {
     return (Get-WingetPackagePresence -WingetPath $WingetPath -PackageId $PackageId -Scope $Scope).Installed
 }
 
+function Test-WingetVerifyPath {
+    <#
+    .SYNOPSIS
+        Whether the mapping's verify_path exists, the second question for a package winget installs
+        but cannot list back in the scope it installed to. False when the mapping carries none.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string] $VerifyPath = '')
+
+    if (-not $VerifyPath) { return $false }
+    return (Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($VerifyPath)))
+}
+
+function Get-WingetInstallVerdict {
+    <#
+    .SYNOPSIS
+        Whether a winget package counts as installed, the one rule the install after a winget exit 0
+        and the verification in WindowsVerify.ps1 both ask: winget lists it with no scope, or its
+        verify_path exists. Reason says why not, and is empty when Installed is true.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $WingetPath,
+        [Parameter(Mandatory)] [string] $PackageId,
+        [string] $VerifyPath = ''
+    )
+
+    if ((Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
+        return [PSCustomObject]@{ Installed = $true; Reason = '' }
+    }
+    $notOnDisk = if ($VerifyPath) { " and $([Environment]::ExpandEnvironmentVariables($VerifyPath)) does not exist" } else { '' }
+    return [PSCustomObject]@{ Installed = $false
+        Reason = "winget list --exact --id $PackageId finds nothing$notOnDisk, so $PackageId is not installed" }
+}
+
 function Test-WingetElevationRequired {
     <#
     .SYNOPSIS
@@ -572,6 +608,38 @@ try {
     }
 }
 
+function Wait-BoundedProcess {
+    <#
+    .SYNOPSIS
+        Waits for a started process until a deadline, and answers true only once its redirected
+        output is complete as well.
+    .DESCRIPTION
+        Every caller that starts a program with Start-Process -RedirectStandardOutput and reads the
+        files afterwards waits through this, so the rule lives in one place. On Linux and macOS,
+        Start-Process copies the output into the files through .NET's asynchronous readers, and
+        WaitForExit with a deadline returns when the process ends, before they have finished, so
+        about one read in 140 found an empty file. So a true answer from the deadline wait is
+        followed by WaitForExit with no deadline, which waits for those readers. On Windows the
+        process writes the files itself and the second wait returns at once. Entry 10.183 of
+        docs/regression_ledger.md.
+
+        False means the deadline passed and the process is still running, and the caller decides
+        what to do with it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNull()] [object] $Process,
+        [Parameter(Mandatory)] [ValidateRange(1, [int]::MaxValue)] [int] $TimeoutMilliseconds
+    )
+
+    if (-not $Process.WaitForExit($TimeoutMilliseconds)) {
+        return $false
+    }
+    $Process.WaitForExit()
+    return $true
+}
+
 function Invoke-BoundedWinget {
     <#
     .SYNOPSIS
@@ -593,6 +661,9 @@ function Invoke-BoundedWinget {
         silent pass. TimedOut is returned separately from the exit code so the caller can say which
         of the two happened.
 
+        The files are read only after Wait-BoundedProcess says the output is complete, entry 10.183
+        of docs/regression_ledger.md.
+
     .PARAMETER TimeoutSeconds
         The deadline. 900 by default, which is fifteen minutes for a single package: generous next to
         the couple of minutes a large installer takes, and a fraction of the job ceiling.
@@ -609,9 +680,9 @@ function Invoke-BoundedWinget {
     try {
         $process = Start-Process -FilePath $WingetPath -ArgumentList $Arguments -PassThru -NoNewWindow `
             -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        if (-not (Wait-BoundedProcess -Process $process -TimeoutMilliseconds ($TimeoutSeconds * 1000))) {
             try { $process.Kill($true) } catch { Write-Verbose "could not kill winget: $($_.Exception.Message)" }
-            $null = $process.WaitForExit(30000)
+            $null = Wait-BoundedProcess -Process $process -TimeoutMilliseconds 30000
             return [PSCustomObject]@{
                 Output   = (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue)
                 ExitCode = -1
@@ -760,6 +831,21 @@ function Test-WindowsPackageSkip {
         return 'this is NVIDIA graphics software and Win32_VideoController reports no NVIDIA display adapter on this machine, so there is nothing for it to drive'
     }
     return ''
+}
+
+function Get-CommandOutputTail {
+    <#
+    .SYNOPSIS
+        The last two lines a program wrote that carry text, joined by spaces, for a one-line failure reason.
+    .DESCRIPTION
+        Splits on a carriage return and line feed as well as on a line feed alone, because on Windows
+        Out-String and the files Start-Process redirects into end every line with both.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()] [AllowEmptyString()] [string] $Text)
+
+    return (@($Text -split '\r?\n' | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
 }
 
 function Invoke-PackageManagerRetry {
@@ -916,6 +1002,8 @@ function Install-WingetPackage {
         [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900,
         # The directory to install into, passed to winget as --location. Empty means the installer's own default.
         [string] $Location = '',
+        # The mapping's verify_path, for a package winget cannot list. See Get-WingetInstallVerdict.
+        [string] $VerifyPath = '',
 
         # Parameters so a test can run the retries with no pause, defaulting to the shared rule.
         [ValidateRange(0, 10)] [int] $Retries = $script:PackageRetryCount,
@@ -941,7 +1029,7 @@ function Install-WingetPackage {
             }
             return [PSCustomObject]@{ Package = $PackageId; Status = 'failed'; Detail = $detail }
         }
-        if ($machine.Installed) {
+        if ($machine.Installed -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
             Write-Verbose "$PackageId already installed machine-wide"
             return [PSCustomObject]@{ Package = $PackageId; Status = 'present'; Detail = '' }
         }
@@ -955,7 +1043,7 @@ function Install-WingetPackage {
                 Detail  = "installed for this user only, the machine-wide install was skipped. To install it machine-wide, remove the per-user copy with 'winget uninstall --exact --id $PackageId --scope user' and run the wizard again."
             }
         }
-    } elseif (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) {
+    } elseif ((Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
         Write-Verbose "$PackageId already installed"
         return [PSCustomObject]@{ Package = $PackageId; Status = 'present'; Detail = '' }
     }
@@ -988,13 +1076,27 @@ function Install-WingetPackage {
             return [PSCustomObject]@{ Succeeded = $false; Final = $true; Failure = $run.ElevationFailure }
         }
 
+        $tail = Get-CommandOutputTail -Text $run.Output
+
+        # winget exited 0 for Prime Video and Slack in a Windows all apps run without installing
+        # either, docs/regression_ledger.md 10.187, so exit 0 counts only when the verification's own
+        # rule then finds the package. Asking anything narrower failed Python, which the scoped list
+        # never finds and the verification does, docs/regression_ledger.md 10.203.
+        if ($run.ExitCode -eq 0) {
+            $verdict = Get-WingetInstallVerdict -WingetPath $WingetPath -PackageId $PackageId -VerifyPath $VerifyPath
+            if ($verdict.Installed) {
+                return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
+            }
+            return [PSCustomObject]@{ Succeeded = $false; Final = $false
+                Failure = "winget exited 0 and $($verdict.Reason). $tail".Trim() }
+        }
+
         # winget reports an already-installed package as a failure code with a specific
         # message, so treat that text as success rather than reporting a false failure.
-        if ($run.ExitCode -eq 0 -or $run.Output -match 'already installed') {
+        if ($run.Output -match 'already installed') {
             return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
         }
 
-        $tail = (($run.Output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
         return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = "exit $($run.ExitCode). $tail" }
     }
 
@@ -1048,7 +1150,15 @@ function Install-ChocolateyPackage {
             foreach ($line in $lines) { Write-Host $line }
             Write-Host "      choco exited $code for $PackageId"
             if ($code -eq 0) {
-                return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = ''; ExitCode = 0 }
+                # Chocolatey 2 exits 0 with "Chocolatey installed 0/0 packages." when the feed answers
+                # 503, so exit 0 counts only when Chocolatey then lists the package as installed.
+                $listed = @(& choco list --local-only --limit-output --exact $PackageId 2>&1 | ForEach-Object { "$_" })
+                if (@($listed | Where-Object { $_ -match ('^' + [regex]::Escape($PackageId) + '\|') }).Count -gt 0) {
+                    return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = ''; ExitCode = 0 }
+                }
+                $said = ($lines | Where-Object { $_.Trim() } | Select-Object -Last 1)
+                return [PSCustomObject]@{ Succeeded = $false; Final = $false; ExitCode = 0
+                                          Failure = "choco exited 0 and does not list $PackageId as installed. $said".Trim() }
             }
             $tail = (($lines | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
             return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = "choco exited $code. $tail"; ExitCode = $code }
@@ -1069,7 +1179,7 @@ function Install-ChocolateyPackage {
     return [PSCustomObject]@{
         Package  = $PackageId
         Status   = $(if ($retry.Succeeded) { 'installed' } else { 'failed' })
-        ExitCode = [int]$retry.Outcome.ExitCode
+        ExitCode = $retry.Outcome.ExitCode
         Attempts = $retry.Attempts
         Detail   = $retry.Detail
     }
@@ -1149,7 +1259,7 @@ if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
 foreach (`$package in @($packageLiterals)) {
     `$result = Install-ChocolateyPackage -PackageId `$package
     `$results.Add(`$result)
-    if (`$result.Status -ne 'installed') { `$worst = `$result.ExitCode }
+    if (`$result.Status -ne 'installed') { `$worst = if (`$result.ExitCode) { `$result.ExitCode } else { 1 } }
 }
 ConvertTo-Json -InputObject @(`$results) -Depth 3 | Set-Content -LiteralPath $(ConvertTo-PowerShellLiteral -Value $resultFile) -Encoding utf8
 Stop-Transcript | Out-Null
@@ -1572,7 +1682,7 @@ function Set-SyncthingFirewallRule {
     $missingRules = { @($script:SyncthingFirewallRules | Where-Object { -not (Get-NetFirewallRule -Name $_.Name -ErrorAction SilentlyContinue) }) }
     $describe = { param($rules) (@($rules) | ForEach-Object { "$($_.Protocol) $($_.Port)" }) -join ', ' }
 
-    # @( ) at the call site, AGENTS.md defect class 4: the block's own @( ) does not survive the
+    # @( ) at the call site, docs/regression_ledger.md defect class 4: the block's own @( ) does not survive the
     # return, and the first draft of this function died on .Count exactly that way.
     $missing = @(& $missingRules)
     if ($missing.Count -eq 0) {
@@ -1711,7 +1821,7 @@ function Invoke-WindowsSoftwareInstall {
                 Write-Host ("  ... [{0}/{1}] {2} ({3})" -f $index, $wingetItems.Count, $item.Key, $item.Package)
                 $started = [datetime]::UtcNow
                 $r = Install-WingetPackage -WingetPath $winget -PackageId $item.Package -Source $item.Source `
-                    -Scope $item.Scope -InstallerType $item.InstallerType
+                    -Scope $item.Scope -InstallerType $item.InstallerType -VerifyPath $item.VerifyPath
                 $seconds = [int]([datetime]::UtcNow - $started).TotalSeconds
                 Write-Host ("      {0} after {1}s{2}" -f $r.Status, $seconds,
                     $(if ($r.Detail) { ": $($r.Detail)" } else { '' }))

@@ -1,95 +1,34 @@
 ---
-- name: Check if GNOME Shell is already installed
-  ansible.builtin.stat:
-    path: /usr/bin/gnome-shell
-  register: gnome_shell_stat
-
-# ubuntu-desktop does not exist in Debian, and apt fails the whole task on an unknown
-# name, so this could never install GNOME on plain Debian. Ansible reports Ubuntu as the
-# Debian family, so one family branch cannot carry the difference: the desktop metapackage
-# is keyed on ih_base and everything else stays shared. ih_base rather than the raw
-# distribution name because Pop!_OS and Linux Mint are Ubuntu lineage under a different
-# name, so they need ubuntu-desktop, while Linux Mint Debian Edition needs gnome-core.
-# See setup/ansible/tasks/derive_os_facts.yaml. Debian's
-# equivalent is gnome-core, which is the desktop without the full gnome task's extras.
-# Both names checked with apt-cache policy in debian:trixie and ubuntu:26.04 containers.
-# See docs/regression_ledger.md.
-# Through tasks/install_role_packages.yaml, the retry rule every package manager follows. The apt
-# module's update_cache before the first attempt went with it, because the rule's first attempt is
-# against the cache the pre_tasks refreshed, and apt-get update runs before a retry instead.
-- name: Install the GNOME desktop metapackage (Debian family)
+# The GNOME desktop and its tooling for every family, from install_gnome's companion_packages entry in
+# vars/<OS>.yaml, which setup/ansible/verify_install.yaml reads too, so the verification expects exactly
+# what this installs. The desktop comes first in every list: Arch's gnome group, Fedora's @gnome-desktop
+# group, and on the Debian family the lineage's metapackage, ubuntu-desktop on Ubuntu lineage and
+# gnome-core on Debian lineage, which setup/ansible/tasks/load_os_dict.yaml puts in front from
+# lineage_companion_packages in vars/Debian.yaml. ubuntu-desktop does not exist in Debian, and ih_base
+# rather than the distribution name, because Linux Mint is Ubuntu lineage under another name. Pop!_OS is
+# too, but has its own entry under its os-release ID there, gnome-core, because apt cannot install
+# ubuntu-desktop against System76's archive.
+#
+# One package per call through tasks/install_role_packages.yaml, so one that cannot install costs only
+# itself and is named. Until 2026-10-18 all four installs here ran only while /usr/bin/gnome-shell was
+# absent, so a machine that already had GNOME got no tooling and the verification could expect none of
+# it. A package already present costs one call that changes nothing.
+- name: Install the GNOME desktop and its tooling
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - "{{ 'ubuntu-desktop' if ih_base == 'ubuntu' else 'gnome-core' }}"
+    role_packages: "{{ os_dict.companion_packages.gnome }}"
     role_packages_purpose: the GNOME desktop
-  when:
-    - ih_family == 'Debian'
-    - not gnome_shell_stat.stat.exists
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
-# One package per call through tasks/install_role_packages.yaml, here and for Arch below, so one that
-# cannot install costs only itself and is named.
-- name: Install GNOME tooling (Debian family)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - gnome-tweaks
-      - gnome-shell-extension-manager
-    role_packages_purpose: the GNOME tooling
-  when:
-    - ih_family == 'Debian'
-    - not gnome_shell_stat.stat.exists
-
-- name: Install GNOME Desktop (Fedora)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      # The group ID. "@GNOME Desktop Environment" matched nothing, because on Fedora 44 that group is
-      # named "GNOME" and its ID is gnome-desktop. Measured on fedora:44 with dnf5 5.4.2.1: the old
-      # value answers "No match for argument" and the ID resolves.
-      #
-      # This failed loudly rather than silently, because the group is the only argument in its list
-      # and there was nothing else for the module to succeed at. Every Fedora cell that installs
-      # GNOME failed on it, which is all-software and gnome-full, and they were the last two Fedora
-      # cells still red after the display manager fix. See the note in
-      # kde_plasma_setup/tasks/install_kde.yaml for why its sibling survived the same mistake.
-      - "@gnome-desktop"
-    role_packages_purpose: the GNOME desktop
-  when:
-    - ih_family == 'RedHat'
-    - not gnome_shell_stat.stat.exists
-
-- name: Install GNOME Desktop (Archlinux)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - gnome
-      - gnome-tweaks
-    role_packages_purpose: the GNOME desktop
-  when:
-    - ih_family == 'Archlinux'
-    - not gnome_shell_stat.stat.exists
-
-# GDM comes with the gnome group, so a gnome that did not install leaves nothing to enable below. It is
-# already named as NOT installed, and enabling a unit that does not exist would end the role there.
-- name: Remember whether the GNOME desktop installed (Archlinux)
+# GDM comes with the desktop group, so a desktop that did not install leaves nothing to enable below. It
+# is already named as NOT installed, and enabling a unit that does not exist would end the role there.
+- name: Remember whether the GNOME desktop installed
   ansible.builtin.set_fact:
-    gnome_desktop_missing: "{{ 'gnome' in role_packages_missing }}"
-  when:
-    - ih_family == 'Archlinux'
-    - not gnome_shell_stat.stat.exists
+    gnome_desktop_missing: "{{ (os_dict.companion_packages.gnome | first) in role_packages_missing }}"
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
 # A machine has exactly one display manager. systemd models that with a single
 # /etc/systemd/system/display-manager.service symlink, so enabling a second one fails with "File

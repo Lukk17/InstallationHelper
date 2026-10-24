@@ -50,7 +50,8 @@ bash e2e/run.sh --tier N
                                      bash /repo/e2e/run.sh --tier N
                                        tier 1: the checks, against /repo
                                        tier 2: probe containers beside the gate
-                                       tier 3: scenario containers beside the gate
+                                       tier 3: scenario containers beside the gate, only on a
+                                               GitHub-hosted runner
   exit status  <-------------------  the run's own status
   e2e/runs/    <-------------------  the only thing written back
 ```
@@ -59,19 +60,43 @@ The image carries everything a check calls: Python, ansible-core and the collect
 
 Every check refuses to run outside the gate container. Started directly, `bash e2e/tier1/<check>.sh` prints `REFUSED` and runs nothing, because [lib/common.sh](lib/common.sh) asks for the gate switch before anything else: the variable `E2E_INSIDE_GATE_CONTAINER=1` and the marker file `/etc/installationhelper-e2e-gate`, both of them, which only the gate's own entry point and build set. `run.sh` and `tier3/container.sh` are the two entry points that move themselves into the gate instead of refusing, through [lib/gate.sh](lib/gate.sh). Started inside some other container, they refuse too, because a host path read from inside a container names nothing the daemon can mount.
 
-The container tiers start the same way:
+Tier 2 starts the same way:
 
 ```bash
 bash e2e/run.sh --tier 2
 ```
 
+### Tier 3 runs only on a GitHub-hosted runner
+
+A tier 3 scenario container is privileged, and privileged means no user namespace, so it shares the kernel of whatever machine runs the Docker daemon. Run on the owner's computer, scenario containers changed the owner's own kernel: the binary format table, udev, and the units that act on both, recorded as entries 10.126 to 10.129 of [../docs/regression_ledger.md](../docs/regression_ledger.md). The owner's decision 76 is that nothing may change his computer, and his decision 79 is that tier 3 runs on a GitHub-hosted runner and nowhere else. No other virtual machine qualifies, a local one made for the purpose, WSL 2 and Docker Desktop alike.
+
+[lib/throwaway_machine.sh](lib/throwaway_machine.sh) decides, from inside the gate container, before any scenario container starts. A GitHub-hosted runner is one where `GITHUB_ACTIONS=true`, `RUNNER_OS=Linux` and `RUNNER_ENVIRONMENT=github-hosted` are all set. The runner sets all three for every step. A self-hosted runner reports `self-hosted` and does not qualify. [lib/gate.sh](lib/gate.sh) hands those three variables to the gate container when they are set. Nothing else is asked. A GitHub-hosted runner is itself a virtual machine, so asking the machine whether it is one would only open a second route.
+
+Anywhere else, `run.sh --tier 3`, `run.sh --tier all` and `tier3/container.sh` print `REFUSED`, show what the machine answered, name the commands below and exit 2. The launcher asks first, in a short foreground gate container, so a `--queue` run is refused on the terminal and nothing is queued. `run.sh` and `container.sh` ask again inside the gate, so no route around the launcher reaches a scenario container. `container.sh --collect` starts nothing and is not refused. There is no override. [tier1/throwaway_machine_only.sh](tier1/throwaway_machine_only.sh) fails the gate when any part of the refusal is removed or weakened.
+
+From the owner's computer, dispatch the run to a GitHub-hosted runner. One distribution, the defaults configuration:
+
 ```bash
-bash e2e/run.sh --tier 3 --scenario defaults --os debian
+gh workflow run e2e-manual.yaml -f target_platform=debian -f software_mode=defaults
 ```
 
-Tier 2 reads winget manifests through `gh` when no winget can run, and the gate container has no `gh` login of its own. For tier 2 only, the launcher lends it yours as `GH_TOKEN`, through the environment rather than on a command line. Without a `gh` login the three winget assertions report SKIP.
+One named scenario on one distribution, which also runs stage 1 and the macOS and Windows jobs of stage 3:
 
-Nothing has to be prefixed or exported from Git Bash. Under MSYS the shell rewrites any argument that looks like an absolute POSIX path before a Windows executable sees it, which turns `-v /sys/fs/cgroup:/sys/fs/cgroup:rw` into `mkdir C:\Program Files\Git\sys: Access is denied` and `-w /work/setup/ansible` into `Cwd must be an absolute path`. So [lib/host.sh](lib/host.sh) wraps `docker` in a function that disables the rewriting for the whole command, and every argument that names a location on this machine, rather than one inside a container, goes through its `host_path` helper and comes out as a Windows path.
+```bash
+gh workflow run e2e-matrix.yml -f scenario=idempotency -f distro=debian
+```
+
+Every scenario on every distribution:
+
+```bash
+gh workflow run e2e-matrix.yml
+```
+
+On a GitHub-hosted runner the workflows run the tier 3 commands in the rest of this document for you. Anywhere else those commands exit 2 with the refusal above.
+
+Tier 2 reads winget manifests through `gh` when no winget can run, and the gate container has no `gh` login of its own. For tier 2 only, the launcher lends it yours: it writes the token to a temporary file only you can read, mounts that file read-only, and the entry point reads it into `GH_TOKEN` for its own processes. The token is never in the container's settings, so `docker inspect` cannot show it, and never on a command line. The launcher deletes the file when the run ends, or for a `--queue` run as soon as the container reports it has read it. Without a `gh` login the three winget assertions report SKIP.
+
+Nothing has to be prefixed or exported from Git Bash. Under MSYS the shell rewrites any argument that looks like an absolute POSIX path before a Windows executable sees it, which turns `-v /sys/fs/cgroup:/sys/fs/cgroup:rw` into `mkdir C:\Program Files\Git\sys: Access is denied` and `-w /work/setup/ansible` into `Cwd must be an absolute path`. So [lib/host.sh](lib/host.sh) wraps `docker` in a function that disables the rewriting for the whole command, and every argument that names a location on this machine, rather than one inside a container, goes through its `host_path` helper and comes out as a Windows path. That covers the harness. If you ever call `docker` yourself from Git Bash, prefix `MSYS_NO_PATHCONV=1` and pass every host path through `cygpath -w`.
 
 See what scenarios exist and what each covers.
 
@@ -79,7 +104,7 @@ See what scenarios exist and what each covers.
 bash e2e/run.sh --list
 ```
 
-Run the cheapest container scenario. There is no fast one: defaults carries a 180 minute ceiling, which is the honest cost of proving anything inside a container, and it is the configuration a user actually gets.
+The commands below are what a GitHub-hosted runner runs, and the workflows run them for you. The cheapest container scenario that installs anything is defaults. There is no fast one: defaults carries a 180 minute ceiling, which is the honest cost of proving anything inside a container, and it is the configuration a user actually gets. Anywhere but a GitHub-hosted runner every command in this block exits 2 with the refusal above.
 
 ```bash
 bash e2e/run.sh --tier 3 --scenario defaults
@@ -99,20 +124,20 @@ bash e2e/run.sh --tier 3 --scenario all
 
 ---
 
-### CI matrix sweep vs local runs
+### CI matrix sweep vs single platform runs
 
-The eight scenarios above cross five Linux distributions, which is 40 combinations. Nobody runs all 40 on one machine, so the harness is split across two places that prove different things.
+The eight scenarios above cross six Linux distributions, which is 48 combinations. Nobody runs all 48 on one machine, so the harness is split across two places that prove different things.
 
 [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 48 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. Those 48 are 48 separate jobs rather than one matrix, each calling [.github/workflows/e2e-linux-cell.yml](../.github/workflows/e2e-linux-cell.yml), because GitHub's run graph collapses a matrix into a single node that names neither the distribution nor the scenario. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
 
-Local Docker runs, the ones this document shows above, stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: fast feedback on the distribution and scenario a change actually touches, without waiting on 39 others.
+Runs of the single platform workflow, `e2e-manual.yaml`, and of the sweep narrowed to one scenario and one distribution stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: feedback on the distribution and scenario a change actually touches, without waiting on 47 others. A tier 3 run happens only on a GitHub-hosted runner, so the scoped run and the broad one are both dispatched.
 
 What each side proves, and does not:
 
 | | Proves | Does not prove |
 |---|---|---|
 | CI matrix sweep | The full cross product passes on GitHub's own infrastructure, including a distro/scenario pairing nobody happened to run locally | Correctness on the hardware you actually deploy to. A hosted runner's disk, memory and privileged-container behaviour differ from a personal Docker Desktop or WSL setup, and the sweep has not been observed to catch a defect that a local run would have missed, because it has not run yet |
-| Local run | The harness works on your actual machine, against your actual Docker setup, for the one scenario and distribution you are actively changing | The other 39 combinations still pass, unless you run them too |
+| Single platform run | The harness works on a GitHub-hosted runner for the one scenario and distribution you are actively changing | The other 47 combinations still pass, unless you run them too |
 
 Dispatch the sweep from the Actions tab, or narrow it to one scenario or one distribution from the same form.
 
@@ -125,6 +150,85 @@ Run everything.
 ```bash
 gh workflow run e2e-matrix.yml -f scenario=all -f distro=all
 ```
+
+#### Nothing starts on its own
+
+Every workflow file in [.github/workflows/](../.github/workflows/) is dispatch-only or call-only, deliberately. [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) states the rule in its own header: "No workflow in this repository may start on push or on any other automatic event: every run here is a deliberate, explicit action by whoever clicks 'Run workflow', exactly the same decision as running setup/setup.sh or setup/setup.ps1 by hand, just on a throwaway runner or throwaway container instead of a real machine."
+
+So choosing between the two workflows is a decision you make, not one the repository makes for you. Reach for the single platform workflow when the change touches one operating system, which is most changes. Reach for the sweep when the change is broad enough that one distribution cannot answer for the rest. An earlier version of the agent instructions described the local tiers at length and mentioned the dispatch workflows twice in passing, and an agent reading it concluded a sweep was the only thing on offer and dispatched one for a Linux change.
+
+#### One operating system
+
+[.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml), named "E2E - single platform" in the Actions tab, takes one `target_platform` and runs that and nothing else. Its platform jobs are gated on the plan job's `run_linux`, `run_macos` and `run_windows` outputs, so the platforms you did not ask for never start.
+
+```bash
+gh workflow run e2e-manual.yaml -f target_platform=debian
+```
+
+`arch`, `debian`, `ubuntu`, `fedora`, `cachyos` and `popos` never touch the runner itself. Each one builds the gate image and runs `e2e/run.sh --tier 3` against a systemd container built from `e2e/tier3/<distro>.Dockerfile`, so a Linux dispatch is the only way to run that harness at all. `macos` and `windows` have no container to run in, so they run the real wizard directly on the runner, `setup/setup.sh` on `macos-26` and `setup/setup.ps1` on `windows-latest`. The workflow's own header explains the rest, including why both of those jobs are always non-interactive and what a hosted Windows runner's disabled User Account Control does to `Assert-NotAdmin`.
+
+Eight inputs, and one of them is a trap. `skip_system_upgrade` defaults to true, so a dispatch that leaves it alone never runs the system upgrade `setup.sh` performs before Ansible starts. Turn it back on when that upgrade is the part you changed:
+
+```bash
+gh workflow run e2e-manual.yaml -f target_platform=debian -f skip_system_upgrade=false
+```
+
+| Input | Default | What it does |
+|---|---|---|
+| `target_platform` | `arch` | `arch`, `debian`, `ubuntu`, `fedora`, `cachyos`, `popos`, `macos` or `windows` |
+| `desktop_environment` | `skip` | `skip`, `kde` or `gnome`. Anything but `skip` is refused on `macos` and `windows` |
+| `desktop_action` | `full` | `full`, `install` or `configure`, read only when `desktop_environment` is not `skip` |
+| `software_mode` | `unset` | `unset`, `defaults`, `all` or `none`. `unset` passes no flag at all, leaving the `group_vars` toggles as they are |
+| `profile_name` | empty | a file under `setup/ansible/profiles/`, without the extension. Refused alongside `software_mode` on Linux and macOS, a documented no-op on Windows |
+| `enable_keys` | empty | comma-separated toggle keys forced on. A key in neither `group_vars/all.yaml` nor `group_vars/linux.yaml` fails the job rather than being quietly ignored |
+| `disable_keys` | empty | comma-separated toggle keys forced off, applied after `enable_keys`, so a key named in both ends up off |
+| `skip_system_upgrade` | `true` | see above |
+
+#### The whole sweep
+
+[.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) is three gated stages, cheapest first, and it costs hours rather than minutes. Its inputs default to `start_from_stage: stage-1`, `scenario: all` and `distro: all`, so a dispatch with nothing filled in is the whole sweep:
+
+```bash
+gh workflow run e2e-matrix.yml
+```
+
+Three things about it are not visible on the dispatch form:
+
+1. `distro` narrows stage 2 and only stage 2. The macOS and Windows jobs live in stage 3, and no value of `distro` reaches them. A dispatch with a `scenario` and a `distro` therefore runs stage 1, that one stage 2 cell, and stage 3.
+2. A stage skipped by `start_from_stage` counts as passed, so the stage after it still runs. Starting at stage 3 does not require stage 1 and stage 2 to have run in the same dispatch.
+3. Its concurrency group, `e2e-matrix-sweep`, does not cancel, so a second dispatch queues behind a sweep that is still open instead of replacing it. A run sitting at `pending` with no jobs of its own is usually that rather than a slow start, defect class 13 in [docs/regression_ledger.md](../docs/regression_ledger.md). Before dispatching a sweep, check whether one is already open and decide whether it still has anything to prove.
+
+Both workflows upload their logs as run artefacts.
+
+#### Watching a run, every ten minutes
+
+A container scenario takes 90 to 300 minutes by declared ceiling and a sweep takes hours. Neither tells you it is stuck, and a run that has hung looks exactly like a run that is working until you go and ask. So ask, roughly every ten minutes. A tier 3 scenario runs only on a GitHub-hosted runner, so it is watched through the workflow runs:
+
+```bash
+gh run list --workflow e2e-manual.yaml --limit 5
+```
+
+```bash
+gh run list --workflow e2e-matrix.yml --limit 5
+```
+
+The jobs of one run, and which of them are still going, where `<run-id>` is the first column of the list above:
+
+```bash
+gh run view <run-id>
+```
+
+A queued tier 1 or tier 2 run on your own machine is watched through the containers and the queue log:
+
+```bash
+docker ps --filter name=e2e --format '{{.Names}}\t{{.Status}}'
+```
+
+```bash
+tail -5 e2e/runs/queue.log
+```
+
+Watching only for completion is the mistake. A queue that died leaves no notification, and one that did exactly that started two scenarios of three, exited, and nobody noticed for four hours. Check progress rather than presence: the same status ten minutes later is a stall, and a container being alive proves nothing about whether the playbook inside it is still doing anything.
 
 ---
 
@@ -140,24 +244,26 @@ green: what that run still does not tell you.
 | a mapping in `setup/ansible/vars/*.yaml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the package installs cleanly, only that the name resolves in that distribution's index |
 | a package name written directly into a role task | `./e2e/run.sh --tier 2` | the same, and nothing at all for a name built at run time from a variable |
 | a pinned value in `setup/pinned_values/pinned_values.toml` | `./e2e/run.sh` then `./e2e/run.sh --tier 2` | that the pinned version is the right version, only that it resolves and that its download location answers |
-| the pinned values reader or any of its adapters | `./e2e/run.sh`, whose `windows_pester` check runs the adapter tests, then `--tier 3 --scenario defaults` | nothing about macOS, which has no container tier |
-| anything in `roles/` touching groups, systemd units or per-distribution behaviour | `./e2e/run.sh --tier 3 --scenario defaults` on arch, debian, ubuntu and fedora | anything needing a graphical session, a real kernel module, or hardware |
-| a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `./e2e/run.sh --tier 3 --scenario idempotency` | whether the task is idempotent on any distribution other than the one you ran, because a guard that is right on apt can be missing entirely on pacman |
-| a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, the callback plugin's failure rendering, or `verify_install.yaml`'s assertions | `./e2e/run.sh --tier 3 --scenario forced-failure` | that a real defect would be caught, only that a failure which does happen is reported in all four places, and it is the cheapest container scenario so there is no excuse for skipping it |
-| the desktop environment roles | `--scenario kde-full` and `--scenario gnome-full` | that the desktop actually starts, since no container has a display |
-| `profiles/linux_live.yaml` | `--scenario live-profile` | that a real live USB behaves the same, since the container has a writable root |
-| `setup/setup.sh` | `./e2e/run.sh`, then any one `--tier 3` scenario end to end | the interactive screens, which need a terminal no test has |
+| the pinned values reader or any of its adapters | `./e2e/run.sh`, whose `windows_pester` check runs the adapter tests, then the defaults scenario, `gh workflow run e2e-manual.yaml -f target_platform=debian -f software_mode=defaults` | nothing about macOS, which has no container tier |
+| anything in `roles/` touching groups, systemd units or per-distribution behaviour | the defaults scenario on every distribution, `gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=all` | anything needing a graphical session, a real kernel module, or hardware |
+| a task's `changed_when`, a `creates` guard, or anything about whether a task reports work it did not do | `gh workflow run e2e-matrix.yml -f scenario=idempotency -f distro=debian` | whether the task is idempotent on any distribution other than the one you ran, because a guard that is right on apt can be missing entirely on pacman |
+| a rescue, a `failed_when`, an `ignore_errors`, `any_role_failed`, the callback plugin's failure rendering, or `verify_install.yaml`'s assertions | `gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian` | that a real defect would be caught, only that a failure which does happen is reported in all four places, and it is the cheapest container scenario so there is no excuse for skipping it |
+| the desktop environment roles | `gh workflow run e2e-matrix.yml -f scenario=kde-full -f distro=debian` and the same with `scenario=gnome-full`, or one platform at a time with `gh workflow run e2e-manual.yaml -f target_platform=debian -f desktop_environment=kde -f desktop_action=full` and the same with `desktop_environment=gnome` | that the desktop actually starts, since no container has a display |
+| `profiles/linux_live.yaml` | `gh workflow run e2e-matrix.yml -f scenario=live-profile -f distro=debian` | that a real live USB behaves the same, since the container has a writable root |
+| `setup/setup.sh` | `./e2e/run.sh`, then any one tier 3 scenario end to end, `gh workflow run e2e-manual.yaml -f target_platform=debian -f skip_system_upgrade=false` | the interactive screens, which need a terminal no test has |
 | `setup/setup.ps1` or anything in `setup/windows/` | `./e2e/run.sh` for the logic, then `pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1` for a real install | anything needing a reboot, WSL, or a hypervisor, none of which a sandbox has |
-| `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then `--tier 3 --scenario forced-failure`, then any one passing scenario | nothing, if the gate and both scenarios pass, this is the best covered file in the repository. The forced-failure scenario is the half that matters: it proves the play refuses over a broken machine, which no passing scenario can show |
+| `setup/ansible/verify_install.yaml` | `./e2e/run.sh`, then `gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian`, then any one passing scenario | nothing, if the gate and both scenarios pass, this is the best covered file in the repository. The forced-failure scenario is the half that matters: it proves the play refuses over a broken machine, which no passing scenario can show |
 | a tier 1 check, or anything under `e2e/` | prove the check fails against a copy of the tree carrying the defect, then `bash e2e/run.sh`, and from Git Bash and from WSL as well when the change touches `lib/gate.sh`, `lib/host.sh` or `gate/`, because the launcher is the only part that differs between them | that the check is testing the thing rather than its own implementation, which only the failure proof shows |
 | `gate/Dockerfile` or `gate/provision.sh` | `bash e2e/run.sh` then `bash e2e/run.sh --tier 2`, both of which rebuild the image first | that the image builds on an architecture other than the one it was built on, x86_64 on 2026-10-15 |
-| a distribution Dockerfile, or a new distribution | `--tier 3 --scenario defaults --os <name>` | that the distribution's derivatives behave the same, since only the named one runs |
+| a distribution Dockerfile, or a new distribution | `gh workflow run e2e-manual.yaml -f target_platform=<name> -f software_mode=defaults`, after adding a new one to that workflow's `target_platform` choices | that the distribution's derivatives behave the same, since only the named one runs |
 | anything that only affects macOS | `./e2e/run.sh` and `./e2e/run.sh --tier 2` | everything that executes, because a Darwin container cannot run on a Linux or Windows kernel and the only executing macOS test is the `macos` target of the dispatch workflow |
 | `.github/workflows/e2e-manual.yaml`, named "E2E - single platform" in the Actions tab | dispatch it from the Actions tab, one target platform at a time | nothing locally |
 | `.github/workflows/e2e-matrix.yml`, named "E2E - test software install and configuration on every OS" in the Actions tab | dispatch it from the Actions tab, the full sweep or narrowed to one scenario or one distribution | nothing locally |
-| `homelab/` or `local-dev/` | nothing, and that is the honest answer | everything, no tier covers either directory today |
+| `homelab/` or `local-dev/` | `bash e2e/run.sh`, whose `compose_and_docs` resolves every compose file and checks the links, and whose `compose_log_limits` checks that every homelab service caps its log | everything a running service does, because no tier starts either stack |
 
-Three rules that are easy to miss.
+Four rules that are easy to miss.
+
+Every row that names a tier 3 scenario runs on a GitHub-hosted runner through the command it shows, and nowhere else. `bash e2e/run.sh --tier 3 --scenario <name> --os <distro>` exits 2 on any other machine, the owner's computer and every virtual machine included.
 
 There is no cheap container row. Most rows that name a scenario name defaults, at a 180 minute ceiling rather than the 45 the removed smoke scenario declared, and the two that name something else name it because that scenario asks a question defaults cannot: forced-failure is the cheapest of them, measured at 46 minutes on debian against a 90 minute ceiling, and it is still not a pre-commit gate. The smoke scenario is gone because every toggle it enabled was already true in defaults, so it was the same test with most of the toggles taken away, and a 20 to 30 minute run was never cheap enough either. Tier 1 is the thing that runs in seconds.
 
@@ -170,6 +276,8 @@ A tier that cannot run is not a tier that passed. Every tier needs a Docker daem
 ### Long runs, and why they detach
 
 The playbook always runs detached inside the container, writing its own log and exit code there, and the runner only watches it. So a run does not die with the shell that started it. That is not a nicety: the all-software scenario takes hours, and a run tied to a terminal session throws away the whole thing on an ordinary disconnect.
+
+Everything in this section starts or watches tier 3 scenario containers, so it applies on a GitHub-hosted runner, where the workflows use it. Anywhere else `container.sh` refuses every mode but `--collect` with exit 2, and a GitHub-hosted run is watched with `gh run list --workflow e2e-matrix.yml --limit 5` instead.
 
 Start a scenario and get your prompt back immediately.
 
@@ -199,11 +307,19 @@ A run that has to outlive the terminal goes into the queue, which is the gate co
 bash e2e/run.sh --queue --tier 3 --scenario all --jobs 3
 ```
 
+On the owner's computer the queue holds tiers 1 and 2 only. A queued tier 3 run is asked whether the machine is thrown away in the foreground, before the queue container starts, and is refused there with exit 2:
+
+```bash
+bash e2e/run.sh --queue --tier 2
+```
+
 The container stays after it exits, so its status stays readable, and the next `--queue` refuses to start until it is removed:
 
 ```bash
 docker rm e2e-queue
 ```
+
+A scenario takes roughly 5 GB of memory, measured on the owner's computer before tier 3 was moved off it. A GitHub-hosted Linux runner has 16 GB and each cell of the sweep runs one scenario on a runner of its own, so the figure decides nothing there. It matters only when `--jobs` is raised inside one runner, where each extra slot adds roughly 5 GB against the runner's 16.
 
 ---
 
@@ -217,22 +333,23 @@ Every job that installs anything ends by verifying, and uploads two logs: what t
 the machine looks like afterwards. Those are different claims, and only the second one is evidence.
 
 Stage 1, static and parse only. Nothing is installed anywhere. Five jobs, all finish inside about
-five minutes, and the whole sweep stops here if any of them fails. The tier 1 job also builds the gate
-image first, about a minute on Linux on 2026-10-15, and has not been timed on a runner since.
+five minutes, and the whole sweep stops here if any of them fails. Before them, the Gate image job builds the
+gate image once for the whole run, and the tier 1 job and every stage 2 cell load it instead of building their
+own. A build took about a minute on Linux on 2026-10-15, and has not been timed on a runner since.
 
 | Order | Job | Runner | What it proves |
 |---|---|---|---|
 | 1 | tier 1 gate | ubuntu-latest | the whole static gate, every check, from a clean checkout, inside the gate container exactly as on a developer machine |
 | 2 | Windows unit tests | windows-latest | the Pester suite over the Windows installer's own logic |
 | 3 | Linux wizard plan | ubuntu-latest | `setup.sh --print-command` resolves a real selection into a real playbook command |
-| 4 | macOS wizard plan | macos-14 | the same on Darwin, where the toggle files and the OS dictionary differ |
+| 4 | macOS wizard plan | macos-26 | the same on Darwin, where the toggle files and the OS dictionary differ |
 | 5 | Windows wizard plan | windows-latest | `setup.ps1 -PrintPlan` resolves without installing |
 
 Jobs 3 to 5 are what "parse only" means: the wizard runs its own resolution, prints the command or
 plan it would execute, and exits. They cost seconds and they catch a broken toggle file, a renamed
 option or a wizard that no longer agrees with the YAML, before anything spends an hour installing.
 
-Stage 2, the container sweep. Forty jobs, twenty at a time. Linux goes before the other two
+Stage 2, the container sweep. Forty-eight jobs, twenty at a time. Linux goes before the other two
 platforms because it is where the playbook does the most and where a real defect is most likely.
 
 The order inside the stage is deliberate. Defaults runs first on all six distributions, because it
@@ -243,14 +360,14 @@ group rather than inserted into it, so adding them moved nothing that was alread
 
 | Order | Scenario | Distributions | Ceiling |
 |---|---|---|---|
-| 6 to 10 | defaults | arch, debian, ubuntu, fedora, cachyos | 180 minutes |
-| 11 to 15 | all-software | the same five | 300 minutes |
-| 16 to 20 | kde-full | the same five | 300 minutes |
-| 21 to 25 | gnome-full | the same five | 300 minutes |
-| 26 to 30 | idempotency | the same five | 300 minutes, for two passes |
-| 31 to 35 | live-profile | the same five | 120 minutes |
-| 36 to 40 | kde-configure-only | the same five | 90 minutes |
-| 41 to 45 | forced-failure | the same five | 90 minutes |
+| 6 to 11 | defaults | debian, ubuntu, popos, fedora, arch, cachyos | 180 minutes |
+| 12 to 17 | all-software | the same six | 300 minutes |
+| 18 to 23 | kde-full | the same six | 300 minutes |
+| 24 to 29 | gnome-full | the same six | 300 minutes |
+| 30 to 35 | idempotency | the same six | 300 minutes, for two passes |
+| 36 to 41 | live-profile | the same six | 120 minutes |
+| 42 to 47 | kde-configure-only | the same six | 90 minutes |
+| 48 to 53 | forced-failure | the same six | 90 minutes |
 
 Stage 3, the short real installs on the other two platforms. Seven jobs, each a real wizard run on a
 real machine, each ending in verification. The stage took 78, 95 and 123 minutes across the three full
@@ -260,15 +377,15 @@ its own cap of five concurrent macOS jobs.
 
 | Order | Job | Runner | Selection |
 |---|---|---|---|
-| 46 | macOS defaults | macos-14 | the toggles as they ship |
-| 47 | macOS everything | macos-14 | every selectable toggle on |
-| 48 | macOS from nothing | macos-14 | every toggle off, then a handful enabled by name |
-| 49 | Windows defaults | windows-latest | the toggles as they ship |
-| 50 | Windows everything | windows-latest | every selectable toggle on |
-| 51 | Windows from nothing | windows-latest | every toggle off, then a handful enabled by name |
-| 52 | Windows settings only | windows-latest | the three native system settings, no software |
+| 54 | macOS default apps | macos-26 | the toggles as they ship |
+| 55 | macOS all apps | macos-26 | every selectable toggle on |
+| 56 | macOS four apps only | macos-26 | every toggle off, then four enabled by name |
+| 57 | Windows default apps | windows-latest | the toggles as they ship |
+| 58 | Windows all apps | windows-latest | every selectable toggle on |
+| 59 | Windows four apps only | windows-latest | every toggle off, then four enabled by name |
+| 60 | Windows settings only | windows-latest | the three native system settings, no software |
 
-Fifty-two jobs in total. Those ceilings are timeouts rather than measurements. Three full sweeps have
+Sixty jobs in total, beside the Gate image job and the two jobs that only decide, Gate: checks passed and Verdict: Linux installs. Those ceilings are timeouts rather than measurements. Three full sweeps have
 run on GitHub runners, and the measured time of every cell, with its average, fastest and slowest,
 is in [run_durations.md](run_durations.md).
 
@@ -300,13 +417,15 @@ them.
 | [tier1/windows_mapping.sh](tier1/windows_mapping.sh) | The PowerShell installer and `vars/Windows.yaml` disagreeing about a package, a manager or a source, a mapping with no toggle to select it, and the Windows Python mapping drifting away from `default_python` |
 | [tier1/windows_npm_parity.sh](tier1/windows_npm_parity.sh) | The native npm tool list and the `ai_tools` role it replaces drifting apart, which is the same two-lists problem the two wizards already had, and either side removing the package a tool replaces without installing it again when the new one fails |
 | [tier1/verify_spec_parity.sh](tier1/verify_spec_parity.sh) | A capability spec understating what its run proves. Every container scenario shares one `verify.yaml`, so an assertion added there belongs in all five container specs, and two had already gone unrecorded |
+| [tier1/verify_wiring.sh](tier1/verify_wiring.sh) | The verification play using a module that changes the machine, a `command` or `shell` read without `changed_when: false`, [tier3/verify.yaml](tier3/verify.yaml) carrying assertions of its own instead of importing the play, a wizard run path that ends without verifying, the verification handed a selection resolved a second time instead of the playbook's own, or run under the logging callback that would erase the run's log. The Windows wizard running [../setup/windows/WindowsVerify.ps1](../setup/windows/WindowsVerify.ps1) before the phases that install, that script changing the machine, or its answer not reaching exit code 3. A role install under a toggle that the verification does not check and [tier1/unverified_role_installs.txt](tier1/unverified_role_installs.txt) does not name. A package manager the software installer, install_role_packages.yaml or setup/windows/WindowsSoftware.ps1 installs through that the verification does not check |
 | [tier1/failed_key_reads.sh](tier1/failed_key_reads.sh) | Any task deciding something from a result's `failed` key, which `failed_when` rewrites. A collector selecting on `failed == true` was dead code from the day it was written and counted three AUR builds that exited rc 1 as successes |
 | [tier1/os_family_derivation.sh](tier1/os_family_derivation.sh) | A task branching on Ansible's own `os_family` instead of the derived `ih_family`, and the derivation itself misreading a distribution. Ansible resolves the family through one fixed table and falls back to the distribution's own name for anything absent from it, so on Nobara every family condition here was false and the run stopped with nothing installed. The derivation is now the single point of failure for every distribution, so it is run against one real `/etc/os-release` per distribution in [tier1/os_release_fixtures/](tier1/os_release_fixtures/), openSUSE included, which must resolve to none of the five families rather than be rounded up to RedHat. It also fails any task file other than `setup/ansible/tasks/load_os_dict.yaml` that loads `vars/{{ ih_family }}.yaml` itself, because that play would miss a derivative's overrides |
 | [tier1/derivative_merge.sh](tier1/derivative_merge.sh) | `derivative_package_names_for` in [lib/package_probe.sh](lib/package_probe.sh), the bash copy of the merge rule in `setup/ansible/tasks/load_os_dict.yaml` that tier 2 resolves a derivative's packages with, giving different package names per manager than the real merge, which [tier1/derivative_merge.yaml](tier1/derivative_merge.yaml) runs through the shipped loader against the os-release fixtures. Two copies of one rule drift, AGENTS.md defect class 2 |
+| [tier1/apt_vendor_repositories.sh](tier1/apt_vendor_repositories.sh) | An apt repository written under the derivative's own release name, which no vendor publishes. Docker, Tailscale and HashiCorp were written with Ansible's own release, `zara` on Linux Mint 22.2 and `gigi` on LMDE 7, and all three answer 404 for both. It fails a task file other than [../setup/ansible/tasks/derive_os_facts.yaml](../setup/ansible/tasks/derive_os_facts.yaml) that reads the release itself, renders every repository line and key location out of the shipped task files against seven os-release fixtures with the facts the shipped derivation gives, and fails a Docker, Tailscale or HashiCorp line without the vendor's ubuntu or debian path and the parent's codename, a line naming a derivative's own codename, and a `docs/manual/debian-ubuntu/install.sh` whose `UPSTREAM_DISTRO` and `UPSTREAM_CODENAME` give a different answer |
 | [tier1/opencode_switch.sh](tier1/opencode_switch.sh) | The OpenCode version switch deciding differently per family, leaving the other version's desktop app or command line package installed, deleting or misplacing the data folder, or reaching a real package manager because a fake was not found |
 | [tier1/windows_cache_cleanup.sh](tier1/windows_cache_cleanup.sh) | The Windows wizard losing the step that empties the winget and Chocolatey download caches, or having it moved out of the window between the packages and the SDK installers, which is where a hosted runner ran out of disk with `wsl --install` failing at `Wsl/InstallDistro/0x80070070` |
 | [tier1/ansible_static.sh](tier1/ansible_static.sh) | The playbook failing to parse, warning noise growing to the point where a real warning cannot be seen, the callback dropping a line the playbook marked `[ERROR]`, the callback leaving no trace of a failed attempt that a retry then hid, and the end-of-run summary listing a package that installed on a retry under both TOLERATED FAILURES and INSTALLED |
-| [tier1/sigpipe_pipelines.sh](tier1/sigpipe_pipelines.sh) | A command fed from `yes`, which the kernel kills with SIGPIPE when the reader exits, so under `set -o pipefail` the pipeline reports 141 whatever the real command did. It happened to the Android SDK licence task, was fixed there, and was then written again into the CachyOS graphics alignment task, where it failed a run on a real machine on 2026-08-28 over a pacman that had succeeded |
+| [tier1/sigpipe_pipelines.sh](tier1/sigpipe_pipelines.sh) | A command fed from `yes`, which the kernel kills with SIGPIPE when the reader exits, so under `set -o pipefail` the pipeline reports 141 whatever the real command did. It happened to the Android SDK licence task, was fixed there, and was then written again into the CachyOS graphics alignment task, where it failed a run on a real machine on 2026-08-28 over a pacman that had succeeded. It also fails on a shell script under e2e/ or setup/, or any string in the YAML under setup/, that pipes into `head`, `read`, `grep -q`, `grep -m`, `grep -l` or an awk program that calls exit before its END block, which exit early, so the writer dies of SIGPIPE at random and pipefail fails the pipeline, as manual_linux_install.sh did on 2026-10-23 |
 | [tier1/unreachable_tasks.sh](tier1/unreachable_tasks.sh) | A task gated on a toggle the container limits switch off on every image that could run it, which is a task the entire suite never executes. That is how the CachyOS alignment task shipped untested: it was pinned to the one image where `install_steam` was suppressed. A task gated on a fact derived from toggles, such as `ih_steam_requested`, counts as dead only when every toggle behind the fact is suppressed, `install_steam` plus the toggle of every mapping marked `brings_steam: true` in the vars files, and the check fails when the file that sets the fact stops reading exactly the toggles and the mapping attribute it maps it to. Deliberate cases are listed with what they cost in [tier1/uncovered_toggles_allowed.txt](tier1/uncovered_toggles_allowed.txt), and a stale line there fails too |
 | [tier1/keycloak_realm_import.sh](tier1/keycloak_realm_import.sh) | The committed Keycloak realm export acquiring something Keycloak's own import path will not take, losing the client or the user the readme promises, or the image quietly ceasing to seed itself from it at all. A JavaScript authorization policy in that realm crash looped the container for four minutes on `Script upload is disabled` while the health check said `starting`, and `--import-realm` never touches an existing realm, so any machine whose database predates the fix still holds the policy and re-exports it |
 | [tier1/desktop_settings.sh](tier1/desktop_settings.sh) | Anything here changing a screen lock, idle or session-restore setting on any platform. The konsave profile carried a `kscreenlockerrc` holding nothing but a version stanza, and applying it replaced rather than merged, so a machine set never to lock went back to Plasma's five minute default with no warning. The check reads inside the `.knsv` archive, which no grep over the tree would ever have found |
@@ -314,23 +433,34 @@ them.
 | [tier1/availability_facts.sh](tier1/availability_facts.sh) | A third-party repository, the CachyOS 32-bit graphics alignment or env_variables being decided in a second place, or a task that installs or configures what they serve without reading the one fact: `unavailable_repositories`, `steam_graphics_stack_aligned` or `env_variables_available`. Also a repository block that does not fetch its own repository, a Fedora `yum_repository` whose id `repo_ids` does not name, and a first apt cache refresh that does not check the third-party repositories already on the machine one at a time, a sources or `.repo` file written under `setup/` that no entry names, and a refresh that does not set aside, for the run only, a sources file this project does not manage whose repository does not answer. Before 2026-10-10 each of those three failures stopped far more of the run than the step it was |
 | [tier1/rescue_coverage.sh](tier1/rescue_coverage.sh) | A role in site.yaml outside a block of its own, apart from the five core roles, or an SDK, AI tool, vendor download or AUR helper build step in arch_core without a rescue that sets `any_role_failed` and names the step with an `[ERROR]` line, so one failure skips everything after it or ends the run green |
 | [tier1/heartbeat_log_files.sh](tier1/heartbeat_log_files.sh) | A per-task log file named by the callback's heartbeat table, the setup hub or the container harness that no current task writes, or a heartbeat prefix that matches no task name. All three still named the batched apt and Flatpak logs after both managers moved to one package per call |
-| [tier1/wizard_root_refusal.sh](tier1/wizard_root_refusal.sh) | The bash wizard no longer refusing a run as root, or refusing it only after it has detected the OS, read the toggles or called sudo. Nothing had ever run that refusal before this check. It starts `setup.sh` as uid 0 through `unshare -r`, and from Git Bash it re-runs itself inside WSL to get there |
-| [tier1/zshrc_env_block.sh](tier1/zshrc_env_block.sh) | `setup/config/zsh/.zshrc` setting environment outside a comment, an `export` or a PATH assignment, which a desktop session never sees because Plasma's login zsh is non-interactive. shell_zsh writing that file other than as one marked block read from the file, the shape that made a second run insert a block again in GitHub sweep run 38107292439 on Arch idempotency. Its `ZSH=` line naming a different directory from `shell_zsh_oh_my_zsh_dir`. And the zsh environment import in `env_unix.yaml` importing `~/.config/environment.d` before `typeset -U path PATH`, so a nested shell repeats every PATH entry |
+| [tier1/wizard_root_refusal.sh](tier1/wizard_root_refusal.sh) | The bash wizard no longer refusing a run as root, or refusing it only after it has detected the OS, read the toggles or called sudo. Nothing had ever run that refusal before this check. It starts `setup.sh` as uid 0 through passwordless sudo inside the gate container, never through a namespace tool |
+| [tier1/zshrc_env_block.sh](tier1/zshrc_env_block.sh) | `setup/config/zsh/.zshrc` setting environment outside a comment, an `export` or a PATH assignment, which a desktop session never sees because Plasma's login zsh is non-interactive. shell_zsh writing that file other than as one marked block read from the file, the shape that made a second run insert a block again in GitHub sweep run 38107292439 on Arch idempotency. Its `ZSH=` line naming a different directory from `shell_zsh_oh_my_zsh_dir`. And the zsh environment import in `env_unix.yaml` importing `~/.config/environment.d` before `typeset -U path PATH`, so a nested shell repeats every PATH entry. And `dev_env_file`, or an `environment.d` file a manual install page appends PATH to, named so it sorts before `99-environment.conf`, the link to `/etc/environment` that resets PATH on Ubuntu and took all five PATH entries from the desktop session in the Ubuntu defaults scenario of 2026-10-18 |
 | [tier1/vendor_installer_shell_init.sh](tier1/vendor_installer_shell_init.sh) | A task file that pipes a vendor installer into a shell behind a `creates` guard under the user's home and has no unconditional blockinfile beside it into `dev_env_file`, `~/.config/environment.d/50-dev.conf`, or into every file in `interactive_rc_files`, so the installer is the only thing wiring its tool into the shell and never runs again once its guard file exists. GitHub sweep run 38107292439 measured that on CachyOS GNOME full, where `sdk` and `java` were on disk and unreachable from zsh. Exceptions live in [tier1/vendor_installer_shell_init_allowed.txt](tier1/vendor_installer_shell_init_allowed.txt) with a reason, and a stale entry fails |
+| [tier1/container_isolation.sh](tier1/container_isolation.sh) | A scenario container reaching the host kernel again: the host's cgroup namespace or `/sys/fs/cgroup`, no `container=docker`, a unit that acts on the host kernel left unmasked, `systemd-binfmt.service` masked, which fails AppImageLauncher's own install, a read-only `/proc/sys` or its mountinfo guard back in `container.sh` or `host_state.sh`, which fails every Flatpak that applies extra data, a changed kernel setting or module failing the run instead of being reported as information, a missing host state record, or a scenario allowed to rewrite the host's boot. Privileged containers registered AppImageLauncher in the owner's binary format table and triggered udev for every host device |
+| [tier1/throwaway_machine_only.sh](tier1/throwaway_machine_only.sh) | Tier 3 starting anywhere but a GitHub-hosted runner: a verdict that admits a bare machine, any virtual machine (KVM, Hyper-V, VirtualBox, VMware, WSL 2, Docker Desktop, OrbStack), a self-hosted runner or a partial set of GitHub's variables, a library that asks the machine whether it is a virtual machine, a route through `run.sh` or `container.sh` that is not refused with exit 2 before docker is called, on a bare machine or in a KVM or Hyper-V guest, a launcher that queues or starts the run before its probe, or a variable that overrides the decision. Privileged scenario containers changed the owner's own kernel, entries 10.126 to 10.129 |
+| [tier1/host_container_privileges.sh](tier1/host_container_privileges.sh) | A `docker run`, `docker create` or `docker exec` anywhere under `e2e/` apart from [tier3/container.sh](tier3/container.sh) that asks for `--privileged`, `--security-opt`, `--cap-add`, the host's pid, network or user namespace, or runs `unshare`, `nsenter` or `sysctl -w`, or writes under `/proc` or `/sys`. Docker on the owner's computer does not remap users, so root in such a container is root of his kernel, and on 2026-10-19 an unconfined container wrote `kernel.sysrq` there. Outside a container command, any line under `e2e/` that runs `unshare` or `nsenter` fails as well, `container.sh` included, because a check runs inside the gate container on the owner's computer. Rule 7 of the owner's-computer section of [AGENTS.md](../AGENTS.md) |
+| [tier1/snap_dependents_menu.sh](tier1/snap_dependents_menu.sh) | The wizard checklist not naming what turning Snapd off skips, compared with the mappings on every family and derivative, or saying it skips anything on Ubuntu itself, where snapd ships with the system, or nothing on Pop!_OS or Linux Mint, which follow `install_snapd` like Debian |
+| [tier1/snap_dependents_summary.sh](tier1/snap_dependents_summary.sh) | `install_snapd` off still installing snapd or sending snap mappings to snap, and the end-of-run `[WARN]` missing. On Ubuntu itself, snapd installed or its socket touched by the playbook, or a snap mapping skipped, on Pop!_OS and Linux Mint a snap mapping not skipped, and anything that removes snapd |
+| [tier1/flatpak_absent_warning.sh](tier1/flatpak_absent_warning.sh) | The end-of-run Flatpak `[WARN]` saying Flatpak reported success for an application whose install the shared install file had already named as failed, or a silently absent application no longer counted as failed |
+| [tier1/gate_build_output.sh](tier1/gate_build_output.sh) | A gate image build in [lib/gate.sh](lib/gate.sh) that runs `docker build` with `-q` or `--quiet` or without `--progress=plain`, which drops every RUN step's output, or whose failure branch does not print the `curl:` and `provision:` lines before the tail. And `fetch_verified` in [gate/provision.sh](gate/provision.sh) that, run against a fake curl failing with 22, does not return 1, does not print `provision: downloading <url> failed, curl exited 22`, leaves the partial file, or does not ask curl to `--retry-all-errors`. GitHub sweep run 39850886667 lost three cells to `exit code: 22` in `provision.sh tools` with nothing naming the download |
+| [tier1/agents_md_size.sh](tier1/agents_md_size.sh) | The agent instruction files growing past what an agent reads whole: a root [AGENTS.md](../AGENTS.md) of 200 lines or 32 KiB, which Codex stops reading at, a nested `AGENTS.md` of 60 lines, or a `CLAUDE.md` or `CLAUDE.local.md` anywhere, which switches off Claude Code's loading of the nested files. The root had reached 671 lines and 66,904 bytes. The scanner is [lib/check_agents_md.py](lib/check_agents_md.py), and the reasons are in [docs/decisions/0001_split_agents_md.md](../docs/decisions/0001_split_agents_md.md) |
+| [tier1/compose_log_limits.sh](tier1/compose_log_limits.sh) | A service in a compose file under [../homelab/](../homelab/) without `logging` options carrying a `max-size`, so its container log grows until the disk is full. The uptime-kuma log had reached 24.7 GB on the homelab Docker VM |
 | [tier1/forced_failure_assertions.sh](tier1/forced_failure_assertions.sh) | A forced-failure assertion in [tier3/container.sh](tier3/container.sh) that fails over a rescue that worked. GitHub sweep run 38107292439 failed that scenario on Arch, CachyOS and Fedora that way: Lens was matched as the whole skipped-repository sentence when tailscale was in the same list, and the paru injection let the Arch User Repository server decide whether the clone or the build failed. It drives `log_list_names` from container.sh over that run's own lines and requires the paru address to be under `.invalid` |
 | [tier1/winget_scope_pins.sh](tier1/winget_scope_pins.sh) | A winget mapping that leaves the installer to winget although its manifest offers a user and a machine installer, or a user one beside unscoped ones. The wizard runs elevated, and Bruno, CurseForge and then Lens in GitHub sweep run 38107292439 failed while winget chose. The list of such packages is [tier1/winget_scoped_packages.txt](tier1/winget_scoped_packages.txt), which tier 2 reads again from winget-pkgs. It also fails a machine pin whose `installer_type` is missing or differs from the type winget selects for `--scope machine`, because that type decides whether the wizard runs winget elevated, and an msix or portable sent to an unelevated winget dies on `APPINSTALLER_CLI_ERROR_COMMAND_REQUIRES_ADMIN` |
 | [tier1/repo_metadata_keys.sh](tier1/repo_metadata_keys.sh) | A dnf repository with `repo_gpgcheck` whose metadata check would stop at a key prompt, or whose key would be accepted unchecked. Every `dnf makecache` must pass `-y`, which GitHub sweep run 38107292439 lacked on every Fedora scenario, and because `-y` accepts any key, `gpgkey` must be a local file that the same block downloaded from a pin and compared by fingerprint with a pin before the repository is written |
 | [tier1/manual_windows_install.sh](tier1/manual_windows_install.sh) | The by-hand Windows route drifting from [../setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml). By 2026-10-11 [../docs/manual/windows/install.ps1](../docs/manual/windows/install.ps1) still installed BillStewart.SyncthingWindowsSetup, ShiningLight.OpenSSL.Light and a retired Store id, missed fourteen mapped packages and pinned no scope at all. It fails when the script's package table differs from the mappings on by default in id, manager, source, scope, installer type or machine condition, when the script's elevated installer types, Syncthing firewall rules or logon shortcut arguments differ from setup/windows/WindowsSoftware.ps1, when [../docs/manual/windows/windows_manual_install.md](../docs/manual/windows/windows_manual_install.md) lacks the exact install command of a mapping or carries one for a package or flag the mapping file does not name, when a row whose install needs an elevated winget does not say so, and when a Windows command in [../setup/software.md](../setup/software.md) names a package neither the mapping file nor setup/windows/WindowsCustomInstalls.ps1 installs |
-| [tier1/manual_linux_install.sh](tier1/manual_linux_install.sh) | The by-hand Linux route drifting from [../setup/ansible/vars/Archlinux.yaml](../setup/ansible/vars/Archlinux.yaml), [../setup/ansible/vars/Debian.yaml](../setup/ansible/vars/Debian.yaml) and [../setup/ansible/vars/RedHat.yaml](../setup/ansible/vars/RedHat.yaml), each with its derivatives merged over it. By 2026-10-15 none of the three scripts under [../docs/manual/](../docs/manual/) installed OpenCode desktop, the Arch and Fedora ones lacked PuTTY, none installed Podman Desktop or OpenRazer, and all three installed a Dart the playbook does not install on Linux. It fails when a script or its `*_manual_install.md` guide lacks a pacman, aur, apt, apt_url, dnf, dnf_url, flatpak or snap mapping that is on by default, comparing apt_url and dnf_url by the pinned download location, when a script installs a name no mapping on by default has, when a guide installs a name no mapping has at all, and when a line of [tier1/manual_linux_install_allowed.txt](tier1/manual_linux_install_allowed.txt), the documented differences, names a playbook file that no longer installs it or is used by nothing |
+| [tier1/manual_linux_install.sh](tier1/manual_linux_install.sh) | The by-hand Linux route drifting from [../setup/ansible/vars/Archlinux.yaml](../setup/ansible/vars/Archlinux.yaml), [../setup/ansible/vars/Debian.yaml](../setup/ansible/vars/Debian.yaml) and [../setup/ansible/vars/RedHat.yaml](../setup/ansible/vars/RedHat.yaml), each with its derivatives merged over it. By 2026-10-15 none of the three scripts under [../docs/manual/](../docs/manual/) installed OpenCode desktop, the Arch and Fedora ones lacked PuTTY, none installed Podman Desktop or OpenRazer, and all three installed a Dart the playbook does not install on Linux. It fails when a script or its `*_manual_install.md` guide lacks a pacman, aur, apt, apt_url, dnf, dnf_url, flatpak or snap mapping that is on by default, comparing apt_url and dnf_url by the pinned download location, when a script installs a name no mapping on by default has, when a guide installs a name no mapping has at all, and when a line of [tier1/manual_linux_install_allowed.txt](tier1/manual_linux_install_allowed.txt), the documented differences, names a playbook file that no longer installs it or is used by nothing. It also fails a script or guide that installs Docker and never runs `sudo systemctl enable --now docker`, and a `usermod` or `systemctl` line in a script with no `|| printf '   Skipped: ...'`, which under `set -e` ends the script before it lists what did not install |
 | [tier1/batched_managers.sh](tier1/batched_managers.sh) | A package manager handed several packages in one call, in the software installer, in any other task file, or in the manual install scripts and the guides' fenced code blocks and inline commands under [../docs/manual/](../docs/manual/). One call has one exit code, so one package that fails loses the whole set and nothing can name it. The macOS manual script's single `brew install` installed nothing at all over one bad name, see the ledger's 10.25 |
 | [tier1/pacman_partial_refresh.sh](tier1/pacman_partial_refresh.sh) | A pacman call that refreshes the package index and installs a package in the same invocation without upgrading the system, the partial upgrade the Arch wiki warns against, in any task file or shell script under `setup/`, or a refresh with no upgrade that a later install follows in a shell script or a fenced code block under [../docs/manual/](../docs/manual/) |
-| [tier1/package_retry_rule.sh](tier1/package_retry_rule.sh) | A package manager that does not follow the one retry rule: an apt, dnf, pacman, flatpak, snap or Homebrew install under `setup/ansible` that does not go through `setup/ansible/tasks/install_role_packages.yaml`, a manager with no index to refresh (the AUR, npm, pip, SDKMAN, nvm) that does not retry four times twenty seconds apart, the shared file running against fake managers and failing to try once without a refresh, wait, refresh that manager's index, retry, four attempts and name what never installed, or `install_one` in a `docs/manual/<os>/install.sh` doing any of that differently |
+| [tier1/package_retry_rule.sh](tier1/package_retry_rule.sh) | A package manager that does not follow the one retry rule: an apt, dnf, pacman, flatpak, snap or Homebrew install under `setup/ansible` that does not go through `setup/ansible/tasks/install_role_packages.yaml`, a manager with no index to refresh (the AUR, npm, pip, SDKMAN, nvm, sdkmanager) that does not retry four times twenty seconds apart, the shared file running against fake managers and failing to try once without a refresh, wait, refresh that manager's index, retry, four attempts and name what never installed, an apt attempt whose maintainer script fails leaving dpkg unusable for the next package instead of running `dpkg --configure -a` and having apt remove and name what that cannot finish, or `install_one` in a `docs/manual/<os>/install.sh` doing any of that differently |
 | [tier1/imported_agent_artifacts.sh](tier1/imported_agent_artifacts.sh) | A stale copy of what is pulled from agent-standards: the OpenCode and Kilo Code plugin treating the main thread as a subagent, not default-exporting `{ id, server, setup }` so OpenCode 2.x loads nothing, or a read-only subagent without `permission` deny for edit and bash. Found by measurement on 2026-10-13 after the three had shipped. It runs the real plugin when Node is installed and asserts a main-thread write is refused. |
 | [tier1/checklist_labels.sh](tier1/checklist_labels.sh) | A comma in a label the bash wizard shows on its software checklist. gum splits the comma-joined `--selected` value on every comma, so the toggle shows unticked although it is on, and `setup_zsh`, on by default, was turned off by pressing Enter. It also compares `LABEL_OVERRIDES` in setup.sh with `$LabelOverrides` in setup.ps1: a key both wizards can show must carry the same label in both, a key a table carries that its own wizard can never offer fails by name, and a `$LabelOverrides` line that does not read as a single-quoted `'key' = 'label'` entry fails instead of being skipped. See docs/regression_ledger.md 10.36 |
 | [tier1/name_lookup_retries.sh](tier1/name_lookup_retries.sh) | A tier 2 name check calling a name missing on anything but a definite 404 or 410 from the index, or a lookup that never got a definite answer passing quietly. `check_brew` once read a 503 from formulae.brew.sh as `1 of 19 names do not exist / minikube` while the same URL answered 200 right after. The real `check_brew` and `check_pacman` are sourced out of [tier2/resolve_packages.sh](tier2/resolve_packages.sh) and run against a stand-in curl that answers 503 then 200, a timeout then 200, 404, 503 on every attempt, and archlinux.org's throttled empty body |
 | [tier1/capability_index_parity.sh](tier1/capability_index_parity.sh) | The tables in `openspec/changes/add-playbook-e2e-capability-tests/` (`test-spec.md`, `proposal.md`, `tasks-template.md`) naming a different set of capability numbers and names from the index in [testing/README.md](testing/README.md). They still described capability 30 as smoke and had no row for 90 after the index had changed both |
 | [tier1/compose_and_docs.sh](tier1/compose_and_docs.sh) | A compose file under `local-dev/` or `homelab/` that docker refuses, a service with nothing to run, and a relative markdown link anywhere in the repository that names a file which does not exist, or a heading anchor no heading produces. Until 2026-10-15 it read only `local-dev/` and `homelab/` with grep, and pointed at the rest of the tree it found six links to four files deleted between 2026-08-20 and 2026-09-02, in `docs/` and `openspec/`. It reads every markdown file git would ship, tracked or new, so ignored trees such as `e2e/runs/` are never read. A path must match in case as well, because GitHub serves a case-sensitive tree. Files under `openspec/schemas/*/templates/` are left out by name, because their links resolve from where they are copied to. A link to a path an open change plans to create is listed in [tier1/doc_links_allowed.txt](tier1/doc_links_allowed.txt) with the reason, and an entry whose target exists or that nothing links any more fails |
 | [tier1/shell_syntax.sh](tier1/shell_syntax.sh) | A shell script that does not parse under `bash -n`, or a ShellCheck warning, which passed every local run while ShellCheck was optional and failed the GitHub sweep. Nothing has to be installed: `pinned_shellcheck` in [lib/common.sh](lib/common.sh) uses a `shellcheck` on PATH only at the version pinned in `setup/pinned_values/pinned_values.toml`, and otherwise downloads that release for the current shell into the ignored `e2e/.cache/shellcheck/`, checks its pinned SHA-256 on every run and reuses it. With no network on the first run, or an archive that does not match, the assertion fails rather than skipping |
+| [tier2/rpm_file_conflicts.sh](tier2/rpm_file_conflicts.sh) | Two packages of the default Fedora set claiming the same file, downloaded in fedora:44 and listed with `rpm -qp`, about 95 seconds. It runs only on a GitHub-hosted runner (owner decision 91), in the sweep's stage 1 job `Tier 1 checks` through `bash e2e/run.sh --tier 2 --only rpm_file_conflicts`, and anywhere else it reports one SKIP and downloads nothing, because its downloads filled the owner's Docker disk on 2026-10-22 |
+| [tier2/pacman_database_check.sh](tier2/pacman_database_check.sh) | The software installer's pacman consistency check failing on CachyOS. It reads the task's own command out of `dynamic_install.yaml` and runs it in the pinned CachyOS image with CachyOS's `CACHY_UPDATE_NOTICE` marker in the local database: it must find no error there, leave the marker in place, and name `readline` as missing once that record is removed, while a bare `pacman -Dk` must still fail on the marker |
 
 That table is a selection, not the gate. The complete list, one paragraph per check with the defect it was written against, is [testing/10-wizard-toggle-parse-test.md](testing/10-wizard-toggle-parse-test.md), and the gate prints its own tally when it runs.
 
@@ -349,6 +479,14 @@ Covered without a container: Arch official repositories, the Arch User Repositor
 Those over HTTP call a name missing only on a definite answer, a 404 or a 410, or an empty results list from archlinux.org. A timeout, a 5xx, a 429 or archlinux.org's throttled empty body is asked again, up to four times with a growing pause, by `http_ask` in [lib/http_ask.sh](lib/http_ask.sh), and a lookup that never gets a definite answer fails as `could not be checked` with the URL and what came back. It used to be one request, so a 503 from formulae.brew.sh read as `Homebrew brew: 1 of 19 names do not exist / minikube` while the same URL answered 200 right after.
 
 Covered inside a throwaway container: apt and dnf. Both need a package index, so the check queries it inside the same pinned base image the tier 3 scenarios use, read out of [tier3/](tier3/)'s Dockerfiles so the check and the scenarios cannot drift apart. The container is asked and thrown away, and nothing is installed in it.
+
+Every apt repository the playbook writes is asked as well, by [tier2/resolve_apt_repositories.sh](tier2/resolve_apt_repositories.sh): each line that depends on the release or the lineage, and each signing key downloaded for one, is rendered for the Debian 13, Ubuntu 26.04, Linux Mint 22 and 22.2, LMDE 6 and 7 and Pop!_OS 22.04 fixtures through [lib/apt_repositories.sh](lib/apt_repositories.sh), the rendering tier 1's `apt_vendor_repositories` asserts on, and the vendor is asked for `dists/<suite>/InRelease`, then `Release`, or for the key itself. A derivative's own codename, `zara` or `gigi`, answers 404 at Docker, Tailscale and HashiCorp alike, and that is what this catches.
+
+One tier 2 check runs only on a GitHub-hosted runner: [tier2/rpm_file_conflicts.sh](tier2/rpm_file_conflicts.sh) downloads about two dozen Fedora packages, and on 2026-10-22 that filled the disk Docker writes to on the owner's computer. Anywhere else it reports one SKIP and downloads nothing. The sweep runs it alone in stage 1:
+
+```bash
+bash e2e/run.sh --tier 2 --only rpm_file_conflicts
+```
 
 A derivative's dictionary under [setup/ansible/vars/derivatives/](../setup/ansible/vars/derivatives/) is resolved the same way. CachyOS maps the gaming suite to `cachyos-gaming-applications` from its own repository, which archlinux.org does not carry, so the Arch pacman names with the CachyOS entries merged over them, the set [setup/ansible/tasks/load_os_dict.yaml](../setup/ansible/tasks/load_os_dict.yaml) hands the playbook, are asked with `pacman -Si` inside the CachyOS image. Flathub and AUR names in a derivative file go through the HTTP checks above. Every derivative is merged over `vars/Archlinux.yaml`, so one whose `e2e/tier3/<id>.Dockerfile` is missing or never runs pacman fails by name rather than being checked against the wrong family, and tier 1's `derivative_merge.sh` holds the bash merge to the real one.
 
@@ -405,6 +543,19 @@ What to do about them instead of nothing is [manual_test_matrix.md](manual_test_
 Everything merely slow or awkward stays enabled. Pre-suppressing something because it might fail is how a real defect becomes a silent gap, which is the failure this whole directory exists to stop.
 
 Every scenario container gets `/dev/loop0` to `/dev/loop63` made with `mknod` right after it starts, by a step in [tier3/container.sh](tier3/container.sh), because Docker fills a privileged container's `/dev` once from the host's nodes and a host kernel that creates loop devices only on demand, `max_loop` 0 with `CONFIG_BLK_DEV_LOOP_MIN_COUNT=0`, otherwise hands snapd a loop device the container has no node for. See [ledger entry 10.37](../docs/regression_ledger.md#1037-snapd-could-not-mount-a-squashfs-image-in-a-test-container-because-the-containers-dev-never-gets-the-loop-devices-the-kernel-creates-after-it-starts).
+
+Tier 3 scenario containers are privileged, and a privileged container changes the kernel of the machine that runs it: its kernel settings, its binary format table (binfmt_misc), its device events and its loaded modules. That is why tier 3 refuses to run anywhere but a GitHub-hosted runner, [lib/throwaway_machine.sh](lib/throwaway_machine.sh) decides that and [tier1/throwaway_machine_only.sh](tier1/throwaway_machine_only.sh) fails the gate if the refusal weakens, and why it must never run on the owner's computer, a virtual machine on it included. It changed the owner's own kernel four times, ledger entries 10.126 to 10.129.
+
+A privileged container has no user namespace, so the kernel it reaches is the host's: the binary format table, udev, loaded modules, swap and every sysctl no namespace holds. Two of those were measured changing the owner's own machine. AppImageLauncher's Debian and Fedora packages registered `/usr/bin/AppImageLauncher` in the host's binary format table, so every other container lost the ability to start an AppImage and Arch could no longer build `lens-bin`. And an Arch defaults run on 2026-10-18 reloaded and triggered udev from inside the container, which replays an event for every host device. So [tier3/container.sh](tier3/container.sh) starts every scenario container like this:
+
+1. In a private cgroup namespace, `--cgroupns=private`, with no bind of the host's `/sys/fs/cgroup`. On cgroup version 2 Docker mounts the container's own part of the cgroup tree there, writable because the container is privileged, so systemd manages that part and nothing above it.
+2. With `container=docker` in its environment, so systemd knows it is in a container and leaves down every unit that declares `ConditionVirtualization=!container`. The guard requires `systemd-detect-virt --container` to answer `docker`.
+3. With `/dev/null` bound read-only over each of these under `/etc/systemd/system`, which masks a unit whether or not the image ships it yet, and a package installed later cannot unmask: `proc-sys-fs-binfmt_misc.automount`, `proc-sys-fs-binfmt_misc.mount`, `systemd-udevd.service`, `systemd-udevd-control.socket`, `systemd-udevd-kernel.socket`, `systemd-udev-trigger.service`, `systemd-udev-settle.service`, `systemd-sysctl.service`, `procps.service`, `systemd-modules-load.service`, `systemd-timesyncd.service`, `systemd-pstore.service` and `systemd-zram-setup@.service`. The list is `MASKED_UNITS` in `container.sh`. `systemd-binfmt.service` is left out on purpose: AppImageLauncher's deb postinst and rpm `%post` end in `systemctl restart systemd-binfmt`, which fails the package against a masked unit, and with both binfmt_misc units masked its own `ConditionPathIsMountPoint=/proc/sys/fs/binfmt_misc` skips it.
+4. With `/proc/sys` writable, as Docker mounts it for a privileged container, under the image's own CMD. Masking `systemd-sysctl.service` does not keep a package's `sysctl.d` file off the kernel, because Fedora's systemd rpm file trigger and Arch's pacman sysctl hook run `/usr/lib/systemd/systemd-sysctl` directly, and GitHub sweep run 39231000107 measured that changing `kernel.sysrq`, `vm.max_map_count`, `fs.inotify.*` and `kernel.core_pattern` on the runner. Commit 9355aa4 made `/proc/sys` read-only to stop it, and bubblewrap then failed every Flatpak that applies extra data with `bwrap: cannot open /proc/sys/user/max_user_namespaces: Read-only file system` on all six distributions in GitHub sweep run 39260381281. Owner decision 86 took it out again: those settings are the distribution's own defaults, which a real install applies too, and tier 3 runs only on a GitHub-hosted runner that is thrown away afterwards.
+5. With a guard from [tier3/host_state.sh](tier3/host_state.sh) right after boot, which stops the run before the playbook starts if `/proc/sys/fs/binfmt_misc` is mounted, if any masked unit is active, or if systemd does not know it is in a container. The same script records the loaded modules from `/proc/modules`, the swap areas from `/proc/swaps`, and every `kernel`, `vm` and `fs` sysctl apart from the counters the kernel changes by itself. It records them again after each pass of `setup.sh` and when the run is collected. A breach the guard names later, a swap area that differs from the boot record, or a missing record fails the run under the first `host_isolation:` line of its `result.txt`. A kernel setting or a loaded module that differs from the boot record is listed under the second `host_isolation:` line as information and does not fail the run, owner decision 86. The records stay in the run directory under `host-state/`.
+6. Never with a setting that rewrites the host's boot. `container.sh` refuses a scenario whose effective `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot` or `setup_hibernate` is true, which [tier3/container_limits.yaml](tier3/container_limits.yaml) already turns off.
+
+[tier1/container_isolation.sh](tier1/container_isolation.sh) fails the gate when any of that goes missing from `container.sh`. What it costs: no container proves AppImageLauncher's binary format registration or a udev rule taking effect, which [manual_test_matrix.md](manual_test_matrix.md) covers instead. The host state records read the host kernel, so a module the host loads by itself during a run, or one loaded by another scenario running at the same time, shows up in this run's information too. Read it before blaming the playbook.
 
 Two consequences worth knowing before reading a failure as a bug. Kernel modules never build, because `/usr/lib/modules` belongs to the host, so anything using DKMS reports missing headers. And there is no login session, so tasks that need a live user D-Bus take their documented fallback path instead.
 
@@ -503,6 +654,7 @@ Then prove it. Copy the tree, reintroduce the defect, and confirm the check fail
 | [windows-sandbox/](windows-sandbox/) | The local Windows route: a launcher that writes the sandbox configuration and starts it, and the bootstrap that runs inside at logon. Windows only, which is why the directory says so |
 | [docs/regression_ledger.md](../docs/regression_ledger.md) | Every regression this project has suffered, and the prevention checklist this harness mechanises |
 | [AGENTS.md](../AGENTS.md) | The mandatory gate, and the rest of the agent contract |
+| [AGENTS.md](AGENTS.md) | The rules for working in this folder, with links back to the sections of this page they come from |
 | [setup/README_SETUP.md](../setup/README_SETUP.md) | Running the playbook for real |
 | [setup/ansible/tags.md](../setup/ansible/tags.md) | Partial runs by tag, useful when triaging a scenario failure |
 | [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) | The full CI sweep, every scenario against every Linux distribution, dispatch-only |

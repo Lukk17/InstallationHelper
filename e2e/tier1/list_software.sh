@@ -134,7 +134,7 @@ if [[ "$(awk '{print $1}' <<<"${EXPECTED}")" == "$(awk '{print $1}' <<<"${ACTUAL
     pass "--list-software lists them in the order the wizard builds, all.yaml first then per-OS additions"
 else
     fail "--list-software lists the toggles in a different order or lists one of them twice" \
-         "$(diff <(awk '{print $1}' <<<"${EXPECTED}") <(awk '{print $1}' <<<"${ACTUAL}") | head -10 | tr '\n' ' ')"
+         "$(diff <(awk '{print $1}' <<<"${EXPECTED}") <(awk '{print $1}' <<<"${ACTUAL}") | sed -n 1,10p | tr '\n' ' ')"
 fi
 
 # --- the states -----------------------------------------------------------------
@@ -142,7 +142,7 @@ if [[ "${EXPECTED}" == "${ACTUAL}" ]]; then
     pass "every state printed is the one the playbook would act on, per-OS value winning"
 else
     fail "--list-software prints a state the playbook would not act on" \
-         "$(diff <(echo "${EXPECTED}") <(echo "${ACTUAL}") | head -10 | tr '\n' ' ')"
+         "$(diff <(echo "${EXPECTED}") <(echo "${ACTUAL}") | sed -n 1,10p | tr '\n' ' ')"
 fi
 
 # --- the labels -----------------------------------------------------------------

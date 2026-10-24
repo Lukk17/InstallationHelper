@@ -14,6 +14,10 @@
 #      not_installed_with_reason, and any_role_failed is set, so the run ends failed. Nothing here is
 #      fatal on its own, so the rest of the set and the rest of the role still run. A caller whose later
 #      tasks need one of the packages reads role_packages_missing.
+#   4. apt only: an attempt that fails and leaves a package half configured runs dpkg --configure -a,
+#      and apt removes whatever that cannot finish, because dpkg refuses every later install while one
+#      package is unfinished. Each removed package is named and recorded as in 3.
+#      docs/regression_ledger.md 10.186.
 #
 # A refresh only before a retry, never before the first attempt: refreshing pacman's index without
 # upgrading installs against an index newer than the installed system, the partial upgrade the Arch wiki
@@ -24,8 +28,11 @@
 # The caller passes:
 #   role_packages                  the list, one package, group or file name per entry
 #   role_packages_purpose          a few words naming what the set is for, read by every message here
-#   role_packages_manager          apt, dnf, pacman, flatpak, snap, brew or brew_cask. When it is not
-#                                  given, the family's own manager: apt, dnf or pacman
+#   role_packages_manager          apt, dnf, rpm_url, pacman, flatpak, snap, brew or brew_cask. When it
+#                                  is not given, the family's own manager: apt, dnf or pacman. rpm_url
+#                                  takes a vendor .rpm location, installs what the rpm requires with dnf
+#                                  and the rpm itself with rpm -U, so role_packages_install_options can
+#                                  hand rpm an --excludepath dnf has no way to pass
 #   role_packages_install_options  extra options placed before each package, empty when not given
 #   role_packages_classic          snap only, the packages installed with --classic
 # and gets back role_packages_missing, every package of the set that is absent after the last attempt.
@@ -34,7 +41,7 @@
 # the log. No playbook caller passes either, and that check fails on one that does.
 #
 # raw for every manager, which is the mitigation for the ansible-core 2.19 deserialization race
-# documented in AGENTS.md, and which reports rc without the result's failed key that
+# documented in setup/ansible/ansible_architecture.md, and which reports rc without the result's failed key that
 # e2e/tier1/failed_key_reads.sh forbids reading. raw honours neither the environment keyword nor
 # chdir, so the apt variables are inline, and set -o pipefail is what lets rc be the manager's status
 # rather than tee's. Both output streams are merged, so each changed_when reads every line the manager
@@ -66,6 +73,9 @@
 # nothing. The refreshes, each checked to refresh metadata and upgrade nothing:
 #   apt      apt-get update, which downloads the package lists only.
 #   dnf      dnf makecache --refresh, which marks the metadata expired and downloads it again.
+#   rpm_url  the same, because the dependencies are what dnf resolves. The download is attempted again
+#            with the install, and a package already at the downloaded version is reported unchanged
+#            rather than handed to rpm -U, which exits 2 on it. Measured on fedora:44 on 2026-10-18.
 #   pacman   pacman -Syy, on its own invocation, never joined to an install. See
 #            e2e/tier1/pacman_partial_refresh.sh.
 #   flatpak  flatpak update --appstream, which in flatpak 1.16.6 fetches the remote's summary and
@@ -83,7 +93,8 @@
 - name: Install a package set one package at a time, first attempt without refreshing the package index
   ansible.builtin.raw: >-
     set -o pipefail;
-    {{ role_packages_command.install }} {{ role_packages_install_options | default('') }} {{ item | quote }}
+    { {{ role_packages_command.install }} {{ role_packages_install_options | default('') }} {{ item | quote }}{%
+    if role_packages_command.repair is defined %} || { status=$?; {{ role_packages_command.repair }}; exit "$status"; }{% endif %}; }
     2>&1{{ ' | tee -a ' ~ (role_packages_log | default('/var/log/installation-packages.log')) if role_packages_command.become else '' }}
   become: "{{ role_packages_command.become }}"
   loop: "{{ role_packages }}"
@@ -105,6 +116,26 @@
         refresh: "{{ apt_raw_env | default('') }} apt-get update"
         become: true
         nothing_done: "0 upgraded, 0 newly installed, 0 to remove"
+        repair: >-
+          broken="$(dpkg-query -W -f '${db:Status-Status} ${binary:Package}\n' 2>/dev/null
+          | grep -vE '^(installed|config-files|not-installed) ' | cut -d ' ' -f 2 | tr '\n' ' ')";
+          if [ -n "$broken" ]; then
+          echo "[dpkg-repair] dpkg left ${broken}unfinished, running dpkg --configure -a";
+          {{ apt_raw_env | default('') }} dpkg --force-confdef --force-confold --configure -a || true;
+          broken="$(dpkg-query -W -f '${db:Status-Status} ${binary:Package}\n' 2>/dev/null
+          | grep -vE '^(installed|config-files|not-installed) ' | cut -d ' ' -f 2 | tr '\n' ' ')";
+          fi;
+          if [ -n "$broken" ]; then
+          echo "[dpkg-repair] dpkg --configure -a could not finish ${broken}so apt removes them";
+          {{ apt_raw_env | default('') }} apt-get remove {{ apt_raw_flags | default('-y') }} $broken || true;
+          for package in $broken; do
+          case "$(dpkg-query -W -f '${db:Status-Status}' "$package" 2>/dev/null)" in
+          installed) ;;
+          ''|config-files|not-installed) echo "[dpkg-repair] removed $package" ;;
+          *) echo "[dpkg-repair] could not remove $package" ;;
+          esac;
+          done;
+          fi
       dnf:
         install: dnf install -y
         refresh: dnf makecache --refresh
@@ -128,6 +159,24 @@
         refresh: ""
         become: true
         nothing_done: is already installed
+      rpm_url:
+        install: >-
+          sh -c 'set -eu;
+          for url do :; done;
+          n=$#; i=0;
+          for arg do i=$((i + 1)); if [ "$i" -lt "$n" ]; then set -- "$@" "$arg"; fi; done;
+          shift "$n";
+          work="$(mktemp -d /var/tmp/installation-helper-rpm.XXXXXX)";
+          trap "rm -rf $work" EXIT;
+          curl -fsSL --retry 3 --connect-timeout 30 -o "$work/package.rpm" "$url";
+          nevra="$(rpm -qp --nosignature --qf %{NEVRA} "$work/package.rpm")";
+          if rpm -q "$nevra" >/dev/null 2>&1; then echo "$nevra is already installed from its vendor rpm"; exit 0; fi;
+          rpm -qp --nosignature --requires "$work/package.rpm" | grep -v "^rpmlib(" | sort -u > "$work/requires";
+          xargs -d "\n" -r dnf install -y < "$work/requires";
+          rpm -U --nosignature "$@" "$work/package.rpm"' rpm-url-install
+        refresh: dnf makecache --refresh
+        become: true
+        nothing_done: is already installed from its vendor rpm
       brew:
         install: PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" brew install
         refresh: PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" brew update
@@ -159,7 +208,8 @@
     set -o pipefail;
     {% if role_packages_command.refresh %}{{ role_packages_command.refresh }}
     2>&1{{ ' | tee -a ' ~ (role_packages_log | default('/var/log/installation-packages.log')) if role_packages_command.become else '' }};
-    {% endif %}{{ role_packages_command.install }} {{ role_packages_install_options | default('') }} {{ item | quote }}
+    {% endif %}{ {{ role_packages_command.install }} {{ role_packages_install_options | default('') }} {{ item | quote }}{%
+    if role_packages_command.repair is defined %} || { status=$?; {{ role_packages_command.repair }}; exit "$status"; }{% endif %}; }
     2>&1{{ ' | tee -a ' ~ (role_packages_log | default('/var/log/installation-packages.log')) if role_packages_command.become else '' }}
   become: "{{ role_packages_command.become }}"
   loop: "{{ role_packages_retry }}"
@@ -216,3 +266,50 @@
                   ~ ' could not install it in ' ~ (role_packages_rule.retries + 1) ~ ' attempts)')
             | list) }}
   when: role_packages_missing | length > 0
+
+- name: Name the packages apt removed because their maintainer script failed and left dpkg unusable
+  ansible.builtin.set_fact:
+    role_packages_removed: >-
+      {{ ((role_packages_first.results | default([])) + (role_packages_retried.results | default([])))
+         | selectattr('stdout', 'defined')
+         | map(attribute='stdout')
+         | map('regex_findall', '\[dpkg-repair\] removed (\S+)')
+         | flatten
+         | unique
+         | list }}
+    role_packages_unrepaired: >-
+      {{ ((role_packages_first.results | default([])) + (role_packages_retried.results | default([])))
+         | selectattr('stdout', 'defined')
+         | map(attribute='stdout')
+         | map('regex_findall', '\[dpkg-repair\] could not remove (\S+)')
+         | flatten
+         | unique
+         | list }}
+
+- name: Say which packages apt removed, or could not remove, so dpkg stays usable for the next package
+  ansible.builtin.debug:
+    msg: >-
+      [ERROR] {% if role_packages_removed | length > 0 %}{{ role_packages_removed | join(', ') }}, pulled in
+      for {{ role_packages_purpose }}, failed in a maintainer script, dpkg --configure -a could not finish
+      {{ 'it' if role_packages_removed | length == 1 else 'them' }}, and apt removed
+      {{ 'it' if role_packages_removed | length == 1 else 'them' }} so the packages after it could still
+      install. {% endif %}{% if role_packages_unrepaired | length > 0 %}{{ role_packages_unrepaired | join(', ') }}
+      could not be removed either, so every later apt call on this machine fails until dpkg --configure -a
+      succeeds. {% endif %}The package manager output is in
+      {{ role_packages_log | default('/var/log/installation-packages.log') }}.
+  when: (role_packages_removed + role_packages_unrepaired) | length > 0
+
+- name: Record the packages apt removed, or could not remove, in the play summary
+  ansible.builtin.set_fact:
+    any_role_failed: true
+    not_installed_with_reason: >-
+      {{ (not_installed_with_reason | default([]))
+         + (role_packages_removed
+            | map('regex_replace', '$', ' (' ~ role_packages_purpose ~ ', its maintainer script failed and'
+                  ~ ' apt removed it so dpkg stayed usable)')
+            | list)
+         + (role_packages_unrepaired
+            | map('regex_replace', '$', ' (' ~ role_packages_purpose ~ ', its maintainer script failed and'
+                  ~ ' apt could not remove it, so dpkg is left unusable)')
+            | list) }}
+  when: (role_packages_removed + role_packages_unrepaired) | length > 0

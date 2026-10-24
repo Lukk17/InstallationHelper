@@ -147,7 +147,7 @@
       ansible.builtin.shell: |
         set -e -o pipefail
         hdiutil attach -nobrowse -noautoopen "{{ software_installer_stage_dir }}/gridcoin.dmg" \
-          | awk -F '\t' '/\/Volumes\// {print $NF; exit}'
+          | awk -F '\t' '/\/Volumes\// && !done {print $NF; done = 1}'
       args:
         executable: /bin/bash
       become: true
@@ -244,7 +244,7 @@
       ansible.builtin.shell: |
         set -e -o pipefail
         hdiutil attach -nobrowse -noautoopen {{ ih_opencode_dmg | quote }} \
-          | awk -F '\t' '/\/Volumes\// {print $NF; exit}'
+          | awk -F '\t' '/\/Volumes\// && !done {print $NF; done = 1}'
       args:
         executable: /bin/bash
       become: true

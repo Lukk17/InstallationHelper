@@ -96,6 +96,26 @@ curl -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | sudo g
 echo "deb [signed-by=/etc/apt/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | sudo tee /etc/apt/sources.list.d/helm.list
 ```
 
+**Ubuntu or Debian repository path.** HashiCorp, Tailscale and Docker publish one suite per Debian or Ubuntu release, and Tailscale and Docker publish `ubuntu` and `debian` paths only. A derivative needs its lineage and its parent's codename, never its own name or codename: Linux Mint 22 is `wilma` on Ubuntu `noble`, and LMDE 6 is `faye` on Debian `bookworm`. The playbook decides both the same way, `ih_base` and `ih_apt_codename` in [setup/ansible/tasks/derive_os_facts.yaml](../../../setup/ansible/tasks/derive_os_facts.yaml). Set the lineage first:
+
+```bash
+UPSTREAM_DISTRO="$(. /etc/os-release && if [[ -n "${UBUNTU_CODENAME:-}" || "${ID_LIKE:-}" == *ubuntu* || "${ID:-}" == ubuntu ]]; then echo ubuntu; else echo debian; fi)"
+```
+
+Then the codename of that lineage:
+
+```bash
+UPSTREAM_CODENAME="$(. /etc/os-release && if [ "${UPSTREAM_DISTRO}" = ubuntu ]; then echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; else echo "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}"; fi)"
+```
+
+Check both before going on. It prints `ubuntu noble` on Ubuntu 24.04 and on Linux Mint 22, and `debian trixie` on Debian 13. An empty codename means this machine does not name one, so stop here:
+
+```bash
+echo "${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME}"
+```
+
+Devuan is not supported for the Terraform, Tailscale and Docker CE repositories, by the owner's decision of 2026-10-18. Its `/etc/os-release` names only Devuan's own release, `VERSION_CODENAME="daedalus"` on Devuan 5, and no Debian codename, so the command above prints `debian daedalus`, and download.docker.com, pkgs.tailscale.com and apt.releases.hashicorp.com all answer 404 for `daedalus`. On Devuan, skip those three repositories and the packages that come from them. The record is entry 10.114 of [docs/regression_ledger.md](../../regression_ledger.md).
+
 **Terraform:**
 
 ```bash
@@ -103,7 +123,7 @@ curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /etc/a
 ```
 
 ```bash
-echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+echo "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com ${UPSTREAM_CODENAME} main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
 ```
 
 **GitHub CLI** (key is already a binary keyring — no `gpg --dearmor` step):
@@ -124,24 +144,6 @@ sudo curl -fsSLo /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthi
 
 ```bash
 echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list
-```
-
-**Ubuntu or Debian repository path.** Tailscale and Docker publish `ubuntu` and `debian` paths only, each under that distribution's own codename. A derivative needs its lineage and its parent's codename, never its own name or codename: Linux Mint 22 is `wilma` on Ubuntu `noble`, and LMDE 6 is `faye` on Debian `bookworm`. The playbook decides the lineage the same way, in [setup/ansible/tasks/derive_os_facts.yaml](../../../setup/ansible/tasks/derive_os_facts.yaml). Set the lineage first:
-
-```bash
-UPSTREAM_DISTRO="$(. /etc/os-release && if [[ -n "${UBUNTU_CODENAME:-}" || "${ID_LIKE:-}" == *ubuntu* || "${ID:-}" == ubuntu ]]; then echo ubuntu; else echo debian; fi)"
-```
-
-Then the codename of that lineage:
-
-```bash
-UPSTREAM_CODENAME="$(. /etc/os-release && if [ "${UPSTREAM_DISTRO}" = ubuntu ]; then echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"; else echo "${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}"; fi)"
-```
-
-Check both before going on. It prints `ubuntu noble` on Ubuntu 24.04 and on Linux Mint 22, and `debian trixie` on Debian 13. An empty codename means this machine does not name one, so stop here:
-
-```bash
-echo "${UPSTREAM_DISTRO} ${UPSTREAM_CODENAME}"
 ```
 
 **Tailscale** (key is already a binary keyring, no `gpg --dearmor` step). The keyring and the repo both live under the path set above:
@@ -206,6 +208,7 @@ sudo apt-get update
 | FileZilla | `sudo apt-get install -y filezilla` |
 | PuTTY | `sudo apt-get install -y putty` |
 | rclone | `sudo apt-get install -y rclone` |
+| QasTools | `for package in qasmixer qashctl qasconfig; do sudo apt-get install -y "${package}" \|\| echo "FAILED: ${package}"; done` |
 | Minikube | `curl -fsSLo /tmp/minikube.deb https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube_1.38.1-0_amd64.deb && sudo apt-get install -y /tmp/minikube.deb` |
 | k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
 | uv | `curl -fsSL https://astral.sh/uv/install.sh \| sudo UV_UNMANAGED_INSTALL=/usr/local/bin sh` *(no apt package on Debian trixie or Ubuntu 26.04)* |
@@ -356,6 +359,12 @@ sudo apt-get update
 for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo apt-get install -y "${package}" || echo "FAILED: ${package}"; done
 ```
 
+Start the Docker daemon now and at every boot, which the package does not do on every distribution:
+
+```bash
+sudo systemctl enable --now docker
+```
+
 Add yourself to the `docker` group so `docker` runs without `sudo`. It takes effect only after you log out and back in, or reboot. A new terminal window is not enough, because it keeps the groups of the session you are already in:
 
 ```bash
@@ -490,10 +499,10 @@ These are **not** in `install.sh` — no package-manager path exists. Install by
   ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox &
   ```
 
-  Toolbox puts its IDE launchers (`idea`, `pycharm` and the rest) on PATH through a line in `~/.profile`, which zsh never reads. Add the directory to `~/.config/environment.d/50-dev.conf` instead, as described in [setup/configuration.md](../../../setup/configuration.md#shell-and-environment-layout):
+  Toolbox puts its IDE launchers (`idea`, `pycharm` and the rest) on PATH through a line in `~/.profile`, which zsh never reads. Add the directory to `~/.config/environment.d/990-dev.conf` instead, as described in [setup/configuration.md](../../../setup/configuration.md#shell-and-environment-layout):
 
   ```bash
-  mkdir -p ~/.config/environment.d && printf 'PATH="${PATH}:%s"\n' "$HOME/.local/share/JetBrains/Toolbox/scripts" >> ~/.config/environment.d/50-dev.conf
+  mkdir -p ~/.config/environment.d && printf 'PATH="${PATH}:%s"\n' "$HOME/.local/share/JetBrains/Toolbox/scripts" >> ~/.config/environment.d/990-dev.conf
   ```
 - **Antigravity** — download the Linux tarball and extract to `/opt/antigravity`:
 

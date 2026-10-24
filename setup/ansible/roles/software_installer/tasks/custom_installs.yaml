@@ -230,6 +230,38 @@
           {{ ansible_failed_result.msg | default('no message given') }}
           uv is NOT installed. Every other install continues, and the run is marked failed.
 
+# --- QasTools: the two tools Debian and Ubuntu package apart from QasMixer ---
+# Arch, CachyOS and Fedora install all three tools through the one qastools mapping. Debian trixie and
+# Ubuntu 26.04 have no package of that name, apt-cache show qastools answered "No packages found" on
+# 2026-10-18, and build qasmixer, qashctl and qasconfig separately from the qastools source. The mapping
+# installs qasmixer, and this installs the other two under the same toggle, one package per call, the
+# way virtualization_config installs the rest of the KVM stack beside the virt-manager mapping. Both
+# are the qastools entry of companion_packages in vars/Debian.yaml, which verify_install.yaml reads too.
+- name: Install QasHctl and QasConfig beside QasMixer (Debian)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: "{{ os_dict.companion_packages.qastools }}"
+    role_packages_purpose: QasTools
+  when: ih_family == 'Debian' and install_qastools | default(false) | bool
+
+# --- pipx: the Python modules it imports without depending on them ---
+# python-pipx 1.18.4 on Arch imports filelock, and the package does not pull python-filelock, so every
+# pipx install fails with ModuleNotFoundError until it is there. The pipx entry of companion_packages
+# in vars/<OS>.yaml names them, which verify_install.yaml reads too, and kde_plasma_setup installs the
+# same entry beside pipx for Konsave.
+- name: Install what pipx imports beside pipx
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: "{{ os_dict.companion_packages.pipx }}"
+    role_packages_purpose: pipx
+  when: os_dict.companion_packages.pipx is defined and install_pipx | default(false) | bool
+
 # The Fedora Docker CE repository used to be added a second time here, after fedora_repos.yaml had
 # already added the same file, which is one rule in two places. It is added there only now, as its own
 # block with a rescue.

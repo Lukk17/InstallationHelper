@@ -59,18 +59,6 @@
     - install_trezor_suite | bool
     - ih_family == 'Archlinux'
 
-# Both udev calls are tolerated, and the reason is measured rather than defensive. A container, a WSL
-# instance and a chroot all have no running udev daemon, so `udevadm control --reload-rules` exits
-# non-zero there. These tasks had no tolerance, this role is wrapped in a rescue in site.yaml, and the
-# result was that a reload which cannot possibly work decided the exit code of the whole run and the
-# rescue then skipped the trigger, so nothing reloaded at all. Recorded in the Debian defaults run of
-# 2026-08-17, where `linux_crypto_hardware : Reload udev rules` failed with a non-zero return code
-# while every rule file had been written correctly.
-#
-# The rules on disk are what matter. They are read by udev when the real system boots, so on a machine
-# with no running daemon there is nothing to reload and nothing is lost. On a machine with one, a
-# failure to reload means the device rules do not take effect until the next boot, which is worth
-# saying out loud rather than swallowing, so it is reported and it marks the run failed.
   # Retried, because this reaches the network and a single dropped connection must not cost the
   # run. Four separate transients hit one sweep on 2026-08-22: a broken pipe from deb.debian.org,
   # a connection reset from GitHub on a font, an SSL connect error fetching an AppImage, and a TLS
@@ -78,6 +66,25 @@
   until: trezor_rules_arch is succeeded
   retries: 3
   delay: 10
+# Both udev calls are tolerated, and the reason is measured rather than defensive. A WSL instance, a
+# chroot and a tier 3 container all have no running udev daemon, so `udevadm control --reload-rules`
+# exits non-zero there. These tasks had no tolerance, this role is wrapped in a rescue in site.yaml, and
+# the result was that a reload which cannot possibly work decided the exit code of the whole run and
+# the rescue then skipped the trigger, so nothing reloaded at all. Recorded in the Debian defaults run
+# of 2026-08-17, where `linux_crypto_hardware : Reload udev rules` failed with a non-zero return code
+# while every rule file had been written correctly.
+#
+# A container is not always without udev. A privileged one with /sys writable did run systemd-udevd
+# until e2e/tier3/container.sh masked it, and the Arch defaults run of 2026-10-18 reloaded and
+# triggered here with both calls exiting 0. `udevadm trigger` writes a change event into the uevent
+# file of every device under /sys, and a privileged container's /sys is the host's, so that replayed
+# an event for every device of the owner's machine. The trigger therefore runs only after a reload
+# that succeeded, and the harness keeps the reload from succeeding by masking udev.
+#
+# The rules on disk are what matter. They are read by udev when the real system boots, so on a machine
+# with no running daemon there is nothing to reload and nothing is lost. On a machine with one, a
+# failure to reload means the device rules do not take effect until the next boot, which is worth
+# saying out loud rather than swallowing, so the last task below prints it as a warning.
 - name: Reload udev rules
   ansible.builtin.command: udevadm control --reload-rules
   become: yes

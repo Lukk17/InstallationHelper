@@ -121,3 +121,15 @@ software_mapping:
   # next person does not re-add a name that cannot resolve. Use UTM instead, which is
   # already mapped above, or install Fusion by hand from Broadcom's portal.
   # vmware: { manager: "brew_cask", package: "vmware-fusion" }
+
+# The packages a role task installs under a toggle, keyed by the toggle's name without its install_
+# prefix, or by its whole name when it has no such prefix (setup_karabiner, setup_zsh). Each is a
+# Homebrew formula or cask, whichever the role task names as its manager. The role task reads its list
+# from here and setup/ansible/verify_install.yaml expects every one of them once the toggle is on, so
+# nothing the run installs for a toggle goes unverified. e2e/tier1/verify_wiring.sh fails on a role
+# install under a toggle whose list is not read from here. One line per entry in flow style, because the
+# e2e shell checks read these lines one at a time.
+companion_packages:
+  claude_desktop: ["claude"]   # cask, installed by ai_tools/tasks/claude_unix.yaml
+  setup_karabiner: ["karabiner-elements"]   # cask, installed by macos_core
+  setup_zsh: ["zsh"]   # formula, installed by shell_zsh

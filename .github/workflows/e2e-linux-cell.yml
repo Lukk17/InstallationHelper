@@ -61,6 +61,9 @@ jobs:
           echo "Disk space after cleanup:"
           df -h /
 
+      # After the cleanup, because its image prune would remove what this loads.
+      - uses: ./.github/actions/load-gate-image
+
       # Ubuntu's AppArmor profile for unix_chkpwd withholds a capability that PAM needs, and a
       # container process is confined by it because AppArmor attaches profiles by binary path, so
       # the host's profile follows the binary inside the container. pam_unix hands shadow lookups to

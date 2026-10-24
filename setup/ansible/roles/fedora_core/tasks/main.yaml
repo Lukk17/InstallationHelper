@@ -14,14 +14,15 @@
 # its own block with a rescue like every other third-party repository.
 
 # Through tasks/install_role_packages.yaml, the retry rule every package manager follows, and the
-# tasks that need snapd skip when it did not install, because the shared file has already named it.
+# tasks that need snapd skip when it did not install, because the shared file has already named it. The
+# list is install_snapd's companion_packages entry in vars/RedHat.yaml, which verify_install.yaml reads too.
 - name: Ensure Snap plugin is installed
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages: [snapd]
+    role_packages: "{{ os_dict.companion_packages.snapd }}"
     role_packages_purpose: the snap daemon
   when:
     - ih_family == 'RedHat'

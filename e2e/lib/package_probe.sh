@@ -53,6 +53,32 @@ derivative_package_names_for() {
     } | sed -E 's/.*package: "([^"]+)".*/\1/' | sort -u || true
 }
 
+# arch_group_exists <name>  ->  for a name archlinux.org knows as a package group rather than a package.
+# Needs http_ask.sh, which both callers source. Read by resolve_role_packages.sh for the role tasks and
+# by resolve_packages.sh for companion_packages, where Arch's gnome is a group.
+#
+# Returns 0 when the group exists, 1 when archlinux.org says it does not for both architectures, 2
+# when either never gave a definite answer, with what came back in ARCH_GROUP_FAULT.
+ARCH_GROUP_FAULT=""
+# shellcheck disable=SC2034  # ARCH_GROUP_FAULT is read by both callers after a status of 2
+arch_group_exists() {
+    local arch url status verdict=1
+    ARCH_GROUP_FAULT=""
+    for arch in x86_64 any; do
+        url="https://archlinux.org/groups/${arch}/$1/"
+        status=0
+        http_ask "${url}" 'Group Details' || status=$?
+        if [[ ${status} -eq 0 ]]; then
+            return 0
+        fi
+        if [[ ${status} -eq 2 ]]; then
+            verdict=2
+            ARCH_GROUP_FAULT="$(http_unresolved_reason "${url}")"
+        fi
+    done
+    return ${verdict}
+}
+
 # probe_image_for <distro>  ->  the pinned image, or nothing when there is no Dockerfile
 probe_image_for() {
     local f="${PROBE_TIER3_DIR}/$1.Dockerfile"
@@ -99,7 +125,7 @@ elif command -v pacman >/dev/null 2>&1; then
     pacman -Sy >/dev/null 2>&1
     while IFS= read -r p; do
         [ -z "$p" ] && continue
-        pacman -Si "$p" >/dev/null 2>&1 || echo "MISSING $p"
+        pacman -Si "$p" >/dev/null 2>&1 || pacman -Sg "$p" >/dev/null 2>&1 || echo "MISSING $p"
     done < /tmp/probe-names.txt
 else
     while IFS= read -r p; do

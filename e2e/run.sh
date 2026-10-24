@@ -6,11 +6,16 @@
 #   run.sh                          tier 1 only, the pre-commit gate (minutes)
 #   run.sh --tier 1                 static checks against the working tree
 #   run.sh --tier 2                 resolve every package name against real repositories
+#   run.sh --tier 2 --only <check>  one tier 2 check, named as its file under e2e/tier2/ without .sh
 #   run.sh --tier 3 --scenario defaults     one scenario in a container
 #   run.sh --tier 3 --scenario all          every scenario, sequentially (hours)
 #   run.sh --tier 3 --scenario all --jobs 3 every scenario, three at a time
 #   run.sh --tier 3 --scenario defaults --os debian the same scenario on another distro
 #   run.sh --queue <any of the above>       the same run, detached, logged to e2e/runs/queue.log
+#
+# Tier 3, and --tier all which includes it, runs only on a GitHub-hosted runner, and exits 2 anywhere
+# else, a virtual machine included, before any container starts, --queue included. From any other
+# machine dispatch .github/workflows/e2e-manual.yaml or e2e-matrix.yml instead.
 #   run.sh --list                   show the scenarios and what each one covers
 #   run.sh --help
 #
@@ -28,7 +33,7 @@
 # tier3/, and container.sh refuses a name that has none rather than quietly falling back
 # to arch, because testing the wrong distribution is worse than testing nothing.
 
-usage() { sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 GATE_MODE="wait"
 GATE_ARGS=()
@@ -47,6 +52,8 @@ done
 # shellcheck source=lib/gate.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 [[ "${GATE_TIER}" == 2 || "${GATE_TIER}" == all ]] && gate_lend_github_token
+# shellcheck disable=SC2034  # read by gate_enter in lib/gate.sh
+[[ "${GATE_TIER}" == 3 || "${GATE_TIER}" == all ]] && GATE_REQUIRES_THROWAWAY=1
 gate_enter "${GATE_MODE}" e2e/run.sh ${GATE_ARGS[@]+"${GATE_ARGS[@]}"}
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -55,6 +62,7 @@ TIER="1"
 SCENARIO=""
 JOBS="1"
 OS="arch"
+ONLY=""
 
 list_scenarios() {
     printf '%-22s %s\n' "SCENARIO" "COVERS"
@@ -78,11 +86,20 @@ while [[ $# -gt 0 ]]; do
         --jobs=*)   JOBS="${1#--jobs=}" ;;
         --os)       shift; OS="${1:?--os needs a value}" ;;
         --os=*)     OS="${1#--os=}" ;;
+        --only)     shift; ONLY="${1:?--only needs a value}" ;;
+        --only=*)   ONLY="${1#--only=}" ;;
         --queue)    echo "ERROR: --queue starts the gate container from the host, and this is already inside it" >&2; exit 2 ;;
         *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
     shift
 done
+
+# Tier 3 starts privileged containers, which change the kernel of the machine Docker runs on, so it
+# runs only on a GitHub-hosted runner. Asked here as well as by the launcher's probe, so a run
+# started inside the gate by any route is refused before anything starts.
+if [[ "${TIER}" == 3 || "${TIER}" == all ]]; then
+    require_throwaway_machine
+fi
 
 run_tier1() {
     # Ordering is deliberate and has to stay on one line, because verify_spec_parity.sh reads this
@@ -97,7 +114,7 @@ run_tier1() {
     local rc=0
     local tally_file
     tally_file="$(mktemp)"
-    for check in shell_syntax wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings windows_phase_contract windows_cache_cleanup windows_pester powershell_variables powershell_splat workflow_timeouts workflow_parity verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation derivative_merge opencode_switch pinned_values pinned_values_reader manifests compose_and_docs network_retries batched_managers pacman_partial_refresh package_retry_rule sigpipe_pipelines unreachable_tasks desktop_settings become_password_file line_endings ansible_static control_characters keycloak_realm_import interactive_states list_software wizard_refusals wizard_root_refusal shell_units print_command_resolution selection_parity paru_consumers heartbeat_log_files availability_facts rescue_coverage zshrc_env_block vendor_installer_shell_init forced_failure_assertions winget_scope_pins repo_metadata_keys manual_windows_install manual_linux_install imported_agent_artifacts checklist_labels name_lookup_retries capability_index_parity; do
+    for check in shell_syntax wizard_parse toggle_coverage profile_prerequisites timeout_indirection windows_mapping windows_npm_parity windows_settings windows_phase_contract windows_cache_cleanup windows_pester powershell_variables powershell_splat workflow_timeouts workflow_parity verify_spec_parity verify_wiring failed_key_reads tolerated_failures_read os_family_derivation derivative_merge apt_vendor_repositories opencode_switch pinned_values pinned_values_reader manifests compose_and_docs network_retries batched_managers pacman_partial_refresh package_retry_rule sigpipe_pipelines unreachable_tasks desktop_settings become_password_file line_endings ansible_static control_characters keycloak_realm_import interactive_states list_software wizard_refusals wizard_root_refusal shell_units print_command_resolution selection_parity paru_consumers heartbeat_log_files availability_facts rescue_coverage zshrc_env_block vendor_installer_shell_init forced_failure_assertions winget_scope_pins repo_metadata_keys manual_windows_install manual_linux_install imported_agent_artifacts checklist_labels name_lookup_retries capability_index_parity container_isolation throwaway_machine_only host_container_privileges snap_dependents_menu snap_dependents_summary flatpak_absent_warning gate_build_output agents_md_size compose_log_limits; do
         local check_rc
         set +e
         bash "${E2E_ROOT}/tier1/${check}.sh" 2>&1 | tee "${tally_file}"
@@ -121,13 +138,21 @@ run_tier1() {
     return ${rc}
 }
 
+TIER2_CHECKS=(resolve_packages resolve_role_packages resolve_pinned_urls resolve_apt_repositories pacman_database_check rpm_file_conflicts)
+
 run_tier2() {
-    local rc=0
-    bash "${E2E_ROOT}/tier2/resolve_packages.sh" || rc=1
-    echo
-    bash "${E2E_ROOT}/tier2/resolve_role_packages.sh" || rc=1
-    echo
-    bash "${E2E_ROOT}/tier2/resolve_pinned_urls.sh" || rc=1
+    local rc=0 check checks=("${TIER2_CHECKS[@]}")
+    if [[ -n "${ONLY}" ]]; then
+        if [[ " ${TIER2_CHECKS[*]} " != *" ${ONLY} "* ]]; then
+            echo "ERROR: --only ${ONLY} names no tier 2 check. The tier 2 checks are: ${TIER2_CHECKS[*]}" >&2
+            return 2
+        fi
+        checks=("${ONLY}")
+    fi
+    for check in "${checks[@]}"; do
+        bash "${E2E_ROOT}/tier2/${check}.sh" || rc=1
+        echo
+    done
     return ${rc}
 }
 
@@ -190,7 +215,7 @@ EOF
             name="${name// /}"
             [[ -z "${name}" ]] && continue
             found="$(grep -lE "^e2e_scenario_name:[[:space:]]*\"?${name}\"?[[:space:]]*$" \
-                "${E2E_ROOT}"/tier3/scenarios/*.yaml | head -1 || true)"
+                "${E2E_ROOT}"/tier3/scenarios/*.yaml | sed -n 1p || true)"
             [[ -n "${found}" ]] || { echo "ERROR: no scenario named '${name}'. Try --list." >&2; exit 2; }
             files+=("${found}")
         done
@@ -265,6 +290,11 @@ EOF
     fi
     return ${rc}
 }
+
+if [[ -n "${ONLY}" && "${TIER}" != 2 ]]; then
+    echo "ERROR: --only picks one tier 2 check and needs --tier 2" >&2
+    exit 2
+fi
 
 case "${TIER}" in
     1)   run_tier1 ;;

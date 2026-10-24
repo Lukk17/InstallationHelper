@@ -38,8 +38,9 @@
          loud, because a feature reported as enabled and not yet active is the same lie as a package
          reported as installed and absent.
 
-    Depends on Get-WindowsGroupVarToggle, Test-IsAdministrator, Get-WindowsInstallationType and
-    Invoke-InstallStepWithRetry from WindowsSoftware.ps1, which setup.ps1 dot-sources first.
+    Depends on Get-WindowsGroupVarToggle, Test-IsAdministrator, Get-WindowsInstallationType,
+    Invoke-InstallStepWithRetry and Wait-BoundedProcess from WindowsSoftware.ps1, which setup.ps1
+    dot-sources first.
 #>
 
 Set-StrictMode -Version Latest
@@ -357,7 +358,7 @@ function Install-WslDistribution {
         try {
             $proc = Start-Process -FilePath 'wsl.exe' -ArgumentList @('--install', '-d', $Distribution, '--no-launch') `
                 -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-            if (-not $proc.WaitForExit($TimeoutMinutes * 60 * 1000)) {
+            if (-not (Wait-BoundedProcess -Process $proc -TimeoutMilliseconds ($TimeoutMinutes * 60 * 1000))) {
                 try { $proc.Kill($true) } catch { Write-Verbose "could not kill $($proc.Id): $($_.Exception.Message)" }
                 $timedOut = New-SettingResult -Key 'setup_wsl' -Package $Distribution -Status 'failed' `
                     -Detail "wsl --install was still running after $TimeoutMinutes minutes and was killed, so the distribution is NOT registered. Run 'wsl --install -d $Distribution --no-launch' by hand to see what it was waiting for."

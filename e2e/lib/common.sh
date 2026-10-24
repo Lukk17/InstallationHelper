@@ -190,6 +190,21 @@ sha256_of() {
     fi
 }
 
+# fetch_url <label> <url> <destination>  ->  downloads to the destination, retrying every error
+#
+# Returns 1 when curl gives up, with the partial destination removed and
+# "<label>: downloading <url> failed, curl exited <status>" on stderr.
+fetch_url() {
+    local label="$1" url="$2" destination="$3" curl_status=0
+    curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 15 --max-time 600 \
+        -o "${destination}" "${url}" || curl_status=$?
+    if [[ ${curl_status} -ne 0 ]]; then
+        rm -f "${destination}"
+        printf '%s: downloading %s failed, curl exited %d\n' "${label}" "${url}" "${curl_status}" >&2
+        return 1
+    fi
+}
+
 # The version a shellcheck binary reports, or nothing. Not written in the `name <args>  ->` form the
 # other helpers use, because ShellCheck reads a comment that opens with its own name as a directive
 # and stops analysing the file. The Windows build ends its lines with a carriage return.
@@ -260,13 +275,8 @@ pinned_shellcheck() {
         fi
         mkdir -p "${cache_dir}" || return 2
         printf 'e2e: fetching ShellCheck %s for %s from %s\n' "${version}" "${platform}" "${url}" >&2
-        local curl_status=0
-        curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 -o "${archive}.part" "${url}" \
-            || curl_status=$?
-        if [[ ${curl_status} -ne 0 ]]; then
-            rm -f "${archive}.part"
-            printf 'e2e: downloading %s failed, curl exited %d. It is needed once, after which it is kept in %s\n' \
-                "${url}" "${curl_status}" "${cache_dir}" >&2
+        if ! fetch_url e2e "${url}" "${archive}.part"; then
+            printf 'e2e: ShellCheck %s is needed once, after which it is kept in %s\n' "${version}" "${cache_dir}" >&2
             return 2
         fi
         mv -f "${archive}.part" "${archive}" || return 2
@@ -334,6 +344,47 @@ derivative_mapping_keys() {
     derivative_mapping_lines "$1" | sed -E 's/^  ([a-z0-9_]+):.*/\1/'
 }
 
+# companion_packages_of <family-file>  ->  "<key> <package>" per line, one for every package of every
+#                                          companion_packages entry
+#
+# companion_packages in vars/<OS>.yaml names the packages a role installs under a software toggle beside
+# that toggle's mapping, one flow sequence per line, key: ["a", "b"]. The manual install check counts
+# them as dictionary names and tier 2 resolves them, so a name listed there is checked like a mapping.
+companion_packages_of() {
+    tr -d '\r' <"$1" | awk '
+        /^companion_packages:/ { inside = 1; next }
+        /^[^[:space:]#]/ { inside = 0 }
+        inside && /^  [a-z0-9_]+: \[/ {
+            key = $1; sub(/:$/, "", key)
+            line = $0; sub(/^[^[]*\[/, "", line); sub(/\].*$/, "", line)
+            n = split(line, names, /,/)
+            for (i = 1; i <= n; i++) {
+                gsub(/["\047[:space:]]/, "", names[i])
+                if (names[i] != "") print key " " names[i]
+            }
+        }'
+}
+
+# lineage_companion_packages_of <family-file> <lineage>  ->  "<key> <package>" per line, for every
+#                                                         package lineage_companion_packages puts in
+#                                                         front of a companion_packages entry on that
+#                                                         lineage, ubuntu or debian in vars/Debian.yaml
+lineage_companion_packages_of() {
+    tr -d '\r' <"$1" | awk -v lineage="$2" '
+        /^lineage_companion_packages:/ { inside = 1; next }
+        /^[^[:space:]#]/ { inside = 0 }
+        inside && /^  [a-z0-9_]+:[[:space:]]*$/ { current = $1; sub(/:$/, "", current); next }
+        inside && current == lineage && /^    [a-z0-9_]+: \[/ {
+            key = $1; sub(/:$/, "", key)
+            line = $0; sub(/^[^[]*\[/, "", line); sub(/\].*$/, "", line)
+            n = split(line, names, /,/)
+            for (i = 1; i <= n; i++) {
+                gsub(/["\047[:space:]]/, "", names[i])
+                if (names[i] != "") print key " " names[i]
+            }
+        }'
+}
+
 # prepare_detect_os <linux_vars_file> <macos_vars_file>  -> 0 and the real detect_os and
 #                                                            debian_lineage defined, or 1 and
 #                                                            neither defined
@@ -380,7 +431,7 @@ prepare_detect_os() {
 # once as a `^install_` sweep inside container.sh, and the two disagreed in both directions for as
 # long as they both existed: the sweep could not see the four system settings whose names do not
 # begin with install_, and it swept up the two desktop keys the wizard deliberately keeps off the
-# checklist because the desktop has a screen of its own. That is defect class 2 in AGENTS.md, the
+# checklist because the desktop has a screen of its own. That is defect class 2 in docs/regression_ledger.md, the
 # same rule implemented twice and then disagreeing, sitting inside the harness meant to catch it.
 #
 # Run under setup.sh's own IFS, because that file sets IFS to newline and tab at the top and its

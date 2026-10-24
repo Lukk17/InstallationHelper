@@ -22,6 +22,10 @@
 # An entry with added_by is left out. Its repository is written by setup.sh or by a role later in the
 # run rather than by the software installer, so its absence at this point says nothing about whether
 # it could be added, and no package in software_mapping comes from it.
+#
+# An entry with os_release_ids is asked about only on a machine whose /etc/os-release ID it names,
+# because the software installer adds it nowhere else, and everywhere else the package comes from the
+# distribution's own archive. OpenRazer's PPA on Pop!_OS is the one today.
 - name: Ask which requested third-party repository files are on this machine
   ansible.builtin.stat:
     path: "{{ item.1 }}"
@@ -31,7 +35,9 @@
   loop_control:
     label: "{{ item.1 }}"
   register: repository_file_probe
-  when: lookup('vars', 'install_' ~ item.0.key, default=false) | bool
+  when:
+    - lookup('vars', 'install_' ~ item.0.key, default=false) | bool
+    - item.0.value.os_release_ids is not defined or ih_os_release_id | default('') in item.0.value.os_release_ids
 
 - name: Record which requested third-party repositories are not on this machine
   ansible.builtin.set_fact:

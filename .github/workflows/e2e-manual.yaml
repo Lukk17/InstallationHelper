@@ -64,7 +64,9 @@
 #
 # Reproducing a run locally, without GitHub Actions:
 #
-#   Linux/macOS shell:
+#   Linux/macOS shell. The first line is what this workflow runs, and it runs only on a GitHub-hosted
+#   runner, because tier 3 refuses with exit 2 anywhere else, a virtual machine included
+#   (e2e/lib/throwaway_machine.sh):
 #     bash e2e/run.sh --tier 3 --scenario defaults --os arch
 #     bash setup/setup.sh --non-interactive --passwordless-sudo --desktop-environment skip --software defaults
 #     bash setup/setup.sh --non-interactive --passwordless-sudo --enable docker,vim --disable steam
@@ -283,8 +285,16 @@ jobs:
   # scenario file generated from this dispatch's own inputs so it can exercise an arbitrary
   # toggle selection, not just the eight scenarios checked into e2e/tier3/scenarios/.
   # -----------------------------------------------------------------------
-  linux-e2e:
+  # The gate image, built by the same reusable workflow the sweep calls and loaded by linux-e2e below
+  # rather than built there, owner decision 90, so both workflows run e2e/run.sh on an image made
+  # the same way.
+  gate-image:
     needs: plan
+    if: needs.plan.outputs.run_linux == 'true'
+    uses: ./.github/workflows/e2e-gate-image.yml
+
+  linux-e2e:
+    needs: [plan, gate-image]
     if: needs.plan.outputs.run_linux == 'true'
     runs-on: ubuntu-latest
     # The slowest shipped tier-3 scenarios (all-software, kde-full, gnome-full and idempotency)
@@ -325,6 +335,9 @@ jobs:
 
           echo "Disk space after cleanup:"
           df -h /
+
+      # After the cleanup, because its image prune would remove what this loads.
+      - uses: ./.github/actions/load-gate-image
 
       # Ubuntu's AppArmor profile for unix_chkpwd withholds a capability that PAM needs, and a
       # container process is confined by it because AppArmor attaches profiles by binary path, so
@@ -575,6 +588,9 @@ jobs:
       - name: Install bash 4, which macOS does not ship
         run: brew install bash
 
+      - name: Show the free disk space before the wizard
+        run: df -h /
+
       - name: Run the bootstrap wizard
         env:
           SEL_DE: ${{ needs.plan.outputs.desktop_environment }}
@@ -608,6 +624,10 @@ jobs:
           echo "Running: bash setup/setup.sh ${args[*]}"
           # No pipe, no tee: the step's own exit code is setup.sh's exit code, unmasked.
           bash setup/setup.sh "${args[@]}"
+
+      - name: Show the free disk space after the wizard
+        if: always()
+        run: df -h /
 
       - name: Collect wizard log artefacts
         if: always()

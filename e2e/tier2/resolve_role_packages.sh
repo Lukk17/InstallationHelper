@@ -100,7 +100,7 @@ report_templated() {
 
 where_is() {
     local pkg="$1" body="$2"
-    grep -F -- "	${pkg}" <<<"${body}" | head -1 | awk -F'\t' '{n=split($2,p,"/"); print p[n]}'
+    grep -F -- "	${pkg}" <<<"${body}" | sed -n 1p | awk -F'\t' '{n=split($2,p,"/"); print p[n]}'
 }
 
 # Called back by the probe for every missing name, so a failure says which task file to open.
@@ -108,26 +108,6 @@ ROLE_BODY=""
 role_annotate() { printf '(in %s)' "$(where_is "$1" "${ROLE_BODY}")"; }
 
 # --- Arch, over HTTP ---------------------------------------------------------
-# Returns 0 when the group exists, 1 when archlinux.org says it does not for both architectures, 2
-# when either never gave a definite answer, with what came back in ARCH_GROUP_FAULT.
-ARCH_GROUP_FAULT=""
-arch_group_exists() {
-    local arch url status verdict=1
-    ARCH_GROUP_FAULT=""
-    for arch in x86_64 any; do
-        url="https://archlinux.org/groups/${arch}/$1/"
-        status=0
-        http_ask "${url}" 'Group Details' || status=$?
-        if [[ ${status} -eq 0 ]]; then
-            return 0
-        fi
-        if [[ ${status} -eq 2 ]]; then
-            verdict=2
-            ARCH_GROUP_FAULT="$(http_unresolved_reason "${url}")"
-        fi
-    done
-    return ${verdict}
-}
 
 check_arch() {
     local body; body="$(printf '%s\n%s\n' "$(extract 'community.general.pacman:')" "$(helper_lines_for '(^|,)arch(,|$)')" | sed '/^$/d')"
@@ -243,6 +223,8 @@ check_allowlist_orphans() {
             package_names_for "${VARS_DIR}/Debian.yaml" apt | sed 's/^/debian /'
             package_names_for "${VARS_DIR}/Debian.yaml" apt | sed 's/^/ubuntu /'
             package_names_for "${VARS_DIR}/RedHat.yaml" dnf | sed 's/^/fedora /'
+            companion_packages_of "${VARS_DIR}/Debian.yaml" | awk '{print "debian " $2; print "ubuntu " $2}'
+            companion_packages_of "${VARS_DIR}/RedHat.yaml" | awk '{print "fedora " $2}'
             # The shell tasks count as asking for a package too. Leaving them out made this report
             # every Docker CE forgiveness on the Debian side as an orphan, because the only thing
             # naming those packages there is a shell command rather than a module list. The same

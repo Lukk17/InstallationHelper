@@ -384,7 +384,7 @@
 
     - name: Add HashiCorp apt repository
       ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        repo: "deb [signed-by=/etc/apt/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ih_apt_codename }} main"
         filename: hashicorp
         state: present
         update_cache: false
@@ -449,6 +449,66 @@
           tags: [always]
       vars:
         repository_key: gh
+      tags: [always]
+
+# --- OpenRazer PPA, only where vars/Debian.yaml names the distribution ---
+# The key is fetched from the Ubuntu keyserver by the fingerprint Launchpad publishes for
+# ppa:openrazer/stable, and refused unless gpg reads that same fingerprint out of what arrived.
+- name: Add the OpenRazer repository
+  when:
+    - install_openrazer | default(false) | bool
+    - ih_os_release_id | default('') in os_dict.third_party_repositories.openrazer.os_release_ids
+  block:
+    - name: Download the OpenRazer PPA signing key
+      ansible.builtin.get_url:
+        url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x{{ software_installer_openrazer_key_fingerprint }}"
+        dest: /tmp/openrazer.asc
+        mode: '0644'
+        force: true
+      register: download_openrazer_signing_key_fetch
+      retries: 3
+      delay: 10
+      until: download_openrazer_signing_key_fetch is succeeded
+
+    - name: Convert the OpenRazer key to a binary keyring, refusing any other key
+      ansible.builtin.shell: |
+        set -o pipefail
+        found="$(gpg --show-keys --with-colons /tmp/openrazer.asc | awk -F: '$1 == "fpr" && !done { print $10; done = 1 }')"
+        if [ "${found}" != "{{ software_installer_openrazer_key_fingerprint }}" ]; then
+            echo "the OpenRazer PPA key has fingerprint ${found:-none}, not {{ software_installer_openrazer_key_fingerprint }}" >&2
+            exit 1
+        fi
+        gpg --dearmor < /tmp/openrazer.asc > /etc/apt/keyrings/openrazer.gpg
+        chmod 0644 /etc/apt/keyrings/openrazer.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/openrazer.gpg
+      become: true
+
+    - name: Add OpenRazer apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/openrazer.gpg] https://ppa.launchpadcontent.net/openrazer/stable/ubuntu {{ ih_apt_codename }} main"
+        filename: openrazer
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Fetch the OpenRazer package lists on their own
+      ansible.builtin.include_tasks:
+        file: debian_repository_check.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: openrazer
+      tags: [always]
+  rescue:
+    - name: Undo, record and name the OpenRazer repository that could not be added
+      ansible.builtin.include_tasks:
+        file: repository_unavailable.yaml
+        apply:
+          tags: [always]
+      vars:
+        repository_key: openrazer
       tags: [always]
 
 # --- Lens Desktop ---
@@ -596,7 +656,7 @@
         repo: >-
           deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.gpg]
           https://download.docker.com/linux/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
-          {{ ansible_facts['distribution_release'] }} stable
+          {{ ih_apt_codename }} stable
         filename: docker
         state: present
         update_cache: false
@@ -742,14 +802,15 @@
 # --dearmor step. Both the keyring and the repo live under a per-distribution,
 # per-codename path. The distribution segment is normalised to ubuntu or debian
 # the same way the Docker task above does it, because upstream publishes those
-# two only and a derivative's own name (linuxmint, pop!_os) is a 404.
+# two only and a derivative's own name (linuxmint, pop!_os) is a 404. The
+# codename is ih_apt_codename for the same reason, see tasks/derive_os_facts.yaml.
 - name: Add the Tailscale repository
   when: install_tailscale | default(false) | bool
   block:
     - name: Download Tailscale binary keyring
       ansible.builtin.get_url:
         url: >-
-          https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg
+          https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}/{{ ih_apt_codename }}.noarmor.gpg
         dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
         mode: '0644'
         force: true
@@ -764,7 +825,7 @@
         repo: >-
           deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg]
           https://pkgs.tailscale.com/stable/{{ 'ubuntu' if ih_base == 'ubuntu' else 'debian' }}
-          {{ ansible_facts['distribution_release'] }} main
+          {{ ih_apt_codename }} main
         filename: tailscale
         state: present
         update_cache: false

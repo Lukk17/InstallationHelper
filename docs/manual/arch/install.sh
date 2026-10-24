@@ -60,11 +60,12 @@ refresh_flatpak() { flatpak update --appstream --noninteractive flathub; }
 # pacman packages from official repos. Steam needs the multilib repo enabled.
 PACMAN_PACKAGES=(
   git maven gradle openssl kubectl minikube helm terraform github-cli jq fzf
-  ripgrep uv python-pipx go filezilla putty rclone telegram-desktop
+  ripgrep uv python-pipx python-filelock go filezilla putty rclone qastools telegram-desktop
   signal-desktop keepassxc vlc handbrake rawtherapee steam veracrypt
   speedtest-cli boinc lynis clamav hardinfo2 lm_sensors baobab gparted
   partitionmanager virt-manager qemu-full libvirt dnsmasq nftables
-  virtiofsd docker zsh syncthing tailscale openrazer-daemon
+  virtiofsd docker docker-buildx docker-compose iptables zsh syncthing tailscale
+  openrazer-daemon
 )
 
 # The gaming suite: Lutris on Arch, the CachyOS gaming metapackage on CachyOS, as
@@ -129,7 +130,10 @@ log "Enabling the Syncthing user service"
 systemctl --user enable --now syncthing.service || printf '   Skipped: no user D-Bus session. Run it yourself after logging in.\n'
 
 log "Enabling the tailscaled system service"
-sudo systemctl enable --now tailscaled
+sudo systemctl enable --now tailscaled || printf '   Skipped: tailscaled.service could not be enabled, so tailscale most likely did not install. systemctl printed why above.\n'
+
+log "Enabling and starting the Docker system service"
+sudo systemctl enable --now docker || printf '   Skipped: docker.service could not be enabled, so docker most likely did not install. systemctl printed why above.\n'
 
 log "Adding ${USER} to the docker group, which takes effect only after logging out and back in, a new terminal window is not enough"
 sudo usermod -aG docker "${USER}" || printf '   Skipped: the docker group does not exist, so docker did not install.\n'

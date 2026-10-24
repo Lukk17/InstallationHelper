@@ -19,7 +19,9 @@ This capability exists for the same reason as the ledger entries about tolerance
 
 ## Prerequisites
 
-The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
+This capability never runs on the owner's computer. Its scenario containers are privileged and share the kernel of the machine Docker runs on, and on the owner's computer they changed his kernel, entries 10.126 to 10.129 of [../../docs/regression_ledger.md](../../docs/regression_ledger.md). It runs only on a GitHub-hosted runner, dispatched with the command under Run, where the workflow runs the commands below for you. Anywhere else `e2e/run.sh --tier 3` and `e2e/tier3/container.sh` print `REFUSED` and exit 2 before any container starts, and there is no override. No other virtual machine qualifies, a local one, WSL 2 and Docker Desktop alike, by the owner's decision 79. The rule and how the machine is recognised are under "Tier 3 runs only on a GitHub-hosted runner" in [../README_E2E.md](../README_E2E.md).
+
+On the runner the scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so the runner needs a Docker daemon and nothing else.
 
 Confirm the Docker daemon is reachable.
 
@@ -27,7 +29,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Confirm there is disk headroom.
 
@@ -123,10 +125,14 @@ The single-command form does the same work in the foreground.
 ./e2e/run.sh --tier 3 --scenario idempotency --os debian
 ```
 
-From a PowerShell prompt on Windows, the same launch through WSL.
+The commands above and below are what a GitHub-hosted runner runs, and they exit 2 anywhere else, so dispatch the same scenario to GitHub-hosted runners. It runs stage 1 and that one stage 2 cell of [../../.github/workflows/e2e-matrix.yml](../../.github/workflows/e2e-matrix.yml), and stage 3 on macOS and Windows as well, because stage 3 always runs. The command is the same from a Unix shell and from PowerShell.
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=idempotency -f distro=debian
+```
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/08-idempotency.yaml --os debian --detach"
+gh workflow run e2e-matrix.yml -f scenario=idempotency -f distro=debian
 ```
 
 `--os` defaults to arch. Idempotency is not a property that generalises across distributions: a task that guards itself correctly on apt may guard itself by nothing at all on pacman, and the second pass is where that shows. So a run of this capability is a run against one distribution and the record has to say which.
@@ -144,6 +150,8 @@ wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && .
 | `second_run_changed_not_allowed` | those not named in the allowlist, listed by name, and the number that has to be zero |
 | `second_run_changed_allowed` | those named in the allowlist, listed by name, so an exemption cannot be used without being seen |
 
+It also reports two `host_isolation:` lines. The first must read `host_isolation: 0 finding(s)`, which means every host state record was written, binfmt_misc was never mounted, no masked unit ran, systemd knew it was in a container, and the host kernel's swap areas matched the record taken at boot after every pass and at collection. This holds for every scenario, the forced-failure one included, and any finding fails the run. The second lists every kernel setting and loaded module that differs from the boot record, as information only by owner decision 86, and never fails the run: it is expected to name the distribution's own `sysctl.d` defaults and the modules its packages load. That is safe only because the scenario container is privileged and changes the kernel of the machine running it, its kernel settings, binfmt_misc table, device events and modules, which is why this capability runs only on a throwaway GitHub-hosted runner and never on the owner's computer. See "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
+
 A note on the cross-cutting convention that pass criteria are observable state and never log substrings. This capability reads its verdict out of the second pass's log, and that is not an exception to the rule. `changed` is the playbook's own per-task disposition, a boolean the task itself returns, not prose that a rewording can move: the assertion is on the identity of the tasks and on the count, never on any message. The play recap at the end of `playbook2.log` carries the same total as `changed=N` and is the figure to check the parsed list against if the two ever look inconsistent.
 
 A first pass that fails is reported as a failed capability rather than as an unproven one. There is nothing to say about idempotency when the first pass did not finish, and reading an absent second pass as "nothing changed" would be the exact shape of misleading output this suite exists to remove.
@@ -155,16 +163,17 @@ Before any of them, `Assert the installed-package query returned a plausible lis
 1. `Assert every enabled native package is installed`, checked against the family's own query, `dpkg-query` on Debian and Ubuntu, `rpm -qa` on Fedora and `pacman -Qq` on Arch and CachyOS. The expected set is every toggle true in `group_vars/all.yaml` and `group_vars/linux.yaml` that the family's dictionary maps to a native manager, minus whatever the container limits turned off. Here it also proves the second pass removed nothing the first pass installed.
 2. `Assert every enabled URL-installed package resolved a download location`. Some packages install from a vendor URL rather than a repository, and both dispatch tasks skip silently when that URL renders empty, so this fails the run instead of letting it look clean. The candidate set is empty on Arch and CachyOS, which map nothing to `apt_url` or `dnf_url`.
 3. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`.
-4. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
-5. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`.
-6. `Assert the user is in the docker group when Docker was requested`, from `id -nG`. Worth watching on this capability in particular: a group membership task that adds the user unconditionally is a classic always-changed offender, and this is the scenario that would name it.
-7. `Assert docker.service is enabled when Docker was requested`.
-8. `Assert flatpak is installed and the Flathub remote is configured`. The Flathub remote-add is another natural offender, and it is guarded with `--if-not-exists` for exactly that reason.
-9. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist. Both passes create and remove it, so on a second pass the removal task legitimately reports changed and is expected to appear in the allowlist.
-10. `Assert the expected desktop environment is installed` does not run here. The scenario declares `e2e_expect_desktop: none`, which is the wizard's `skip` answer, and both `install_kde_plasma` and `install_gnome` are false by default.
-11. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Verification runs once, after both passes, so this proves the second pass left every enabled tool exactly as reachable as the first pass made it: node, npm, nvm, pyenv, sdk, java, fvm, flutter, dart, sdkmanager, adb and the six npm-installed AI CLIs, on disk and from an interactive non-login shell of `{{ non_root_user }}`'s real login shell. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60. A second pass that reruns an installer's shell-wiring step and writes to the wrong rc file, or skips it as already-changed, would surface here rather than in the changed-task accounting, since a missing or unreachable tool is a verify failure regardless of which pass caused it.
-12. `Assert the desktop session environment carries every development variable`. Linux only. Verification runs once, after both passes, so this proves the second pass left `~/.config/environment.d/50-dev.conf` carrying every variable and PATH entry a desktop session needs, read through the systemd user environment generator exactly as the user manager reads it at the next login.
-13. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails. Verification runs once, after both passes, so this proves the second pass did not bring the other version back.
+4. `Assert every enabled snap application is installed`, checked against `snap list --color=never --unicode=never`, which is asked only when a snap mapping is expected.
+5. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
+6. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`.
+7. `Assert the user is in the docker group when Docker was requested`, from `id -nG`. Worth watching on this capability in particular: a group membership task that adds the user unconditionally is a classic always-changed offender, and this is the scenario that would name it.
+8. `Assert docker.service is enabled when Docker was requested`.
+9. `Assert flatpak is installed and the Flathub remote is configured`. The Flathub remote-add is another natural offender, and it is guarded with `--if-not-exists` for exactly that reason.
+10. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist. Both passes create and remove it, so on a second pass the removal task legitimately reports changed and is expected to appear in the allowlist.
+11. `Assert the expected desktop environment is installed` does not run here. The scenario declares `e2e_expect_desktop: none`, which is the wizard's `skip` answer, and both `install_kde_plasma` and `install_gnome` are false by default.
+12. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Verification runs once, after both passes, so this proves the second pass left every enabled tool exactly as reachable as the first pass made it: node, npm, nvm, pyenv, sdk, java, fvm, flutter, dart, sdkmanager, adb and the six npm-installed AI CLIs, on disk and from an interactive non-login shell of `{{ non_root_user }}`'s real login shell. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60. A second pass that reruns an installer's shell-wiring step and writes to the wrong rc file, or skips it as already-changed, would surface here rather than in the changed-task accounting, since a missing or unreachable tool is a verify failure regardless of which pass caused it.
+13. `Assert the desktop session environment carries every development variable`. Linux only. Verification runs once, after both passes, so this proves the second pass left `~/.config/environment.d/50-dev.conf` carrying every variable and PATH entry a desktop session needs, read through the systemd user environment generator exactly as the user manager reads it at the next login.
+14. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails. Verification runs once, after both passes, so this proves the second pass did not bring the other version back.
 
 Known container limitations. [../tier3/container_limits.yaml](../tier3/container_limits.yaml) forces `setup_hibernate`, `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot`, `install_waydroid`, `install_virtualbox`, `install_vmware` and `install_snapper` to false on top of every scenario, because each needs hardware or a kernel facility that belongs to the host. None of those is covered here, so nothing is known about whether the bootloader or hibernation tasks are idempotent. The harness prints the suppressed list on every run.
 

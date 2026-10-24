@@ -20,7 +20,7 @@
   ansible.builtin.copy:
     dest: /etc/apt/sources.list.d/contrib-non-free.list
     content: |
-      deb https://deb.debian.org/debian {{ ansible_facts['distribution_release'] }} contrib non-free non-free-firmware
+      deb https://deb.debian.org/debian {{ ih_apt_codename }} contrib non-free non-free-firmware
     mode: '0644'
   when: ansible_facts['distribution'] == 'Debian'
 
@@ -75,28 +75,53 @@
   when: ih_family == 'Debian'
 
 # Through tasks/install_role_packages.yaml, the retry rule every package manager follows, and the
-# tasks that need snapd skip when it did not install, because the shared file has already named it.
-- name: Install snapd (Debian non-Ubuntu)
+# tasks that need snapd skip when it did not install, because the shared file has already named it. The
+# list is install_snapd's companion_packages entry in vars/Debian.yaml, which verify_install.yaml reads
+# too. Under install_snapd, as on Fedora and Arch, everywhere in the family but Ubuntu itself. Ubuntu
+# ships snapd with the system, so there the playbook never installs it, never removes it and never
+# touches its socket, and the snap mappings install whatever install_snapd says. Pop!_OS and Linux Mint
+# follow install_snapd like Debian. Both answers come from setup/ansible/tasks/snap_availability.yaml,
+# which the software installer and the verification read too, so the three cannot disagree about what
+# snapd means on this machine.
+- name: Decide whether snapd ships with this system (Debian family)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/snap_availability.yaml"
+    apply:
+      tags: [always]
+  when: ih_family == 'Debian'
+
+- name: Install snapd (Debian family, not Ubuntu itself)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages: [snapd]
+    role_packages: "{{ os_dict.companion_packages.snapd }}"
     role_packages_purpose: the snap daemon
   when:
     - ih_family == 'Debian'
-    - ih_base != 'ubuntu'
+    - install_snapd | default(false) | bool
+    - not (ih_snapd_with_system | bool)
 
-- name: Enable snapd socket (Debian non-Ubuntu)
+- name: Remember whether snapd installed (Debian family, not Ubuntu itself)
+  ansible.builtin.set_fact:
+    debian_snapd_missing: "{{ 'snapd' in (role_packages_missing | default([])) }}"
+  when:
+    - ih_family == 'Debian'
+    - install_snapd | default(false) | bool
+    - not (ih_snapd_with_system | bool)
+
+- name: Enable snapd socket (Debian family, not Ubuntu itself)
   become: yes
   ansible.builtin.systemd:
     name: snapd.socket
     state: started
     enabled: yes
   when:
-    - ih_base != 'ubuntu'
-    - "'snapd' not in (role_packages_missing | default([]))"
+    - ih_family == 'Debian'
+    - install_snapd | default(false) | bool
+    - not (ih_snapd_with_system | bool)
+    - not (debian_snapd_missing | default(false) | bool)
 
 # NOTE: Removed manual symlink creation - not needed with modern snapd
 
@@ -106,9 +131,10 @@
     dest: /etc/profile.d/sbin-path.sh
     content: |
       # Ensure /sbin and /usr/sbin are in PATH (needed for ldconfig, etc.)
-      if ! echo "$PATH" | grep -q "/sbin"; then
-        export PATH="$PATH:/sbin:/usr/sbin"
-      fi
+      case "$PATH" in
+        */sbin*) ;;
+        *) export PATH="$PATH:/sbin:/usr/sbin" ;;
+      esac
     mode: '0644'
 
 # The Antigravity apt repository used to be set up here, as critical bootstrap with no rescue, so a key

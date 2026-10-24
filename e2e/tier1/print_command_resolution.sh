@@ -124,7 +124,7 @@ KEY_LAST="${EXPECTED_KEYS[$((${#EXPECTED_KEYS[@]} - 1))]}"
 # The four desktop key names come out of DE_KEYS in setup.sh and are checked against group_vars
 # below, so a desktop toggle renamed in one place and not the other fails here rather than resolving
 # to a variable the playbook has never heard of.
-de_key_matching() { printf '%s\n' "${DE_KEYS[@]}" | grep -m1 -E "$1" || true; }
+de_key_matching() { grep -m1 -E "$1" <<<"$(printf '%s\n' "${DE_KEYS[@]}")" || true; }
 
 KDE_INSTALL="$(de_key_matching '^install_.*kde')"
 KDE_CONFIGURE="$(de_key_matching '^configure_.*kde')"
@@ -344,6 +344,30 @@ if [[ "${answered}" -eq 7 ]]; then
 else
     fail "not every selection reached the resolution, so part of this check proved nothing" \
          "${answered} of seven runs exited 0"
+fi
+
+# --- no profile turns on what --software all leaves off ---------------------------------
+# A profile is the third way screen 2 picks a whole set at once, so a profile that turned a key in
+# ALL_SOFTWARE_KEEPS_OFF on would be an "install this preset" that switches OpenCode to version 1 without
+# the user ticking it. Every profile is read, not only the one resolved above.
+profile_turns_on=()
+profile_count=0
+for profile in "${ANSIBLE_DIR}"/profiles/*.yaml; do
+    [[ -f "${profile}" ]] || continue
+    profile_count=$((profile_count + 1))
+    for key in "${ALL_OFF_KEYS[@]+"${ALL_OFF_KEYS[@]}"}"; do
+        grep -qE "^${key}:[[:space:]]*\"?(true|True|on|yes)\"?([[:space:]]|#|$)" "${profile}" \
+            && profile_turns_on+=("profiles/$(basename "${profile}") turns ${key} on")
+    done
+done
+if [[ "${profile_count}" -eq 0 ]]; then
+    fail "no profile was found to read, so no profile was shown to leave the all-keeps-off keys alone" \
+         "${ANSIBLE_DIR}/profiles/*.yaml matched nothing"
+elif [[ ${#profile_turns_on[@]} -gt 0 ]]; then
+    fail "a profile turns on a key --software all leaves off, so loading it installs what select-all never does" \
+         "$(printf '%s | ' "${profile_turns_on[@]}")"
+else
+    pass "none of the ${profile_count} profiles turns on a key --software all leaves off: ${ALL_OFF_KEYS[*]:-none}"
 fi
 
 finish "print-command resolution"

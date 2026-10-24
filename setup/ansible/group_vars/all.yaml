@@ -158,7 +158,10 @@ projects_dir: "{{ non_root_home }}/Projects"
 # The shell and environment layout on Linux and macOS, read by env_variables, shell_zsh, sdk_manager,
 # ai_tools and verify_install.yaml, so the five cannot name different files. Same templating rule as
 # android_home. setup/configuration.md, "Shell and environment layout", describes what goes where.
-dev_env_file: "{{ non_root_home }}/.config/environment.d/50-dev.conf"
+# dev_env_file must sort after 99-environment.conf, the link to /etc/environment systemd ships in
+# /usr/lib/environment.d, because Ubuntu's /etc/environment assigns PATH outright and a file read
+# before it loses every PATH entry it added. setup/configuration.md has the measurement.
+dev_env_file: "{{ non_root_home }}/.config/environment.d/990-dev.conf"
 zsh_config_dir: "{{ non_root_home ~ '/.config/zsh' if (setup_zsh | default(false) | bool) else non_root_home }}"
 interactive_rc_files: >-
   {{ ([{'shell': 'bash', 'path': non_root_home ~ '/.bashrc'}] if ansible_facts['system'] == 'Linux' else [])

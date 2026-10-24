@@ -114,7 +114,7 @@ IGNORE_PATTERNS = [
     "AC_PROG_CC_C99' is obsolete",
     # pub during dart/flutter install: it warns because PATH inside the
     # playbook subshell doesn't include ~/.pub-cache/bin yet. env_variables
-    # puts it on PATH in ~/.config/environment.d/50-dev.conf, which every
+    # puts it on PATH in ~/.config/environment.d/990-dev.conf, which every
     # shell and the desktop session read, so later shells are fine.
     "Pub installs executables into $HOME/.pub-cache/bin, which is not on your path",
     # pacman -Sc cleans cached download tempfiles that may already be gone.

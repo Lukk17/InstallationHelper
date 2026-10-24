@@ -33,20 +33,20 @@ Concrete example, the lab these documents were written from:
 
 ### Before you start
 
-The data disk has to be attached and mounted at `/mnt/data`, with `/mnt/data/files/media` owned by `1000:1000`. That is all in [lan_storage.md](lan_storage.md). Plex will not start without it, on purpose, because its library mount uses `create_host_path: false`.
+The data disk has to be attached and mounted at `/mnt/data`, with a `media` folder at its top, `/mnt/data/media`, owned by `1000:1000`. That is all in [lan_storage.md](lan_storage.md), for a new disk and for an existing NTFS disk. Plex will not start without it, on purpose, because its library mount uses `create_host_path: false`.
 
 ---
 
 ### Adding films
 
-The library is the `media` folder inside the shared folder from [lan_storage.md](lan_storage.md), so films go in the same way as any other file:
+The library is the `media` folder at the top of the shared disk from [lan_storage.md](lan_storage.md), so films go in the same way as any other file:
 
-1. Over the network drive, copy them to `\\drive.internal\files\media` on Windows, or `smb://drive.internal/files/media` on macOS and Linux.
-2. In a browser, open `http://drive.internal`, go into the `media` folder and upload them in File Browser.
+1. Over the network drive, copy them to `\\files.internal\files\media` on Windows, or `smb://files.internal/files/media` on macOS and Linux.
+2. In a browser, open `http://files.internal`, go into the `media` folder and upload them in File Browser.
 
 Keep the folders the library points at, for example `media\films` and `media\series`. New files appear in Plex after a library scan. To scan at once, open the library in the web app and choose Scan Library Files.
 
-This layout has a cost. Anyone with the Samba login or a File Browser account can rename or delete a film, because both of those write to the whole shared folder. Plex mounts the folder read only, so Plex itself can never delete a file, but that does not protect anything from the people who share the drive. If someone deletes or renames the `media` folder itself, Plex will not start until it is back, see When it misbehaves below.
+This layout has a cost. Anyone with the Samba login or a File Browser account can rename or delete a film, because both of those write to the whole shared disk. Plex mounts the folder read only, so Plex itself can never delete a file, but that does not protect anything from the people who share the drive. If someone deletes or renames the `media` folder itself, Plex will not start until it is back, see When it misbehaves below.
 
 ---
 
@@ -62,7 +62,7 @@ The image is `plexinc/pms-docker:1.43.4.10903-e5521bd8c`, the official one publi
 | `PLEX_CLAIM` | from `.env`, empty after the first start | Links the server to your Plex account once |
 | `/config` | `/opt/docker-stack/plex/config` | The Plex database, metadata and settings |
 | `/transcode` | `/opt/docker-stack/plex/transcode` | Temporary files, if a conversion happens anyway |
-| `/data` | `/mnt/data/files/media`, read only | The library. Plex can read it and never change or delete a file |
+| `/data` | `/mnt/data/media`, read only | The library. Plex can read it and never change or delete a file |
 
 Create the two Plex folders:
 
@@ -100,11 +100,29 @@ If you ever give Plex a bigger share, change the number in [compose.yaml](compos
 
 Claiming links this server to your Plex account. Use a free account.
 
-1. Sign in at `https://www.plex.tv/claim` and copy the token. It is only valid for a few minutes, so do the next steps straight away.
-2. Add it to `/opt/docker-stack/.env`, next to the Samba entries from [lan_storage.md](lan_storage.md):
+1. Sign in at `https://www.plex.tv/claim` and copy the token. It works only about 4 minutes, so run steps 2 and 3 back to back, with no pause between them.
+2. Add it to `/opt/docker-stack/.env`, next to the Samba entries from [lan_storage.md](lan_storage.md). Paste the token at the prompt. It is not shown, and it never reaches the shell history:
 
-```text
-PLEX_CLAIM=<claim-token>
+```bash
+read -r -s -p 'Plex claim token: ' PLEX_CLAIM; echo
+```
+
+Write it:
+
+```bash
+printf 'PLEX_CLAIM=%s\n' "$PLEX_CLAIM" >> /opt/docker-stack/.env
+```
+
+Remove it from the shell:
+
+```bash
+unset PLEX_CLAIM
+```
+
+Check it without printing any value. This prints each name in the file and the length of its value, and `PLEX_CLAIM` must show a number above 0:
+
+```bash
+awk -F= '{print $1, length($2)}' /opt/docker-stack/.env
 ```
 
 3. Start Plex:
@@ -116,9 +134,19 @@ cd /opt/docker-stack && docker compose up -d plex
 4. Open `http://<docker-vm-ip>:32400/web` and sign in with the same account. The setup wizard names the server and offers to add a library.
 5. Remove the `PLEX_CLAIM` line from `.env`. The README says the claim is a first-run parameter that is ignored once the server is logged in, so leaving a used token behind only leaves clutter.
 
-If the token ran out before the first start, the server comes up unclaimed. Stop it, get a fresh token, put it in `.env`, and start it again.
+```bash
+sed -i '/^PLEX_CLAIM=/d' /opt/docker-stack/.env
+```
 
-Add a library in the wizard or later under Settings, then Manage, then Libraries. Point it at `/data` or a folder under it, for example `/data/films` and `/data/series`, which are `/mnt/data/files/media/films` and `/mnt/data/files/media/series` on the VM and `\\drive.internal\files\media\films` and `\\drive.internal\files\media\series` on the network drive. Paths in Plex are paths inside the container.
+Check it. `PLEX_CLAIM` must no longer be in the list:
+
+```bash
+awk -F= '{print $1, length($2)}' /opt/docker-stack/.env
+```
+
+If the token ran out before the first start, the server comes up unclaimed. Stop it, get a fresh token, remove the old line with the `sed` command from step 5, add the new token with the commands from step 2, and start it again.
+
+Add a library in the wizard or later under Settings, then Manage, then Libraries. Point it at `/data` or a folder under it, for example `/data/films` and `/data/series`, which are `/mnt/data/media/films` and `/mnt/data/media/series` on the VM and `\\files.internal\files\media\films` and `\\files.internal\files\media\series` on the network drive. Paths in Plex are paths inside the container.
 
 ---
 
@@ -209,7 +237,7 @@ docker inspect plex --format '{{.HostConfig.NanoCpus}}'
 
 ### When it misbehaves
 
-Plex will not start and the error mentions `/mnt/data/files/media`. Either the data disk is not mounted, see [lan_storage.md](lan_storage.md), or the `media` folder was deleted or renamed through the network drive or File Browser. If File Browser and Samba run and only Plex is stopped, it is the folder: put it back, or create it again with `mkdir /mnt/data/files/media`, then run `docker compose up -d plex`.
+Plex will not start and the error mentions `/mnt/data/media`. Either the data disk is not mounted, see [lan_storage.md](lan_storage.md), or the `media` folder was deleted or renamed through the network drive or File Browser. File Browser and Samba keep running in both cases, so run `findmnt /mnt/data`: no output means the disk is not mounted, and a line means it is the folder. Put the folder back, or create it again with `mkdir /mnt/data/media`, then run `docker compose up -d plex`.
 
 A TV app does not find the server. The TV and the VM must be on the same subnet, and Plex must run with `network_mode: host`. Check with `docker inspect plex --format '{{.HostConfig.NetworkMode}}'`, which must print `host`.
 
@@ -217,4 +245,4 @@ A film plays in one app and fails or buffers in another. That app cannot play th
 
 A film fails only with subtitles on. Picture subtitles need burning in, which is a video conversion. Use an `.srt` file instead.
 
-The library is empty although the files are on the disk. The library path in Plex was typed as `/mnt/data/files/media`. Inside the container the path is `/data`.
+The library is empty although the files are on the disk. The library path in Plex was typed as `/mnt/data/media`. Inside the container the path is `/data`.

@@ -121,7 +121,9 @@ url_host() {
 # one-byte ranged GET. The ranged GET runs whenever the HEAD did not prove the object is there, which
 # includes the HEAD hanging: a host that will not answer a HEAD is refusing HEAD whether it says so
 # with a 405 or by saying nothing, and this repository would rather spend one more request than call
-# a live location unproven. It also means a 404 is seen twice before this check fails a build on it.
+# a live location unproven. Only the ranged GET's 404 or 410 counts as gone: the PowerShell Gallery
+# answers HEAD with 404 for a package it serves, and its ranged GET then took 13 to 29 seconds on
+# 2026-10-22, so a HEAD 404 beside a GET that timed out read as a dead pin when it was a slow one.
 probe_once() {
     local url="$1" mode out code status effective saw_gone=0
     local notes=()
@@ -148,8 +150,12 @@ probe_once() {
                 return 0
                 ;;
             gone)
-                saw_gone=1
-                notes+=("${mode} answered HTTP ${code}")
+                if [[ "${mode}" == "HEAD" ]]; then
+                    notes+=("${mode} answered HTTP ${code}, which some vendors answer for an object they serve")
+                else
+                    saw_gone=1
+                    notes+=("${mode} answered HTTP ${code}")
+                fi
                 ;;
             *)
                 notes+=("${mode} answered HTTP ${code}, which says nothing about the object")
@@ -247,7 +253,7 @@ fi
 stale=()
 while read -r key _; do
     [[ -z "${key}" || "${key}" == \#* ]] && continue
-    printf '%s\n' "${entries[@]}" | grep -qE "^${key} " || stale+=("${key}")
+    grep -qE "^${key} " <<<"$(printf '%s\n' "${entries[@]}")" || stale+=("${key}")
 done < <(grep -vE '^\s*(#|$)' "${ALLOWED_FILE}" 2>/dev/null || true)
 
 if [[ ${#stale[@]} -eq 0 ]]; then

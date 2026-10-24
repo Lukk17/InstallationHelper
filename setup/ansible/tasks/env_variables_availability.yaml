@@ -1,6 +1,6 @@
 ---
 # env_variables_available: whether the project's own environment file, dev_env_file, which is
-# ~/.config/environment.d/50-dev.conf, carries the block env_variables writes. Every SDK sdk_manager
+# ~/.config/environment.d/990-dev.conf, carries the block env_variables writes. Every SDK sdk_manager
 # installs is put on PATH through that file, so without it they install where no shell can find them.
 #
 # Until 2026-10-10 a failure in env_variables re-raised in site.yaml and stopped every role after it.

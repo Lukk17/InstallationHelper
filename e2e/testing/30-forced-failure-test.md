@@ -18,7 +18,9 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
+This capability never runs on the owner's computer. Its scenario containers are privileged and share the kernel of the machine Docker runs on, and on the owner's computer they changed his kernel, entries 10.126 to 10.129 of [../../docs/regression_ledger.md](../../docs/regression_ledger.md). It runs only on a GitHub-hosted runner, dispatched with the command under Run, where the workflow runs the commands below for you. Anywhere else `e2e/run.sh --tier 3` and `e2e/tier3/container.sh` print `REFUSED` and exit 2 before any container starts, and there is no override. No other virtual machine qualifies, a local one, WSL 2 and Docker Desktop alike, by the owner's decision 79. The rule and how the machine is recognised are under "Tier 3 runs only on a GitHub-hosted runner" in [../README_E2E.md](../README_E2E.md).
+
+On the runner the scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so the runner needs a Docker daemon and nothing else.
 
 Confirm the Docker daemon is reachable.
 
@@ -26,7 +28,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Confirm there is disk headroom.
 
@@ -100,10 +102,14 @@ Then collect it, substituting the run directory the launch printed.
 ./e2e/tier3/container.sh --collect e2e/runs/<run-id>
 ```
 
-From a PowerShell prompt on Windows, the same run through WSL.
+The commands above and below are what a GitHub-hosted runner runs, and they exit 2 anywhere else, so dispatch the same scenario to GitHub-hosted runners. It runs stage 1 and that one stage 2 cell of [../../.github/workflows/e2e-matrix.yml](../../.github/workflows/e2e-matrix.yml), and stage 3 on macOS and Windows as well, because stage 3 always runs. The command is the same from a Unix shell and from PowerShell.
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian
+```
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/run.sh --tier 3 --scenario forced-failure --os debian"
+gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian
 ```
 
 `--os` defaults to arch, and this scenario is written to fail identically on all five distributions: the injected package name is offered to apt, dnf and pacman alike and none of them has ever carried it. Debian is the fastest image and therefore the sensible one for a first run, but a pass on one distribution is not evidence about the others, so the run record has to say which one it targeted.
@@ -113,6 +119,8 @@ wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && .
 ## Expected
 
 The single most important line is that `result.txt` reports a non-zero `playbook_rc` and a non-zero `verify_rc`. Both zeroes here would mean the harness cannot tell a failed run from a good one, which is a defect in the reporting path rather than in the scenario. The harness inverts its own verdicts for this scenario, driven by `e2e_expect_failure: true` in the scenario file, so a clean run is reported as a failed capability and says why in words.
+
+It also reports two `host_isolation:` lines. The first must read `host_isolation: 0 finding(s)`, which means every host state record was written, binfmt_misc was never mounted, no masked unit ran, systemd knew it was in a container, and the host kernel's swap areas matched the record taken at boot after every pass and at collection. This holds for every scenario, the forced-failure one included, and any finding fails the run. The second lists every kernel setting and loaded module that differs from the boot record, as information only by owner decision 86, and never fails the run: it is expected to name the distribution's own `sysctl.d` defaults and the modules its packages load. That is safe only because the scenario container is privileged and changes the kernel of the machine running it, its kernel settings, binfmt_misc table, device events and modules, which is why this capability runs only on a throwaway GitHub-hosted runner and never on the owner's computer. See "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Five assertions on every distribution, a sixth on Arch and CachyOS and a seventh everywhere else, made by [../tier3/container.sh](../tier3/container.sh) rather than by the verify play, because they are about the reporting path rather than about the state of the machine.
 
@@ -130,16 +138,17 @@ The verify log's own assertions, in the order the play runs them. Every containe
 2. `Assert every enabled native package is installed` fails, and this is the assertion that carries the capability. Its failure message names the applications the run did not install, which is the whole enabled native set rather than only the one synthetic name that broke the batch, because the rescue skips every remaining task in the software installer once one of them fails.
 3. `Assert every enabled URL-installed package resolved a download location` is not reached. A failed assertion ends the play, so everything below the previous item is never evaluated. That is honest rather than a gap: an assertion that never ran is reported by the harness as a run that stopped, not as a pass.
 4. `Assert every enabled flatpak application is installed` is not reached, for the same reason.
-5. `Assert tailscaled is enabled when Tailscale was requested` is not reached.
-6. `Assert the user is in the OpenRazer device group when OpenRazer was requested` is not reached.
-7. `Assert the user is in the docker group when Docker was requested` is not reached.
-8. `Assert docker.service is enabled when Docker was requested` is not reached.
-9. `Assert flatpak is installed and the Flathub remote is configured` is not reached.
-10. `Assert the temporary passwordless sudoers entry was removed` is not reached by the verify play, and the state it checks is still worth reading out of the report block above it, because the sudoers removal sits in an `always` section precisely so that a failed run cannot skip it. The report block prints before any assertion for exactly this reason.
-11. `Assert the expected desktop environment is installed` does not run at all, reached or otherwise. The scenario declares `e2e_expect_desktop: none`.
-12. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell` is not reached, for the same reason.
-13. `Assert the desktop session environment carries every development variable` is not reached, for the same reason.
-14. `Assert exactly the selected OpenCode version is installed` is not reached, for the same reason.
+5. `Assert every enabled snap application is installed` is not reached, for the same reason.
+6. `Assert tailscaled is enabled when Tailscale was requested` is not reached.
+7. `Assert the user is in the OpenRazer device group when OpenRazer was requested` is not reached.
+8. `Assert the user is in the docker group when Docker was requested` is not reached.
+9. `Assert docker.service is enabled when Docker was requested` is not reached.
+10. `Assert flatpak is installed and the Flathub remote is configured` is not reached.
+11. `Assert the temporary passwordless sudoers entry was removed` is not reached by the verify play, and the state it checks is still worth reading out of the report block above it, because the sudoers removal sits in an `always` section precisely so that a failed run cannot skip it. The report block prints before any assertion for exactly this reason.
+12. `Assert the expected desktop environment is installed` does not run at all, reached or otherwise. The scenario declares `e2e_expect_desktop: none`.
+13. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell` is not reached, for the same reason.
+14. `Assert the desktop session environment carries every development variable` is not reached, for the same reason.
+15. `Assert exactly the selected OpenCode version is installed` is not reached, for the same reason.
 
 What this capability deliberately does not assert mechanically. The rescue in `dynamic_install.yaml` lists every application in the failed batch, and the injected batch holds one synthetic name, so on this scenario that list is one line long and proves nothing about the real behaviour. Read the `[ERROR] Install step ... failed` line in the log and confirm it names the batch and says a batch is one call, then record that as a judgement in the Result summary rather than ticking an assertion box for it. Asserting the wording of a message is how a test starts failing on a rewording rather than on a defect.
 

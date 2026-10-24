@@ -18,9 +18,8 @@
 # databases @opencode/cli 2.0.29 and opencode-ai 1.19.1 created in node:24-slim on 2026-10-15.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
-delegate_to_wsl_when_no_ansible e2e/tier1/opencode_switch.sh
+require_cmd ansible-playbook
 
 TIER1_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -214,13 +213,13 @@ play_out="$(
         ansible-playbook -i localhost, "${work}/opencode_switch.yaml" -e "${extra}" 2>&1 || true
 )"
 if ! grep -q "IH_OC_DONE cases=${#cases[@]}" <<<"${play_out}"; then
-    fail "the switch play did not finish" "$(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | head -4 | tr '\n' ' ')"
+    fail "the switch play did not finish" "$(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | sed -n 1,4p | tr '\n' ' ')"
     finish "OpenCode version switch"
 fi
 
-decided() { grep -oE "IH_OC_DECIDED case=$1 .*" <<<"${play_out}" | head -1 | tr -s ' ' | sed -E 's/"?$//'; }
-passed() { grep -oE "IH_OC_PASS case=$1 pass=$2 removed=[A-Za-z]+ moves=[0-9]+" <<<"${play_out}" | head -1 | sed -E 's/.* removed=//'; }
-cli_passed() { grep -oE "IH_OC_PASS case=$1 pass=$2 .* cli_removed=[A-Za-z]+ cli_installed=[A-Za-z]+" <<<"${play_out}" | head -1 | sed -E 's/.* cli_removed=/removed=/; s/ cli_installed=/ installed=/'; }
+decided() { grep -oE "IH_OC_DECIDED case=$1 .*" <<<"${play_out}" | sed -n 1p | tr -s ' ' | sed -E 's/"?$//'; }
+passed() { grep -oE "IH_OC_PASS case=$1 pass=$2 removed=[A-Za-z]+ moves=[0-9]+" <<<"${play_out}" | sed -n 1p | sed -E 's/.* removed=//'; }
+cli_passed() { grep -oE "IH_OC_PASS case=$1 pass=$2 .* cli_removed=[A-Za-z]+ cli_installed=[A-Za-z]+" <<<"${play_out}" | sed -n 1p | sed -E 's/.* cli_removed=/removed=/; s/ cli_installed=/ installed=/'; }
 
 expect_decision() {
     local name="$1" want="$2" got
@@ -294,13 +293,13 @@ if grep -q '\[INFO\] removed OpenCode v1 desktop because v2 is selected' <<<"${p
     && grep -q '\[INFO\] removed OpenCode v2 desktop because v1 is selected' <<<"${play_out}"; then
     pass "a removal is logged as [INFO] removed OpenCode <version> desktop because <version> is selected"
 else
-    fail "a desktop removal is not logged with the [INFO] line" "$(grep -o '\[INFO\] removed[^"]*' <<<"${play_out}" | head -2 | tr '\n' ' ')"
+    fail "a desktop removal is not logged with the [INFO] line" "$(grep -o '\[INFO\] removed[^"]*' <<<"${play_out}" | sed -n 1,2p | tr '\n' ' ')"
 fi
 if grep -q '"msg": "\[INFO\] removed OpenCode v2 command line tool, @opencode/cli, because v1 is selected"' <<<"${play_out}" \
     && grep -q '"msg": "\[INFO\] removed OpenCode v1 command line tool, opencode-ai, because v2 is selected"' <<<"${play_out}"; then
     pass "a command line tool removal is logged as [INFO] removed OpenCode <version> command line tool, <package>, because <version> is selected"
 else
-    fail "a command line tool removal is not logged with the [INFO] line" "$(grep -o '\[INFO\] removed OpenCode v[12] command[^"]*' <<<"${play_out}" | head -2 | tr '\n' ' ')"
+    fail "a command line tool removal is not logged with the [INFO] line" "$(grep -o '\[INFO\] removed OpenCode v[12] command[^"]*' <<<"${play_out}" | sed -n 1,2p | tr '\n' ' ')"
 fi
 moves_logged="$(grep -oE '"msg": "\[INFO\] moved [^"]*' <<<"${play_out}" | grep -c . || true)"
 assert_eq "every data folder move is named by its own [INFO] line, four moves across the cases" "4" "${moves_logged}"

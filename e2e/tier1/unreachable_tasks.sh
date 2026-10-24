@@ -112,10 +112,8 @@ if drifted:
     raise SystemExit(0)
 
 # The image list comes from the Dockerfiles rather than a list written here, so an image added
-# tomorrow is covered without anybody remembering this file. queue is the driver container and runs no
-# scenario.
-images = sorted(p.name[:-len('.Dockerfile')] for p in TIER3.glob('*.Dockerfile')
-                if p.name != 'queue.Dockerfile')
+# tomorrow is covered without anybody remembering this file.
+images = sorted(p.name[:-len('.Dockerfile')] for p in TIER3.glob('*.Dockerfile'))
 
 shared = TIER3 / 'container_limits.yaml'
 if not images or not shared.is_file():

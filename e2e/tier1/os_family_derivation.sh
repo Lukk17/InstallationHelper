@@ -26,11 +26,8 @@
 # is the wizard toggle parse desync in docs/regression_ledger.md.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
-# Git Bash has no ansible-playbook, so this check re-runs itself inside WSL from there. The whole
-# check moves, not just its second half, which costs nothing because the first half is grep.
-delegate_to_wsl_when_no_ansible e2e/tier1/os_family_derivation.sh
+require_cmd ansible-playbook
 
 TIER1_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ALLOWLIST="${TIER1_DIR}/os_family_reads_allowed.txt"
@@ -77,9 +74,9 @@ fi
 # a derivative's overrides over it, so the order asked about is that import against the derivation.
 # The second assertion keeps it the only loader: a task that read vars/{{ ih_family }}.yaml itself would
 # hand its play the family's dictionary without the derivative's entries, and the playbook and the
-# verification would then disagree about what CachyOS installs, AGENTS.md defect class 2.
-import_line="$(grep -n 'import_tasks: tasks/derive_os_facts.yaml' "${SITE}" | head -1 | cut -d: -f1 || true)"
-vars_line="$(grep -n 'import_tasks: tasks/load_os_dict.yaml' "${SITE}" | head -1 | cut -d: -f1 || true)"
+# verification would then disagree about what CachyOS installs, docs/regression_ledger.md defect class 2.
+import_line="$(grep -n 'import_tasks: tasks/derive_os_facts.yaml' "${SITE}" | sed -n 1p | cut -d: -f1 || true)"
+vars_line="$(grep -n 'import_tasks: tasks/load_os_dict.yaml' "${SITE}" | sed -n 1p | cut -d: -f1 || true)"
 if [[ -n "${import_line}" && -n "${vars_line}" && "${import_line}" -lt "${vars_line}" ]] \
     && grep -q 'vars/{{ ih_family }}.yaml' "${DICTIONARY_LOADER}" 2>/dev/null; then
     pass "site.yaml derives the family (line ${import_line}) before loading vars/{{ ih_family }}.yaml through tasks/load_os_dict.yaml (line ${vars_line})"
@@ -189,7 +186,7 @@ play_out="$(
 summary="$(grep -oE 'IH_DERIVATION_ASSERTED cases=[0-9]+ live_family=[A-Za-z]+ live_base=[^"]*' <<<"${play_out}" | tail -1 || true)"
 
 if [[ -z "${summary}" ]]; then
-    fail "the fixture play did not finish" "$(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | head -4 | tr '\n' ' ')"
+    fail "the fixture play did not finish" "$(grep -E 'fatal:|FAILED!|failed=[1-9]|ERROR' <<<"${play_out}" | sed -n 1,4p | tr '\n' ' ')"
 else
     asserted="$(sed -E 's/.*cases=([0-9]+).*/\1/' <<<"${summary}")"
     live_family="$(sed -E 's/.*live_family=([A-Za-z]+).*/\1/' <<<"${summary}")"
@@ -198,7 +195,7 @@ else
     assert_eq "the play asserted one case per fixture" "${#fixtures[@]}" "${asserted}"
 
     if grep -qE 'failed=[1-9]|fatal: .*ignoring' <<<"${play_out}"; then
-        fail "the fixture play reported a failure" "$(grep -E 'fatal:|assertion|failed=' <<<"${play_out}" | head -4 | tr '\n' ' ')"
+        fail "the fixture play reported a failure" "$(grep -E 'fatal:|assertion|failed=' <<<"${play_out}" | sed -n 1,4p | tr '\n' ' ')"
     else
         pass "every fixture derives the expected ih_family and ih_base, and openSUSE is rejected"
     fi

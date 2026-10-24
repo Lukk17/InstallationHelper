@@ -152,7 +152,7 @@ A `remove_systemd_boot.yaml` alongside it, gated on `remove_distro_systemd_boot 
 
 The `skip` at the bottom of [e2e/tier1/toggle_coverage.sh](../../../e2e/tier1/toggle_coverage.sh) reports the three unconsumed toggles and names this change directory. Each task removes one name from the list simply by making the toggle consumed, because the check reads the tree rather than a list. The last of the three to be finished turns the `skip` into a `fail`, which is a two-line edit and is stated in the comment above it: "Turn this skip into a fail once they are resolved: that is the whole change."
 
-Before trusting that flip, prove the failing direction against a copy of the tree carrying the defect, which is what [AGENTS.md](../../../AGENTS.md) requires of any change to a check. The method is recorded in the ledger entry for this check: copy the tree under `E2E_REPO_ROOT`, append one line such as `setup_nonexistent_thing: true` to `group_vars/linux.yaml`, and confirm the check names it.
+Before trusting that flip, prove the failing direction against a copy of the tree carrying the defect, which is what [e2e/AGENTS.md](../../../e2e/AGENTS.md) requires of any change to a check. The method is recorded in the ledger entry for this check: copy the tree under `E2E_REPO_ROOT`, append one line such as `setup_nonexistent_thing: true` to `group_vars/linux.yaml`, and confirm the check names it.
 
 ## Risks / Trade-offs
 

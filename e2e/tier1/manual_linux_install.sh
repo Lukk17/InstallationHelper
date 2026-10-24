@@ -17,7 +17,11 @@
 # managers the manual route can run count: pacman, aur, apt, apt_url, dnf, dnf_url, flatpak and snap.
 # An apt_url or dnf_url mapping is compared by the download location the playbook resolves for it,
 # the mapping's url field, else the <key>_rpm_url pin for dnf_url, else the <key>_url pin, rendered by
-# the pinned values port, because that location is what the manual route has to fetch.
+# the pinned values port, because that location is what the manual route has to fetch. The family's
+# companion_packages entries beside a mapping count as well, each package under its toggle, because the
+# playbook installs them under that toggle beside the mapping. An entry for a toggle with no mapping,
+# install_docker's engine or install_snapper's snapper, is no dictionary name to the manual route, so a
+# script that installs one says why in manual_linux_install_allowed.txt like any other name.
 #
 # Asserted for each family:
 #   1. the script installs, or for the AUR lists with its yay command, every mapping whose toggle is
@@ -25,7 +29,9 @@
 #   2. the script installs nothing else, apart from a documented difference;
 #   3. the guide carries an install command for every mapping on by default;
 #   4. no install command in the guide names a package the dictionaries do not map, on or off, apart
-#      from a documented difference.
+#      from a documented difference;
+#   5. the script and the guide enable and start docker.service, as virtualization_config does;
+#   6. every usermod and systemctl line in the script reports a skip rather than ending it.
 # A documented difference is a line in manual_linux_install_allowed.txt naming the file of the
 # playbook that installs the same package outside the dictionary, and that file must still name it,
 # or naming no file, written -, for a prerequisite only the manual route needs, which the reason has
@@ -92,7 +98,7 @@ family_mapping_lines() {
 # family_of_derivative <id>  ->  Archlinux, Debian or RedHat from the fixture's ID_LIKE, or nothing
 family_of_derivative() {
     local fixture like
-    fixture="$(grep -lE "^ID=\"?$1\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | head -1 || true)"
+    fixture="$(grep -lE "^ID=\"?$1\"?$" "${FIXTURE_DIR}"/* 2>/dev/null | sed -n 1p || true)"
     [[ -n "${fixture}" ]] || return 0
     like=" $(sed -nE 's/^ID_LIKE="?([^"]*)"?$/\1/p' "${fixture}") "
     case "${like}" in
@@ -329,6 +335,12 @@ for family in "${FAMILIES[@]}"; do
         done
         unset merged
     done
+    while read -r c_key c_name; do
+        [[ -n "${c_name}" ]] || continue
+        [[ -v "family_line[${c_key}]" ]] || continue
+        mapped["${c_name}"]=1
+        if [[ "${default_on[${c_key}]:-false}" == "true" ]]; then expected["${c_name}"]=1; fi
+    done < <(companion_packages_of "${VARS_DIR}/${family}.yaml")
     if [[ ${#unresolved[@]} -gt 0 ]]; then
         fail "${family}: mappings whose download location resolves to nothing, so the manual route cannot fetch them" \
              "$(printf '%s\n' "${unresolved[@]}" | sort -u | tr '\n' ' ')"
@@ -401,6 +413,48 @@ for family in "${FAMILIES[@]}"; do
     fi
 
     unset family_line expected mapped script_has guide_has
+done
+
+# --- the services and groups the playbook sets up after installing ----------------------------------
+# virtualization_config enables and starts docker.service after installing Docker, and every script
+# and guide installed Docker without ever starting it, so `docker run` failed with "Cannot connect
+# to the Docker daemon" on Fedora and Arch, whose packages do not start it themselves.
+#
+# The scripts run under set -e, so a usermod or systemctl that fails because its package did not
+# install ends the script there, before the list of packages that did not install, which is the one
+# thing the script promises to print. debian-ubuntu/install.sh had `sudo usermod -aG plugdev` with no
+# guard while fedora/install.sh had one. Every such line carries the `|| printf '   Skipped: ...'`
+# the docker group line already had.
+for family in "${FAMILIES[@]}"; do
+    script="${SCRIPT_OF[${family}]}"
+    guide="${GUIDE_OF[${family}]}"
+    script_rel="${script#"${REPO_ROOT}"/}"
+    guide_rel="${guide#"${REPO_ROOT}"/}"
+
+    if grep -qE "^[[:space:]]*sudo systemctl enable --now docker(\.service)?[[:space:]]+\|\|[[:space:]]+printf '   Skipped: " <<<"$(tr -d '\r' <"${script}")"; then
+        pass "${family}: ${script_rel} enables and starts docker.service, and says so when Docker did not install"
+    else
+        fail "${family}: ${script_rel} installs Docker and never enables and starts docker.service, guarded like the docker group line" \
+             "expected a line: sudo systemctl enable --now docker || printf '   Skipped: ...'"
+    fi
+    if grep -qE '^[[:space:]]*sudo systemctl enable --now docker(\.service)?[[:space:]]*$' <<<"$(tr -d '\r' <"${guide}")"; then
+        pass "${family}: ${guide_rel} tells the reader to enable and start docker.service"
+    else
+        fail "${family}: ${guide_rel} installs Docker and never tells the reader to enable and start docker.service" \
+             "expected a code block holding: sudo systemctl enable --now docker"
+    fi
+
+    unguarded="$(tr -d '\r' <"${script}" | grep -nE '^[[:space:]]*(sudo[[:space:]]+)?(usermod|systemctl)[[:space:]]' \
+        | grep -vE "\|\|[[:space:]]+printf '   Skipped: " || true)"
+    service_lines="$(tr -d '\r' <"${script}" | grep -cE '^[[:space:]]*(sudo[[:space:]]+)?(usermod|systemctl)[[:space:]]' || true)"
+    if [[ "${service_lines}" -eq 0 ]]; then
+        fail "${family}: no usermod or systemctl line could be read out of ${script_rel}, so this proves nothing" "${script}"
+    elif [[ -z "${unguarded}" ]]; then
+        pass "${family}: all ${service_lines} usermod and systemctl lines in ${script_rel} report a skip instead of ending the script under set -e"
+    else
+        fail "${family}: ${script_rel} has usermod or systemctl lines that end the script under set -e when their package did not install" \
+             "$(tr '\n' ' ' <<<"${unguarded}")"
+    fi
 done
 
 unused=()

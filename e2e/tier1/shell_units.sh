@@ -534,7 +534,7 @@ while IFS=$'\t' read -r lineage_fixture lineage_expected; do
     [[ "${lineage_actual}" == "${lineage_expected}" ]] \
         || lineage_failures+=("${lineage_fixture}: expected ${lineage_expected}, got ${lineage_actual}")
 done < <(sed -nE 's/.*fixture:[[:space:]]*([a-z0-9._-]+),.*family:[[:space:]]*Debian,[[:space:]]*base:[[:space:]]*([a-z]+).*/\1\t\2/p' "${lineage_play}")
-assert_eq "debian_lineage is driven over every Debian-family fixture in the play" "6" "${lineage_cases}"
+assert_eq "debian_lineage is driven over every Debian-family fixture in the play" "9" "${lineage_cases}"
 if [[ ${#lineage_failures[@]} -eq 0 ]]; then
     pass "debian_lineage gives the same lineage as the playbook's ih_base for all ${lineage_cases} Debian-family fixtures"
 else

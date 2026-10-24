@@ -18,7 +18,7 @@
 #                                 verification and set false by the env_variables rescue in site.yaml.
 #                                 Until then that rescue re-raised and stopped every role after it.
 #
-# A convention is exactly what the next change forgets, and AGENTS.md defect class 2 is the cost of a
+# A convention is exactly what the next change forgets, and docs/regression_ledger.md defect class 2 is the cost of a
 # second place deciding the same thing. So this asserts:
 #
 #   1. each fact is set only by its decider and the one rescue named above, and its decider is

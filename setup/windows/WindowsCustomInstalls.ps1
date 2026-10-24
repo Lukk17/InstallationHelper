@@ -27,8 +27,9 @@
     Every step that downloads something runs under Invoke-InstallStepWithRetry, the retry rule
     every package manager follows. A step that only works on what is already on disk does not.
 
-    Depends on Get-WingetPath, Install-WingetPackage, Install-ChocolateyPackageBatch and
-    Invoke-InstallStepWithRetry from WindowsSoftware.ps1, which setup.ps1 dot-sources first.
+    Depends on Get-WingetPath, Install-WingetPackage, Install-ChocolateyPackageBatch,
+    Invoke-InstallStepWithRetry and Wait-BoundedProcess from WindowsSoftware.ps1, which setup.ps1
+    dot-sources first.
 #>
 
 Set-StrictMode -Version Latest
@@ -404,7 +405,7 @@ function Invoke-ManagedTool {
     try {
         $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -NoNewWindow -PassThru `
             -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-        if (-not $p.WaitForExit($TimeoutMinutes * 60 * 1000)) {
+        if (-not (Wait-BoundedProcess -Process $p -TimeoutMilliseconds ($TimeoutMinutes * 60 * 1000))) {
             try { $p.Kill($true) } catch { Write-Verbose "could not kill $($p.Id): $($_.Exception.Message)" }
             return [PSCustomObject]@{ Key = $Key; Package = $label; Status = 'failed'; Final = $true
                                       Detail = "still running after $TimeoutMinutes minutes and was killed, so it is NOT installed. Run it by hand to see what it was waiting for." }
@@ -1024,11 +1025,30 @@ function Install-AndroidSdk {
         "platforms;android-$($Versions['android_api_level'])",
         "build-tools;$($Versions['android_build_tools_version'])",
         'platform-tools')
-    $results.Add((Invoke-InstallStepWithRetry -Package "sdkmanager $($sdkPackages -join ' ')" -Step {
-        Invoke-AndroidSdkManager -Arguments $sdkPackages -Environment $sdkEnv -TimeoutMinutes 30
-    }))
+    foreach ($row in @(Install-AndroidSdkPackageSet -Packages $sdkPackages -Environment $sdkEnv)) {
+        $results.Add($row)
+    }
 
     return $results
+}
+
+function Install-AndroidSdkPackageSet {
+    <#
+    .SYNOPSIS
+        Installs each SDK package on its own sdkmanager call, each under the shared retry rule, and
+        returns one row per package.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string[]] $Packages,
+        [hashtable] $Environment = @{}
+    )
+
+    foreach ($sdkPackage in $Packages) {
+        Invoke-InstallStepWithRetry -Package "sdkmanager $sdkPackage" -Step {
+            Invoke-AndroidSdkManager -Arguments @($sdkPackage) -Environment $Environment -TimeoutMinutes 30
+        }
+    }
 }
 
 function Invoke-AndroidSdkManager {
@@ -1077,7 +1097,7 @@ function Invoke-AndroidSdkManager {
         }
         $p = Start-Process -FilePath $sdkmanager -ArgumentList $Arguments -NoNewWindow -PassThru `
             -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-        if (-not $p.WaitForExit($TimeoutMinutes * 60 * 1000)) {
+        if (-not (Wait-BoundedProcess -Process $p -TimeoutMilliseconds ($TimeoutMinutes * 60 * 1000))) {
             try { $p.Kill($true) } catch { Write-Verbose "could not kill $($p.Id): $($_.Exception.Message)" }
             return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'failed'; Final = $true
                                       Detail = "still running after $TimeoutMinutes minutes and was killed, so the SDK is NOT complete." }
@@ -1289,7 +1309,7 @@ function Remove-OpenCodeDesktop {
         return 'winget uninstall ran out of time'
     }
     if (Test-OpenCodeDesktopVersion -Path $ProofPath -Version $Version) {
-        $tail = (($run.Output -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
+        $tail = Get-CommandOutputTail -Text $run.Output
         return "winget uninstall exited $($run.ExitCode) and OpenCode $Version is still at $ProofPath. $tail"
     }
     return ''

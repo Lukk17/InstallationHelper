@@ -162,8 +162,8 @@ The log itself lives on the Docker VM as JSON lines, one object per line, at
 `/opt/docker-stack/adguard/work/data/querylog.json`. That is the AdGuard work directory bind mount from
 [compose.yaml](compose.yaml), `/opt/docker-stack/adguard/work` on the host mapped to `/opt/adguardhome/work` inside
 the container, with `querylog.json` the file AdGuard Home writes inside that directory's `data` subfolder. AdGuard
-rotates that file to `querylog.json.1` once it grows past its limit, so a search for anything older than the
-newest entries has to read both. Grep both directly when the web interface itself will not load:
+rotates that file to `querylog.json.1` once its oldest entry is older than the rotation interval, as the next
+section explains, so a search for anything older than the newest entries has to read both. Grep both directly when the web interface itself will not load:
 
 ```bash
 grep google.com /opt/docker-stack/adguard/work/data/querylog.json /opt/docker-stack/adguard/work/data/querylog.json.1
@@ -174,13 +174,52 @@ it flushes them to the file.
 
 ---
 
+### Keep 30 days of query log
+
+AdGuard Home rotates its query log by age, not by size. When it starts, and then once an hour, it reads the time of the oldest entry in `querylog.json`, and when that entry is older than the rotation interval it renames `querylog.json` to `querylog.json.1`, replacing the older `querylog.json.1`. So the two files hold between one and two intervals of queries. The default interval is 90 days, and on 2026-10-23 the two files held 4.0 GB on this lab, `querylog.json.1` 2.8 GB and `querylog.json` 1.2 GB.
+
+A shorter interval deletes old queries at the next check, when AdGuard starts or within the hour, and nothing brings them back. If the oldest entry in `querylog.json` is older than the new interval at that check, `querylog.json` becomes `querylog.json.1` and the old `querylog.json.1` is deleted with every query in it. On this lab on 2026-10-23, going from 90 days to 30 days and starting the container did exactly that: the oldest entry in `querylog.json` was from 2026-09-13, so `querylog.json.1`, 2.9G in `du -h`, was replaced at once, every query before 2026-09-13 was gone, and the free disk in `df -h` went from 110G to 113G.
+
+If the query history matters, copy both files out before you lower the interval. On the Docker VM, into your home folder, which needs as much free space as the two files take:
+
+```bash
+sudo cp --preserve=timestamps /opt/docker-stack/adguard/work/data/querylog.json* ~/
+```
+
+Set both the query log and the statistics to 30 days:
+
+1. Go to Settings, then General settings.
+2. On the Logs configuration card, set Query logs rotation to 30 days and press Save. AdGuard asks "Are you sure
+   you want to change query log rotation? If you decrease the interval value, some data will be lost". Confirm.
+3. On the Statistics configuration card, set Statistics retention to 30 days and press Save. AdGuard's default
+   is 24 hours, so 30 days keeps a month of the charts on the dashboard.
+
+AdGuard writes both values into `AdGuardHome.yaml`, which on the Docker VM is
+`/opt/docker-stack/adguard/conf/AdGuardHome.yaml`, under the key `interval` of the `querylog` block and of the
+`statistics` block. The version this lab runs writes 30 days as `30d`, and it also reads hours, `720h`:
+
+```yaml
+querylog:
+  interval: 30d
+statistics:
+  interval: 30d
+```
+
+This lab runs both at 30 days. The statistics were at 1 day, AdGuard's default, until step 3 was followed on 2026-10-23 at 18:44 UTC, and `statistics` now holds `interval: 30d`. At 1 day `stats.db` measured 256 KiB, so 30 days needs about 8 MiB, which is an estimate from that number and not a measurement.
+
+Use the web page rather than editing the file. AdGuard Home rewrites `AdGuardHome.yaml` itself, so a change made
+while the container runs can be overwritten, and a change made while it is stopped only takes effect at the next
+start.
+
+Clear query logs on the same Logs configuration card deletes both files and everything AdGuard holds in memory at once, so the log starts empty.
+
+Checked on 2026-10-23 in the AdGuard Home source at v0.107.78, the version [compose.yaml](compose.yaml) runs: the rotation in `internal/querylog/querylogfile.go`, where `periodicRotate` checks once when it starts and then every hour, the keys and the 90 day and 1 day defaults in `internal/home/config.go`, the field names and the 6 hour to 90 day choices in `client/src/__locales/en.json` and `client/src/helpers/constants.ts`, the clearing of both files in `internal/querylog/qlog.go`, and the `30d` form in `timeutil/duration.go` of the golibs v0.35.14 library it builds with.
+
+---
+
 ### Keep the network watch domain out of the query log and statistics
 
-The Telegraf network watcher described in [network_watch.md](network_watch.md) asks AdGuard Home for
-`connectivitycheck.gstatic.com` once a second, 86,400 times a day. The AdGuard Home DNS monitor in
-[uptime_kuma.md](uptime_kuma.md#network-monitors) asks the same name every 2 seconds, adding roughly 43,200 more
-lookups a day. Left alone, those two together would drown out every other query in both the query log above and
-the statistics page.
+The Telegraf network watcher described in [network_watch.md](network_watch.md) asks AdGuard Home for `connectivitycheck.gstatic.com` once a second, 86,400 times a day. The AdGuard Home DNS monitor in [uptime_kuma.md](uptime_kuma.md#network-monitors) asks the same name every 30 seconds, adding 2,880 more lookups a day. Left alone, those would drown out every other query in both the query log above and the statistics page.
 
 Go to Settings, then General settings. Add `connectivitycheck.gstatic.com` to Ignored domains on the Logs
 configuration card, then add the same domain to Ignored domains again on the Statistics configuration card. They

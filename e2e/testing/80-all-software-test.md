@@ -18,7 +18,9 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
+This capability never runs on the owner's computer. Its scenario containers are privileged and share the kernel of the machine Docker runs on, and on the owner's computer they changed his kernel, entries 10.126 to 10.129 of [../../docs/regression_ledger.md](../../docs/regression_ledger.md). It runs only on a GitHub-hosted runner, dispatched with the command under Run, where the workflow runs the commands below for you. Anywhere else `e2e/run.sh --tier 3` and `e2e/tier3/container.sh` print `REFUSED` and exit 2 before any container starts, and there is no override. No other virtual machine qualifies, a local one, WSL 2 and Docker Desktop alike, by the owner's decision 79. The rule and how the machine is recognised are under "Tier 3 runs only on a GitHub-hosted runner" in [../README_E2E.md](../README_E2E.md).
+
+On the runner the scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so the runner needs a Docker daemon and nothing else.
 
 Confirm the Docker daemon is reachable.
 
@@ -26,7 +28,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Confirm there is serious disk headroom. This scenario installs everything the playbook can install on Arch, including two desktop environments, every IDE and every SDK.
 
@@ -96,10 +98,14 @@ Step 1. Launch and return. The command prints the run directory, the container n
 ./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach
 ```
 
-From a PowerShell prompt on Windows, the same launch through WSL.
+The commands above and below are what a GitHub-hosted runner runs, and they exit 2 anywhere else, so dispatch the same scenario to GitHub-hosted runners. It runs stage 1 and that one stage 2 cell of [../../.github/workflows/e2e-matrix.yml](../../.github/workflows/e2e-matrix.yml), and stage 3 on macOS and Windows as well, because stage 3 always runs. The command is the same from a Unix shell and from PowerShell.
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=all-software -f distro=arch
+```
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/02-all-software.yaml --detach"
+gh workflow run e2e-matrix.yml -f scenario=all-software -f distro=arch
 ```
 
 Follow it from any shell, as often as you like, using the container name the launch printed.
@@ -122,6 +128,8 @@ Every command above targets Arch, which is what `--os` defaults to. The same sce
 
 `result.txt` in the run directory reports `playbook_rc: 0` and `verify_rc: 0`.
 
+It also reports two `host_isolation:` lines. The first must read `host_isolation: 0 finding(s)`, which means every host state record was written, binfmt_misc was never mounted, no masked unit ran, systemd knew it was in a container, and the host kernel's swap areas matched the record taken at boot after every pass and at collection. This holds for every scenario, the forced-failure one included, and any finding fails the run. The second lists every kernel setting and loaded module that differs from the boot record, as information only by owner decision 86, and never fails the run: it is expected to name the distribution's own `sysctl.d` defaults and the modules its packages load. That is safe only because the scenario container is privileged and changes the kernel of the machine running it, its kernel settings, binfmt_misc table, device events and modules, which is why this capability runs only on a throwaway GitHub-hosted runner and never on the owner's computer. See "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
+
 The verify log carries these assertions, each on its own PASS or FAIL line. Every container scenario runs the same [../tier3/verify.yaml](../tier3/verify.yaml), so the list is the same for all of them and only the expected sets differ. Each item names its verify task verbatim, so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete rather than leaving it to be noticed.
 
 Before any of them, `Assert the installed-package query returned a plausible list` checks the input to the comparison rather than the comparison itself. It fails when the query behind the native package assertion returns fewer than fifty entries, which no working Linux installation does. It exists because a format string whose newline was being discarded made that query return one concatenated blob, so every expected package was reported missing and read exactly like a playbook that had installed nothing.
@@ -129,18 +137,19 @@ Before any of them, `Assert the installed-package query returned a plausible lis
 1. `Assert every enabled native package is installed`, checked against `pacman -Qq`. The expected set is every entry in [../../setup/ansible/vars/Archlinux.yaml](../../setup/ansible/vars/Archlinux.yaml) mapped to `pacman` or `aur` whose toggle exists in the group_vars files, minus the container limits and minus the exclusion below. This is the largest expected set any scenario produces, and the tally line states how many were expected and how many are missing.
 2. `Assert every enabled URL-installed package resolved a download location`. Some packages install from a vendor URL rather than a repository, and both dispatch tasks skip silently when that URL renders empty, so this fails the run instead of letting it look clean. The candidate set is empty on Arch, because `vars/Archlinux.yaml` maps nothing to `apt_url` or `dnf_url`. On the Debian and Ubuntu images it is the enabled subset of the five `apt_url` mappings, and on Fedora the enabled subset of the four `dnf_url` mappings, so an Arch run does not prove this one and the assertion says so by reporting how many candidates it examined.
 3. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`, again the full mapped set.
-4. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
-5. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
-6. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
-7. `Assert docker.service is enabled when Docker was requested`.
-8. `Assert flatpak is installed and the Flathub remote is configured`.
-9. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
+4. `Assert every enabled snap application is installed`, checked against `snap list --color=never --unicode=never`, which is asked only when a snap mapping is expected, again the full mapped set.
+5. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
+6. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
+7. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
+8. `Assert docker.service is enabled when Docker was requested`.
+9. `Assert flatpak is installed and the Flathub remote is configured`.
+10. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
 
 `Assert the expected desktop environment is installed` does not run. The scenario declares `e2e_expect_desktop: none`, and since 2026-08-29 that is what the run actually produces. See the paragraph below.
 
-10. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Every `install_` toggle is forced true here, so this is the largest set the assertion is ever asked to check: node, npm, nvm, pyenv, all four pinned Python builds, sdk, java, all four pinned Java majors, fvm, flutter, dart, sdkmanager, adb and the six npm-installed AI CLIs, each proven on disk and by name, at that same path, from an interactive non-login shell of `{{ non_root_user }}`'s real login shell. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60, and the scenario where a shell-wiring gap would cost the most, since nothing here is off to hide behind.
-11. `Assert the desktop session environment carries every development variable`. Linux only. Every SDK toggle is forced true here, so it asks for the full set: the variables and PATH entries env_variables writes into `~/.config/environment.d/50-dev.conf` plus NVM_DIR, SDKMAN_DIR, JAVA_HOME and PYENV_ROOT and the JetBrains Toolbox launcher directory, `~/.local/share/JetBrains/Toolbox/scripts`, read through the systemd user environment generator exactly as the user manager reads them at the next login.
-12. `Assert exactly the selected OpenCode version is installed`. `opencode_use_v1` is the one checklist toggle this scenario writes false rather than true, because `setup.sh --software all` leaves it off, by the owner's decision of 2026-10-15, and [../tier3/container.sh](../tier3/container.sh) reads that list, `ALL_SOFTWARE_KEEPS_OFF`, out of `setup.sh`. So version 2 is selected here, as in every other scenario, and no container scenario selects version 1. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. Both toggles are on here, so both probes run. A probe that could not run fails. Version 1 is covered by the manual row in [../manual_test_matrix.md](../manual_test_matrix.md).
+11. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Every `install_` toggle is forced true here, so this is the largest set the assertion is ever asked to check: node, npm, nvm, pyenv, all four pinned Python builds, sdk, java, all four pinned Java majors, fvm, flutter, dart, sdkmanager, adb and the six npm-installed AI CLIs, each proven on disk and by name, at that same path, from an interactive non-login shell of `{{ non_root_user }}`'s real login shell. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60, and the scenario where a shell-wiring gap would cost the most, since nothing here is off to hide behind.
+12. `Assert the desktop session environment carries every development variable`. Linux only. Every SDK toggle is forced true here, so it asks for the full set: the variables and PATH entries env_variables writes into `~/.config/environment.d/50-dev.conf` plus NVM_DIR, SDKMAN_DIR, JAVA_HOME and PYENV_ROOT and the JetBrains Toolbox launcher directory, `~/.local/share/JetBrains/Toolbox/scripts`, read through the systemd user environment generator exactly as the user manager reads them at the next login.
+13. `Assert exactly the selected OpenCode version is installed`. `opencode_use_v1` is the one checklist toggle this scenario writes false rather than true, because `setup.sh --software all` leaves it off, by the owner's decision of 2026-10-15, and [../tier3/container.sh](../tier3/container.sh) reads that list, `ALL_SOFTWARE_KEEPS_OFF`, out of `setup.sh`. So version 2 is selected here, as in every other scenario, and no container scenario selects version 1. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. Both toggles are on here, so both probes run. A probe that could not run fails. Version 1 is covered by the manual row in [../manual_test_matrix.md](../manual_test_matrix.md).
 
 What the generated set is, and what it stopped being. The set is the wizard's checklist, resolved by `wizard_toggle_keys` in [../lib/common.sh](../lib/common.sh), which evaluates the functions `setup.sh` ships. Until 2026-08-29 the harness swept `^install_` out of `group_vars/all.yaml` and `group_vars/linux.yaml` for itself, which is the same rule implemented twice, and the two answers differed in both directions. The visible half was here: `install_kde_plasma` and `install_gnome` matched the sweep's pattern, so this scenario installed both desktop environments into one container while declaring `e2e_expect_desktop: none`, a machine no wizard run can produce, and it was the largest single reason this run was the longest. The wizard drops those two keys because the desktop environment has a screen of its own where exactly one is chosen, so they are no longer generated, and this scenario now installs no desktop at all unless a scenario names one, which capabilities 70 and 40 are the place that happens. The quieter half went the other way: the sweep could not see `set_custom_wallpaper`, `setup_tmpfs`, `setup_zsh` and `toggle_wayland_nvidia`, whose names do not begin with `install_`, so they were never part of a generated set. They are now generated true here. Three of them were already true in `group_vars` and therefore already ran in every scenario, since nothing in the harness ever wrote them. `toggle_wayland_nvidia` is the only one whose value this changes, and nothing in the playbook consumes it, so enabling it does nothing until something does. The `configure_` counterparts of the desktop keys are checklist keys the wizard drops as well, so nothing configures either desktop here either.
 
@@ -153,7 +162,7 @@ Known container limitations. [../tier3/container_limits.yaml](../tier3/container
 
 Two documented consequences that must not be read as regressions. Kernel modules never build, because `/usr/lib/modules` belongs to the host, so anything using DKMS reports missing headers, which with everything enabled means every DKMS package in the set, not only OpenRazer. Second, there is no login session, so tasks that need a live user D-Bus take their documented fallback path.
 
-One upstream failure mode worth recognising on this scenario specifically. [AGENTS.md](../../AGENTS.md) documents an ansible-core 2.19 and 2.20 race that raises `Module result deserialization failed: No start of json char found`, triggered most often on modules running longer than five to seven minutes. This is the longest run in the suite, so it is the likeliest place to meet it. It is an upstream defect, not a playbook regression, and the mitigations are already in the repository: the tmp directories are moved out of `/tmp` in `ansible.cfg`, and the batched apt and flatpak installs use `raw` on Debian. Record it as an environment failure with the upstream issue named, and re-run.
+One upstream failure mode worth recognising on this scenario specifically. [../../setup/ansible/ansible_architecture.md](../../setup/ansible/ansible_architecture.md) documents an ansible-core 2.19 and 2.20 race that raises `Module result deserialization failed: No start of json char found`, triggered most often on modules running longer than five to seven minutes. This is the longest run in the suite, so it is the likeliest place to meet it. It is an upstream defect, not a playbook regression, and the mitigations are already in the repository: the tmp directories are moved out of `/tmp` in `ansible.cfg`, and the batched apt and flatpak installs use `raw` on Debian. Record it as an environment failure with the upstream issue named, and re-run.
 
 ---
 

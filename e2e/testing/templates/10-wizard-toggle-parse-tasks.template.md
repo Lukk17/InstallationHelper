@@ -42,7 +42,6 @@ Heading levels and the single horizontal rule follow the `e2e-runbooks` tasks-te
 - [ ] `ansible_static`: syntax check emitted at most two warnings, actual count recorded
 - [ ] `ansible_static`: no repository file was mistaken for an inventory source
 - [ ] `ansible_static`: `verify.yaml` parses
-- [ ] `ansible_static`: whether it ran locally or re-executed itself inside WSL was recorded
 - [ ] yamllint result recorded, either clean or skipped with the reason
 - [ ] ansible-lint findings recorded as information only
 

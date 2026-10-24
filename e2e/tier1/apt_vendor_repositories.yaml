@@ -1,0 +1,41 @@
+---
+# Fixture play behind e2e/lib/apt_repositories.sh, which e2e/tier1/apt_vendor_repositories.sh and
+# e2e/tier2/resolve_apt_repositories.sh both read. It runs the shipped
+# setup/ansible/tasks/derive_os_facts.yaml against one real /etc/os-release per case and prints the
+# facts every vendor repository line is rendered from. The lines themselves are rendered by
+# e2e/lib/render_apt_repositories.py out of the shipped task files, so neither the derivation nor a
+# repository line is copied into the harness.
+#
+# Each case says what Ansible itself reports as the release on that machine, which is the input the
+# old repository lines read, and what the vendor publishes for it. reported_release was measured with
+# ansible-core 2.21.5 against each os-release, and it is the distribution's own VERSION_CODENAME:
+# zara on Linux Mint 22.2 and gigi on LMDE 7. download.docker.com, pkgs.tailscale.com and
+# apt.releases.hashicorp.com publish neither, and publish noble and trixie, the codenames those two
+# are built on.
+
+- name: Derive the facts every Debian-family vendor repository line is rendered from
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    ih_apt_cases:
+      - { fixture: debian,          reported_distribution: Debian,                      reported_release: trixie,   base: debian, codename: trixie }
+      - { fixture: ubuntu-26.04,    reported_distribution: Ubuntu,                      reported_release: resolute, base: ubuntu, codename: resolute }
+      - { fixture: linux-mint,      reported_distribution: "Linux Mint",                reported_release: wilma,    base: ubuntu, codename: noble }
+      - { fixture: linux-mint-22.2, reported_distribution: "Linux Mint",                reported_release: zara,     base: ubuntu, codename: noble }
+      - { fixture: lmde,            reported_distribution: "Linux Mint Debian Edition", reported_release: faye,     base: debian, codename: bookworm }
+      - { fixture: lmde-7,          reported_distribution: "Linux Mint Debian Edition", reported_release: gigi,     base: debian, codename: trixie }
+      - { fixture: pop-os,          reported_distribution: "Pop!_OS",                   reported_release: jammy,    base: ubuntu, codename: jammy }
+
+  tasks:
+    - name: Derive and report one case
+      ansible.builtin.include_tasks: apt_vendor_repositories_case.yaml
+      loop: "{{ ih_apt_cases }}"
+      loop_control:
+        loop_var: ih_apt_case
+        label: "{{ ih_apt_case.fixture }}"
+
+    - name: Report how many cases were derived
+      ansible.builtin.debug:
+        msg: "IH_APT_DONE cases={{ ih_apt_cases | length }}"

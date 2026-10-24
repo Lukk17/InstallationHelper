@@ -42,14 +42,10 @@ if [[ -z "${PWSH}" ]]; then
     return 0 2>/dev/null || exit 0
 fi
 
-# to_windows_path rather than host_path. host_path answers a Docker daemon's question and is the
-# identity on Linux, so under WSL this handed a Windows pwsh.exe a /mnt/d path and got back "Cannot
-# find path 'D:\mnt\d\...'". pwsh then exited non-zero, pipefail carried that into the assignment,
-# and the check died there having printed nothing at all.
 probe_script="$(dirname "${BASH_SOURCE[0]}")/powershell_variables.ps1"
 probe_status=0
-out="$("${PWSH}" -NoProfile -NonInteractive -File "$(to_windows_path "${probe_script}")" \
-        "$(to_windows_path "${REPO_ROOT}/setup")" 2>&1 | tr -d '\r')" || probe_status=$?
+out="$("${PWSH}" -NoProfile -NonInteractive -File "${probe_script}" \
+        "${REPO_ROOT}/setup" 2>&1 | tr -d '\r')" || probe_status=$?
 
 if [[ "${probe_status}" -ne 0 ]]; then
     fail "the PowerShell probe did not run to completion, so nothing here is proven" \

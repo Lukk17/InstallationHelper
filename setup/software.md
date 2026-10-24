@@ -25,7 +25,7 @@ The playbook runs in this order. Each phase must succeed before the next can sta
 1. OS core bootstrap: `system_core`, `arch_core`, `fedora_core`, `debian_core`, `macos_core` (multilib, locale, keyrings dir, Homebrew bootstrap on macOS). There is no Windows role, because the playbook never runs on Windows.
 2. APT / DNF repo provisioning: `roles/software_installer/tasks/debian_repos.yaml` and `fedora_repos.yaml` write keyrings under `/etc/apt/keyrings/` and `*.repo` files for Chrome, Brave, VS Code, Sublime, kubectl, Helm, Terraform, GitHub CLI, Syncthing, Tailscale, Docker before any package install runs.
 3. SDK / runtime managers: JVM, Pyenv, NVM, SDKMAN (Java, Gradle), FVM.
-4. Snapd and Flatpak with the Flathub remote (Linux).
+4. Snapd and Flatpak with the Flathub remote (Linux). Snapd only under `install_snapd`, everywhere but Ubuntu itself, so on Debian, Pop!_OS, Linux Mint, Fedora and Arch. With it off, every application mapped to snap on that machine is skipped and named in a `[WARN]` line at the end of the run, and the wizard's checklist names those applications beside the Snapd entry before the run starts. Ubuntu itself ships snapd with the system, so there the playbook never installs it, never removes it and never touches its socket, every application mapped to snap installs whatever `install_snapd` says, and the checklist says so beside the Snapd entry.
 5. Package installs: one call per package for every manager (`apt`, `dnf`, `pacman`, `snap`, `flatpak`, `brew`, `brew_cask`), so one failure names the package that broke and costs only that package. The packages a role names in its own tasks, the desktops, QEMU/KVM, Docker and the build dependencies among them, go one per call too, through `setup/ansible/tasks/install_role_packages.yaml`. The software set's pacman packages go through that same file, so pacman tries each package once against the index the system was upgraded against and refreshes the index only before retrying a package that failed. The CachyOS graphics alignment installs `mesa-git` and then `lib32-mesa-git`, one per call, in the same shape. `e2e/tier1/batched_managers.sh` fails on any manager that hands its whole set to one call, with no exception.
 Razer Cortex was removed on 2026-08-22 at the owner's request. It is a game launcher rather than
 device software, its installer exited 0 without installing anything under `/S`, and Razer ships
@@ -72,6 +72,7 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | FileZilla | `sudo apt-get install -y filezilla` | `sudo dnf install -y filezilla` | `sudo pacman -S --needed filezilla` | `brew install --cask cyberduck` | `choco install filezilla -y` |
 | PuTTY | `sudo apt-get install -y putty` | `sudo dnf install -y putty` | `sudo pacman -S --needed putty` | not available | `winget install -e --id PuTTY.PuTTY` |
 | rclone | `sudo apt-get install -y rclone` | `sudo dnf install -y rclone` | `sudo pacman -S --needed rclone` | not installed, `install_rclone` is a Linux toggle | not installed, `install_rclone` is a Linux toggle |
+| QasTools (QasMixer, QasHctl, QasConfig) | `for package in qasmixer qashctl qasconfig; do sudo apt-get install -y "${package}"; done` | `sudo dnf install -y qastools` | `sudo pacman -S --needed qastools` | not installed, `install_qastools` is a Linux toggle | not installed, `install_qastools` is a Linux toggle |
 
 Terraform on macOS comes from the HashiCorp tap rather than Homebrew core, which dropped it after the BUSL relicense. The tap is added automatically by the fully qualified formula name.
 
@@ -132,7 +133,7 @@ OpenCode desktop is `install_opencode_desktop`, on by default, and installs vers
 
 OpenCode version 1 is `opencode_use_v1`, off by default and labelled `Switch OpenCode from v2 to v1` on both wizards' checklists. When it is on, every OS installs version 1 instead of version 2: the npm package `opencode-ai` for the command line tool, and for the desktop app Flathub's `ai.opencode.opencode` on Linux, winget's `SST.OpenCodeDesktop` on Windows and the vendor DMG from the GitHub release on macOS, pinned as `opencode_desktop_v1_version`, because Homebrew has no version 1 cask. The decision is made once, in [ansible/tasks/opencode_version.yaml](ansible/tasks/opencode_version.yaml) for Linux and macOS and by `Get-OpenCodeVersion` in [windows/WindowsSoftware.ps1](windows/WindowsSoftware.ps1) for Windows, and the install, the removal of the other version and the verification all read it. Removal is logged as `[INFO] removed OpenCode v1 desktop because v2 is selected`, and the verification fails while the other version is still installed. The data folder is `~/.local/share/opencode` on every OS, `XDG_DATA_HOME` when that is set: switching to version 1 moves a folder holding version 2 data to `opencode.v2-backup-<date>-<time>` beside it and brings no earlier version 1 backup back, so version 1 always starts clean. Switching back to version 2 moves version 1 data to `opencode.v1-backup-<date>-<time>` when a version 2 backup exists and brings the newest version 2 backup back. Nothing is deleted, so earlier version 1 sessions stay in their backup folders, and you can move one back into `opencode` by hand while version 1 is selected. Version 2 opens version 1 data by itself, migrating it in place, so with no version 2 backup that data stays where it is.
 
-`setup.sh --software all` and `setup.ps1 -Software all` leave `opencode_use_v1` off, so "install everything" keeps OpenCode on version 2. Turn it on with `--enable opencode_use_v1` or `-EnableKey opencode_use_v1`, or tick it on the checklist. The two wizards keep the keys "all" leaves off in `ALL_SOFTWARE_KEEPS_OFF` in [setup.sh](setup.sh) and `$AllSoftwareKeepsOff` in [setup.ps1](setup.ps1), and `e2e/tier1/wizard_parse.sh` fails when the two disagree.
+`setup.sh --software all` and `setup.ps1 -Software all` leave `opencode_use_v1` off, so "install everything" keeps OpenCode on version 2. Select-all on either wizard's checklist leaves it off too, because neither checklist can leave one item out of a select-all: every item ticked is read as select-all, and the checklist header says so. Turn it on with `--enable opencode_use_v1` or `-EnableKey opencode_use_v1`, or tick it on the checklist with anything less than every item ticked. The two wizards keep the keys "all" leaves off in `ALL_SOFTWARE_KEEPS_OFF` in [setup.sh](setup.sh) and `$AllSoftwareKeepsOff` in [setup.ps1](setup.ps1), and `e2e/tier1/wizard_parse.sh` fails when the two disagree.
 
 ### Media and design
 
@@ -167,14 +168,14 @@ Every Microsoft Store entry carries `source: "msstore"` in `vars/Windows.yaml`. 
 | App | Debian / Ubuntu | Fedora | Arch | macOS | Windows |
 |---|---|---|---|---|---|
 | Razer Synapse | see OpenRazer below | see OpenRazer below | see OpenRazer below | `curl -fsSLo /tmp/RazerSynapseInstaller.pkg https://rzr.to/synapse-4-mac-download && sudo installer -pkg /tmp/RazerSynapseInstaller.pkg -target /` | `choco install razer-synapse-4 -y` |
-| OpenRazer | `sudo apt-get install -y openrazer-meta` | `sudo dnf install -y openrazer-meta` (repo first) | `sudo pacman -S --needed openrazer-daemon` | not applicable | not applicable |
+| OpenRazer | `sudo apt-get install -y openrazer-meta` (Pop!_OS: OpenRazer PPA first) | `sudo dnf install -y openrazer-meta` (repo first) | `sudo pacman -S --needed openrazer-daemon` | not applicable | not applicable |
 | Polychromatic | `flatpak install -y flathub app.polychromatic.controller` | `flatpak install -y flathub app.polychromatic.controller` | `flatpak install -y flathub app.polychromatic.controller` | not available | not applicable |
 
 Windows uses Chocolatey rather than winget, and the reason is concrete. Both winget manifests, `RazerInc.RazerInstaller.Synapse3` at 1.22.0.737 and `RazerInc.RazerInstaller.Synapse4` at 2.5.0.882, declare `InstallerType: exe` with no `InstallerSwitches` block at all. winget therefore has no silent flag to pass and `--silent` leaves you staring at a graphical installer in the middle of an unattended run. The Chocolatey package pulls the five Razer components (App Engine, Synapse 4, Chroma, Central, Game Manager) with pinned sha256 checksums and installs each one silently. Synapse 3 is deliberately not offered, Razer ended its cloud services on 3 February 2026.
 
 macOS has no Homebrew cask, only a `.pkg`, so `macos_install.yaml` downloads and runs it. Razer supports Apple Silicon on macOS 15 Sequoia or newer only, so the task is gated on both and emits a warning instead of installing on anything older or on Intel. Idempotency uses `pkgutil --pkg-info com.razer.install.SynapseInstall`, which is the receipt the distribution package leaves behind, because a multi-component `.pkg` produces no single predictable application bundle.
 
-Linux gets nothing from Razer at all. [OpenRazer](https://openrazer.github.io/) supplies the kernel driver and the daemon, and Polychromatic is only a front end for it, so installing Polychromatic on its own gives you a window that finds no devices. OpenRazer is in Debian proper from bookworm onward and in Ubuntu universe on every current series, so no PPA is needed. Fedora has no package and pulls it from the openSUSE Build Service `hardware:razer` repository, which `fedora_repos.yaml` registers along with the kernel headers the DKMS build needs. On Arch, `extra/openrazer-daemon` depends on `extra/openrazer-driver-dkms`, so the one package brings the driver.
+Linux gets nothing from Razer at all. [OpenRazer](https://openrazer.github.io/) supplies the kernel driver and the daemon, and Polychromatic is only a front end for it, so installing Polychromatic on its own gives you a window that finds no devices. OpenRazer is in Debian proper from bookworm onward and in Ubuntu universe on every current series, so no PPA is needed there. Pop!_OS is the exception: its kernel is newer than Ubuntu's, Ubuntu's driver does not build against it, and the playbook adds the OpenRazer project's own `ppa:openrazer/stable`, whose newer driver does. Fedora has no package and pulls it from the openSUSE Build Service `hardware:razer` repository, which `fedora_repos.yaml` registers along with the kernel headers the DKMS build needs. On Arch, `extra/openrazer-daemon` depends on `extra/openrazer-driver-dkms`, so the one package brings the driver.
 
 Two things OpenRazer needs that the playbook cannot do for you. The driver is a DKMS module, so it will not load until you reboot, and a Secure Boot machine refuses the unsigned module unless you sign it or turn Secure Boot off. The playbook adds you to `plugdev` for device access and prints a warning naming both requirements when it sees no `razer` module in `lsmod`.
 
@@ -300,16 +301,22 @@ Windows:
 npm install -g @xai-official/grok
 ```
 
-First launch opens a browser to sign in. On a headless box export the key instead, Unix shell:
+First launch opens a browser to sign in. On a headless box set the key for the shell instead. Paste it at the prompt. It is not shown, and it never reaches the shell history. Unix shell, the same in bash and zsh:
 
 ```bash
-export XAI_API_KEY="xai-..."
+printf 'xAI API key: '; read -rs XAI_API_KEY; echo
+```
+
+Then export it, so `grok` sees it:
+
+```bash
+export XAI_API_KEY
 ```
 
 Headless on Windows:
 
 ```powershell
-$env:XAI_API_KEY = "xai-..."
+$env:XAI_API_KEY = [Net.NetworkCredential]::new('', (Read-Host 'xAI API key' -AsSecureString)).Password
 ```
 
 Then start it inside the repository you want it to work on:

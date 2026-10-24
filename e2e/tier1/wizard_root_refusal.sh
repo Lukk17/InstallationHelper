@@ -19,18 +19,13 @@
 # which is how this check was proven: the bare run stops in prepare_become_password when the sudo
 # stub fails and standard input is closed, and --print-command exits before that function.
 #
-# Getting uid 0 honestly, in this order:
-#   1. `unshare -r`, which maps the current user to root inside a user namespace. EUID reads 0 there
-#      and nothing outside the namespace gains anything, so this is safe on a developer machine.
-#   2. A Linux shell that is already root, which is what a container gives.
-#   3. Passwordless sudo on Linux, which is what a hosted runner gives when its kernel refuses an
-#      unprivileged user namespace. The sudo stub is still first on PATH inside that run.
-#   4. From Git Bash, none of those exist, so the check re-runs itself inside WSL through
-#      wsl_delegate.sh, the way the two checks that need Ansible do.
-# If none of the four is available the check reports SKIP and names why, rather than a pass.
+# Getting uid 0 honestly: passwordless sudo on Linux, which the gate user has inside its own throwaway
+# gate container. The sudo stub is still first on PATH inside that run. No namespace tool is used,
+# because rule 7 of the owner's-computer section of AGENTS.md forbids one inside a container on the
+# owner's computer (docs/regression_ledger.md 10.149). Without passwordless sudo the check reports SKIP
+# and names why, rather than a pass.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/wsl_delegate.sh"
 
 SETUP_SH="${REPO_ROOT}/setup/setup.sh"
 EXPECTED_MESSAGE="ERROR: Do not run this script as root or with sudo. Run it as your normal user: ./setup.sh. It asks for your sudo password itself when a step needs it."
@@ -42,19 +37,12 @@ fi
 
 ROOT_RUNNER=()
 ROOT_HOW=""
-if command -v unshare &>/dev/null \
-        && [[ "$(unshare -r bash -c 'printf %s "${EUID}"' 2>/dev/null || true)" == "0" ]]; then
-    ROOT_RUNNER=(unshare -r)
-    ROOT_HOW="a user namespace from unshare -r"
-elif [[ "${E2E_HOST_KIND}" == "linux" && "${EUID}" == "0" ]]; then
-    ROOT_HOW="this shell, which is already root"
-elif [[ "${E2E_HOST_KIND}" == "linux" ]] && sudo -n true &>/dev/null; then
+if [[ "${E2E_HOST_KIND}" == "linux" ]] && sudo -n true &>/dev/null; then
     ROOT_RUNNER=(sudo -n)
     ROOT_HOW="passwordless sudo"
 else
-    delegate_to_wsl e2e/tier1/wizard_root_refusal.sh "no way to become uid 0 without a password here" || true
     skip "the wizard refuses to run as root" \
-         "no unshare -r, no root shell, no passwordless sudo and no WSL to hand this to, so nothing here can start the wizard as uid 0"
+         "no passwordless sudo on Linux, so nothing here can start the wizard as uid 0"
     finish "wizard root refusal"
 fi
 

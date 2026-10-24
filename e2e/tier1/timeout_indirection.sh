@@ -55,9 +55,10 @@ fi
 
 # --- nobody calls the bare command ----------------------------------------------------------------
 # Only lines that are not comments, and only a call at a command position: the word followed by its
-# duration. `timeout: 60` is a module parameter and has nothing to do with this.
+# duration. `timeout: 60` is a module parameter and has nothing to do with this, and neither is an option
+# ending in it, curl's `--connect-timeout 30` in the rpm_url route of tasks/install_role_packages.yaml.
 offenders="$(
-    grep -rnE '(^|[^[:alnum:]_}])timeout [0-9]+' "${ROLES_DIR}"/*/tasks/*.yaml "${TASKS_DIR}"/*.yaml 2>/dev/null \
+    grep -rnE '(^|[^[:alnum:]_}-])timeout [0-9]+' "${ROLES_DIR}"/*/tasks/*.yaml "${TASKS_DIR}"/*.yaml 2>/dev/null \
         | grep -vE '^[^:]+:[0-9]+:\s*#' \
         | grep -vE '\{\{ ih_timeout \}\}' \
         || true

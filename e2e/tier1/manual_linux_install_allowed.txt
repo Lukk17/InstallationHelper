@@ -15,6 +15,9 @@ Archlinux  flatpak          roles/system_core/tasks/base_utils.yaml             
 Debian     flatpak          roles/system_core/tasks/base_utils.yaml                the Flatpak runtime the flatpak mappings need
 RedHat     flatpak          roles/system_core/tasks/base_utils.yaml                the Flatpak runtime the flatpak mappings need
 
+# Installed first by system_core on Fedora, owner decision 87, so dnf never answers a later package's iptables with iptables-legacy.
+RedHat     iptables-nft     vars/RedHat.yaml                                       the nftables iptables system_core installs before tailscale, the KVM stack and Docker
+
 # What the manual route needs to add repositories, which the playbook does with its own modules.
 Debian     ca-certificates  roles/debian_core/tasks/main.yaml                      needed to fetch the third-party apt repository keys
 Debian     curl             roles/debian_core/tasks/main.yaml                      the scripts download keys and vendor files with it
@@ -22,44 +25,28 @@ Debian     gnupg            roles/debian_core/tasks/main.yaml                   
 RedHat     curl             -                                                      the script downloads the OpenRazer repository and the AppImageLauncher rpm with it, the playbook downloads through get_url
 RedHat     dnf5-plugins     -                                                      carries dnf config-manager addrepo, which the script and guide add repositories with, the playbook writes the repository files itself
 
-# install_virt_manager and install_docker install the KVM stack and the engine outside the dictionary.
-Archlinux  qemu-full        roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Archlinux  libvirt          roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Archlinux  dnsmasq          roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Archlinux  nftables         roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Archlinux  virtiofsd        roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Archlinux  docker           roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-Debian     qemu-system-x86  roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Debian     libvirt-daemon-system roles/virtualization_config/tasks/main.yaml       the KVM stack install_virt_manager installs
-Debian     libvirt-clients  roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Debian     virtinst         roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Debian     bridge-utils     roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Debian     virtiofsd        roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-Debian     docker-ce        roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-Debian     docker-ce-cli    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-Debian     containerd.io    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-Debian     docker-buildx-plugin roles/virtualization_config/tasks/main.yaml        the engine install_docker installs
-Debian     docker-compose-plugin roles/virtualization_config/tasks/main.yaml       the engine install_docker installs
-RedHat     qemu-kvm         roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-RedHat     libvirt          roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-RedHat     virt-install     roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-RedHat     bridge-utils     roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-RedHat     virtiofsd        roles/virtualization_config/tasks/main.yaml            the KVM stack install_virt_manager installs
-RedHat     docker-ce        roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-RedHat     docker-ce-cli    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-RedHat     containerd.io    roles/virtualization_config/tasks/main.yaml            the engine install_docker installs
-RedHat     docker-buildx-plugin roles/virtualization_config/tasks/main.yaml        the engine install_docker installs
-RedHat     docker-compose-plugin roles/virtualization_config/tasks/main.yaml       the engine install_docker installs
+# install_docker has no mapping, and the engine and its plugins are its companion_packages entry in
+# vars/<OS>.yaml. The check reads companion_packages beside a mapping itself, the KVM stack of
+# install_virt_manager for one, and a toggle with no mapping is outside the manual route's dictionary.
+Archlinux  docker           vars/Archlinux.yaml                                    the engine install_docker installs
+Archlinux  docker-buildx    vars/Archlinux.yaml                                    the buildx plugin install_docker installs
+Archlinux  docker-compose   vars/Archlinux.yaml                                    the compose plugin install_docker installs
+Archlinux  iptables         vars/Archlinux.yaml                                    the nftables iptables the Docker daemon needs on Arch, which install_docker installs
+Debian     docker-ce        vars/Debian.yaml                                       the engine install_docker installs
+Debian     docker-ce-cli    vars/Debian.yaml                                       the engine install_docker installs
+Debian     containerd.io    vars/Debian.yaml                                       the engine install_docker installs
+Debian     docker-buildx-plugin vars/Debian.yaml                                   the engine install_docker installs
+Debian     docker-compose-plugin vars/Debian.yaml                                  the engine install_docker installs
+RedHat     docker-ce        vars/RedHat.yaml                                       the engine install_docker installs
+RedHat     docker-ce-cli    vars/RedHat.yaml                                       the engine install_docker installs
+RedHat     containerd.io    vars/RedHat.yaml                                       the engine install_docker installs
+RedHat     docker-buildx-plugin vars/RedHat.yaml                                   the engine install_docker installs
+RedHat     docker-compose-plugin vars/RedHat.yaml                                  the engine install_docker installs
 
 # The shell the shell_zsh role installs and configures.
-Archlinux  zsh              roles/shell_zsh/tasks/install_zsh.yaml                 the login shell shell_zsh installs
-Debian     zsh              roles/shell_zsh/tasks/install_zsh.yaml                 the login shell shell_zsh installs
-RedHat     zsh              roles/shell_zsh/tasks/install_zsh.yaml                 the login shell shell_zsh installs
-
-# The kernel headers the OpenRazer DKMS module builds against. Arch derives the names from each
-# kernel's pkgbase file at run time, so they are no literal here.
-RedHat     kernel-devel     roles/software_installer/tasks/fedora_repos.yaml       the headers the OpenRazer DKMS module builds against
-RedHat     kernel-headers   roles/software_installer/tasks/fedora_repos.yaml       the headers the OpenRazer DKMS module builds against
+Archlinux  zsh              vars/Archlinux.yaml                                    the login shell shell_zsh installs
+Debian     zsh              vars/Debian.yaml                                       the login shell shell_zsh installs
+RedHat     zsh              vars/RedHat.yaml                                       the login shell shell_zsh installs
 
 # Installed by a dedicated task rather than a mapping on that family.
 Archlinux  claude-desktop   roles/ai_tools/tasks/claude_unix.yaml                  the AUR package ai_tools installs through paru, Arch maps no claude_desktop

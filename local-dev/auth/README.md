@@ -16,7 +16,7 @@ part belongs here.
 
 `keycloak.test` is the canonical name and the one to point applications, browsers and HTTP clients at. The compose file sets `KC_HOSTNAME=keycloak.test` and `KC_HOSTNAME_PORT=9443`, so every token Keycloak mints carries `https://keycloak.test:9443/realms/local` as its `iss` claim. A client configured against any other name completes the handshake and then fails issuer validation on the token it gets back, which is a confusing failure because nothing about it looks like a hostname problem. The port is part of the name here. 9443 is not a port any client infers, so it is written out everywhere.
 
-`keycloak` is the container name, so Docker's embedded resolver answers it inside the compose network whether or not any hosts file mentions it. That is why the healthcheck in [local-dev-docker-compose.yaml](../local-dev-docker-compose.yaml) reaches `https://keycloak:9000/health/ready` and works with nothing configured on the machine. Treat it as the name for talking to the container rather than to the issuer, and note that nothing on the host needs it, which is why it has no hosts line of its own.
+`keycloak` is the container name. Docker's embedded resolver answers a container name only on a Compose network, and every service in [local-dev-docker-compose.yaml](../local-dev-docker-compose.yaml) runs on the host's own network, so nothing on the machine uses that name and it has no hosts line of its own. The healthcheck in the same file asks for `https://keycloak.test:9443/realms/local/.well-known/openid-configuration` and points `keycloak.test` at `127.0.0.1` with curl's `--resolve` option, so it works with nothing configured on the machine.
 
 For Keycloak setup, container build, realm import, and troubleshooting, see
 [Keycloak/README.md](./Keycloak/README.md).
@@ -38,7 +38,7 @@ services:
 
 `host-gateway` is resolved by Docker itself and works on Linux, Windows and macOS from Docker 20.10 onward. It is the same mechanism the `keycloak` service already uses for `host.docker.internal`.
 
-Be clear about what it costs. The container leaves the bridge network, goes out to the host, and comes back in through the published 9443. Two containers on the same network end up talking through the host, which is slower than a direct hop and means 9443 has to stay published. A Compose network alias would remove that hairpin in one line, and it is rejected for the reason ADR-008 in the sibling Pharmacy stack gives: an alias resolves to a container from the inside and to nothing at all from the outside, and an issuer URI has to resolve to the same service from both.
+Be clear about what it costs. The container leaves the bridge network, goes out to the host, and comes back in through the published 9443. Two containers on the same network end up talking through the host, which is slower than a direct hop and means 9443 has to stay published. A Compose network alias would remove that hairpin in one line, and it is rejected because an alias resolves to a container from the inside and to nothing at all from the outside, and an issuer URI has to resolve to the same service from both.
 
 Measured with a throwaway container started with `--add-host keycloak.test:host-gateway`, which is the `docker run` spelling of that compose entry. It reached Keycloak on 9443 and got HTTP 200 back.
 
@@ -140,19 +140,23 @@ Issue the certificate. Replace `your_domain` below with the actual public hostna
 sudo certbot certonly --standalone
 ```
 
-Keycloak reads a JKS keystore, so convert the PEM bundle to PKCS12 first. Replace `your_domain` and `your_alias`:
+Keycloak reads the certificate and its key from one keystore file, so put the PEM bundle into a PKCS12 file. Replace `your_domain` and `your_alias`. openssl asks for an export password, which becomes the keystore password, so it never lands on the command line or in the shell history:
 
 ```bash
 sudo openssl pkcs12 -export -in /etc/letsencrypt/live/your_domain/fullchain.pem -inkey /etc/letsencrypt/live/your_domain/privkey.pem -out pkcs.p12 -name your_alias -CAfile /etc/letsencrypt/live/your_domain/chain.pem -caname root
 ```
 
-Then import the PKCS12 into a JKS keystore. Replace the four `your_*` placeholders:
+openssl run through `sudo` writes `pkcs.p12` owned by root and readable by root alone, mode 600, and the Keycloak image runs as user 1000, so give the file to that user and keep the mode:
 
 ```bash
-sudo keytool -importkeystore -deststorepass your_keystore_password -destkeypass your_key_password -destkeystore keystore.jks -srckeystore pkcs.p12 -srcstoretype PKCS12 -srcstorepass your_p12_password -alias your_alias
+sudo chown 1000 pkcs.p12
 ```
 
-Drop the resulting `keystore.jks` into Keycloak's expected location and restart the container.
+Keycloak reads that PKCS12 file as it is, so no `keytool` step and no JKS file are needed. `keytool -importkeystore` from Java 21 writes PKCS12 whatever the file is called, `keystore.jks` included. Keycloak takes the keystore type from the file extension, PKCS12 for `.p12`, so `--https-key-store-type` is not needed either.
+
+Give `pkcs.p12` to the Keycloak container read-only at `/opt/keycloak/conf/server.p12`. Then start Keycloak with `--https-key-store-file=/opt/keycloak/conf/server.p12` instead of `--https-certificate-file` and `--https-certificate-key-file`, set the environment variable `KC_HTTPS_KEY_STORE_PASSWORD` to the export password from an environment file rather than on the command line, and restart the container. Without the password setting Keycloak tries the password `password` and stops with `keystore password was incorrect`.
+
+Measured on 2026-10-23 with the Keycloak image [Keycloak/Dockerfile](./Keycloak/Dockerfile) pins, 26.5.7, in a container on a private Docker network, with a self-signed certificate in place of the Let's Encrypt files. The `keystore.jks` that `keytool -importkeystore` wrote from `pkcs.p12` was PKCS12 (`keytool -list` said `Keystore type: PKCS12`), and Keycloak served HTTPS on 9443 from it, from the same file named `conf/server.keystore`, and from `pkcs.p12` with the password in `KC_HTTPS_KEY_STORE_PASSWORD`, each time with HTTP 200 and a verified certificate for a `curl` in a second container. A `pkcs.p12` that openssl wrote as root, mode 600, stopped Keycloak with `AccessDeniedException /opt/keycloak/conf/server.p12`, and the same file owned by user 1000 was served.
 
 ### Trust the authority in an image you build
 
@@ -275,7 +279,7 @@ Everything above is about an image. When the application runs on the machine ins
 
 #### Java Virtual Machine applications
 
-Every JVM keeps its own trust store, a keystore file in the JKS format, and by default that file is the only place
+Every JVM keeps its own trust store, a keystore file (PKCS12 in Java 21, `keytool -list -cacerts` in `eclipse-temurin:21-jdk` says `Keystore type: PKCS12`), and by default that file is the only place
 its trust manager looks. That is a default rather than a hard limit. On Windows,
 `-Djavax.net.ssl.trustStoreType=Windows-ROOT` switches the trust manager to the SunMSCAPI provider, which reads the
 Windows certificate store directly, so a root already imported there needs no truststore file at all. That switch

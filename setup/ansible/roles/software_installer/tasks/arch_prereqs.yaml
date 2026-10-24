@@ -1,6 +1,9 @@
 ---
-# Arch prerequisites that must land before the batched pacman install, the same
-# role debian_repos.yaml and fedora_repos.yaml play for their families.
+# Arch kernel headers for DKMS, included by dynamic_install.yaml after the pacman and AUR sets rather
+# than before them, because the software set can install a kernel of its own: on CachyOS
+# cachyos-gaming-applications brings linux-cachyos through wine and ntsync-autoload, and headers named
+# before that kernel existed left it without any. Arch's dkms hook also fires on a new
+# /usr/lib/modules/*/build/include, so headers installed after openrazer-driver-dkms still build it.
 
 # --- Kernel headers for DKMS modules ---
 # Arch's dkms package lists linux-headers only as an optional dependency, so
@@ -10,28 +13,14 @@
 # Fedora already installs kernel-devel and kernel-headers for the same reason.
 #
 # Headers are per kernel flavour (linux, linux-lts, linux-zen, linux-hardened),
-# so the package name is derived from each installed kernel's own pkgbase file
-# rather than hardcoded. Every installed kernel is covered, not just the running
-# one, because a full system upgrade earlier in this playbook can replace the
-# running kernel's module tree before this task runs.
-- name: Find the pkgbase marker of every installed kernel (Arch)
-  ansible.builtin.find:
-    paths: /usr/lib/modules
-    patterns: pkgbase
-    file_type: file
-    recurse: true
-    depth: 2
-  register: arch_kernel_pkgbase_files
-  when: install_openrazer | default(false) | bool
-
-- name: Read the package base of every installed kernel (Arch)
-  ansible.builtin.slurp:
-    src: "{{ item.path }}"
-  register: arch_kernel_pkgbases
-  become: true
-  loop: "{{ arch_kernel_pkgbase_files.files | default([]) }}"
-  loop_control:
-    label: "{{ item.path }}"
+# so the package names are derived from each installed kernel's own pkgbase file
+# rather than hardcoded, in setup/ansible/tasks/dkms_header_packages.yaml, which
+# verify_install.yaml reads too so it expects exactly the headers installed here.
+- name: Name the kernel headers of every installed kernel (Arch)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/dkms_header_packages.yaml"
+    apply:
+      tags: [always]
   when: install_openrazer | default(false) | bool
 
 # One package per call through setup/ansible/tasks/install_role_packages.yaml, so a machine with two
@@ -43,21 +32,12 @@
     apply:
       tags: [always]
   vars:
-    role_packages: "{{ arch_dkms_header_packages }}"
+    role_packages: "{{ dkms_header_packages }}"
     role_packages_purpose: the kernel headers DKMS builds against
-    arch_dkms_header_packages: >-
-      {{ arch_kernel_pkgbases.results | default([])
-         | selectattr('content', 'defined')
-         | map(attribute='content')
-         | map('b64decode')
-         | map('trim')
-         | map('regex_replace', '^(.+)$', '\1-headers')
-         | unique
-         | list }}
   when:
     - ih_family == 'Archlinux'
     - install_openrazer | default(false) | bool
-    - arch_dkms_header_packages | length > 0
+    - dkms_header_packages | default([]) | length > 0
 
 # What matters is not whether a headers package installed but whether DKMS ends up with something to
 # build against, and that is a directory on disk: pacman's linux-headers packages provide
@@ -67,8 +47,9 @@
 #
 # Two outcomes have to be told apart here, and /usr/lib/modules is what tells them apart. A container
 # has no kernel of its own, and in the published Arch image /usr/lib/modules is not a directory at
-# all: the find above reports "Skipped '/usr/lib/modules' path due to this access issue:
-# '/usr/lib/modules' is not a directory", which is in every Arch tier 3 playbook log. Every real Arch
+# all: the find in setup/ansible/tasks/dkms_header_packages.yaml reports "Skipped '/usr/lib/modules'
+# path due to this access issue: '/usr/lib/modules' is not a directory", which is in every Arch tier 3
+# playbook log whose software set brings no kernel. Every real Arch
 # install has that directory with at least one pacman-managed kernel under it. So an absent module
 # tree means nothing on this machine manages kernels, which is informational, and a present module
 # tree with no build directory means the DKMS driver genuinely cannot build, which is a failure the

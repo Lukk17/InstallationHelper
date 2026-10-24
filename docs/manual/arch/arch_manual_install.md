@@ -16,7 +16,19 @@ sudo pacman -Syu --needed --noconfirm flatpak
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 ```
 
-Steam requires the **multilib** repo. Uncomment the `[multilib]` section in `/etc/pacman.conf`, then refresh and upgrade together, because a refresh without the upgrade leaves every later install running against an index newer than the system:
+Steam requires the **multilib** repo. Uncomment the `[multilib]` section in `/etc/pacman.conf`. Arch ships it as two commented lines, `#[multilib]` and `#Include = /etc/pacman.d/mirrorlist`, and this command removes the hash from both. It changes nothing when the section is already on, as on CachyOS. That matters, because with a second `[multilib]` section every pacman call prints `error: could not register 'multilib' database (database already registered)`:
+
+```bash
+grep -q '^\[multilib\]' /etc/pacman.conf || sudo sed -i '/^#\[multilib\]$/,/^#Include/ s/^#//' /etc/pacman.conf
+```
+
+Check it. This must print one `[multilib]` line and its `Include` line, without a hash:
+
+```bash
+grep -n -A1 '^\[multilib\]' /etc/pacman.conf
+```
+
+Then refresh and upgrade together, because a refresh without the upgrade leaves every later install running against an index newer than the system:
 
 ```bash
 sudo pacman -Syu
@@ -50,12 +62,13 @@ sudo pacman -Syu
 | fzf | `sudo pacman -S --needed fzf` |
 | ripgrep | `sudo pacman -S --needed ripgrep` |
 | uv | `sudo pacman -S --needed uv` |
-| pipx | `sudo pacman -S --needed python-pipx` |
+| pipx | `for package in python-pipx python-filelock; do sudo pacman -S --needed "${package}" \|\| echo "FAILED: ${package}"; done` |
 | Go | `sudo pacman -S --needed go` |
 | Lens | AUR `yay -S lens-bin` |
 | FileZilla | `sudo pacman -S --needed filezilla` |
 | PuTTY | `sudo pacman -S --needed putty` |
 | rclone | `sudo pacman -S --needed rclone` |
+| QasTools | `sudo pacman -S --needed qastools` |
 
 ## IDEs and editors
 
@@ -242,8 +255,14 @@ sudo usermod -aG openrazer "${USER}"
 | App | Install command |
 |---|---|
 | QEMU/KVM + virt-manager | `for package in virt-manager qemu-full libvirt dnsmasq nftables virtiofsd; do sudo pacman -S --needed "${package}" \|\| echo "FAILED: ${package}"; done` |
-| Docker | `sudo pacman -S --needed docker` |
+| Docker | `for package in docker docker-buildx docker-compose iptables; do sudo pacman -S --needed "${package}" \|\| echo "FAILED: ${package}"; done` |
 | Podman Desktop | `flatpak install -y flathub io.podman_desktop.PodmanDesktop`, a front end for the Docker engine above |
+
+Start the Docker daemon now and at every boot, which the package does not do on every distribution:
+
+```bash
+sudo systemctl enable --now docker
+```
 
 Add yourself to the `docker` group so `docker` runs without `sudo`. It takes effect only after you log out and back in, or reboot. A new terminal window is not enough, because it keeps the groups of the session you are already in:
 

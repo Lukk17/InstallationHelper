@@ -24,7 +24,7 @@ FROM cachyos/cachyos-v3:latest
 # base-devel, git, rust and the AUR helpers are deliberately absent, because arch_core installs them
 # and a preinstalled convenience would hide it if that ever broke. systemd comes from the base image
 # and runs as PID 1 so unit-enabling tasks are genuinely exercised, which needs --privileged and the
-# host cgroup mount at run time, both handled by container.sh.
+# private cgroup namespace at run time, both handled by container.sh.
 RUN sed -i -E '/^NoExtract.*(locale|i18n)/d' /etc/pacman.conf \
     && pacman -Syu --noconfirm --needed \
         sudo \

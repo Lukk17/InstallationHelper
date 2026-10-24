@@ -243,6 +243,7 @@ Released under the [MIT License](LICENSE).
 | [setup/bootstrap_machine_prompt.md](setup/bootstrap_machine_prompt.md)  | Post-install prompt: an agent records this machine in `MACHINE.md` |
 | [setup/MACHINE.md.example](setup/MACHINE.md.example)                    | Template for that machine record                                  |
 | [setup/ansible/tags.md](setup/ansible/tags.md)                          | Ansible `--tags` taxonomy for surgical partial runs               |
+| [setup/ansible/ansible_architecture.md](setup/ansible/ansible_architecture.md) | How the playbook is put together, the package manager order per OS, and the ansible-core deserialization workaround |
 | [local-dev/README_LOCAL_DEV.md](local-dev/README_LOCAL_DEV.md)          | Docker Compose stack: ports, credentials, image tags              |
 | [local-dev/auth/README.md](local-dev/auth/README.md)                    | Local auth: hosts file entries, local certificate authority, Let's Encrypt |
 | [local-dev/auth/Keycloak/README.md](local-dev/auth/Keycloak/README.md)  | Keycloak container build, token curl, OS trust store import       |
@@ -250,23 +251,28 @@ Released under the [MIT License](LICENSE).
 | [local-dev/postgresql/README.md](local-dev/postgresql/README.md)        | Standalone Postgres build and run                                 |
 | [homelab/README_HOMELAB.md](homelab/README_HOMELAB.md)                  | Home lab stack: services, ports, architecture, troubleshooting    |
 | [homelab/proxmox_host_install.md](homelab/proxmox_host_install.md)      | Installing Proxmox on the mini PC, updating it, node shell        |
-| [homelab/proxmox_docker_vm.md](homelab/proxmox_docker_vm.md)            | Building the Ubuntu VM on Proxmox and installing Docker Engine    |
+| [homelab/proxmox_docker_vm.md](homelab/proxmox_docker_vm.md)            | Building the Ubuntu VM on Proxmox, installing Docker Engine, and growing its disk |
 | [homelab/home_assistant_vm.md](homelab/home_assistant_vm.md)            | Home Assistant OS VM via `qm`, and Zigbee USB passthrough         |
 | [homelab/home_assistant_backup.md](homelab/home_assistant_backup.md)    | Home Assistant's own backups, encryption key, restore paths       |
-| [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, upstream resolvers, rate limit, blocklists, router DNS |
+| [homelab/adguard_dns.md](homelab/adguard_dns.md)                        | AdGuard Home setup, internal name rewrites, upstream resolvers, rate limit, blocklists, 30 days of query log, router DNS |
 | [homelab/nginx_proxy_manager.md](homelab/nginx_proxy_manager.md)        | Reverse proxy entries for each internal name, and verification    |
-| [homelab/ascend_web_search.md](homelab/ascend_web_search.md)            | AscendWebSearch stack: containers, secrets, resource limits, ngrok exposure |
+| [homelab/ascend_web_hunter.md](homelab/ascend_web_hunter.md)            | ascend-web-hunter stack, formerly AscendWebSearch: containers, secrets, resource limits, ngrok exposure |
+| [homelab/ascend-web-hunter_deploy/README.md](homelab/ascend-web-hunter_deploy/README.md) | ascend-web-hunter deploy directory: quick start, configuration, upgrading, differences from the AscendAI bundle |
 | [homelab/syncthing.md](homelab/syncthing.md)                            | Pairing devices, folder paths, ownership, file versioning         |
 | [homelab/perlite_notes.md](homelab/perlite_notes.md)                    | Publishing a synced notes vault as a website                      |
 | [homelab/homepage_dashboard.md](homelab/homepage_dashboard.md)          | Dashboard tiles, allowed hosts, status checks that bypass DNS     |
 | [homelab/uptime_kuma.md](homelab/uptime_kuma.md)                        | Service monitors and network monitors, ping versus HTTP checks, DNS resolution monitoring |
 | [homelab/network_watch.md](homelab/network_watch.md)                    | Telegraf recording proof of short provider outages, and reading it back afterward |
+| [homelab/lan_storage.md](homelab/lan_storage.md)                        | The USB data disk handed to the Docker VM, a new ext4 disk or an existing NTFS one, shared at its root through File Browser at `files.internal` and the Samba network drive, and opening the VM in Dolphin |
+| [homelab/plex_media_server.md](homelab/plex_media_server.md)            | Plex with host networking, the CPU cap, the transcoding settings, and which file formats to store |
 | [homelab/backup_restore.md](homelab/backup_restore.md)                  | vzdump, qmrestore, and backing up the service data directories    |
+| [homelab/agent_access.md](homelab/agent_access.md)                      | Access for an AI agent without a password: a Proxmox admin API token with narrower tokens as alternatives, one SSH key for the Proxmox host, the Docker VM and the router, the Syncthing and Uptime Kuma API keys, and how to revoke each |
 | [e2e/README_E2E.md](e2e/README_E2E.md)                                  | End-to-end harness: the pre-commit gate, and running the playbook in containers |
 | [docs/regression_ledger.md](docs/regression_ledger.md)                  | Every regression the playbook has suffered, grouped by failure mechanism, with a prevention checklist |
 | [docs/AGENT_TOOLING.md](docs/AGENT_TOOLING.md)                          | Agent-standards, OpenSpec, per-agent integration notes            |
 | [docs/GLOBAL_SETUP.md](docs/GLOBAL_SETUP.md)                            | Machine-wide agent setup in `~/.config/agents`, shared by every project |
-| [docs/MCP_SETUP.md](docs/MCP_SETUP.md)                                  | MCP server setup (Context7 only in this project)                  |
+| [docs/MCP_SETUP.md](docs/MCP_SETUP.md)                                  | MCP server setup for the six servers this project declares        |
+| [docs/decisions/README.md](docs/decisions/README.md)                    | Decision records: what shaped how the repository is worked on, and why |
 | [docs/AI_TOOLS_ADDING.md](docs/AI_TOOLS_ADDING.md)                      | How to add a new npm-based AI / CLI tool to the playbook          |
 | [docs/linux/virt_manager_setup.md](docs/linux/virt_manager_setup.md)    | virt-manager setup notes for Linux hosts                          |
 | [docs/macos/utm_setup.md](docs/macos/utm_setup.md)                      | UTM (Apple Virtualization) notes for macOS                        |

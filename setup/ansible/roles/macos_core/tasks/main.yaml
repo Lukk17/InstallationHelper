@@ -87,13 +87,15 @@
       provides. What brew said is in the [ERROR] line above.
   when: "'coreutils' in (role_packages_missing | default([]))"
 
+# The cask is setup_karabiner's companion_packages entry in vars/Darwin.yaml, which
+# setup/ansible/verify_install.yaml reads too.
 - name: Install Karabiner-Elements
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages: [karabiner-elements]
+    role_packages: "{{ os_dict.companion_packages.setup_karabiner }}"
     role_packages_purpose: Karabiner-Elements
     role_packages_manager: brew_cask
   when:

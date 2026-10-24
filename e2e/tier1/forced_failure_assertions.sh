@@ -106,7 +106,7 @@ else
 fi
 
 if grep -qF -- "- name: ${PARU_CLONE_TASK}" "${ARCH_CORE_TASKS}" \
-    && sed -n "/- name: ${PARU_CLONE_TASK}\$/,/^ *- name: /p" "${ARCH_CORE_TASKS}" | grep -qF 'repo: "{{ arch_core_paru_repository }}"'; then
+    && grep -qF 'repo: "{{ arch_core_paru_repository }}"' <<<"$(sed -n "/- name: ${PARU_CLONE_TASK}\$/,/^ *- name: /p" "${ARCH_CORE_TASKS}")"; then
     pass "arch_core still has a task named '${PARU_CLONE_TASK}' and it clones arch_core_paru_repository"
 else
     fail "arch_core has no task named '${PARU_CLONE_TASK}' that clones arch_core_paru_repository" \

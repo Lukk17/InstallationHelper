@@ -7,8 +7,10 @@ Install commands for every app the playbook manages on Fedora. To install the wh
 ## Prerequisites
 
 ```bash
-for package in dnf5-plugins flatpak; do sudo dnf install -y "${package}" || echo "FAILED: ${package}"; done
+for package in iptables-nft dnf5-plugins flatpak; do sudo dnf install -y "${package}" || echo "FAILED: ${package}"; done
 ```
+
+iptables-nft goes first, before any other package, so dnf does not answer the iptables that Tailscale, the KVM stack and Docker need with iptables-legacy, which loads the legacy iptables kernel modules. Tailscale is the first of them to need it.
 
 ```bash
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
@@ -153,6 +155,7 @@ sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stabl
 | Go | `sudo dnf install -y golang` |
 | PuTTY | `sudo dnf install -y putty` |
 | rclone | `sudo dnf install -y rclone` |
+| QasTools | `sudo dnf install -y qastools` |
 
 > Gradle is installed via SDKMAN — see [Developer toolchain](#developer-toolchain-sdk--runtimes).
 
@@ -312,6 +315,12 @@ sudo dnf config-manager addrepo --from-repofile=https://download.docker.com/linu
 for package in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do sudo dnf install -y "${package}" || echo "FAILED: ${package}"; done
 ```
 
+Start the Docker daemon now and at every boot, which the package does not do on every distribution:
+
+```bash
+sudo systemctl enable --now docker
+```
+
 Add yourself to the `docker` group so `docker` runs without `sudo`. It takes effect only after you log out and back in, or reboot. A new terminal window is not enough, because it keeps the groups of the session you are already in:
 
 ```bash
@@ -382,10 +391,24 @@ Need Node from NVM above first.
 |---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
 | OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
-| OpenCode desktop | `sudo dnf install -y https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-x86_64.rpm`, version 2. Version 1 of the desktop app, the Flathub `ai.opencode.opencode` the playbook installed before 2026-10-15, refuses to start once version 2 has created its database, so remove it with `flatpak uninstall ai.opencode.opencode` |
+| OpenCode desktop | the three commands below the table, version 2. Version 1 of the desktop app, the Flathub `ai.opencode.opencode` the playbook installed before 2026-10-15, refuses to start once version 2 has created its database, so remove it with `flatpak uninstall ai.opencode.opencode` |
 | Kilo Code CLI | `npm install -g @kilocode/cli`, which provides the `kilo` command |
 | OpenSpec | `npm install -g @fission-ai/openspec` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` |
+
+**OpenCode desktop**: its .rpm carries links under `/usr/lib/.build-id` with the same paths the Lens package ships, so installing the .rpm with dnf fails with a file conflict whenever Lens is installed. Install what it requires with dnf, then the .rpm itself with rpm, leaving those links out. They are debugging aids, nothing reads them when OpenCode runs. The playbook does the same.
+
+```bash
+curl -fsSLo /tmp/opencode-desktop.rpm https://opencode.ai/files/bin/2.0.29/opencode-desktop-linux-x86_64.rpm
+```
+
+```bash
+rpm -qp --nosignature --requires /tmp/opencode-desktop.rpm | grep -v '^rpmlib(' | sort -u | xargs -d '\n' -r sudo dnf install -y
+```
+
+```bash
+sudo rpm -U --nosignature --excludepath=/usr/lib/.build-id /tmp/opencode-desktop.rpm
+```
 
 OpenCode version 1 instead of version 2. Version 2 is the default. The wizard switches when `Switch OpenCode from v2 to v1` is ticked on its checklist, or with `./setup.sh --enable opencode_use_v1`: it removes the version 2 command line tool and desktop app, installs version 1, and moves a data folder holding version 2 data to `~/.local/share/opencode.v2-backup-<date>-<time>`, because version 1 refuses to start on a version 2 database. Switching back moves version 1 data aside the same way and brings the newest version 2 backup back. Nothing is deleted. By hand, the same steps, first removing version 2:
 
@@ -445,10 +468,10 @@ These are **not** in `install.sh` — no clean package-manager path exists. Inst
   ~/.local/share/JetBrains/Toolbox/bin/jetbrains-toolbox &
   ```
 
-  Toolbox puts its IDE launchers (`idea`, `pycharm` and the rest) on PATH through a line in `~/.profile`, which zsh never reads. Add the directory to `~/.config/environment.d/50-dev.conf` instead, as described in [setup/configuration.md](../../../setup/configuration.md#shell-and-environment-layout):
+  Toolbox puts its IDE launchers (`idea`, `pycharm` and the rest) on PATH through a line in `~/.profile`, which zsh never reads. Add the directory to `~/.config/environment.d/990-dev.conf` instead, as described in [setup/configuration.md](../../../setup/configuration.md#shell-and-environment-layout):
 
   ```bash
-  mkdir -p ~/.config/environment.d && printf 'PATH="${PATH}:%s"\n' "$HOME/.local/share/JetBrains/Toolbox/scripts" >> ~/.config/environment.d/50-dev.conf
+  mkdir -p ~/.config/environment.d && printf 'PATH="${PATH}:%s"\n' "$HOME/.local/share/JetBrains/Toolbox/scripts" >> ~/.config/environment.d/990-dev.conf
   ```
 - **Antigravity** — download the Linux tarball and extract to `/opt/antigravity`:
 

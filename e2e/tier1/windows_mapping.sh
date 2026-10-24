@@ -12,12 +12,11 @@
 # about toggle state for months. See docs/regression_ledger.md.
 #
 # This check extracts the mappings independently in bash and compares. It needs PowerShell
-# 7, which on Windows is reachable from WSL through interop. Where PowerShell is absent the
+# 7, which the gate image carries. Where PowerShell is absent the
 # check says so and skips rather than silently passing.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-# Finding a runnable pwsh and converting a path for it are shared with windows_settings.sh, and both
-# are fiddly enough that a second copy would be the one that rots. See pwsh_probe.sh.
+# Finding a runnable pwsh is shared with windows_settings.sh. See pwsh_probe.sh.
 source "$(dirname "${BASH_SOURCE[0]}")/pwsh_probe.sh"
 # The pinned default Python compared at the bottom of this file is read through the shell end of
 # the pinned values port, which is the only thing allowed to read the pins. See setup/pinned_values.
@@ -62,17 +61,10 @@ if [[ -z "${PWSH}" ]]; then
     finish "Windows mapping parse"
 fi
 
-win_ps_file="$(to_windows_path "${PS_FILE}")"
-win_mapping="$(to_windows_path "${MAPPING_YAML}")"
-
-# Paths are interpolated into the script text rather than passed as environment variables,
-# because a WSL environment variable does not reach a Windows process unless it is listed in
-# WSLENV, so the env-var version silently handed PowerShell an empty path. Single-quoted
-# PowerShell strings take the backslashes literally, which is what a Windows path needs.
 ps_script="\$ErrorActionPreference = 'Stop'
 if (\$PSStyle) { \$PSStyle.OutputRendering = 'PlainText' }
-. '${win_ps_file}'
-\$m = Get-WindowsSoftwareMapping -WindowsMappingPath '${win_mapping}'
+. '${PS_FILE}'
+\$m = Get-WindowsSoftwareMapping -WindowsMappingPath '${MAPPING_YAML}'
 \$m.GetEnumerator() | Sort-Object Key | ForEach-Object {
     '{0} {1} {2} {3} {4} {5}' -f \$_.Key, \$_.Value.Manager, \$_.Value.Package, \$_.Value.Source, \$(if (\$_.Value.Scope) { \$_.Value.Scope } else { '-' }), \$(if (\$_.Value.InstallerType) { \$_.Value.InstallerType } else { '-' })
 }"
@@ -92,7 +84,7 @@ if [[ "${yaml_mappings}" == "${ps_mappings}" ]]; then
     pass "PowerShell and the YAML agree on all ${n_yaml} mappings, including manager, source, scope and installer type"
 else
     fail "the PowerShell parser disagrees with the YAML" \
-         "$(diff <(echo "${yaml_mappings}") <(echo "${ps_mappings}") | head -12 | tr '\n' ' ')"
+         "$(diff <(echo "${yaml_mappings}") <(echo "${ps_mappings}") | sed -n 1,12p | tr '\n' ' ')"
 fi
 
 # A mapping with no toggle is dead data, and a toggle the installer will never see. The one exception is a

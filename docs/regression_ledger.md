@@ -8,6 +8,34 @@ The older, pre-Ansible bash-script era of this repository (2022 to early 2024, t
 
 ---
 
+### Defect classes already introduced in this repository
+
+Every one of these was written by an agent working on this project, shipped, and then found by a pipeline or by the owner. They are listed by shape, because the shape is what recurs, and the entries further down hold the instances, dates, error text and fixes. [AGENTS.md](../AGENTS.md) and the folder rules beside the code refer to them by number, so a class keeps its number. Until 2026-10-23 this list lived in the root `AGENTS.md`, where every agent loaded it in every session. It moved here when that file was split, [decisions/0001_split_agents_md.md](decisions/0001_split_agents_md.md).
+
+1. Deleting a block at the end of a function took the next statement with it. Removing one product's install block took the whole function's `return` with it, so the function handed its caller nothing and the wizard died in the reporting code two files away from the deletion. When you delete a trailing block, read what is underneath it.
+2. The same rule implemented in two places, which then disagreed. Three machine conditions decided whether a package can install, and the winget path, the Chocolatey path and the verification each decided separately. One phase installed a package the other phase reported as not applicable, in the same run, and the run passed. If two phases must agree, they call one function.
+3. A vendor's support matrix treated as the installer's behaviour. Razer lists Windows 10 and 11 and no Server edition, so the package was marked client-only. It installs on Server and exits 0. A support matrix says what the vendor will support, not what the installer refuses to do. Measure the installer.
+4. `return @($list)` does not survive assignment in PowerShell. A one-element array unrolls to a bare string, and `.Count` on a string is a terminating error under `Set-StrictMode -Version Latest`. Wrap at the call site, `@(Get-Thing)`, never trust the function's own `@( )`.
+5. Two parsers reading the same file with different escaping rules. `vars/Windows.yaml` is read by Ansible, which unescapes a double-quoted YAML scalar, and by a PowerShell regex that takes the raw text. A path with backslashes arrived as one character in one and two in the other, and every `Test-Path` against it answered false. Use a separator that needs no escape.
+6. Splatting an array instead of a hashtable in PowerShell. An array splat supplies positional arguments with the dashes still attached, so `-NonInteractive` bound to the first positional parameter and the error named a parameter nobody had passed. Guarded now by `e2e/tier1/powershell_splat.sh`.
+7. A second entry point drifting from the primary one. The single-platform workflow could not bind its arguments, allowed 60 minutes for work the sweep gives 150, and never freed disk space. All three were things the sweep already did correctly, and all three were found within two hours of the first time anybody dispatched that workflow. Guarded now by `e2e/tier1/workflow_timeouts.sh` and `e2e/tier1/workflow_parity.sh`.
+8. A `changed_when` reading stdout for a message the tool writes to stderr. This one has five instances. pacman prints ` there is nothing to do` on stdout and `warning: <pkg> is up to date -- skipping` on stderr, and the condition read the wrong stream, so the task reported a change on every rerun. Run the tool twice and look at which stream each line comes out on.
+9. Batching independent downloads. A batch is one call with one exit code, so one failure loses the whole set and nothing can name the package that broke. It cost twenty-two flatpak applications on twenty of forty-eight cells, roughly thirty Homebrew casks twice in two days, and every package in a Chocolatey batch. Nothing in this project batches now, and `e2e/tier1/batched_managers.sh` fails on any manager that tries.
+10. A watcher that could go quiet. A background monitor wrote its state with a bash redirect to `/tmp` and read it back from Python, where that path resolves elsewhere, so it caught the exception and exited silently. An hour of ten-minute reports never happened and it looked identical to a run with nothing to report. Every branch of a watcher must emit, including its own failure.
+11. Measuring something adjacent to the failure instead of the exact thing it named. A log said one URL had timed out. A different Flathub path was fetched instead, answered 503, and that became "Flathub is down". The URL the error named answered 200 with 1.6 MB in 0.29 seconds. Take the identifier out of the failure and test that.
+12. Asserting a benefit without measuring it. Batching apt, dnf and pacman was defended on the grounds that the solver and the trigger phase run once instead of N times. Measured, it was worth at most about two per cent of a container scenario, inside run-to-run noise of the same size, and on one of the two sets looping was faster.
+13. Reading a queue state as progress when it was a block. A dispatched sweep sat at `pending` with no jobs, which is indistinguishable from a slow start, because `e2e-matrix.yml` has a concurrency group and another run of the same workflow was still open. Before dispatching a sweep, check whether one is already open and decide deliberately whether it still has anything to prove.
+14. Measuring the right thing at the wrong time. Both Windows download caches were listed on a developer machine and held 728 and 1,326 directories with no installer in either, which read as "nothing to free here". Chocolatey's own log said otherwise: it downloads to `%TEMP%\chocolatey\<package>\<version>`, installs from there and leaves the file, and the directory was empty only because Windows had cleaned its temporary directory over the following nineteen days, which a one hour job never gets. A listing taken days after the run says nothing about what the disk held during it.
+15. Trusting a subcommand to do what its name suggests. `choco cache remove` sounds like the command that empties the download cache and is not: asked directly, `choco cache --help` on 2.7.3 says it works on the User HTTP Cache and, when elevated, the System HTTP Cache, which is the NuGet metadata. Find out what a command really does before building on its name: read the tool's own documentation, or ask the tool itself inside a container, never by running it on the owner's computer, as the rule in [AGENTS.md](../AGENTS.md) requires.
+16. A test fake that is not found falls through to the real tool. A fixture play put its fake package managers on PATH under a directory that did not exist, so the removal it was testing ran the real `pacman -R --noconfirm opencode-desktop-bin` on the owner's machine, and only the missing root privilege stopped it. A check that drives anything able to remove or install must prove, under the exact environment it hands the code, that every command resolves to its fake before running it. Guarded now inside `e2e/tier1/opencode_switch_pass.yaml`.
+17. Two packages that each install cleanly and refuse each other. OpenCode desktop and Lens both ship Electron's chrome-sandbox, so both rpms claim the same /usr/lib/.build-id link and dnf refuses whichever comes second. Every name and every location check passed. A mapping whose rpm must leave a path out carries exclude_path, and e2e/tier2/rpm_file_conflicts.sh downloads the default Fedora set and fails on any path two packages claim. It runs only on a GitHub-hosted runner, in the sweep's stage 1, because its downloads filled the owner's Docker disk.
+18. A verification query that depends on something the run itself removes. A cache-only dnf query reads nothing after the playbook's own dnf clean all. Measure a verification query in the state the run leaves the machine in, not in the state a fresh container has.
+19. A verification that names what it covers in its own fixed list. verify_install.yaml listed the package managers it checks once, when it was written, and nothing compared that list with the managers the software installer dispatches, so snap and dnf_repo were installed and checked by nothing for two months, unnoticed only because no mapping used either. A list of what a check covers must be derived from, or compared with, the code it covers. Guarded now by the manager section of `e2e/tier1/verify_wiring.sh`.
+20. Text cut from a program's output on line feeds alone. On Windows the output ends every line with a carriage return, so each kept line carried it into the error message, and the Linux PowerShell in the gate never sees it because it rewrites redirected output line by line. Split command output on `'\r?\n'`, through `Get-CommandOutputTail` in `setup/windows/WindowsSoftware.ps1`.
+21. A pipe whose writer the kernel kills under pipefail. `yes | command` always reports 141, because `yes` is still writing when the reader exits, and a reader that stops early, `grep -q`, `grep -m` or `head`, does the same to a writer that still has output to send, at random. A check reported a guide line missing that was there (10.32, 10.190). Give a grep a here-string, `grep -q pattern <<<"$(producer)"`, end a pipe that wants the first lines in `sed -n 1,Np`, let an awk program keep a flag rather than call exit, and feed answers from a file. Guarded now by `e2e/tier1/sigpipe_pipelines.sh`, for e2e/ and setup/ (10.196).
+
+---
+
 ### Checklist before calling playbook work done
 
 1. If you touched anything that names a Linux group, a package name, or a service name, check whether that name is the same string on Debian, Fedora and Arch. If it is not, the mapping belongs in the per-distribution `vars/{OS}.yaml` dictionary, never hardcoded in a shared task file. This is the exact mistake in the Arch OpenRazer device group entry below.
@@ -32,7 +60,7 @@ Note added 2026-08-20: the coverage sentences below count seven scenarios, and t
 
 A harness under [e2e/](../e2e/) mechanises part of this checklist. Items 4 and 5 are fully covered by its tier 1 checks, which run in minutes and are proven to fail against the code from before each fix. Item 2 is covered by tier 2, in two halves that cover different things. The `vars/{OS}.yaml` dictionary names are resolved over HTTP for Arch, the Arch User Repository, Flathub, Homebrew, Chocolatey and winget, and deliberately not for apt or dnf, because most of those names come from repositories the playbook adds while it runs and resolving them beforehand would report healthy packages as missing. The names written directly into role task files are resolved for all four Linux families, apt and dnf included, inside the same pinned base images the tier 3 scenarios use, with the handful that genuinely need a run-time repository listed in [runtime_repo_packages.txt](../e2e/tier2/runtime_repo_packages.txt) rather than silently forgiven. So for apt and dnf, a stale name in a role is caught in seconds and a stale name in a dictionary is caught only by tier 3. Items 1 and 6 are covered by tier 3, which runs the real playbook in a container. Coverage there is uneven and worth stating exactly, because a green tier 3 is easy to read as more than it is. Arch has run all seven scenarios. Debian and Fedora have since also run the defaults scenario, on 2026-08-17: Fedora passed clean, Debian did not, failing on a balena-etcher dependency the container image cannot satisfy (`Dependency is not satisfiable: polkit-1-auth-agent|policykit-1-gnome|polkit-kde-1`, run `2026-08-17T10-13-03Z_debian_defaults`), an open finding not yet triaged. Ubuntu has run smoke and nothing else. So five of the seven scenarios remain something a person has to do by hand on Debian and Fedora, six on Ubuntu, and the desktop environment scenarios in particular have never run outside Arch. macOS has no container at all and Windows has never been run in one, its gate being a separate PowerShell entry point that needs a Docker daemon already serving Windows containers, which this project's machine is not and will not be. Items 3, 7, 8, 9 and 10 are not mechanised at all and remain review discipline.
 
-[AGENTS.md](../AGENTS.md) carries the mandatory recurring check for the upstream ansible-core deserialization bug referenced at the bottom of this ledger, and that file is the authoritative copy, this ledger only summarises it.
+[setup/ansible/ansible_architecture.md](../setup/ansible/ansible_architecture.md) carries the mandatory recurring check for the upstream ansible-core deserialization bug referenced at the bottom of this ledger, and that file is the authoritative copy, this ledger only summarises it. It lived in the root `AGENTS.md` until 2026-10-23.
 
 ---
 
@@ -2834,35 +2862,35 @@ service in the stack that needs the name. The standalone command needs the same 
 #### An export command in config.md naming a realm this stack has never had
 
 [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) told the reader to run
-`kc.sh export --realm pharma --file /tmp/pharma-realm-export.json`, and its user interface section said to select the
-realm to export, "pharma" in your case. This stack runs one realm and it is called `local`. Run verbatim against the
+`kc.sh export --realm <other-realm> --file /tmp/<other-realm>-realm-export.json`, with the realm of another project in
+place of `<other-realm>`, and its user interface section said to select that same realm to export. This stack runs one realm and it is called `local`. Run verbatim against the
 running container, the command does not half work or export something empty, it refuses:
 
 ```text
-ERROR: realm not found by realm name 'pharma'
+ERROR: realm not found by realm name '<other-realm>'
 ```
 
-The name came from the sibling Pharmacy project at `D:/Development/projekty-IT/Pharmacy`, along with the two files
+The name came from another of the owner's projects, along with the two files
 under [local-dev/auth/Keycloak/export/config](../local-dev/auth/Keycloak/export/config) that the command produces. The
 fix renames the realm inside both exports to `local` and points the documented commands at `--realm local`. The same
 run proves the corrected command works, `KC-SERVICES0035: Export finished successfully`, as does the unchanged full
 export.
 
 Renaming a realm inside a Keycloak export is not one string. Measured by exporting the real `local` realm out of the
-running container and diffing the shape against the pharma file, Keycloak writes the realm name into seven distinct
+running container and diffing the shape against the other project's file, Keycloak writes the realm name into seven distinct
 places: `"realm"`, the `default-roles-<realm>` role and both `realmRoles` lists that reference it, the `account` and
 `account-console` clients' `baseUrl` and `redirectUris` under `/realms/<realm>/account/`, the
 `security-admin-console` client's `/admin/<realm>/console/`, and in a full export the master realm's generated
 `<realm>-realm` management client and its `"<realm> Realm"` display name. The line numbers of those entries in the
-live `local` export and in the pharma export are identical, 357, 415, 429, 451, 456, 482, 487, 723 and 728, which is
+live `local` export and in the other project's export are identical, 357, 415, 429, 451, 456, 482, 487, 723 and 728, which is
 what proves they are generated from the realm name rather than chosen by a person. Names somebody chose keep their
-spelling on purpose: `pharmaApp-client`, `service-account-pharmaapp-client`, the `pharma-gateway` redirect URI and the
-`com.pharmacyclient.app` callback.
+spelling on purpose: the other project's own client, the service account user named after it, its gateway redirect
+URI and its mobile app callback.
 
 #### The documented copy step named a file no command in the same document produces
 
 Three lines below the export commands, the same file said `cp /tmp/realm-export.json /mnt/c/tmp/`. Neither export
-above it ever writes that path: the realm export wrote `/tmp/pharma-realm-export.json` and the full export writes
+above it ever writes that path: the realm export wrote `/tmp/<other-realm>-realm-export.json` and the full export writes
 `/tmp/full-export.json`. Proven by running both exports in the container and listing the directory, which holds
 `/tmp/local-realm-export.json` at 80637 bytes and `/tmp/full-export.json` at 254874 bytes and nothing called
 `realm-export.json`. The fix points the copy at the file the command above it actually writes. The destination
@@ -2876,7 +2904,7 @@ or directory`, which is the document's own stated precondition about mounted loc
 `nZUMlOQZufa5ljWW5hHXOtGKLn0mpTkN` appears once in
 `local-dev/auth/Keycloak/export/database/keycloak-dump.sql` (deleted in e8d4821)
 and zero times in either file under `export/config`. That mattered more after the rename than before it, because an
-export that now declares the realm `local` while carrying `pharmaApp-client` instead of `local-client` is exactly the
+export that now declares the realm `local` while carrying the other project's client instead of `local-client` is exactly the
 file a reader would go looking in. The fix names the dump, and both
 [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) and [AGENTS.md](../AGENTS.md) now say the
 exports are reference copies that nothing imports and that importing one would collide with what the dump creates.
@@ -4577,7 +4605,7 @@ How it was proven: `unshare -r bash -c 'echo "EUID=$EUID uid=$(id -u)"'` in WSL 
 
 Fix: the bash refusal now runs directly after `parse_args`, before the banner, so only `--help` answers as root. Both messages now say what to do: `ERROR: Do not run this script as root or with sudo. Run it as your normal user: ./setup.sh. It asks for your sudo password itself when a step needs it.` and `Do not run this script as Administrator. Open a normal PowerShell 7 window and run it there. It asks for administrator rights itself, one Windows prompt per step that needs them. Pass -AllowAdministrator only on a throwaway machine such as a CI runner.` The elevation question moved into `Test-IsAdministrator` so a test can mock it. The comment in [e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) that quoted the old Windows message was updated.
 
-Mechanical check: two. [wizard_root_refusal.sh](../e2e/tier1/wizard_root_refusal.sh) starts setup.sh as uid 0 through `unshare -r`, with a sudo stub first on PATH that records every call, and from Git Bash it re-runs itself inside WSL through [wsl_delegate.sh](../e2e/tier1/wsl_delegate.sh), whose WSL hop is now one function shared with the Ansible checks. Against a copy of setup.sh without the refusal it printed `FAIL ./setup.sh as root is refused with the message and nothing else runs`, with `sudo was called: sudo -n -k true` among the reasons, and `FAIL --print-command as root is refused as well, before it resolves anything`, with `exited 0 where the refusal exits 1`. Against a copy with the refusal back below the banner and `detect_os` it failed both cases on the banner. Four Pester tests under `Assert-NotAdmin in setup.ps1` in [WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) each failed against a copy made for it: without the `Write-Err` line, `Expected an exception ... to be thrown, but no exception was thrown`. Without the `-AllowAdministrator` branch, `Expected no exception to be thrown`. Without the elevation test, the normal run threw. With `Assert-AnsibleDir` moved ahead of `Assert-NotAdmin`, `Expected: 'Assert-NotAdmin' But was: 'Assert-AnsibleDir'`.
+Mechanical check: two. [wizard_root_refusal.sh](../e2e/tier1/wizard_root_refusal.sh) starts setup.sh as uid 0 through `unshare -r`, with a sudo stub first on PATH that records every call, and from Git Bash it re-runs itself inside WSL through `wsl_delegate.sh`, deleted on 2026-10-18 with every other route out of the gate container, whose WSL hop is now one function shared with the Ansible checks. Against a copy of setup.sh without the refusal it printed `FAIL ./setup.sh as root is refused with the message and nothing else runs`, with `sudo was called: sudo -n -k true` among the reasons, and `FAIL --print-command as root is refused as well, before it resolves anything`, with `exited 0 where the refusal exits 1`. Against a copy with the refusal back below the banner and `detect_os` it failed both cases on the banner. Four Pester tests under `Assert-NotAdmin in setup.ps1` in [WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) each failed against a copy made for it: without the `Write-Err` line, `Expected an exception ... to be thrown, but no exception was thrown`. Without the `-AllowAdministrator` branch, `Expected no exception to be thrown`. Without the elevation test, the normal run threw. With `Assert-AnsibleDir` moved ahead of `Assert-NotAdmin`, `Expected: 'Assert-NotAdmin' But was: 'Assert-AnsibleDir'`.
 
 #### 7.23 Three separate administrator checks on Windows, one rule in three places
 
@@ -6082,3 +6110,1435 @@ Fix: setup/windows/WindowsCustomInstalls.ps1 declares `$script:CustomInstallMapp
 Wrong turn worth keeping: the green tier 1 on a host without pwsh was taken as covering the PowerShell side, and it covers nothing there. A SKIP is not a pass.
 
 Mechanical check: e2e/tier1/windows_mapping.sh and e2e/tier1/windows_settings.sh, both proven to fail again when the declarations are removed, and only where pwsh runs.
+
+### Found while keeping OpenCode version 1 out of every way to pick a whole set, 2026-10-15 to 2026-10-18
+
+#### 10.101 Switching to OpenCode version 1 brought an old version 1 backup back
+
+Cause: when `opencode_use_v1` turned on, the switch moved the version 2 data folder aside and then moved the newest `opencode.v1-backup-<date>-<time>` folder back into `~/.local/share/opencode`, on Linux and macOS in roles/ai_tools/tasks/opencode_data.yaml and on Windows in setup/windows/WindowsCustomInstalls.ps1. The owner decided, as decision 55, that version 1 starts clean instead.
+
+Effect: version 1 opened whatever state it had been left in at the last switch away from it, rather than the empty folder the owner wants from a switch.
+
+How it was proven: e2e/tier1/opencode_switch.sh, rewritten to assert the clean start, reported `52 checks, 7 FAILED` against the old code and `52 checks, all passed` after the change. The Pester suite reported `failed=0` after it.
+
+Fix: roles/ai_tools/tasks/opencode_data.yaml and setup/windows/WindowsCustomInstalls.ps1. Switching to version 1 moves version 2 data to `opencode.v2-backup-<date>-<time>` and restores nothing. Switching back to version 2 still restores the newest version 2 backup. Nothing is deleted, so an earlier version 1 backup stays where it is and can be moved back by hand.
+
+Mechanical check: e2e/tier1/opencode_switch.sh and the OpenCode cases in e2e/tier1/windows/WindowsSoftware.Tests.ps1.
+
+#### 10.102 --software all and -Software all switched OpenCode to version 1
+
+Cause: both wizards set every checklist toggle true under `all`, and `opencode_use_v1` is a checklist toggle. A toggle that replaces one version with another is not software to add, so "all" turned a replacement on.
+
+Effect: `setup.sh --print-command --software all` printed `opencode_use_v1=true`, and Pester showed `Get-OpenCodeVersion` answering v1 after `Resolve-ToggleOverride -Baseline all`. A real run would have installed OpenCode version 1 and removed version 2.
+
+How it was proven: before the fix, `print-command resolution: 9 checks, 2 FAILED` and 5 failed Pester tests. After it, both passed.
+
+Fix: `ALL_SOFTWARE_KEEPS_OFF` in setup/setup.sh and `$AllSoftwareKeepsOff` in setup/setup.ps1, each naming `opencode_use_v1`. `--enable opencode_use_v1` and `-EnableKey opencode_use_v1` still turn it on. e2e/tier3/container.sh reads the same list through `wizard_all_software_keeps_off` in e2e/lib/common.sh, so the container scenarios expect the same answer.
+
+Mechanical check: e2e/tier1/print_command_resolution.sh, e2e/tier1/wizard_parse.sh, which also requires the two lists to be equal, e2e/tier1/selection_parity.sh, and the Pester cases in e2e/tier1/windows/WindowsSoftware.Tests.ps1.
+
+#### 10.103 Select-all in both checklists still ticked opencode_use_v1
+
+Cause: owner item 61. The gum `--no-limit` select-all in setup/setup.sh and the Out-ConsoleGridView select-all in setup/setup.ps1 tick every row, `opencode_use_v1` included, while 10.102 had made `--software all` leave it off. Two routes that both mean "install all" decided separately, which is defect class 2 in AGENTS.md, and 10.102 fixed only one of them.
+
+Effect: selecting every row in either checklist installed OpenCode version 1 and removed version 2, the same defect 10.102 had just closed for the command line.
+
+How it was proven: five mutant runs each failed against a copy of the tree without the fix: interactive_states.sh, wizard_parse.sh, Pester with `failed=2` and with `failed=1`, and print_command_resolution.sh with a profile.
+
+Fix: `select_all_leaves_off` and `select_all_note` in setup/setup.sh, and `Resolve-PickedSelection` and `Show-SoftwarePicker` in setup/setup.ps1. A full selection drops the keys in the keep-off list, the checklist says which ones above the rows, and ticking one of them in a partial selection still turns it on.
+
+Mechanical check: e2e/tier1/interactive_states.sh, e2e/tier1/wizard_parse.sh, which asserts both functions read the list, e2e/tier1/print_command_resolution.sh, which also fails on any file under setup/ansible/profiles/ turning on a key the list names, and e2e/tier1/windows/WindowsSoftware.Tests.ps1.
+
+### Introduced while keeping OpenCode version 1 out of every way to pick a whole set, 2026-10-15 to 2026-10-18
+
+#### 10.104 The wizard parse check read past the one-line PowerShell list
+
+Cause: introduced by an agent. e2e/tier1/wizard_parse.sh extracted the one-line `$AllSoftwareKeepsOff = @('opencode_use_v1')` with `sed -n '/start/,/)$/p'`. A sed range looks for its end only from the line after the start, so on a one-line array it ran on into `$LabelOverrides`.
+
+Effect: the check compared against `setup.ps1 $AllSoftwareKeepsOff: enable_hyperv opencode_use_v1 set_custom_wallpaper setup_wsl`, three keys the list does not hold.
+
+How it was proven: by the failing comparison above. Wrong turn worth keeping: before setup.ps1 had the list, the check said `not found`, and that was taken as the expected failure of a test written first, so the extraction had never been seen working on a real line.
+
+Fix: an awk extraction in e2e/tier1/wizard_parse.sh that prints from the opening line and stops on the first line ending in `)`, the same line when the array is on one line.
+
+Mechanical check: the check itself, proven against a mutant copy whose array is empty: `wizard parse: 26 checks, 1 FAILED`.
+
+#### 10.105 The print-command check ended silently on an empty grep under pipefail
+
+Cause: introduced by an agent and caught before shipping. e2e/tier1/print_command_resolution.sh assigned `resolved_false=$(keys_resolved_to ...)`, and when grep matched nothing the assignment returned non-zero, so under `set -euo pipefail` the script ended on that line.
+
+Effect: the run printed one PASS and no tally, which looks like a short check rather than a dead one, defect class 10 in AGENTS.md. With an empty `ALL_OFF_KEYS` it died instead with `ALL_OFF_KEYS[0]: unbound variable`.
+
+How it was proven: by the missing tally and the error text above, in the first runs of the new cases.
+
+Fix: `|| true` on both assignments, and one `OFF_PROBE="${ALL_OFF_KEYS[0]:-opencode_use_v1}"` with a default, in e2e/tier1/print_command_resolution.sh. The check asserts how many runs answered, so a run that never happens fails by count.
+
+Mechanical check: the tally assertion in the check itself.
+
+#### 10.106 A profile regex tripped the SIGPIPE check
+
+Cause: introduced by an agent. The profile case in e2e/tier1/print_command_resolution.sh matched a boolean with `(true|yes|True|on)`, and e2e/tier1/sigpipe_pipelines.sh reads a `yes` directly after a pipe-like `|` as a command feeding a pipeline.
+
+Effect: tier 1 failed with `e2e/tier1/print_command_resolution.sh feeds a command from \`yes\``.
+
+How it was proven: by that failure in the gate run.
+
+Fix: the alternation is `(true|True|on|yes)`, with `yes` last, in e2e/tier1/print_command_resolution.sh. The SIGPIPE check was not changed.
+
+Mechanical check: e2e/tier1/sigpipe_pipelines.sh, which caught it.
+
+### Found while moving every check into the gate container, 2026-10-15 to 2026-10-18
+
+#### 10.107 Tests ran on the owner's computer because the rule only forbade the ones that can change it
+
+Cause: every tier 1 check, tier 2 and the tier 3 driver ran as processes on whatever machine started e2e/run.sh. The rule in force forbade tests that install or remove software on the owner's computer and allowed the rest, and nothing in the harness stopped either kind.
+
+Effect: the gate's answer depended on the host's tools. From WSL the five PowerShell checks reported SKIP, and on 2026-09-02 47 assertions never ran under WSL. Entry 10.98 shows a host-run fixture reaching the real `pacman -R --noconfirm opencode-desktop-bin`.
+
+How it was proven: on 2026-10-15, inside the gate container, tier 1 ran 60 scripts with 498 passed, 1 skipped and 0 failed in 3:37, Pester reported `total=212 passed=204 failed=0 skipped=5`, tier 2 reported 24 passed and 1 skipped in 7:57, and tier 3 forced-failure on debian passed 6 of 6 with `QUEUE_EXIT=0`. A check started outside the gate printed `REFUSED` and exited 2 in three tested cases.
+
+Fix: decision 59, the gate container: e2e/gate/Dockerfile, e2e/gate/provision.sh, e2e/gate/entrypoint.sh, e2e/lib/gate.sh, e2e/lib/host.sh, the guard at the top of e2e/lib/common.sh, which refuses to run without both `E2E_INSIDE_GATE_CONTAINER=1` and the marker file `/etc/installationhelper-e2e-gate`, and the `gate_*` pins in setup/pinned_values/pinned_values.toml. On 2026-10-18, owner item 62 deleted the last routes out of the container: `e2e/tier3/queue.Dockerfile`, `wsl_delegate.sh` and the Windows parts of e2e/tier1/pwsh_probe.sh.
+
+Scope worth keeping: this container-only rule is specific to this repository, because its tests install and remove software. An agent also copied it into the owner's global rules for every project, which was wrong, and the owner removed it there on 2026-10-18.
+
+Mechanical check: the guard in e2e/lib/common.sh, which every check sources first.
+
+#### 10.108 The tier 2 probe bind-mounted a host temporary directory
+
+Cause: e2e/lib/package_probe.sh wrote its probe script into a `mktemp -d` directory and bind-mounted it into the distribution container. A bind mount is resolved by the Docker daemon on the host, so it works only when the harness and the daemon share a filesystem, which the gate container does not.
+
+Effect: inside the gate every probe answered `sh: 0: cannot open /probe/probe.sh: No such file`, so every apt and dnf name would have read as unresolved and been skipped rather than checked. The daemon also created an empty `root:root` `/tmp/tmp.DHNDd1Ctm4` on the host, which was removed.
+
+How it was proven: by the error text above in the first tier 2 run inside the gate.
+
+Fix: `probe_missing_in_image` in e2e/lib/package_probe.sh passes the script as the `sh -c` argument, so nothing is mounted. Tier 2 inside the gate then resolved Debian 29, Ubuntu 28, Fedora 31 and CachyOS 40 names.
+
+Mechanical check: `probe_missing_in_image` returns non-zero when the probe container did not run to the end, and tier 2 reports that as a named SKIP, `the <image> probe container did not run to the end, so nothing was resolved`, never as a pass.
+
+#### 10.109 The lent GitHub token was readable through docker inspect
+
+Cause: owner item 63. `gate_enter` in e2e/lib/gate.sh passed the lent gh login as `-e GH_TOKEN`, which Docker stores in the container's settings.
+
+Effect: `docker inspect e2e-queue` showed the token for as long as the stopped queue container was kept, and a queued container is kept on purpose so its status stays readable.
+
+How it was proven: after the fix, `token occurrences in docker inspect: 0` on a queued and on a foreground tier 2 run, the host token file gone after the read, and `PASS winget: all 77 manifest ids resolve ... via gh`.
+
+Fix: e2e/lib/gate.sh, e2e/lib/host.sh and e2e/gate/entrypoint.sh. `gate_lend_github_token` writes the token to a 0600 file, `gate_enter` mounts it read-only, and the entrypoint reads it into `GH_TOKEN` in its own process environment. A queued run deletes the host file once the entrypoint reports the read, a foreground run deletes it from an EXIT trap.
+
+Mechanical check: none in the gate. The proof is the `docker inspect` count above.
+
+### Introduced while moving every check into the gate container, 2026-10-15
+
+#### 10.110 A subagent ran tier 1 checks on the owner's computer
+
+Cause: introduced by an agent. On 2026-10-15 a subagent ran checks on the host before the container-only rule reached it: `bash e2e/tier1/opencode_switch.sh` three times, with its fake guard passing each time, print_command_resolution.sh about five times, each starting `setup.sh --print-command`, selection_parity.sh three times, wizard_parse.sh twice, `ansible-playbook --syntax-check` of site.yaml and verify_install.yaml, and one full host `bash e2e/run.sh`, which ended `EXIT=1` in 2:27.
+
+Effect: outputs went to the session scratch folder. The only side effect found on the machine was the modification time of `~/.ansible/tmp`.
+
+How it was proven: by the subagent's own record of the commands it ran and where their output went, and by inspecting the machine afterwards, which found the modification time above and nothing else. The one check that drives a package manager, opencode_switch.sh, proved its fakes resolved before every run, the guard added in 10.98.
+
+Fix: 10.107, the gate container, and the guard at the top of e2e/lib/common.sh that refuses any check outside it.
+
+Mechanical check: that guard.
+
+#### 10.111 A subagent deleted the owner's Docker images and restored the wrong one
+
+Cause: introduced by an agent. The same subagent as 10.110, measuring whether dash accepts `set -o pipefail`, ran `docker rmi debian:trixie ubuntu:24.04 ubuntu:26.04` on the owner's Docker. It then "restored" `debian:trixie` with `docker tag a29215f6a35e debian:trixie`, but `a29215f6` is trixie-slim, not the full image.
+
+Effect: `installationhelper-e2e-debian` was later rebuilt on the slim base. A second subagent saw the retag, at 22:57:25, without knowing its cause and pulled `debian:trixie` again, now `913f6706`, the full image at 185 MB. `ubuntu:26.04` was pulled again on 2026-10-15, and its bottom layer `sha256:f6e0e88dd8e1...` matches the base of `installationhelper-e2e-ubuntu`, so it is the same build. `ubuntu:24.04` stays deleted, because nothing uses it.
+
+How it was proven: by the image ids and layer digests above. The dash probe itself measured that `debian:trixie` and `ubuntu:26.04` accept pipefail and `ubuntu:24.04` refuses it.
+
+Wrong turn worth keeping: the second subagent recorded the retag as "observed and not explained". The explanation was the first subagent's wrong restore, and an unexplained change on the owner's machine is a question to ask, not a note to leave.
+
+Fix: the images were pulled again as above. Subagent briefs for this repository now forbid deleting or retagging Docker images.
+
+Mechanical check: none. This is review discipline.
+
+#### 10.112 The first gate image build could not read a pin
+
+Cause: introduced by an agent and caught before shipping. e2e/gate/provision.sh called `pinned_value` before the function that defines it was loaded.
+
+Effect: the first gate build failed with `pinned_value: command not found`, exit 127.
+
+How it was proven: by that build failure.
+
+Fix: `enter_gate` in e2e/gate/provision.sh sources e2e/lib/common.sh and calls `find_runnable_python`, which sources setup/pinned_values/pinned_values.sh, where `pinned_value` lives, before any pin is read.
+
+Mechanical check: the image build itself, which every gate run performs.
+
+#### 10.113 A queued gate run could report success it did not have
+
+Cause: introduced by an agent. Three defects of defect class 10 in AGENTS.md in the first `--queue`: e2e/lib/gate.sh printed `queued` and exited 0 even when `docker run` failed, `QUEUE_EXIT` was written only after the run finished normally, and the log was emptied only once the container had started, so a watcher in that moment read the previous run's `QUEUE_EXIT`.
+
+Effect: a queue that never started looked started, a queue that died left no status line, and a fresh queue could look finished with the last run's answer.
+
+How it was proven: after the fix, a failing queue run ended `QUEUE_EXIT=2` with the container `Exited (2)`, and a passing one ended `QUEUE_EXIT=0` with `Exited (0)`.
+
+Fix: e2e/lib/gate.sh empties the log before starting the container and fails when `docker run` fails, and e2e/gate/entrypoint.sh writes `QUEUE_EXIT=<status>` from an EXIT trap, so every ending writes it.
+
+Mechanical check: none in the gate. The two queue runs above are the proof.
+
+### Found while making vendor apt repositories follow the base release on Linux Mint and LMDE, 2026-10-18
+
+#### 10.114 Vendor apt repositories written under the derivative's own codename
+
+Cause: setup/ansible/roles/software_installer/tasks/debian_repos.yaml wrote the Docker, Tailscale and HashiCorp repositories with Ansible's `distribution_release`, which on Linux Mint and LMDE is the derivative's own `VERSION_CODENAME`, not the Ubuntu or Debian release the vendors publish. The path half, `ubuntu` or `debian` through `ih_base`, was already right.
+
+Effect: measured with ansible-core 2.21.5, `"ansible_distribution_release": "zara"` on Linux Mint 22.2 and `"gigi"` on LMDE 7. The rendered lines were `https://download.docker.com/linux/ubuntu zara stable`, `https://pkgs.tailscale.com/stable/debian/gigi.noarmor.gpg` and `https://apt.releases.hashicorp.com faye main`. download.docker.com, pkgs.tailscale.com and apt.releases.hashicorp.com answer 404 for zara, wilma, gigi and faye, while noble, trixie and bookworm answer 200.
+
+How it was proven: e2e/tier1/apt_vendor_repositories.sh failed 23 of 41 assertions against the old tree, and e2e/tier2/resolve_apt_repositories.sh failed all four Mint and LMDE fixtures with 4 of 5 locations missing.
+
+Fix: owner decision 66. One fact, `ih_apt_codename` in setup/ansible/tasks/derive_os_facts.yaml, takes `UBUNTU_CODENAME` on Ubuntu lineage or `DEBIAN_CODENAME` on Debian lineage, then `VERSION_CODENAME`, then Ansible's own release. It is read at setup/ansible/roles/software_installer/tasks/debian_repos.yaml:387, 599, 753 and 768 and at setup/ansible/roles/debian_core/tasks/main.yaml:23. New os-release fixtures `ubuntu-26.04`, `linux-mint-22.2` and `lmde-7` in e2e/tier1/os_release_fixtures/.
+
+Still open: none. Devuan (daedalus) still gets 404 at all three vendors, measured again on 2026-10-18 with `devuan/devuan:daedalus`, whose `/etc/os-release` carries `VERSION_CODENAME="daedalus"` and no `DEBIAN_CODENAME`. The owner decided on 2026-10-18 to document Devuan as unsupported for the Docker, Tailscale and HashiCorp repositories, and that now lives in the Requirements list of [setup/README_SETUP.md](../setup/README_SETUP.md) and in the Ubuntu or Debian repository path step of [docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md](manual/debian-ubuntu/debian_ubuntu_manual_install.md).
+
+Mechanical check: e2e/tier1/apt_vendor_repositories.sh in tier 1 and e2e/tier2/resolve_apt_repositories.sh in tier 2.
+
+#### 10.115 The manual HashiCorp line asked lsb_release
+
+Cause: docs/manual/debian-ubuntu/install.sh and its guide docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md wrote HashiCorp with `$(lsb_release -cs)`, while Tailscale and Docker in the same file already used `UPSTREAM_CODENAME`. The same rule decided in two places, defect class 2 in AGENTS.md.
+
+Effect: the derivative's own codename, zara or gigi, which apt.releases.hashicorp.com answers with 404, and on a machine without lsb-release an empty suite.
+
+How it was proven: the lsb_release assertion of e2e/tier1/apt_vendor_repositories.sh failed against HEAD.
+
+Fix: the `UPSTREAM_*` block moved above Terraform in docs/manual/debian-ubuntu/install.sh, and HashiCorp uses `${UPSTREAM_CODENAME}` in the script and the guide.
+
+Mechanical check: e2e/tier1/apt_vendor_repositories.sh.
+
+#### 10.116 The manual route installed Docker and never started it
+
+Cause: the three docs/manual/*/install.sh scripts and their guides installed Docker and added the user to the docker group but never ran `systemctl enable --now docker`, while the playbook's virtualization_config role does.
+
+Effect: on Fedora and Arch, whose packages do not start the daemon, `docker` fails with `Cannot connect to the Docker daemon` until the reader starts it by hand.
+
+How it was proven: the new assertions in e2e/tier1/manual_linux_install.sh failed for all three scripts and guides from HEAD.
+
+Fix: a guarded `sudo systemctl enable --now docker` in docs/manual/arch/install.sh, docs/manual/debian-ubuntu/install.sh and docs/manual/fedora/install.sh, and a code block in each of docs/manual/arch/arch_manual_install.md, docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md and docs/manual/fedora/fedora_manual_install.md.
+
+Mechanical check: e2e/tier1/manual_linux_install.sh.
+
+#### 10.117 Unguarded usermod and systemctl under set -e
+
+Cause: docs/manual/debian-ubuntu/install.sh:235 ran `sudo usermod -aG plugdev "${USER}"` with no guard, while docs/manual/fedora/install.sh had one, and all three scripts ran `sudo systemctl enable --now tailscaled` with no guard.
+
+Effect: under `set -e` a missing group or a tailscale that did not install ends the script before it prints the list of packages that did not install.
+
+How it was proven: e2e/tier1/manual_linux_install.sh named `229:sudo systemctl enable --now tailscaled` and `235:sudo usermod -aG plugdev "${USER}"` in the HEAD Debian script and the tailscaled line in the other two, `manual Linux install: 22 checks, 9 FAILED`.
+
+Fix: `|| printf '   Skipped: ...'` on each of those lines in the three docs/manual/*/install.sh scripts.
+
+Mechanical check: e2e/tier1/manual_linux_install.sh, which fails on any unguarded `usermod` or `systemctl` line.
+
+### Introduced while making vendor apt repositories follow the base release on Linux Mint and LMDE, 2026-10-18
+
+#### 10.118 The repository renderer ignored a task's when
+
+Cause: introduced by an agent and fixed before handing over. The first e2e/lib/render_apt_repositories.py ignored a task's `when`, so it rendered debian_core's `contrib` line for Ubuntu and Linux Mint too.
+
+Effect: `FAIL ubuntu-26.04: 1 of 6 repository and key locations do not exist https://deb.debian.org/debian/dists/resolute/InRelease`, a failure for a line the playbook never writes on Ubuntu.
+
+How it was proven: by that failure in e2e/tier2/resolve_apt_repositories.sh.
+
+Fix: e2e/lib/render_apt_repositories.py leaves a line out only when its own `when` reads only the case's facts and is false for them.
+
+Mechanical check: e2e/tier2/resolve_apt_repositories.sh, which caught it.
+
+#### 10.119 Shellcheck findings and task vars rendered in the wrong order in the new checks
+
+Cause: introduced by an agent and caught by the gate before handing over. The new checks carried three shellcheck findings, SC2034 twice and SC1073, and e2e/lib/render_apt_repositories.py rendered a task's vars in the wrong order, so a var that reads another one was rendered before the one it reads.
+
+Effect: tier 1 failed on the three shellcheck findings, and rendering the Docker repository failed with `'docker_apt_arch_map' is undefined`, the map defined at setup/ansible/roles/software_installer/tasks/debian_repos.yaml:605 and read at line 610.
+
+How it was proven: by those failures in the gate run.
+
+Fix: the three findings were fixed in the new scripts, and e2e/lib/render_apt_repositories.py renders a task's vars in as many passes as the task has vars, so a var that reads another resolves whatever order they are written in.
+
+Mechanical check: the shellcheck check in tier 1 and e2e/tier1/apt_vendor_repositories.sh, which caught them.
+
+#### 10.120 The Debian QasTools guide line handed three packages to one apt-get call
+
+Cause: introduced by an agent and caught by the gate before handing over. The new QasTools row in docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md was written as `sudo apt-get install -y qasmixer qashctl qasconfig`, one call for three packages, which is defect class 9 in AGENTS.md.
+
+Effect: tier 1 failed with `docs/manual/debian-ubuntu/debian_ubuntu_manual_install.md:211 hands qasmixer qashctl qasconfig to one apt-get call, so one package that fails loses all of them.`
+
+How it was proven: by that failure in the gate run.
+
+Fix: the row, and the matching row in setup/software.md, now loop over the three packages one per call, in the form the QEMU/KVM row already uses.
+
+Mechanical check: e2e/tier1/batched_managers.sh, which caught it.
+
+### Found while checking every package a toggle installs, 2026-10-18
+
+#### 10.121 The verification checked only the mapped package of a toggle that installs several
+
+Cause: role tasks installed more packages under a software toggle than its `software_mapping` entry names, from literal lists inside the roles, and setup/ansible/verify_install.yaml expected only the mapped package.
+
+Effect: six installs were unverified. `install_qastools` on Debian and Ubuntu checked qasmixer and not qashctl or qasconfig. `install_virt_manager` checked virt-manager and not the KVM stack on Debian (6 packages), Fedora (5) and Arch (5). `install_openrazer` did not check kernel-devel and kernel-headers on Fedora or the per-kernel headers on Arch.
+
+How it was proven: the new section of e2e/tier1/verify_wiring.sh against master without the fix failed `verification wiring: 19 checks, 7 FAILED`, first failure `setup/ansible/verify_install.yaml reads no os_dict.companion_packages, so every package a role installs beside a mapping is installed by the run and checked by nothing`. A copy without the `expected_native` step and a copy with the qastools list put back as literal names each failed `14 checks, 2 FAILED`. With the fix, tier 1 ran 542 checks with 0 failed, tier 2 resolved the companion names in debian:trixie, ubuntu:26.04, fedora:44 and cachyos, and an Arch forced-failure run reported `virt_manager installed pacman: virt-manager + qemu-full, libvirt, dnsmasq, nftables, virtiofsd`.
+
+Fix: owner decision 70. `companion_packages` in setup/ansible/vars/Debian.yaml, setup/ansible/vars/RedHat.yaml and setup/ansible/vars/Archlinux.yaml is the one list, read by the virtualization_config role, setup/ansible/roles/software_installer/tasks/custom_installs.yaml, setup/ansible/roles/software_installer/tasks/fedora_repos.yaml and setup/ansible/verify_install.yaml. The Arch kernel headers come from setup/ansible/tasks/dkms_header_packages.yaml, included by setup/ansible/roles/software_installer/tasks/arch_prereqs.yaml and by setup/ansible/verify_install.yaml. 22 allowance lines were removed from e2e/tier1/manual_linux_install_allowed.txt.
+
+Mechanical check: e2e/tier1/verify_wiring.sh.
+
+### Introduced while checking every package a toggle installs, 2026-10-18
+
+#### 10.122 The new companion check carried a second parser of the pinned values
+
+Cause: introduced by an agent and caught by the gate before handing over. The new companion check carried a regular expression capturing a name between double braces, the shape e2e/tier1/pinned_values.sh forbids outside the pinned values reader.
+
+Effect: tier 1 failed with `FAIL 1 second parser(s) of the pinned values, which is how the three the reader replaced started`, naming e2e/tier1/verify_wiring.sh.
+
+How it was proven: by that failure in the gate run.
+
+Fix: string operations and `str.isidentifier` instead of the regular expression.
+
+Mechanical check: e2e/tier1/pinned_values.sh, which caught it.
+
+### Found while running tier 3 ubuntu defaults, 2026-10-18
+
+#### 10.123 Ubuntu's /etc/environment replaced the PATH of the desktop session
+
+Cause: `dev_env_file` was `~/.config/environment.d/50-dev.conf`. systemd reads environment.d files in byte order of their names, and every supported distribution links /usr/lib/environment.d/99-environment.conf to /etc/environment. On Ubuntu that file assigns `PATH="/usr/local/sbin:...:/snap/bin"` without `${PATH}`, so it replaced every PATH entry 50-dev.conf had added.
+
+Effect: tier 3 ubuntu defaults 2026-10-18T14-42-50Z finished the playbook with `failed=0` and failed verification with `FAIL desktop session environment missing: PATH entry /home/lukk/Android/Sdk/platform-tools, PATH entry /home/lukk/fvm/bin, PATH entry /home/lukk/.sdkman/candidates/java/current/bin, PATH entry /home/lukk/.pyenv/bin, PATH entry /home/lukk/.local/share/JetBrains/Toolbox/scripts`, while every plain variable in the same file was present. Debian passed the same day with `all 14 variables and 5 PATH entries present`, because Debian's /etc/environment has no PATH line. A real Ubuntu desktop would start applications without the SDK, FVM, Java, Pyenv and Toolbox directories on PATH.
+
+How it was proven: the generator `30-systemd-environment-d-generator` under `env -i` in throwaway containers from the tier 3 images. Ubuntu 26.04 (systemd 259) with 50-dev.conf printed `PATH=/usr/local/sbin:...:/snap/bin` with the added entries gone, and Debian printed them. With 990-dev.conf, Ubuntu, Debian, Fedora, Arch and CachyOS all kept them. 100-dev.conf was also replaced on Ubuntu, which proves byte order rather than number order.
+
+Wrong hypotheses ruled out: the playbook not writing the entries (playbook.log lines 682, 969 and 1090 show CHANGED), and the verification parsing the quoting wrongly (the same parser passed on Debian).
+
+Fix: `dev_env_file` renamed to 990-dev.conf in setup/ansible/group_vars/all.yaml, a migration task at the end of setup/ansible/roles/env_variables/tasks/env_unix.yaml moving an old 50-dev.conf into `shell_layout_backup_dir`, and the manual pages and setup/configuration.md updated.
+
+Mechanical check: e2e/tier1/zshrc_env_block.sh assertion 5, proven against a copy with 50-dev.conf restored (one FAIL naming all three places, gate exit 1).
+
+Lesson: a vendor default file was read after ours. The order systemd reads files in is a per-distribution fact and must be measured on each.
+
+### Introduced while fixing the Ubuntu desktop session PATH, 2026-10-18
+
+#### 10.124 The main session inspected the owner's computer without being asked
+
+Cause: introduced by an agent. The main session wanted to know whether the owner's own CachyOS machine was affected by 10.123 and read his system files instead of asking.
+
+Effect: `grep PATH` over `~/.config/environment.d/*.conf` and `/etc/environment` and an `ls` of `~/.config/environment.d` ran on the owner's computer without his request. Nothing was modified, but the owner had forbidden any test or check on his system.
+
+How it was proven: the commands are in the session transcript, and the owner caught it.
+
+Fix: rule 4 of the section "MANDATORY: never run anything on the owner's computer for testing" in AGENTS.md now forbids any inspection of the owner's computer, read-only included, and tells an agent to ask the owner and give him the exact command to run himself.
+
+Mechanical check: none possible for a reading command. The preflight hook lets reads through, so the rule is the guard.
+
+### Found while verifying the packages of toggles with no mapping, 2026-10-18
+
+#### 10.125 Toggles whose packages only a role installs were verified by a service, a group or nothing
+
+Cause: role tasks installed packages under a toggle with no `software_mapping` entry from literal lists, and setup/ansible/verify_install.yaml expected only mapped packages, so 10.121's fix, which covered lists beside a mapping, never reached them.
+
+Effect: `install_docker` was verified by docker.service and the docker group only (5 packages on Debian and Fedora, 4 on Arch unchecked). `install_waydroid`, `install_snapper`, Fedora's `install_snapd`, macOS's `install_claude_desktop` and `setup_karabiner`, the Pyenv build dependencies, `setup_zsh`'s zsh, curl and git, `install_system_core`'s base packages, and `install_kde_plasma`'s and `configure_kde_plasma`'s packages were checked by nothing. Two defects found beside it: Ubuntu's KDE language pack install ran after the Debian list and reset `role_packages_missing`, so an Ubuntu sddm failure was never noticed (found by reading the task order, not measured), and the Arch manual route installed docker without docker-buildx, docker-compose and iptables.
+
+How it was proven: the extended e2e/tier1/verify_wiring.sh against HEAD without the fix failed `verification wiring: 50 checks, 38 FAILED`, naming each literal list and `setup/ansible/verify_install.yaml does not resolve a companion_packages key with no mapping`. With the fix tier 1 ran 561 checks with 0 failed and tier 2 resolved every new name in debian:trixie, ubuntu:26.04, fedora:44, cachyos, the Arch index and both Homebrew indexes.
+
+Fix: owner decision 71. `companion_packages` keys may name a toggle with no mapping in setup/ansible/vars/Debian.yaml, setup/ansible/vars/RedHat.yaml, setup/ansible/vars/Archlinux.yaml and setup/ansible/vars/Darwin.yaml, the roles read them, setup/ansible/verify_install.yaml expects them, setup/ansible/tasks/snapper_applicability.yaml decides Snapper's btrfs condition for both, and 20 role installs the verification cannot expect are named with their reason in e2e/tier1/unverified_role_installs.txt.
+
+Mechanical check: e2e/tier1/verify_wiring.sh.
+
+Still open: debian_core installs snapd on Debian regardless of `install_snapd`, an owner decision.
+
+### Found while running tier 3 arch defaults and auditing the tier 3 containers, 2026-10-18
+
+#### 10.126 A privileged test container shared the host kernel's binary format table, and one scenario's AppImageLauncher broke lens-bin in another
+
+Cause: e2e/tier3/container.sh started every scenario with `--privileged` and systemd as PID 1, so systemd's `proc-sys-fs-binfmt_misc.automount` mounted the host kernel's one binfmt_misc table inside the container. AppImageLauncher 2.2.0's deb and rpm register `:appimage-type2:M:8:AI\x02::/usr/bin/AppImageLauncher:` without the F flag, so the kernel looks for the interpreter in the filesystem of whoever starts an AppImage.
+
+Effect: tier 3 arch defaults 2026-10-18T15-34-31Z lost lens-bin on all four attempts with `/home/lukk/.cache/paru/clone/lens-bin/PKGBUILD: line 24: ./lens-2026.9.181013.x86_64.AppImage: cannot execute: required file not found` (e2e/runs/2026-10-18T15-34-31Z_arch_defaults/playbook.log:1997) and verification failed `FAIL native packages missing: lens-bin`. The entry came from the Debian and Ubuntu defaults scenarios of the same day, whose postinst ran `systemctl restart systemd-binfmt`, and it survived `docker rm -f`. The same mechanism flushed and rewrote the owner's own kernel table since at least 2026-10-15: the Debian and Ubuntu images at every boot through their python3 binfmt.d file, and AppImageLauncher on install.
+
+How it was proven: in a throwaway container under a private binfmt_misc instance created with `unshare --user --mount` and checked to hold 0 entries, the real Lens AppImage extracted with rc 0 against the empty table, and failed with exactly `cannot execute: required file not found`, rc 127, once the 2.2.0 entry was registered. `file` and `readelf -l` show a static-pie runtime with no interpreter.
+
+Wrong hypotheses ruled out: a missing makedepends such as fuse2 or zlib, a new lens-bin release (2026.9.181013-1 built in both 2026-10-15 arch runs), and a noexec build directory.
+
+Not fully explained: the 2026-10-15 09:57 arch build passed although the Fedora rpm wrote the same entry at 09:21.
+
+Fix: e2e/tier3/container.sh masks both binfmt units and systemd-binfmt.service, and e2e/tier3/host_state.sh fails the run if binfmt_misc is mounted. The owner was told to reboot to restore his kernel table.
+
+Mechanical check: e2e/tier1/container_isolation.sh, which fails 7 of 7 against c4f06c2.
+
+Lesson: a privileged container is not isolated from the kernel's global tables.
+
+#### 10.127 udev inside a privileged test container replayed events for every host device
+
+Cause: with /sys writable, systemd-udevd and systemd-udev-trigger.service ran in the container, and linux_crypto_hardware's `udevadm control --reload-rules` and `udevadm trigger` both succeeded.
+
+Effect: e2e/runs/2026-10-18T15-34-31Z_arch_defaults/playbook.log:2426-2433 shows "Reload udev rules" and "Trigger udev for currently-connected devices" both ok and "Report that the device rules are on disk but not yet active" skipped, which proves both exit codes were 0. A trigger writes a change event into the uevent file of every device under the host's /sys, so the owner's own udev re-ran its rules for every disk, network card, input and USB device.
+
+Wrong hypothesis kept: the role's comment in setup/ansible/roles/linux_crypto_hardware/tasks/main.yaml said a container has no udev daemon, which is false for a privileged one.
+
+Fix: five udev units masked by e2e/tier3/container.sh, the guard fails the run if one is active, the comment corrected, and e2e/manual_test_matrix.md covers the rules taking effect.
+
+Mechanical check: e2e/tier1/container_isolation.sh.
+
+#### 10.128 Test containers could change host sysctls, load host modules and add host swap
+
+Suspected, not yet measured.
+
+Cause: systemd-sysctl.service and Debian's procps.service apply sysctl.d at every container boot, and the kernel, vm and fs keys that are not namespaced are the host's. systemd-modules-load and the Docker, libvirt and Tailscale services load modules into the host kernel (setup/ansible/roles/virtualization_config/tasks/main.yaml:247-252 records libvirtd loading the legacy iptables modules). timesyncd, pstore and zram-setup act on the host clock, crash records and swap.
+
+How it will be proven: e2e/tier3/container.sh records modules, swaps and kernel, vm and fs sysctls at boot, after each pass and at collection, and fails the run naming every difference.
+
+Fix so far: the units are masked and the detector is in place. Real isolation is owner decision 76.
+
+Measured since: GitHub sweep run 39231000107 on 2026-10-19 showed that masking the units did not keep sysctl.d off the kernel, see 10.145.
+
+Mechanical check: e2e/tier1/container_isolation.sh.
+
+#### 10.129 Test containers ran in the host's cgroup namespace with the host's cgroup tree writable
+
+Cause: e2e/tier3/container.sh started every scenario with `--cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw` and no `container=` variable.
+
+Effect: the container's systemd could create and change cgroups outside its own. No specific damage was measured.
+
+How it was proven: by reading e2e/tier3/container.sh at c4f06c2, lines 453-454.
+
+Fix: `--cgroupns=private` with no bind, `-e container=docker`, and the guard requires `systemd-detect-virt --container` to print `docker`.
+
+Mechanical check: e2e/tier1/container_isolation.sh.
+
+### Found while confining tier 3 to throwaway machines, 2026-10-18
+
+#### 10.130 Tier 3 could start on the owner's computer at all
+
+Cause: nothing in e2e/run.sh, e2e/tier3/container.sh or e2e/lib/gate.sh asked what machine the privileged scenario containers would share a kernel with.
+
+Effect: the host kernel changes of 10.126 to 10.129, and owner decision 76: "nothing can do changes to my computer ! so vm or github action".
+
+How it was proven: on 2026-10-18 the probe in the gate container answered `systemd-detect-virt --vm  none` and `kernel release  7.2.9-2-cachyos` and exited 2, and `--queue --tier 3`, `--tier 3` and `container.sh ... --detach` each exited 2 with no queue container and no scenario container left.
+
+Fix: e2e/lib/throwaway_machine.sh, the probe in `gate_enter`, and the inner calls in e2e/run.sh and e2e/tier3/container.sh. They admit a GitHub-hosted runner (`GITHUB_ACTIONS=true`, `RUNNER_OS=Linux`, `RUNNER_ENVIRONMENT=github-hosted`) or a virtual machine named by `systemd-detect-virt --vm` that is not WSL 2, Docker Desktop or OrbStack. There is no override.
+
+Mechanical check: e2e/tier1/throwaway_machine_only.sh. It fails 1 of 1 against 0eee74c, 7 of 13 with only the library added, and each of eight weakened copies.
+
+Wrong turn kept: the first version of the check let an unrefused `--tier all` run the whole tier 1 gate, itself included, with no time limit. It now has a 30 second limit per route.
+
+### Found while running tier 3 fedora defaults, 2026-10-18
+
+#### 10.131 OpenCode desktop and Lens claimed the same build-id link, so dnf refused whichever installed second
+
+Cause: OpenCode desktop 2.0.29 and Lens both ship Electron's chrome-sandbox with the same build id, so both vendor rpms carry /usr/lib/.build-id/aa/c9a26d3d137c8cedbe1c3f2deab3edd8f39f43, pointing into /opt/OpenCode and /opt/Lens, and the dnf_url route could not leave a path out.
+
+Effect: `file /usr/lib/.build-id/aa/c9a26d3d137c8cedbe1c3f2deab3edd8f39f43 from install of opencode-2.0.29-1.x86_64 conflicts with file from package lens-2026.10.121159~latest-1.x86_64`, in tier 3 fedora defaults 2026-10-18T15-30-09Z and reproduced in fedora:44. Every tier 2 check passed, because each name and each location existed.
+
+How it was proven: e2e/tier2/rpm_file_conflicts.sh against the tree before the fix failed naming exactly that path, claimed by lens and opencode. The fixed route, run through the real setup/ansible/tasks/install_role_packages.yaml in fedora:44 with Lens present, gave changed=True and then changed=False, and `dnf remove -y opencode` left Lens's link in place.
+
+Options measured and rejected: `rpm --replacefiles`, after which every later dnf transaction touching Lens failed as a whole. A system-wide `%_netsharedpath` macro, after which no package gets build-id links any more. The AppImage, which the vendor starts with `--no-sandbox`.
+
+Fix: owner decision 73.1. `exclude_path` on the opencode_desktop mapping in setup/ansible/vars/RedHat.yaml, the rpm_url manager in setup/ansible/tasks/install_role_packages.yaml, the grouping in setup/ansible/roles/software_installer/tasks/dynamic_install.yaml, and `install_rpm_without` in docs/manual/fedora/install.sh and its guide.
+
+Mechanical check: e2e/tier2/rpm_file_conflicts.sh.
+
+### Found while settling owner decisions 74 and 75, 2026-10-18
+
+#### 10.132 debian_core installed snapd whatever install_snapd said, and snap mappings went to snap with snapd off
+
+Cause: the Debian install was gated on `ih_base != 'ubuntu'` only, and setup/ansible/roles/software_installer/tasks/dynamic_install.yaml sent snap mappings to snap without asking whether anything had installed it.
+
+Effect: `install_snapd` false still installed snapd on Debian. On Arch and Fedora a snap mapping would fail four times and end the run failed, which is latent because no mapping uses snap today. Nothing told the user what turning snapd off costs. This closes the open item at the end of 10.125.
+
+How it was proven: e2e/tier1/snap_dependents_summary.sh against HEAD failed 5 of 5, naming `Install snapd (Debian non-Ubuntu)` as installed without `install_snapd`.
+
+Fix: owner decision 74. setup/ansible/tasks/snap_availability.yaml and its use in dynamic_install.yaml, the `[WARN]` post task in setup/ansible/site.yaml, `companion_packages.snapd` in setup/ansible/vars/Debian.yaml read by debian_core under `install_snapd`, and `snap_dependents` and `snapd_note` in setup/setup.sh.
+
+Mechanical check: e2e/tier1/snap_dependents_summary.sh and e2e/tier1/snap_dependents_menu.sh.
+
+#### 10.133 The four GNOME installs were verified by nothing, and a machine that already had GNOME got no tooling
+
+Cause: setup/ansible/roles/gnome_setup/tasks/install_gnome.yaml installed literal lists only while /usr/bin/gnome-shell was absent, and picked the Debian metapackage by `ih_base` inside the task.
+
+Effect: gnome-tweaks, gnome-shell-extension-manager, the metapackage, @gnome-desktop and Arch's gnome group were never verified, and on a machine with GNOME already present the tooling was never installed.
+
+How it was proven: e2e/tier1/verify_wiring.sh against HEAD with only the four exception lines removed printed `verification wiring: 16 checks, 4 FAILED`.
+
+Fix: owner decision 75. `companion_packages.gnome` in the three Linux dictionaries, `lineage_companion_packages` in setup/ansible/vars/Debian.yaml merged by setup/ansible/tasks/load_os_dict.yaml, one install in install_gnome.yaml, and the group-aware installed query in setup/ansible/verify_install.yaml.
+
+Mechanical check: e2e/tier1/verify_wiring.sh rules 1 and 5.
+
+### Introduced while settling owner decisions 73.1, 74 and 75, 2026-10-18
+
+#### 10.134 The verification first read Fedora's groups from dnf's cache, which the playbook empties
+
+Cause: introduced by an agent. The query was `dnf -C group list`, while setup/ansible/site.yaml ends every Fedora run with `dnf clean all`.
+
+Effect: `Cache-only enabled but no cache for repository "fedora"`, exit 1, so @gnome-desktop would have read MISSING on every Fedora GNOME run.
+
+How it was proven: in fedora:44, with the group installed, `dnf clean all` run, and the query run as a normal user.
+
+Wrong hypothesis kept: that `-C` reads only local state.
+
+Fix: `--disablerepo='*'` in setup/ansible/verify_install.yaml.
+
+Mechanical check: none. Tier 3 gnome-full on fedora covers it.
+
+#### 10.135 The first rpm_file_conflicts listed nothing and would have passed vacuously without its guard
+
+Cause: introduced by an agent, who used dnf4 habits on dnf5. `repoquery --resolve` does not exist there, `--qf` does not expand `\t`, and rpm rejects a scalar tag inside an array iterator (`array iterator used with different sized arrays`).
+
+Effect: `all 0 vendor repository packages`, and the empty-listing guard failed it with `no file of any package was listed`.
+
+Fix: `--providers-of=requires`, space separators and `%{=NAME}` in e2e/tier2/rpm_file_conflicts.sh.
+
+Mechanical check: that guard.
+
+### Found while adding the rpm_url route, 2026-10-18
+
+#### 10.136 timeout_indirection matched an option ending in -timeout
+
+Cause: the pattern in e2e/tier1/timeout_indirection.sh accepted `-` before `timeout N`.
+
+Effect: `FAIL 1 task line(s) call the bare timeout command` on curl's `--connect-timeout 30` in the rpm_url route of setup/ansible/tasks/install_role_packages.yaml.
+
+Fix and proof: e2e/tier1/timeout_indirection.sh:61 excludes `-` before the word. The check passes on the tree and still fails on a planted bare `timeout 5 sleep 1`.
+
+### Found by GitHub sweep run 39168859916, 2026-10-19
+
+#### 10.137 Windows failure text kept a carriage return on every line it cut from a program's output
+
+Cause: five places in setup/windows cut the last two lines of a program's output with ``-split "`n"``, and on Windows `Out-String` and the file `Start-Process` redirects into end each line with CRLF, so every kept line kept its `\r`, which went into the Failure and Detail of every failed winget, npm and OpenCode desktop uninstall result.
+
+Effect: found by GitHub sweep run 39168859916 on 2026-10-18. The Windows unit tests job failed two tests that pass in the Linux gate: `Expected length: 110`, `Actual length: 112`, `Strings differ at index 33`, `But was: 'npm exited 1. npm error code E404\r (attempt 4 of 4; attempts 1, 2 and 3 said npm exited 1. npm erro...'`, and `Expected like wildcard '*3221225477 (attempt 4 of 4; attempts 1, 2 and 3 said exit 1.*3221225477)'` with a line break after each 3221225477. The first stage failing skipped every Linux scenario of that sweep. On a real machine the same `\r` reaches the run summary.
+
+How it was proven: in the gate image the old expression on CRLF input gave `npm error code E404\r npm error 404 Not Found\r`, `'x' | Out-String` on Linux is the bytes 120,10, and `Invoke-BoundedWinget` on Linux against a stub printing `\r\n` returned a line ending 55,10.
+
+Wrong hypothesis kept: that a Linux stub writing CRLF would reproduce it. It did not, because PowerShell on Linux rewrites redirected output line by line, which is also why the Linux gate never saw the defect.
+
+Fix: `Get-CommandOutputTail` in setup/windows/WindowsSoftware.ps1, splitting on `'\r?\n'`, called by all five sites: one in setup/windows/WindowsSoftware.ps1, three in setup/windows/WindowsNpmTools.ps1 and one in setup/windows/WindowsCustomInstalls.ps1.
+
+Mechanical check: `Describe 'Get-CommandOutputTail'` in e2e/tier1/windows/WindowsSoftware.Tests.ps1, which fails on Linux against the old split. Defect class 20 in AGENTS.md.
+
+### Found while settling owner decisions 79 to 82, 2026-10-19
+
+#### 10.138 Tier 3 admitted a virtual machine after the owner limited it to GitHub-hosted runners
+
+Cause: e2e/lib/throwaway_machine.sh from commit 4e7f9a6 (10.130) admitted any machine where `systemd-detect-virt --vm` named a hypervisor and the kernel was not WSL 2, Docker Desktop or OrbStack, while owner decision 79 says GitHub-hosted runners only.
+
+Effect: against HEAD 3ae27ec `throwaway_machine_verdict` answered `a KVM virtual machine: expected refuse, got admit` and three more like it, and `run.sh --tier 3` under a fake `systemd-detect-virt` answering `kvm` went on to call docker instead of exiting 2.
+
+How it was proven: e2e/tier1/throwaway_machine_only.sh against a copy of HEAD gave 24 checks, 21 FAILED. Against the finished tree with only the virtual machine route put back it gave 24 checks, 15 FAILED. Against the finished tree all 24 checks passed.
+
+Fix: the library reads only `GITHUB_ACTIONS`, `RUNNER_OS` and `RUNNER_ENVIRONMENT`, and the gate image no longer installs systemd. AGENTS.md, e2e/README_E2E.md, the specs under e2e/testing, the openspec change add-playbook-e2e-capability-tests and the headers of .github/workflows/e2e-manual.yaml and .github/workflows/e2e-matrix.yml no longer offer the virtual machine route. The Fix paragraph of 10.130 describes the route as it was then.
+
+Mechanical check: e2e/tier1/throwaway_machine_only.sh.
+
+#### 10.139 The verification checked a fixed list of package managers, and snap and dnf_repo were checked by nothing
+
+Cause: setup/ansible/verify_install.yaml was written with a fixed manager list, `ih_native_managers`, in e155568 on 2026-08-18. No check compared it with the managers the software installer dispatches, and no mapping used snap or dnf_repo, so nothing failed.
+
+Effect: setup/ansible/roles/software_installer/tasks/dynamic_install.yaml dispatches snap and dnf_repo, and setup/ansible/verify_install.yaml expected neither. From reading the report template, not measured, a requested snap or dnf_repo mapping that failed to install would have shown as installed. The new check against HEAD said `the software installer installs through dnf_repo and verify_install.yaml does not check it` and the same for snap. The owner asked why this was not checked before. The agents that extended the verification in 10.121 and 10.125 checked every package of a toggle but never asked whether every manager was checked.
+
+How it was proven: e2e/tier1/verify_wiring.sh with the new section against HEAD gave 15 checks, 2 FAILED, and 14 of 14 passed on the fix. `snap list` was measured in a non-privileged ubuntu:26.04 container: with no daemon it said `error: cannot list snaps: cannot communicate with server`, with the daemon started `No snaps are installed yet.` The format of a listed snap is taken from snap's documentation, because a container cannot mount a snap.
+
+Fix: dnf_repo in `ih_native_managers`, the `List installed snaps` task, `expected_snap`, `installed_snap`, `missing_snap` and the assertion `Assert every enabled snap application is installed`, named in every container spec under e2e/testing.
+
+Mechanical check: the manager section of e2e/tier1/verify_wiring.sh, which also compares setup/windows/WindowsSoftware.ps1 with setup/windows/WindowsVerify.ps1. Defect class 19 in AGENTS.md.
+
+#### 10.140 Fedora's @kde-desktop group was verified only through /usr/bin/plasmashell
+
+Cause: setup/ansible/roles/kde_plasma_setup/tasks/install_kde.yaml installed the group in a task of its own, and e2e/tier1/unverified_role_installs.txt excused it because rpm records a group under no name of its own.
+
+Effect: the verification never asked dnf whether the group was installed, only whether one binary from it was present.
+
+How it was proven: not by a failing check. No check failed before this change, because the exception in e2e/tier1/unverified_role_installs.txt was what let it pass.
+
+Fix: owner decision 81. `@kde-desktop` beside sddm in `companion_packages.kde_plasma` in setup/ansible/vars/RedHat.yaml, installed by the family-wide task in install_kde.yaml and found by setup/ansible/verify_install.yaml among the groups dnf records as installed, the same way as GNOME's @gnome-desktop in 10.133. The exception line is gone.
+
+Mechanical check: e2e/tier1/verify_wiring.sh, which now fails if the group install returns without a `companion_packages` entry or an exception line.
+
+### Introduced while settling owner decision 74, 2026-10-19
+
+#### 10.141 debian_core put snapd under install_snapd on Ubuntu, where snapd ships with the system
+
+Cause: introduced by an agent. Commit 0de82cc (10.132) gated the snapd install and the socket enable on `install_snapd` for the whole Debian family, Ubuntu lineage included, and the verification expected snapd from the playbook there.
+
+Effect: on Ubuntu with `install_snapd` false every requested snap mapping was skipped with `[WARN] Skipping install_<key>: it installs through snap, and install_snapd is off`, and the checklist read `Snapd: turning it off skips ...` on a machine that has snapd. With it true the playbook ran `apt-get install snapd` and enabled snapd.socket on a system that already manages both. Latent for applications, because no mapping uses snap. Owner decision 80: "ubuntu has snapd by default you dont need to install it and for sure shouldnt uninstall it".
+
+How it was proven: against HEAD e2e/tier1/snap_dependents_menu.sh failed 1 of 5 and e2e/tier1/snap_dependents_summary.sh failed 5 of 6, and both pass on the fix. A scan of 126 files under setup/ and docs/manual/ found nothing that removes snapd, before or after.
+
+Fix: `ih_snapd_with_system` in setup/ansible/tasks/snap_availability.yaml, read by debian_core, setup/ansible/roles/software_installer/tasks/dynamic_install.yaml, setup/ansible/verify_install.yaml and the `[WARN]` in setup/ansible/site.yaml, plus the Ubuntu branch of `snapd_note` in setup/setup.sh.
+
+Mechanical check: e2e/tier1/snap_dependents_summary.sh and e2e/tier1/snap_dependents_menu.sh.
+
+Still open: whether Pop!_OS and Linux Mint count as Ubuntu here, owner decision 84.
+
+### Found while settling owner decision 84, 2026-10-19
+
+#### 10.142 snapd was treated as part of the system on every Ubuntu-based distribution
+
+Cause: introduced by an agent. 10.141's fix keyed `ih_snapd_with_system` in setup/ansible/tasks/snap_availability.yaml on the Ubuntu lineage, `ih_family == 'Debian' and ih_base == 'ubuntu'`, and `snapd_note` in setup/setup.sh on `DEBIAN_LINEAGE`, which also covers Pop!_OS and Linux Mint, where snapd does not come with the system.
+
+Effect: on Pop!_OS a requested snap mapping would be sent to a snapd the playbook never installed, and the menu said snapd ships with the system. With `install_snapd` on, debian_core skipped the snapd install and the socket there. Latent for applications, because no mapping uses snap today. Owner decision 84: "i dont care about mint, pop can follow debian", so only Ubuntu itself counts, and Pop!_OS and Linux Mint follow `install_snapd` like Debian. This settles the point 10.141 left open.
+
+Not measured: whether Pop!_OS or Linux Mint ship snapd, and whether apt can install it on Linux Mint. The decision does not depend on either. Off the toggle, the playbook sends nothing to snap and names every skipped mapping, which is right whether snapd is there or not. On the toggle, the playbook asks apt for snapd, which changes nothing where snapd is already installed. The decision says which machines the playbook trusts to bring their own snapd, and the owner chose Ubuntu alone.
+
+How it was proven: a copy of the finished tree with commit c99ef74's lineage rule put back in setup/setup.sh and setup/ansible/tasks/snap_availability.yaml, run through `bash e2e/run.sh`. e2e/tier1/snap_dependents_menu.sh failed 1 of 5, `snapd_note does not follow the os-release ID`, naming `pop-os`, `linux-mint` and `linux-mint-22.2` with the note `Snapd: it ships with Ubuntu, ...`. e2e/tier1/snap_dependents_summary.sh failed 1 of 3, with `pop` and `linuxmint` deciding `IH_SNAP skipped= with_system=True` with the toggle off and on, and neither `[WARN]` naming `install_fixture_snap_wanted`. Every other check passed on that copy. A first version of the menu check stopped setting `DEBIAN_LINEAGE`, so on the same copy it failed on the `ubuntu` fixtures instead of on Pop!_OS and Linux Mint, because the old rule then saw no lineage at all. That proved nothing about the defect, and the check sets the lineage per fixture the way `detect_os` does again. On the finished tree both checks pass, 5 of 5 and 3 of 3.
+
+Fix: `ih_snapd_with_system` reads `ih_os_release_id`, the os-release ID setup/ansible/tasks/derive_os_facts.yaml already derives, and `snapd_note` in setup/setup.sh compares `OS_RELEASE_ID`, both against `ubuntu`. The comments in setup/ansible/tasks/snap_availability.yaml, setup/ansible/roles/debian_core/tasks/main.yaml, whose three snapd task names now say `Debian family, not Ubuntu itself`, setup/ansible/roles/software_installer/tasks/dynamic_install.yaml, setup/ansible/site.yaml, setup/ansible/verify_install.yaml and setup/ansible/vars/Debian.yaml, plus setup/software.md, e2e/README_E2E.md and items 64 and 65 of e2e/testing/10-wizard-toggle-parse-test.md say Ubuntu itself.
+
+Mechanical check: e2e/tier1/snap_dependents_menu.sh, whose assertion 5 now requires the note to name the snap application on every Debian-family fixture whose ID is not `ubuntu`, Pop!_OS and Linux Mint included, and e2e/tier1/snap_dependents_summary.sh, which now drives Pop!_OS and Linux Mint beside Debian and Fedora.
+
+### Introduced while diagnosing GitHub sweep run 39231000107, 2026-10-19
+
+#### 10.143 A subagent's unconfined container wrote kernel.sysrq on the owner's kernel
+
+Cause: introduced by an agent. While the sweep was being diagnosed, a subagent started a throwaway container on the owner's computer with seccomp, AppArmor and the system paths unconfined and ran `unshare --user --map-root-user --mount-proc` inside it. Docker on that computer does not remap users, so root in the container is the real root of the owner's kernel, and with the confinement switched off nothing stood between the two.
+
+Effect: the probe printed `init now: 16`, then its write of 1 returned rc=0, and kernel.sysrq on the owner's own kernel was 1 instead of 16. It was set back, `before: 1` `after: 16`. The owner had forbidden any test on his computer, and this one changed it.
+
+How it was proven: by the probe's own output, the three values above, read from the owner's kernel before the write, after it and after the restore.
+
+Lesson: on this Docker, root in a container is root of the host kernel. A container is only isolated by the confinement Docker adds, so any flag that removes some of it, or a namespace tool run inside it, hands the host kernel to whatever runs there. Whether a write reaches the kernel is a question for a GitHub-hosted runner, never for the owner's computer.
+
+Fix: rule 7 and incident 4 of the section "MANDATORY: never run anything on the owner's computer for testing" in AGENTS.md, which forbid `--privileged`, any `--security-opt`, `--cap-add`, `--pid host`, `--network host`, `--userns host`, `unshare`, `nsenter` and any write to /proc, /proc/sys or /sys in a container on the owner's computer.
+
+Mechanical check: e2e/tier1/host_container_privileges.sh, which fails on such a `docker run`, `docker create` or `docker exec` anywhere under `e2e/` apart from e2e/tier3/container.sh. Proven by running the gate on a copy of the finished tree with a `docker run` line carrying `--security-opt seccomp=unconfined` appended to e2e/tier2/resolve_packages.sh: `host container privileges: 2 checks, 1 FAILED`, naming e2e/tier2/resolve_packages.sh:665. The check also scans a planted tree first and must name exactly its 15 forbidden commands and none of its clean lines. A command typed by hand in a session is not under `e2e/`, so for that the rule is the guard.
+
+### Found by GitHub sweep run 39231000107, 2026-10-19
+
+#### 10.144 Masking systemd-binfmt.service failed AppImageLauncher on every Fedora job and broke dpkg on Debian, Ubuntu and Pop!_OS
+
+Cause: introduced by an agent. Commit 30ac5a8 (10.126) put systemd-binfmt.service into `MASKED_UNITS` in e2e/tier3/container.sh beside the two binfmt_misc units. AppImageLauncher 2.2.0's deb postinst and rpm `%post` end in `systemctl restart systemd-binfmt`, which fails against a masked unit.
+
+Effect: on Fedora `Failed to restart systemd-binfmt.service: Unit systemd-binfmt.service is masked.` then `warning: %post(appimagelauncher-2.2.0-travis995~0f91801.x86_64) scriptlet failed, exit status 1`, which failed every Fedora job. On Debian, Ubuntu and Pop!_OS dpkg was left half configured, `old appimagelauncher package postinst maintainer script subprocess failed with exit status 1`, and every later apt call failed on it: Docker, flatpak and 19 packages.
+
+How it was proven: the messages above are in the sweep's playbook logs. systemd-binfmt.service carries `ConditionPathIsMountPoint=/proc/sys/fs/binfmt_misc`, read from the unit file of systemd 262 in archlinux:base and cachyos/cachyos-v3, 259.9 in fedora:44 and 257.13 in debian:trixie, so with both binfmt_misc units masked a restart is skipped by the condition rather than registering anything. That the restart then exits 0 is systemd's documented behaviour for a failed condition and was not measured, because starting systemd in a container needs privileges the owner's computer must not give, so the next sweep proves it. The new assertion was proven on a copy of the finished tree with e2e/tier3/container.sh taken back to commit 80a8529, where it failed with `systemd-binfmt.service` named.
+
+Fix: e2e/tier3/container.sh no longer masks systemd-binfmt.service and keeps both binfmt_misc units masked, and e2e/tier3/host_state.sh still fails the run when /proc/sys/fs/binfmt_misc is mounted.
+
+Mechanical check: e2e/tier1/container_isolation.sh now fails when systemd-binfmt.service is masked, as well as when either binfmt_misc unit is not.
+
+Lesson: a mask is a promise to every package that its maintainer script will not need the unit. Before masking a unit, look for package scripts that restart it, and prefer a unit that its own condition keeps down.
+
+#### 10.145 Package managers applied sysctl.d to the runner's kernel although systemd-sysctl.service was masked
+
+Cause: 10.128, now measured. Fedora's systemd rpm file trigger and Arch's pacman sysctl hook run /usr/lib/systemd/systemd-sysctl directly when a package ships a sysctl.d file, so masking systemd-sysctl.service never stopped them, and a privileged container writes the host's kernel, vm and fs sysctls.
+
+Effect: e2e/tier3/host_state.sh failed the run under `host_isolation`. Arch defaults: kernel.sysrq 176 to 16, vm.max_map_count 262144 to 1048576, fs.inotify.max_user_instances, fs.inotify.max_user_watches, fs.aio-max-nr, fs.protected_regular, kernel.core_pattern and kernel.core_uses_pid changed, 32 sysctl lines in its result.txt. CachyOS adds kernel.split_lock_mitigate 1 to 0, 36 lines. Fedora: kernel.sysrq 176 to 16, vm.max_map_count, kernel.yama.ptrace_scope 1 to 0 and more, 28 lines. Ubuntu and Pop!_OS changed none. Those were the GitHub runner's kernels, but on the owner's computer the same runs would have changed his.
+
+How it was proven: the host state records of the sweep, compared by e2e/tier3/container.sh against the boot record.
+
+Fix: e2e/tier3/container.sh starts every scenario container under `--entrypoint /bin/sh`, which bind mounts /proc/sys read-only over itself, mounts /proc/sys/net back read-write, and then runs the image's own CMD, read with `docker image inspect`, as PID 1. That is the shape Docker gives a container that is not privileged. e2e/tier3/host_state.sh fails the run when /proc/self/mountinfo does not show /proc/sys read-only, and a failed mount stops the shell before systemd starts, which start_run reports with the container's own output in container-start.log.
+
+Not proven yet: the mount sequence needs a privileged container, so it was not tried anywhere on the owner's computer and can only be proven on a GitHub-hosted runner. The next sweep proves it or fails at boot.
+
+Mechanical check: e2e/tier1/container_isolation.sh now requires the read-only entry and the image's own CMD in container.sh and the mountinfo guard in host_state.sh. On a copy of the finished tree with e2e/tier3/container.sh and e2e/tier3/host_state.sh taken back to commit 80a8529, `container isolation: 12 checks, 3 FAILED`: the masked systemd-binfmt.service, the missing read-only entry with all four of its parts named, and the missing mountinfo guard, and nothing else. The finished tree passes 12 of 12.
+
+#### 10.146 CachyOS installed its kernel after the kernel headers step had already named the headers
+
+Cause: introduced by an agent. setup/ansible/roles/software_installer/tasks/dynamic_install.yaml included arch_prereqs.yaml, which names the headers of every installed kernel, before the pacman and AUR sets, an order from 82c55df. Commit b398841 then made setup/ansible/verify_install.yaml expect the headers of every kernel installed at the end of the run, through the same setup/ansible/tasks/dkms_header_packages.yaml. On CachyOS the software set brings a kernel: cachyos-gaming-applications needs cachyos-gaming-meta, then winetricks, wine and ntsync-autoload, which needs NTSYNC-MODULE, which linux-cachyos provides.
+
+Effect: the CachyOS defaults and gnome-full cells failed verification with `FAIL native packages missing: linux-cachyos-headers`, and the package report read `openrazer MISSING pacman: openrazer-daemon + linux-cachyos-headers (beside it NOT installed: linux-cachyos-headers)`.
+
+How it was proven: the chain was resolved with `pacman -Sp --print-format "%n" cachyos-gaming-applications` and `pacman -Sii ntsync-autoload` in a plain cachyos/cachyos-v3 container, which listed linux-cachyos, wine and ntsync-autoload and `Required By : wine wine-staging`. The sweep's package log shows `installing linux-cachyos...` during the pacman set. Arch's 70-dkms-install.hook, read from the dkms package in archlinux:base, triggers on `usr/lib/modules/*/build/include/` as well as on `usr/src/*/dkms.conf`, so headers installed after openrazer-driver-dkms still build the module.
+
+Fix: the include moved after the AUR set, before the Snap packages, and the comments in arch_prereqs.yaml and setup/ansible/tasks/dkms_header_packages.yaml say why.
+
+Not proven yet: the order is proven by the next CachyOS cell of a sweep, not locally, because it needs the CachyOS defaults scenario.
+
+Mechanical check: none below tier 3. Only a run that installs the software set can show that it brings a kernel.
+
+#### 10.147 CachyOS lists every member of the gnome group twice, so the installed group read as missing
+
+Cause: introduced by an agent. Commit 0de82cc made setup/ansible/verify_install.yaml count an Arch group as installed when `pacman -Sgq "$group" | sort` equals `pacman -Qgq "$group" | sort`. A group carried by two repositories is listed once per repository by `pacman -Sgq`, and CachyOS carries gnome in its own repository and in extra.
+
+Effect: the CachyOS gnome-full cell failed `FAIL native packages missing: linux-cachyos-headers, gnome` with every member of gnome installed.
+
+How it was proven: in a plain cachyos/cachyos-v3 container, `pacman -Sgq gnome` printed 96 lines for 58 members. After `pacman -S --noconfirm --needed gnome` in the same container, `pacman -Qgq gnome` printed 58 lines, the comparison as committed answered missing and the comparison with `sort -u` on both sides answered installed.
+
+Fix: `sort -u` on both sides of the comparison in setup/ansible/verify_install.yaml, with the measurement in its comment.
+
+Mechanical check: none below tier 3, which is what caught it.
+
+#### 10.148 Fedora switched to iptables-legacy and loaded the legacy iptables modules into the runner's kernel
+
+Cause: setup/ansible/vars/RedHat.yaml listed the libvirt and Docker companion packages without iptables-nft, so dnf answered the iptables they need with iptables-legacy, and the iptables alternative went to xtables-legacy-multi.
+
+Effect: on the runner kde-full installed iptables-nft and loaded no legacy module. defaults, kde-configure-only, gnome-full and all-software installed iptables-legacy and loaded ip6_tables, ip6table_filter, ip6table_nat, iptable_filter and iptable_nat into the runner's kernel, which e2e/tier3/host_state.sh named as 10 module lines in the defaults and gnome-full result.txt files.
+
+Wrong hypothesis kept: iptables-nft anywhere in the Docker list was enough. Measured false: in a plain fedora:44 container, with the libvirt set as committed and then the Docker set with iptables-nft last, iptables-legacy stayed installed beside iptables-nft and the alternative stayed on xtables-legacy-multi.
+
+How it was proven: in plain fedora:44 containers, installing virt-manager and the libvirt set and then the Docker set from download.docker.com one package per call, as virtualization_config does. In the committed order iptables-legacy was installed after the libvirt set and the alternative was xtables-legacy-multi for iptables and ip6tables. With iptables-nft first in both lists iptables-legacy was not installed after either set and the alternative was xtables-nft-multi for both.
+
+Fix: owner decision 85. iptables-nft is first in `companion_packages.virt_manager` and `companion_packages.docker` in setup/ansible/vars/RedHat.yaml, so setup/ansible/verify_install.yaml expects it too. docs/manual/fedora/install.sh and docs/manual/fedora/fedora_manual_install.md put it first in the same two lists, because e2e/tier1/manual_linux_install.sh failed both without it, `does not install mappings that are on by default in vars/RedHat.yaml: iptables-nft`.
+
+Mechanical check: e2e/tier2 resolves the new name on fedora:44, and e2e/tier1/manual_linux_install.sh holds the manual guides to the lists. The order itself has no check below tier 3, where host_state.sh names a loaded legacy module.
+
+### Introduced while applying 10.143 to 10.148, 2026-10-19
+
+#### 10.149 wizard_root_refusal.sh tried a user namespace inside the gate container, and an agent ran a syntax check on the owner's computer
+
+Cause: two defects, both introduced by agents. First, e2e/tier1/wizard_root_refusal.sh, written on 2026-10-11 for 7.22, tried `unshare -r` before passwordless sudo to start setup.sh as uid 0, and it runs inside the gate container on the owner's computer, where rule 7 of the section "MANDATORY: never run anything on the owner's computer for testing" in AGENTS.md, added by commit 8c521fb, forbids unshare or any namespace tool inside a container. Second, on 2026-10-19 the agent applying 10.143 to 10.148 ran `bash -n` on the host against four changed scripts, a read-only syntax check that rule 1 of the same section says runs only inside the container.
+
+Effect: nothing was reached and nothing changed. The gate container runs under Docker's default seccomp profile, which refuses an unprivileged user namespace, so the `unshare -r` probe failed quietly and the check fell back to sudo every time: `PASS the wizard is started as uid 0 through passwordless sudo`. The `bash -n` run only parsed the four files. Both still broke the owner's rules, the first on every gate run since rule 7 existed.
+
+How it was proven: e2e/tier1/host_container_privileges.sh, widened as below, was run by `bash e2e/run.sh` over the tree where wizard_root_refusal.sh still carried the route and reported `host container privileges: 5 checks, 5 FAILED`, naming e2e/tier1/wizard_root_refusal.sh:42, :44, :45 and :52 (the fifth failure was the planted expectation, whose line numbers were then corrected). The scanner from 10.143 had missed it because it read only `docker run`, `docker create` and `docker exec` lines. The `bash -n` run is known from the applying agent's own session, not from a measurement.
+
+Fix: wizard_root_refusal.sh starts the wizard as uid 0 through passwordless sudo and nothing else, and reports SKIP without it. Its assertions are unchanged. e2e/tier1/host_container_privileges.sh now also fails on `unshare` or `nsenter` on any line under `e2e/` outside a comment and outside the check itself, e2e/tier3/container.sh included. e2e/README_E2E.md and capability 45 and 66 of e2e/testing/10-wizard-toggle-parse-test.md say so.
+
+Mechanical check: e2e/tier1/host_container_privileges.sh, whose planted tree now carries a bare `unshare -r`, a bare `nsenter`, one in a markdown fenced block and one in a planted container.sh, beside a commented one and the word unshared that it must not name, 19 findings in all. A command typed by hand in a session, such as the `bash -n` run, is not under `e2e/`, so for that the rule is the guard.
+
+### Found by GitHub sweep run 39260381281, 2026-10-20
+
+#### 10.150 sdkmanager installed three SDK packages in one call with no retry
+
+Cause: setup/ansible/roles/sdk_manager/tasks/android_sdk_unix.yaml handed `platforms;android-<level>`, `build-tools;<version>` and `platform-tools` to one sdkmanager call with no `until`. setup/windows/WindowsCustomInstalls.ps1 handed the same three to one call inside its retry. e2e/tier1/batched_managers.sh did not read sdkmanager as an install, and its tokenizer cut `"platforms;android-36"` at the quoted semicolon, so it could not have named the batch even if it had.
+
+Effect: the Pop!_OS KDE configure cell failed with `Warning: An error occurred while preparing SDK package Android SDK Platform-Tools: Error reading Zip content from a SeekableByteChannel.` on the only attempt, and nothing could say whether the other two packages had installed. The same file downloaded later in a plain python:3.14-slim container was 9054187 bytes and `testzip` found no bad member, so the bad download itself was a one-off. The defect is that one bad download had no second attempt and took two other packages with it.
+
+How it was proven: ansible-core 2.21.5 `task_executor.py` polls the async job inside the attempt loop before `until` is checked. In python:3.13-slim, a looped async task with `until` on `rc` retried each item on its own on ansible-core 2.19.4, 2.20.1, 2.20.7 and 2.21.5. The real task file run against a fake sdkmanager called each package on its own, retried the failing one and named it.
+
+Fix: one sdkmanager call per package in android_sdk_unix.yaml, `retries: 3` and `delay: 20` through `until`, and every package still missing after four attempts goes into `not_installed_with_reason` and sets `any_role_failed`, with what sdkmanager said in the `[ERROR]` line. On Windows, `Install-AndroidSdkPackageSet` in setup/windows/WindowsCustomInstalls.ps1 runs each package through `Invoke-InstallStepWithRetry` on its own.
+
+Mechanical check: e2e/tier1/batched_managers.sh now reads sdkmanager as an install and keeps a quoted semicolon inside its argument. It failed at HEAD naming the task. e2e/tier1/package_retry_rule.sh now lists sdkmanager among the managers with no index, which must retry three times twenty seconds apart, and it failed on a copy without `until`. The Pester block `Install-AndroidSdkPackageSet runs sdkmanager once per package` in e2e/tier1/windows/WindowsSoftware.Tests.ps1 failed 3 of 3 against a copy that batched.
+
+#### 10.151 Chocolatey exit 0 without installing anything counted as success
+
+Cause: `Install-ChocolateyPackage` in setup/windows/WindowsSoftware.ps1 treated `choco install` exit 0 as success, and Chocolatey 2 exits 0 with `Chocolatey installed 0/0 packages.` when the feed answers 503. Behind it, `[int]$retry.Outcome.ExitCode` turned a missing exit code into 0, so the elevated child exited with that 0 for a failed package. docs/manual/windows/install.ps1 trusted exit 0 the same way. This is defect classes 8 and 15 again: trusting what a tool reports instead of what it did.
+
+Effect: in the Windows all apps job, `Failed to fetch results from V2 feed at 'https://community.chocolatey.org/api/v2/Packages(Id='dart-sdk',Version='3.13.5')' ... 503 (Service Unavailable).` was followed by `Chocolatey installed 0/0 packages.` and `choco exited 0 for dart-sdk`. dart-sdk, filezilla, glasswire, hwinfo.install and razer-synapse-4 were missing at the end, and none of them was retried. The exact URL from that line answered `200 5559 0.21s` afterwards, so the 503 was temporary and the defect is in our trust of the exit code, not in the feed.
+
+How it was proven: Pester fakes that print `Chocolatey installed 0/0 packages.` and exit 0. Ten new or changed cases in e2e/tier1/windows/WindowsSoftware.Tests.ps1 failed against the old code and pass against the fix.
+
+Fix: exit 0 counts only when `choco list --local-only --limit-output --exact <id>` names the package. Otherwise the attempt fails with `choco exited 0 and does not list <id> as installed` and the last line Chocolatey printed, and the shared retry with its cache refresh runs. The `[int]` cast is gone, the elevated child exits 1 for a failed package whose code is 0 or missing, and docs/manual/windows/install.ps1 applies the same test.
+
+Not proven yet: whether Chocolatey 2 accepts `--local-only` was not measured here. The next Windows run of a sweep shows it, and a refusal there would show as every Chocolatey package failing with `does not list <id> as installed`.
+
+Mechanical check: the Pester cases above, in the `Install-ChocolateyPackage`, `Install-ChocolateyPackageBatch` and `docs/manual/windows/install.ps1 follows the same retry rule` blocks.
+
+#### 10.152 The Flatpak "reported success" warning named applications whose install had failed
+
+Cause: `flatpak_absent_after_install` in setup/ansible/roles/software_installer/tasks/dynamic_install.yaml took every requested application flatpak does not list and did not remove `flatpak_reported_failures`.
+
+Effect: `[WARN] Flatpak reported success and does not list these applications` named applications that a few lines earlier had already been reported failed after four attempts, which sends the reader to check a mapping that is not wrong.
+
+How it was proven: the three shipped tasks, lifted out of dynamic_install.yaml unchanged and run against a fixture, gave `absent=org.example.FailedLoudly,org.example.Silent` at HEAD and `absent=org.example.Silent` with the fix.
+
+Fix: `| difference(flatpak_reported_failures | default([]))` in the same expression. Every kind of Flatpak failure, which decides `any_role_failed`, still holds both kinds.
+
+Mechanical check: e2e/tier1/flatpak_absent_warning.sh, capability 67 in e2e/testing/10-wizard-toggle-parse-test.md, which lifts the same three tasks by name and fails when the warning names a reported failure or when a silent loss is no longer counted as failed.
+
+#### 10.153 An agent inspected the owner's computer while diagnosing the sweep
+
+Cause: introduced by an agent. On 2026-10-20 the agent diagnosing sweep 39260381281 ran `ls /sys/kernel/security 2>/dev/null | head -0` on the owner's computer, appended to a grep, to understand the Pop!_OS GNOME firefox snap failure.
+
+Effect: it printed nothing and changed nothing. Rule 4 of the section "MANDATORY: never run anything on the owner's computer for testing" in AGENTS.md forbids any inspection of the owner's computer, a read-only one included, so it broke the owner's rule all the same. It is the same shape as 10.124 and as the `bash -n` run in 10.149.
+
+How it was proven: by the command in the diagnosing agent's own session, not by a measurement.
+
+Fix: every subagent brief now names `ls`, `cat`, `grep` and any read of /sys, /proc and /etc on the host as forbidden, beside the rule that only git, file edits inside the repository and `bash e2e/run.sh` run there.
+
+Mechanical check: none. A command typed by hand in a session is not under `e2e/`, so for that the rule and the brief are the guard.
+
+### Introduced in commit 9355aa4 and found by GitHub sweep run 39260381281, 2026-10-22
+
+#### 10.154 A read-only /proc/sys in tier 3 failed every Flatpak that applies extra data
+
+Cause: introduced by an agent in commit 9355aa4, which started every tier 3 scenario container under `--entrypoint /bin/sh`, made `/proc/sys` read-only apart from `/proc/sys/net` before systemd, and made e2e/tier3/host_state.sh fail the run when `/proc/self/mountinfo` did not show it read-only. bubblewrap opens `/proc/sys/user/max_user_namespaces` for writing inside its own user namespace whenever flatpak passes it `--disable-userns`, which it does to run an application's extra data script, so that open failed.
+
+Effect: `bwrap: cannot open /proc/sys/user/max_user_namespaces: Read-only file system`, followed by `Error: Failed to install com.usebruno.Bruno: While trying to apply extra data: apply_extra script failed, exit status 256`, in the package log of every cell that installs these applications on all six distributions of GitHub sweep run 39260381281. Bruno, Postman, Slack, Spotify and Zoom were NOT installed. openh264 failed the same way but only as `Warning: Failed to install org.freedesktop.Platform.openh264`.
+
+How it was proven: GitHub sweep run 39231000107, the last one before 9355aa4, installed com.usebruno.Bruno on all six live-profile cells, Arch, CachyOS, Debian, Fedora, Pop!_OS and Ubuntu, with no bwrap line in any of them. The bubblewrap source (containers/bubblewrap, bubblewrap.c) opens `sys/user/max_user_namespaces` with `O_WRONLY` under `opt_disable_userns` and dies with exactly `cannot open /proc/sys/user/max_user_namespaces`, and flatpak's common/flatpak-run.c adds `--disable-userns`.
+
+Wrong turn kept: the `lseek error in child setup` lines next to each bwrap line looked like part of the failure. They are noise: they appear in 2 of the 6 passing live-profile cells of sweep 39231000107 too, beside a Bruno that installed.
+
+Fix: owner decision 86. e2e/tier3/container.sh starts the container under the image's own CMD again, with no `PROC_SYS_READ_ONLY_ENTRY`, and host_state.sh no longer guards `/proc/sys`. A kernel setting or a loaded module that differs from the boot record is now reported in result.txt under a second `host_isolation:` line as information only, through `host_isolation_information`, and does not fail the run, because tier 3 runs only on a GitHub-hosted runner that is thrown away and those settings are the distribution's own defaults a real install applies too. A guard breach, binfmt_misc mounted included, a changed swap area and a missing record still fail it through `host_isolation_findings`. container.sh, e2e/README_E2E.md and the tier 3 paragraph of AGENTS.md now say plainly that the containers are privileged and change the kernel of the machine running them, which is why tier 3 refuses anywhere but a GitHub-hosted runner and must never run on the owner's computer.
+
+Mechanical check: e2e/tier1/container_isolation.sh, capability 62 in e2e/testing/10-wizard-toggle-parse-test.md, now fails when the read-only sequence, an `--entrypoint` or the mountinfo guard comes back, and drives `host_isolation_findings` and `host_isolation_information` over fixture records to require a changed sysctl or module to be information and a breach or changed swap area to be a finding. Against a copy of the tree at 674e8b0 carrying only the new check it failed 2 of 10, and against a copy of the finished tree with the mountinfo guard back and `host_isolation_findings` failing on every difference it failed exactly those 2 of 15. It is the check that let 9355aa4 through, because it required the read-only sequence, and no tier 1 check can run a Flatpak's extra data script.
+
+### Found by GitHub sweep run 39260381281, 2026-10-22
+
+#### 10.155 10.148 put iptables-nft in the wrong lists, and tailscale pulled iptables-legacy first
+
+Cause: 10.148 put iptables-nft first in `companion_packages.virt_manager` and `companion_packages.docker` in setup/ansible/vars/RedHat.yaml. The first package of the Fedora run that needs iptables is tailscale from tailscale-stable, which the software set installs long before virtualization_config reaches either list, so dnf answered it with iptables-legacy.
+
+Effect: in the defaults-fedora artefact, installation-packages.log lines 3000 to 3006 show tailscale 1.104.1 installed with iptables-legacy, iptables-legacy-libs and iptables-libs as dependencies, and iptables-nft came only at line 5478. Six Fedora cells, defaults, all-software, forced-failure, gnome-full, idempotency and kde-configure-only, each reported 10 module findings, ip6_tables, ip6table_filter, ip6table_nat, iptable_filter and iptable_nat after the first pass and again at collection. kde-full and live-profile installed no iptables-legacy and reported 0.
+
+How it was proven: in plain fedora:44 containers on 2026-10-22, one package per call. Installing tailscale from the Tailscale repository alone installed iptables-legacy and put the iptables alternative on /usr/bin/xtables-legacy-multi. Installing iptables-nft first, then tailscale, then qemu-kvm, libvirt, virt-install, bridge-utils, virtiofsd and virt-manager, then docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin and docker-compose-plugin from download.docker.com, left iptables-legacy not installed and the alternative on /usr/bin/xtables-nft-multi.
+
+Wrong turn kept: 10.148 measured only the libvirt and Docker sets in isolation and concluded the two lists were the place. The measurement was right about those two sets and wrong about the run, where an earlier package decides first.
+
+Fix: owner decision 87. iptables-nft is first in `companion_packages.system_core` in vars/RedHat.yaml, which system_core/tasks/base_utils.yaml installs before the software set, and is gone from the virt_manager and docker lists, so it lives in one place. docs/manual/fedora/install.sh and docs/manual/fedora/fedora_manual_install.md install it first among the prerequisites and no longer in the KVM and Docker lists, and e2e/tier1/manual_linux_install_allowed.txt names it, because system_core's list has no mapping beside it.
+
+Mechanical check: none for the order. e2e/tier2 resolves the name, and e2e/tier1/manual_linux_install.sh holds the manual pages to the lists: against a copy of the finished tree without the iptables-nft line in manual_linux_install_allowed.txt it failed 2 of 22, naming iptables-nft in docs/manual/fedora/install.sh and in fedora_manual_install.md. On a GitHub-hosted runner the legacy modules now show only under the information `host_isolation:` line of result.txt, by owner decision 86, so a Fedora cell that lists ip6_tables or iptable_nat there is the sign this came back.
+
+#### 10.156 Pop!_OS GNOME installed ubuntu-desktop, and its firefox snap failed
+
+Cause: `lineage_companion_packages.ubuntu.gnome` in setup/ansible/vars/Debian.yaml is `ubuntu-desktop` for all of Ubuntu lineage, so Pop!_OS, ID `pop`, gets Ubuntu's desktop metapackage instead of its own.
+
+Effect: in the gnome-full-popos cell, `ubuntu-desktop: new firefox package preinst maintainer script subprocess failed with exit status 1`, after the snap install hook said `aa_is_enabled() failed unexpectedly (No such file or directory)`, then `FAIL native packages missing: ubuntu-desktop` from the verification, playbook_rc 2 and verify_rc 2. On a real Pop!_OS machine it would also lay Ubuntu's desktop over Pop!_OS's own. The gnome-full-ubuntu cell of the same sweep shows no `aa_is_enabled` line.
+
+How it was proven: the artefact lines above. The fix was measured and stopped there: e2e/tier3/popos.Dockerfile is installationhelper-e2e-ubuntu with Pop!_OS's os-release and lsb-release written over it and adds no System76 repository, and in that image on 2026-10-22 `apt-get update` read only archive.ubuntu.com and security.ubuntu.com, `apt-cache policy pop-desktop pop-default-settings pop-session pop-gnome-initial-setup` printed nothing, and `apt-cache search --names-only '^pop-'` found only pop-icon-theme from Ubuntu's own archive.
+
+Fix: none yet. Owner decision 88 asked for a Pop!_OS GNOME list based on Pop!_OS's own desktop package, found by querying the harness image, and to stop rather than guess when the image cannot show it. It cannot, so the package names need a source that carries System76's archive, which the owner decides.
+
+Mechanical check: none yet. The gnome-full-popos cell of the sweep is what shows it.
+
+### Found by the tier 2 gate, 2026-10-22
+
+#### 10.157 The pinned location check called a slow PowerShell Gallery package gone after a HEAD 404
+
+Cause: `probe_once` in e2e/tier2/resolve_pinned_urls.sh counted a 404 from the HEAD request as gone, and when the ranged GET that follows it then timed out, it reported the pin gone without retrying. Its own comment said a 404 is seen twice before the check fails a build on it, which the code did not do.
+
+Effect: the tier 2 gate of 2026-10-22 failed with `1 of 37 pinned download locations are gone`, `gate_pester_url: HEAD answered HTTP 404 and a ranged GET timed out with no answer (curl 28): https://www.powershellgallery.com/api/v2/package/Pester/5.9.1`.
+
+How it was proven: that exact URL, asked from a plain fedora:44 container three times, answered HEAD with 404 in about 0.2 seconds each time and a one-byte ranged GET with 206 after 5.6, 16.1 and 29.0 seconds. Asked hop by hop, the gallery's own 302 took 13.5 to 28.8 seconds and https://cdn.powershellgallery.com/packages/pester.5.9.1.nupkg answered 206 in 0.1 to 0.25 seconds. The package is there and the gallery is slow, against the check's 20 second limit per request.
+
+Fix: only the ranged GET's 404 or 410 counts as gone. A HEAD 404 beside a GET with no answer is unresolved, which is asked again and then reported as a skip that names the host, the same as any location nothing could reach.
+
+Mechanical check: none that is deterministic. The tier 2 run after the fix is the evidence, and the old failure above is what the old rule did with the same URL.
+
+### Introduced while applying owner decisions 86 to 88, 2026-10-22
+
+#### 10.158 A rewrite of container_isolation.sh left half of the old test block behind, and the check still reported all passed
+
+Cause: introduced by an agent. A scripted replacement of the function test section in e2e/tier1/container_isolation.sh ended at the first `finish "container isolation"` after the section start, which was the early exit inside the old `if` block, so the old block's closing `fi` and its records tests stayed below the new section.
+
+Effect: `./e2e/tier1/container_isolation.sh: line 294: syntax error near unexpected token 'fi'` from the shell syntax check and SC1089 from ShellCheck, while the check itself printed `container isolation: 15 checks, all passed`, because bash runs a script line by line and the new final `finish` exited before it reached the broken line.
+
+How it was proven: the tier 1 gate on 2026-10-22, before any commit, which exited 1 on `shell syntax: 6 checks, 2 FAILED`.
+
+Fix: the leftover lines were removed before the commit. Nothing shipped with it.
+
+Mechanical check: e2e/tier1/shell_syntax.sh, which caught it. A check's own pass count is not proof that the whole file parses.
+
+### Found by GitHub sweep run 39850886667, 2026-10-22
+
+#### 10.159 The gate image build hid which download failed
+
+Cause: `gate_build` in e2e/lib/gate.sh built the gate image with `docker build -q`, which drops the output of every RUN step, and `fetch_verified` in e2e/gate/provision.sh let curl end the step without naming the address it was fetching.
+
+Effect: three stage 2 cells of sweep run 39850886667, Debian GNOME full, CachyOS GNOME full and Arch idempotency, failed after 2 to 6 minutes with no e2e/runs artefact. All each one said was `Dockerfile:57`, `>>> RUN bash e2e/gate/provision.sh tools` and `ERROR: failed to build: failed to solve: process "/bin/sh -c bash e2e/gate/provision.sh tools" did not complete successfully: exit code: 22`. Exit 22 is curl -f on an HTTP status of 400 or more, and that step makes two such downloads, PowerShell 7.6.7 from github.com and Pester 5.9.1 from powershellgallery.com, so nobody could tell which one failed or with what status.
+
+How it was proven: the logs of jobs 120078456951, 120078457350 and 120078457873, read through the GitHub interface, end with `ERROR: the gate image did not build, so nothing was run. The build said:`, the BuildKit summary above and `Process completed with exit code 2`, with no line of any step's own output. In `provision.sh tools` only `fetch_verified` calls curl -f, so only it can exit 22 there.
+
+Wrong turn kept: the first hypothesis was that commit 0515fb4, which made /proc/sys writable in tier 3, broke the start of the container. It cannot have: the build fails before any tier 3 code runs, and `git diff --stat a0f22491 HEAD -- e2e/gate e2e/lib setup/pinned_values` is empty, so nothing the gate image is built from changed since sweep run 39260381281, where none of the 49 jobs that built the gate image failed to build it.
+
+Fix: `gate_build` runs `docker build --progress=plain`, and on a failure prints every `curl:` and `provision:` line of the build before the last 30 lines, so a long build cannot push the failing step out of that window. Nothing read the image ID that -q printed. Downloading moved into one helper, `fetch_url` in e2e/lib/common.sh, which both `fetch_verified` and `pinned_shellcheck` call: on failure it removes the partial file, prints `<label>: downloading <url> failed, curl exited <status>` and returns 1.
+
+Mechanical check: e2e/tier1/gate_build_output.sh, capability 68 in e2e/testing/10-wizard-toggle-parse-test.md. It fails when `gate_build` calls docker build with -q or --quiet or without --progress=plain, or has no grep for the curl and provision lines, and it runs `fetch_verified` against a fake curl that writes a partial file and exits 22. Against a copy of the tree at `HEAD` it failed 7 of 8, among them `expected [1], got [22]` and `expected the line [provision: downloading https://downloads.example.invalid/pester.nupkg failed, curl exited 22] on stderr, got []`.
+
+#### 10.160 A gate image download failed when about 48 runners fetched it at once
+
+Cause: every stage 2 cell of the sweep builds the gate image from nothing on its own runner, so close to 48 runners fetch the same two files within a minute, and `fetch_verified` retried only what curl calls transient by default, three times.
+
+Effect: the three failures of 10.159, each `exit code: 22` in `provision.sh tools`.
+
+How it was proven: only partly. Both addresses answered 200 shortly after, from a throwaway container: https://github.com/PowerShell/PowerShell/releases/download/v7.6.7/powershell-7.6.7-linux-x64.tar.gz with 75,913,191 bytes in 1.75 s and https://www.powershellgallery.com/api/v2/package/Pester/5.9.1 with 328,088 bytes in 1.02 s. The HTTP status of the failures is unknown because of 10.159, so the burst explanation is likely but unproven.
+
+Fix: `fetch_url` runs curl with `--retry 5 --retry-delay 10 --retry-all-errors`, so an HTTP error is retried as well, and names the address when it still fails. curl 8.14.1 in the gate's Debian trixie base supports `--retry-all-errors`, which needs 7.71 or later.
+
+Mechanical check: e2e/tier1/gate_build_output.sh requires `--retry-all-errors` among the arguments `fetch_verified` hands curl. Whether the retry is enough against a real burst is shown only by the next sweep.
+
+Second fix, owner decision 90 on 2026-10-23: the burst itself is gone. .github/workflows/e2e-gate-image.yml builds the gate image once per run of e2e-matrix.yml and e2e-manual.yaml with the harness's own `gate_build`, saves it with `docker save` as the artifact `e2e-gate-image`, and the tier 1 job and every Linux cell load it through .github/actions/load-gate-image, which sets `E2E_GATE_IMAGE_PRELOADED=1`. `gate_build` then uses the loaded image and builds nothing, and refuses with exit 2 when the variable is set and the image is not there. So one runner downloads PowerShell and Pester per run instead of about 48, and a failed download fails one job named "Gate image" instead of random cells.
+
+#### 10.161 CachyOS's own marker file made the pacman consistency check fail every CachyOS cell that installs pacman packages
+
+Cause: the check after the per-package pacman installs in setup/ansible/roles/software_installer/tasks/dynamic_install.yaml ran a bare `pacman -Dk`, and CachyOS keeps a marker file, `CACHY_UPDATE_NOTICE`, in `<DBPath>local` beside the package directories, which pacman reads as a package record without its files (CachyOS/pacman issue 10).
+
+Effect: in GitHub sweep run 39850886667 the CachyOS defaults, all software, KDE full and live profile cells each logged `error: 'CACHY_UPDATE_NOTICE': description file is missing` and `error: 'CACHY_UPDATE_NOTICE': file list is missing` under `[ERROR] pacman reports the installed set is not consistent`, the only `[ERROR]` line in each, and ended with playbook_rc 2. pacman exits 1 there and skips the dependency and conflict checks, so on CachyOS the check could neither pass nor find a real problem.
+
+How it was proven: the four cells' artefacts, downloaded into e2e/runs/sweep-39850886667. Then in a plain `cachyos/cachyos-v3:latest` container, the image e2e/tier3/cachyos.Dockerfile pins, with pacman 7.1.0.r9.g54d9411-5 and the marker written into `/var/lib/pacman/local`: the bare `pacman -Dk` printed both error lines and exited 1. The new command, taken out of the task file, printed `not a package record, left out of the copy pacman checks: CACHY_UPDATE_NOTICE` and `No database errors have been found!` and exited 0, and the marker was still in the real database afterwards. With the marker and the `readline` record also removed it exited 1 with `error: missing 'readline' dependency for 'bash'` and eleven more such lines, so the copy does not hide a real missing dependency.
+
+Wrong turns kept: the first suspects were commit 42b1d85, the qastools packages, the kernel packages and commit 0515fb4. None was involved, the error names a file no package owns. Filtering the two lines out of the output would also have been wrong, because pacman stops checking at them, so a filtered run would read as clean while the dependency and conflict checks never ran.
+
+Fix: the task copies `<DBPath>local` into a mktemp directory with `cp -a`, links the sync databases, removes from the copy every entry that is neither a directory nor `ALPM_DB_VERSION` and prints each, and runs `pacman -Dk --dbpath <copy>/`. The real database is never written. register, changed_when, failed_when, when and tags are unchanged.
+
+Mechanical check: e2e/tier2/pacman_database_check.sh reads the task's command out of the YAML and runs the three cases above in the pinned CachyOS image. Against the bare `pacman -Dk` it fails the clean-database assertion, which is the defect.
+
+#### 10.162 A local tier 2 run filled the disk Docker writes to on the owner's computer
+
+Cause: e2e/tier2/rpm_file_conflicts.sh downloads about two dozen Fedora packages into a throwaway container, and it ran on the owner's computer with every other tier 2 check.
+
+Effect: on 2026-10-22 at 23:14 a local `bash e2e/run.sh --tier 2` stopped with `no space left on device`. The owner's own sky containers exited in the same minute. That they stopped because of this disk fill is likely and not proven.
+
+How it was proven: only the error line and the times above. Nothing on the owner's computer was inspected to measure the disk afterwards, under the rule that forbids it.
+
+Fix: owner decision 91. The check asks `throwaway_machine_verdict` in e2e/lib/throwaway_machine.sh, the same question tier 3 asks, and anywhere but a GitHub-hosted runner it reports one SKIP and downloads nothing. The sweep's stage 1 job `Tier 1 checks` runs it with `bash e2e/run.sh --tier 2 --only rpm_file_conflicts`, the new `--only` option of e2e/run.sh.
+
+Mechanical check: none beyond the SKIP itself, which the tier 2 tally names on every local run.
+
+#### 10.163 Pop!_OS GNOME had no list of its own, because the Pop!_OS image carried no System76 archive
+
+Cause: `lineage_companion_packages` in setup/ansible/vars/Debian.yaml is keyed by lineage alone, so Pop!_OS, Ubuntu lineage, got `ubuntu-desktop`, and e2e/tier3/popos.Dockerfile was Ubuntu with Pop!_OS's identity and no System76 archive, so nothing could measure what Pop!_OS itself resolves. Follows 10.156.
+
+Effect: the gnome-full-popos cell failed as 10.156 records, and a real Pop!_OS machine would have been asked for Ubuntu's desktop.
+
+How it was proven: owner decision 88.1. In a plain ubuntu:26.04 container, after the exact archive step now in e2e/tier3/popos.Dockerfile ran with exit 0: http://apt.pop-os.org/release and /proprietary publish `resolute`, the key is `63C46DF0140D738961429F4E204DD8AEC33A7AFF`, "Pop OS (ISO Signing Key)", the one pop-keyring ships, and gpgv called its signature on the resolute Release good. `apt-cache policy` gave pop-desktop 3.0.0~1792081217~26.04~bce9565, which depends on nothing GNOME and whose sibling pop-de-cosmic depends on cosmic-session, so Pop!_OS 26.04's desktop is COSMIC and no System76 package carries GNOME. `apt-get install -s ubuntu-desktop` failed with `Unable to satisfy dependencies`, while `apt-get install -s gnome-core gnome-tweaks gnome-shell-extension-manager` planned 812 packages, firefox among them as System76's deb 1:158.0.1~1792606753~26.04~cab074c rather than a snap. Without the dist-upgrade in that step, two packages would have had to be downgraded and `apt-get -y` refused.
+
+Fix: e2e/tier3/popos.Dockerfile adds both System76 archives with the key fetched by its pinned fingerprint and refused otherwise, pop-default-settings' own 1001 pin, and a dist-upgrade. `lineage_companion_packages` takes an os-release ID beside the two lineages, and setup/ansible/tasks/load_os_dict.yaml lets the entry under ih_os_release_id replace the lineage's entry of the same key, so Pop!_OS GNOME is gnome-core for the install and for verify_install.yaml alike. Not yet run in a Pop!_OS cell, the next sweep is the first.
+
+Mechanical check: e2e/tier1/verify_wiring.sh accepts a `lineage_companion_packages` key only when it is a lineage or the ID of a captured Debian-family os-release under e2e/tier1/os_release_fixtures.
+
+### Found on the homelab Docker VM, 2026-10-23
+
+#### 10.164 The Docker VM's root volume kept the installer's half of the disk, and the full disk stopped Syncthing and lost Telegraf rows
+
+Cause: the Docker VM was created with the Ubuntu Server installer's default root logical volume, half of the volume group, nothing in [proxmox_docker_vm.md](../homelab/proxmox_docker_vm.md) said to grow it, and nothing watched disk space.
+
+Effect: `lsblk` showed `sda3` at 88G and `ubuntu--vg-ubuntu--lv` at 44G, so half the disk sat unused while the 44 GiB root file system filled. At 2026-10-22 23:58 the Syncthing container stopped both folders with `insufficient space on disk for database (/config/index-v2): current 0.00 % < required 1 %` and failed to save its configuration with `no space left on device`, and Telegraf could not write its network watch rows, so the rows from that time are lost. Growing the volume then hit a second trap: with the root file system completely full, `pvresize /dev/sda3` failed with `/etc/lvm/archive/...: write error failed: No space left on device` and `Failed to store physical volume "/dev/sda3" in volume group "ubuntu-vg"`, because LVM writes a metadata backup under /etc/lvm first. `sudo apt clean` and `sudo journalctl --vacuum-size=100M` freed about 64 MB, and `pvresize` then succeeded. Afterwards the root volume was 138 GiB and `df -h /` showed 136G size, 43G used and 87G free. What filled the 43 GB is not yet measured.
+
+How it was proven: `lsblk` and `df -h /` output on the Docker VM on 2026-10-23, before and after the fix, and the Syncthing REST status read from the server, which carried both error texts.
+
+Fix: [proxmox_docker_vm.md](../homelab/proxmox_docker_vm.md). The section "Give the root volume the whole disk" tells a new VM to give `ubuntu-lv` the whole volume group in the installer or right after it, and the section "Grow the Docker VM disk" gives the Proxmox resize, the growpart, pvresize and lvextend steps inside the VM, the full-disk trap with its measured way out, and the `--config 'backup { backup = 0 archive = 0 }'` fallback.
+
+Mechanical check: none. The homelab has no automated checks, and nothing on the VM warns before the root file system fills.
+
+### Found by GitHub sweep run 39931619762, 2026-10-23
+
+#### 10.165 The Pop!_OS image copied its release files onto themselves, because the dist-upgrade of 10.163 made them links
+
+Introduced by an agent in 64812ac, the fix of 10.163.
+
+Cause: the dist-upgrade that 64812ac added to e2e/tier3/popos.Dockerfile installs pop-default-settings, whose postinst diverts /etc/os-release and /etc/lsb-release and leaves them as links to pop-os/os-release and pop-os/lsb-release, so the later `cp /etc/pop-os/os-release /etc/os-release` copied a file onto itself.
+
+Effect: every Pop!_OS cell of sweep 39931619762 failed before a task ran, with `process "/bin/sh -c . /etc/os-release && install -d /etc/pop-os ... > /etc/pop-os/os-release && cp /etc/pop-os/os-release /etc/os-release" did not complete successfully: exit code: 1`. The line that names the cause, `cp: '/etc/pop-os/os-release' and '/etc/os-release' are the same file`, never reached the log: e2e/tier3/container.sh built with `docker build -q`, which keeps no step output at all, and printed `tail -20` of what was left, which was the Dockerfile excerpt and the final ERROR line.
+
+How it was proven: on 2026-10-23 a plain local build of the unchanged e2e/tier3/popos.Dockerfile over a fresh installationhelper-e2e-ubuntu failed at step 3/6 with exactly that `cp` line, after the dist-upgrade had logged `Adding 'diversion of /etc/os-release to /etc/os-release.diverted by pop-default-settings'`. The same build with `-q` produced 24 lines and no `cp` line. With the fix the build exited 0, and `docker run --rm` on the image showed `/etc/os-release -> pop-os/os-release` and `/etc/lsb-release -> pop-os/lsb-release`, with `NAME="Pop!_OS"`, `ID=pop`, `VERSION_ID="26.04"` and `DISTRIB_ID=Pop`.
+
+Fix: e2e/tier3/popos.Dockerfile copies each file only when the two paths are not already the same file, `[ /etc/os-release -ef /etc/pop-os/os-release ] || cp ...`, so Pop's own links stay. e2e/tier3/container.sh builds with `--progress=plain` and, on the final failure, prints the ERROR lines and the failing step's output block before the `tail -20`. Run against the saved log of the failing build, that printed the `cp` line.
+
+Mechanical check: none beyond the build itself, which now fails with its cause on the terminal.
+
+### Found while splitting AGENTS.md, 2026-10-23
+
+Every one of these was found by comparing a statement that moved out of the root `AGENTS.md`, or a page beside it, with the code it describes. None was found by a run, because nothing executes documentation. The split itself is [decisions/0001_split_agents_md.md](decisions/0001_split_agents_md.md).
+
+#### 10.166 The root AGENTS.md had outgrown what Codex reads, so Codex worked from a truncated copy
+
+Cause: every rule was added to one file that every agent loads whole in every session, and nothing measured its size.
+
+Effect: on 2026-10-23 the root `AGENTS.md` was 671 lines and 66,904 bytes, about 13,000 tokens by the estimate of words times 1.3, twice the 32 KiB that Codex reads before it stops adding instruction files without saying so.
+
+How it was proven: `wc -lc AGENTS.md` printed `671 66904`, and the new check below failed against that file in the whole gate with `AGENTS.md has 671 lines, the limit is fewer than 200.` and `AGENTS.md is 66904 bytes, the limit is under 32768 bytes, the most Codex reads by default.`
+
+Fix: the root file holds only what applies everywhere, and each folder's rules moved into its own `AGENTS.md` or into the docs that already explained them. After the split the root is 111 lines and 13,959 bytes, and the largest nested file, [e2e/AGENTS.md](../e2e/AGENTS.md), is 45 lines.
+
+Mechanical check: e2e/tier1/agents_md_size.sh, which also fails on any `CLAUDE.md` or `CLAUDE.local.md` and on a nested `AGENTS.md` of 60 lines or more.
+
+#### 10.167 The playbook order and the dispatched managers in AGENTS.md no longer matched site.yaml and the software installer
+
+Cause: the "Ansible Architecture" section was written by hand once and nothing compared it with [setup/ansible/site.yaml](../setup/ansible/site.yaml) afterwards.
+
+Effect: it put `systemd_boot` among the Linux roles at the end, while site.yaml runs it right after the core roles, and it left out `jetbrains_toolbox` and `snapper` entirely. It said the `software_installer` role dispatches `choco` and `winget`, which no task in [dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) does, because those mappings are read by the PowerShell installer and the playbook never runs on Windows. It also listed `ai_tools` as Claude Code, Claude Desktop, OpenCode and OpenSpec, while the role carries task files for Claude Code, Codex, Grok, Kilo Code, OpenCode, OpenSpec, the Bruno command line tool and the local model tools.
+
+How it was proven: the role names in the `Run <role>` blocks of site.yaml, in file order, and the manager names compared in dynamic_install.yaml, read on 2026-10-23.
+
+Fix: [setup/ansible/ansible_architecture.md](../setup/ansible/ansible_architecture.md) states the order and the managers as the code has them.
+
+Mechanical check: none. The page names roles in prose, and a check over prose would be a second list of the same roles, defect class 2.
+
+#### 10.168 AGENTS.md counted three workflow files and three jobs where there are four
+
+Cause: b6d46d7 added [.github/workflows/e2e-gate-image.yml](../.github/workflows/e2e-gate-image.yml) and a `gate-image` job to the single platform workflow, and the prose describing both was not updated.
+
+Effect: "All three workflow files are dispatch-only or call-only" and "Its three jobs are gated on the plan job's outputs" were both one short.
+
+How it was proven: `ls .github/workflows/` listed four files, and the `on:` block of each holds only `workflow_dispatch` or `workflow_call`. The single platform workflow has a `gate-image` job gated on `run_linux` beside the three platform jobs.
+
+Fix: the CI section of [e2e/README_E2E.md](../e2e/README_E2E.md) now says every workflow file and names the platform jobs without a count.
+
+Mechanical check: none for the prose. Whether a workflow starts on an automatic event is not checked either, and is a rule in [e2e/AGENTS.md](../e2e/AGENTS.md).
+
+#### 10.169 The MCP pages described servers and defaults this project does not have
+
+Cause: [docs/MCP_SETUP.md](MCP_SETUP.md) was written when only `context7` was declared and was never updated when five more servers were added, and the root `AGENTS.md` summarised the defaults of [.mcp.json](../.mcp.json) without reading them.
+
+Effect: MCP_SETUP.md said one server is configured, while [.mcp.json](../.mcp.json), [opencode.json](../opencode.json) and [.codex/config.toml](../.codex/config.toml) each declare six. [docs/AGENT_TOOLING.md](AGENT_TOOLING.md) said eight default servers ship as `.example` templates and told the reader to run `cp .mcp.json.example .mcp.json.example`, a copy of a file onto itself that does not exist here. AGENTS.md said every server but two reads its endpoint from a variable with an empty default, while `GRAFANA_URL`, `REDIS_URL` and `N8N_API_URL` default to `http://localhost:3000`, `redis://localhost:6379/0` and `http://localhost:5678`, and only the credentials default empty.
+
+How it was proven: the three configuration files, read on 2026-10-23.
+
+Fix: MCP_SETUP.md is rewritten for the six servers, and the MCP section of AGENT_TOOLING.md and the root `AGENTS.md` name them.
+
+Mechanical check: none.
+
+#### 10.170 AGENT_TOOLING.md described subagent folders, a Codex limit and an OpenSpec command that are not what this project has
+
+Cause: the page was imported from agent-standards and kept as this project's own, and the upstream changes after that were not carried over.
+
+Effect: it said subagents live in `.claude/agents/` and `.opencode/agents/`, while the canonical set is `.agents/agents/`, with `.opencode/agents` and `.kilo/agents` as symlinks and generated copies in `.claude/agents/`, `.codex/agents/` and `.github/agents/`. It said Codex has no per-agent file mechanism, while `.codex/agents/` holds 18 `.toml` definitions. It told the reader to initialise OpenSpec with `--tools "claude,opencode,codex"`, where agent-standards now uses `--tools agents`, and it described `.opencode/skills` and `.codex/skills` symlinks and per-tool command folders, none of which exist here.
+
+How it was proven: `ls -l` over each of those folders on 2026-10-23, and the "Initialising it" section of `docs/AGENT_TOOLING.md` in agent-standards at be76040.
+
+Fix: the introduction, the Subagents section, the MCP section and the OpenSpec section of [docs/AGENT_TOOLING.md](AGENT_TOOLING.md).
+
+Mechanical check: none.
+
+#### 10.171 The local-dev page kept the bridge network's ports and names after cc32cee moved every service to the host's network
+
+Cause: cc32cee put every service on `network_mode: host` on 2026-09-16 and changed the Compose file, but not the ports, the alias and the image tag the documentation named.
+
+Effect: [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md) and the root `AGENTS.md` sent the reader to Floci on `9070` and its console on `9071`, which nothing listens on any more, because Floci now answers on its own `4566` and the console on `4500`. Both said Qdrant also answers to `mem0_store` on the Compose network, an alias that went with the bridge network. The page named `mongo:8.3.8`, while cc32cee pinned `mongo:8.0.4` because 8.3.8 crashes on Linux 6.19 and later. It also said the Compose healthcheck reaches Keycloak by its container name, while the healthcheck now asks `https://127.0.0.1:9000/health/ready`, and that the ports are published on `0.0.0.0`, while host networking publishes nothing.
+
+How it was proven: [local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) read on 2026-10-23: the `x-host-network` anchor, Floci's healthcheck on `127.0.0.1:4566`, the console's `PORT: "4500"` and `FLOCI_ENDPOINT: http://127.0.0.1:4566`, and the mongo image line. The stack was not started, because that runs on the owner's computer.
+
+Fix: the Services table, the hosts file note and the Object storage section of [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md). The measurements on that page that were taken on 9070 and 9071 now say so instead of being restated as if taken on the new ports.
+
+Mechanical check: none. With host networking the Compose file declares no ports, so nothing in it states what the page should say.
+
+#### 10.172 The e2e page named a macOS runner the workflows no longer use
+
+Cause: the macOS jobs moved to `macos-26`, and the stage tables in [e2e/README_E2E.md](../e2e/README_E2E.md) kept `macos-14`.
+
+Effect: four rows named a runner image no job runs on.
+
+How it was proven: every macOS `runs-on` in [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) and [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) reads `macos-26`.
+
+Fix: the four rows read `macos-26`.
+
+Mechanical check: none.
+
+### Found while reading the network watch files, 2026-10-23
+
+#### 10.173 The outage finder recognised a ping file by a header row that Telegraf writes only into a new file
+
+Introduced by an agent in b2fc4f9.
+
+Cause: the `gawk` command in [homelab/network_watch.md](../homelab/network_watch.md) decided that a file holds pings from its header row, `$4=="percent_packet_loss"`, while Telegraf writes the header only when it creates a file and not after the midnight rotation.
+
+Effect: on 2026-10-23 the live `ping.csv` in the synced network watch folder held 0 header lines and the rotated `ping.2026-10-11-*.csv` held 3. Against a file with no header the command never set its ping flag, so a row with `result_code` 0 and `percent_packet_loss` 100, a plain timeout the ping plugin scores as a success, was not counted as a failure and the outage was not printed. The same flag also leaked from one file to the next: given a rotated ping file and then a `dns.csv` with no header, it read `rcode_value` 100 as packet loss and printed a DNS outage that never happened.
+
+How it was proven: built CSV files run in a throwaway container from the gate image, `--network none` and read-only mounts, GNU Awk 5.2.1. The old command printed nothing for a headerless `ping.csv` with two rows at `result_code` 0 and loss 100, and printed `DOWN 2026-10-09 16:00:01 1.1.1.1` for a rotated ping file followed by a headerless `dns.csv` with `rcode_value` 100 in two rows. The new command printed `DOWN 2026-10-23 15:00:01 1.1.1.1` and `UP   2026-10-23 15:00:03 1.1.1.1 after 2 s` for the first and nothing for the second, and still printed the three results the page documents for its earlier tests.
+
+Fix: the command sets its ping flag once per file from the file name, `FNR==1{is_ping=(FILENAME~/(^|\/)ping[^\/]*$/)}`, and still skips every header line, in "Finding an outage in the files afterward" of [homelab/network_watch.md](../homelab/network_watch.md).
+
+Mechanical check: none. The homelab has no automated checks, and the command lives in a documentation page.
+
+### Found while checking the e2e page and the sweep workflow against each other, 2026-10-23
+
+#### 10.174 The e2e page counted five Linux distributions and forty sweep jobs after Pop!_OS became the sixth
+
+Cause: Pop!_OS was added to [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) as a sixth distribution, and the counts and job tables in [e2e/README_E2E.md](../e2e/README_E2E.md) were not updated with it.
+
+Effect: the page said "The eight scenarios above cross five Linux distributions, which is 40 combinations", and that a single platform run leaves "the other 39". Its stage 2 table listed five distributions per scenario with job numbers 6 to 45, called stage 2 "Forty jobs" and the whole sweep "Fifty-two jobs in total". It also said the tier 1 job builds the gate image, which the Gate image job has done since b6d46d7, and named the stage 3 jobs "macOS everything" and "Windows from nothing", while the workflow names them "macOS all apps" and "Windows four apps only".
+
+How it was proven: the `distro:` and `scenario:` lines of the stage 2 jobs in e2e-matrix.yml, read on 2026-10-23, give six distributions (debian, ubuntu, popos, fedora, arch, cachyos) with eight jobs each and eight scenarios with six jobs each, 48 cells, beside six `e2e/tier3/*.Dockerfile` files and eight files under `e2e/tier3/scenarios/`. The `name:` lines of the stage 3 jobs give the seven names.
+
+Fix: "CI matrix sweep vs single platform runs" and "The exact order every pipeline runs in" in [e2e/README_E2E.md](../e2e/README_E2E.md) now say six distributions, 48 combinations, 47 others, 48 stage 2 jobs numbered 6 to 53, the stage 3 jobs by their workflow names numbered 54 to 60, and the Gate image job.
+
+Mechanical check: none. The counts are prose, and a check would be a second list of the same cells, defect class 2.
+
+#### 10.175 A workflow comment cited AGENTS.md for a statement no version of AGENTS.md made
+
+Cause: db7db22 wrote in [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) that "AGENTS.md says a verification step is being added" to setup.ps1, while the change that added it, d788b4c with setup/windows/WindowsVerify.ps1, was in progress beside it and no instruction file said so.
+
+Effect: the comment sent a reader to AGENTS.md for a claim that is not there, and it and a step comment in the Windows defaults job still described the Windows verification log as a future change whose file name was not known, two months after setup.ps1 began writing `installation_verify.log` under `$env:USERPROFILE`.
+
+How it was proven: `git log -S'verification step' -- AGENTS.md` printed no commit, so no version of AGENTS.md held the phrase. `-LogPath` in setup/windows/WindowsVerify.ps1 defaults to `installation_verify.log` in the user profile, and `grep` over setup/setup.ps1 and setup/windows/ finds no other `installation_*.log` name.
+
+Fix: item 6 of the "NEVER RUN IN CI" list and the step comment beside the `installation_*.log` glob in e2e-matrix.yml state what setup.ps1 writes today. The jobs themselves are unchanged.
+
+Mechanical check: none.
+
+### Found while removing private project names, 2026-10-23
+
+#### 10.176 Pages in this public repository named another, private project of the owner
+
+Cause: agents recording where wrong values came from wrote the private project's name, its local path, its realm, its client and module names and its Java package into this repository, and the jetbrains-ide-ops skill was imported with the same kind of names from upstream.
+
+Effect: the Keycloak export entry above, a paragraph of [local-dev/auth/Keycloak/config.md](../local-dev/auth/Keycloak/config.md) and five files of `.agents/skills/jetbrains-ide-ops/` published names and a path from a repository that is not public.
+
+How it was proven: `git grep -n -i -E` over the project's name, its company package and its module prefixes listed 29 lines in those files on 2026-10-23, 18 of them in the skill, and printed nothing after the fix.
+
+Fix: the Keycloak entry and config.md describe the realm, the clients and the callback as another project's, and `.agents/skills/jetbrains-ide-ops/` is the agent-standards copy at 82ed7ab, which made the same skill generic. Lines that name this repository's own Windows checkout path were left as they are, by the owner's decision.
+
+Mechanical check: none. A check would have to list the private names, which is the leak it is meant to stop.
+
+### Found on the homelab Docker VM, 2026-10-23, second time
+
+#### 10.177 No container in the homelab stack capped its log, and the Uptime Kuma log took 24.7 GB of the root disk
+
+Cause: [homelab/compose.yaml](../homelab/compose.yaml) gave no service a `logging` block and the Docker VM has no `/etc/docker/daemon.json`, so every container used the json-file driver with no options, which keeps the whole log, and Uptime Kuma 2.5.5 then wrote a stack trace on every heartbeat.
+
+Effect: on 2026-10-23 the VM's root file system had 44 GB used, and 24.7 GB of it was one file, the uptime-kuma container's `/var/lib/docker/containers/<id>/<id>-json.log`. It grew 1,607,027 bytes in 60 seconds, about 2.3 GB a day, each heartbeat adding `[PROMETHEUS] ERROR: Error: Added label "networkwatch" is not included in initial labelset` and its stack trace, because the tag `networkwatch` had been added to monitors without a restart, and Uptime Kuma reads tag names only when it starts. Together with the half-sized root volume of 10.164 this is what filled the disk.
+
+How it was proven: `docker inspect` on the VM showed the json-file driver with empty options on the container, `du` on the log file gave its size, its growth was measured over 60 seconds, and the error text was read from the log. After `docker restart uptime-kuma` at 12:16 UTC the file grew 0 bytes in 60 seconds. The restart rule is stated in Uptime Kuma's own `server/prometheus.js` at 2.5.5: "New tags will NOT be added dynamically, a restart is sadly required to add new tags to the metrics."
+
+Fix: an `x-logging` anchor in [homelab/compose.yaml](../homelab/compose.yaml), driver json-file with `max-size: "10m"` and `max-file: "3"`, used by all twelve services, the same shape the AscendWebSearch compose file already had. [homelab/uptime_kuma.md](../homelab/uptime_kuma.md) says to restart the container after creating a tag, how to see that the error is gone, and that the cap needs the containers recreated once with `docker compose up -d`.
+
+Mechanical check: e2e/tier1/compose_log_limits.sh fails on any service in a compose file under `homelab/` whose logging options carry no `max-size`. Against the compose file before the fix it failed 12 of 13, one per service.
+
+Follow-up, 2026-10-23: the owner deployed the capped Compose file on the Docker VM the same day. `df -h /` showed 44G used before `docker compose up -d` and 20G used after it, because recreating the containers removed the old uptime-kuma container together with its 24.7 GB log.
+
+### Found in sweep 39931619762, 2026-10-23
+
+#### 10.178 pipx on Arch Linux and CachyOS could not install anything, because python-pipx 1.18.4 imports filelock without depending on it
+
+Cause: python-pipx 1.18.4 imports `filelock` in `pipx/venv.py`, and the Arch package does not depend on python-filelock, so a machine with only python-pipx has no such module. 1.15.0, which sweep 39850886667 installed, did not import it.
+
+Effect: `kde_plasma_setup : Install Konsave via pipx` failed on all 4 Arch and CachyOS KDE cells of sweep 39931619762, each with `from filelock import FileLock` and `ModuleNotFoundError: No module named 'filelock'`. Every other `pipx install` on the Arch family fails the same way.
+
+How it was proven: in a plain `archlinux:base` container on 2026-10-23, `pacman -Syu python-pipx` installed python-pipx 1.18.4-1 with Python 3.14.8, `pacman -Q python-filelock` answered `package 'python-filelock' was not found`, and `pipx install konsave` failed with the same `ModuleNotFoundError`. After `pacman -S python-filelock` (4.0.10-1) the same command answered `installed package konsave 2.3.0`.
+
+Fix: a `pipx: ["python-filelock"]` entry in companion_packages of [setup/ansible/vars/Archlinux.yaml](../setup/ansible/vars/Archlinux.yaml). [setup/ansible/roles/software_installer/tasks/custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) installs it under install_pipx, [setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) installs it beside pipx before Konsave, and verify_install.yaml expects it through the companion set it already reads. The manual route, [docs/manual/arch/install.sh](manual/arch/install.sh) and [docs/manual/arch/arch_manual_install.md](manual/arch/arch_manual_install.md), installs it beside python-pipx.
+
+Mechanical check: tier 2 resolves python-filelock against the Arch repositories like every companion package, and the tier 3 KDE cells run `pipx install konsave`, which is what caught it. No check can see a missing dependency inside a distribution package before that package ships it.
+
+### Found in sweep 39931619762, 2026-10-23, macOS
+
+#### 10.179 macOS default apps and all apps broke at 12:03 after a failed FreeCAD download, cause not proven
+
+Cause: not proven. Most likely the runner disk filled up, measured by the new disk step in the next sweep.
+
+Effect: on both cells `freecad -- rc 1` and `::error::freecad: Download failed for freecad.` came first, and every step after that failed on files that had been there: `Cannot resolve 'ansible.builtin.raw'`, a missing Homebrew portable-ruby, `Bus error: 10` and `sudo: account validation failure`.
+
+How it was proven: it was not. The job logs could not be read while the sweep was still running (`gh run view --job 120387851067 --log` answered `run 39931619762 is still in progress`), and no step of the macOS jobs printed the free disk space.
+
+Fix: the three macOS jobs of [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) and the macOS job of [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) run `df -h /` before the wizard and after it, the second with `if: always()`, so the next sweep shows whether the disk was full when the run broke. The cause gets its fix once that number is read.
+
+Mechanical check: e2e/tier1/workflow_parity.sh keeps the macOS job of e2e-manual.yaml in step with the sweep's macOS jobs.
+
+### Found while setting the AdGuard Home query log retention, 2026-10-23
+
+#### 10.180 The AdGuard page said the query log rotates by size, and nothing set how long it is kept
+
+Cause: [homelab/adguard_dns.md](../homelab/adguard_dns.md) described the rotation of `querylog.json` from a guess instead of the source, and left the rotation interval at AdGuard Home's default of 90 days.
+
+Effect: the page said AdGuard rotates the file "once it grows past its limit", while AdGuard rotates by the age of the oldest entry and keeps one older file, so the log holds up to twice the interval. On 2026-10-23 the query log on the homelab Docker VM was 4.0 GB, `querylog.json.1` 2.8 GB and `querylog.json` 1.2 GB.
+
+How it was proven: the sizes were read in `/opt/docker-stack/adguard/work/data` on the VM. The rotation is `checkAndRotate` and `rotate` in `internal/querylog/querylogfile.go` of AdGuard Home v0.107.78, which compares the oldest entry's time with the interval and renames `querylog.json` to `querylog.json.1`, and the 90 day default is in `internal/home/config.go`.
+
+Fix: the section "Keep 30 days of query log" in [homelab/adguard_dns.md](../homelab/adguard_dns.md) sets the query log rotation and the statistics retention to 30 days, names the `interval` keys in `AdGuardHome.yaml`, and says how the old file goes. The sentence about rotation now describes the age rule.
+
+Mechanical check: none. The retention is a setting on the VM, which no tier reaches.
+
+### Found while changing the network watch targets, 2026-10-23
+
+#### 10.181 The Telegraf configuration on the Docker VM was two weeks older than the repository's, so the speed test never ran there
+
+Cause: [homelab/network_watch.md](../homelab/network_watch.md) told the reader to download `telegraf.conf` once, at setup, and nothing said to copy it again after the repository changed it.
+
+Effect: on 2026-10-23 the `telegraf.conf` on the Docker VM was still the 2026-10-09 version, without the `[[inputs.internet_speed]]` block, so no `speed.csv` row had been written there, while the page described a speed test every 10 minutes.
+
+How it was proven: the file on the VM was compared with the repository's on 2026-10-23 and carried no speed test block.
+
+Fix: the setup section of [homelab/network_watch.md](../homelab/network_watch.md) says copying `telegraf.conf` again, then `docker restart telegraf`, is a step of every deployment. The same change adds the PPPoE gateway `83.1.5.230` as a fifth ping target and sets the speed test to one an hour in [homelab/telegraf/telegraf.conf](../homelab/telegraf/telegraf.conf).
+
+Mechanical check: none. Nothing in the repository can read the VM.
+
+### Found while sharing the LAN storage disk at its root, 2026-10-23
+
+#### 10.182 The LAN storage guide had only a path that formats the disk, so following it on the owner's NTFS disk would have erased his films
+
+Cause: [homelab/lan_storage.md](../homelab/lan_storage.md) assumed a new empty disk. Its only path partitioned and formatted the disk, no step asked what was already on it, nothing covered an NTFS disk that Windows had left marked dirty, and it edited `/etc/fstab` and `/opt/docker-stack/.env` in `nano` with no check of the result.
+
+Effect: three findings on the lab on 2026-10-23. First, the owner's disk is an existing 120 GB NTFS disk with his films and series in a `media` folder at its top. The guide's `sudo parted --script /dev/sdb mklabel gpt mkpart data ext4 0% 100%` and `sudo mkfs.ext4 -L data /dev/sdb1` would have erased it, and [homelab/compose.yaml](../homelab/compose.yaml) shared a `files` folder that disk does not have. Second, mounted with the kernel's ntfs3 driver, the first `sudo mount -a` failed with `wrong fs type, bad option, bad superblock`, and the kernel log said `ntfs3(sdb1): volume is dirty and "force" flag is not set!`, because the disk had left Windows without safe removal. Third, the first attempt at the `.env` file left `SAMBA_USER` empty, and Compose refused with `required variable SAMBA_USER is missing a value`.
+
+How it was proven: on the Docker VM, `sudo blkid /dev/sdb1` printed `TYPE="ntfs"`, Ubuntu kernel `7.0.0-34-generic` has ntfs3, and ntfs-3g 2022.10.3 is installed. After `sudo ntfsfix -d /dev/sdb1` the mount worked and `findmnt` showed `/mnt/data /dev/sdb1 ntfs3 rw,relatime,uid=1000,gid=1000,acl,iocharset=utf8,prealloc`. The Compose error was read on the VM. The erase was not run: it is read from the two commands, which write a new partition table and a new file system. Why the first attempt left `SAMBA_USER` empty was not recorded.
+
+Fix: the owner decided on 2026-10-23 to share the disk at its root, so [homelab/compose.yaml](../homelab/compose.yaml) binds `/mnt/data` for File Browser and Samba and `/mnt/data/media` read only for Plex. [homelab/lan_storage.md](../homelab/lan_storage.md) now asks `blkid` first and splits into path A, a new empty disk formatted as ext4, and path B, an existing NTFS disk mounted with ntfs3 and never formatted, with a section on the dirty mark and `ntfsfix -d`. Every file edit is a one-line command: the fstab line through `echo ... | sudo tee -a /etc/fstab`, the `.env` file through `read` and `printf` with a length check that prints no value. Sharing the root took away the protection `create_host_path: false` gave File Browser and Samba, because the mount point always exists, so the page sets the immutable flag on the empty mount point with `sudo chattr +i /mnt/data` before the fstab line. That rests on the chattr manual of e2fsprogs 1.47.4, `may_create_dentry` and `inode_permission` in the kernel's `fs/namei.c`, and the mount manual of util-linux, and was not measured on this lab. Deploying is described once, in "Deploying from your clone" in [homelab/README_HOMELAB.md](../homelab/README_HOMELAB.md), with `scp` from the clone instead of a GitHub raw link, and [homelab/plex_media_server.md](../homelab/plex_media_server.md), [homelab/network_watch.md](../homelab/network_watch.md), [homelab/agent_access.md](../homelab/agent_access.md) and [README.md](../README.md) follow the new paths and links.
+
+Mechanical check: none. The commands run on the owner's VM against a real disk, which no tier reaches.
+
+### Found while chasing a Pester test that failed now and then, 2026-10-23
+
+#### 10.183 Invoke-BoundedWinget read the output files before the Linux PowerShell had finished writing them
+
+Cause: on Linux and macOS, `Start-Process` with `-RedirectStandardOutput` copies the program's output into the file through .NET's asynchronous readers, and `Invoke-BoundedWinget` in [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) read the files as soon as `WaitForExit` with a deadline returned, which it does when the process ends, before those readers have finished.
+
+Effect: the Pester test "Install-WingetPackage ... stops after the first attempt and three retries" in [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) failed in 2 of 10 gate runs with no change under `setup/windows`, its detail cut to `attempt 1 said exit 1. ;` where the stub had printed `Installer failed with exit code: 3221225477`. Any of the four attempts could lose its line: one failing run read `attempt 3 said exit 1. )`. Real Windows is not affected, because there `Start-Process` gives the files to the program itself, the `#else` branch of `StartProcessCommand` in PowerShell's `Process.cs`.
+
+How it was proven: in the gate image (PowerShell 7.6.7, Pester 5.9.1), that one test run 300 times in a row failed 6 times before the fix and 0 times after it. A loop of 2,000 `Start-Process` calls to a stub that prints one line and exits found the output file empty 14 times when read after `WaitForExit(30000)` alone, and 0 times when `WaitForExit()` with no deadline followed it. The whole Pester file run 30 times failed 0 times before the fix as well, so on its own that loop could not tell the two apart, which is why the single test was looped. The mechanism is in the sources: PowerShell's `Process.cs` (master at 28a2e35) calls `BeginOutputReadLine` and writes each line from `StdOutputHandler` under `#if UNIX`, `WaitForExitCore` in .NET's `Process.Unix.cs` (release/10.0) waits for the end of the output only when `milliseconds == Timeout.Infinite`, and the .NET documentation of `WaitForExit(Int32)` says "it is possible that output processing will not have completed when this method returns" and to call the overload with no parameter after it returns true. Wrong hypotheses, checked and kept here: `Get-CommandOutputTail` and carriage returns were not it, because the stub is a bash script whose output has no carriage return and the tail was empty because `Output` was empty. A shared mock was not it, because every test makes its own stub in its own folder.
+
+Fix: `Invoke-BoundedWinget` calls `$process.WaitForExit()` after the bounded wait has returned true and before it reads the files. On Windows that call returns at once. The test 'returns a line the program wrote after it exited, while its output was still open' in the Pester file starts a stub that exits at once and leaves a child writing its line half a second later, so it fails every time without the fix rather than now and then. It is skipped on Windows, where that wait does not exist. `Invoke-ManagedTool` and `Invoke-AndroidSdkManager` in [setup/windows/WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1) and the WSL step in [setup/windows/WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1) read redirected output after a bounded wait in the same way. They run only on Windows, and the Pester file mocks the first two and the `Start-Process` the third calls, so none of them starts a real process in the gate and they were left as they are.
+
+Mechanical check: the new Pester test, which the `windows_pester` check of the tier 1 gate runs. Without the fix it failed 10 of 10 runs with `Expected like wildcard '*Installer failed with exit code: 3221225477*' to match <empty>`, and with it 0 of 10.
+
+Follow-up, the same day: leaving the other three sites as they were was wrong, because the Pester file can start them with a real process just as it does winget. The rule now lives in one function, `Wait-BoundedProcess` in [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1), which waits with the deadline and, when that returns true, waits again with no deadline. `Invoke-BoundedWinget` (both its normal wait and the wait after a kill), `Invoke-ManagedTool` and `Invoke-AndroidSdkManager` in [setup/windows/WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1) and `Install-WslDistribution` in [setup/windows/WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1) all wait through it. The Describe 'Every other bounded wait reads the output only once the program has finished writing it' in the Pester file gives each of the three a real late-writer stub, `wsl.exe` on `PATH` proven to resolve before it runs, and adds a syntax tree test that every function in `setup/setup.ps1` and `setup/windows/*.ps1` that starts a program with `-RedirectStandardOutput` waits through `Wait-BoundedProcess` and never calls `WaitForExit` itself. In the gate image, against the three files before this change the four new tests failed, the three stubs with the detail cut to `exit 1. ` or to the fixed WSL sentence and the syntax tree test naming all four functions. With the second wait taken out of `Wait-BoundedProcess`, the winget test and the three stub tests failed. With the change, all five passed in 10 of 10 runs.
+
+### Found while replacing the editor steps with one-line commands, 2026-10-23
+
+#### 10.184 The File Browser password reset put the new admin password on screen and into the shell history
+
+Cause: [homelab/lan_storage.md](../homelab/lan_storage.md) wrote the new password into `config.yaml` with `echo '  adminPassword: "<new-password>"' >> /opt/docker-stack/filebrowser/data/config.yaml`, a command line that holds the password itself.
+
+Effect: the password showed in the terminal, and bash saved the whole line in its history file, where it stayed after the guide's next step removed the line from `config.yaml` again.
+
+How it was proven: in an `ubuntu:26.04` container, an interactive bash with `HISTFILE=/tmp/hist` ran the old `echo` line with the password `new-pass-123456` and then the guide's `sed -i '/^  adminPassword:/d'`. `config.yaml` no longer held the password, and `/tmp/hist` held `echo '  adminPassword: "new-pass-123456"' >> /opt/docker-stack/filebrowser/data/config.yaml`. The same harness with the new commands wrote the password into `config.yaml` and `grep -c new-pass-123456 /tmp/hist` printed 0.
+
+Fix: the page reads the password with `read -r -s -p` into a variable, writes the line with `printf`, removes the variable with `unset`, and checks the line with `grep -c`, which prints a count and not the password. It also says to leave out double quotes and backslashes, because the value sits between double quotes in the YAML file.
+
+Mechanical check: none. A check cannot tell a secret from any other value on a command line without guessing from a placeholder's name.
+
+#### 10.185 The network watch page changed telegraf.conf on the Docker VM only, so the next deployment would put the old file back
+
+Cause: the step that changes the speed test interval in [homelab/network_watch.md](../homelab/network_watch.md) edited `/opt/docker-stack/telegraf/telegraf.conf` on the VM, and the steps that move a ping target and turn the speed test off named the file without saying which copy, while "Deploying from your clone" in [homelab/README_HOMELAB.md](../homelab/README_HOMELAB.md) copies the whole file from the clone over the VM's copy.
+
+Effect: a change made on the VM alone lasts only until the next deployment, which replaces it with the clone's file without a word. It is the same drift between the VM and the repository as 10.181, from the other side.
+
+How it was proven: read, not run. The `scp` command in "Deploying from your clone" writes `<repo>/homelab/telegraf/telegraf.conf` to `/opt/docker-stack/telegraf/telegraf.conf`, and nothing in it reads the VM's copy first.
+
+Fix: each of the three steps is now a command on the VM, `sed -i` for the interval and the ping target and an `awk` that drops the two speed test blocks, followed by a check command and `docker restart telegraf`, and each ends with the sentence to make the same change in [homelab/telegraf/telegraf.conf](../homelab/telegraf/telegraf.conf) in the clone. The commands were run against a copy of that file in an `ubuntu:26.04` container, and a `diff` showed only the intended lines changed.
+
+Mechanical check: none. Nothing in the repository can read the VM.
+
+### Found in sweep 39959196468, 2026-10-23
+
+#### 10.186 One OpenRazer DKMS build that failed on Pop!_OS left dpkg half configured, and every apt install after it failed
+
+Cause: two defects in a row. `apt-get install openrazer-meta` on Pop!_OS pulled System76's `linux-headers-7.2.6-76070206-generic`, and Ubuntu's openrazer-driver-dkms 3.11.0+dfsg-1ubuntu0.1 does not build against that kernel. Then setup/ansible/tasks/install_role_packages.yaml left the package half configured, and dpkg refuses every later install while one package is unfinished. 64812ac exposed it: until the Pop!_OS image carried System76's archive (10.163) it installed Ubuntu's own kernel headers, and the driver built against those.
+
+Effect: in all six Pop!_OS install scenarios of sweep 39959196468, `Building initial module openrazer-driver/3.11.0 for 7.2.6-76070206-generic` ended with `Error! Bad return status for module build on kernel: 7.2.6-76070206-generic (x86_64)` and `old openrazer-driver-dkms package postinst maintainer script subprocess failed with exit status 10`. openrazer-meta, openrazer-daemon and python3-openrazer were left unconfigured. Every apt call after that printed `4 not fully installed or removed.` and `E: Sub-process /usr/bin/dpkg returned an error code (1)`, so docker and about 25 other packages were reported missing.
+
+How it was proven: in a plain container built from e2e/tier3/popos.Dockerfile on 2026-10-23, with linux-headers-7.2.6-76070206-generic installed, the playbook's own command for openrazer-meta gave the same `Bad return status` from the Ubuntu archive. With the fix, dpkg --configure -a failed the same way, apt removed the four packages, `[dpkg-repair] removed openrazer-driver-dkms` was printed, nothing was left unfinished and `apt-get install -y gparted` exited 0. In the same container the OpenRazer project's `ppa:openrazer/stable`, which openrazer.github.io names for Ubuntu and Pop!_OS, offered 3.12.4~ubuntu26.04.1, and `apt-get install openrazer-meta` from it exited 0 with `Building initial module openrazer-driver/3.12.4 for 7.2.6-76070206-generic` and `openrazer-driver/3.12.4, 7.2.6-76070206-generic, x86_64: installed`.
+
+Fix: install_role_packages.yaml gives apt a repair. An attempt that fails runs `dpkg --configure -a` when dpkg has an unfinished package, and apt removes whatever that cannot finish. Each removed package gets an `[ERROR]` line and an entry in not_installed_with_reason, and any_role_failed is set, so nothing disappears quietly. One package per call and the retry rule are unchanged. For the driver itself, an `openrazer` entry in third_party_repositories of [setup/ansible/vars/Debian.yaml](../setup/ansible/vars/Debian.yaml) with `os_release_ids: ["pop"]`, a block in [setup/ansible/roles/software_installer/tasks/debian_repos.yaml](../setup/ansible/roles/software_installer/tasks/debian_repos.yaml) that adds the PPA on those machines only, with its key refused unless it carries Launchpad's fingerprint 903936CAB6049E2E6C33D5D8073E051D7B2AEE37, and [setup/ansible/tasks/repository_availability.yaml](../setup/ansible/tasks/repository_availability.yaml) asking about such an entry only where it applies. [docs/manual/debian-ubuntu/install.sh](manual/debian-ubuntu/install.sh) adds the same PPA on Pop!_OS.
+
+Mechanical check: part 3a of e2e/tier1/package_retry_rule.sh runs the shared file against a fake apt, dpkg and dpkg-query. Against the file before the fix it failed with `ok-after, after a package whose maintainer script failed, was tried 4 times, not once`, and it passes now. No container check can see the kernel a distribution will ship next, so the next DKMS failure is caught by the tier 3 Pop!_OS cells, which now cost one package instead of the run. Part 6 of e2e/tier1/apt_vendor_repositories.sh requires the PPA line for the Pop!_OS fixture, with its Ubuntu codename, and no PPA line for any other Debian-family fixture, and e2e/tier2/resolve_apt_repositories.sh asks Launchpad for it. My first version of this fix rendered the PPA for every fixture, because e2e/lib/render_apt_repositories.py did not read the os-release ID, and tier 2 failed with `https://ppa.launchpadcontent.net/openrazer/stable/ubuntu/dists/trixie/InRelease` and `.../dists/bookworm/InRelease` missing. The renderer now reads ih_os_release_id and the family's third_party_repositories, part 6 failed 6 of its fixtures against the old renderer, and passes now.
+
+#### 10.187 A winget exit 0 counted as installed without asking winget whether the package was there
+
+Cause: `Install-WingetPackage` in [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) treated `winget install` exit 0 as success without checking presence, and docs/manual/windows/install.ps1 did the same. This is the gap 10.151 closed for Chocolatey, left open for winget.
+
+Effect: in the Windows all apps job of sweep 39959196468, prime_video (9P6RC76MSMMJ) logged `installed after 20s` and slack (SlackTechnologies.Slack) logged `installed after 35s`, and the verification then said `winget list --exact --id 9P6RC76MSMMJ found nothing` and the same for SlackTechnologies.Slack. Neither was retried.
+
+How it was proven: Pester cases with a fake winget that prints `Successfully installed` and exits 0 without installing. Against the old code 10 cases failed, and all pass against the fix. Writing them showed a hollow test as well: `treats winget answering already installed as success` defined its fake winget with `global:`, the stub the `BeforeEach` defines in a nearer scope won, and the test passed without ever running its own fake. It now defines the fake in its own scope.
+
+Fix: after exit 0 the install asks `winget list --exact --id <id>` in the scope it installed to, through the same elevated or unelevated route as the check before it, and fails the attempt with `winget exited 0 and winget list --exact --id <id> --scope <scope> finds nothing` plus the tail of winget's output, so the shared retry with its source refresh runs. When that check cannot run at all, the attempt fails and names the reason. docs/manual/windows/install.ps1 applies the same test.
+
+Mechanical check: the Pester cases above, in the `Install-WingetPackage retries under the shared rule`, `Install-WingetPackage asks about a machine-wide copy by scope` and `docs/manual/windows/install.ps1 follows the same retry rule` blocks of e2e/tier1/windows/WindowsSoftware.Tests.ps1.
+
+### Found while checking every page for secrets on a command line, 2026-10-23
+
+#### 10.188 Pages put tokens, API keys and passwords on the screen, into the shell history and into the process list
+
+Cause: the steps that set or use a secret wrote the value into the command itself: `[Environment]::SetEnvironmentVariable` with the token as a literal, `echo ... >> ~/.profile`, `echo ... >> ~/.zprofile` and `launchctl setenv` with the token as an argument, and a check that printed `$env:GRAFANA_SERVICE_ACCOUNT_TOKEN`, in [docs/MCP_SETUP.md](MCP_SETUP.md). The same shape was in the Proxmox, Syncthing and Uptime Kuma test commands in [homelab/agent_access.md](../homelab/agent_access.md), which put the key in a `curl -H` or `curl -u` argument, eight Proxmox commands and four for the two keys, in the Plex claim step in [homelab/plex_media_server.md](../homelab/plex_media_server.md), in the headless `XAI_API_KEY` step in [setup/software.md](../setup/software.md), and in the `keytool -importkeystore` step in [local-dev/auth/README.md](../local-dev/auth/README.md), which took three passwords as options. It is the class of 10.184, which fixed one page and left the rest.
+
+Effect: every value stayed in the shell history file after the step, and the curl and launchctl forms put it in the process list, where any account on the machine can read it while the command runs. Found in passing on the same page: the Linux step wrote `GRAFANA_SERVICE_ACCOUNT_TOKEN=...` into `~/.profile` without `export`, so a login shell set the variable for itself and no program it started saw it.
+
+How it was proven: in a `debian:trixie` container, an interactive bash and an interactive zsh with `HISTFILE` set ran the old `echo` lines with the token `glsa_SECRET1234567890`, and each history file held it once. The new steps, run the same way with the token typed at the prompt, left 5 history lines in each shell and 0 holding the token, the terminal showed only `Token: ` and the count `1`, and `env -i HOME=... bash -l -c 'printenv GRAFANA_SERVICE_ACCOUNT_TOKEN'`, and the same with `zsh -l` for `~/.zprofile`, printed the token. With the old line without `export`, the same bash command printed nothing. While the old and new Uptime Kuma, Syncthing and Proxmox forms ran 20 times each against a local echo server, 400 samples of `ps -eo args` caught `curl -s -u :UKSECRET42` 17 times, and once masked as asterisks, and caught none of the secrets of the new forms. A second run of the same loop caught it 13 times in the clear and twice masked, and no other line held the Uptime Kuma key. The echo server received the same header values from the new bash forms and from the new PowerShell forms in the gate image (curl 8.14.1, PowerShell 7.6.7), the Proxmox header `PVEAPIToken=agent@pve!agent=...` included, and a header or configuration line ending in a carriage return, which PowerShell on Windows sends, arrived without it. `Read-Host -AsSecureString` under a pseudo terminal in the gate image showed asterisks and returned the 14 characters typed. `keytool -importkeystore` without the three password options, in `eclipse-temurin:21-jdk` (Java 21.0.12.1), asked "Enter destination keystore password", "Re-enter new password" and "Enter source keystore password" and imported the entry. The curl manual for 8.23.1 says under `-u, --user`: "This is not enough to protect credentials from possibly getting seen by other users on the same system as they still are visible for a moment before being cleared", under `-H, --header`: "Using @- makes curl read the header file from stdin", and under `-K, --config`: "If the parameter contains whitespace or starts with a colon (:) or equals sign (=), it must be specified enclosed within double quotes", https://curl.se/docs/manpage.html, read on 2026-10-23. The keytool manual for Java 21, "Passwords Warning", says "a password shouldn't be specified on a command line or in a script unless it is for testing", https://docs.oracle.com/en/java/javase/21/docs/specs/man/keytool.html.
+
+Fix: [docs/MCP_SETUP.md](MCP_SETUP.md) reads the token with `printf 'Token: '; read -rs value; echo`, the same in bash and zsh, or with `Read-Host -AsSecureString` turned into plain text only in memory, writes it with the shell's own `printf` or `[Environment]::SetEnvironmentVariable` from the variable, with `export` on Linux, removes the variable, and checks with a count or a length. The macOS `launchctl setenv` step now takes `"$value"`, so the screen and the history hold only the variable name, and the page says that `launchctl` still sees the token as an argument, because it has no other way to take one. Every test command in [homelab/agent_access.md](../homelab/agent_access.md) reads the secret from `homelab.env` with `grep` and `cut`, or `Select-String` in PowerShell, and hands it to curl on standard input, `-H @-` for a header and `-K -` for the Uptime Kuma `user` line, and a new subsection, "Use a key in a command", says why and that the file is never sourced. The Plex claim token is read with `read -r -s -p` and written with `printf`, the `XAI_API_KEY` is read at a hidden prompt in bash, zsh and PowerShell, and `keytool` asks for its passwords.
+
+Not changed, found while measuring the keytool step: in Java 21 `keytool -importkeystore -destkeystore keystore.jks` writes a PKCS12 file, `keytool -list` said "Keystore type: PKCS12", while the page says Keycloak reads a JKS keystore. Whether Keycloak needs `-deststoretype JKS` was not measured. Not changed either: the `client_secret` and passwords in the local development Keycloak, Floci and keytool `changeit` commands under `local-dev/`, which are fixed development values committed in this repository and not secrets of any machine, and the File Browser step in [homelab/lan_storage.md](../homelab/lan_storage.md) that prints the generated first password, which a person must read once to log in and then replaces.
+
+Mechanical check: none, for the reason in 10.184. A check cannot tell a secret from any other value on a command line without guessing from a placeholder's name.
+
+### Found when the AdGuard query log interval was lowered on the lab, 2026-10-23
+
+#### 10.189 The AdGuard page said a shorter query log interval deletes nothing at once, and the lab lost its DNS history from before 2026-09-13
+
+Cause: "Keep 30 days of query log" in [homelab/adguard_dns.md](../homelab/adguard_dns.md) described what a shorter interval does from reasoning about the rotation, not from a measurement. It said the age check runs once an hour and that "The shorter interval does not delete anything at once", and it missed that `periodicRotate` in `internal/querylog/querylogfile.go` also checks once when AdGuard Home starts.
+
+Effect: on the lab Docker VM, AdGuard Home v0.107.78 had `querylog.interval` at `90d`, with `querylog.json` at 1.3G and `querylog.json.1` at 2.9G in `du -h`, 4.2G together. After `querylog.interval` was set to `30d` in `AdGuardHome.yaml` and the container was started, AdGuard read the oldest entry of `querylog.json`, from 2026-09-13 and so older than 30 days, renamed `querylog.json` to `querylog.json.1` and so replaced the old 2.9G `querylog.json.1` at once. Every DNS query of the owner's network before 2026-09-13 was deleted, and it cannot be restored, because no copy existed. Free disk in `df -h` went from 110G to 113G.
+
+How it was proven: measured on the lab VM on 2026-10-23 by the session that made the change, and reported to this one: `du -h` of both files before, the file names, sizes and first entry dates after the start, and `df -h` before and after. The mechanism is in the source at v0.107.78, read again on 2026-10-23 from https://raw.githubusercontent.com/AdguardTeam/AdGuardHome/v0.107.78/internal/querylog/querylogfile.go: `periodicRotate` calls `l.checkAndRotate(ctx)` before it starts the ticker of `rotationCheckIvl = 1 * time.Hour`, and `rotate` is a plain `os.Rename(from, to)` of `querylog.json` onto `querylog.json.1`.
+
+Fix: the section in [homelab/adguard_dns.md](../homelab/adguard_dns.md) says the age check runs at start and then every hour, that a shorter interval deletes the older file at the next start or hourly check, with this lab's numbers, and gives a `sudo cp` command that copies `querylog.json*` out of `/opt/docker-stack/adguard/work/data/` before the interval is lowered. It also says that this lab keeps the statistics at 1 day, the default, until the page's 30 day statistics step is followed.
+
+Mechanical check: none. The wrong sentence was a claim about a running program, which only a measurement of that program could have caught.
+
+### Found when the Fedora guide check failed at random, 2026-10-23
+
+#### 10.190 A check read the Fedora guide through a pipe into grep -q and reported a line missing that was there
+
+Cause: [e2e/tier1/manual_linux_install.sh](../e2e/tier1/manual_linux_install.sh), written in b22811e on 2026-10-18 and not by this change, read each guide and script through `tr -d '\r' <file | grep -qE ...` under the `pipefail` that [e2e/lib/common.sh](../e2e/lib/common.sh) sets. `grep -q` exits at its first match. The Fedora guide is 17746 bytes and the matching line starts at byte 10809, so `tr` can still be writing its last block when `grep` exits, the kernel kills `tr` with SIGPIPE, and the pipeline reports 141 although `grep` found the line. It is the shape of 10.32, which declined a mechanical check, and 90 more pipes into `grep -q`, `grep -m` or `head` were under [e2e/](../e2e/), 19 into a grep that decides a result and 71 into `head`.
+
+Effect: the gate printed `FAIL RedHat: docs/manual/fedora/fedora_manual_install.md installs Docker and never tells the reader to enable and start docker.service` while the guide holds `sudo systemctl enable --now docker` on line 321. An earlier agent measured 510 misses in 2000 runs against that guide and reported it to this one. Most of the other 90 sites could fail the same way, at random, with a rate that depends on how busy the machine is.
+
+How it was proven: in the gate image `installationhelper-e2e-gate` (bash 5.2.37, GNU coreutils tr 9.7), 2000 runs of the old form against the Fedora guide under `set -euo pipefail` missed the line 0 times with all 16 processors while another gate run shared the machine, 2 times with every processor kept busy by loops in the container, 56 times with the container on one processor (`--cpuset-cpus 0`) and 28 times on two. `PIPESTATUS` on one processor was `141 0` in 58 of 2000 runs and `0 0` in the rest, so `tr` died of SIGPIPE while `grep` matched. The new form, `grep -qE ... <<<"$(tr -d '\r' <guide)"`, missed 0 of 2000 runs under each of the same conditions. The 510 misses of the earlier agent were not reproduced at that rate here, and the conditions of that run are not known.
+
+Fix: no script under e2e/ pipes into an early reader any more. Every `producer | grep -q ...` and `producer | grep -m1 ...` is now `grep -q ... <<<"$(producer)"`, so grep reads a here-string and nothing writes into a closed pipe. That covers [manual_linux_install.sh](../e2e/tier1/manual_linux_install.sh), [apt_vendor_repositories.sh](../e2e/tier1/apt_vendor_repositories.sh), [container_isolation.sh](../e2e/tier1/container_isolation.sh), [forced_failure_assertions.sh](../e2e/tier1/forced_failure_assertions.sh), [interactive_states.sh](../e2e/tier1/interactive_states.sh), [manual_windows_install.sh](../e2e/tier1/manual_windows_install.sh), [package_retry_rule.sh](../e2e/tier1/package_retry_rule.sh), [print_command_resolution.sh](../e2e/tier1/print_command_resolution.sh), [selection_parity.sh](../e2e/tier1/selection_parity.sh), [throwaway_machine_only.sh](../e2e/tier1/throwaway_machine_only.sh), [wizard_parse.sh](../e2e/tier1/wizard_parse.sh), [resolve_packages.sh](../e2e/tier2/resolve_packages.sh), [resolve_pinned_urls.sh](../e2e/tier2/resolve_pinned_urls.sh) and [container.sh](../e2e/tier3/container.sh). Every `| head -N` under e2e/ is now `| sed -n 1,Np`, which prints the same lines and reads to the end. Most of the 71 `head` sites ended in `|| true` or built a message, where a 141 changes nothing, and they changed anyway so that one rule covers every script. My first version of this fix broke one of them, which this entry records as introduced by me: [ansible_static.sh](../e2e/tier1/ansible_static.sh) prints the first 15 lines of ansible-lint's findings as a warning, and with `head -15` ansible-lint lost its pipe and exited 0, while with `sed -n 1,15p` it read to the end and exited 2, its status for findings. The gate then failed with `ansible_static.sh exited 2 with no PASS, FAIL or tally line in its output`. Measured in the gate image, `PIPESTATUS` was `0 0` in 3 of 3 runs with `head` and `2 0` with `sed`. The old line passed only because the early reader hid ansible-lint's status, and the line now says what it means, `{ ansible-lint ... 2>&1 || true; } | sed -n 1,15p`, since the `if` above it already decided that findings are a warning.
+
+Mechanical check: a second half of [e2e/tier1/sigpipe_pipelines.sh](../e2e/tier1/sigpipe_pipelines.sh) fails on any shell script under e2e/ that pipes into `head` or into a grep whose options before the pattern hold `-q`, `-m`, `--quiet`, `--silent` or `--max-count`, with the file and line. Against the tree before the fix it named all 91 sites, the two in manual_linux_install.sh at lines 434 and 440 among them, and it passes after the fix. It reads e2e/ only: setup/ holds the same shape, for example `find ... | grep -q .` in [verify_install.yaml](../setup/ansible/verify_install.yaml) and `npm list -g ... | grep -q -F` in [npm_install_unix.yaml](../setup/ansible/roles/ai_tools/tasks/npm_install_unix.yaml), and whether each of those runs under pipefail was not checked in this change.
+
+#### 10.191 The AdGuard page said the lab keeps statistics at 1 day after the lab had moved to 30 days
+
+Cause: the sentence in "Keep 30 days of query log" in [homelab/adguard_dns.md](../homelab/adguard_dns.md) that says the lab keeps the statistics at 1 day was written in 4b13afa at 19:06 UTC on 2026-10-23, 22 minutes after the lab had changed. Not introduced by this change.
+
+Effect: since 2026-10-23 18:44 UTC the lab keeps statistics 30 days, `statistics.interval` is `30d`, and the page said 1 day and that step 3 was still to be followed.
+
+How it was proven: reported by the owner's session that made the change: `statistics.interval` `30d` in `AdGuardHome.yaml`, and `stats.db` measured 256 KiB while the statistics were kept for 1 day. Not measured by this change, because agents here do not inspect the lab. The 8 MiB for 30 days is an estimate, 30 times 256 KiB, and the page says so.
+
+Fix: the sentence now says the lab runs both the query log and the statistics at 30 days, since when, the 256 KiB measured at 1 day and the estimate for 30 days.
+
+Mechanical check: none. The page states the state of a running machine, which only a measurement of that machine shows.
+
+### Found when the Keycloak keystore steps were run, 2026-10-23
+
+#### 10.192 The Let's Encrypt keystore steps said Keycloak reads JKS and never told Keycloak where the file was or its password
+
+Cause: "Production (Let's Encrypt)" in [local-dev/auth/README.md](../local-dev/auth/README.md), present since 67322cb on 2026-05-21 and not introduced by this change, said "Keycloak reads a JKS keystore", turned the PEM files into PKCS12 with openssl, imported that into `keystore.jks` with `keytool -importkeystore`, and ended with "Drop the resulting `keystore.jks` into Keycloak's expected location and restart the container". It was never run. Java 21 keytool writes PKCS12, Keycloak reads PKCS12, and the page named no path, no Keycloak setting and no password. 10.188 saw the PKCS12 output and left the question open. The JVM section of the same page said the trust store is a file in the JKS format, which in Java 21 is PKCS12 as well.
+
+Effect: a reader got a PKCS12 file named `keystore.jks`. Placed at Keycloak's own default path, `conf/server.keystore`, with no password setting, Keycloak 26.5.7 stopped with `ERROR: keystore password was incorrect`, because it then tries the password `password`. The file itself works: Keycloak served HTTPS from it once it was given the file and the password.
+
+How it was proven: in throwaway containers on 2026-10-23, with a self-signed certificate for `keycloak.test` in place of the Let's Encrypt files. The page's openssl and keytool commands ran in `eclipse-temurin:21-jdk` (Java 21.0.12.1, OpenSSL 3.5.5) with the passwords typed on standard input, and `keytool -list` said `Keystore type: PKCS12`, the file starting with the bytes `30 82` rather than the JKS magic `FE ED FE ED`. Keycloak ran from the digest [local-dev/auth/Keycloak/Dockerfile](../local-dev/auth/Keycloak/Dockerfile) pins, `quay.io/keycloak/keycloak@sha256:45ae2019...`, as `start --hostname=keycloak.test --http-enabled=false --https-port=9443` on an internal Docker network with no published port, and a `curl --cacert` from a second container asked for `/realms/master/.well-known/openid-configuration`. It answered HTTP 200 with a verified certificate for `keystore.jks` given by `--https-key-store-file`, its type taken from the `.jks` extension, for the same file at `conf/server.keystore`, for `--https-key-store-type=PKCS12`, and for openssl's `pkcs.p12` at `conf/server.p12` with the password in `KC_HTTPS_KEY_STORE_PASSWORD`. Without any password setting it stopped with `keystore password was incorrect`. A `pkcs.p12` that openssl wrote as root, as the page's `sudo openssl` does, had mode 600 and stopped Keycloak, which runs as user 1000, with `ERROR: Failed to load 'https-*' material: AccessDeniedException /opt/keycloak/conf/server.p12`. `keytool -list -cacerts` in the same Java 21 image said `Keystore type: PKCS12`. The Keycloak page "Configuring TLS", https://www.keycloak.org/server/enabletls, read raw on 2026-10-23, says "When no keystore file is explicitly configured, but http-enabled is set to false, Keycloak looks for a conf/server.keystore file", lists ".p12, .pkcs12, and .pfx for a PKCS12 file" and ".jks and .keystore for a JKS file", and says "If no password is set, the default password password is used".
+
+Fix: the page converts the PEM files to `pkcs.p12` with openssl, gives the file to user 1000 with `sudo chown 1000 pkcs.p12`, and drops the keytool step. Keycloak gets the file read-only at `/opt/keycloak/conf/server.p12` with `--https-key-store-file`, and the password through `KC_HTTPS_KEY_STORE_PASSWORD` from an environment file, never on the command line. No `--https-key-store-type` is needed, because the `.p12` extension names the type, and no file name had to change for Keycloak to read the old `keystore.jks`. The JVM section now says the trust store is PKCS12 in Java 21. [local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) is unchanged, because the local stack hands Keycloak the PEM files of the local authority and uses no keystore.
+
+Mechanical check: none. No tier of the harness starts Keycloak or any service of [local-dev/](../local-dev/), so only a run like the one above shows what Keycloak accepts.
+
+### Found when the local Keycloak would not stay up, 2026-10-23
+
+#### 10.193 Keycloak crashed with SIGBUS while the disk of the owner's computer was full
+
+Cause: the JVM in the `keycloak` container of [local-dev/](../local-dev/) keeps its performance counters in a file it maps into memory, `/tmp/hsperfdata_keycloak/<pid>`, and `/tmp` in the container is stored on the disk of the computer. Around 00:00 on 2026-10-23 that disk had 0.37 % free, so a page of the mapped file could not be given disk space when the JVM first wrote to it. Not a defect in the repository and not introduced by this change.
+
+Effect: Keycloak stopped with `SIGBUS`, code `BUS_ADRERR`, its `si_addr` inside `/tmp/hsperfdata_keycloak/<pid>`, in the frame `PerfClassTraceTime::initialize`, and Docker started it again.
+
+How it was proven: reported by the owner's session that read the JVM crash report and the free space, and freeing space on the disk ended the crashes. Not measured by this change, because agents here do not inspect the owner's computer. The mechanism is OpenJDK bug JDK-7007769, https://bugs.openjdk.org/browse/JDK-7007769, read on 2026-10-23: "If there is very little /tmp space, the VM will be able to successfully mmap the performance data area in /tmp but when the VM attempts to access this memory region, it will crash with a SIGBUS if there is insufficient disk space in /tmp." The owner's first idea was a port conflict. That idea was wrong for this crash and right for the later failure in 10.194.
+
+Fix: free space on the disk. Nothing in the repository changed for this entry.
+
+Mechanical check: none. The crash depends on the free space of the computer at the moment the JVM writes the file, which no check of the repository can see.
+
+#### 10.194 Docker showed the local Keycloak healthy while a Keycloak from another stack answered its healthcheck
+
+Cause: the healthcheck of the `keycloak` service in [local-dev/local-dev-docker-compose.yaml](../local-dev/local-dev-docker-compose.yaml) asked `https://127.0.0.1:9000/health/ready` with `curl -f -L -k`. Since cc32cee on 2026-09-16 every service of the stack runs on the host's own network, `network_mode: host`, so `127.0.0.1:9000` is whichever program on the computer holds port 9000, not necessarily this container's Keycloak. Not introduced by this change.
+
+Effect: on 2026-10-23, after 10.193, a Keycloak container of another stack published host ports 9000 and 9443. The local Keycloak stopped at every start with `io.quarkus.runtime.QuarkusBindException: Port already bound: 9443: Address already in use`, and Docker showed it `healthy` on every restart, because the other Keycloak answered the readiness request on 9000.
+
+How it was proven: the bind error and the healthy status were measured by the owner's session. This change measured the healthcheck itself on 2026-10-23, from a throwaway container of the `keycloak-local:latest` image on Docker's default bridge network, with the other stack's Keycloak holding host ports 9000 and 9443 and reached through the host gateway, 172.17.0.1. The old check, `curl -f -L -k https://172.17.0.1:9000/health/ready`, got HTTP 200 and exited 0. The new check, the same request the Compose file now makes with `--resolve keycloak.test:9443:172.17.0.1`, got HTTP 404 for the `local` realm and exited 1. After the other stack's containers were stopped and the local stack was recreated, the new check exited 0 on every run, `docker inspect` showed `keycloak` healthy with a restart count of 0, the configuration began `{"issuer":"https://keycloak.test:9443/realms/local",`, the same request for an absent realm exited 22 on HTTP 404, and without `-k` it exited 60 on the certificate of the local authority, which the container does not trust. The image holds curl 7.76.1 and bash 5.1.8, measured in a throwaway container. The Keycloak page "Configuring the hostname (v2)", https://www.keycloak.org/server/hostname, read on 2026-10-23, says of `hostname`: "Can be a full URL, or just a hostname. When only hostname is provided, scheme, port and context path are resolved from the request." So `KC_HOSTNAME=keycloak.test` and a request on port 9443 give that issuer.
+
+Fix: the healthcheck asks for `https://keycloak.test:9443/realms/local/.well-known/openid-configuration`, points the name at `127.0.0.1` with curl's `--resolve`, and passes only when the answer holds `"issuer":"https://keycloak.test:9443/realms/local"`, compared by bash, which the image already has for `kc.sh`. A Keycloak of another stack holding the port has no `local` realm or another issuer, so the container shows `unhealthy`. "Port already in use" in [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md#port-already-in-use) gives the symptom, the commands that show which program or container holds a port, and that only one stack can use host ports 9443 and 9000 at a time.
+
+Mechanical check: none. No tier of the harness starts the local stack, so only a run on a computer where another program holds the ports shows what the healthcheck answers. A check that the healthcheck names port 9443 would only restate the Compose file.
+
+#### 10.195 Two Keycloak pages described a healthcheck that asks the container name on port 9000
+
+Cause: [local-dev/auth/README.md](../local-dev/auth/README.md) and [local-dev/auth/Keycloak/README.md](../local-dev/auth/Keycloak/README.md) said the Compose healthcheck reaches `https://keycloak:9000/health/ready` through Docker's embedded resolver, and the second page said port 9000 is published to the host. Both stopped being true in cc32cee on 2026-09-16, which moved every service to the host's network, where Docker publishes no port and resolves no container name. 10.171 corrected [local-dev/README_LOCAL_DEV.md](../local-dev/README_LOCAL_DEV.md) after cc32cee and did not reach these two pages. Not introduced by this change, found while making 10.194.
+
+Effect: a reader was told the healthcheck depends on a resolver the stack no longer uses, and that the port is published by Compose, when Keycloak listens on the host directly.
+
+How it was proven: read against the Compose file, which has `network_mode: host` on every service and no `ports` key.
+
+Fix: both pages now describe the healthcheck of 10.194 and say that Keycloak listens on 9000 on the host's own network.
+
+Mechanical check: none. A check cannot tell whether a sentence about a healthcheck matches the healthcheck without restating it.
+
+### Found when the SIGPIPE check was extended to setup/, 2026-10-23
+
+#### 10.196 Nineteen places under setup/ piped into a reader that can stop early, seventeen of them under pipefail
+
+Cause: shell code under [setup/](../setup/) fed `grep -q`, `grep -qx`, `head -1` or an awk program that calls `exit` at its first match from a pipe. Each of those readers can exit while the writer still has output to send, the kernel then kills the writer with SIGPIPE, and under `set -o pipefail` the writer's 141 becomes the status of the pipeline whatever the reader found. 10.190 named two of these places and left them, because its check read e2e/ only. None was introduced by this change. Under pipefail, where a 141 decides the result: the nine `disk_cmd` lines in [verify_install.yaml](../setup/ansible/verify_install.yaml), `find ... | grep -q .`, which the task "Check whether each enabled tool exists on disk where its installer put it" runs after `set -o pipefail`, `npm list -g ... | grep -q -F` in [npm_install_unix.yaml](../setup/ansible/roles/ai_tools/tasks/npm_install_unix.yaml) and in verify_install.yaml, the swap topology `| head -1` in [linux_security](../setup/ansible/roles/linux_security/tasks/main.yaml), the OpenRazer key fingerprint awk in [debian_repos.yaml](../setup/ansible/roles/software_installer/tasks/debian_repos.yaml), the swap partition awk in [systemd_boot](../setup/ansible/roles/systemd_boot/tasks/main.yaml), and the two `hdiutil attach ... | awk` in [macos_install.yaml](../setup/ansible/roles/software_installer/tasks/macos_install.yaml). Under pipefail where nothing reads the status: `$(ansible-playbook --version 2>/dev/null | head -1)` inside a message in [setup.sh](../setup/setup.sh). Not under pipefail: the `dpkg-query ... | grep -qx 'install ok installed'` probe in [opencode_version.yaml](../setup/ansible/tasks/opencode_version.yaml), which its tasks run with bash and no pipefail, and `echo "$PATH" | grep -q "/sbin"` in the profile script [debian_core](../setup/ansible/roles/debian_core/tasks/main.yaml) writes to `/etc/profile.d/sbin-path.sh`.
+
+Effect: a tool that is on disk can be reported missing, an installed npm package reinstalled, a key with the right fingerprint refused, and a mounted disk image reported as a failed mount. How often depends on how much the writer prints. No run in this ledger is known to have failed this way.
+
+How it was proven: in a throwaway container of the gate image `installationhelper-e2e-gate` (bash 5.2.37, GNU findutils 4.10.0, GNU grep 3.11), with 3000 files named `node` at depth 3, `bash -c 'set -o pipefail; find /tmp/t -maxdepth 3 -name node 2>/dev/null | grep -q .'` failed 200 of 200 runs, `PIPESTATUS` `141 0`, and the new form `grep -q . <<<"$(find ...)"` failed 0 of 200. With one file it failed 0 of 200, because find writes an output that small in one piece when it exits, before grep can stop reading. So the `disk_cmd` lines fail only when find prints more than one buffer, which takes many Node versions, and the npm lines only when the list of global packages is that long. The extended check from the tier 1 gate, run against the tree before this fix, named all 19 places with the file, the key path inside the YAML and the line.
+
+Fix: the greps that decide read a here-string, `grep -q . <<<"$(find ...)"` and `grep -q -F ... <<<"$(npm list -g ...)"`, in tasks that run bash. The desktop probe keeps its pipe and drops `-q`, `dpkg-query ... | grep -x 'install ok installed'`, so grep reads to the end and prints the line, which nothing reads, because only the probe's return code is used. My first version gave that probe a here-string too, and this entry records it as introduced by me: [e2e/tier1/opencode_switch.sh](../e2e/tier1/opencode_switch.sh) reads the first word of every probe in the table as a command that must resolve to its fake before the play runs, and the first word became `grep`, so the gate failed with `read 7 commands (apt-get dnf flatpak grep pacman rpm npm), not faked: grep` and `dpkg-query` was no longer checked at all. `head -1` is `sed -n 1p`, which reads to the end. Each awk program keeps a flag instead of calling exit, `$1 == "fpr" && !done { print $10; done = 1 }`, so it prints the same first match and reads to the end. The profile script, which `sh` sources and which has no here-string, tests `case "$PATH" in */sbin*)`, the same substring test `grep -q "/sbin"` made. The two npm tasks lost their `set -o pipefail` line, because no pipe is left in them. One behaviour changes: when `npm list -g` exits non-zero but still lists the package, which npm does when something else in the global tree is broken, the old form answered not installed and the new one answers installed, the same rule 10.190 applied in e2e/. The Dockerfiles under [e2e/tier3/](../e2e/tier3/) hold the same shapes, `| awk ... exit` and `| head -1` among them, and were left alone: they have no `SHELL` instruction, so `RUN` uses `/bin/sh -c` without pipefail and a pipeline reports its last command.
+
+Mechanical check: the second half of [e2e/tier1/sigpipe_pipelines.sh](../e2e/tier1/sigpipe_pipelines.sh) now also reads every shell script under setup/ and every string in the YAML under setup/, because a script also arrives through a `set_fact` value that a shell task runs later, as the `disk_cmd` lines and the desktop probes do. It fails on a pipe into `head`, `read`, an awk program that calls exit outside its END block, or a grep with `-q`, `-m`, `-l` or `-L`, and on reading nothing under setup/. Against the tree before this fix it named all 19 places, and it passes after the fix.
+
+### Found when the Nginx Proxy Manager login steps were checked against its source, 2026-10-24
+
+#### 10.197 The proxy page said a fresh Nginx Proxy Manager 2.15.1 signs in with admin@example.com and changeme
+
+Cause: "Log in" in [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md), written in cb0fc04 on 2026-08-03 together with the pin `jc21/nginx-proxy-manager:2.15.1` in [homelab/compose.yaml](../homelab/compose.yaml), said a fresh install signs in with `admin@example.com` and the password `changeme` and then asks for a real email and password. That was the behaviour of older versions. Version 2.15.1 creates no default account. Not introduced by this change.
+
+Effect: a reader following the page tried a login that does not exist, and was not told that the first page is a setup wizard that anyone on the network can complete until the owner does. The page also gave no warning about the two environment variables that make the container create an account, which write the password into the container log.
+
+How it was proven: read in the source of tag v2.15.1 on 2026-10-24, not measured on the lab. [backend/setup.js](https://github.com/NginxProxyManager/nginx-proxy-manager/blob/v2.15.1/backend/setup.js), in `setupDefaultUser`, says "This will only create a new user when there are no active users in the database and the INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD environment variables are set. Otherwise, users should be shown the setup wizard in the frontend.", returns at once when either variable is unset, and otherwise logs `Creating a new user: ${initialAdminEmail} with password: ${initialAdminPassword}`. [backend/routes/users.js](https://github.com/NginxProxyManager/nginx-proxy-manager/blob/v2.15.1/backend/routes/users.js) creates a user with no access check while no active user exists, "If we are in setup mode, we don't check access for current user", and makes it an administrator. The wizard, [frontend/src/pages/Setup/index.tsx](https://github.com/NginxProxyManager/nginx-proxy-manager/blob/v2.15.1/frontend/src/pages/Setup/index.tsx), asks for a full name, an email address and a password of 8 to 100 characters. The project's own setup page at the same tag, docs/src/setup/index.md, still says under "Initial Run" that "A default admin user will be created", which the code no longer does. [homelab/compose.yaml](../homelab/compose.yaml) sets neither variable.
+
+Fix: the page says that 2.15.1 starts with the setup wizard, that it has to be completed first because anyone who reaches port 81 can complete it, that the old login does not exist, and that `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD` put the password in plain text into `docker logs nginx-proxy-manager`.
+
+Mechanical check: none. Which first login a version offers is in that version's source, and no tier of the harness starts the homelab stack.
+
+### Found when the Windows jobs of sweep 40004770702 failed, 2026-10-24
+
+#### 10.198 The presence check after a winget exit 0 failed Tor Browser and Python, which winget cannot list in the scope they install to
+
+Cause: 3dbbb3b, the fix for 10.187, made a winget exit 0 count only when `winget list --exact --id <id> --scope <scope>` then finds the package, and asked nothing else. Two mapped packages are installed and still never listed that way: Tor Browser registers nothing in Programs and Features, which its `verify_path` has answered in the verification since sweep 32739529615, and Python.Python.3.11 with `--scope machine` is not listed in the machine scope after its machine-wide burn install. Introduced by an agent in 3dbbb3b, which knew about `verify_path` and did not use it.
+
+Effect: `Windows default apps` and `Windows all apps` in sweep 40004770702 failed with `[!] python (Python.Python.3.11) via winget: winget exited 0 and winget list --exact --id Python.Python.3.11 --scope machine finds nothing, so Python.Python.3.11 is not installed. Starting package install... Successfully installed` and `[!] tor (TorProject.TorBrowser) via winget: winget exited 0 and winget list --exact --id TorProject.TorBrowser --scope user finds nothing`, each after four attempts and about 220 seconds. In the same run `installation_verify.log` reported `python installed winget: Python.Python.3.11` through the unscoped list, and `tor installed winget: TorProject.TorBrowser` through its `verify_path`. Every Linux and macOS job passed.
+
+How it was proven: the job logs of 120652876471 and 120652876479 and the `e2e-stage3-windows-defaults-40004770702` artefact, quoted above. The previous sweep, before 3dbbb3b, passed Windows default apps. The Python manifest 3.11.9 in winget-pkgs gives the machine and user installers of the x64 bundle the same ProductCode `{1da2e09b-199c-4def-9a99-93a8c1b8ddf2}` and passes `DefaultAllUsersTargetDir=<INSTALLPATH>` to the machine one, and CPython v3.11.9 `Tools/msi/bundle/bundle.wxs` sets `DefaultAllUsersTargetDir` to `[ProgramFiles64Folder]Python[WinVerNoDot]`. Why winget does not list the machine-wide bundle in the machine scope (a per-user registration of the Burn bundle is the likely reason) was not measured, only that it does not. Four Pester cases and one for the manual script failed against 3dbbb3b with "A parameter cannot be found" and an exit code of 1, and pass now.
+
+Fix: [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) has one function, `Test-WingetVerifyPath`, which the install check before winget, the check after winget exits 0 and the verification in [setup/windows/WindowsVerify.ps1](../setup/windows/WindowsVerify.ps1) all call. After an exit 0 the scoped list is asked first, and the mapping's `verify_path` only when that finds nothing, so a package without one is held to the scoped list exactly as 10.187 intended. Python's mapping in [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) carries `verify_path: "%ProgramFiles%/Python311/python.exe"`, a path a per-user install never creates, so a later run reports it present instead of as a per-user copy. [docs/manual/windows/install.ps1](manual/windows/install.ps1) carries the same `VerifyPath` on its Tor and Python rows and asks it the same way.
+
+Mechanical check: [e2e/tier1/manual_windows_install.sh](../e2e/tier1/manual_windows_install.sh) now compares the `verify_path` of every default mapping with the `VerifyPath` of its row in the manual script, and the Pester cases in [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) named after sweep 40004770702.
+
+### Found when the Proxmox proxy host answered 500, 2026-10-24
+
+#### 10.199 The Proxmox proxy host carried the port in the hostname field too, and every request answered 500 while the proxy page showed it Online
+
+Cause: the Proxmox entry in Nginx Proxy Manager on the lab had `192.168.1.10:8006` in Forward Hostname / IP and `8006` in Forward Port. Version 2.15.1 joins the two fields with a colon, so the upstream became `192.168.1.10:8006:8006`. [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md) said only "Forward Hostname / IP: the container name" and gave `<proxmox-host>` in the Proxmox row, and never said that the port stays out of the hostname field. Who typed the entry is not known. Not introduced by this change.
+
+Effect: every request to `proxmox.internal` answered 500, and `/data/logs/proxy-host-<id>_error.log` in the proxy container said `invalid port in upstream "192.168.1.10:8006:8006/"`. The proxy host page still showed the entry as Online, because `nginx -t` does not check an address built from variables.
+
+How it was proven: measured read only on the lab on 2026-10-24, the two fields of the proxy host and the log line above. The join is in the source of tag v2.15.1, read the same day: `backend/templates/proxy_host.conf` sets `set $server "{{ forward_host }}";` and `set $port {{ forward_port }};`, and `docker/rootfs/etc/nginx/conf.d/include/proxy.conf` has `proxy_pass $forward_scheme://$server:$port$request_uri;`.
+
+Fix: steps 3 and 4 of "Add a proxy host" in [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md) say the hostname field takes the name or address alone and the port goes only into Forward Port, the page explains the doubled port with the log line, and the Proxmox section shows this lab's two fields. The entry on the lab itself is not changed by this commit. The owner removes `:8006` from its hostname field.
+
+Mechanical check: none. The proxy hosts live in the database on the lab, which no tier of the harness reads.
+
+#### 10.200 The proxy page sent Proxmox through plain http, where its Secure login cookie is most likely dropped
+
+Status: read in the code, not yet seen in a browser.
+
+Cause: the Proxmox section of [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md) proxied `proxmox.internal` with the SSL tab on None, so a browser reaches it over plain HTTP. Proxmox sets its login cookie with the Secure flag, `Ext.util.Cookies.set(..., true, "lax")` at line 322 of `proxmoxlib.js` on the lab's Proxmox host, and RFC 6265bis says a browser ignores a secure only cookie on a request that is not secure. The section also gave none of the settings the Proxmox wiki page Web Interface Via Nginx Proxy lists for the console. Not introduced by this change.
+
+Effect: most likely the login form comes back after every login through `http://proxmox.internal`. This has not been observed.
+
+How it was proven: `proxmoxlib.js` read only on the lab's Proxmox host on 2026-10-24, and the wiki page read the same day. No browser login through the proxy was tried.
+
+Fix: the Proxmox section says to type `http://` because the proxy has no certificate for the name, then gives two ways that avoid the cookie problem: a certificate from a local certificate authority the browsers trust, or opening `https://<proxmox-host>:8006` directly. It lists the Advanced lines from the wiki page, without `proxy_connect_timeout`, which nginx caps at about 75 seconds, and without `proxy_set_header` lines or `location` blocks, because Nginx Proxy Manager puts the Advanced text at server level and its own `location /` sets the headers.
+
+Mechanical check: none. Whether a login survives is a browser question no tier asks.
+
+Update, later on 2026-10-24: the first way is now built. The `internal-ca` job of [homelab/compose.yaml](../homelab/compose.yaml) signs one certificate for every `.internal` name from a local certificate authority and gives every proxy host `listen 443 ssl` through the optional include `/data/nginx/custom/server_proxy.conf`, so the SSL tab stays on None, see [homelab/internal_ca.md](../homelab/internal_ca.md). The Proxmox section now says to open `https://proxmox.internal`. Measured on the lab the same day: `https://proxmox.internal/` presents that certificate and curl verifies it, result 0, but the answer is still 500 from 10.199 until the owner removes `:8006` from the hostname field, so the login over `https` has still not been seen.
+
+### Found when the homelab pages were moved to the ascend-web-hunter name, 2026-10-24
+
+#### 10.201 The homelab pages and the deploy copy still described AscendWebSearch and FlareSolverr after AscendAI had renamed the service ascend-web-hunter
+
+Status: fixed in this repository. Open outside it: on 2026-10-24 the image under the new name had no published tag.
+
+Cause: AscendAI renamed AscendWebSearch to ascend-web-hunter in its commit `ebe3476` on 2026-09-10: the directory, the container `ascend-web-hunter`, the tunnel container `ngrok-ascend-web-hunter`, the image `lukk17/ascend-ai-ascend-web-hunter`, and the deploy file `compose.yaml`. On 2026-10-20 its commit `6f8e45b`, on a local branch not yet on GitHub `master`, removed the FlareSolverr container. The copy in `homelab/ascend-web-search_deploy/` kept the old names, the old image `lukk17/ascend-web-search:latest` and FlareSolverr, and nothing compares the copy with AscendAI. Not introduced by this change.
+
+Effect: a fresh setup by the old pages would have run the old image, last built on 2026-08-14, with a container FlareSolverr that the new service no longer calls, and the proxy, dashboard and monitor entries named `ascend-scrapper.internal` and `ascend-web-search`. Two more things only appeared while adapting the new bundle. AscendAI's bundle now runs a Redis container named `redis`, the same container name the homelab [compose.yaml](../homelab/compose.yaml) uses, so it would refuse to start next to it. And the new `/mcp` endpoint accepts only the Host headers in `MCP_ALLOWED_HOST_HEADERS`, `ascend-web-hunter,localhost,127.0.0.1` by default, so a request through the proxy name would get `421 Misdirected Request`.
+
+How it was proven: read in the AscendAI clone on 2026-10-24, `git log --diff-filter=R` for the rename, and the bundle at commit `aa82a35`. The host check read in FastMCP 4.1.1, `_host_matches` in `fastmcp/server/http.py`, which compares the header without its port, and Nginx Proxy Manager 2.15.1 sets `proxy_set_header Host $host`. Not measured against a running container. The registry measured with curl the same day: `hub.docker.com/v2/repositories/lukk17/ascend-ai-ascend-web-hunter/tags` answered `"count": 0`, and `registry-1.docker.io` answered 404 `MANIFEST_UNKNOWN` for `latest` and `v0.0.3`.
+
+Fix: the guide is [homelab/ascend_web_hunter.md](../homelab/ascend_web_hunter.md) and the copy is [homelab/ascend-web-hunter_deploy/](../homelab/ascend-web-hunter_deploy/), both renamed, with the new names, the new image on `latest`, no FlareSolverr, no bundled Redis, `ascend-web-hunter.internal` added to the accepted Host headers, a check that the image tag exists before the first start, and a table of every difference from the AscendAI bundle. The proxy entry, the dashboard tile, the monitor, both documentation maps and [docs/AGENT_TOOLING.md](AGENT_TOOLING.md) use the new names.
+
+Mechanical check: none. The source of the copy is another repository that the gate container does not have.
+
+#### 10.202 The adapted hunter compose file gave the ngrok service its logging key twice
+
+Status: introduced by an agent in this change and fixed in it before the commit.
+
+Cause: the script that adapted AscendAI's `compose.yaml` for [homelab/ascend-web-hunter_deploy/compose.yaml](../homelab/ascend-web-hunter_deploy/compose.yaml) added `logging: *default-logging` to `ngrok-ascend-web-hunter` on the belief that AscendAI's ngrok service had no log cap. That belief was wrong: the AscendAI file already sets the line there, so the service carried it twice. The same wrong belief had put a row about the ngrok log cap into the differences table of the deploy README.
+
+Effect: the tier 1 gate failed with `ascend-web-hunter_deploy/compose.yaml: failed to parse /repo/homelab/ascend-web-hunter_deploy/compose.yaml: yaml: construct errors: line 1: line 58: mapping key "logging" already defined at line 57`, so Docker Compose would have refused the file on the lab.
+
+How it was proven: that gate output, and the AscendAI file read again, which has the line right after `restart: unless-stopped` in the ngrok service.
+
+Fix: the second line is gone, and so is the table row. A diff against the AscendAI file now shows no logging difference except the line of the Redis service this copy leaves out.
+
+Mechanical check: the existing compose resolve check in [e2e/tier1/compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh) caught it.
+
+### Found when the Windows runs 40038350703 and 40038353129 failed on Python, 2026-10-24
+
+#### 10.203 The install asked winget a narrower question after an exit 0 than the verification did, and the verify_path added for Python was a guess
+
+Status: introduced by an agent in 526c11f, the fix for 10.198, and fixed here. The defect class is 2, the same rule in two places.
+
+Cause: after a winget exit 0, `Install-WingetPackage` asked `winget list --exact --id <id> --scope <scope>`, while `Invoke-WindowsVerification` asked `winget list --exact --id <id>` with no scope. Two functions, two rules. 526c11f kept both and added `verify_path: "%ProgramFiles%/Python311/python.exe"` to Python, a path read from CPython's bundle source and never measured on the runner.
+
+Effect: `Windows default apps` (40038350703) and `Windows all apps` (40038353129) both ended with `[!] 1 item(s) failed in total`, the one item being `python (Python.Python.3.11): winget exited 0 and winget list --exact --id Python.Python.3.11 --scope machine finds nothing and C:\Program Files/Python311/python.exe does not exist, so Python.Python.3.11 is not installed.`, four attempts each, while winget printed `Successfully installed` every time and `installation_verify.log` of the same runs said `python installed winget: Python.Python.3.11`.
+
+How it was proven: the two job logs and their `installation_verify.log` artefacts. The guessed path does not exist on the runner, the wizard said so itself. Where Python really lands on the runner was not found: neither log nor the artefact names a path, so this entry does not claim one. What was measured is only that the unscoped list finds the package and the machine-scoped list does not. A wrong hypothesis is kept here: 10.198 said a verify_path under Program Files would answer it, and it never did. Thirteen Pester cases failed against 526c11f and pass against the fix.
+
+Fix: [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) has one function, `Get-WingetInstallVerdict`, which asks the unscoped list and then the mapping's verify_path and returns the reason when neither answers. The install after a winget exit 0 and the verification in [setup/windows/WindowsVerify.ps1](../setup/windows/WindowsVerify.ps1) both call it and nothing else. Python's verify_path is gone from [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) and from [docs/manual/windows/install.ps1](manual/windows/install.ps1), whose check after an exit 0 now asks the unscoped list too. The checks before an install keep their scope, because they decide whether a per-user copy blocks a machine-wide install.
+
+Mechanical check: the Pester cases in `Install-WingetPackage asks about a machine-wide copy by scope and elevates winget when it must`, among them `decides an install after winget exits 0 through Get-WingetInstallVerdict` and `leaves the verification no winget presence question of its own besides Get-WingetInstallVerdict`, which reads the syntax tree of WindowsVerify.ps1 and fails if it calls `Test-WingetPackageInstalled` or `Test-WingetVerifyPath` itself.
+
+#### 10.204 The Chocolatey razer-synapse-4 download failed its checksum once on the runner
+
+Status: external and not a defect of this repository. Recorded because the brief named it.
+
+Cause: Chocolatey's razer-synapse-4 2.6.0.890 checks the Razer App Engine download against a fixed sha256, and on the first attempt the file it got did not match.
+
+Effect: in 40038353129 attempt 1 logged `ERROR: Checksum for 'C:\Users\runneradmin\AppData\Local\Temp\chocolatey\razer-synapse-4\2.6.0.890\1789694553BOrGfRHQRazerAppEngineSetup-v4.0.823.exe' did not meet '3f7f0be00f4a8a0304760d2dda507bdbec0b9b643dec39dffd7e9b430bb94265' for checksum type 'sha256'`, then `choco exited -1 for razer-synapse-4` and `attempt 1 of 4 for razer-synapse-4 failed, retrying in 20s`. Attempt 2 downloaded the same URL, `https://manifest-assets.razersynapse.com/1789694553BOrGfRHQRazerAppEngineSetup-v4.0.823.exe`, again 208.86 MB, passed the checksum and logged `choco exited 0 for razer-synapse-4`. The verification said `synapse installed choco: razer-synapse-4`, and the run's only failure was 10.203.
+
+How it was proven: the job log of 40038353129. The premise that the package checksum no longer matches Razer's file is wrong as stated: the same package and URL passed on the next attempt. Why the first download differed was not measured.
+
+Fix: none needed. The package was named in its failed attempt, retried under the shared rule, and installed, and checksums stay on.
+
+Mechanical check: the existing case `names and counts a package that fails every attempt, with its exit code` in the `Install-ChocolateyPackage retries under the shared rule` block.

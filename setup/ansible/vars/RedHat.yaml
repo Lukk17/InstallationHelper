@@ -122,6 +122,7 @@ software_mapping:
   filezilla: { manager: "dnf", package: "filezilla" }
   putty: { manager: "dnf", package: "putty" }
   rclone: { manager: "dnf", package: "rclone" }               # Fedora proper, mdapi answered 1.75.2-1.fc44 on 2026-10-15
+  qastools: { manager: "dnf", package: "qastools" }             # Fedora proper, a metapackage requiring qasmixer, qashctl and qasconfig, 0.23.0-13.fc44 on 2026-10-18
 
   # IDEs / Editors
   vscode: { manager: "dnf", package: "code" }
@@ -148,7 +149,12 @@ software_mapping:
   # ai.opencode.opencode, mapped here until 2026-10-15, is the version 1 app (1.18.8), and there is no dnf repository.
   # The location is opencode_desktop_rpm_url in setup/pinned_values/pinned_values.toml. `package` is the rpm Name of
   # the 2.0.29 .rpm, read from its header on 2026-10-15: opencode. The CLI is the npm package.
-  opencode_desktop: { manager: "dnf_url", package: "opencode" }
+  # exclude_path sends it down the rpm route instead of dnf: its dependencies through dnf, then rpm -U without that
+  # path, through setup/ansible/tasks/install_role_packages.yaml. Its Electron chrome-sandbox has the same build id as
+  # the one in lens, so both rpms claim /usr/lib/.build-id/aa/c9a26d3d137c8cedbe1c3f2deab3edd8f39f43 and dnf refused
+  # whichever came second, measured on fedora:44 on 2026-10-18. The links are debugging aids nothing at run time reads.
+  # e2e/tier2/rpm_file_conflicts.sh fails on any path two packages of the default set claim outside such a field.
+  opencode_desktop: { manager: "dnf_url", package: "opencode", exclude_path: "/usr/lib/.build-id" }
   # Version 1 of the desktop app, installed instead of opencode_desktop when opencode_use_v1 is true, through
   # setup/ansible/tasks/opencode_version.yaml, which is why it has no install_ toggle of its own. 1.18.8 on
   # flathub.org/api/v2/appstream on 2026-10-15, a system installation.
@@ -210,3 +216,29 @@ software_mapping:
   # Podman Desktop is a GUI front end only, for the Docker engine above. No podman engine, pods,
   # or podman machine, the app's Docker extension talks to /var/run/docker.sock directly.
   podman_desktop: { manager: "flatpak", package: "io.podman_desktop.PodmanDesktop" }
+
+# The packages a role task installs under a toggle, keyed by the toggle's name without its install_
+# prefix, or by its whole name when it has no such prefix (setup_zsh, configure_kde_plasma). Beside a
+# software_mapping entry of the same key they are what the role installs next to the mapped package,
+# and for a toggle with no mapping they are everything the run installs for it. The role task reads its
+# list from here and setup/ansible/verify_install.yaml expects every one of them once the toggle is on,
+# so nothing the run installs for a toggle goes unverified. e2e/tier1/verify_wiring.sh fails on a role
+# install under a toggle whose list is not read from here, unless e2e/tier1/unverified_role_installs.txt
+# names it with the reason. One line per entry in flow style, because the e2e shell checks read these
+# lines one at a time.
+companion_packages:
+  openrazer: ["kernel-devel", "kernel-headers"]   # what the OpenRazer DKMS module builds against, installed by software_installer/tasks/fedora_repos.yaml
+  virt_manager: ["qemu-kvm", "libvirt", "virt-install", "bridge-utils", "virtiofsd"]
+  docker: ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]   # from download.docker.com, which fedora_repos.yaml adds, installed by virtualization_config
+  waydroid: ["waydroid"]   # installed by the waydroid role
+  snapper: ["snapper"]   # installed by the snapper role on a btrfs root only, which setup/ansible/tasks/snapper_applicability.yaml decides
+  snapd: ["snapd"]   # installed by fedora_core
+  # What pyenv builds Python against, installed by sdk_manager/tasks/pyenv_unix.yaml. zlib-ng-compat-devel, because Fedora 44 moved to zlib-ng and has no zlib-devel, confirmed with dnf info.
+  python: ["gcc", "make", "patch", "zlib-ng-compat-devel", "bzip2-devel", "readline-devel", "sqlite-devel", "openssl-devel", "tk-devel", "libffi-devel", "xz-devel", "curl"]
+  setup_zsh: ["zsh", "curl", "git"]   # the shell, and what Oh-My-Zsh is fetched and cloned with, installed by shell_zsh
+  # iptables-nft first, owner decisions 85 and 87, because otherwise dnf answers the iptables a later package needs with iptables-legacy, whose tables load ip6_tables, iptable_filter and iptable_nat into the kernel. system_core installs this list before the software set, and tailscale from tailscale-stable is the first package that needs iptables, before the KVM stack and Docker. Measured in plain fedora:44 containers on 2026-10-22: tailscale alone installed iptables-legacy and put the iptables alternative on xtables-legacy-multi, with iptables-nft installed first tailscale, the KVM stack and Docker left iptables-legacy absent and the alternative on xtables-nft-multi.
+  system_core: ["iptables-nft", "flatpak", "unzip", "zip", "patch", "git", "glibc-langpack-pl"]   # installed by system_core/tasks/base_utils.yaml
+  kde_plasma: ["@kde-desktop", "sddm"]   # installed by kde_plasma_setup/tasks/install_kde.yaml. @kde-desktop is the dnf group id, display name "KDE" on Fedora 44, which the verification finds among the groups dnf records as installed. sddm is not in the group, checked with dnf group info on fedora:44
+  # The applet-window-buttons build dependencies, installed by kde_plasma_setup/tasks/configure_kde.yaml.
+  configure_kde_plasma: ["gcc-c++", "extra-cmake-modules", "qt6-qtbase-devel", "qt6-qtdeclarative-devel", "kf6-kcoreaddons-devel", "kf6-kdeclarative-devel", "kf6-kpackage-devel", "kf6-ksvg-devel", "kf6-ki18n-devel", "kf6-kservice-devel", "kf6-kconfigwidgets-devel", "kf6-kcmutils-devel", "libplasma-devel", "kdecoration-devel", "gettext", "cmake"]
+  gnome: ["@gnome-desktop"]   # the dnf group id, installed by gnome_setup/tasks/install_gnome.yaml, which the verification finds among the groups dnf records as installed. "@GNOME Desktop Environment" matched nothing on Fedora 44, where the group is named GNOME with the id gnome-desktop, measured with dnf5 5.4.2.1

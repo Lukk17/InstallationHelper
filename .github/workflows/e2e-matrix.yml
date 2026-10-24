@@ -16,8 +16,12 @@
 # matrix into a single node reading "Matrix: stage2_sweep, 1/48 job completed", which names neither
 # the distribution nor the scenario, so nobody can see what failed without opening the run.
 #
+# Before stage 1, "Gate image" builds the gate image once for the run (e2e-gate-image.yml), and the
+# tier 1 job and every stage 2 cell load it instead of building their own (owner decision 90).
+#
 # Stage 1, static and parse only, five jobs, nothing installed anywhere:
-#   Tier 1 checks          ubuntu-latest   the whole static gate, every check
+#   Tier 1 checks          ubuntu-latest   the whole static gate, every check, then the one tier 2
+#                                          check that runs only on a GitHub-hosted runner
 #   Windows unit tests     windows-latest  the Pester suite over the Windows installer logic
 #   Linux wizard plan      ubuntu-latest   setup.sh --print-command
 #   macOS wizard plan      macos-26        setup.sh --print-command, Darwin toggles
@@ -153,21 +157,12 @@
 #      installation_full.log, installation_errors.log, installation_warnings.log,
 #      installation_skipped.log and installation_verify.log under $HOME on Linux and macOS
 #      (see finish_run and its VERIFY_LOG constant), so the macOS jobs below collect all five by
-#      name. setup.ps1 writes no log file at all today: the run log is only ever what
-#      Write-Host printed to the console, and AGENTS.md says a verification step is being added
-#      to it in a separate, concurrent change whose file names are not known yet. Rather than
-#      naming a file that may not exist, the Windows jobs below capture their own transcript as
-#      the run log, and separately glob for `installation_*.log` under $env:USERPROFILE, on the
-#      assumption that whatever verification step lands there follows the same naming convention
-#      the Linux and macOS side already use ($env:USERPROFILE being the Windows analogue of
-#      $HOME). As of writing this file, that concurrent change already exists on disk
-#      (setup/windows/WindowsVerify.ps1) though it is uncommitted and not part of this change,
-#      and its own -LogPath default is installation_verify.log under $env:USERPROFILE, which
-#      matches the glob below. That was read to sanity check the assumption, not to depend on
-#      an uncommitted file, so the glob stays a pattern rather than a literal file name: if the
-#      final, committed shape of that change differs, the glob still finds nothing gracefully
-#      rather than failing this job outright, `if-no-files-found: warn` says so in the job log,
-#      and the transcript is still uploaded.
+#      name. setup.ps1 writes one log file, installation_verify.log under $env:USERPROFILE,
+#      through setup/windows/WindowsVerify.ps1, and the rest of its run is only what it printed
+#      to the console. So the Windows jobs below capture their own transcript as the run log,
+#      and separately glob for `installation_*.log` under $env:USERPROFILE. If the glob finds
+#      nothing, `if-no-files-found: warn` says so in the job log and the transcript is still
+#      uploaded.
 #   7. Whether Assert-NotAdmin's -AllowAdministrator escape hatch and Assert-KnownSelectionKey's
 #      handling of enable_hyperv and setup_wsl as ordinary selectable
 #      keys behave as read here, since e2e-manual.yml's own equivalent job has never run either
@@ -181,8 +176,10 @@
 # has not been exercised in this repository's own CI as of this writing, so the first real run
 # of this workflow is still the first actual proof.
 #
-# Reproducing one cell of stage 2 locally, without GitHub Actions, is the same command each of the
-# forty-eight jobs runs:
+# One cell of stage 2 cannot be reproduced without GitHub Actions. Each of the forty-eight jobs runs
+# the command below, and tier 3 refuses with exit 2 anywhere but a GitHub-hosted runner, a virtual
+# machine included (e2e/lib/throwaway_machine.sh). Dispatch that one cell instead, with
+# gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=debian:
 #
 #   bash e2e/run.sh --tier 3 --scenario defaults --os debian
 #
@@ -250,6 +247,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The gate image, built once for the whole run and handed to every job that runs e2e/run.sh as an
+  # artifact, owner decision 90: the tier 1 job below and every stage 2 cell load it instead of
+  # building their own. It runs whenever stage 1 or stage 2 does, because stage 2 needs it even when
+  # stage 1 is bypassed. The stage 1 gate below refuses stage 2 when it did not succeed.
+  gate_image:
+    name: "Gate image"
+    if: contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+    uses: ./.github/workflows/e2e-gate-image.yml
+
   # ===========================================================================================
   # STAGE 1 - static and parse only. Nothing here installs anything. Five jobs, matching
   # e2e/README_E2E.md's stage 1 table in order.
@@ -259,20 +265,32 @@ jobs:
   # container from e2e/gate/Dockerfile and runs every check inside it, exactly as it does on a
   # developer machine, so the runner needs Docker and nothing else: no ansible-core, collections,
   # ShellCheck or PowerShell are installed on it.
+  #
+  # It also runs the one tier 2 check that may run only on a GitHub-hosted runner, owner decision 91:
+  # e2e/tier2/rpm_file_conflicts.sh downloads about two dozen Fedora packages, which filled the disk of
+  # the owner's computer, and anywhere but here it reports SKIP.
   stage1_tier1_gate:
     name: "Tier 1 checks"
+    needs: gate_image
     if: inputs.start_from_stage == 'stage-1'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/load-gate-image
+
       - name: Run the tier 1 gate
         run: |
           set -euo pipefail
           bash e2e/run.sh
+
+      - name: Look for a file two packages of the default Fedora set both claim
+        run: |
+          set -euo pipefail
+          bash e2e/run.sh --tier 2 --only rpm_file_conflicts
 
   # 2. The Pester suite over the Windows installer's own logic. Run directly on the runner,
   # excluding the one Describe block tagged Slow and Network (the Chocolatey bootstrap, which
@@ -402,7 +420,7 @@ jobs:
   # 1 failure, sets ok=false and stage 2 stays off.
   stage1_gate:
     name: "Gate: checks passed"
-    needs: [stage1_tier1_gate, stage1_windows_pester, stage1_linux_wizard_plan, stage1_macos_wizard_plan, stage1_windows_wizard_plan]
+    needs: [gate_image, stage1_tier1_gate, stage1_windows_pester, stage1_linux_wizard_plan, stage1_macos_wizard_plan, stage1_windows_wizard_plan]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -425,10 +443,21 @@ jobs:
           R3: ${{ needs.stage1_linux_wizard_plan.result }}
           R4: ${{ needs.stage1_macos_wizard_plan.result }}
           R5: ${{ needs.stage1_windows_wizard_plan.result }}
+          R6: ${{ needs.gate_image.result }}
         run: |
           set -euo pipefail
+          if [[ "${START_FROM}" == "stage-3" ]]; then
+            echo "Stage 1 and stage 2 intentionally bypassed by start_from_stage=${START_FROM}."
+            echo "ok=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if [[ "${R6}" != "success" ]]; then
+            echo "The gate image every stage 2 cell loads was not built, found a job result of '${R6}'."
+            echo "ok=false" >> "${GITHUB_OUTPUT}"
+            exit 1
+          fi
           if [[ "${START_FROM}" != "stage-1" ]]; then
-            echo "Stage 1 intentionally bypassed by start_from_stage=${START_FROM}."
+            echo "Stage 1 intentionally bypassed by start_from_stage=${START_FROM}, and the gate image was built."
             echo "ok=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -1229,10 +1258,17 @@ jobs:
       - name: Install bash 4, which macOS does not ship
         run: brew install bash
 
+      - name: Show the free disk space before the wizard
+        run: df -h /
+
       - name: Run the bootstrap wizard, toggles as shipped
         run: |
           set -euo pipefail
           bash setup/setup.sh --non-interactive --passwordless-sudo --skip-system-upgrade
+
+      - name: Show the free disk space after the wizard
+        if: always()
+        run: df -h /
 
       - name: Collect wizard log artefacts
         if: always()
@@ -1282,10 +1318,17 @@ jobs:
       - name: Install bash 4, which macOS does not ship
         run: brew install bash
 
+      - name: Show the free disk space before the wizard
+        run: df -h /
+
       - name: Run the bootstrap wizard, every selectable toggle on
         run: |
           set -euo pipefail
           bash setup/setup.sh --non-interactive --passwordless-sudo --skip-system-upgrade --software all
+
+      - name: Show the free disk space after the wizard
+        if: always()
+        run: df -h /
 
       - name: Collect wizard log artefacts
         if: always()
@@ -1335,10 +1378,17 @@ jobs:
       - name: Install bash 4, which macOS does not ship
         run: brew install bash
 
+      - name: Show the free disk space before the wizard
+        run: df -h /
+
       - name: Run the bootstrap wizard, everything off then a handful enabled by name
         run: |
           set -euo pipefail
           bash setup/setup.sh --non-interactive --passwordless-sudo --skip-system-upgrade --software none --enable install_git,install_chrome,install_docker,install_vscode
+
+      - name: Show the free disk space after the wizard
+        if: always()
+        run: df -h /
 
       - name: Collect wizard log artefacts
         if: always()
@@ -1491,11 +1541,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'wizard-logs') | Out-Null
           Copy-Item (Join-Path $env:RUNNER_TEMP 'wizard-run.log') (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
-          # NEVER RUN IN CI: a verification step is being added to setup.ps1 in a concurrent
-          # change, and its log file name is not known yet. This assumes it follows the same
-          # installation_*.log convention already used on Linux and macOS, under the Windows
-          # analogue of $HOME. If that assumption is wrong, this glob finds nothing and the
-          # upload step below warns rather than failing the job.
+          # setup.ps1 writes installation_verify.log under $env:USERPROFILE. If the glob finds
+          # nothing, the upload step below warns rather than failing the job.
           Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
             Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
 

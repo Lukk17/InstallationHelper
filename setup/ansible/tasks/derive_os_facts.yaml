@@ -51,6 +51,11 @@
     ih_os_release_id: "{{ ih_os_release_text | regex_findall('^ID=\"?([^\"\\n]*)', multiline=True) | first | default('', true) | lower | trim }}"
     ih_os_release_id_like: "{{ ih_os_release_text | regex_findall('^ID_LIKE=\"?([^\"\\n]*)', multiline=True) | first | default('', true) | lower | trim }}"
     ih_os_release_ubuntu_codename: "{{ ih_os_release_text | regex_findall('^UBUNTU_CODENAME=\"?([^\"\\n]*)', multiline=True) | first | default('', true) | lower | trim }}"
+    ih_os_release_debian_codename: "{{ ih_os_release_text | regex_findall('^DEBIAN_CODENAME=\"?([^\"\\n]*)', multiline=True) | first | default('', true) | lower | trim }}"
+    ih_os_release_version_codename: "{{ ih_os_release_text | regex_findall('^VERSION_CODENAME=\"?([^\"\\n]*)', multiline=True) | first | default('', true) | lower | trim }}"
+    # What Ansible itself reports as the release, which is VERSION_CODENAME and therefore the
+    # derivative's own name on Linux Mint and LMDE. Taken only when /etc/os-release names nothing.
+    ih_reported_release: "{{ ih_reported_release | default(ansible_facts['distribution_release'] | default(''), true) | lower }}"
   vars:
     ih_os_release_text: "{{ (ih_os_release.content | b64decode) if ih_os_release.content is defined else '' }}"
   tags: always
@@ -77,6 +82,30 @@
            else 'debian')
           if ih_family == 'Debian'
           else ih_reported_distribution | lower) }}
+  tags: always
+
+# The release name every Debian and Ubuntu vendor repository is published under. Docker, Tailscale and
+# HashiCorp publish one suite per Debian or Ubuntu release and nothing for a derivative, so a
+# derivative has to ask under its parent's name. Ansible's own distribution_release is the
+# derivative's name: measured with ansible-core 2.21.5 against the os-release of Linux Mint 22.2 it
+# answers zara, and against LMDE 7 it answers gigi, and download.docker.com, pkgs.tailscale.com and
+# apt.releases.hashicorp.com answer 404 for both, while noble and trixie answer 200.
+#
+# So the parent's codename comes first, UBUNTU_CODENAME on Ubuntu lineage and DEBIAN_CODENAME on
+# Debian lineage, which is how Linux Mint and LMDE publish theirs, then VERSION_CODENAME, which on
+# Debian and Ubuntu themselves already is the parent's. This is the rule
+# docs/manual/debian-ubuntu/install.sh applies for UPSTREAM_CODENAME, and the one the Waydroid
+# script at https://repo.waydro.id applies for itself. ih_base picks the vendor's ubuntu or debian
+# path. e2e/tier1/apt_vendor_repositories.sh renders every repository line against fixtures of both
+# lineages and fails the gate for any task that reads the release from anywhere but here.
+- name: Derive the release name Debian and Ubuntu vendor repositories are published under
+  ansible.builtin.set_fact:
+    ih_apt_codename: >-
+      {{ (((ih_os_release_ubuntu_codename if ih_base == 'ubuntu' else ih_os_release_debian_codename)
+           or ih_os_release_version_codename
+           or ih_reported_release)
+          if ih_family == 'Debian'
+          else '') }}
   tags: always
 
 - name: Stop before touching anything when the family is not one this playbook supports
@@ -124,7 +153,7 @@
 # succeeded.
 # Both tasks ask whether non_root_user exists first, because this file has a second caller. The
 # fixture play behind e2e/tier1/os_family_derivation.sh imports it with no group_vars at all, to
-# exercise the derivation against fourteen os-release files, and it has no install user to ask
+# exercise the derivation against every os-release fixture, and it has no install user to ask
 # about. Without the guard that play died on "'non_root_user' is undefined" and the whole check
 # reported "the fixture play did not finish", which says nothing about what broke.
 - name: Ask the machine which group the install user actually belongs to

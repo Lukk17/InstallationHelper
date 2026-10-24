@@ -132,6 +132,7 @@ pwsh setup/setup.ps1 -SkipSystemUpgrade
 Requirements:
 
 - Linux (Ubuntu / Debian, Fedora, Arch, CachyOS) or macOS, with an internet connection and `sudo`.
+- Devuan is not supported for the Docker, Tailscale and HashiCorp vendor repositories, by the owner's decision of 2026-10-18. Its `/etc/os-release` names only its own release, such as `daedalus`, and no Debian codename, and download.docker.com, pkgs.tailscale.com and apt.releases.hashicorp.com all answer 404 for that name, so none of the three repositories can be added there. The record is entry 10.114 of [docs/regression_ledger.md](../docs/regression_ledger.md).
 - On macOS, bash 4 or newer, which macOS does not ship. Apple froze `/bin/bash` at 3.2, the last
   version under the older licence, and the wizard uses two bash 4 constructs. Install one with
   `brew install bash` and the wizard finds it by itself, re-executing into Homebrew's copy. Without
@@ -640,5 +641,6 @@ The projects folder it asks about is the one this playbook already created and e
 | [bootstrap_machine_prompt.md](bootstrap_machine_prompt.md) | Prompt that makes an agent discover this machine read-only and write `MACHINE.md` |
 | [MACHINE.md.example](MACHINE.md.example) | Template that prompt fills in, kept under the name of the file it produces |
 | [ansible/tags.md](ansible/tags.md) | Ansible `--tags` taxonomy for surgical partial runs |
+| [ansible/ansible_architecture.md](ansible/ansible_architecture.md) | How the playbook is put together, how a toggle becomes a package, the package manager order per OS, and the ansible-core deserialization workaround |
 | [../docs/AGENT_TOOLING.md](../docs/AGENT_TOOLING.md) | Agent-standards, OpenSpec, per-agent integration notes |
-| [../docs/MCP_SETUP.md](../docs/MCP_SETUP.md) | MCP server setup (Context7 only in this project) |
+| [../docs/MCP_SETUP.md](../docs/MCP_SETUP.md) | MCP server setup for the six servers this project declares |

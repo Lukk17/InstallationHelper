@@ -424,9 +424,11 @@ Describe 'Install-WingetPackage retries under the shared rule, refreshing its so
     # A stub winget rather than a Pester mock, because the code under test never calls winget through
     # PowerShell: Invoke-BoundedWinget starts a process and reads two redirected files, so a mock
     # would prove nothing about the path that actually runs. The stub answers the `list` probe as
-    # "not installed", leaves a marker file per install attempt, so the file count is the attempt
-    # count, which is the only state that survives between two separate processes, and appends one
-    # line per install or `source update` to calls.log, so the order of the two can be read back.
+    # "not installed" until an install has succeeded, leaves a marker file per install attempt, so the
+    # file count is the attempt count, which is the only state that survives between two separate
+    # processes, and appends one line per install or `source update` to calls.log, so the order of the
+    # two can be read back. -InstallsNothing makes it say "Successfully installed" and exit 0 without
+    # ever listing the package, which is what winget did for Prime Video and Slack.
     #
     # Defined as a global function in BeforeAll, and every It owns its own directory. Pester 5 runs
     # the Describe body at discovery and each It at run time, so a plain function in the body does not
@@ -437,7 +439,8 @@ Describe 'Install-WingetPackage retries under the shared rule, refreshing its so
             param(
                 [Parameter(Mandatory)] [string] $Directory,
                 [Parameter(Mandatory)] [int] $FailFirstN,
-                [switch] $Hang
+                [switch] $Hang,
+                [switch] $InstallsNothing
             )
 
             $marker1 = Join-Path $Directory 'a1'
@@ -445,6 +448,8 @@ Describe 'Install-WingetPackage retries under the shared rule, refreshing its so
             $marker3 = Join-Path $Directory 'a3'
             $marker4 = Join-Path $Directory 'a4'
             $callLog = Join-Path $Directory 'calls.log'
+            $installed = Join-Path $Directory 'installed'
+            $markInstalled = if ($InstallsNothing) { '' } else { "echo x>`"$installed`"" }
 
             if ($IsWindows) {
                 $stub = Join-Path $Directory 'winget.cmd'
@@ -460,7 +465,10 @@ exit /b 0
                 } else {
                     $body = @"
 @echo off
-if "%1"=="list" exit /b 1
+if "%1"=="list" (
+  if exist "$installed" exit /b 0
+  exit /b 1
+)
 if "%1"=="source" (
   echo refresh %2 %3 %4>>"$callLog"
   exit /b 0
@@ -483,6 +491,7 @@ if %ATTEMPT% LEQ $FailFirstN (
   echo Installer failed with exit code: 3221225477
   exit /b 1
 )
+$markInstalled
 echo Successfully installed
 exit /b 0
 "@
@@ -509,7 +518,7 @@ exit 0
                 } else {
                     $body = @"
 #!/usr/bin/env bash
-if [ "`$1" = "list" ]; then exit 1; fi
+if [ "`$1" = "list" ]; then [ -f "$installed" ]; exit `$?; fi
 if [ "`$1" = "source" ]; then echo "refresh `$2 `$3 `$4" >> "$callLog"; exit 0; fi
 echo install >> "$callLog"
 if [ ! -f "$marker1" ]; then
@@ -525,6 +534,7 @@ if [ "`$attempt" -le "$FailFirstN" ]; then
   echo "Installer failed with exit code: 3221225477"
   exit 1
 fi
+$markInstalled
 echo "Successfully installed"
 exit 0
 "@
@@ -545,7 +555,7 @@ exit 0
 
         # One marker file per attempt, counted here. @() around Get-ChildItem on purpose: a single
         # file comes back as one object rather than an array, and .Count on that is a terminating
-        # error under Set-StrictMode -Version Latest, which is defect class 4 in AGENTS.md and was
+        # error under Set-StrictMode -Version Latest, which is defect class 4 in docs/regression_ledger.md and was
         # hit by the first draft of these very tests.
         function global:Get-StubAttemptCount {
             param([Parameter(Mandatory)] [string] $Directory)
@@ -620,6 +630,22 @@ exit 0
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
+    It 'fails an attempt that exits 0 when winget then lists nothing, and retries it under the rule' {
+        $dir = New-StubDirectory
+        try {
+            $stub = New-WingetStub -Directory $dir -FailFirstN 0 -InstallsNothing
+
+            $r = Install-WingetPackage -WingetPath $stub.Path -PackageId '9P6RC76MSMMJ' -Source 'msstore' -RetryPauseSeconds 0
+
+            $r.Status | Should -Be 'failed'
+            $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id 9P6RC76MSMMJ finds nothing, so 9P6RC76MSMMJ is not installed. Successfully installed (attempt 4 of 4*'
+            Get-StubAttemptCount -Directory $dir | Should -Be 4
+            @(Get-StubCall -Directory $dir) | Should -Be @(
+                'install', 'refresh update --name msstore', 'install', 'refresh update --name msstore',
+                'install', 'refresh update --name msstore', 'install')
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
     It 'never retries a timeout, because the deadline exists to stop a hang' -Tag 'Slow' {
         $dir = New-StubDirectory
         try {
@@ -636,6 +662,170 @@ exit 0
     }
 }
 
+
+Describe 'Invoke-BoundedWinget reads the output only once the program has finished writing it' {
+
+    # The stub exits at once and leaves a child that still holds its output open and writes one line
+    # half a second later, so a read that does not wait for the end of the output finds nothing every
+    # time, rather than in about one call of 140 as the plain stub did, entry 10.183 of
+    # docs/regression_ledger.md. Skipped on Windows, where Start-Process hands the files to the
+    # program itself and that wait does not exist.
+    It 'returns a line the program wrote after it exited, while its output was still open' -Skip:$IsWindows {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('boundedwinget-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        try {
+            $stub = Join-Path $dir 'winget'
+            Set-Content -LiteralPath $stub -Encoding ascii -Value @'
+#!/usr/bin/env bash
+( sleep 0.5; echo "Installer failed with exit code: 3221225477" ) &
+exit 1
+'@
+            & chmod +x $stub
+
+            $r = Invoke-BoundedWinget -WingetPath $stub -Arguments @('install') -TimeoutSeconds 30
+
+            $r.TimedOut | Should -BeFalse
+            $r.ExitCode | Should -Be 1
+            $r.Output | Should -BeLike '*Installer failed with exit code: 3221225477*'
+        } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+
+Describe 'Every other bounded wait reads the output only once the program has finished writing it' {
+
+    # The same late writer as the Invoke-BoundedWinget test above, one per function that starts a
+    # program with redirected output and reads it after a deadline wait, entry 10.183 of
+    # docs/regression_ledger.md. Each stub exits 1 at once, so the function reads the files to
+    # explain the failure, and the line it must find arrives half a second after the exit. Skipped
+    # on Windows, where Start-Process hands the files to the program itself and that wait does not
+    # exist. WindowsSettings.ps1 is dot-sourced after WindowsSoftware.ps1, the order setup.ps1 uses.
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsSettings.ps1')
+
+        function global:New-LateWriterStub {
+            param([Parameter(Mandatory)] [string] $Path)
+
+            New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
+            Set-Content -LiteralPath $Path -Encoding ascii -Value @'
+#!/usr/bin/env bash
+( sleep 0.5; echo "late line from a child that still holds the output" ) &
+exit 1
+'@
+            & chmod +x $Path
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:New-LateWriterStub -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        $script:StubDir = Join-Path ([System.IO.Path]::GetTempPath()) ('boundedwait-' + [guid]::NewGuid().ToString('N'))
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $script:StubDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'Invoke-ManagedTool reports a line the tool wrote after it exited' -Skip:$IsWindows {
+        $stub = Join-Path $script:StubDir 'managedtool'
+        New-LateWriterStub -Path $stub
+
+        $r = Invoke-ManagedTool -Key 'k' -FilePath $stub -ArgumentList @('install') -TimeoutMinutes 1
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'exit 1.*late line from a child that still holds the output*'
+    }
+
+    It 'Invoke-AndroidSdkManager reports a line sdkmanager wrote after it exited' -Skip:$IsWindows {
+        $saved = $script:AndroidSdkRoot
+        try {
+            $script:AndroidSdkRoot = $script:StubDir
+            New-LateWriterStub -Path (Join-Path $script:AndroidSdkRoot 'cmdline-tools\latest\bin\sdkmanager.bat')
+
+            $r = Invoke-AndroidSdkManager -Arguments @('platform-tools') -TimeoutMinutes 1
+        } finally {
+            $script:AndroidSdkRoot = $saved
+        }
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'exit 1.*late line from a child that still holds the output*'
+    }
+
+    It 'Install-WslDistribution reports a line wsl wrote after it exited' -Skip:$IsWindows {
+        $stub = Join-Path $script:StubDir 'wsl.exe'
+        New-LateWriterStub -Path $stub
+        Mock Get-Command { [PSCustomObject]@{ Source = 'wsl.exe' } } -ParameterFilter { $Name -contains 'wsl' }
+        Mock Get-WslDistributionName { @() }
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        $savedPath = $env:PATH
+        try {
+            $env:PATH = $script:StubDir + [System.IO.Path]::PathSeparator + $savedPath
+            # Defect class 16: the stub must be the wsl.exe Start-Process finds, proven before it runs.
+            (Microsoft.PowerShell.Core\Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction Stop)[0].Source | Should -Be $stub
+
+            $r = @(Install-WslDistribution -TimeoutMinutes 1)
+        } finally {
+            $env:PATH = $savedPath
+        }
+
+        $r[0].Status | Should -Be 'failed'
+        $r[0].Detail | Should -BeLike 'wsl --install exited 1. late line from a child that still holds the output*'
+    }
+
+    # Read from the syntax tree, so a new function that reads redirected output after its own
+    # deadline wait fails here by name rather than now and then in the gate.
+    It 'waits through Wait-BoundedProcess in every function that redirects a program''s output' {
+        $files = @(
+            (Join-Path $script:RepoRoot 'setup\setup.ps1')
+            @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'setup\windows') -Filter '*.ps1' | ForEach-Object FullName)
+        )
+        $redirecting = foreach ($file in $files) {
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors)
+            if ($errors) { throw "$file does not parse: $($errors[0].Message)" }
+            foreach ($function in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+                $redirects = $function.Body.FindAll({ param($n)
+                    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Start-Process' -and
+                    @($n.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'RedirectStandardOutput' }).Count -gt 0 }, $true)
+                if (@($redirects).Count -eq 0) { continue }
+                $ownWaits = $function.Body.FindAll({ param($n)
+                    $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Extent.Text -eq 'WaitForExit' }, $true)
+                $sharedWaits = $function.Body.FindAll({ param($n)
+                    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Wait-BoundedProcess' }, $true)
+                [PSCustomObject]@{ Name = $function.Name; OwnWaits = @($ownWaits).Count; SharedWaits = @($sharedWaits).Count }
+            }
+        }
+
+        @($redirecting.Name) | Should -Contain 'Invoke-BoundedWinget'
+        @($redirecting.Name) | Should -Contain 'Invoke-ManagedTool'
+        @($redirecting.Name) | Should -Contain 'Invoke-AndroidSdkManager'
+        @($redirecting.Name) | Should -Contain 'Install-WslDistribution'
+        @($redirecting | Where-Object { $_.OwnWaits -gt 0 -or $_.SharedWaits -eq 0 } | ForEach-Object Name) | Should -BeNullOrEmpty
+    }
+}
+
+
+Describe 'Get-CommandOutputTail' {
+
+    # On Windows, Out-String and the file Start-Process redirects into end each line with a carriage
+    # return and a line feed. On Linux both end it with a line feed only, so the winget and npm tests
+    # cannot show a carriage return there, and run 39168859916 showed it only on the Windows runner.
+    It 'drops the carriage return Windows ends every line with' {
+        Get-CommandOutputTail -Text "npm error code E404`r`nnpm error 404 Not Found`r`n" |
+            Should -BeExactly 'npm error code E404 npm error 404 Not Found'
+    }
+
+    It 'keeps the last two lines that carry text' {
+        Get-CommandOutputTail -Text "first`nsecond`n   `nthird`n" | Should -BeExactly 'second third'
+    }
+
+    It 'returns an empty string when the program wrote nothing' {
+        Get-CommandOutputTail -Text $null | Should -BeExactly ''
+    }
+}
 
 Describe 'Invoke-PackageManagerRetry, the one retry rule every package manager follows' {
 
@@ -739,12 +929,23 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
                 $global:LASTEXITCODE = $global:ChocoStubCacheExit
                 return 'removed 3 cached items'
             }
+            if ($args[0] -eq 'list') {
+                $global:LASTEXITCODE = 0
+                if ($global:ChocoStubInstalled -contains $args[-1]) { return "$($args[-1])|1.0.0" }
+                return
+            }
             if ($global:ChocoStubFailuresLeft -gt 0) {
                 $global:ChocoStubFailuresLeft--
                 $global:LASTEXITCODE = 1
                 return 'The remote file either does not exist, is unauthorized, or is forbidden for url'
             }
             $global:LASTEXITCODE = 0
+            # What Chocolatey 2 prints, and the exit code it gives, when the feed answers 503.
+            if ($global:ChocoStubSilentLeft -gt 0) {
+                $global:ChocoStubSilentLeft--
+                return @('Installing the following packages:', $args[1], 'Chocolatey installed 0/0 packages.')
+            }
+            $global:ChocoStubInstalled.Add($args[1])
             return 'The install of thing was successful.'
         }
     }
@@ -755,7 +956,9 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
 
     BeforeEach {
         $global:ChocoStubCalls = [System.Collections.Generic.List[string]]::new()
+        $global:ChocoStubInstalled = [System.Collections.Generic.List[string]]::new()
         $global:ChocoStubFailuresLeft = 0
+        $global:ChocoStubSilentLeft = 0
         $global:ChocoStubCacheExit = 0
         Mock Start-Sleep { }
         Mock Write-Host { }
@@ -766,7 +969,8 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
 
         $r.Status | Should -Be 'installed'
         $r.Attempts | Should -Be 1
-        @($global:ChocoStubCalls) | Should -Be @('install thing -y --no-progress --limit-output --execution-timeout=600')
+        @($global:ChocoStubCalls) | Should -Be @('install thing -y --no-progress --limit-output --execution-timeout=600'
+                                                 'list --local-only --limit-output --exact thing')
     }
 
     It 'empties the HTTP cache before the retry' {
@@ -776,7 +980,7 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
 
         $r.Status | Should -Be 'installed'
         $r.Detail | Should -BeLike 'installed on attempt 2 of 4, after attempt 1 said choco exited 1.*'
-        @($global:ChocoStubCalls | ForEach-Object { ($_ -split ' ')[0] }) | Should -Be @('install', 'cache', 'install')
+        @($global:ChocoStubCalls | ForEach-Object { ($_ -split ' ')[0] }) | Should -Be @('install', 'cache', 'install', 'list')
         $global:ChocoStubCalls[1] | Should -Be 'cache remove -y --limit-output'
     }
 
@@ -804,6 +1008,30 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
         $r.Status | Should -Be 'installed'
         $r.Detail | Should -BeLike '*The refresh before a retry failed: choco cache remove exited 1*'
     }
+
+    It 'retries, after emptying the cache, a package Chocolatey exits 0 for without installing it' {
+        $global:ChocoStubSilentLeft = 1
+
+        $r = Install-ChocolateyPackage -PackageId 'thing'
+
+        $r.Status | Should -Be 'installed'
+        $r.Attempts | Should -Be 2
+        $r.Detail | Should -Be 'installed on attempt 2 of 4, after attempt 1 said choco exited 0 and does not list thing as installed. Chocolatey installed 0/0 packages.'
+        @($global:ChocoStubCalls | ForEach-Object { ($_ -split ' ')[0] }) | Should -Be @('install', 'list', 'cache', 'install', 'list')
+    }
+
+    It 'names a package Chocolatey exits 0 for on every attempt without installing it as failed' {
+        $global:ChocoStubSilentLeft = 99
+
+        $r = Install-ChocolateyPackage -PackageId 'thing'
+
+        $r.Status | Should -Be 'failed'
+        $r.Attempts | Should -Be 4
+        $r.ExitCode | Should -Be 0
+        $r.Detail | Should -BeLike 'choco exited 0 and does not list thing as installed. Chocolatey installed 0/0 packages. (attempt 4 of 4; attempts 1, 2 and 3 said*'
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'install *' }).Count | Should -Be 4
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'cache *' }).Count | Should -Be 3
+    }
 }
 
 Describe 'Install-ChocolateyPackageBatch runs the shared rule in its elevated child' {
@@ -821,8 +1049,10 @@ function Start-Sleep { }
 function choco {
     Add-Content -LiteralPath $logLiteral -Value (`$args -join ' ')
     if (`$args[0] -eq 'cache') { `$global:LASTEXITCODE = 0; return }
+    if (`$args[0] -eq 'list') { `$global:LASTEXITCODE = 0; if (`$args[-1] -eq 'good-pkg') { return 'good-pkg|1.0.0' }; return }
     if (`$args[1] -eq 'broken-pkg') { `$global:LASTEXITCODE = 42; return 'ERROR: Running installer failed' }
     `$global:LASTEXITCODE = 0
+    if (`$args[1] -eq 'silent-pkg') { return 'Chocolatey installed 0/0 packages.' }
 }
 "@
             $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($prelude + "`n" + $Script))
@@ -845,6 +1075,18 @@ function choco {
         @($calls | Where-Object { $_ -like 'install broken-pkg *' }).Count | Should -Be 4
         @($calls | Where-Object { $_ -like 'install good-pkg *' }).Count | Should -Be 1
         @($calls | Where-Object { $_ -like 'cache remove*' }).Count | Should -Be 3
+    }
+
+    It 'fails the session when Chocolatey exits 0 for a package it never installs' {
+        $batch = Install-ChocolateyPackageBatch -PackageId @('good-pkg', 'silent-pkg')
+
+        $batch.Status | Should -Be 'failed' -Because 'a package that is not installed must not leave the child exiting 0'
+        $batch.Packages['good-pkg'].Status | Should -Be 'installed'
+        $batch.Packages['silent-pkg'].Status | Should -Be 'failed'
+        $batch.Packages['silent-pkg'].Attempts | Should -Be 4
+        $batch.Packages['silent-pkg'].Detail | Should -BeLike 'choco exited 0 and does not list silent-pkg as installed. Chocolatey installed 0/0 packages. (attempt 4 of 4;*'
+        $calls = @(Get-Content -LiteralPath $global:ChildCallLog)
+        @($calls | Where-Object { $_ -like 'install silent-pkg *' }).Count | Should -Be 4
     }
 
     It 'names the failing package with its own attempts in the software phase result' {
@@ -935,6 +1177,10 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $global:MachineCopy = $false
         $global:UserCopy = $false
         $global:InstallFailuresLeft = 0
+        $global:InstallsNothing = $false
+        $global:UnscopedCopy = $false
+        $global:InstallListsUnscopedOnly = $false
+        $global:InstallCreates = ''
         Mock Start-Sleep { }
         Mock Write-Host { }
         Mock Test-IsAdministrator { $false }
@@ -948,7 +1194,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
                 $found = switch ($scope) {
                     'machine' { $global:MachineCopy }
                     'user'    { $global:UserCopy }
-                    default   { $global:MachineCopy -or $global:UserCopy }
+                    default   { $global:MachineCopy -or $global:UserCopy -or $global:UnscopedCopy }
                 }
                 return [PSCustomObject]@{ Output = ''; ExitCode = $(if ($found) { 0 } else { -1978335212 }); TimedOut = $false }
             }
@@ -956,6 +1202,12 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
                 $global:InstallFailuresLeft--
                 return [PSCustomObject]@{ Output = 'Installer failed with exit code: 3221225477'; ExitCode = 1; TimedOut = $false }
             }
+            if ($global:InstallListsUnscopedOnly) {
+                $global:UnscopedCopy = $true
+            } elseif (-not $global:InstallsNothing) {
+                if ($scope -eq 'machine') { $global:MachineCopy = $true } else { $global:UserCopy = $true }
+            }
+            if ($global:InstallCreates) { New-Item -ItemType Directory -Path $global:InstallCreates -Force | Out-Null }
             return [PSCustomObject]@{ Output = 'Successfully installed'; ExitCode = 0; TimedOut = $false }
         }
         Mock Invoke-BoundedWinget { Invoke-WingetAnswer -Route 'bounded' -Arguments $Arguments }
@@ -966,14 +1218,14 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'machine' -InstallerType 'msix' -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'installed'
-        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine')
+        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine', 'bounded list')
     }
 
     It 'elevates only the install of a machine-scope portable, whose machine copy any user can list' {
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Syncthing.Syncthing' -Scope 'machine' -InstallerType 'portable' -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'installed'
-        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'elevated install machine')
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'elevated install machine', 'bounded list')
     }
 
     It 'keeps a machine-scope installer that elevates itself in this process' {
@@ -981,7 +1233,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
 
         $r.Status | Should -Be 'installed'
         Should -Invoke Invoke-ElevatedWinget -Times 0 -Exactly
-        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine')
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine', 'bounded list')
     }
 
     It 'runs everything in this process when the wizard is already elevated' {
@@ -999,6 +1251,87 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $r.Status | Should -Be 'installed'
         $r.Detail | Should -BeLike '*attempt 2*3221225477*'
         @($global:WingetCalls | Where-Object { $_ -eq 'elevated install machine' }).Count | Should -Be 2
+    }
+
+    It 'fails a machine-wide install that exits 0 and leaves nothing winget lists, asking the question the verification asks' {
+        $global:InstallsNothing = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Git.Git' -Scope 'machine' -InstallerType 'inno' -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id Git.Git finds nothing, so Git.Git is not installed. Successfully installed (attempt 4 of 4*'
+        @($global:WingetCalls | Where-Object { $_ -eq 'bounded install machine' }).Count | Should -Be 4
+        @($global:WingetCalls | Select-Object -Skip 2 -First 2) | Should -Be @('bounded install machine', 'bounded list')
+    }
+
+    It 'asks winget the verification question after an elevated msix install exits 0, and fails it when that finds nothing' {
+        $global:InstallsNothing = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'machine' -InstallerType 'msix' -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id SlackTechnologies.Slack finds nothing, so*'
+        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine', 'bounded list')
+    }
+
+    It 'fails a per-user install that exits 0 and leaves nothing, asking the question the verification asks' {
+        $global:InstallsNothing = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'user' -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id SlackTechnologies.Slack finds nothing*'
+        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list')
+    }
+
+    It 'counts a per-user install winget cannot list as installed once its verify_path exists, as Tor Browser in sweep 40004770702' {
+        $global:InstallsNothing = $true
+        $global:InstallCreates = Join-Path $TestDrive 'Tor Browser'
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'TorProject.TorBrowser' -Scope 'user' -VerifyPath $global:InstallCreates -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list')
+    }
+
+    It 'counts a machine-wide install winget lists only without a scope as installed, as Python in runs 40038350703 and 40038353129' {
+        $global:InstallListsUnscopedOnly = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Python.Python.3.11' -Scope 'machine' -InstallerType 'burn' -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine', 'bounded list')
+    }
+
+    It 'still fails an install that exits 0 when winget lists nothing and the verify_path does not exist, naming the path' {
+        $global:InstallsNothing = $true
+        $missing = Join-Path $TestDrive 'Never Created'
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'TorProject.TorBrowser' -Scope 'user' -VerifyPath $missing -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike "winget exited 0 and winget list --exact --id TorProject.TorBrowser finds nothing and $missing does not exist, so TorProject.TorBrowser is not installed.*"
+    }
+
+    It 'decides an install after winget exits 0 through Get-WingetInstallVerdict, the function the verification asks' {
+        Mock Get-WingetInstallVerdict { [PSCustomObject]@{ Installed = $true; Reason = '' } }
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Git.Git' -Scope 'machine' -InstallerType 'inno' -VerifyPath 'C:/Example' -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        Should -Invoke Get-WingetInstallVerdict -Times 1 -Exactly -ParameterFilter { $PackageId -eq 'Git.Git' -and $VerifyPath -eq 'C:/Example' }
+    }
+
+    It 'leaves the verification no winget presence question of its own besides Get-WingetInstallVerdict' {
+        $verifyFile = Join-Path $script:RepoRoot 'setup\windows\WindowsVerify.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($verifyFile, [ref]$null, [ref]$null)
+        $called = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() })
+
+        $called | Should -Contain 'Get-WingetInstallVerdict'
+        $called | Should -Not -Contain 'Test-WingetPackageInstalled'
+        $called | Should -Not -Contain 'Test-WingetVerifyPath'
+    }
+
+    It 'reports a machine-wide copy winget lists only per user as present when its verify_path exists, rather than as a per-user copy' {
+        $global:UserCopy = $true
+        $onDisk = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'MachineWidePresent') -Force
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Example.MachineWide' -Scope 'machine' -InstallerType 'burn' -VerifyPath $onDisk.FullName
+
+        $r.Status | Should -Be 'present'
+        @($global:WingetCalls) | Should -Be @('bounded list machine')
     }
 
     It 'reports a machine-wide copy as present and installs nothing' {
@@ -1913,7 +2246,7 @@ Describe 'Assert-NotAdmin in setup.ps1' {
 Describe 'Test-IsAdministrator is the only elevation check' {
 
     # setup.ps1, WindowsSettings.ps1 and WindowsSoftware.ps1 each asked the WindowsPrincipal question
-    # on their own until 2026-10-11, which is defect class 2 in AGENTS.md waiting to happen. Every
+    # on their own until 2026-10-11, which is defect class 2 in docs/regression_ledger.md waiting to happen. Every
     # IsInRole call and every WindowsBuiltInRole Administrator reference under setup/ must sit inside
     # the one Test-IsAdministrator in WindowsSoftware.ps1.
     It 'finds no elevation check under setup/ outside Test-IsAdministrator' {
@@ -1948,7 +2281,7 @@ Describe 'Test-IsAdministrator is the only elevation check' {
 Describe 'Invoke-ElevatedPowerShell is the only route to elevation' {
 
     # The Chocolatey batch and the optional features step each carried their own copy of the RunAs
-    # start until 2026-10-11, which is defect class 2 in AGENTS.md: three implementations of one
+    # start until 2026-10-11, which is defect class 2 in docs/regression_ledger.md: three implementations of one
     # elevation, and three places a refusal or a deadline could be handled differently. Every RunAs
     # under setup/ must sit inside the one Invoke-ElevatedPowerShell in WindowsSoftware.ps1. Comments
     # are not code and are not counted.
@@ -2602,6 +2935,88 @@ Describe 'Resolve-PickedSelection in setup.ps1' {
             -WindowsVarsPath (Join-Path $script:AnsibleDir 'group_vars\windows.yaml') `
             -ToggleOverride $picked.ToggleOverride -OnlyKeys $picked.OnlyKeys | Should -Be 'v1'
     }
+
+    It 'leaves opencode_use_v1 off when every offered key is ticked, which is how select-all answers' {
+        $picked = Resolve-PickedSelection -PickedKeys @($script:Offered.Key) -Selectable $script:Offered
+
+        $picked.ToggleOverride['opencode_use_v1'] | Should -BeFalse
+        $picked.ToggleOverride['install_opencode'] | Should -BeTrue
+        $picked.ToggleOverride['install_chrome'] | Should -BeTrue
+        $picked.ToggleOverride['setup_wsl'] | Should -BeTrue
+        $picked.OnlyKeys | Should -Not -Contain 'opencode_use_v1'
+    }
+
+    It 'keeps opencode_use_v1 on when it is ticked on its own' {
+        $picked = Resolve-PickedSelection -PickedKeys @('opencode_use_v1') -Selectable $script:Offered
+
+        $picked.ToggleOverride['opencode_use_v1'] | Should -BeTrue
+        ($picked.OnlyKeys -join ' ') | Should -Be 'opencode_use_v1'
+    }
+
+    It 'keeps opencode_use_v1 on when everything but one other key is ticked with it' {
+        $picked = Resolve-PickedSelection -PickedKeys @('install_opencode', 'opencode_use_v1', 'setup_wsl') -Selectable $script:Offered
+
+        $picked.ToggleOverride['opencode_use_v1'] | Should -BeTrue
+        $picked.ToggleOverride['install_chrome'] | Should -BeFalse
+    }
+}
+
+Describe 'Show-SoftwarePicker in setup.ps1 with every row selected' {
+
+    # The grid is replaced by a stand-in that hands back every row it was given, which is what its select-all
+    # does, and records the title it was shown. Lifted out of the syntax tree for the reason above.
+    BeforeAll {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+        $wanted = @('Show-SoftwarePicker', 'Resolve-PickedSelection', 'Resolve-ToggleOverride', 'Split-KeyList')
+        $definitions = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in setup.ps1 and found $($definitions.Count)."
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        $assignments = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                ($node.Left.Extent.Text -eq '$AllSoftwareKeepsOff' -or $node.Left.Extent.Text -eq '$LabelOverrides')
+        }, $false))
+        foreach ($assignment in $assignments) {
+            . ([scriptblock]::Create($assignment.Extent.Text))
+        }
+        function Import-Module { }
+        function Out-ConsoleGridView {
+            param([Parameter(ValueFromPipeline)] $InputObject, [string] $Title, [string] $OutputMode)
+            begin { $script:GridTitle = $Title }
+            process { $InputObject }
+        }
+        $script:Items = @(
+            [PSCustomObject]@{ Key = 'install_chrome'; Label = 'Chrome'; Enabled = $true }
+            [PSCustomObject]@{ Key = 'install_opencode'; Label = 'Opencode'; Enabled = $true }
+            [PSCustomObject]@{ Key = 'opencode_use_v1'; Label = $LabelOverrides['opencode_use_v1']; Enabled = $false }
+        )
+    }
+
+    It 'says in the grid title that select-all leaves the switch off and that it is ticked on its own' {
+        $null = Show-SoftwarePicker -Items $script:Items
+
+        $script:GridTitle | Should -Match ([regex]::Escape($LabelOverrides['opencode_use_v1']))
+        $script:GridTitle | Should -Match 'on its own'
+    }
+
+    It 'turns select-all into every key on but opencode_use_v1' {
+        $keys = Show-SoftwarePicker -Items $script:Items
+        $picked = Resolve-PickedSelection -PickedKeys $keys -Selectable $script:Items
+
+        $picked.ToggleOverride['opencode_use_v1'] | Should -BeFalse
+        $picked.ToggleOverride['install_chrome'] | Should -BeTrue
+        $picked.ToggleOverride['install_opencode'] | Should -BeTrue
+    }
 }
 
 Describe 'Get-FileProductMajorVersion' {
@@ -2957,6 +3372,51 @@ Describe 'Install-AndroidSdk retries the command line tools download' {
     }
 }
 
+Describe 'Install-AndroidSdkPackageSet runs sdkmanager once per package' {
+
+    # One sdkmanager call for three packages lost all three to one bad Platform-Tools download on
+    # Pop!_OS in sweep run 39260381281, and could not say which package broke.
+    BeforeEach {
+        $global:SdkCalls = [System.Collections.Generic.List[string]]::new()
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+        Mock Invoke-AndroidSdkManager {
+            $global:SdkCalls.Add($Arguments -join ' ')
+            if ($Arguments -contains 'platform-tools') {
+                return [PSCustomObject]@{ Key = 'android_sdk'; Package = "sdkmanager $($Arguments -join ' ')"; Status = 'failed'
+                                          Detail = 'exit 1. Warning: An error occurred while preparing SDK package Android SDK Platform-Tools: Error reading Zip content from a SeekableByteChannel.' }
+            }
+            [PSCustomObject]@{ Key = 'android_sdk'; Package = "sdkmanager $($Arguments -join ' ')"; Status = 'installed'; Detail = '' }
+        }
+        $script:SdkPackages = @('platforms;android-36', 'build-tools;36.0.0', 'platform-tools')
+    }
+
+    It 'hands sdkmanager one package per call' {
+        $null = @(Install-AndroidSdkPackageSet -Packages $script:SdkPackages)
+
+        @($global:SdkCalls | Where-Object { $_.Contains(' ') }) | Should -BeNullOrEmpty
+        @($global:SdkCalls | Select-Object -Unique) | Should -Be $script:SdkPackages
+    }
+
+    It 'installs the packages that work when another one never does, and names the one that failed' {
+        $r = @(Install-AndroidSdkPackageSet -Packages $script:SdkPackages)
+
+        $r.Count | Should -Be 3
+        @($r | ForEach-Object Package) | Should -Be @('sdkmanager platforms;android-36', 'sdkmanager build-tools;36.0.0', 'sdkmanager platform-tools')
+        @($r | ForEach-Object Status) | Should -Be @('installed', 'installed', 'failed')
+        $r[2].Detail | Should -BeLike '*(attempt 4 of 4; attempts 1, 2 and 3 said*'
+    }
+
+    It 'retries only the package that failed, four attempts twenty seconds apart' {
+        $null = @(Install-AndroidSdkPackageSet -Packages $script:SdkPackages)
+
+        @($global:SdkCalls | Where-Object { $_ -eq 'platforms;android-36' }).Count | Should -Be 1
+        @($global:SdkCalls | Where-Object { $_ -eq 'build-tools;36.0.0' }).Count | Should -Be 1
+        @($global:SdkCalls | Where-Object { $_ -eq 'platform-tools' }).Count | Should -Be 4
+        Should -Invoke Start-Sleep -Times 3 -Exactly -ParameterFilter { $Seconds -eq 20 }
+    }
+}
+
 Describe 'Install-WslDistribution retries wsl --install' {
 
     # WindowsSettings.ps1 reads its toggles through WindowsSoftware.ps1, which the top-level BeforeAll
@@ -3127,14 +3587,16 @@ Describe 'docs/manual/windows/install.ps1 follows the same retry rule' {
         # ManualFailures installs.
         $script:ManagerStubs = @'
 $global:ManualCalls = [System.Collections.Generic.List[string]]::new()
-function winget { $global:ManualCalls.Add("winget $($args -join ' ')"); if ($args[0] -eq 'source') { $global:LASTEXITCODE = 0; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'Installer failed' }; $global:LASTEXITCODE = 0 }
-function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[0] -eq 'cache') { $global:LASTEXITCODE = 0; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'The remote file either does not exist' }; $global:LASTEXITCODE = 0 }
+function winget { $global:ManualCalls.Add("winget $($args -join ' ')"); if ($args[0] -eq 'source') { $global:LASTEXITCODE = 0; return }; if ($args[0] -eq 'list') { $global:LASTEXITCODE = $(if ($global:ManualInstalled -contains $args[3]) { 0 } else { -1978335212 }); return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'Installer failed' }; $global:LASTEXITCODE = 0; if ($global:ManualSilent -gt 0) { $global:ManualSilent--; return 'Successfully installed' }; $global:ManualInstalled += @($args[3]) }
+function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[0] -eq 'cache') { $global:LASTEXITCODE = 0; return }; if ($args[0] -eq 'list') { $global:LASTEXITCODE = 0; if ($global:ManualInstalled -contains $args[-1]) { return "$($args[-1])|1.0.0" }; return }; if ($global:ManualFailures -gt 0) { $global:ManualFailures--; $global:LASTEXITCODE = 1; return 'The remote file either does not exist' }; $global:LASTEXITCODE = 0; if ($global:ManualSilent -gt 0) { $global:ManualSilent--; return 'Chocolatey installed 0/0 packages.' }; $global:ManualInstalled += @($args[1]) }
 '@
     }
 
     BeforeEach {
         . ([scriptblock]::Create($script:ManagerStubs))
         $global:ManualFailures = 0
+        $global:ManualSilent = 0
+        $global:ManualInstalled = @()
         Mock Start-Sleep { $global:ManualCalls.Add("wait $Seconds") }
         Mock Write-Host { }
     }
@@ -3156,7 +3618,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Git.Git'; Scope = 'machine' })))
 
         $code | Should -Be 0
-        @($global:ManualCalls) | Should -Be @("winget install --exact --id Git.Git --source winget --silent --accept-source-agreements --accept-package-agreements --disable-interactivity --scope machine")
+        @($global:ManualCalls) | Should -Be @("winget install --exact --id Git.Git --source winget --silent --accept-source-agreements --accept-package-agreements --disable-interactivity --scope machine", 'winget list --exact --id Git.Git --accept-source-agreements')
     }
 
     It 'waits, updates the package source, then installs a winget package again after a failure' {
@@ -3165,7 +3627,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = '9WZDNCRFJ3TJ'; Source = 'msstore' })))
 
         $code | Should -Be 0
-        @($global:ManualCalls | ForEach-Object { ($_ -split ' ')[0..1] -join ' ' }) | Should -Be @('winget install', 'wait 20', 'winget source', 'winget install')
+        @($global:ManualCalls | ForEach-Object { ($_ -split ' ')[0..1] -join ' ' }) | Should -Be @('winget install', 'wait 20', 'winget source', 'winget install', 'winget list')
         $global:ManualCalls[2] | Should -Be 'winget source update --name msstore --disable-interactivity'
     }
 
@@ -3175,7 +3637,54 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'maven' })))
 
         $code | Should -Be 0
-        @($global:ManualCalls) | Should -Be @('choco install maven -y --no-progress', 'wait 20', 'choco cache remove -y', 'choco install maven -y --no-progress')
+        @($global:ManualCalls) | Should -Be @('choco install maven -y --no-progress', 'wait 20', 'choco cache remove -y', 'choco install maven -y --no-progress', 'choco list --local-only --limit-output --exact maven')
+    }
+
+    It 'retries a Chocolatey package that exits 0 without being installed, and fails it when that never changes' {
+        $global:ManualSilent = 1
+
+        $retried = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'hwinfo.install' })))
+
+        $retried | Should -Be 0
+        @($global:ManualCalls) | Should -Be @('choco install hwinfo.install -y --no-progress', 'choco list --local-only --limit-output --exact hwinfo.install', 'wait 20', 'choco cache remove -y', 'choco install hwinfo.install -y --no-progress', 'choco list --local-only --limit-output --exact hwinfo.install')
+
+        $global:ManualSilent = 99
+        $never = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'dart-sdk' })))
+
+        $never | Should -Be 1
+        @($global:ManualCalls | Where-Object { $_ -eq 'choco install dart-sdk -y --no-progress' }).Count | Should -Be 4
+    }
+
+    It 'counts a winget package winget cannot list as installed when its VerifyPath exists, and fails it when the path is missing' {
+        $global:ManualSilent = 99
+        $onDisk = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'Tor Browser') -Force
+
+        $found = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'TorProject.TorBrowser'; Scope = 'user'; VerifyPath = $onDisk.FullName })))
+
+        $found | Should -Be 0
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *' }).Count | Should -Be 1
+
+        $missing = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Example.MachineWide'; Scope = 'machine'; VerifyPath = (Join-Path $TestDrive 'Never Created') })))
+
+        $missing | Should -Be 1
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *Example.MachineWide*' }).Count | Should -Be 4
+    }
+
+    It 'retries a winget package that exits 0 without being installed, and fails it when that never changes' {
+        $global:ManualSilent = 1
+
+        $retried = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'SlackTechnologies.Slack'; Scope = 'user' })))
+
+        $retried | Should -Be 0
+        @($global:ManualCalls | Where-Object { $_ -like 'winget list *' }) | Should -Be @('winget list --exact --id SlackTechnologies.Slack --accept-source-agreements', 'winget list --exact --id SlackTechnologies.Slack --accept-source-agreements')
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *' }).Count | Should -Be 2
+
+        $global:ManualSilent = 99
+        $never = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = '9P6RC76MSMMJ'; Source = 'msstore' })))
+
+        $never | Should -Be 1
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install --exact --id 9P6RC76MSMMJ *' }).Count | Should -Be 4
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*winget exited 0 and does not list the package as installed*' }
     }
 
     It 'names a package that fails every one of its four attempts and returns its exit code' {
@@ -3190,7 +3699,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
     }
 
     It 'treats winget answering already installed as success, without a retry' {
-        function global:winget { $global:ManualCalls.Add("winget $($args -join ' ')"); $global:LASTEXITCODE = -1978335189 }
+        function winget { $global:ManualCalls.Add("winget $($args -join ' ')"); $global:LASTEXITCODE = -1978335189 }
 
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Git.Git' })))
 

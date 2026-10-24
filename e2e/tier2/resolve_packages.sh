@@ -40,20 +40,34 @@ DERIVATIVES_DIR="${VARS_DIR}/derivatives"
 # missing, all of them at the alphabetical tail where the throttle kicked in. A check
 # that cries wolf gets ignored, which is worse than not having it. So only a body that
 # carries a results list is an answer, and an empty list is the definite "no such package".
+#
+# A companion_packages entry may name a package group, the way gnome_setup installs Arch's gnome, so a
+# name the package search does not know is asked of the group pages before it counts as missing.
 check_pacman() {
-    local missing=() unresolved=() n=0 pkg url status
+    local missing=() unresolved=() groups=() n=0 pkg url status
     while IFS= read -r pkg; do
         [[ -z "${pkg}" ]] && continue
         n=$((n + 1))
         url="https://archlinux.org/packages/search/json/?name=${pkg}"
         status=0
         http_ask "${url}" '"results"' || status=$?
+        if [[ ${status} -eq 0 ]] && grep -q '"pkgname"' <<<"${HTTP_BODY}"; then
+            continue
+        fi
+        if [[ ${status} -gt 1 ]]; then
+            unresolved+=("${pkg}: $(http_unresolved_reason "${url}")")
+            continue
+        fi
+        status=0
+        arch_group_exists "${pkg}" || status=$?
         case ${status} in
-            0) grep -q '"pkgname"' <<<"${HTTP_BODY}" || missing+=("${pkg}") ;;
+            0) groups+=("${pkg}") ;;
             1) missing+=("${pkg}") ;;
-            *) unresolved+=("${pkg}: $(http_unresolved_reason "${url}")") ;;
+            *) unresolved+=("${pkg}: ${ARCH_GROUP_FAULT}") ;;
         esac
-    done < <(package_names_for "${VARS_DIR}/Archlinux.yaml" pacman)
+    done < <({ package_names_for "${VARS_DIR}/Archlinux.yaml" pacman
+               companion_packages_of "${VARS_DIR}/Archlinux.yaml" | awk '{print $2}'; } | sort -u)
+    [[ ${#groups[@]} -gt 0 ]] && dim "Arch: resolved as package groups: ${groups[*]}"
     report_names "Arch official repositories" "package names" "${n}"
 }
 
@@ -139,6 +153,35 @@ check_brew() {
         ask_name "${p}" "https://formulae.brew.sh/api/${api}/${p}.json"
     done
     report_names "Homebrew ${kind}" "names" "${#pkgs[@]}"
+}
+
+# The packages a macOS role installs under a toggle, companion_packages in vars/Darwin.yaml. The entry
+# carries no manager, because the role task that reads it names brew or brew_cask itself, so a name
+# resolves when either index has it: the cask index is asked first, then the formula index. It is only
+# missing when both answer that it does not exist.
+check_brew_companions() {
+    local pkgs=() missing=() unresolved=() p cask_url formula_url status reasons
+    mapfile -t pkgs < <(companion_packages_of "${VARS_DIR}/Darwin.yaml" | awk '{print $2}' | sort -u)
+    [[ ${#pkgs[@]} -eq 0 ]] && { pass "Homebrew companion_packages: nothing listed"; return; }
+    for p in "${pkgs[@]}"; do
+        cask_url="https://formulae.brew.sh/api/cask/${p}.json"
+        formula_url="https://formulae.brew.sh/api/formula/${p}.json"
+        status=0
+        http_ask "${cask_url}" || status=$?
+        [[ ${status} -eq 0 ]] && continue
+        reasons=()
+        [[ ${status} -eq 2 ]] && reasons+=("$(http_unresolved_reason "${cask_url}")")
+        local formula_status=0
+        http_ask "${formula_url}" || formula_status=$?
+        [[ ${formula_status} -eq 0 ]] && continue
+        [[ ${formula_status} -eq 2 ]] && reasons+=("$(http_unresolved_reason "${formula_url}")")
+        if [[ ${#reasons[@]} -eq 0 ]]; then
+            missing+=("${p}")
+        else
+            unresolved+=("${p}: ${reasons[*]}")
+        fi
+    done
+    report_names "Homebrew companion_packages in vars/Darwin.yaml" "names" "${#pkgs[@]}"
 }
 
 # --- Chocolatey --------------------------------------------------------------
@@ -273,7 +316,7 @@ check_winget_downloads() {
         # the vendor still publishes the release at all, so asking once keeps this near one request
         # per package instead of six.
         url="$("${winget_cmd}" show --id "${id}" --exact --disable-interactivity --accept-source-agreements 2>/dev/null \
-               | grep -iE '^[[:space:]]*Installer Url:' | head -1 | sed -E 's/.*Installer Url:[[:space:]]*//' | tr -d '\r')"
+               | grep -iE '^[[:space:]]*Installer Url:' | sed -n 1p | sed -E 's/.*Installer Url:[[:space:]]*//' | tr -d '\r')"
         if [[ -z "${url}" ]]; then
             unproven+=("${id} (winget printed no installer URL)")
             continue
@@ -356,7 +399,7 @@ check_winget_scopes() {
                 "repos/microsoft/winget-pkgs/contents/${base}/${version}/${id}.installer.yaml" 2>/dev/null)" && break
             manifest=""
         done < <(gh api "repos/microsoft/winget-pkgs/contents/${base}" --jq '.[] | select(.type == "dir") | .name' 2>/dev/null \
-                    | tr -d '\r' | grep -E '^[0-9]' | sort -V -r | head -3)
+                    | tr -d '\r' | grep -E '^[0-9]' | sort -V -r | sed -n 1,3p)
         if [[ -z "${manifest}" ]]; then
             unread+=("${id}")
             continue
@@ -454,12 +497,19 @@ print(",".join(declared), effective(machine[0]) if machine else "-")
 # families read that one dictionary and their package sets are not the same. Ubuntu 26.04
 # has no kubectl of its own while Debian trixie does, and only asking one of them would
 # have missed that.
+#
+# The family's companion_packages are asked about with its own manager's names, because a role installs
+# them with that manager under the toggle beside the mapping, apt on Debian and Ubuntu and dnf on Fedora.
+# The lineage_companion_packages of the distribution's own lineage are asked about with them, ubuntu-desktop
+# in the Ubuntu image and gnome-core in the Debian one, because each exists in only one of the two.
 check_dictionary() {
     local distro="$1" manager="$2" file="$3"
     probe_names "${distro}" "$(probe_image_for "${distro}")" \
         "${distro} dictionary package names" \
-        "${manager} names in vars/${file}" \
-        "$(package_names_for "${VARS_DIR}/${file}" "${manager}")"
+        "${manager} names in vars/${file}, companion_packages included" \
+        "$({ package_names_for "${VARS_DIR}/${file}" "${manager}"
+             companion_packages_of "${VARS_DIR}/${file}" | awk '{print $2}'
+             lineage_companion_packages_of "${VARS_DIR}/${file}" "${distro}" | awk '{print $2}'; } | sort -u)"
 }
 
 # --- a derivative's own dictionary, inside its own image ---------------------
@@ -476,7 +526,7 @@ check_dictionary() {
 # it over vars/Archlinux.yaml would check it against the wrong family.
 derivative_dockerfile_runs_pacman() {
     local dockerfile="${PROBE_TIER3_DIR}/$1.Dockerfile"
-    [[ -f "${dockerfile}" ]] && grep -vE '^\s*#' "${dockerfile}" | grep -qE '(^|[^[:alnum:]_-])pacman -S'
+    [[ -f "${dockerfile}" ]] && grep -qE '(^|[^[:alnum:]_-])pacman -S' <<<"$(grep -vE '^\s*#' "${dockerfile}")"
 }
 
 check_derivatives() {
@@ -502,8 +552,9 @@ check_derivatives() {
         fi
         probe_names "${id}" "$(probe_image_for "${id}")" \
             "${id} dictionary package names" \
-            "pacman names in vars/Archlinux.yaml merged with vars/derivatives/${id}.yaml" \
-            "$(derivative_package_names_for "${VARS_DIR}/Archlinux.yaml" "${f}" pacman)"
+            "pacman names in vars/Archlinux.yaml merged with vars/derivatives/${id}.yaml, companion_packages included" \
+            "$({ derivative_package_names_for "${VARS_DIR}/Archlinux.yaml" "${f}" pacman
+                 companion_packages_of "${VARS_DIR}/Archlinux.yaml" | awk '{print $2}'; } | sort -u)"
     done
 }
 
@@ -595,6 +646,7 @@ main() {
     check_flatpak
     check_brew brew formula
     check_brew brew_cask cask
+    check_brew_companions
     check_choco
     check_winget
     check_winget_downloads

@@ -1,0 +1,20 @@
+---
+# One case of apt_vendor_repositories.yaml. Split out because a loop can only repeat a single task,
+# and each case needs the derivation run and then reported.
+
+- name: "Derive from the {{ ih_apt_case.fixture }} os-release fixture"
+  ansible.builtin.include_tasks: "{{ ih_derivation }}"
+  vars:
+    ih_os_release_path: "{{ ih_fixtures }}/{{ ih_apt_case.fixture }}"
+    ih_reported_family: Debian
+    ih_reported_distribution: "{{ ih_apt_case.reported_distribution }}"
+    ih_reported_release: "{{ ih_apt_case.reported_release }}"
+
+# ih_apt_codename defaults to empty so the same play can be aimed at a tree that predates it, which is
+# how the check is proven to fail against the defect.
+- name: "Report the facts of {{ ih_apt_case.fixture }} as one line of JSON"
+  ansible.builtin.debug:
+    msg: >-
+      IH_APT_FACTS {{ ih_apt_case | combine({'ih_family': ih_family, 'ih_base': ih_base,
+                                             'ih_apt_codename': ih_apt_codename | default(''),
+                                             'ih_os_release_id': ih_os_release_id | default('')}) | to_json }}

@@ -1,41 +1,26 @@
 ---
-# One package per call through tasks/install_role_packages.yaml, for all three families, so one that
-# cannot install costs only itself and is named.
-- name: Install ZSH and curl (Debian)
+# One package per call through tasks/install_role_packages.yaml, so one that cannot install costs only
+# itself and is named. The list is setup_zsh's companion_packages entry in vars/<OS>.yaml, which
+# setup/ansible/verify_install.yaml reads too: the shell, curl that Oh-My-Zsh is fetched with, and git
+# that oh_my_zsh.yaml clones it with. macOS carries curl and git of its own, so its entry is zsh alone.
+- name: Install ZSH, curl and git (Linux)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - zsh
-      - curl
-    role_packages_purpose: ZSH and curl
-  when: ih_family == 'Debian'
+    role_packages: "{{ os_dict.companion_packages.setup_zsh }}"
+    role_packages_purpose: ZSH, curl and git
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
-- name: Install ZSH and curl (Fedora)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - zsh
-      - curl
-    role_packages_purpose: ZSH and curl
-  when: ih_family == 'RedHat'
-
-- name: Install ZSH and curl (Archlinux)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - zsh
-      - curl
-    role_packages_purpose: ZSH and curl
-  when: ih_family == 'Archlinux'
+# Oh-My-Zsh is cloned with git in oh_my_zsh.yaml, so a git that did not install stops the role here with
+# the reason, as the package modules this replaced did.
+- name: Stop when git did not install
+  ansible.builtin.fail:
+    msg: git did not install, so Oh-My-Zsh cannot be cloned. What the package manager said is in the [ERROR] line above.
+  when:
+    - ih_family in ['Debian', 'RedHat', 'Archlinux']
+    - "'git' in (role_packages_missing | default([]))"
 
 - name: Install ZSH (macOS)
   ansible.builtin.include_tasks:
@@ -43,7 +28,7 @@
     apply:
       tags: [always]
   vars:
-    role_packages: [zsh]
+    role_packages: "{{ os_dict.companion_packages.setup_zsh }}"
     role_packages_purpose: ZSH
     role_packages_manager: brew
   when: ih_family == 'Darwin'

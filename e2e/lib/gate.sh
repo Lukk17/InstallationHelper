@@ -11,15 +11,19 @@
 
 # shellcheck source=host.sh
 source "$(dirname "${BASH_SOURCE[0]}")/host.sh"
+# shellcheck source=throwaway_machine.sh
+source "$(dirname "${BASH_SOURCE[0]}")/throwaway_machine.sh"
 
 E2E_GATE_IMAGE="installationhelper-e2e-gate:latest"
 E2E_GATE_QUEUE_NAME="e2e-queue"
+# The variables that tell a GitHub-hosted runner apart, handed to the gate container when they are set
+# here, so lib/throwaway_machine.sh can read them inside it.
+E2E_GATE_RUNNER_ENV=(-e GITHUB_ACTIONS -e RUNNER_OS -e RUNNER_ENVIRONMENT)
 
 # gate_refuse_foreign_container  ->  returns on a real machine, exits 2 inside any other container
 #
 # A host path read from inside another container names nothing the daemon can mount, so starting the
-# gate from there would hand it an empty repository. The queue image that used to drive long runs is
-# exactly that case, and `bash e2e/run.sh --queue` replaces it.
+# gate from there would hand it an empty repository.
 gate_refuse_foreign_container() {
     [[ -f /.dockerenv || -f /run/.containerenv ]] || return 0
     cat >&2 <<EOF
@@ -36,15 +40,29 @@ EOF
 }
 
 # gate_build <repository root>  ->  builds the gate image, quietly when nothing changed
+#
+# A workflow that built the image once and loaded it on this runner says so with
+# E2E_GATE_IMAGE_PRELOADED=1 (owner decision 90), and then the loaded image is used and nothing is
+# built. With the variable set and no such image here, it refuses rather than building a second one.
 gate_build() {
     local repo_root="$1" log
+    if [[ "${E2E_GATE_IMAGE_PRELOADED:-}" == 1 ]]; then
+        if docker image inspect "${E2E_GATE_IMAGE}" >/dev/null 2>&1; then
+            info_line "using the gate image ${E2E_GATE_IMAGE} this workflow built once and loaded here, nothing is built"
+            return 0
+        fi
+        echo "ERROR: E2E_GATE_IMAGE_PRELOADED=1 says the gate image was loaded, but ${E2E_GATE_IMAGE} is not on this machine, so nothing was run" >&2
+        exit 2
+    fi
     log="$(mktemp)"
     info_line "building the gate image ${E2E_GATE_IMAGE} from e2e/gate/Dockerfile (minutes the first time, cached after)"
-    if ! docker build -q \
+    if ! docker build --progress=plain \
             -f "$(host_path "${repo_root}/e2e/gate/Dockerfile")" \
             --build-arg "GATE_UID=$(id -u)" --build-arg "GATE_GID=$(id -g)" \
             -t "${E2E_GATE_IMAGE}" "$(host_path "${repo_root}")" >"${log}" 2>&1; then
-        echo "ERROR: the gate image did not build, so nothing was run. The build said:" >&2
+        echo "ERROR: the gate image did not build, so nothing was run. Download and provisioning lines from the build:" >&2
+        grep -E 'curl:|provision:' "${log}" >&2 || echo "(none)" >&2
+        echo "The last lines of the build:" >&2
         tail -30 "${log}" >&2
         rm -f "${log}"
         exit 2
@@ -70,27 +88,68 @@ gate_container_path() {
     fi
 }
 
-# gate_lend_github_token  ->  exports GH_TOKEN from this machine's own gh login, when there is one
+# gate_lend_github_token  ->  writes this machine's GitHub token to a private file the gate mounts
 #
 # Tier 2 reads winget manifests through gh when no winget can run, and the gate container has no gh
-# login of its own. The token travels in the environment docker run inherits, never on a command line.
-# Called only for a tier that reads GitHub, so the other tiers never hold it.
+# login of its own. The token goes into a 0600 file that gate_enter mounts read-only, never into the
+# container's environment settings or onto a command line, because `docker inspect` prints both to
+# anybody who can reach the daemon. A GH_TOKEN or GITHUB_TOKEN already exported here wins over the gh
+# login. Called only for a tier that reads GitHub, so the other tiers never hold it.
 gate_lend_github_token() {
     e2e_inside_gate && return 0
-    [[ -n "${GH_TOKEN:-}" || -n "${GITHUB_TOKEN:-}" ]] && return 0
-    command -v gh &>/dev/null || return 0
-    local token
-    token="$(gh auth token 2>/dev/null || true)"
-    if [[ -n "${token}" ]]; then
-        export GH_TOKEN="${token}"
+    local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+    if [[ -z "${token}" ]] && command -v gh &>/dev/null; then
+        token="$(gh auth token 2>/dev/null || true)"
     fi
-    return 0
+    [[ -n "${token}" ]] || return 0
+    E2E_GATE_TOKEN_HOST_FILE="$(umask 077 && mktemp)"
+    trap gate_forget_github_token EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    printf '%s' "${token}" >"${E2E_GATE_TOKEN_HOST_FILE}"
+}
+
+# gate_forget_github_token  ->  deletes the host copy of the lent token, when there is one
+gate_forget_github_token() {
+    [[ -n "${E2E_GATE_TOKEN_HOST_FILE:-}" ]] || return 0
+    rm -f "${E2E_GATE_TOKEN_HOST_FILE}"
+    E2E_GATE_TOKEN_HOST_FILE=""
+}
+
+# gate_await_token_read <seconds> <queue log>  ->  returns once the queued container has read the lent
+# token, has stopped, or the time is up, whichever comes first. The entry point writes
+# E2E_GATE_TOKEN_READ_LINE to the queue log right after it reads the file.
+gate_await_token_read() {
+    local deadline=$((SECONDS + $1)) log="$2"
+    while ((SECONDS < deadline)); do
+        grep -qxF "${E2E_GATE_TOKEN_READ_LINE}" "${log}" 2>/dev/null && return 0
+        [[ "$(docker inspect -f '{{.State.Running}}' "${E2E_GATE_QUEUE_NAME}" 2>/dev/null)" == true ]] || return 0
+        sleep 1
+    done
+    echo "WARNING: the queued container did not report reading the GitHub token within $1 seconds, so the host copy is deleted now and tier 2 may report the winget assertions as SKIP" >&2
+}
+
+# gate_probe_throwaway_machine <repository root>  ->  returns when tier 3 may run on this machine, and
+# otherwise exits with the probe's status, 2, having printed its refusal
+#
+# The answer comes from a short gate container in the foreground, because the facts it reads are read
+# inside a container and never on this machine. It runs before the run starts and before a queue is
+# started, so a refused queue says so on this terminal instead of in a log nobody is reading.
+gate_probe_throwaway_machine() {
+    local repo_root="$1" rc=0
+    docker run --rm --init \
+        -v "$(host_path "${repo_root}"):/source:ro" \
+        "${E2E_GATE_RUNNER_ENV[@]}" -e NO_COLOR \
+        "${E2E_GATE_IMAGE}" e2e/lib/throwaway_machine.sh || rc=$?
+    [[ ${rc} -eq 0 ]] || exit "${rc}"
 }
 
 # gate_enter <queue|wait> <repository-relative script> <argument>...
 #
 # queue starts the run detached in a container named e2e-queue, writing everything to
 # e2e/runs/queue.log and ending that file with QUEUE_EXIT=<status>. wait runs it in the foreground.
+# A caller that is about to run tier 3 sets GATE_REQUIRES_THROWAWAY=1 first, and then nothing starts
+# unless gate_probe_throwaway_machine agrees.
 gate_enter() {
     e2e_inside_gate && return 0
 
@@ -103,6 +162,9 @@ gate_enter() {
     local repo_root
     repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
     gate_build "${repo_root}"
+    if [[ "${GATE_REQUIRES_THROWAWAY:-}" == 1 ]]; then
+        gate_probe_throwaway_machine "${repo_root}"
+    fi
     mkdir -p "${repo_root}/e2e/runs"
 
     local cwd_rel=""
@@ -120,8 +182,12 @@ gate_enter() {
         -v "$(host_path "${repo_root}"):/source:ro"
         -v "$(host_path "${repo_root}/e2e/runs"):${E2E_GATE_REPO}/e2e/runs"
         -e "E2E_GATE_CWD=${cwd_rel}"
-        -e GH_TOKEN -e GITHUB_TOKEN -e NO_COLOR
+        -e NO_COLOR
+        "${E2E_GATE_RUNNER_ENV[@]}"
     )
+    if [[ -n "${E2E_GATE_TOKEN_HOST_FILE:-}" ]]; then
+        run_opts+=(-v "$(host_path "${E2E_GATE_TOKEN_HOST_FILE}"):${E2E_GATE_TOKEN_FILE}:ro")
+    fi
     if [[ "${E2E_HOST_KIND}" == "windows-msys" || -S /var/run/docker.sock ]]; then
         run_opts+=(-v /var/run/docker.sock:/var/run/docker.sock)
     fi
@@ -139,6 +205,10 @@ gate_enter() {
                 "${E2E_GATE_IMAGE}" "${script}" ${args[@]+"${args[@]}"} >/dev/null; then
             echo "ERROR: the queue container did not start, so nothing was queued" >&2
             exit 2
+        fi
+        if [[ -n "${E2E_GATE_TOKEN_HOST_FILE:-}" ]]; then
+            gate_await_token_read 120 "${repo_root}/e2e/runs/queue.log"
+            gate_forget_github_token
         fi
         info_line "queued in the detached container ${E2E_GATE_QUEUE_NAME}, writing e2e/runs/queue.log, which ends with QUEUE_EXIT=<status>"
         exit 0

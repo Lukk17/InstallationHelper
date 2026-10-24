@@ -40,7 +40,7 @@ enter_gate() {
 # fetch_verified <url> <sha256> <destination>  downloads, and keeps the file only when it matches
 fetch_verified() {
     local url="$1" expected="$2" destination="$3" actual
-    curl -fsSL --retry 3 --connect-timeout 15 --max-time 600 -o "${destination}" "${url}"
+    fetch_url provision "${url}" "${destination}" || return 1
     actual="$(sha256_of "${destination}")"
     if [[ "${actual}" != "${expected}" ]]; then
         rm -f "${destination}"
@@ -139,9 +139,9 @@ step_ansible_range() {
             "${low}" "${high}" "${setup_sh}" "${core}" >&2
         return 1
     fi
-    if [[ "$(printf '%s\n%s\n' "${low}" "${core}" | sort -V | head -1)" != "${low}" \
+    if [[ "$(printf '%s\n%s\n' "${low}" "${core}" | sort -V | sed -n 1p)" != "${low}" \
           || "${core}" == "${high}" \
-          || "$(printf '%s\n%s\n' "${core}" "${high}" | sort -V | head -1)" != "${core}" ]]; then
+          || "$(printf '%s\n%s\n' "${core}" "${high}" | sort -V | sed -n 1p)" != "${core}" ]]; then
         printf 'provision: ansible-core %s is outside the range %s <= version < %s that setup/setup.sh accepts\n' \
             "${core}" "${low}" "${high}" >&2
         return 1

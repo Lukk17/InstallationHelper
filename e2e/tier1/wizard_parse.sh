@@ -41,7 +41,7 @@ eval "${fn_text}"
 # a legitimate fix, this extraction stopped matching, the comparison for all four files was skipped,
 # and the gate reported green with four assertions silently not running. That is the failure mode this
 # whole directory exists to prevent, produced by the check itself.
-ps_regex="$(grep -oP "(?<=-match ')[^']*\(true\|false\)[^']*(?=')" "${SETUP_PS1}" | head -1 || true)"
+ps_regex="$(grep -oP "(?<=-match ')[^']*\(true\|false\)[^']*(?=')" "${SETUP_PS1}" | sed -n 1p || true)"
 
 # A failure, not a warning. A check that cannot run must not be able to report success: the point of
 # reading the expression out of the file is to catch a change there, so failing to find it is exactly
@@ -67,7 +67,7 @@ for f in "${GROUP_VARS_DIR}"/all.yaml "${GROUP_VARS_DIR}"/linux.yaml \
         pass "${name}: setup.sh parse matches the YAML ($(wc -l <<<"${truth}") toggles)"
     else
         fail "${name}: setup.sh parse disagrees with the YAML" \
-             "$(diff <(echo "${truth}") <(echo "${actual}") | head -20 | tr '\n' ' ')"
+             "$(diff <(echo "${truth}") <(echo "${actual}") | sed -n 1,20p | tr '\n' ' ')"
     fi
 
     # Shape check. A desynced line is what produced "install_tailscale:" as a key.
@@ -101,7 +101,7 @@ for f in "${GROUP_VARS_DIR}"/all.yaml "${GROUP_VARS_DIR}"/linux.yaml \
             pass "${name}: setup.sh and setup.ps1 see the same toggle keys"
         else
             fail "${name}: the two wizards disagree on which toggles exist" \
-                 "$(diff <(echo "${sh_keys}") <(echo "${ps_keys}") | head -10 | tr '\n' ' ')"
+                 "$(diff <(echo "${sh_keys}") <(echo "${ps_keys}") | sed -n 1,10p | tr '\n' ' ')"
         fi
     fi
 done
@@ -253,6 +253,31 @@ else
     else
         pass "both wizards leave the same toggles off under all, opencode_use_v1 among them ($(grep -c . <<<"${sh_keeps_off}") keys)"
     fi
+fi
+
+# Select-all on either checklist is "install all" too, and neither widget can leave one item out, so each
+# wizard reads every offered key ticked as select-all and drops that same list from it. Asserted here as
+# wiring, so that the two stay alike: interactive_states.sh drives the bash one and the Pester suite drives
+# the PowerShell one.
+checklist_state="$(sed -n '/^main_interactive()/,/^}/p' "${SETUP_SH}" | sed -n '/^            checklist)$/,/;;$/p')"
+pick_software_text="$(sed -n '/^pick_software()/,/^}/p' "${SETUP_SH}")"
+ps_function_text() {
+    awk -v name="$1" '$0 ~ "^function " name " " { found = 1 } found { print } found && /^}$/ { exit }' "${SETUP_PS1}"
+}
+select_all_wiring=()
+grep -q 'select_all_leaves_off' <<<"${checklist_state}" \
+    || select_all_wiring+=("the checklist state of main_interactive in setup.sh does not pass the ticked keys through select_all_leaves_off")
+grep -q 'select_all_note' <<<"${pick_software_text}" \
+    || select_all_wiring+=("pick_software in setup.sh does not put select_all_note in the checklist header")
+grep -q 'AllSoftwareKeepsOff' <<<"$(ps_function_text Resolve-PickedSelection)" \
+    || select_all_wiring+=("Resolve-PickedSelection in setup.ps1 does not drop \$AllSoftwareKeepsOff from a full selection")
+grep -q 'AllSoftwareKeepsOff' <<<"$(ps_function_text Show-SoftwarePicker)" \
+    || select_all_wiring+=("Show-SoftwarePicker in setup.ps1 does not name what select-all leaves off in the grid title")
+if [[ ${#select_all_wiring[@]} -eq 0 ]]; then
+    pass "both checklists drop the keys all leaves off from a select-all and say so in their header"
+else
+    fail "a checklist's select-all would turn on a key --software all leaves off, or would not say it does not" \
+         "$(printf '%s | ' "${select_all_wiring[@]}")"
 fi
 
 finish "wizard parse"

@@ -75,6 +75,32 @@
     label: "{{ item.key }}"
   tags: always
 
+# The same shape for snap. With install_snapd off nothing installs snapd, so a snap mapping would only
+# fail four times and end the run failed for a choice the user made. On Ubuntu itself snapd ships with
+# the system, so nothing is skipped there whatever the toggle says. tasks/snap_availability.yaml is the
+# one place that answers it, and site.yaml names the same list at the end of the run.
+- name: Decide which requested mappings need snapd while install_snapd is off
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/snap_availability.yaml"
+    apply:
+      tags: [always]
+  tags: always
+
+- name: Leave out every requested mapping that needs snapd while install_snapd is off
+  ansible.builtin.set_fact:
+    software_installer_packages: >-
+      {{ software_installer_packages | rejectattr('key', 'in', ih_snap_skipped | list) | list }}
+  tags: always
+
+- name: Name every requested mapping skipped because install_snapd is off
+  ansible.builtin.debug:
+    msg: >-
+      [WARN] Skipping install_{{ item.key }}: {{ item.value }}. Turn install_snapd on to install it.
+  loop: "{{ ih_snap_skipped | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  tags: always
+
 # One place where each manager's package list is worked out, and every task below reads it
 # from here.
 #
@@ -137,14 +163,6 @@
           tags: [dnf_batch]
       tags: [dnf_batch]
       when: ih_family == 'RedHat'
-
-    - name: Install Arch prerequisites (DKMS kernel headers)
-      ansible.builtin.include_tasks:
-        file: arch_prereqs.yaml
-        apply:
-          tags: [pacman_batch]
-      tags: [pacman_batch]
-      when: ih_family == 'Archlinux'
 
     # After the repository setup above, and tagged always, because every consumer reads the answer and
     # a run limited by --tags to one of them still has to know the truth about this machine.
@@ -610,10 +628,20 @@
     # This was the dnf module, whose failure on the last attempt was fatal, so one withdrawn vendor rpm
     # sent the whole software installer into its rescue and skipped the flatpak set and every custom
     # install after it. The shared file names the URL that did not install and carries on.
+    #
+    # A mapping with exclude_path goes down the rpm route instead, grouped by the path it leaves out, so
+    # its rpm never writes that path. The field in vars/RedHat.yaml is the one place that decides it, and
+    # e2e/tier2/rpm_file_conflicts.sh reads the same field.
     - name: Resolve the vendor .rpm locations this run installs
       ansible.builtin.set_fact:
         dnf_url_locations: >-
-          {{ (dnf_url_locations | default([])) + [item_url | trim] }}
+          {{ (dnf_url_locations | default([]))
+             + ([] if item.value.exclude_path is defined else [item_url | trim]) }}
+        dnf_url_excluding: >-
+          {{ (dnf_url_excluding | default({}))
+             | combine({item.value.exclude_path: ((dnf_url_excluding | default({}))[item.value.exclude_path]
+                                                  | default([])) + [item_url | trim]}
+                       if item.value.exclude_path is defined else {}) }}
       loop: "{{ software_installer_packages | selectattr('value.manager', 'equalto', 'dnf_url') | list }}"
       vars:
         item_url: >-
@@ -642,6 +670,22 @@
       when:
         - ih_family == 'RedHat'
         - dnf_url_locations | default([]) | length > 0
+      tags: [dnf_batch]
+
+    - name: Install the vendor .rpm files rpm installs without a path, one at a time
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+        apply:
+          tags: [dnf_batch]
+      vars:
+        role_packages: "{{ dnf_url_excluding[rpm_excluded_path] }}"
+        role_packages_purpose: the vendor .rpm downloads rpm installs without {{ rpm_excluded_path }}
+        role_packages_manager: rpm_url
+        role_packages_install_options: "--excludepath={{ rpm_excluded_path | quote }}"
+      loop: "{{ dnf_url_excluding | default({}) | list }}"
+      loop_control:
+        loop_var: rpm_excluded_path
+      when: ih_family == 'RedHat'
       tags: [dnf_batch]
 
     # Every package that brings Steam, which on CachyOS is the gaming suite as well as steam itself.
@@ -729,9 +773,27 @@
     # The guard that replaces the single solve. `pacman -Dk` checks the local database for missing
     # dependencies and for packages whose dependencies are not satisfied, which is exactly the state
     # a per-package loop can produce and one solve cannot. Read-only and takes a second.
+    #
+    # It reads a copy of the local database, never the real one. CachyOS keeps its own marker file,
+    # CACHY_UPDATE_NOTICE, beside the package directories in <DBPath>local, and a bare `pacman -Dk`
+    # stops at it with "error: 'CACHY_UPDATE_NOTICE': description file is missing" and exit 1, then
+    # skips the dependency and conflict checks (CachyOS/pacman issue 10). Filtering that line out of
+    # the output would hide the skipped checks, so the copy leaves out every entry that is not a
+    # package directory and not ALPM_DB_VERSION, names each one, and pacman checks the rest. The sync
+    # databases are linked rather than copied, because pacman only reads them here.
     - name: Ask pacman whether the installed set is consistent
-      ansible.builtin.command:
-        cmd: pacman -Dk
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          db_path="$(pacman-conf DBPath)"
+          copy="$(mktemp -d)"
+          trap 'rm -rf -- "${copy}"' EXIT
+          cp -a "${db_path%/}/local" "${copy}/local"
+          ln -s "${db_path%/}/sync" "${copy}/sync"
+          find "${copy}/local" -mindepth 1 -maxdepth 1 ! -type d ! -name ALPM_DB_VERSION \
+            -printf 'not a package record, left out of the copy pacman checks: %f\n' -delete
+          pacman -Dk --dbpath "${copy}/"
+        executable: /bin/bash
       become: true
       register: pacman_consistency
       changed_when: false
@@ -1063,6 +1125,23 @@
         - not (aur_allow_failures | bool)
       tags: [pacman_batch]
 
+    # After the pacman and AUR sets rather than before them, because the software set can bring a
+    # kernel of its own, and the headers are named from the kernels installed at the time. On CachyOS
+    # cachyos-gaming-applications brings cachyos-gaming-meta, then winetricks, wine and
+    # ntsync-autoload, which needs NTSYNC-MODULE, which linux-cachyos provides, resolved with
+    # pacman -Sp in cachyos/cachyos-v3 on 2026-10-19. In GitHub sweep run 39231000107 the headers step
+    # ran before that kernel existed and the verification failed on linux-cachyos-headers. Installing
+    # the headers after openrazer-driver-dkms still builds the module, because Arch's dkms hook fires
+    # on a new /usr/lib/modules/*/build/include as well as on a new dkms.conf, read from the hook in
+    # archlinux:base.
+    - name: Install Arch prerequisites (DKMS kernel headers)
+      ansible.builtin.include_tasks:
+        file: arch_prereqs.yaml
+        apply:
+          tags: [pacman_batch]
+      tags: [pacman_batch]
+      when: ih_family == 'Archlinux'
+
     # Snap, one per call through the shared file. snapd keeps no package list to refresh, so a retry
     # only waits: four attempts twenty seconds apart. Fetches from api.snapcraft.io can flake with HTTP
     # 56, a peer reset, mid-stream. This was community.general.snap, whose failure on the last attempt
@@ -1150,7 +1229,7 @@
     # Through the shared file with flatpak: one attempt, then for an application that failed, wait,
     # flatpak update --appstream to fetch the remote's summary and appstream data again, try again, four
     # attempts in all. raw, for the ansible-core 2.19 deserialization race in the workaround section of
-    # AGENTS.md, and the shared file reads rc rather than the result's failed key.
+    # setup/ansible/ansible_architecture.md, and the shared file reads rc rather than the result's failed key.
     - name: Install Flatpak applications, one at a time
       ansible.builtin.include_tasks:
         file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
@@ -1194,6 +1273,7 @@
         flatpak_absent_after_install: >-
           {{ software_installer_batches.flatpak
              | difference(flatpak_installed_query.stdout_lines | default([]))
+             | difference(flatpak_reported_failures | default([]))
              | list }}
       when:
         - ansible_facts['system'] == 'Linux'

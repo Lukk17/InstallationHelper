@@ -5,68 +5,19 @@
 # role still run. That file installs through raw, for the 2.19 deserialization bug Ubuntu hit on long
 # apt installs, with apt's flags from apt_raw_flags in group_vars/linux.yaml.
 
-# qemu-system-x86, not qemu-kvm. qemu-kvm has no installation candidate on either Debian trixie or
-# Ubuntu 26.04, and the two then behave differently: on Debian apt resolves the virtual name to its
-# single provider and exits 0, while on Ubuntu 26.04 it exits 100 with "Package 'qemu-kvm' has no
-# installation candidate". Measured on both images on 2026-08-21 with apt-get install -s.
-#
-# So this task had been failing on every Ubuntu and Pop!_OS run and nobody could see it, because the
-# pipeline ends in tee and there was no set -o pipefail above it, so failed_when was reading tee's
-# status. Adding that pipefail earlier today is what made this visible, which is the argument for
-# that change in one sentence: the mask was hiding a real defect rather than a hypothetical one.
-#
-# qemu-system-x86 has a real candidate on both, 1:10.0.11 on Debian and 1:10.2.1 on Ubuntu, and it is
-# what qemu-kvm was the transitional name for.
-- name: Install QEMU/KVM and virt-manager packages (Debian)
+# virt-manager is install_virt_manager's mapping, and the rest of the KVM stack is that toggle's
+# companion_packages entry in vars/<OS>.yaml, which setup/ansible/verify_install.yaml reads too, so the
+# verification expects exactly what this installs. virt-manager is asked for again here, after
+# software_installer installed it, so a run limited to --tags libvirt still gets the application.
+- name: Install QEMU/KVM and virt-manager packages (Linux)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - qemu-system-x86
-      - libvirt-daemon-system
-      - libvirt-clients
-      - virt-manager
-      - virtinst
-      - bridge-utils
-      - virtiofsd
+    role_packages: "{{ [os_dict.software_mapping.virt_manager.package] + os_dict.companion_packages.virt_manager }}"
     role_packages_purpose: QEMU/KVM and virt-manager
-  when: ih_family == 'Debian' and install_virt_manager | default(false) | bool
-  tags: [libvirt]
-
-- name: Install QEMU/KVM and virt-manager packages (Arch)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - qemu-full
-      - virt-manager
-      - libvirt
-      - dnsmasq
-      - nftables
-      - virtiofsd
-    role_packages_purpose: QEMU/KVM and virt-manager
-  when: ih_family == 'Archlinux' and install_virt_manager | default(false) | bool
-  tags: [libvirt]
-
-- name: Install QEMU/KVM and virt-manager packages (Fedora)
-  ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
-    apply:
-      tags: [always]
-  vars:
-    role_packages:
-      - qemu-kvm
-      - libvirt
-      - virt-manager
-      - virt-install
-      - bridge-utils
-      - virtiofsd
-    role_packages_purpose: QEMU/KVM and virt-manager
-  when: ih_family == 'RedHat' and install_virt_manager | default(false) | bool
+  when: ih_family in ['Debian', 'RedHat', 'Archlinux'] and install_virt_manager | default(false) | bool
   tags: [libvirt]
 
 # The libvirt daemon is what every libvirt task below enables or joins, so a daemon package that did not
@@ -213,18 +164,16 @@
     - "'docker' in unavailable_repositories | default({})"
   tags: [docker]
 
+# Docker's packages are install_docker's companion_packages entry in vars/<OS>.yaml, which
+# setup/ansible/verify_install.yaml reads too, so the verification expects every package installed here
+# and not only docker.service and the docker group.
 - name: Install Docker CE (Debian)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
+    role_packages: "{{ os_dict.companion_packages.docker }}"
     role_packages_purpose: Docker
   when:
     - ih_family == 'Debian'
@@ -238,12 +187,7 @@
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
+    role_packages: "{{ os_dict.companion_packages.docker }}"
     role_packages_purpose: Docker
   when:
     - ih_family == 'RedHat'
@@ -272,11 +216,7 @@
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - docker
-      - docker-buildx
-      - docker-compose
-      - iptables
+    role_packages: "{{ os_dict.companion_packages.docker }}"
     role_packages_purpose: Docker
   when: ih_family == 'Archlinux' and install_docker | default(false) | bool
   tags: [docker]
@@ -361,7 +301,7 @@
 # iptables-nft state needs a moment to settle before dockerd can register
 # its NAT chains. Without this pause, Docker.service failed 4s after the
 # libvirtd restart with "Job for docker.service failed because the control
-# process exited with error code." See AGENTS.md for full context.
+# process exited with error code." See docs/regression_ledger.md, "Arch libvirt and Docker fight over the iptables backend".
 - name: Pause briefly to let iptables-nft state settle (Arch)
   ansible.builtin.pause:
     seconds: 5

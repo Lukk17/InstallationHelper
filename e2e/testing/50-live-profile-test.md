@@ -18,7 +18,9 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 
 ## Prerequisites
 
-The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
+This capability never runs on the owner's computer. Its scenario containers are privileged and share the kernel of the machine Docker runs on, and on the owner's computer they changed his kernel, entries 10.126 to 10.129 of [../../docs/regression_ledger.md](../../docs/regression_ledger.md). It runs only on a GitHub-hosted runner, dispatched with the command under Run, where the workflow runs the commands below for you. Anywhere else `e2e/run.sh --tier 3` and `e2e/tier3/container.sh` print `REFUSED` and exit 2 before any container starts, and there is no override. No other virtual machine qualifies, a local one, WSL 2 and Docker Desktop alike, by the owner's decision 79. The rule and how the machine is recognised are under "Tier 3 runs only on a GitHub-hosted runner" in [../README_E2E.md](../README_E2E.md).
+
+On the runner the scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so the runner needs a Docker daemon and nothing else.
 
 Confirm the Docker daemon is reachable.
 
@@ -26,7 +28,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Confirm there is disk headroom.
 
@@ -98,10 +100,14 @@ Step 1. Launch and return. The command prints the run directory, the container n
 ./e2e/tier3/container.sh e2e/tier3/scenarios/05-live-profile.yaml --detach
 ```
 
-From a PowerShell prompt on Windows, the same launch through WSL.
+The commands above and below are what a GitHub-hosted runner runs, and they exit 2 anywhere else, so dispatch the same scenario to GitHub-hosted runners. It runs stage 1 and that one stage 2 cell of [../../.github/workflows/e2e-matrix.yml](../../.github/workflows/e2e-matrix.yml), and stage 3 on macOS and Windows as well, because stage 3 always runs. The command is the same from a Unix shell and from PowerShell.
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=live-profile -f distro=arch
+```
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/05-live-profile.yaml --detach"
+gh workflow run e2e-matrix.yml -f scenario=live-profile -f distro=arch
 ```
 
 Follow it from any shell, as often as you like, using the container name the launch printed.
@@ -130,6 +136,8 @@ Every command above targets Arch, which is what `--os` defaults to. The same sce
 
 `result.txt` in the run directory reports `playbook_rc: 0`. That is the primary assertion for this capability, because the question the scenario asks is whether the profile path runs at all.
 
+It also reports two `host_isolation:` lines. The first must read `host_isolation: 0 finding(s)`, which means every host state record was written, binfmt_misc was never mounted, no masked unit ran, systemd knew it was in a container, and the host kernel's swap areas matched the record taken at boot after every pass and at collection. This holds for every scenario, the forced-failure one included, and any finding fails the run. The second lists every kernel setting and loaded module that differs from the boot record, as information only by owner decision 86, and never fails the run: it is expected to name the distribution's own `sysctl.d` defaults and the modules its packages load. That is safe only because the scenario container is privileged and changes the kernel of the machine running it, its kernel settings, binfmt_misc table, device events and modules, which is why this capability runs only on a throwaway GitHub-hosted runner and never on the owner's computer. See "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
+
 The verify log carries the same assertions as every other container scenario, because they all run one [../tier3/verify.yaml](../tier3/verify.yaml) and only the expected sets differ. Each is named verbatim so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete.
 
 Before any of them, `Assert the installed-package query returned a plausible list` checks the input to the comparison rather than the comparison itself. It fails when the query behind the native package assertion returns fewer than fifty entries, which no working Linux installation does. It exists because a format string whose newline was being discarded made that query return one concatenated blob, so every expected package was reported missing and read exactly like a playbook that had installed nothing.
@@ -137,12 +145,13 @@ Before any of them, `Assert the installed-package query returned a plausible lis
 1. `Assert every enabled native package is installed`, against `pacman -Qq`.
 2. `Assert every enabled URL-installed package resolved a download location`. Some packages install from a vendor URL rather than a repository, and both dispatch tasks skip silently when that URL renders empty, so this fails the run instead of letting it look clean. The candidate set is empty on Arch, because `vars/Archlinux.yaml` maps nothing to `apt_url` or `dnf_url`. On the Debian and Ubuntu images it is the enabled subset of the five `apt_url` mappings, and on Fedora the enabled subset of the four `dnf_url` mappings, so an Arch run does not prove this one and the assertion says so by reporting how many candidates it examined.
 3. `Assert every enabled flatpak application is installed`, against `flatpak list --app --columns=application`.
-4. `Assert tailscaled is enabled when Tailscale was requested`. The profile turns `install_tailscale` off, so this one is skipped here, and the skip is the point: the ledger entry behind this scenario is a live profile that never disabled Tailscale at all.
-5. `Assert the user is in the OpenRazer device group when OpenRazer was requested`. Also disabled by the profile, also skipped.
-6. `Assert the user is in the docker group when Docker was requested`. Also disabled by the profile, also skipped.
-7. `Assert docker.service is enabled when Docker was requested`. Also skipped, same reason.
-8. `Assert flatpak is installed and the Flathub remote is configured`.
-9. `Assert the temporary passwordless sudoers entry was removed`.
+4. `Assert every enabled snap application is installed`, against `snap list --color=never --unicode=never`, which is asked only when a snap mapping is expected.
+5. `Assert tailscaled is enabled when Tailscale was requested`. The profile turns `install_tailscale` off, so this one is skipped here, and the skip is the point: the ledger entry behind this scenario is a live profile that never disabled Tailscale at all.
+6. `Assert the user is in the OpenRazer device group when OpenRazer was requested`. Also disabled by the profile, also skipped.
+7. `Assert the user is in the docker group when Docker was requested`. Also disabled by the profile, also skipped.
+8. `Assert docker.service is enabled when Docker was requested`. Also skipped, same reason.
+9. `Assert flatpak is installed and the Flathub remote is configured`.
+10. `Assert the temporary passwordless sudoers entry was removed`.
 
 Amended 2026-08-15, because this section previously described a harness limitation that no longer exists and told the runner to expect a failure that is now a real one. What it said: [../tier3/container.sh](../tier3/container.sh) passed the profile to the playbook but not to the verify play, so verification resolved every toggle with the profile invisible to it, expected the whole of the profile's disabled list, and reported it missing. A non-zero `verify_rc` was the expected structural outcome and the runner was told to reconcile the missing list by hand against the profile.
 
@@ -152,9 +161,9 @@ So `verify_rc: 0` is the expectation for this scenario, like every other one, an
 
 `Assert the expected desktop environment is installed` does not run. The scenario declares `e2e_expect_desktop: none`.
 
-10. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. The profile turns off `install_nodejs`, `install_python`, `install_java`, `install_flutter`, `install_android_sdk`, `install_bruno_cli` and every AI CLI toggle, which is every toggle this assertion looks at, so nothing is enabled for it to check and it passes on an empty set. `install_dart` is no longer one of them: it stayed in `group_vars/all.yaml`, still enabled by default, but became a documented no-op on Debian, RedHat, Archlinux and Darwin on 2026-09-18 (`e2e/tier1/documented_no_ops.txt`), since FVM's own install script needs no Dart on Linux or macOS. Windows is the only family that still consumes it, and Windows is not what this container profile runs. That is a real answer rather than a gap: capability 60 is where this assertion is exercised against the full default set, including the "Found on a real CachyOS machine on 2026-09-15" ledger entry it exists for.
-11. `Assert the desktop session environment carries every development variable`. Linux only. With the SDK toggles off it asks only for the variables and PATH entries env_variables writes into `~/.config/environment.d/50-dev.conf`, which this profile does not turn off, read through the systemd user environment generator exactly as the user manager reads them at the next login.
-12. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails. [../../setup/ansible/profiles/linux_live.yaml](../../setup/ansible/profiles/linux_live.yaml) turns both toggles off, so here both probes are skipped and the assertion proves nothing.
+11. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. The profile turns off `install_nodejs`, `install_python`, `install_java`, `install_flutter`, `install_android_sdk`, `install_bruno_cli` and every AI CLI toggle, which is every toggle this assertion looks at, so nothing is enabled for it to check and it passes on an empty set. `install_dart` is no longer one of them: it stayed in `group_vars/all.yaml`, still enabled by default, but became a documented no-op on Debian, RedHat, Archlinux and Darwin on 2026-09-18 (`e2e/tier1/documented_no_ops.txt`), since FVM's own install script needs no Dart on Linux or macOS. Windows is the only family that still consumes it, and Windows is not what this container profile runs. That is a real answer rather than a gap: capability 60 is where this assertion is exercised against the full default set, including the "Found on a real CachyOS machine on 2026-09-15" ledger entry it exists for.
+12. `Assert the desktop session environment carries every development variable`. Linux only. With the SDK toggles off it asks only for the variables and PATH entries env_variables writes into `~/.config/environment.d/50-dev.conf`, which this profile does not turn off, read through the systemd user environment generator exactly as the user manager reads them at the next login.
+13. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails. [../../setup/ansible/profiles/linux_live.yaml](../../setup/ansible/profiles/linux_live.yaml) turns both toggles off, so here both probes are skipped and the assertion proves nothing.
 
 Known container limitations. [../tier3/container_limits.yaml](../tier3/container_limits.yaml) forces `setup_hibernate`, `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot`, `install_waydroid`, `install_virtualbox`, `install_vmware` and `install_snapper` to false on top of every scenario. Two of those matter more here than elsewhere: a live USB install is exactly where bootloader work and `boot_repair` belong, and the container cannot cover any of it. The harness prints the suppressed list on every run, and a pass here is not evidence about any entry in it.
 

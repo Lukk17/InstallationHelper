@@ -2,7 +2,7 @@
 #
 # Tier 1: the wizard and the container harness must resolve the same software selection.
 #
-# This used to be two implementations of one rule, which is defect class 2 in AGENTS.md, sitting
+# This used to be two implementations of one rule, which is defect class 2 in docs/regression_ledger.md, sitting
 # inside the harness meant to catch that class. setup.sh decides what the software set is in
 # software_override_vars, working from the keys preload_toggles collected, and container.sh decided
 # it again by sweeping install_ toggles out of group_vars/all.yaml and group_vars/linux.yaml. The
@@ -109,14 +109,14 @@ else
     fail "container.sh no longer leaves off what the wizard's --software all leaves off" \
          "it must read wizard_all_software_keeps_off and apply all_software_keeps_off where it writes each generated toggle"
 fi
-if sed -n '/^wizard_all_software_keeps_off()/,/^}/p' "${COMMON_SH}" | grep -q 'setup/setup\.sh'; then
+if grep -q 'setup/setup\.sh' <<<"$(sed -n '/^wizard_all_software_keeps_off()/,/^}/p' "${COMMON_SH}")"; then
     pass "wizard_all_software_keeps_off reads ALL_SOFTWARE_KEEPS_OFF out of setup.sh"
 else
     fail "wizard_all_software_keeps_off no longer reads setup/setup.sh" \
          "the shared reader now carries its own copy of what --software all leaves off"
 fi
 
-if sed -n '/^wizard_toggle_keys()/,/^}/p' "${COMMON_SH}" | grep -q 'setup/setup\.sh'; then
+if grep -q 'setup/setup\.sh' <<<"$(sed -n '/^wizard_toggle_keys()/,/^}/p' "${COMMON_SH}")"; then
     pass "wizard_toggle_keys still reads the rule out of setup.sh rather than keeping its own copy"
 else
     fail "wizard_toggle_keys no longer reads setup/setup.sh" \

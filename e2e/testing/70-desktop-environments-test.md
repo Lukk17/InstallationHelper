@@ -15,13 +15,15 @@ Section headings sit at level two because the `e2e-runbooks` test-spec template 
 - The default software set still installs alongside a full desktop environment build. Both scenarios leave the software toggles at their [../../setup/ansible/group_vars/](../../setup/ansible/group_vars/) values, so verification asserts the whole default expected set against `pacman -Qq` and `flatpak list --app --columns=application`. Same guard as the "Pacman batch failure marked as success" and "Install block rescue hides which task failed" ledger entries.
 - The per-distribution group names and the systemd unit still resolve on this path, and the temporary passwordless sudoers entry is gone. `id -nG` must contain `os_dict.openrazer_device_group` and `docker`, `systemctl is-enabled tailscaled.service` must exit 0, and `/etc/sudoers.d/99-ansible-user` must not exist. Same ledger entries as capability 60.
 
-[AGENTS.md](../../AGENTS.md) names both of these scenarios as mandatory when a change touches the desktop environment roles, which is why they are one capability rather than two: neither answer to the desktop environment question is covered until both have run.
+"What to run when you change something" in [../README_E2E.md](../README_E2E.md) names both of these scenarios as mandatory when a change touches the desktop environment roles, which is why they are one capability rather than two: neither answer to the desktop environment question is covered until both have run.
 
 ---
 
 ## Prerequisites
 
-The scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so this machine needs a Docker daemon and nothing else. On Windows, Git Bash with Docker Desktop and WSL with Docker Desktop integration both qualify.
+This capability never runs on the owner's computer. Its scenario containers are privileged and share the kernel of the machine Docker runs on, and on the owner's computer they changed his kernel, entries 10.126 to 10.129 of [../../docs/regression_ledger.md](../../docs/regression_ledger.md). It runs only on a GitHub-hosted runner, dispatched with the command under Run, where the workflow runs the commands below for you. Anywhere else `e2e/run.sh --tier 3` and `e2e/tier3/container.sh` print `REFUSED` and exit 2 before any container starts, and there is no override. No other virtual machine qualifies, a local one, WSL 2 and Docker Desktop alike, by the owner's decision 79. The rule and how the machine is recognised are under "Tier 3 runs only on a GitHub-hosted runner" in [../README_E2E.md](../README_E2E.md).
+
+On the runner the scenario driver runs inside the gate container, which `e2e/run.sh` and `e2e/tier3/container.sh` build and enter by themselves, so the runner needs a Docker daemon and nothing else.
 
 Confirm the Docker daemon is reachable.
 
@@ -29,7 +31,7 @@ Confirm the Docker daemon is reachable.
 docker info
 ```
 
-Expect a daemon summary. On Windows that means Docker Desktop running, with WSL integration enabled when the shell is WSL. The container needs `--privileged` and the host cgroup mount.
+Expect a daemon summary. The container needs `--privileged` and a private cgroup namespace, never the host's, and it runs with the unit masks and the host state guard described under "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
 
 Confirm there is real disk headroom, because this capability builds two containers, each with a full desktop environment plus the default software set.
 
@@ -93,10 +95,22 @@ Step 1. Launch the KDE run and return.
 ./e2e/tier3/container.sh e2e/tier3/scenarios/03-kde-full.yaml --detach
 ```
 
-From a PowerShell prompt on Windows, the same launch through WSL.
+The commands above and below are what a GitHub-hosted runner runs, and they exit 2 anywhere else, so dispatch the same scenario to GitHub-hosted runners. It runs stage 1 and that one stage 2 cell of [../../.github/workflows/e2e-matrix.yml](../../.github/workflows/e2e-matrix.yml), and stage 3 on macOS and Windows as well, because stage 3 always runs. The command is the same from a Unix shell and from PowerShell.
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=kde-full -f distro=arch
+```
 
 ```powershell
-wsl -d Ubuntu bash -c "cd /mnt/d/Development/projekty-IT/InstallationHelper && ./e2e/tier3/container.sh e2e/tier3/scenarios/03-kde-full.yaml --detach"
+gh workflow run e2e-matrix.yml -f scenario=kde-full -f distro=arch
+```
+
+```bash
+gh workflow run e2e-matrix.yml -f scenario=gnome-full -f distro=arch
+```
+
+```powershell
+gh workflow run e2e-matrix.yml -f scenario=gnome-full -f distro=arch
 ```
 
 Step 2. Launch the GNOME run and return. Do this immediately after step 1 only if the machine has the disk and bandwidth for two 300 minute installs at once, otherwise wait until step 3 has finished. See the Concurrency section.
@@ -133,6 +147,8 @@ Both runs must pass for this capability to pass. One green and one red is a FAIL
 
 For each run, `result.txt` in its own run directory reports `playbook_rc: 0` and `verify_rc: 0`.
 
+It also reports two `host_isolation:` lines. The first must read `host_isolation: 0 finding(s)`, which means every host state record was written, binfmt_misc was never mounted, no masked unit ran, systemd knew it was in a container, and the host kernel's swap areas matched the record taken at boot after every pass and at collection. This holds for every scenario, the forced-failure one included, and any finding fails the run. The second lists every kernel setting and loaded module that differs from the boot record, as information only by owner decision 86, and never fails the run: it is expected to name the distribution's own `sysctl.d` defaults and the modules its packages load. That is safe only because the scenario container is privileged and changes the kernel of the machine running it, its kernel settings, binfmt_misc table, device events and modules, which is why this capability runs only on a throwaway GitHub-hosted runner and never on the owner's computer. See "What a container cannot test" in [../README_E2E.md](../README_E2E.md).
+
 The verify log of each run carries these assertions, each on its own PASS or FAIL line. Every container scenario runs the same [../tier3/verify.yaml](../tier3/verify.yaml), so the list is the same for all of them and only the expected sets differ. Each item names its verify task verbatim, so [../tier1/verify_spec_parity.sh](../tier1/verify_spec_parity.sh) can prove this list is complete rather than leaving it to be noticed.
 
 Before any of them, `Assert the installed-package query returned a plausible list` checks the input to the comparison rather than the comparison itself. It fails when the query behind the native package assertion returns fewer than fifty entries, which no working Linux installation does. It exists because a format string whose newline was being discarded made that query return one concatenated blob, so every expected package was reported missing and read exactly like a playbook that had installed nothing.
@@ -140,19 +156,20 @@ Before any of them, `Assert the installed-package query returned a plausible lis
 1. `Assert every enabled native package is installed`, checked against `pacman -Qq`. The expected set is the default toggle set mapped to `pacman` or `aur` in `vars/Archlinux.yaml`, minus whatever the container limits turned off. The desktop environment packages are not part of this set, since neither desktop toggle is in the dictionary.
 2. `Assert every enabled URL-installed package resolved a download location`. Some packages install from a vendor URL rather than a repository, and both dispatch tasks skip silently when that URL renders empty, so this fails the run instead of letting it look clean. The candidate set is empty on Arch, because `vars/Archlinux.yaml` maps nothing to `apt_url` or `dnf_url`. On the Debian and Ubuntu images it is the enabled subset of the five `apt_url` mappings, and on Fedora the enabled subset of the four `dnf_url` mappings, so an Arch run does not prove this one and the assertion says so by reporting how many candidates it examined.
 3. `Assert every enabled flatpak application is installed`, checked against `flatpak list --app --columns=application`.
-4. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
-5. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
-6. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
-7. `Assert docker.service is enabled when Docker was requested`.
-8. `Assert flatpak is installed and the Flathub remote is configured`.
-9. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
-10. `Assert the expected desktop environment is installed`. In the KDE run the probe is `pacman -Qq plasma-desktop`, in the GNOME run it is `pacman -Qq gnome-shell`, and the assertion requires exit 0. This is the one assertion that separates this capability from capability 60, and the only scenario pair where it runs at all.
+4. `Assert every enabled snap application is installed`, checked against `snap list --color=never --unicode=never`, which is asked only when a snap mapping is expected.
+5. `Assert tailscaled is enabled when Tailscale was requested`, from `systemctl is-enabled tailscaled.service`.
+6. `Assert the user is in the OpenRazer device group when OpenRazer was requested`, from `id -nG` against `os_dict.openrazer_device_group`, which is `openrazer` on Arch.
+7. `Assert the user is in the docker group when Docker was requested`, from `id -nG`.
+8. `Assert docker.service is enabled when Docker was requested`.
+9. `Assert flatpak is installed and the Flathub remote is configured`.
+10. `Assert the temporary passwordless sudoers entry was removed`, meaning `/etc/sudoers.d/99-ansible-user` does not exist.
+11. `Assert the expected desktop environment is installed`. In the KDE run the probe is `pacman -Qq plasma-desktop`, in the GNOME run it is `pacman -Qq gnome-shell`, and the assertion requires exit 0. This is the one assertion that separates this capability from capability 60, and the only scenario pair where it runs at all.
 
-Note what assertion 9 does not cover. It proves the desktop environment's main package is present, and nothing more. Whether the configure half of the `full` action actually applied a setting is not asserted anywhere, and could not be in a container without a session: the two runs turn `configure_kde_plasma` and `configure_gnome` on, so those tasks execute and their failures would surface as a non-zero playbook exit code, but a configure task that succeeds while writing the wrong value passes here. Record any configure oddity you see in the log under the Result summary rather than as a ticked assertion.
+Note what assertion 11 does not cover. It proves the desktop environment's main package is present, and nothing more. Whether the configure half of the `full` action actually applied a setting is not asserted anywhere, and could not be in a container without a session: the two runs turn `configure_kde_plasma` and `configure_gnome` on, so those tasks execute and their failures would surface as a non-zero playbook exit code, but a configure task that succeeds while writing the wrong value passes here. Record any configure oddity you see in the log under the Result summary rather than as a ticked assertion.
 
-11. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Both scenarios leave the ai_tools and sdk_manager toggles at their default of true, so this checks the whole set, node through the six npm-installed AI CLIs, in both the KDE run and the GNOME run. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60, and a place worth watching here specifically: the shell it probes is an interactive non-login shell of `{{ non_root_user }}`'s real login shell, not whichever a desktop environment role happens to assume.
-12. `Assert the desktop session environment carries every development variable`. Linux only, and the scenarios where it matters most, because Plasma and GNOME take their environment from the systemd user manager, which builds it from `~/.config/environment.d` and never reads `.zshrc`. It runs that manager's own generator as the user and asks for every development variable and PATH entry the SDK toggles at their default of true call for.
-13. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails.
+12. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell`. Both scenarios leave the ai_tools and sdk_manager toggles at their default of true, so this checks the whole set, node through the six npm-installed AI CLIs, in both the KDE run and the GNOME run. Same "Found on a real CachyOS machine on 2026-09-15" ledger entry as capability 60, and a place worth watching here specifically: the shell it probes is an interactive non-login shell of `{{ non_root_user }}`'s real login shell, not whichever a desktop environment role happens to assume.
+13. `Assert the desktop session environment carries every development variable`. Linux only, and the scenarios where it matters most, because Plasma and GNOME take their environment from the systemd user manager, which builds it from `~/.config/environment.d` and never reads `.zshrc`. It runs that manager's own generator as the user and asks for every development variable and PATH entry the SDK toggles at their default of true call for.
+14. `Assert exactly the selected OpenCode version is installed`. This scenario leaves `opencode_use_v1` false, so version 2 is selected. It asks two probes from [../../setup/ansible/tasks/opencode_version.yaml](../../setup/ansible/tasks/opencode_version.yaml), the same ones the role removed the other version with: whether the version 1 desktop app, the Flathub application `ai.opencode.opencode` is still installed, only when `install_opencode_desktop` is on, and whether the version 1 npm package `opencode-ai` is still installed under the LTS Node, only when `install_opencode` is on. A probe whose toggle is off is skipped and passes, a probe that could not run fails.
 
 Known container limitations. [../tier3/container_limits.yaml](../tier3/container_limits.yaml) forces `setup_hibernate`, `setup_systemd_boot`, `setup_grub`, `remove_distro_grub`, `remove_distro_systemd_boot`, `install_waydroid`, `install_virtualbox`, `install_vmware` and `install_snapper` to false on top of every scenario, because each needs hardware or a kernel facility that belongs to the host. The harness prints that list on every run, and a pass here is not evidence about any entry in it.
 

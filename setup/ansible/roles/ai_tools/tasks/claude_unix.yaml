@@ -58,14 +58,15 @@
     - not (paru_available | default(false) | bool)
 
 # Through tasks/install_role_packages.yaml, the retry rule every package manager follows, so a cask
-# that fails is retried after brew update and named when it never installs.
+# that fails is retried after brew update and named when it never installs. The cask is
+# install_claude_desktop's companion_packages entry in vars/Darwin.yaml, which verify_install.yaml reads too.
 - name: Install Claude Desktop (macOS)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages: [claude]
+    role_packages: "{{ os_dict.companion_packages.claude_desktop }}"
     role_packages_purpose: Claude Desktop
     role_packages_manager: brew_cask
   when:

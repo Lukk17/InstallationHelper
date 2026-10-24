@@ -66,13 +66,21 @@
 # itself there through lib/gate.sh with the same arguments, so a scenario file or a run directory is
 # named relative to the repository root, or by a path inside it.
 
+# Starting a scenario container is the one thing that changes the kernel of the machine Docker runs
+# on, so every mode but --collect, which starts nothing, runs only on a GitHub-hosted runner.
+# lib/throwaway_machine.sh decides, here through the launcher's probe and again below inside the gate.
+#
 # shellcheck source=../lib/gate.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/gate.sh"
+# shellcheck disable=SC2034  # read by gate_enter in lib/gate.sh
+GATE_REQUIRES_THROWAWAY=1
+for gate_arg in "$@"; do
+    # shellcheck disable=SC2034  # read by gate_enter in lib/gate.sh
+    [[ "${gate_arg}" == --collect ]] && GATE_REQUIRES_THROWAWAY=0
+done
 gate_enter wait e2e/tier3/container.sh "$@"
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-
-require_docker_host
 
 TIER3_DIR="${E2E_ROOT}/tier3"
 E2E_USER="lukk"
@@ -107,6 +115,12 @@ if [[ "${MODE}" != "collect" && -z "${SCENARIO_FILE}" ]]; then
     exit 2
 fi
 
+if [[ "${MODE}" != "collect" ]]; then
+    require_throwaway_machine
+fi
+
+require_docker_host
+
 # Each distribution gets its own Dockerfile and image tag. Refuse an unknown name
 # rather than falling back to Arch, because silently testing the wrong distribution is
 # worse than not testing at all.
@@ -139,6 +153,47 @@ LIMITS_FILES=("${TIER3_DIR}/container_limits.yaml")
 # two files answer the same shape of question: what this tier deliberately does not hold the
 # playbook to, stated in one place instead of being argued about per run.
 IDEMPOTENCY_ALLOWLIST="${TIER3_DIR}/idempotent_changes_allowed.txt"
+
+# A privileged container shares the host's one kernel, and these units act on it rather than on the
+# container: udev replays an event for every host device, systemd-sysctl and procps write kernel
+# settings no namespace holds, systemd-modules-load loads host modules, the binfmt_misc units mount
+# the host's binary format table, timesyncd sets the host clock, pstore empties the host's crash
+# records and zram-setup adds swap to the host. Each is bound to /dev/null under /etc/systemd/system,
+# which masks it whether or not the image ships it yet, and a later package install cannot unmask a
+# read-only bind. e2e/tier1/container_isolation.sh holds this list to the units it requires.
+#
+# systemd-binfmt.service is deliberately not in the list. AppImageLauncher's deb postinst and rpm
+# %post end in `systemctl restart systemd-binfmt`, and against a masked unit that fails the package:
+# GitHub sweep run 39231000107 failed every Fedora job on it and left dpkg half configured on Debian,
+# Ubuntu and Pop!_OS. The unit carries ConditionPathIsMountPoint=/proc/sys/fs/binfmt_misc on every
+# distribution here, and both binfmt_misc units stay masked, so the restart is skipped rather than
+# reaching the host's table, and host_state.sh still fails the run if that table is ever mounted.
+MASKED_UNITS=(
+    proc-sys-fs-binfmt_misc.automount
+    proc-sys-fs-binfmt_misc.mount
+    systemd-udevd.service
+    systemd-udevd-control.socket
+    systemd-udevd-kernel.socket
+    systemd-udev-trigger.service
+    systemd-udev-settle.service
+    systemd-sysctl.service
+    procps.service
+    systemd-modules-load.service
+    systemd-timesyncd.service
+    systemd-pstore.service
+    systemd-zram-setup@.service
+)
+
+# Settings that rewrite the boot loader, the kernel command line or the resume device of whatever
+# machine they run on, which for a privileged container is the host. container_limits.yaml turns
+# every one of them off, and start_run refuses a scenario whose effective value is still true.
+HOST_BOOT_SETTINGS=(setup_systemd_boot setup_grub remove_distro_grub remove_distro_systemd_boot setup_hibernate)
+
+# Copied into every scenario container, and run there as root to record what the container can see
+# of the host kernel. The records live outside /work so the playbook's user cannot rewrite them.
+HOST_STATE_SCRIPT="${TIER3_DIR}/host_state.sh"
+HOST_STATE_IN_CONTAINER="/usr/local/bin/e2e-host-state"
+HOST_STATE_DIR_IN_CONTAINER="/var/lib/e2e-host-state"
 
 # Every task name the log says reported changed, in log order, one per line.
 #
@@ -228,7 +283,7 @@ start_run() {
     # through pipefail into the assignment and set -e kills the run before it starts.
     scenario_get() {
         grep -E "^${1}:" "${SCENARIO_FILE}" 2>/dev/null \
-            | head -1 \
+            | sed -n 1p \
             | sed -E "s/^${1}:[[:space:]]*//; s/[[:space:]]*(#.*)?$//" \
             | tr -d '"' || true
     }
@@ -410,6 +465,36 @@ start_run() {
         grep -vE '^(---|#)' "${limits}" | { grep -vE '^\s*$' || true; } >> "${EFFECTIVE_VARS}"
     done
 
+    # The value the playbook will see: the generated profile is passed as extra vars and wins, then
+    # group_vars/linux.yaml over group_vars/all.yaml. The last line naming a key wins inside a file,
+    # and a commented line names nothing.
+    effective_setting() {
+        local key="$1" vars_file line value=""
+        for vars_file in "${ANSIBLE_DIR}/group_vars/all.yaml" "${ANSIBLE_DIR}/group_vars/linux.yaml" "${EFFECTIVE_VARS}"; do
+            line="$(grep -E "^${key}:" "${vars_file}" | tail -1 || true)"
+            [[ -n "${line}" ]] && value="${line}"
+        done
+        sed -E "s/^${key}:[[:space:]]*//; s/[[:space:]]*(#.*)?$//; s/[\"']//g" <<<"${value}"
+    }
+
+    local boot_setting boot_value
+    local -a boot_refused=()
+    for boot_setting in "${HOST_BOOT_SETTINGS[@]}"; do
+        boot_value="$(effective_setting "${boot_setting}")"
+        if [[ "${boot_value,,}" =~ ^(true|on|1|yes)$ ]]; then
+            boot_refused+=("${boot_setting}: ${boot_value}")
+        fi
+    done
+    if [[ ${#boot_refused[@]} -gt 0 ]]; then
+        {
+            echo "scenario:    ${SCENARIO_NAME}"
+            echo "refused:     these settings would rewrite the boot of the machine the container runs on, which is the host"
+            printf '  %s\n' "${boot_refused[@]}"
+            echo "fix:         set them false in ${TIER3_DIR}/container_limits.yaml, which is applied last, see ${EFFECTIVE_VARS}"
+        } | tee "${RUN_DIR}/result.txt"
+        exit 2
+    fi
+
     warn "suppressed as impossible in a container, so NOT covered by this run:"
     # Digits allowed here for the same reason as the dedupe pattern above. This list is the only
     # place a run states what it does not cover, so a suppressed toggle whose name carries a digit
@@ -434,9 +519,11 @@ start_run() {
     # buried by a retry loop is worse than the flake it was hiding.
     build_attempt=1
     build_log="$(mktemp)"
-    until docker build -q -f "$(host_path "${DOCKERFILE}")" -t "${IMAGE}" "$(host_path "${TIER3_DIR}")" >"${build_log}" 2>&1; do
+    until docker build --progress=plain -f "$(host_path "${DOCKERFILE}")" -t "${IMAGE}" "$(host_path "${TIER3_DIR}")" >"${build_log}" 2>&1; do
         if [[ "${build_attempt}" -ge 3 ]]; then
             warn "the ${OS} image failed to build three times, the last attempt said:"
+            grep -E '^(#[0-9]+ )?ERROR' "${build_log}" | sed 's/^/       /' || true
+            awk '/^ > \[/ { show = 1 } show && /^-+$/ { exit } show' "${build_log}" | sed 's/^/       /'
             tail -20 "${build_log}" | sed 's/^/       /'
             rm -f "${build_log}"
             return 1
@@ -448,10 +535,40 @@ start_run() {
     rm -f "${build_log}"
 
     info "Starting the container with systemd as PID 1"
+    # The kernel keeps one binfmt_misc table for every process outside a user namespace, and a
+    # privileged container is outside one, so systemd's automount would hand this container the
+    # host's own table. AppImageLauncher's deb and rpm register /usr/bin/AppImageLauncher there
+    # without the F flag, and every type 2 AppImage started afterwards in any other container, or on
+    # the host, then fails with "cannot execute: required file not found". The masks below cover
+    # both binfmt_misc units and every other unit in MASKED_UNITS.
+    #
+    # A private cgroup namespace rather than the host's, with no bind of the host's /sys/fs/cgroup:
+    # on cgroup v2 Docker mounts the container's own subtree at /sys/fs/cgroup, writable because the
+    # container is privileged, so systemd manages that subtree and nothing above it. container=docker
+    # tells systemd it is in a container, so every unit carrying ConditionVirtualization=!container
+    # stays down as it would under any other container manager.
+    local masked_unit
+    local -a mask_mounts=()
+    for masked_unit in "${MASKED_UNITS[@]}"; do
+        mask_mounts+=(-v "/dev/null:/etc/systemd/system/${masked_unit}:ro")
+    done
+    # This container is privileged and changes the kernel of the machine that runs it: its kernel
+    # settings under /proc/sys, its binfmt_misc table, its device events and its loaded modules. That
+    # is why tier 3 refuses to start anywhere but a GitHub-hosted runner, e2e/lib/throwaway_machine.sh
+    # decides that, and it must never run on the owner's computer, a virtual machine on it included.
+    #
+    # /proc/sys stays writable here on purpose, owner decision 86. Commit 9355aa4 started the
+    # container under /bin/sh and made /proc/sys read-only before systemd, and bubblewrap then failed
+    # every Flatpak that applies extra data with "bwrap: cannot open /proc/sys/user/max_user_namespaces:
+    # Read-only file system" on all six distributions in GitHub sweep run 39260381281. The kernel
+    # settings a package's sysctl.d file applies are the distribution's own defaults, which a real
+    # install applies too, and the runner is thrown away afterwards, so host_state.sh still records
+    # them and container.sh reports them in result.txt as information without failing the run.
     docker run -d --name "${CONTAINER}" \
         --privileged \
-        --cgroupns=host \
-        -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+        --cgroupns=private \
+        -e container=docker \
+        "${mask_mounts[@]}" \
         --tmpfs /run --tmpfs /run/lock \
         "${IMAGE}" >/dev/null
 
@@ -465,29 +582,45 @@ start_run() {
     done
     info "systemd state: ${state:-unknown}"
     if [[ "${state}" != running && "${state}" != degraded ]]; then
+        docker logs "${CONTAINER}" >"${RUN_DIR}/container-start.log" 2>&1 || true
         docker rm -f "${CONTAINER}" &>/dev/null || true
-        echo "systemd never came up, aborting" | tee "${RUN_DIR}/result.txt"
+        echo "systemd never came up, aborting, the container's own output is in container-start.log" | tee "${RUN_DIR}/result.txt"
         exit 1
     fi
 
     # One exit for every way the start phase can fail before the playbook is running. Written once
-    # because there are two callers, the copy steps and the launch below, and a second hand-written
-    # copy of it would be free to forget the `docker rm -f`. That removal is the part that matters:
-    # the run whose copy failed unnoticed left a container sitting idle with nothing working inside
-    # it, which reads to anyone looking at `docker ps` as a scenario still in progress.
+    # because there are several callers, the isolation guard, the copy steps and the launch below, and
+    # a second hand-written copy of it would be free to forget the `docker rm -f`. That removal is the
+    # part that matters: the run whose copy failed unnoticed left a container sitting idle with
+    # nothing working inside it, which reads to anyone looking at `docker ps` as a scenario still in
+    # progress.
     abort_before_playbook() {
         local what="$1"
         local detail_log="$2"
+        local why="${3:-the playbook never started, so this run proves nothing. Rerun it.}"
         docker rm -f "${CONTAINER}" &>/dev/null || true
         {
             echo "scenario:    ${SCENARIO_NAME}"
             echo "failed at:   ${what}"
-            echo "why it matters: the playbook never started, so this run proves nothing. Rerun it."
+            echo "why it matters: ${why}"
             echo "detail:"
             sed 's/^/  /' "${detail_log}" 2>/dev/null | tail -20
         } | tee "${RUN_DIR}/result.txt"
         exit 1
     }
+
+    # The isolation guard and the first host state record, before anything of the scenario runs, so
+    # every later record has a baseline taken from the same container and a breach stops the run
+    # before the playbook can act on the host.
+    local isolation_log="${RUN_DIR}/host-isolation.log"
+    if ! docker cp "$(host_path "${HOST_STATE_SCRIPT}")" "${CONTAINER}:${HOST_STATE_IN_CONTAINER}" >"${isolation_log}" 2>&1; then
+        abort_before_playbook "copying ${HOST_STATE_SCRIPT} into the container" "${isolation_log}"
+    fi
+    if ! docker exec "${CONTAINER}" bash "${HOST_STATE_IN_CONTAINER}" record "${HOST_STATE_DIR_IN_CONTAINER}" boot \
+            "${MASKED_UNITS[@]}" >>"${isolation_log}" 2>&1; then
+        abort_before_playbook "the isolation guard right after boot" "${isolation_log}" \
+            "this container can change the host kernel, so the playbook was not started. Fix the isolation before rerunning."
+    fi
 
     # Docker fills a privileged container's /dev from the host's device nodes once, when the
     # container starts, and a node the host kernel creates afterwards never appears in it. A kernel
@@ -608,22 +741,22 @@ start_run() {
             # to the perms changes, the uid at each step and anything that names an error. What sudo
             # was running as when it called pam_acct_mgmt is the number that would explain this, and a
             # tail of the surrounding lines kept cutting it off.
-            docker exec "${CONTAINER}" bash -c 'awk "/-> sudo_pam_approval/,/<- sudo_pam_approval/" /var/log/sudo_debug | grep -iE "set_perms|PERM_|uid:|gid:|pam_|shadow|errno|denied|open" | head -40' 2>&1
+            docker exec "${CONTAINER}" bash -c 'awk "/-> sudo_pam_approval/,/<- sudo_pam_approval/" /var/log/sudo_debug | grep -iE "set_perms|PERM_|uid:|gid:|pam_|shadow|errno|denied|open" | sed -n 1,40p' 2>&1
             docker exec "${CONTAINER}" bash -c 'grep -iE "set_perms|seteuid|setresuid|shadow|errno|EACCES|denied" /var/log/sudo_debug | tail -12' 2>&1
             echo "--- pam_unix's own debug output, which names the call that failed ---"
             # Everything cheaper has been asked and answered. pam_unix takes a debug option and logs
             # the reason it returns AUTHINFO_UNAVAIL, which is the one sentence nobody has read yet.
             # Turning it on edits the running container only, which is already being torn down, so
             # nothing under test is changed by it.
-            docker exec "${CONTAINER}" bash -c "sed -i 's/^account\( *\)required\( *\)pam_unix.so$/account\1required\2pam_unix.so debug/' /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null; grep -h '^account' /etc/authselect/system-auth 2>/dev/null | head -3" 2>&1
+            docker exec "${CONTAINER}" bash -c "sed -i 's/^account\( *\)required\( *\)pam_unix.so$/account\1required\2pam_unix.so debug/' /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null; grep -h '^account' /etc/authselect/system-auth 2>/dev/null | sed -n 1,3p" 2>&1
             docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n true >/dev/null 2>&1 || true
             docker exec "${CONTAINER}" bash -c 'journalctl -n 40 --no-pager 2>&1 | grep -iE "pam_unix|pam_|sudo" | tail -12'
             echo "--- which PAM profile this image resolved, and whether sssd got pulled in ---"
-            docker exec "${CONTAINER}" bash -c 'authselect current 2>&1 | head -4; echo; grep -h "^account" /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null | sort -u; echo; rpm -q sssd sssd-client 2>&1 | head -2; echo; grep -E "^(passwd|shadow|group)" /etc/nsswitch.conf'
+            docker exec "${CONTAINER}" bash -c 'authselect current 2>&1 | sed -n 1,4p; echo; grep -h "^account" /etc/authselect/system-auth /etc/pam.d/system-auth 2>/dev/null | sort -u; echo; rpm -q sssd sssd-client 2>&1 | sed -n 1,2p; echo; grep -E "^(passwd|shadow|group)" /etc/nsswitch.conf'
             echo "--- the helper pam_unix falls back to, and the capability sets it inherits ---"
             docker exec "${CONTAINER}" bash -c 'ls -l /usr/sbin/unix_chkpwd 2>&1; grep -E "CapBnd|CapEff" /proc/self/status'
             echo "--- what sudo itself thinks it may do ---"
-            docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n -l 2>&1 | head -20
+            docker exec -u "${E2E_USER}" "${CONTAINER}" sudo -n -l 2>&1 | sed -n 1,20p
             echo "--- the daemon, because overlay copy-up and a nosuid docker root have both done this before ---"
             docker info --format 'driver={{.Driver}} root={{.DockerRootDir}} kernel={{.KernelVersion}} server={{.ServerVersion}} security={{json .SecurityOptions}}' 2>&1
         } >>"${RUN_DIR}/sudo-preflight.log" 2>&1
@@ -806,12 +939,20 @@ start_run() {
     # truncates the first pass's copy, and the forced-failure scenario asserts on that file by name.
     # The tilde form resolves the home directory through the passwd database, which is what the
     # callback plugin itself does, rather than through HOME, which docker exec -u does not set.
+    #
+    # Each pass of setup.sh, which runs the playbook and then its own verification, is followed by a
+    # host state record, so a change to the host is attributed to the pass that made it. Through sudo
+    # because the records are root's, and its failure leaves no record, which collect_and_verify fails.
+    local record_host_state="sudo -n bash ${HOST_STATE_IN_CONTAINER} record ${HOST_STATE_DIR_IN_CONTAINER}"
+    local masked_units_words="${MASKED_UNITS[*]}"
     local launch_script="${home_export} ${setup_cmd} > /work/playbook.log 2>&1; rc1=\$?"
+    launch_script+="; ${record_host_state} after-pass1 ${masked_units_words} >/dev/null 2>&1"
     launch_script+="; cp -f ~${E2E_USER}/installation_errors.log /work/installation_errors.log 2>/dev/null || true"
     if [[ "${SCENARIO_RUN_TWICE}" == "true" ]]; then
         info "This scenario runs the playbook twice, and the second pass must change nothing"
         launch_script+="; if [ \"\${rc1}\" -eq 0 ]; then ${home_export} ${setup_cmd} > /work/playbook2.log 2>&1"
         launch_script+="; echo \$? > /work/playbook2.rc"
+        launch_script+="; ${record_host_state} after-pass2 ${masked_units_words} >/dev/null 2>&1"
         launch_script+="; cp -f ~${E2E_USER}/installation_errors.log /work/installation_errors2.log 2>/dev/null || true; fi"
     fi
     launch_script+="; echo \"\${rc1}\" > /work/playbook.rc"
@@ -860,7 +1001,7 @@ wait_for_playbook() {
         if docker exec "${CONTAINER}" test -f /work/playbook.rc 2>/dev/null; then
             return 0
         fi
-        if ! docker inspect -f '{{.State.Running}}' "${CONTAINER}" 2>/dev/null | grep -q true; then
+        if ! grep -q true <<<"$(docker inspect -f '{{.State.Running}}' "${CONTAINER}" 2>/dev/null)"; then
             warn "the container stopped before the playbook finished"
             return 1
         fi
@@ -977,7 +1118,7 @@ collect_and_verify() {
 
         local t
         for t in "${SECOND_CHANGED[@]+"${SECOND_CHANGED[@]}"}"; do
-            if printf '%s\n' "${allow_names[@]+"${allow_names[@]}"}" | grep -qxF -- "${t}"; then
+            if grep -qxF -- "${t}" <<<"$(printf '%s\n' "${allow_names[@]+"${allow_names[@]}"}")"; then
                 SECOND_EXCUSED+=("${t}")
             else
                 SECOND_UNEXPECTED+=("${t}")
@@ -995,6 +1136,25 @@ collect_and_verify() {
     docker cp "${CONTAINER}:${e2e_home}/installation_verify.log" "$(host_path "${VERIFY_LOG}")" &>/dev/null \
         || echo "(no installation_verify.log was copied out of the container)" > "${VERIFY_LOG}"
     info "Verify exit code: ${VERIFY_RC}"
+
+    # --- host isolation ----------------------------------------------------------
+    # One more record now, after the playbook and its verification have both finished, then every
+    # record is copied out and compared with the one taken at boot. The exit code of this last record
+    # is not read: a breach is in its guard file, and a record that could not be written is missing,
+    # which host_isolation_findings reports either way. A kernel setting or a module that differs from
+    # boot is reported by host_isolation_information and does not fail the run, owner decision 86.
+    local isolation_records="${RUN_DIR}/host-state"
+    local -a isolation_labels=(after-pass1)
+    [[ "${SCENARIO_RUN_TWICE:-}" == "true" ]] && isolation_labels+=(after-pass2)
+    isolation_labels+=(at-collect)
+    mkdir -p "${isolation_records}"
+    docker exec "${CONTAINER}" bash "${HOST_STATE_IN_CONTAINER}" record "${HOST_STATE_DIR_IN_CONTAINER}" at-collect \
+        "${MASKED_UNITS[@]}" >/dev/null 2>&1 || true
+    docker cp "${CONTAINER}:${HOST_STATE_DIR_IN_CONTAINER}/." "$(host_path "${isolation_records}")" &>/dev/null || true
+    local -a isolation_findings=()
+    mapfile -t isolation_findings < <(host_isolation_findings "${isolation_records}" "${isolation_labels[@]}")
+    local -a isolation_information=()
+    mapfile -t isolation_information < <(host_isolation_information "${isolation_records}" "${isolation_labels[@]}")
 
     {
         echo "scenario:      ${SCENARIO_NAME}"
@@ -1024,7 +1184,7 @@ collect_and_verify() {
 
         echo "installed:"
         sed -n '/═══ INSTALLED/,/^.*═══ [A-Z]*[^I]/p' "${PLAYBOOK_LOG}" \
-            | sed -E 's/^\[[0-9:]+\] //' | grep -vE '═══|^\s*$' | head -20 | sed 's/^/  /' || echo "  (none)"
+            | sed -E 's/^\[[0-9:]+\] //' | grep -vE '═══|^\s*$' | sed -n 1,20p | sed 's/^/  /' || echo "  (none)"
 
         echo "failures:"
         # Everything under the FAILED banner, timestamps stripped. Reported as an
@@ -1038,7 +1198,7 @@ collect_and_verify() {
         # the install alone.
         local fails
         fails="$(sed -n '/═══ FAILED/,/Verifying what actually landed/p' "${PLAYBOOK_LOG}" | sed -E 's/^\[[0-9:]+\] //' \
-            | grep -vE '^Playbook finished|^\s*$|^Verifying what actually landed' | head -40 || true)"
+            | grep -vE '^Playbook finished|^\s*$|^Verifying what actually landed' | sed -n 1,40p || true)"
         [[ -n "${fails}" ]] && sed 's/^/  /' <<<"${fails}" \
             || echo "  no FAILED section in the log. If the exit code is non-zero the run died before the recap, read the log directly."
 
@@ -1051,7 +1211,7 @@ collect_and_verify() {
         # that this log never produces. A non-zero exit with no such line means the play crashed
         # before it reached an assertion, which is said out loud rather than reported as "none".
         local vfails
-        vfails="$(grep -F 'FAIL ' "${VERIFY_LOG}" 2>/dev/null | sed -E 's/^[[:space:]]+//' | head -20 || true)"
+        vfails="$(grep -F 'FAIL ' "${VERIFY_LOG}" 2>/dev/null | sed -E 's/^[[:space:]]+//' | sed -n 1,20p || true)"
         if [[ -n "${vfails}" ]]; then
             sed 's/^/  /' <<<"${vfails}"
         elif [[ ${VERIFY_RC} -ne 0 ]]; then
@@ -1065,6 +1225,19 @@ collect_and_verify() {
         # the default callback, which pads the hostname column, while the install above still runs
         # under dual_logger, which does not.
         grep -oE 'localhost[[:space:]]*: ok=[0-9]+.*$' "${VERIFY_LOG}" 2>/dev/null | tail -1 | sed 's/^/  /' || echo "  (none)"
+
+        echo "host_isolation: ${#isolation_findings[@]} finding(s), records in ${isolation_records}"
+        if [[ ${#isolation_findings[@]} -gt 0 ]]; then
+            printf '  %s\n' "${isolation_findings[@]:0:60}"
+        else
+            echo "  none"
+        fi
+        echo "host_isolation: ${#isolation_information[@]} kernel setting and module difference(s) since boot, information only, they do not fail the run"
+        if [[ ${#isolation_information[@]} -gt 0 ]]; then
+            printf '  %s\n' "${isolation_information[@]:0:60}"
+        else
+            echo "  none"
+        fi
 
         # The second pass, named task by task rather than reduced to a count. A count says a run is
         # not idempotent and a list says which task to go and look at, and the list is the reason
@@ -1109,7 +1282,7 @@ collect_and_verify() {
         # one "═══ FAILED (n) ═══" banner with one bullet per failing task.
         local named_task
         named_task="$(sed -n '/═══ FAILED (/,$p' "${PLAYBOOK_LOG}" | sed -E 's/^\[[0-9:]+\] //' \
-            | grep -m1 '^  • ' | sed -E 's/^  • //' || true)"
+            | grep '^  • ' | sed -n -E '1s/^  • //p' || true)"
         if [[ -n "${named_task}" ]]; then
             pass "${SCENARIO_NAME}: the terminal summary names a failing task"
             dim "first named: ${named_task}"
@@ -1195,6 +1368,15 @@ collect_and_verify() {
         fi
     fi
 
+    # Not inverted for the forced-failure scenario: a run made to fail on purpose still must not reach
+    # the host kernel.
+    if [[ ${#isolation_findings[@]} -eq 0 ]]; then
+        pass "${SCENARIO_NAME}: the host kernel's swap matched boot after every pass, binfmt_misc stayed unmounted, no masked unit ran, and systemd knew it was in a container"
+    else
+        fail "${SCENARIO_NAME}: the container reached the host kernel, ${#isolation_findings[@]} finding(s), the first is: ${isolation_findings[0]}" \
+             "every finding is under host_isolation in ${RESULT_FILE}, the records are in ${isolation_records}"
+    fi
+
     if [[ "${SCENARIO_RUN_TWICE:-}" == "true" ]]; then
         if [[ "${SECOND_RC}" != "0" ]]; then
             fail "${SCENARIO_NAME}: the second pass did not finish cleanly, exit ${SECOND_RC}" \
@@ -1206,6 +1388,50 @@ collect_and_verify() {
                  "$(printf '%s; ' "${SECOND_UNEXPECTED[@]}")"
         fi
     fi
+}
+
+# Every line of the snapshot labelled $2 in the records directory $1 that differs from the boot one,
+# prefixed with the label and whether it is gone or new since boot. Prints nothing when either is missing.
+host_state_differences() {
+    local records="$1" label="$2"
+    [[ -f "${records}/host-state-boot.txt" && -f "${records}/host-state-${label}.txt" ]] || return 0
+    diff "${records}/host-state-boot.txt" "${records}/host-state-${label}.txt" \
+        | sed -nE "s/^< /${label}: gone since boot: /p; s/^> /${label}: new since boot: /p" || true
+}
+
+# One line per way the run reached the host kernel that fails it, read from the records host_state.sh
+# left in $1: every breach its guard named after boot, and every line of a later snapshot that differs
+# from the boot one apart from a kernel setting or a module, which today leaves the swap areas. A
+# record that is missing is a finding too, because a missing record proves nothing.
+host_isolation_findings() {
+    local records="$1"
+    shift
+    local label
+
+    if [[ ! -f "${records}/host-state-boot.txt" ]]; then
+        echo "boot: no host state record, so nothing can be compared"
+        return 0
+    fi
+    for label in "$@"; do
+        if [[ ! -f "${records}/host-state-${label}.txt" || ! -f "${records}/host-guard-${label}.txt" ]]; then
+            echo "${label}: no host state record, so the pass never finished, sudo stopped working, or the container was gone"
+            continue
+        fi
+        sed "s/^/${label}: /" "${records}/host-guard-${label}.txt"
+        host_state_differences "${records}" "${label}" | grep -vE '^[^:]+: (gone|new) since boot: (module|sysctl) ' || true
+    done
+}
+
+# One line per kernel setting or loaded module that differs from boot, which result.txt reports as
+# information and which does not fail the run, owner decision 86: tier 3 runs only on a GitHub-hosted
+# runner that is thrown away, and these are the distribution's own defaults a real install applies too.
+host_isolation_information() {
+    local records="$1"
+    shift
+    local label
+    for label in "$@"; do
+        host_state_differences "${records}" "${label}" | grep -E '^[^:]+: (gone|new) since boot: (module|sysctl) ' || true
+    done
 }
 
 teardown() {

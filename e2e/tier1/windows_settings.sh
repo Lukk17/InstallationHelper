@@ -119,13 +119,11 @@ fi
 # it reads toggles through Get-WindowsGroupVarToggle in WindowsSoftware.ps1. Loading it the way the
 # wizard loads it means this check cannot pass on a file the wizard could not load.
 #
-# Paths are interpolated into the script text rather than passed as environment variables, because a
-# WSL environment variable does not reach a Windows process unless it is listed in WSLENV. Each item
-# is printed on its own prefixed line so the order survives.
+# Each item is printed on its own prefixed line so the order survives.
 ps_script="\$ErrorActionPreference = 'Stop'
 if (\$PSStyle) { \$PSStyle.OutputRendering = 'PlainText' }
-. '$(to_windows_path "${SOFTWARE_PS1}")'
-. '$(to_windows_path "${PS_FILE}")'
+. '${SOFTWARE_PS1}'
+. '${PS_FILE}'
 foreach (\$n in (Get-WindowsOptionalFeatureName)) { 'E2E_FEATURE ' + \$n }
 foreach (\$k in (Get-WindowsSettingKey)) { 'E2E_KEY ' + \$k }"
 
@@ -148,7 +146,7 @@ if [[ "${declared_features}" == "${ps_features}" ]]; then
     pass "Get-WindowsOptionalFeatureName returns the ${n_declared} declared optional features, in the declared order"
 else
     fail "Get-WindowsOptionalFeatureName and the declaration in the same file disagree about the optional features enable_hyperv turns on" \
-         "$(diff <(echo "${declared_features}") <(echo "${ps_features}") | head -12 | tr '\n' ' ')"
+         "$(diff <(echo "${declared_features}") <(echo "${ps_features}") | sed -n 1,12p | tr '\n' ' ')"
 fi
 # --- invariant 2, forward: every declared key is a real toggle ---------------------------------
 # The pair of files is all.yaml overlaid by windows.yaml, which is what Get-WindowsGroupVarToggle
@@ -246,7 +244,7 @@ fi
 #
 # Both sets are read out of the file rather than listed here, so neither side can drift alone.
 written="$(grep -oE 'lines\.Add\("[a-z]+\|' "${PS_FILE}" | sed -E 's/.*\("([a-z]+)\|/\1/' | sort -u)"
-accepted="$(grep -oE '\(\?<state>[a-z|]+\)' "${PS_FILE}" | head -1 | sed -E 's/.*<state>//; s/\)$//' | tr '|' '\n' | sort -u)"
+accepted="$(grep -oE '\(\?<state>[a-z|]+\)' "${PS_FILE}" | sed -n 1p | sed -E 's/.*<state>//; s/\)$//' | tr '|' '\n' | sort -u)"
 
 if [[ -z "${written}" || -z "${accepted}" ]]; then
     fail "could not find the feature result format in WindowsSettings.ps1, so this check proves nothing" \

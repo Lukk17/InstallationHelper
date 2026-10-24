@@ -10,6 +10,7 @@ Heading levels and the single horizontal rule follow the `e2e-runbooks` tasks-te
 
 ### Prerequisites
 
+- [ ] The run is on a GitHub-hosted runner, with the workflow run id recorded, and never on the owner's computer or in a virtual machine, where tier 3 exits 2
 - [ ] `uname -s` prints Linux
 - [ ] `docker info` returns a daemon summary
 - [ ] `df -h /var/lib/docker` shows several gigabytes free, figure recorded
