@@ -33,7 +33,7 @@ $Packages = @(
     @{ Manager = 'winget'; Id = 'Git.Git'; Scope = 'machine'; InstallerType = 'inno' }
     @{ Manager = 'choco'; Id = 'maven' }
     @{ Manager = 'choco'; Id = 'gradle' }
-    @{ Manager = 'winget'; Id = 'Python.Python.3.11'; Scope = 'machine'; InstallerType = 'burn'; VerifyPath = '%ProgramFiles%/Python311/python.exe' }
+    @{ Manager = 'winget'; Id = 'Python.Python.3.11'; Scope = 'machine'; InstallerType = 'burn' }
     @{ Manager = 'choco'; Id = 'dart-sdk' }
     @{ Manager = 'winget'; Id = 'Google.AndroidStudio' }
     @{ Manager = 'winget'; Id = 'Postman.Postman'; Scope = 'user' }
@@ -212,9 +212,9 @@ function Get-InstallExpression($p) {
     $arguments = (Get-WingetArgument $p | ForEach-Object { Format-Literal $_ }) -join ' '
     $source = Format-Literal $(if ($p['Source']) { $p['Source'] } else { 'winget' })
     # winget exited 0 for Prime Video and Slack without installing either, so exit 0 counts only when
-    # winget then lists the package in the scope it installed to, or, for a package winget cannot list
-    # there, when its VerifyPath exists.
-    $listed = "winget list --exact --id $id$(if ($p['Scope']) { ' --scope ' + (Format-Literal $p.Scope) }) --accept-source-agreements"
+    # winget then lists the package with no scope, or, for a package winget cannot list, when its
+    # VerifyPath exists. The wizard's install and its verification ask the same.
+    $listed = "winget list --exact --id $id --accept-source-agreements"
     $onDisk = if ($p['VerifyPath']) { "Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($(Format-Literal $p.VerifyPath)))" } else { '$false' }
     return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } elseif (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } else { $listed | Out-Host; if (`$LASTEXITCODE -eq 0 -or ($onDisk)) { 0 } else { Write-Host '    winget exited 0 and does not list the package as installed'; 1 } } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
 }

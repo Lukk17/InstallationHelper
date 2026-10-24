@@ -1178,6 +1178,8 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $global:UserCopy = $false
         $global:InstallFailuresLeft = 0
         $global:InstallsNothing = $false
+        $global:UnscopedCopy = $false
+        $global:InstallListsUnscopedOnly = $false
         $global:InstallCreates = ''
         Mock Start-Sleep { }
         Mock Write-Host { }
@@ -1192,7 +1194,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
                 $found = switch ($scope) {
                     'machine' { $global:MachineCopy }
                     'user'    { $global:UserCopy }
-                    default   { $global:MachineCopy -or $global:UserCopy }
+                    default   { $global:MachineCopy -or $global:UserCopy -or $global:UnscopedCopy }
                 }
                 return [PSCustomObject]@{ Output = ''; ExitCode = $(if ($found) { 0 } else { -1978335212 }); TimedOut = $false }
             }
@@ -1200,7 +1202,9 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
                 $global:InstallFailuresLeft--
                 return [PSCustomObject]@{ Output = 'Installer failed with exit code: 3221225477'; ExitCode = 1; TimedOut = $false }
             }
-            if (-not $global:InstallsNothing) {
+            if ($global:InstallListsUnscopedOnly) {
+                $global:UnscopedCopy = $true
+            } elseif (-not $global:InstallsNothing) {
                 if ($scope -eq 'machine') { $global:MachineCopy = $true } else { $global:UserCopy = $true }
             }
             if ($global:InstallCreates) { New-Item -ItemType Directory -Path $global:InstallCreates -Force | Out-Null }
@@ -1214,14 +1218,14 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'machine' -InstallerType 'msix' -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'installed'
-        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine', 'elevated list machine')
+        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine', 'bounded list')
     }
 
     It 'elevates only the install of a machine-scope portable, whose machine copy any user can list' {
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Syncthing.Syncthing' -Scope 'machine' -InstallerType 'portable' -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'installed'
-        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'elevated install machine', 'bounded list machine')
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'elevated install machine', 'bounded list')
     }
 
     It 'keeps a machine-scope installer that elevates itself in this process' {
@@ -1229,7 +1233,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
 
         $r.Status | Should -Be 'installed'
         Should -Invoke Invoke-ElevatedWinget -Times 0 -Exactly
-        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine', 'bounded list machine')
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine', 'bounded list')
     }
 
     It 'runs everything in this process when the wizard is already elevated' {
@@ -1249,32 +1253,32 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         @($global:WingetCalls | Where-Object { $_ -eq 'elevated install machine' }).Count | Should -Be 2
     }
 
-    It 'fails a machine-wide install that exits 0 and leaves no machine-wide copy, asking in the scope it installed to' {
+    It 'fails a machine-wide install that exits 0 and leaves nothing winget lists, asking the question the verification asks' {
         $global:InstallsNothing = $true
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Git.Git' -Scope 'machine' -InstallerType 'inno' -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'failed'
-        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id Git.Git --scope machine finds nothing, so Git.Git is not installed. Successfully installed (attempt 4 of 4*'
+        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id Git.Git finds nothing, so Git.Git is not installed. Successfully installed (attempt 4 of 4*'
         @($global:WingetCalls | Where-Object { $_ -eq 'bounded install machine' }).Count | Should -Be 4
-        @($global:WingetCalls | Select-Object -Skip 2 -First 2) | Should -Be @('bounded install machine', 'bounded list machine')
+        @($global:WingetCalls | Select-Object -Skip 2 -First 2) | Should -Be @('bounded install machine', 'bounded list')
     }
 
-    It 'asks the elevated child after an elevated msix install exits 0, and fails it when that finds nothing' {
+    It 'asks winget the verification question after an elevated msix install exits 0, and fails it when that finds nothing' {
         $global:InstallsNothing = $true
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'machine' -InstallerType 'msix' -Retries 0 -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'failed'
-        $r.Detail | Should -BeLike '*--scope machine finds nothing*'
-        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine', 'elevated list machine')
+        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id SlackTechnologies.Slack finds nothing, so*'
+        @($global:WingetCalls) | Should -Be @('elevated list machine', 'bounded list user', 'elevated install machine', 'bounded list')
     }
 
-    It 'fails a per-user install that exits 0 and leaves nothing, asking in the user scope' {
+    It 'fails a per-user install that exits 0 and leaves nothing, asking the question the verification asks' {
         $global:InstallsNothing = $true
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'SlackTechnologies.Slack' -Scope 'user' -Retries 0 -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'failed'
-        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id SlackTechnologies.Slack --scope user finds nothing*'
-        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list user')
+        $r.Detail | Should -BeLike 'winget exited 0 and winget list --exact --id SlackTechnologies.Slack finds nothing*'
+        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list')
     }
 
     It 'counts a per-user install winget cannot list as installed once its verify_path exists, as Tor Browser in sweep 40004770702' {
@@ -1283,16 +1287,15 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'TorProject.TorBrowser' -Scope 'user' -VerifyPath $global:InstallCreates -Retries 0 -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'installed'
-        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list user')
+        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list')
     }
 
-    It 'counts a machine-wide install winget lists only per user as installed once its verify_path exists, as Python in sweep 40004770702' {
-        $global:InstallsNothing = $true
-        $global:InstallCreates = Join-Path $TestDrive 'Python311'
-        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Python.Python.3.11' -Scope 'machine' -InstallerType 'burn' -VerifyPath $global:InstallCreates -Retries 0 -RetryPauseSeconds 0
+    It 'counts a machine-wide install winget lists only without a scope as installed, as Python in runs 40038350703 and 40038353129' {
+        $global:InstallListsUnscopedOnly = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Python.Python.3.11' -Scope 'machine' -InstallerType 'burn' -Retries 0 -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'installed'
-        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine', 'bounded list machine')
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine', 'bounded list')
     }
 
     It 'still fails an install that exits 0 when winget lists nothing and the verify_path does not exist, naming the path' {
@@ -1301,13 +1304,31 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'TorProject.TorBrowser' -Scope 'user' -VerifyPath $missing -Retries 0 -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'failed'
-        $r.Detail | Should -BeLike "winget exited 0 and winget list --exact --id TorProject.TorBrowser --scope user finds nothing and $missing does not exist, so TorProject.TorBrowser is not installed.*"
+        $r.Detail | Should -BeLike "winget exited 0 and winget list --exact --id TorProject.TorBrowser finds nothing and $missing does not exist, so TorProject.TorBrowser is not installed.*"
+    }
+
+    It 'decides an install after winget exits 0 through Get-WingetInstallVerdict, the function the verification asks' {
+        Mock Get-WingetInstallVerdict { [PSCustomObject]@{ Installed = $true; Reason = '' } }
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Git.Git' -Scope 'machine' -InstallerType 'inno' -VerifyPath 'C:/Example' -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        Should -Invoke Get-WingetInstallVerdict -Times 1 -Exactly -ParameterFilter { $PackageId -eq 'Git.Git' -and $VerifyPath -eq 'C:/Example' }
+    }
+
+    It 'leaves the verification no winget presence question of its own besides Get-WingetInstallVerdict' {
+        $verifyFile = Join-Path $script:RepoRoot 'setup\windows\WindowsVerify.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($verifyFile, [ref]$null, [ref]$null)
+        $called = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() })
+
+        $called | Should -Contain 'Get-WingetInstallVerdict'
+        $called | Should -Not -Contain 'Test-WingetPackageInstalled'
+        $called | Should -Not -Contain 'Test-WingetVerifyPath'
     }
 
     It 'reports a machine-wide copy winget lists only per user as present when its verify_path exists, rather than as a per-user copy' {
         $global:UserCopy = $true
-        $onDisk = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'Python311Present') -Force
-        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Python.Python.3.11' -Scope 'machine' -InstallerType 'burn' -VerifyPath $onDisk.FullName
+        $onDisk = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'MachineWidePresent') -Force
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Example.MachineWide' -Scope 'machine' -InstallerType 'burn' -VerifyPath $onDisk.FullName
 
         $r.Status | Should -Be 'present'
         @($global:WingetCalls) | Should -Be @('bounded list machine')
@@ -3597,7 +3618,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Git.Git'; Scope = 'machine' })))
 
         $code | Should -Be 0
-        @($global:ManualCalls) | Should -Be @("winget install --exact --id Git.Git --source winget --silent --accept-source-agreements --accept-package-agreements --disable-interactivity --scope machine", 'winget list --exact --id Git.Git --scope machine --accept-source-agreements')
+        @($global:ManualCalls) | Should -Be @("winget install --exact --id Git.Git --source winget --silent --accept-source-agreements --accept-package-agreements --disable-interactivity --scope machine", 'winget list --exact --id Git.Git --accept-source-agreements')
     }
 
     It 'waits, updates the package source, then installs a winget package again after a failure' {
@@ -3643,10 +3664,10 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $found | Should -Be 0
         @($global:ManualCalls | Where-Object { $_ -like 'winget install *' }).Count | Should -Be 1
 
-        $missing = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Python.Python.3.11'; Scope = 'machine'; VerifyPath = (Join-Path $TestDrive 'Python311') })))
+        $missing = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'Example.MachineWide'; Scope = 'machine'; VerifyPath = (Join-Path $TestDrive 'Never Created') })))
 
         $missing | Should -Be 1
-        @($global:ManualCalls | Where-Object { $_ -like 'winget install *Python*' }).Count | Should -Be 4
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *Example.MachineWide*' }).Count | Should -Be 4
     }
 
     It 'retries a winget package that exits 0 without being installed, and fails it when that never changes' {
@@ -3655,7 +3676,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $retried = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'SlackTechnologies.Slack'; Scope = 'user' })))
 
         $retried | Should -Be 0
-        @($global:ManualCalls | Where-Object { $_ -like 'winget list *' }) | Should -Be @('winget list --exact --id SlackTechnologies.Slack --scope user --accept-source-agreements', 'winget list --exact --id SlackTechnologies.Slack --scope user --accept-source-agreements')
+        @($global:ManualCalls | Where-Object { $_ -like 'winget list *' }) | Should -Be @('winget list --exact --id SlackTechnologies.Slack --accept-source-agreements', 'winget list --exact --id SlackTechnologies.Slack --accept-source-agreements')
         @($global:ManualCalls | Where-Object { $_ -like 'winget install *' }).Count | Should -Be 2
 
         $global:ManualSilent = 99

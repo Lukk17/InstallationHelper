@@ -413,6 +413,28 @@ function Test-WingetVerifyPath {
     return (Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($VerifyPath)))
 }
 
+function Get-WingetInstallVerdict {
+    <#
+    .SYNOPSIS
+        Whether a winget package counts as installed, the one rule the install after a winget exit 0
+        and the verification in WindowsVerify.ps1 both ask: winget lists it with no scope, or its
+        verify_path exists. Reason says why not, and is empty when Installed is true.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $WingetPath,
+        [Parameter(Mandatory)] [string] $PackageId,
+        [string] $VerifyPath = ''
+    )
+
+    if ((Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
+        return [PSCustomObject]@{ Installed = $true; Reason = '' }
+    }
+    $notOnDisk = if ($VerifyPath) { " and $([Environment]::ExpandEnvironmentVariables($VerifyPath)) does not exist" } else { '' }
+    return [PSCustomObject]@{ Installed = $false
+        Reason = "winget list --exact --id $PackageId finds nothing$notOnDisk, so $PackageId is not installed" }
+}
+
 function Test-WingetElevationRequired {
     <#
     .SYNOPSIS
@@ -980,7 +1002,7 @@ function Install-WingetPackage {
         [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900,
         # The directory to install into, passed to winget as --location. Empty means the installer's own default.
         [string] $Location = '',
-        # The mapping's verify_path, asked when winget cannot list the package in its scope. See Test-WingetVerifyPath.
+        # The mapping's verify_path, for a package winget cannot list. See Get-WingetInstallVerdict.
         [string] $VerifyPath = '',
 
         # Parameters so a test can run the retries with no pause, defaulting to the shared rule.
@@ -1056,25 +1078,17 @@ function Install-WingetPackage {
 
         $tail = Get-CommandOutputTail -Text $run.Output
 
-        # winget exited 0 for Prime Video and Slack in a Windows all apps run and its own list found
-        # neither afterwards, so exit 0 counts only when winget then lists the package in the same
-        # scope, asked the same way as before the install. docs/regression_ledger.md 10.187. A package
-        # winget cannot list in that scope carries verify_path, and its existence is the second
-        # question: Tor Browser registers nothing, and winget list --scope machine does not list
-        # Python's machine-wide burn bundle. docs/regression_ledger.md 10.198.
+        # winget exited 0 for Prime Video and Slack in a Windows all apps run without installing
+        # either, docs/regression_ledger.md 10.187, so exit 0 counts only when the verification's own
+        # rule then finds the package. Asking anything narrower failed Python, which the scoped list
+        # never finds and the verification does, docs/regression_ledger.md 10.203.
         if ($run.ExitCode -eq 0) {
-            $after = Get-WingetPackagePresence -WingetPath $WingetPath -PackageId $PackageId -Scope $Scope -Elevated:$probeElevated
-            if ($after.Installed -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
+            $verdict = Get-WingetInstallVerdict -WingetPath $WingetPath -PackageId $PackageId -VerifyPath $VerifyPath
+            if ($verdict.Installed) {
                 return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
             }
-            $listed = "winget list --exact --id $PackageId$(if ($Scope) { " --scope $Scope" })"
-            $notOnDisk = if ($VerifyPath) { " and $([Environment]::ExpandEnvironmentVariables($VerifyPath)) does not exist" } else { '' }
-            if (-not $after.Answered) {
-                return [PSCustomObject]@{ Succeeded = $false; Final = $true
-                    Failure = "winget exited 0, and whether $PackageId is now installed is unknown, because $listed could not run: $($after.Reason) $tail".Trim() }
-            }
             return [PSCustomObject]@{ Succeeded = $false; Final = $false
-                Failure = "winget exited 0 and $listed finds nothing$notOnDisk, so $PackageId is not installed. $tail".Trim() }
+                Failure = "winget exited 0 and $($verdict.Reason). $tail".Trim() }
         }
 
         # winget reports an already-installed package as a failure code with a specific

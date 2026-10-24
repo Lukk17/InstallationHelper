@@ -7481,6 +7481,8 @@ Fix: the Proxmox section says to type `http://` because the proxy has no certifi
 
 Mechanical check: none. Whether a login survives is a browser question no tier asks.
 
+Update, later on 2026-10-24: the first way is now built. The `internal-ca` job of [homelab/compose.yaml](../homelab/compose.yaml) signs one certificate for every `.internal` name from a local certificate authority and gives every proxy host `listen 443 ssl` through the optional include `/data/nginx/custom/server_proxy.conf`, so the SSL tab stays on None, see [homelab/internal_ca.md](../homelab/internal_ca.md). The Proxmox section now says to open `https://proxmox.internal`. Measured on the lab the same day: `https://proxmox.internal/` presents that certificate and curl verifies it, result 0, but the answer is still 500 from 10.199 until the owner removes `:8006` from the hostname field, so the login over `https` has still not been seen.
+
 ### Found when the homelab pages were moved to the ascend-web-hunter name, 2026-10-24
 
 #### 10.201 The homelab pages and the deploy copy still described AscendWebSearch and FlareSolverr after AscendAI had renamed the service ascend-web-hunter
@@ -7510,3 +7512,33 @@ How it was proven: that gate output, and the AscendAI file read again, which has
 Fix: the second line is gone, and so is the table row. A diff against the AscendAI file now shows no logging difference except the line of the Redis service this copy leaves out.
 
 Mechanical check: the existing compose resolve check in [e2e/tier1/compose_and_docs.sh](../e2e/tier1/compose_and_docs.sh) caught it.
+
+### Found when the Windows runs 40038350703 and 40038353129 failed on Python, 2026-10-24
+
+#### 10.203 The install asked winget a narrower question after an exit 0 than the verification did, and the verify_path added for Python was a guess
+
+Status: introduced by an agent in 526c11f, the fix for 10.198, and fixed here. The defect class is 2, the same rule in two places.
+
+Cause: after a winget exit 0, `Install-WingetPackage` asked `winget list --exact --id <id> --scope <scope>`, while `Invoke-WindowsVerification` asked `winget list --exact --id <id>` with no scope. Two functions, two rules. 526c11f kept both and added `verify_path: "%ProgramFiles%/Python311/python.exe"` to Python, a path read from CPython's bundle source and never measured on the runner.
+
+Effect: `Windows default apps` (40038350703) and `Windows all apps` (40038353129) both ended with `[!] 1 item(s) failed in total`, the one item being `python (Python.Python.3.11): winget exited 0 and winget list --exact --id Python.Python.3.11 --scope machine finds nothing and C:\Program Files/Python311/python.exe does not exist, so Python.Python.3.11 is not installed.`, four attempts each, while winget printed `Successfully installed` every time and `installation_verify.log` of the same runs said `python installed winget: Python.Python.3.11`.
+
+How it was proven: the two job logs and their `installation_verify.log` artefacts. The guessed path does not exist on the runner, the wizard said so itself. Where Python really lands on the runner was not found: neither log nor the artefact names a path, so this entry does not claim one. What was measured is only that the unscoped list finds the package and the machine-scoped list does not. A wrong hypothesis is kept here: 10.198 said a verify_path under Program Files would answer it, and it never did. Thirteen Pester cases failed against 526c11f and pass against the fix.
+
+Fix: [setup/windows/WindowsSoftware.ps1](../setup/windows/WindowsSoftware.ps1) has one function, `Get-WingetInstallVerdict`, which asks the unscoped list and then the mapping's verify_path and returns the reason when neither answers. The install after a winget exit 0 and the verification in [setup/windows/WindowsVerify.ps1](../setup/windows/WindowsVerify.ps1) both call it and nothing else. Python's verify_path is gone from [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) and from [docs/manual/windows/install.ps1](manual/windows/install.ps1), whose check after an exit 0 now asks the unscoped list too. The checks before an install keep their scope, because they decide whether a per-user copy blocks a machine-wide install.
+
+Mechanical check: the Pester cases in `Install-WingetPackage asks about a machine-wide copy by scope and elevates winget when it must`, among them `decides an install after winget exits 0 through Get-WingetInstallVerdict` and `leaves the verification no winget presence question of its own besides Get-WingetInstallVerdict`, which reads the syntax tree of WindowsVerify.ps1 and fails if it calls `Test-WingetPackageInstalled` or `Test-WingetVerifyPath` itself.
+
+#### 10.204 The Chocolatey razer-synapse-4 download failed its checksum once on the runner
+
+Status: external and not a defect of this repository. Recorded because the brief named it.
+
+Cause: Chocolatey's razer-synapse-4 2.6.0.890 checks the Razer App Engine download against a fixed sha256, and on the first attempt the file it got did not match.
+
+Effect: in 40038353129 attempt 1 logged `ERROR: Checksum for 'C:\Users\runneradmin\AppData\Local\Temp\chocolatey\razer-synapse-4\2.6.0.890\1789694553BOrGfRHQRazerAppEngineSetup-v4.0.823.exe' did not meet '3f7f0be00f4a8a0304760d2dda507bdbec0b9b643dec39dffd7e9b430bb94265' for checksum type 'sha256'`, then `choco exited -1 for razer-synapse-4` and `attempt 1 of 4 for razer-synapse-4 failed, retrying in 20s`. Attempt 2 downloaded the same URL, `https://manifest-assets.razersynapse.com/1789694553BOrGfRHQRazerAppEngineSetup-v4.0.823.exe`, again 208.86 MB, passed the checksum and logged `choco exited 0 for razer-synapse-4`. The verification said `synapse installed choco: razer-synapse-4`, and the run's only failure was 10.203.
+
+How it was proven: the job log of 40038353129. The premise that the package checksum no longer matches Razer's file is wrong as stated: the same package and URL passed on the next attempt. Why the first download differed was not measured.
+
+Fix: none needed. The package was named in its failed attempt, retried under the shared rule, and installed, and checksums stay on.
+
+Mechanical check: the existing case `names and counts a package that fails every attempt, with its exit code` in the `Install-ChocolateyPackage retries under the shared rule` block.
