@@ -514,7 +514,7 @@ Type the password. It is not shown, and the `echo` only moves to a new line afte
 read -r -s -p 'Samba password: ' SAMBA_PASS; echo
 ```
 
-Write both into the file. This replaces the whole file, so if it already holds other lines, such as `PLEX_CLAIM`, add them again afterwards:
+Write both into the file. This replaces the whole file, so if it already holds other lines, such as `PLEX_CLAIM` or the three `INTERNAL_` lines from [internal_ca.md](internal_ca.md#put-the-ca-into-env), add them again afterwards:
 
 ```bash
 printf 'SAMBA_USER=%s\nSAMBA_PASS=%s\n' "$SAMBA_USER" "$SAMBA_PASS" > /opt/docker-stack/.env

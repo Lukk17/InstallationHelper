@@ -10,11 +10,33 @@ networks:
     driver: bridge
 
 services:
+  internal-ca:
+    image: alpine/openssl:3.5.9@sha256:bf66acee200e5f4959af448eafc9be0634d8ecdf42205873c83cd5ddffb1cdfd
+    container_name: internal-ca
+    restart: "no"
+    logging: *default-logging
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp
+    entrypoint: ["/bin/sh", "/internal-ca/issue.sh"]
+    environment:
+      - INTERNAL_CA_CERT_B64=${INTERNAL_CA_CERT_B64:?set INTERNAL_CA_CERT_B64 in /opt/docker-stack/.env}
+      - INTERNAL_CA_KEY_B64=${INTERNAL_CA_KEY_B64:?set INTERNAL_CA_KEY_B64 in /opt/docker-stack/.env}
+      - INTERNAL_DNS_NAMES=${INTERNAL_DNS_NAMES:?set INTERNAL_DNS_NAMES in /opt/docker-stack/.env}
+    volumes:
+      - /opt/docker-stack/internal-ca:/internal-ca:ro
+      - /opt/docker-stack/nginx/data/custom_ssl:/data/custom_ssl
+      - /opt/docker-stack/nginx/data/nginx:/data/nginx
+
   nginx-proxy-manager:
     image: jc21/nginx-proxy-manager:2.15.1
     container_name: nginx-proxy-manager
     restart: unless-stopped
     logging: *default-logging
+    depends_on:
+      internal-ca:
+        condition: service_completed_successfully
     networks:
       - proxy-tier
     ports:

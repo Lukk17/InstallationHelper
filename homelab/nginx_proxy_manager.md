@@ -6,9 +6,13 @@
 
 ### How the routing works
 
-AdGuard resolves every `.internal` name to the VM address, so all of them arrive at Nginx Proxy Manager on port 80.
-The proxy then reads the Host header and forwards the request to the container that owns that name. The entries
-below are what teaches it those names.
+AdGuard resolves every `.internal` name to the VM address, so all of them arrive at Nginx Proxy Manager, on port 80
+for `http` and on port 443 for `https`. The proxy then reads the Host header and forwards the request to the container
+that owns that name. The entries below are what teaches it those names.
+
+Every entry answers over `https` as well, with a certificate from the lab's own certificate authority, so both
+`http://<name>.internal` and `https://<name>.internal` work. The certificate comes from the `internal-ca` job of the
+Compose file and reaches every entry through an include file, not through the SSL tab, see [internal_ca.md](internal_ca.md).
 
 Forward hostnames are container names, not addresses. Every service in the Compose file joins the `proxy-tier`
 network, and Docker resolves container names on it, so `homepage` or `uptime-kuma` is all the proxy needs.
@@ -37,9 +41,15 @@ Go to Hosts, then Proxy Hosts, then Add Proxy Host, and fill in the Details tab.
 3. Forward Hostname / IP: the container name or the address alone, never with a `:port` after it.
 4. Forward Port: the port inside the container, not the published host port. This field is the only place the port goes.
 5. Turn on Block Common Exploits and Websockets Support.
-6. SSL tab: leave it on None. A `.internal` name cannot get a public certificate, and plain HTTP inside your own
-   network is fine here.
+6. SSL tab: leave it on None, on every entry. The include from [internal_ca.md](internal_ca.md) already gives every
+   entry `listen 443 ssl` and the certificate. A certificate picked here would add a second `listen 443` to the same
+   entry, nginx refuses that with `a duplicate listen 0.0.0.0:443` (nginx 1.30.4 in a throwaway container,
+   2026-10-24), and Nginx Proxy Manager then renames that entry's file to `.err` and shows it Offline, lines 57 to 89
+   of `backend/internal/nginx.js` at tag v2.15.1.
 7. Save. The entry turns green and reports Online.
+8. Add the name to `INTERNAL_DNS_NAMES` and run the certificate job, as
+   [Add a new .internal name](internal_ca.md#add-a-new-internal-name) says. Until then the entry works over `http`
+   only, and `https` fails with `unrecognized name`.
 
 ---
 
@@ -115,18 +125,20 @@ Forward Hostname / IP: 192.168.1.10
 Forward Port: 8006
 ```
 
-Type the address as `http://proxmox.internal`, with the scheme. The proxy has no certificate for a `.internal` name,
-and a browser that tries `https://` first fails with `ERR_SSL_UNRECOGNIZED_NAME_ALERT`.
+Open it as `https://proxmox.internal`. The certificate comes from the local certificate authority in
+[internal_ca.md](internal_ca.md), so a browser that trusts that authority shows no warning, and the SSL tab of this
+entry stays on None like every other.
 
-Even with `http://`, the login most likely does not work through this name yet. Proxmox sets its login cookie with
-the Secure flag, `Ext.util.Cookies.set(..., true, "lax")` at line 322 of `proxmoxlib.js` on the lab's Proxmox host,
-and a browser ignores a Secure cookie on a plain HTTP page, so the login form keeps coming back. This was read in the
-code and has not been seen in a browser yet. Two ways work around it:
+Use `https`, not `http`, for this one name. Proxmox sets its login cookie with the Secure flag,
+`Ext.util.Cookies.set(..., true, "lax")` at line 322 of `proxmoxlib.js` on the lab's Proxmox host, and a browser
+ignores a Secure cookie on a plain HTTP page, so over `http://proxmox.internal` the login form keeps coming back. This
+was read in the code and has not been seen in a browser yet. Opening Proxmox directly at `https://<proxmox-host>:8006`,
+which is what the Homepage tile in [homepage_dashboard.md](homepage_dashboard.md) does, still works as well, with its
+self signed certificate accepted once per browser.
 
-1. Give `proxmox.internal` a certificate from a local certificate authority that every browser in the house trusts,
-   add it in the SSL tab of this entry, and open `https://proxmox.internal`.
-2. Open Proxmox directly at `https://<proxmox-host>:8006`, which is what the Homepage tile in
-   [homepage_dashboard.md](homepage_dashboard.md) does, and accept the self signed certificate once per browser.
+On this lab, on 2026-10-24, `https://proxmox.internal/` answered with a certificate that verified against the lab's
+authority, but with status 500, because the entry still had `192.168.1.10:8006` in Forward Hostname, the mistake
+described in [The entries](#the-entries). The login over `https` has not been tried yet.
 
 Home Assistant deliberately has no entry. It lives on its own virtual machine at `<ha-vm-ip>:8123`, and every phone
 in the house already has that bookmarked or uses the app, so putting it behind a name that only resolves on the home
@@ -167,7 +179,26 @@ curl.exe -skI -H "Host: dashboard-proxmox.internal" http://<docker-vm-ip>
 A 200 or a 3xx status means the proxy resolved the name to a container and got an answer. A 502 means the container
 is down or the forward port is wrong. A 404 from the proxy itself means no entry matches that name.
 
-After the DNS cutover in [adguard_dns.md](adguard_dns.md), open `http://dashboard-proxmox.internal` in a browser instead.
+The `https` side needs the name itself rather than a Host header, because the proxy picks the certificate from the
+name the client sends during the handshake. `--resolve` sends the name and connects to the address you give, and
+`--cacert` checks the certificate against your authority. The last number printed is 0 when the certificate verified.
+Unix shell:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code} %{ssl_verify_result}\n' --cacert <ca-dir>/ca.crt --resolve dashboard-proxmox.internal:443:<docker-vm-ip> https://dashboard-proxmox.internal/
+```
+
+PowerShell, with the curl that ships with Windows:
+
+```powershell
+curl.exe -sS -o NUL -w "%{http_code} %{ssl_verify_result}\n" --cacert <ca-dir>\ca.crt --resolve dashboard-proxmox.internal:443:<docker-vm-ip> https://dashboard-proxmox.internal/
+```
+
+On 2026-10-24 curl 8.23.0 in a container ran these options against the lab, with DNS instead of `--resolve`, and
+against a throwaway copy of the proxy, with `--resolve`. The PowerShell line has not been run on Windows.
+
+After the DNS cutover in [adguard_dns.md](adguard_dns.md), open `http://dashboard-proxmox.internal` or
+`https://dashboard-proxmox.internal` in a browser instead.
 
 ---
 
