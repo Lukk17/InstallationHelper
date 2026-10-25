@@ -368,4 +368,4 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [ascend_web_hunter.md](ascend_web_hunter.md) | ascend-web-hunter, formerly AscendWebSearch: containers, secrets, joining the proxy network, the ngrok exposure |
 | [ascend-web-hunter_deploy/README.md](ascend-web-hunter_deploy/README.md) | The ascend-web-hunter deploy directory: prerequisites, quick start, configuration, upgrading, and how it differs from the AscendAI bundle |
 | [backup_restore.md](backup_restore.md) | Backing up the VMs and the service data, and restoring both |
-| [agent_access.md](agent_access.md) | Access for an AI agent without a password: a Proxmox admin API token with narrower tokens as alternatives, one SSH key for the Proxmox host, the Docker VM and the router, the Syncthing and Uptime Kuma API keys, and how to revoke each |
+| [agent_access.md](agent_access.md) | Access for an AI agent without a password: a Proxmox admin API token with narrower tokens as alternatives, one SSH key for the Proxmox host, the Docker VM and the router, the Syncthing and Uptime Kuma API keys, the Home Assistant access token, and how to revoke each |

@@ -1,6 +1,6 @@
 # Agent access
 
-> How an AI agent reaches this lab without a password: one Proxmox API token, one SSH key for the Proxmox host, the Docker VM and the router, one Syncthing API key and one Uptime Kuma API key, kept in a file on your own machine that only you can read.
+> How an AI agent reaches this lab without a password: one Proxmox API token, one SSH key for the Proxmox host, the Docker VM and the router, one Syncthing API key, one Uptime Kuma API key and one Home Assistant access token, kept in a file on your own machine that only you can read.
 
 ---
 
@@ -14,9 +14,9 @@ Those credentials are also safer to hand over than a password. Each one belongs 
 
 ### What each credential allows
 
-The Proxmox token this lab uses is an admin token. It can create, change and delete virtual machines and storage content, manage storages and SDN, create users and groups but not grant permissions, and download ISO files. Two narrower tokens are described further down as alternatives. The SSH key and the Syncthing key always give more than read access. The Uptime Kuma key is the one credential here that can only read.
+The Proxmox token this lab uses is an admin token. It can create, change and delete virtual machines and storage content, manage storages and SDN, create users and groups but not grant permissions, and download ISO files. Two narrower tokens are described further down as alternatives. The SSH key, the Syncthing key and the Home Assistant token always give more than read access. The Uptime Kuma key is the one credential here that can only read.
 
-So one rule covers every credential here: the agent reads freely, asks you before any change, and waits for your yes. Before every delete it asks again, one virtual machine per yes. With the admin token, the SSH key and the Syncthing key, the rule is all that stops a change, because the credential does not.
+So one rule covers every credential here: the agent reads freely, asks you before any change, and waits for your yes. Before every delete it asks again, one virtual machine per yes. With the admin token, the SSH key, the Syncthing key and the Home Assistant token, the rule is all that stops a change, because the credential does not.
 
 | Key in the file | Credential | What it allows |
 |---|---|---|
@@ -28,6 +28,7 @@ So one rule covers every credential here: the agent reads freely, asks you befor
 | `ASUS_ROUTER_SSH`, `ASUS_ROUTER_SSH_PORT`, `HOMELAB_SSH_KEY` | The same SSH key, for the router's administrator login | A shell as the router's administrator: every setting, the firewall and a reboot |
 | `SYNCTHING_SERVER_API_KEY` | Syncthing API key | The whole Syncthing REST API, including changing folders and devices |
 | `UPTIME_KUMA_API_KEY` | Uptime Kuma API key | Reading the `/metrics` page and nothing else. It cannot open the web page and cannot change a monitor |
+| `HOMEASSISTANT_URL`, `HOMEASSISTANT_TOKEN` | Home Assistant long-lived access token of a separate administrator user that may log in only from the local network | Everything a Home Assistant administrator can do: every action on every device, and changing or deleting users, automations, scripts, dashboards and the entity and device registries. Home Assistant refuses the token from outside the local network |
 
 The generic skills tell an agent how to use these keys and which calls only read. Read them for the details instead of a copy here:
 
@@ -43,6 +44,7 @@ The generic skills tell an agent how to use these keys and which calls only read
 | `<proxmox-host>` | The Proxmox machine, reached on port 8006 |
 | `<node>` | The Proxmox node name, shown under Datacenter in the web page |
 | `<docker-vm-ip>` | The Ubuntu virtual machine running the Compose stack |
+| `<ha-vm-ip>` | The Home Assistant OS virtual machine, reached on port 8123 |
 | `<router-ip>` | The router's address on your own network |
 | `<router-admin-user>` | The user name you log in to the router's web page with |
 | `<ssh-port>` | The port you choose for SSH on the router |
@@ -56,6 +58,7 @@ Concrete example, the lab these documents were written from:
 <proxmox-host>       192.168.1.10
 <node>               proxmox
 <docker-vm-ip>       192.168.1.12
+<ha-vm-ip>           192.168.1.11
 <router-ip>          192.168.1.1
 <router-admin-user>  admin
 <ssh-port>           22
@@ -135,7 +138,7 @@ PowerShell:
 (Get-Content "$HOME\.local\state\agents\workspace\homelab.env") -replace '^<KEY>=.*', '<KEY>=<value>' | Set-Content "$HOME\.local\state\agents\workspace\homelab.env"
 ```
 
-A secret: `PROXMOX_TOKEN_SECRET`, `SYNCTHING_SERVER_API_KEY` and `UPTIME_KUMA_API_KEY`. Type or paste it at the prompt. It is not shown, and it never reaches the shell history. Unix shell, the same in bash and zsh:
+A secret: `PROXMOX_TOKEN_SECRET`, `SYNCTHING_SERVER_API_KEY`, `UPTIME_KUMA_API_KEY` and `HOMEASSISTANT_TOKEN`. Type or paste it at the prompt. It is not shown, and it never reaches the shell history. Unix shell, the same in bash and zsh:
 
 ```bash
 printf 'Secret: '; read -rs value; echo
@@ -191,16 +194,16 @@ PowerShell:
 Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '<'
 ```
 
-For this lab, all eight values that are not secret in one command. Put your user name in place of `<your-user>` first. Unix shell:
+For this lab, all nine values that are not secret in one command. Put your user name in place of `<your-user>` first. Unix shell:
 
 ```bash
-sed -i -e 's|^PROXMOX_URL=.*|PROXMOX_URL=https://192.168.1.10:8006|' -e 's|^PROXMOX_SSH=.*|PROXMOX_SSH=root@192.168.1.10|' -e 's|^DOCKER_VM_SSH=.*|DOCKER_VM_SSH=<your-user>@192.168.1.12|' -e 's|^SYNCTHING_SERVER_URL=.*|SYNCTHING_SERVER_URL=http://192.168.1.12:7780|' -e 's|^HOMELAB_SSH_KEY=.*|HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519|' -e 's|^ASUS_ROUTER_SSH=.*|ASUS_ROUTER_SSH=admin@192.168.1.1|' -e 's|^ASUS_ROUTER_SSH_PORT=.*|ASUS_ROUTER_SSH_PORT=22|' -e 's|^UPTIME_KUMA_URL=.*|UPTIME_KUMA_URL=http://192.168.1.12:7779|' ~/.local/state/agents/workspace/homelab.env
+sed -i -e 's|^PROXMOX_URL=.*|PROXMOX_URL=https://192.168.1.10:8006|' -e 's|^PROXMOX_SSH=.*|PROXMOX_SSH=root@192.168.1.10|' -e 's|^DOCKER_VM_SSH=.*|DOCKER_VM_SSH=<your-user>@192.168.1.12|' -e 's|^SYNCTHING_SERVER_URL=.*|SYNCTHING_SERVER_URL=http://192.168.1.12:7780|' -e 's|^HOMELAB_SSH_KEY=.*|HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519|' -e 's|^ASUS_ROUTER_SSH=.*|ASUS_ROUTER_SSH=admin@192.168.1.1|' -e 's|^ASUS_ROUTER_SSH_PORT=.*|ASUS_ROUTER_SSH_PORT=22|' -e 's|^UPTIME_KUMA_URL=.*|UPTIME_KUMA_URL=http://192.168.1.12:7779|' -e 's|^HOMEASSISTANT_URL=.*|HOMEASSISTANT_URL=http://192.168.1.11:8123|' ~/.local/state/agents/workspace/homelab.env
 ```
 
 PowerShell:
 
 ```powershell
-(Get-Content "$HOME\.local\state\agents\workspace\homelab.env") -replace '^PROXMOX_URL=.*', 'PROXMOX_URL=https://192.168.1.10:8006' -replace '^PROXMOX_SSH=.*', 'PROXMOX_SSH=root@192.168.1.10' -replace '^DOCKER_VM_SSH=.*', 'DOCKER_VM_SSH=<your-user>@192.168.1.12' -replace '^SYNCTHING_SERVER_URL=.*', 'SYNCTHING_SERVER_URL=http://192.168.1.12:7780' -replace '^HOMELAB_SSH_KEY=.*', 'HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519' -replace '^ASUS_ROUTER_SSH=.*', 'ASUS_ROUTER_SSH=admin@192.168.1.1' -replace '^ASUS_ROUTER_SSH_PORT=.*', 'ASUS_ROUTER_SSH_PORT=22' -replace '^UPTIME_KUMA_URL=.*', 'UPTIME_KUMA_URL=http://192.168.1.12:7779' | Set-Content "$HOME\.local\state\agents\workspace\homelab.env"
+(Get-Content "$HOME\.local\state\agents\workspace\homelab.env") -replace '^PROXMOX_URL=.*', 'PROXMOX_URL=https://192.168.1.10:8006' -replace '^PROXMOX_SSH=.*', 'PROXMOX_SSH=root@192.168.1.10' -replace '^DOCKER_VM_SSH=.*', 'DOCKER_VM_SSH=<your-user>@192.168.1.12' -replace '^SYNCTHING_SERVER_URL=.*', 'SYNCTHING_SERVER_URL=http://192.168.1.12:7780' -replace '^HOMELAB_SSH_KEY=.*', 'HOMELAB_SSH_KEY=~/.ssh/homelab_agent_ed25519' -replace '^ASUS_ROUTER_SSH=.*', 'ASUS_ROUTER_SSH=admin@192.168.1.1' -replace '^ASUS_ROUTER_SSH_PORT=.*', 'ASUS_ROUTER_SSH_PORT=22' -replace '^UPTIME_KUMA_URL=.*', 'UPTIME_KUMA_URL=http://192.168.1.12:7779' -replace '^HOMEASSISTANT_URL=.*', 'HOMEASSISTANT_URL=http://192.168.1.11:8123' | Set-Content "$HOME\.local\state\agents\workspace\homelab.env"
 ```
 
 #### Use a key in a command
@@ -735,6 +738,59 @@ PowerShell:
 Lines starting with `monitor_status` mean the key works. A `401` answer means it does not.
 
 Revoke it on the same page, Settings, then API Keys: Disable stops the key until you Enable it again, and Delete removes it for good.
+
+---
+
+### HOMEASSISTANT_URL
+
+The Home Assistant web page on its own virtual machine, `http://<ha-vm-ip>:8123`, the address [home_assistant_vm.md](home_assistant_vm.md) opens for onboarding. Home Assistant has no `.internal` name, as [nginx_proxy_manager.md](nginx_proxy_manager.md) explains, so this address is the only one. The one command for this lab in [Set a key](#set-a-key) sets it.
+
+---
+
+### HOMEASSISTANT_TOKEN
+
+A long-lived access token, which Home Assistant keeps valid for 10 years unless you delete it. It belongs to a separate Home Assistant user made only for the agent, never to your own login, and that user has two switches turned on:
+
+1. Administrator. Editing automations, scripts, dashboards and the entity and device registries needs an administrator, because Home Assistant core marks those endpoints `require_admin`. A token of a user who is not an administrator is refused there.
+2. Local access only, the switch the page describes as "Can only log in from the local network". Home Assistant checks this flag for every bearer token as well, not only on the login page, so a token that leaks does not work from outside your network.
+
+The minus: the token has full administrator power over your home. It can run every action on every device, change or delete every automation, script and dashboard, and add or remove users. The agent reads freely and asks you before every change, as [What each credential allows](#what-each-credential-allows) says, and that rule is all that stops a change here.
+
+Checked on 2026-10-25 in the source of Home Assistant core 2026.10.4 and of its frontend 20260930.5:
+
+1. `homeassistant/components/config/view.py` puts `@require_admin` on reading, saving and deleting the configuration of an automation or a script. `homeassistant/components/lovelace/websocket.py` puts `require_admin` on saving and deleting a dashboard, and `homeassistant/components/config/entity_registry.py` and `device_registry.py` put it on updating and removing a registry entry.
+2. `homeassistant/components/http/auth.py` calls `async_user_not_allowed_do_auth` for every `Authorization: Bearer` header. That function, in `auth_util.py`, refuses a local only user whose address is not a local one with "User cannot authenticate remotely", refuses a local only user on a connection through Home Assistant Cloud, and refuses every user who is not active.
+3. The frontend names the two switches Administrator and Local access only, and says about a new token "It will not be shown again" and "Each token will be valid for 10 years from creation".
+
+Create it:
+
+1. Open `http://<ha-vm-ip>:8123` and log in with your own administrator login.
+2. Choose Settings, then People, then the Users tab, then Add user. Before Home Assistant 2026.6, the Users tab shows only after you turn on Advanced mode in your own profile.
+3. Fill in Display name, such as `agent`, Username and Password. Turn on Local access only and Administrator, then press Create.
+4. Log out, or open a private browser window, and log in as the new user.
+5. Open the profile, the user name at the bottom of the side bar, then the Security tab.
+6. Under Long-lived access tokens, press Create token and give it a name, such as `agent`. Home Assistant shows the token only this once, so copy it now and set it, as a secret, as `HOMEASSISTANT_TOKEN`, with the commands in [Set a key](#set-a-key).
+
+Test it from your own machine. Unix shell:
+
+```bash
+{ printf 'Authorization: Bearer '; grep '^HOMEASSISTANT_TOKEN=' ~/.local/state/agents/workspace/homelab.env | cut -d= -f2-; } | curl -H @- http://<ha-vm-ip>:8123/api/
+```
+
+PowerShell:
+
+```powershell
+"Authorization: Bearer $((Select-String -Path "$HOME\.local\state\agents\workspace\homelab.env" -Pattern '^HOMEASSISTANT_TOKEN=(.*)').Matches[0].Groups[1].Value)" | curl.exe -H '@-' http://<ha-vm-ip>:8123/api/
+```
+
+The answer `{"message":"API running."}` means the token works. A `401` answer means it does not, or that the request came from outside the local network. Keep the slash at the end, because the path is `/api/` and not `/api`, as the [Home Assistant REST API](https://developers.home-assistant.io/docs/api/rest/) page says.
+
+Revoke it in one of two ways:
+
+1. Log in as the agent user, open the profile, then the Security tab, and delete the token under Long-lived access tokens.
+2. Log in as yourself, choose Settings, then People, then the Users tab, open the agent user and press Delete user. That removes the user and every token it holds. Deactivate user on the same page stops every token of the user until you press Activate user again.
+
+What uses it: the [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) MCP server from homeassistant-ai, which [docs/MCP_SETUP.md](https://github.com/Lukk17/agent-standards/blob/master/docs/MCP_SETUP.md) in the agent-standards repository describes, and plain `curl` calls against the REST API, in the same form as the test above. The two key names, `HOMEASSISTANT_URL` and `HOMEASSISTANT_TOKEN`, are the ones ha-mcp reads, because ha-mcp is started with `uvx --env-file` on `~/.local/state/agents/workspace/homelab.env`, and uvx loads every key of that file into the ha-mcp process, not only these two.
 
 ---
 
