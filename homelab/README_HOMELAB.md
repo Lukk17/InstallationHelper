@@ -102,6 +102,7 @@ graph TB
 | File Browser | `files.internal` | 7782 | 80 | Web access to the whole USB data disk |
 | Samba | `\\files.internal\files`, not proxied | 445 | 445 | The same folder as a network drive |
 | Plex | `plex.internal`, host network | 32400 | 32400 | Films and series from the USB data disk, direct play only |
+| Proxmox web interface | `proxmox.internal`, on the Proxmox host | 8006 | none, not a container | The hypervisor's own web page, proxied by address because it is not in the Compose file |
 | Telegraf | none, host network | none | none | Records a ping and DNS row every second, an HTTP row every 5 seconds, and a download, upload and latency row every hour, as proof of short provider outages, written into the Syncthing folder |
 | internal-ca | none, one-shot job | none | none | Signs the `https` certificate for every `.internal` name from your own certificate authority and hands it to Nginx Proxy Manager, then exits, see [internal_ca.md](internal_ca.md) |
 
@@ -286,7 +287,7 @@ The values in the Compose file that are host specific sit in the file directly, 
 | `SAMBA_USER`, `SAMBA_PASS` | none, set in `.env` | The network drive login, see [lan_storage.md](lan_storage.md) |
 | `PLEX_CLAIM` | empty, set in `.env` once | One-time token linking Plex to your account, see [plex_media_server.md](plex_media_server.md) |
 | `INTERNAL_CA_CERT_B64`, `INTERNAL_CA_KEY_B64` | none, set in `.env` | Your local certificate authority, certificate and private key, each in base64 on one line, see [internal_ca.md](internal_ca.md) |
-| `INTERNAL_DNS_NAMES` | none, set in `.env` | Every `.internal` name the `https` certificate covers, separated by commas. Add a name here when you add a proxy host, see [internal_ca.md](internal_ca.md#add-a-new-internal-name) |
+| `INTERNAL_DNS_NAMES` | none, set in `.env` | Every `.internal` name the `https` certificate covers, separated by commas, which is every name in [the setup table](nginx_proxy_manager.md#every-internal-name). Add a name here when you add a proxy host, see [internal_ca.md](internal_ca.md#add-a-new-internal-name) |
 | Plex `cpus` | `1.5` | Hard CPU ceiling for Plex, out of the Docker VM's four cores |
 | Container logs | `json-file`, three files of 10 MB per container | The `logging` block at the top of [compose.yaml](compose.yaml), given to every service, so a container that floods its log cannot fill the disk, see [uptime_kuma.md](uptime_kuma.md#after-adding-a-new-tag-restart-the-container) |
 | Telegraf `network_mode` | `host` | Telegraf shares the VM's network namespace instead of the bridge network, which the ping checks in [network_watch.md](network_watch.md) need |
@@ -355,7 +356,7 @@ Zigbee devices went offline. The USB dongle is not attached to the Home Assistan
 | [home_assistant_vm.md](home_assistant_vm.md) | Building the Home Assistant OS VM with `qm`, and Zigbee USB passthrough |
 | [home_assistant_backup.md](home_assistant_backup.md) | Home Assistant's own backups, the encryption key, and restoring |
 | [adguard_dns.md](adguard_dns.md) | AdGuard first run, the `.internal` wildcard rewrite, upstream resolvers, rate limit, blocklists, 30 days of query log, router DNS cutover |
-| [nginx_proxy_manager.md](nginx_proxy_manager.md) | Adding the proxy host entries and verifying them |
+| [nginx_proxy_manager.md](nginx_proxy_manager.md) | The one setup table of every `.internal` name, adding the proxy host entries and verifying them |
 | [internal_ca.md](internal_ca.md) | The local certificate authority: `https` for every `.internal` name, the name constraint, making the authority, adding a name, renewal, trusting it on every device, and revoking it |
 | [syncthing.md](syncthing.md) | Pairing devices, folder paths, ownership, versioning |
 | [perlite_notes.md](perlite_notes.md) | Publishing the synced notes folder as a website |

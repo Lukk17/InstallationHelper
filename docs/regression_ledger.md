@@ -7467,6 +7467,8 @@ Fix: steps 3 and 4 of "Add a proxy host" in [homelab/nginx_proxy_manager.md](../
 
 Mechanical check: none. The proxy hosts live in the database on the lab, which no tier of the harness reads.
 
+Update, 2026-10-25: the owner removed `:8006` from the hostname field of the entry on the lab, and `https://proxmox.internal` answered 200 with certificate check 0, measured by the owner. The entry now matches its row in the setup table of [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md#every-internal-name).
+
 #### 10.200 The proxy page sent Proxmox through plain http, where its Secure login cookie is most likely dropped
 
 Status: read in the code, not yet seen in a browser.
@@ -7482,6 +7484,8 @@ Fix: the Proxmox section says to type `http://` because the proxy has no certifi
 Mechanical check: none. Whether a login survives is a browser question no tier asks.
 
 Update, later on 2026-10-24: the first way is now built. The `internal-ca` job of [homelab/compose.yaml](../homelab/compose.yaml) signs one certificate for every `.internal` name from a local certificate authority and gives every proxy host `listen 443 ssl` through the optional include `/data/nginx/custom/server_proxy.conf`, so the SSL tab stays on None, see [homelab/internal_ca.md](../homelab/internal_ca.md). The Proxmox section now says to open `https://proxmox.internal`. Measured on the lab the same day: `https://proxmox.internal/` presents that certificate and curl verifies it, result 0, but the answer is still 500 from 10.199 until the owner removes `:8006` from the hostname field, so the login over `https` has still not been seen.
+
+Update, 2026-10-25: the 500 is gone, see the update under 10.199. `https://proxmox.internal` answers 200. No login through the proxy has been reported yet, so the cookie effect stays read in the code only.
 
 ### Found when the homelab pages were moved to the ascend-web-hunter name, 2026-10-24
 
@@ -7542,3 +7546,19 @@ How it was proven: the job log of 40038353129. The premise that the package chec
 Fix: none needed. The package was named in its failed attempt, retried under the shared rule, and installed, and checksums stay on.
 
 Mechanical check: the existing case `names and counts a package that fails every attempt, with its exit code` in the `Install-ChocolateyPackage retries under the shared rule` block.
+
+### Found while making one setup table for every .internal name, 2026-10-25
+
+#### 10.205 The homelab listed its .internal names in several places, and nothing compared them
+
+Status: not introduced by this change, fixed here.
+
+Cause: [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md) spread the proxy entries over three tables, one for the containers, one for Proxmox and one for Plex, and the same names were listed again in the `INTERNAL_DNS_NAMES` example of [homelab/internal_ca.md](../homelab/internal_ca.md) and in the services table of [homelab/README_HOMELAB.md](../homelab/README_HOMELAB.md). No check compared any of these lists. This is defect class 2 in documentation form, the same list kept in several places.
+
+Effect: the services table had no `proxmox.internal`, although the certificate list held it. The `.env` table of internal_ca.md gave `files.internal,plex.internal` as the example value of a variable that must hold every name. The container table listed `ascend-web-hunter.internal` like the others, although the service is not deployed and the lab has no proxy host for it. No outage came from it. The owner asked for one table to set up from.
+
+How it was proven: the pages read side by side on 2026-10-25, against the owner's measurement that day that the nine names with a proxy host answer over `https` with certificate check 0 and over `http`.
+
+Fix: one setup table, "Every .internal name" in [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md#every-internal-name), with scheme, forward hostname, forward port, websockets, Block Common Exploits, the Advanced lines and a note for every name. The Proxmox and Plex sections keep their reasons and no longer list names. The services table has a Proxmox row, and the `.env` row of internal_ca.md and the `INTERNAL_DNS_NAMES` row of README_HOMELAB.md point at the table instead of a partial list.
+
+Mechanical check: [e2e/tier1/internal_names_parity.sh](../e2e/tier1/internal_names_parity.sh) fails when the proxy page holds more than one table of names, when an `INTERNAL_DNS_NAMES` example or the services table holds a different set of names, or when the Homepage or Uptime Kuma page names one the table lacks. Against a copy of the tree with the old services table, the old two-name example and one name taken off the `<names>` line it failed 10 times, ending with `homelab/README_HOMELAB.md:94: lacks proxmox.internal, which the setup table lists`. Against the proxy page before this change it failed with `found 3`.

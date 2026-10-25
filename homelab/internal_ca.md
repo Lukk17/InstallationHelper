@@ -166,7 +166,7 @@ The job reads three values from `/opt/docker-stack/.env`, next to the Samba logi
 |---|---|
 | `INTERNAL_CA_CERT_B64` | `ca.crt` in base64, on one line |
 | `INTERNAL_CA_KEY_B64` | `ca.key` in base64, on one line |
-| `INTERNAL_DNS_NAMES` | Every name, separated by commas, for example `files.internal,plex.internal` |
+| `INTERNAL_DNS_NAMES` | Every name in [the setup table](nginx_proxy_manager.md#every-internal-name), separated by commas. This lab's list is `<names>` in [Lab example](#lab-example) |
 
 The job gets the values as environment variables, so `docker inspect internal-ca` on the VM shows the key too. That adds nobody new: only your login can read `.env`, and an account in the `docker` group is already as strong as root on the VM, see [agent_access.md](agent_access.md).
 
@@ -436,6 +436,6 @@ What was measured that day, with curl 8.23.0 in a container on the owner's compu
 | `proxmox.internal` | 500 | 0, verified | 500 |
 | `ascend-web-hunter.internal` | refused, `tlsv1 unrecognized name` | none | 200, the proxy's Default Site page |
 
-`proxmox.internal` answers 500 over both schemes because its proxy host still has `192.168.1.10:8006` in Forward Hostname, and the proxy log says `invalid port in upstream "192.168.1.10:8006:8006/"`, see [nginx_proxy_manager.md](nginx_proxy_manager.md#the-entries). `ascend-web-hunter.internal` is in the certificate but has no proxy host yet.
+`proxmox.internal` answered 500 over both schemes that day because its proxy host still had `192.168.1.10:8006` in Forward Hostname, and the proxy log said `invalid port in upstream "192.168.1.10:8006:8006/"`, see [nginx_proxy_manager.md](nginx_proxy_manager.md#every-internal-name). On 2026-10-25 the owner removed the port from that field, and then every name with a proxy host, `proxmox.internal` included, answered over `https` with certificate check 0 and over `http`, and `https://proxmox.internal` answered 200. `ascend-web-hunter.internal` is in the certificate but has no proxy host yet, because the service is not deployed.
 
 Before the lab, the whole path ran in throwaway containers on a private Docker network: the real `jc21/nginx-proxy-manager:2.15.1` with two proxy host files copied from the lab, the job with a test CA, and curl from a second container. Both names answered 200 over `https` with certificate check 0 and over `http`. The proxy served the old certificate until it was restarted, and the new one after. A second run of the job said `the certificate is still good, nothing issued`, a changed name list, a certificate with 10 days left and a replaced CA each made it issue a new one, and a name outside `.internal`, a wildcard, a CA without the name constraint and a key of another CA each made it refuse with exit 2 or 3.
