@@ -24,7 +24,7 @@
     - name: Add Waydroid repository (Debian)
       ansible.builtin.shell: |
         set -o pipefail
-        curl -fsSL https://repo.waydro.id | bash
+        curl -fsSL --max-time 120 https://repo.waydro.id | bash
       args:
         executable: /bin/bash
       become: yes

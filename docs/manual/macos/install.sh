@@ -73,7 +73,14 @@ fi
 
 if ! command -v brew >/dev/null 2>&1; then
   log "Homebrew not found — installing it first"
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  installer="$(curl -fsSL --max-time 120 https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  /bin/bash -c "${installer}"
+  for brew_bin in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [[ -x "${brew_bin}" ]]; then
+      eval "$("${brew_bin}" shellenv)"
+      break
+    fi
+  done
 fi
 
 log "Updating Homebrew"

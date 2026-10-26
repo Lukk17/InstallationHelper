@@ -143,7 +143,7 @@ sudo dnf config-manager addrepo --from-repofile=https://pkgs.tailscale.com/stabl
 | Lens | `sudo dnf install -y lens` *(repo above)* |
 | FileZilla | `sudo dnf install -y filezilla` |
 | Minikube | `sudo dnf install -y https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube-1.38.1-0.x86_64.rpm` |
-| k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
+| k3d | `curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
 | Helm | `sudo dnf install -y helm` |
 | Terraform | `sudo dnf install -y terraform` *(repo above)* |
 | GitHub CLI | `sudo dnf install -y gh` |
@@ -340,7 +340,7 @@ Run as your normal user (no sudo), in order — each writes to your shell rc and
 **NVM** (pinned `0.40.4`) + Node LTS:
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
 ```
 
 ```bash
@@ -350,7 +350,7 @@ nvm install --lts
 **SDKMAN** + Java + Gradle:
 
 ```bash
-curl -s https://get.sdkman.io | bash
+curl -fsSL https://get.sdkman.io | bash
 ```
 
 ```bash
@@ -364,7 +364,7 @@ sdk install gradle
 **Pyenv** + Python:
 
 ```bash
-curl https://pyenv.run | bash
+curl -fsSL https://pyenv.run | bash
 ```
 
 ```bash

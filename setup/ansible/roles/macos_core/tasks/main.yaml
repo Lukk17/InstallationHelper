@@ -10,7 +10,8 @@
 - name: Install Homebrew (non-interactive)
   ansible.builtin.shell: |
     set -e
-    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    installer="$(curl -fsSL --max-time 120 https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || exit 1
+    NONINTERACTIVE=1 /bin/bash -c "$installer"
   args:
     creates: /opt/homebrew/bin/brew
   when: brew_check.rc != 0

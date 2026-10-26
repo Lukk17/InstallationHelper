@@ -486,9 +486,9 @@ Source role: [roles/sdk_manager/](ansible/roles/sdk_manager/).
 
 | Software | Ubuntu / Debian | Arch | Fedora | macOS | Windows |
 |---|---|---|---|---|---|
-| **NVM** | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | same | same | same | `choco install nvm` (nvm-windows), then `nvm install lts` and `nvm use lts` |
-| **Pyenv** | `curl https://pyenv.run \| bash` | same | same | same | no Pyenv equivalent, installs a single interpreter instead, `winget install -e --id Python.Python.3.11`, kept in sync with `default_python` |
-| **SDKMAN** | `curl -s https://get.sdkman.io \| bash` | same | same | same | not available, Java itself installs through [setup/windows/](windows/) directly, four Temurin builds plus a discovered `JAVA_HOME` |
+| **NVM** | `curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | same | same | same | `choco install nvm` (nvm-windows), then `nvm install lts` and `nvm use lts` |
+| **Pyenv** | `curl -fsSL https://pyenv.run \| bash` | same | same | same | no Pyenv equivalent, installs a single interpreter instead, `winget install -e --id Python.Python.3.11`, kept in sync with `default_python` |
+| **SDKMAN** | `curl -fsSL https://get.sdkman.io \| bash` | same | same | same | not available, Java itself installs through [setup/windows/](windows/) directly, four Temurin builds plus a discovered `JAVA_HOME` |
 | **Dart SDK** | `sudo apt-get install -y dart` | `sudo pacman -S --needed dart` | `sudo dnf install -y dart` | `brew install dart` | manual from [dart.dev](https://dart.dev/get-dart) |
 | **FVM (Flutter)** | `curl -fsSL https://fvm.app/install.sh \| bash` | same | same | same | `choco install fvm`, then `fvm install <channel>` and `fvm global <channel>`, channel pinned by `flutter_channel` in `pinned_values.toml` |
 | **Android SDK** | `sdkmanager "platform-tools" "build-tools;35.0.0"` after the cmdline-tools zip is unpacked | same | same | same | `winget install -e --id Google.AndroidStudio` |

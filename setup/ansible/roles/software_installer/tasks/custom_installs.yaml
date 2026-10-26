@@ -28,8 +28,8 @@
         checksum: "{{ download_checksums.antigravity_linux | default(omit) }}"
         timeout: 60
       register: antigravity_download
-      retries: 3
-      delay: 10
+      retries: 4
+      delay: 30
       until: antigravity_download is succeeded
 
     - name: Extract Antigravity tarball
@@ -99,8 +99,8 @@
         timeout: 60
       become: true
       register: appimagelauncher_download
-      retries: 3
-      delay: 10
+      retries: 4
+      delay: 30
       until: appimagelauncher_download is succeeded
 
     # creates names /usr/bin/AppImageLauncher, with the capitals, because that is what the package
@@ -162,13 +162,13 @@
     - name: Install k3d via official script (Linux)
       ansible.builtin.shell: |
         set -o pipefail
-        {{ ih_timeout }} 300 bash -c 'curl -s --max-time 120 https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash'
+        {{ ih_timeout }} 300 bash -c 'set -o pipefail; curl -fsSL --max-time 120 https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash'
       args:
         executable: /bin/bash
       become: true
       register: k3d_install
-      retries: 2
-      delay: 10
+      retries: 4
+      delay: 30
       until: k3d_install is succeeded
       changed_when: true
       when: not (k3d_installed.stat.exists | default(false))
@@ -206,14 +206,14 @@
     - name: Install uv and uvx into /usr/local/bin (Linux)
       ansible.builtin.shell: |
         set -o pipefail
-        {{ ih_timeout }} 300 bash -c 'curl -fsSL --max-time 120 https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local/bin sh'
+        {{ ih_timeout }} 300 bash -c 'set -o pipefail; curl -fsSL --max-time 120 https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local/bin sh'
       args:
         executable: /bin/bash
         creates: /usr/local/bin/uvx
       become: true
       register: uv_install
-      retries: 2
-      delay: 10
+      retries: 4
+      delay: 30
       until: uv_install is succeeded
   rescue:
     - name: Record that uv could not be installed
@@ -286,8 +286,8 @@
         timeout: 60
       become: true
       register: gridcoin_download
-      retries: 3
-      delay: 10
+      retries: 4
+      delay: 30
       until: gridcoin_download is succeeded
 
     # There used to be a guard task here that ran `flatpak info org.gridcoin.Gridcoin` and only installed
@@ -374,8 +374,8 @@
         timeout: 60
       become: true
       register: gputest_download
-      retries: 3
-      delay: 10
+      retries: 4
+      delay: 30
       until: gputest_download is succeeded
 
     - name: Extract GpuTest archive

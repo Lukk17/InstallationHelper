@@ -58,7 +58,7 @@ Gradle is managed via SDKMAN on every Linux distro, not the system package manag
 | DBeaver CE | `flatpak install -y flathub io.dbeaver.DBeaverCommunity` | `flatpak install -y flathub io.dbeaver.DBeaverCommunity` | `flatpak install -y flathub io.dbeaver.DBeaverCommunity` | `brew install --cask dbeaver-community` | `winget install -e --id DBeaver.DBeaver.Community` |
 | kubectl | `sudo apt-get install -y kubectl` (repo) | `sudo dnf install -y kubectl` (repo) | `sudo pacman -S --needed kubectl` | `brew install kubernetes-cli` | `winget install -e --id Kubernetes.kubectl` |
 | Minikube | `curl -fsSLo /tmp/minikube.deb https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube_1.38.1-0_amd64.deb && sudo apt-get install -y /tmp/minikube.deb` | `sudo dnf install -y https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube-1.38.1-0.x86_64.rpm` | `sudo pacman -S --needed minikube` | `brew install minikube` | `winget install -e --id Kubernetes.minikube` |
-| k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` | `brew install k3d` | `winget install -e --id k3d.k3d` |
+| k3d | `curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` | `curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` | `curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` | `brew install k3d` | `winget install -e --id k3d.k3d` |
 | Helm | `sudo apt-get install -y helm` (repo) | `sudo dnf install -y helm` | `sudo pacman -S --needed helm` | `brew install helm` | `winget install -e --id Helm.Helm` |
 | Terraform | `sudo apt-get install -y terraform` (repo) | `sudo dnf install -y terraform` (repo) | `sudo pacman -S --needed terraform` | `brew install hashicorp/tap/terraform` | `winget install -e --id Hashicorp.Terraform` |
 | GitHub CLI (gh) | `sudo apt-get install -y gh` (repo) | `sudo dnf install -y gh` | `sudo pacman -S --needed github-cli` | `brew install gh` | `winget install -e --id GitHub.cli` |
@@ -234,11 +234,11 @@ Installed by the `sdk_manager` role. All versions are pinned in [setup/pinned_va
 
 | Manager / runtime | Linux | macOS | Windows |
 |---|---|---|---|
-| NVM | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | `winget install -e --id CoreyButler.NVMforWindows` |
+| NVM | `curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | `curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh \| bash` | `winget install -e --id CoreyButler.NVMforWindows` |
 | Node.js LTS | `nvm install --lts` | `nvm install --lts` | `nvm install lts` |
-| SDKMAN | `curl -s https://get.sdkman.io \| bash` | `curl -s https://get.sdkman.io \| bash` | not used, SDKMAN needs bash |
+| SDKMAN | `curl -fsSL https://get.sdkman.io \| bash` | `curl -fsSL https://get.sdkman.io \| bash` | not used, SDKMAN needs bash |
 | Java (Temurin) | `sdk install java 21.0.11-tem` | `sdk install java 21.0.11-tem` | the winget packages `EclipseAdoptium.Temurin.11.JDK`, `EclipseAdoptium.Temurin.17.JDK`, `EclipseAdoptium.Temurin.21.JDK` and `EclipseAdoptium.Temurin.25.JDK`, one per pinned major, then `JAVA_HOME` at user scope |
-| Pyenv | `curl https://pyenv.run \| bash` | `curl https://pyenv.run \| bash` | not used, see Python |
+| Pyenv | `curl -fsSL https://pyenv.run \| bash` | `curl -fsSL https://pyenv.run \| bash` | not used, see Python |
 | Python | `pyenv install 3.11.15` | `pyenv install 3.11.15` | `winget install -e --id Python.Python.3.11` |
 | Dart SDK | not installed standalone, bundled with FVM's Flutter SDK below | not installed standalone, bundled with FVM's Flutter SDK below | `choco install dart-sdk`, needed only so `dart pub global activate fvm` can run: FVM's own install script has no Windows build |
 | FVM (Flutter) | `curl -fsSL https://fvm.app/install.sh \| bash` | `curl -fsSL https://fvm.app/install.sh \| bash` | `dart pub global activate fvm` |

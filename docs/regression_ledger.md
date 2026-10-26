@@ -7562,3 +7562,61 @@ How it was proven: the pages read side by side on 2026-10-25, against the owner'
 Fix: one setup table, "Every .internal name" in [homelab/nginx_proxy_manager.md](../homelab/nginx_proxy_manager.md#every-internal-name), with scheme, forward hostname, forward port, websockets, Block Common Exploits, the Advanced lines and a note for every name. The Proxmox and Plex sections keep their reasons and no longer list names. The services table has a Proxmox row, and the `.env` row of internal_ca.md and the `INTERNAL_DNS_NAMES` row of README_HOMELAB.md point at the table instead of a partial list.
 
 Mechanical check: [e2e/tier1/internal_names_parity.sh](../e2e/tier1/internal_names_parity.sh) fails when the proxy page holds more than one table of names, when an `INTERNAL_DNS_NAMES` example or the services table holds a different set of names, or when the Homepage or Uptime Kuma page names one the table lacks. Against a copy of the tree with the old services table, the old two-name example and one name taken off the `<names>` line it failed 10 times, ending with `homelab/README_HOMELAB.md:94: lacks proxmox.internal, which the setup table lists`. Against the proxy page before this change it failed with `found 3`.
+
+### Found when CachyOS defaults failed on k3d in sweep 40231740344, 2026-10-26
+
+#### 10.206 A 404 inside k3d's install.sh outlasted the 22 seconds the k3d task gave it
+
+Status: the 404 is outside this repository and was gone by 2026-10-26. The retry window that let it end the task is fixed here.
+
+Cause: one request that k3d's install.sh makes with `--fail` answered 404 on every attempt, and `retries: 2` with `delay: 10` gave the task three attempts within about 22 seconds. Which request answered 404, and why, is unverified.
+
+Effect: GitHub run 40231740344, `e2e-matrix.yml` with scenario defaults and distro all on master 7dfb88a, 2026-10-25. Job 121317252470, "CachyOS defaults / install", failed `software_installer : Install k3d via official script (Linux)` at 23:36:47, 23:36:58 and 23:37:09 UTC, each attempt with `rc: 22`, stdout `Failed to install k3d` and `For support, go to https://github.com/k3d-io/k3d.`, and stderr `curl: (22) The requested URL returned error: 404`. The rescue named the step, k3d was not installed, and the run ended failed with `rescued=1`. In the same run the task reported changed on Fedora at 23:32:38, on Debian at 23:34:37 and on Arch at 23:42:38, and in sweep 40004770702 it did so on CachyOS in all four scenarios.
+
+How it was proven: `playbook.log` and `installation_errors.log` in the artefact `e2e-stage2-defaults-cachyos-40231740344`, and the same task lines in the Fedora, Debian and Arch artefacts of that run and the four CachyOS artefacts of 40004770702, read on 2026-10-26. The 404 came from inside install.sh, not from the fetch of install.sh: the task's own curl had no `-f` (10.207), so a 404 there prints no `curl: (22)`, and 22 is the status the script's `fail_trap` passes on from its own `scurl`, which adds `--fail`. install.sh on `main`, read on 2026-10-26, makes three such requests: `https://github.com/k3d-io/k3d/releases/latest` to find the tag, then `releases/download/$TAG/k3d-linux-amd64` and `releases/download/$TAG/checksums.txt`, each following redirects. Its output in the run stops before `Verifying SHA256 checksum`, so the 404 came from one of the three, and the run does not say which. The first reading, that it came from one of the two release downloads, left out the tag lookup, which uses the same `--fail`. On 2026-10-26 at 14:00 UTC curl got 200 from install.sh, the latest release page and both v5.9.0 files. GitHub's status incidents API lists no incident created between 2026-10-24 and 2026-10-26.
+
+Fix: [setup/ansible/roles/software_installer/tasks/custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) gives the k3d task `retries: 4` and `delay: 30`, five attempts with two minutes of waiting between them. ansible-core 2.21.5 counts the first run plus the retries, `retries = 1` and then `retries += max(0, self._task.retries)` in `lib/ansible/executor/task_executor.py`, which matches the three attempts the run logged for `retries: 2`. The other five network downloads in the same file had the same short window, uv at retries 2 and delay 10, and Antigravity, AppImageLauncher, Gridcoin and GpuTest at retries 3 and delay 10, about 30 seconds of waiting. All five now use retries 4 and delay 30 too.
+
+Mechanical check: none for the window. How long an outside 404 lasts is not something a check can know.
+
+#### 10.207 The k3d task fetched its script with curl -s, no -f and no -L, inside a bash -c that pipefail did not reach
+
+Status: found while fixing 10.206, and not its cause. Fixed here. Defect class 2: one rule, how an install script is fetched, written differently in each task.
+
+Cause: b8df804 (2026-06-24) wrote `{{ ih_timeout }} 300 bash -c 'curl -s --max-time 120 <install.sh> | bash'`, while uv in the same file and LM Studio in [setup/ansible/roles/ai_tools/tasks/local_llm.yaml](../setup/ansible/roles/ai_tools/tasks/local_llm.yaml) used `curl -fsSL`. The k3d, uv and LM Studio pipes also run inside `bash -c '...'`, a new shell that does not get the task's `set -o pipefail`.
+
+Effect: not seen in a run. Without `-f` an error page for install.sh is handed to bash as a script. Without `-L` a moved script arrives as an empty redirect body and bash exits 0. And with `-f` alone, a fetch that fails inside `bash -c` still ends with the status of the shell on the right of the pipe, 0 for an empty script, so the task reports k3d, uv or LM Studio installed when nothing ran. This is checklist item 3a again, a status that belongs to another command.
+
+How it was proven: measured in the gate image, bash 5.2.37 and curl 8.14.1, with a fetch from a closed port. `set -o pipefail; timeout 30 bash -c "curl -fsSL --max-time 5 http://127.0.0.1:9/x.sh | bash"` ended with status 0 after `curl: (7) Failed to connect to 127.0.0.1 port 9`, and the same line with `set -o pipefail;` inside the quotes ended with 7.
+
+Fix: k3d fetches with `curl -fsSL --max-time 120`, and the k3d and uv tasks in [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) and LM Studio in [local_llm.yaml](../setup/ansible/roles/ai_tools/tasks/local_llm.yaml) start their `bash -c` string with `set -o pipefail;`, the form [docs/manual/debian-ubuntu/install.sh](manual/debian-ubuntu/install.sh) already used for uv. The Waydroid and Homebrew fetches gain `--max-time 120`, so every install script fetch under setup/ uses `curl -fsSL --max-time 120`. No shared variable or task file for fetching an install script exists, so the flags are written out the same in every place and the check below holds them together. [setup/software.md](../setup/software.md), [setup/README_SETUP.md](../setup/README_SETUP.md) and the four guides under [docs/manual/](manual/) showed k3d, NVM, SDKMAN and Pyenv as `curl -s`, `curl -o-` or a bare `curl` into bash, and now show `curl -fsSL`.
+
+Mechanical check: [e2e/tier1/curl_into_shell.sh](../e2e/tier1/curl_into_shell.sh). Run alone in the gate image against a copy of the tree at 3bde4f6 it failed 33 times, among them `setup/ansible/roles/software_installer/tasks/custom_installs.yaml:165 pipes curl into a shell without -f and -L, and runs that pipe without pipefail in its own shell, so a failed fetch ends with status 0`, and against the fixed tree with only the old local_llm.yaml put back it failed once, on its line 55.
+
+#### 10.208 The Oh My Zsh and Homebrew tasks handed the shell an empty script when the fetch failed, and passed
+
+Status: found while fixing 10.206, not seen in a run. Fixed here.
+
+Cause: `sh -c "$(curl -fsSL --max-time 120 <Oh My Zsh install.sh>)"` in [setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml](../setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml) and `NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL <Homebrew install.sh>)"` in [setup/ansible/roles/macos_core/tasks/main.yaml](../setup/ansible/roles/macos_core/tasks/main.yaml), both since 67322cb (2026-05-21), and the same Homebrew line in [docs/manual/macos/install.sh](manual/macos/install.sh) since e6a7c19 (2026-06-01). A failed command substitution leaves the argument empty, the line ends with the status of the shell that ran the empty script, and `set -e` does not stop on a failed substitution inside an argument.
+
+Effect: a failed fetch makes the task report a change and pass, so its retries never run. Its `creates` file is still missing, so the next run tries again, but this run carries on without Oh My Zsh or Homebrew, and on macOS every brew task after it fails.
+
+How it was proven: in the gate image, `sh -c "$(curl -fsSL --max-time 5 http://127.0.0.1:9/x.sh)"` ended with status 0 after curl's error 7, and `installer="$(curl -fsSL --max-time 5 http://127.0.0.1:9/x.sh)" || ...` took the failure branch with 7.
+
+Fix: all three read the script into a variable first, `installer="$(curl -fsSL --max-time 120 <url>)" || exit 1` in the two tasks and under its own `set -euo pipefail` in the manual script, and the shell then runs `"$installer"`.
+
+Mechanical check: [e2e/tier1/curl_into_shell.sh](../e2e/tier1/curl_into_shell.sh) fails on a `sh -c` or `bash -c` handed `"$(curl ...)"` in any code file under setup/ or docs/manual/, and named all three in the copy of 3bde4f6.
+
+#### 10.209 The manual macOS script installed Homebrew and then called brew, which the installer leaves off the PATH
+
+Status: found while fixing 10.208, read in the source and not seen on a Mac. Fixed here.
+
+Cause: [docs/manual/macos/install.sh](manual/macos/install.sh) runs the Homebrew installer when `brew` is missing and then `brew update`. Homebrew's install.sh, read on its `HEAD` on 2026-10-26, uses `HOMEBREW_PREFIX_DEFAULT="/opt/homebrew"` on Apple Silicon and ends with "Next steps", which tells the user to run `eval "$(/opt/homebrew/bin/brew shellenv)"` and changes nothing in the running script. The playbook does not have this defect, because macos_core adds both prefixes to its PATH after the install.
+
+Effect: most likely, on a new Apple Silicon Mac the script stops at `brew update` with `brew: command not found` under `set -e`, right after a good Homebrew install. Not observed. That /opt/homebrew/bin is missing from the PATH a fresh Mac starts a script with comes from Apple's `/etc/paths` and was not measured here.
+
+How it was proven: read in the two scripts. macOS has no container tier, so nothing ran.
+
+Fix: after the install the script runs `eval "$("${brew_bin}" shellenv)"` for the first of /opt/homebrew/bin/brew and /usr/local/bin/brew that exists.
+
+Mechanical check: none. No tier runs the macOS script.

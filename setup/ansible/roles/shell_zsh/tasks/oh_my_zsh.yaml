@@ -108,7 +108,8 @@
   ansible.builtin.shell: |
     set -o pipefail
     export ZSH="{{ shell_zsh_oh_my_zsh_dir }}" ZDOTDIR="{{ zsh_config_dir }}"
-    sh -c "$(curl -fsSL --max-time 120 https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended --keep-zshrc </dev/null
+    installer="$(curl -fsSL --max-time 120 https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" || exit 1
+    sh -c "$installer" "" --unattended --keep-zshrc </dev/null
   args:
     executable: /bin/bash
     creates: "{{ shell_zsh_oh_my_zsh_dir }}/oh-my-zsh.sh"

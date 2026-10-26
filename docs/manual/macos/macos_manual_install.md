@@ -148,7 +148,7 @@ Run these as your normal user, in order.
 **NVM** (pinned `0.40.4`) + Node LTS:
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
 ```
 
 ```bash
@@ -158,7 +158,7 @@ nvm install --lts
 **SDKMAN** + Java:
 
 ```bash
-curl -s https://get.sdkman.io | bash
+curl -fsSL https://get.sdkman.io | bash
 ```
 
 ```bash
@@ -168,7 +168,7 @@ sdk install java 21.0.11-tem
 **Pyenv** + Python:
 
 ```bash
-curl https://pyenv.run | bash
+curl -fsSL https://pyenv.run | bash
 ```
 
 ```bash

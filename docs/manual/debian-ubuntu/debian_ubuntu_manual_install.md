@@ -210,7 +210,7 @@ sudo apt-get update
 | rclone | `sudo apt-get install -y rclone` |
 | QasTools | `for package in qasmixer qashctl qasconfig; do sudo apt-get install -y "${package}" \|\| echo "FAILED: ${package}"; done` |
 | Minikube | `curl -fsSLo /tmp/minikube.deb https://github.com/kubernetes/minikube/releases/download/v1.38.1/minikube_1.38.1-0_amd64.deb && sudo apt-get install -y /tmp/minikube.deb` |
-| k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
+| k3d | `curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
 | uv | `curl -fsSL https://astral.sh/uv/install.sh \| sudo UV_UNMANAGED_INSTALL=/usr/local/bin sh` *(no apt package on Debian trixie or Ubuntu 26.04)* |
 
 > Gradle is installed via SDKMAN, not apt — see [Developer toolchain](#developer-toolchain-sdk--runtimes).
@@ -384,7 +384,7 @@ Run these **as your normal user** (no sudo), in order — each writes to your sh
 **NVM** (pinned `0.40.4`) + Node LTS:
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
 ```
 
 ```bash
@@ -394,7 +394,7 @@ nvm install --lts
 **SDKMAN** + Java + Gradle:
 
 ```bash
-curl -s https://get.sdkman.io | bash
+curl -fsSL https://get.sdkman.io | bash
 ```
 
 ```bash
@@ -408,7 +408,7 @@ sdk install gradle
 **Pyenv** + Python:
 
 ```bash
-curl https://pyenv.run | bash
+curl -fsSL https://pyenv.run | bash
 ```
 
 ```bash

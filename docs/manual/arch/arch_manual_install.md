@@ -54,7 +54,7 @@ sudo pacman -Syu
 | DBeaver CE | `flatpak install -y flathub io.dbeaver.DBeaverCommunity` |
 | kubectl | `sudo pacman -S --needed kubectl` |
 | Minikube | `sudo pacman -S --needed minikube` |
-| k3d | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
+| k3d | `curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
 | Helm | `sudo pacman -S --needed helm` |
 | Terraform | `sudo pacman -S --needed terraform` |
 | GitHub CLI (gh) | `sudo pacman -S --needed github-cli` |
@@ -277,7 +277,7 @@ Run as your normal user (no sudo), in order. Gradle is in pacman above; Java com
 **NVM** (pinned `0.40.4`) + Node LTS:
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
 ```
 
 ```bash
@@ -287,7 +287,7 @@ nvm install --lts
 **SDKMAN** + Java:
 
 ```bash
-curl -s https://get.sdkman.io | bash
+curl -fsSL https://get.sdkman.io | bash
 ```
 
 ```bash
@@ -297,7 +297,7 @@ sdk install java 21.0.11-tem
 **Pyenv** + Python:
 
 ```bash
-curl https://pyenv.run | bash
+curl -fsSL https://pyenv.run | bash
 ```
 
 ```bash

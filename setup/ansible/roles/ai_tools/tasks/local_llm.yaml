@@ -52,7 +52,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     export PATH="$PATH:/sbin:/usr/sbin"
-    {{ ih_timeout }} 600 bash -c 'curl -fsSL --max-time 120 https://lmstudio.ai/install.sh | bash -s -- --no-modify-path' </dev/null
+    {{ ih_timeout }} 600 bash -c 'set -o pipefail; curl -fsSL --max-time 120 https://lmstudio.ai/install.sh | bash -s -- --no-modify-path' </dev/null
   args:
     executable: /bin/bash
   become: yes
