@@ -7620,3 +7620,19 @@ How it was proven: read in the two scripts. macOS has no container tier, so noth
 Fix: after the install the script runs `eval "$("${brew_bin}" shellenv)"` for the first of /opt/homebrew/bin/brew and /usr/local/bin/brew that exists.
 
 Mechanical check: none. No tier runs the macOS script.
+
+### Found when two Windows jobs of run 40231731507 were lost, 2026-10-26
+
+#### 10.210 Two Windows jobs lost their GitHub-hosted runners, and no repository cause was found
+
+Status: outside this repository as far as measured. Recorded so the next agent does not chase it as a winget defect.
+
+Cause: the hosted runners of two jobs stopped talking to GitHub. Why is unknown.
+
+Effect: GitHub run 40231731507, `e2e-matrix.yml` with scenario forced-failure and distro debian on master 7dfb88a, 2026-10-25. Jobs 121293092672 "Windows default apps" and 121293092696 "Windows four apps only" both started at 21:14:03 UTC and ended failed at 22:07:03 and 22:09:04 with the annotation `The hosted runner lost communication with the server. Anything in your workflow that terminates the runner process, starves it for CPU/Memory, or blocks its network access can cause this error.` The default apps job was in "Register Ubuntu inside WSL, which a bare runner has none of", started 21:22:57, and the four apps job in "Run the bootstrap wizard, everything off then a handful enabled by name", started 21:21:38, and neither step ever completed. No log was uploaded, the logs API answers `BlobNotFound`, and no artefact was written. "Windows all apps" and "Windows settings only" in the same run started in the same second and passed.
+
+How it was proven: the jobs API of run attempt 1 for the times and the steps, the check run annotations for the message, and the logs API for `BlobNotFound`, read on 2026-10-26. Measured the same day by the agent that triaged the run, and not repeated for this entry: both runners were silent from about 21:21 to 21:23 UTC, the image `windows-2025-vs2026` 20261021.278.1 also ran the passing Windows jobs of this run, and the message appears in none of the 80 runs before it. Read again for this entry: both of these jobs passed in run 40231740344 on the same image, `windows-2025-vs2026` version 20261021.278.1. The case against an outside cause was looked for once: the two losses came in different steps about 80 seconds apart, and the same steps passed in the two sibling jobs, which points at the runners rather than at one step. A repository cause is not ruled out, only not found.
+
+Fix: none in this repository. The two jobs were run again on 2026-10-26, attempt 2 started at 13:51:43 UTC, and that result is reported separately.
+
+Mechanical check: none.
