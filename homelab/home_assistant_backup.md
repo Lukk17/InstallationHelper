@@ -100,4 +100,4 @@ Open Settings, then Add-ons, and confirm Zigbee2MQTT and the broker are running 
 
 Look at a Zigbee device that reports frequently, a temperature sensor or a power plug, and confirm the value updates. Entities can exist and still be stale if the broker chain has not reconnected.
 
-Confirm the machine has the address you expect, since a restored Home Assistant with a new address breaks everything pointing at it, including the dashboard tiles in [homepage_dashboard.md](homepage_dashboard.md) and the checks in [uptime_kuma.md](uptime_kuma.md).
+Confirm the machine has the address you expect, since a restored Home Assistant with a new address breaks everything pointing at it, including the dashboard tiles in [homepage_dashboard.md](homepage_dashboard.md), the checks in [uptime_kuma.md](uptime_kuma.md) and the `hass.internal` proxy entry in [nginx_proxy_manager.md](nginx_proxy_manager.md#proxying-home-assistant).

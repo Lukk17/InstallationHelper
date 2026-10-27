@@ -743,7 +743,7 @@ Revoke it on the same page, Settings, then API Keys: Disable stops the key until
 
 ### HOMEASSISTANT_URL
 
-The Home Assistant web page on its own virtual machine, `http://<ha-vm-ip>:8123`, the address [home_assistant_vm.md](home_assistant_vm.md) opens for onboarding. Home Assistant has no `.internal` name, as [nginx_proxy_manager.md](nginx_proxy_manager.md) explains, so this address is the only one. The one command for this lab in [Set a key](#set-a-key) sets it.
+The Home Assistant web page on its own virtual machine, `http://<ha-vm-ip>:8123`, the address [home_assistant_vm.md](home_assistant_vm.md) opens for onboarding. Home Assistant also answers at `https://hass.internal` through the proxy, see [nginx_proxy_manager.md](nginx_proxy_manager.md#proxying-home-assistant), but this key keeps the direct address, so it works without AdGuard Home and the proxy. The one command for this lab in [Set a key](#set-a-key) sets it.
 
 ---
 

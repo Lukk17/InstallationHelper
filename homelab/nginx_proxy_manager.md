@@ -69,12 +69,14 @@ This is the one list of `.internal` names in this lab. Set up every entry from i
 | `files.internal` | http | `filebrowser` | 80 | on | on | none | File Browser, see [lan_storage.md](lan_storage.md). The Samba drive on the same name needs no entry |
 | `plex.internal` | http | `<docker-vm-ip>` | 32400 | on | on | none | Host network, see [Proxying Plex](#proxying-plex). Open as `/web` |
 | `proxmox.internal` | https | `<proxmox-host>` | 8006 | on | on | [the Proxmox lines](#the-advanced-lines-for-proxmox) | Not a container, see [Proxying the Proxmox interface](#proxying-the-proxmox-interface). Open over `https` |
+| `hass.internal` | http | `<ha-vm-ip>` | 8123 | on | on | none | Home Assistant on its own virtual machine. Needs the proxy in its trusted proxies, see [Proxying Home Assistant](#proxying-home-assistant) |
 | `ascend-web-hunter.internal` | http | `ascend-web-hunter` | 7021 | on | on | none | Not deployed yet, so this lab has no entry for it. Forward port and host port are the same, see below |
 
-In this lab the two addresses are:
+In this lab the three addresses are:
 
 ```text
 <proxmox-host>   192.168.1.10
+<ha-vm-ip>       192.168.1.11
 <docker-vm-ip>   192.168.1.12
 ```
 
@@ -151,9 +153,31 @@ owner set the entry to the row above, with the address alone, websockets and Blo
 Advanced lines, and `https://proxmox.internal` answered 200 with certificate check 0. No login through the proxy has
 been reported yet.
 
-Home Assistant deliberately has no entry. It lives on its own virtual machine at `<ha-vm-ip>:8123`, and every phone
-in the house already has that bookmarked or uses the app, so putting it behind a name that only resolves on the home
-network buys nothing.
+---
+
+### Proxying Home Assistant
+
+Home Assistant runs on its own virtual machine, not in the Compose file, so like Proxmox its row has an address, `<ha-vm-ip>`, with no `:8123` after it, and port 8123. Its scheme is `http`, because Home Assistant itself keeps serving plain `http`: the Google Assistant local connection and the Cloudflare tunnel to the public name need that. The `https` side of `hass.internal` comes from the proxy, like every other name. Websockets must be on, because the Home Assistant web page and the apps get their live data over a websocket.
+
+The entry alone is not enough. Home Assistant refuses requests that come through a proxy it does not trust, so add the Docker VM's address to its trusted proxies. Since Home Assistant 2026.8 these settings are no longer in `configuration.yaml` but in the web interface, stored in `.storage/http`:
+
+1. In Home Assistant, open Settings, then System, then Network.
+2. Under Trusted proxies, add `<docker-vm-ip>/32`, the address the proxy's requests come from. Keep the entries that are already there.
+3. Turn on Trust X-Forwarded-For.
+4. Save. Home Assistant restarts. Confirm the change within 5 minutes, or Home Assistant goes back to the old settings and restarts again.
+
+In this lab the trusted proxies are:
+
+```text
+172.30.33.0/24
+172.30.32.0/23
+127.0.0.1/32
+192.168.1.12/32
+```
+
+The direct address `http://<ha-vm-ip>:8123` keeps working, and it is still what the Homepage tile in [homepage_dashboard.md](homepage_dashboard.md) and the monitor in [uptime_kuma.md](uptime_kuma.md) use. `homeassistant.local` cannot get `https` from the local certificate authority, because its name constraint permits only names under `.internal`, see [internal_ca.md](internal_ca.md).
+
+On this lab, on 2026-10-27, `https://hass.internal/auth/providers` answered 200 with a certificate that verified against the lab's authority, the websocket upgrade answered 101, and both the direct address and the public name still worked.
 
 ---
 

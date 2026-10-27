@@ -409,15 +409,15 @@ The browser shows an old certificate, or a new name is missing from it. The prox
 
 ### Lab example
 
-The values on this lab, deployed on 2026-10-24:
+The values on this lab, deployed on 2026-10-24, with `hass.internal` added on 2026-10-27:
 
 ```text
 <ca-dir>         ~/.local/state/agents/workspace/homelab-ca
 <ca-name>        Homelab internal CA 2026
-<names>          dashboard-proxmox.internal,uptime.internal,syncthing.internal,adguard.internal,nginx-proxmox.internal,notes.internal,files.internal,plex.internal,proxmox.internal,ascend-web-hunter.internal
+<names>          dashboard-proxmox.internal,uptime.internal,syncthing.internal,adguard.internal,nginx-proxmox.internal,notes.internal,files.internal,plex.internal,proxmox.internal,ascend-web-hunter.internal,hass.internal
 <user>           lukk
 <docker-vm-ip>   192.168.1.12
-certificate      valid to 2027-11-25 00:55 UTC, renew from 2027-10-26
+certificate      valid to 2027-11-28 14:00 UTC, renew from 2027-10-29
 CA fingerprint   sha256 57:CC:62:6C:F0:8D:1B:F5:08:5C:74:21:E5:BC:B6:B6:36:F1:58:48:CA:90:CC:14:7B:FF:14:AE:12:69:3D:17
 ```
 
@@ -437,5 +437,7 @@ What was measured that day, with curl 8.23.0 in a container on the owner's compu
 | `ascend-web-hunter.internal` | refused, `tlsv1 unrecognized name` | none | 200, the proxy's Default Site page |
 
 `proxmox.internal` answered 500 over both schemes that day because its proxy host still had `192.168.1.10:8006` in Forward Hostname, and the proxy log said `invalid port in upstream "192.168.1.10:8006:8006/"`, see [nginx_proxy_manager.md](nginx_proxy_manager.md#every-internal-name). On 2026-10-25 the owner removed the port from that field, and then every name with a proxy host, `proxmox.internal` included, answered over `https` with certificate check 0 and over `http`, and `https://proxmox.internal` answered 200. `ascend-web-hunter.internal` is in the certificate but has no proxy host yet, because the service is not deployed.
+
+On 2026-10-27 `hass.internal` was appended to `INTERNAL_DNS_NAMES`, the job logged `issuing a new certificate: the name list changed` with the end date above, and after the proxy restart `https://hass.internal/auth/providers` answered 200 with a valid certificate, see [nginx_proxy_manager.md](nginx_proxy_manager.md#proxying-home-assistant).
 
 Before the lab, the whole path ran in throwaway containers on a private Docker network: the real `jc21/nginx-proxy-manager:2.15.1` with two proxy host files copied from the lab, the job with a test CA, and curl from a second container. Both names answered 200 over `https` with certificate check 0 and over `http`. The proxy served the old certificate until it was restarted, and the new one after. A second run of the job said `the certificate is still good, nothing issued`, a changed name list, a certificate with 10 days left and a replaced CA each made it issue a new one, and a name outside `.internal`, a wildcard, a CA without the name constraint and a key of another CA each made it refuse with exit 2 or 3.

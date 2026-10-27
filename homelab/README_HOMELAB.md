@@ -36,7 +36,7 @@ Concrete example, the lab these documents were written from:
 ```mermaid
 graph TB
     accTitle: Home lab architecture
-    accDescr: A router hands out the Docker VM as DNS for the LAN. A Proxmox host runs a Home Assistant VM and a Docker VM. AdGuard Home resolves every query and routes internal names through Nginx Proxy Manager to the service containers. A one-shot job hands Nginx Proxy Manager the https certificate for those names. A USB disk on the host is handed to the Docker VM and shared at its root by File Browser and Samba, with the Plex library in its media folder.
+    accDescr: A router hands out the Docker VM as DNS for the LAN. A Proxmox host runs a Home Assistant VM and a Docker VM. AdGuard Home resolves every query and routes internal names through Nginx Proxy Manager to the service containers and to Home Assistant. A one-shot job hands Nginx Proxy Manager the https certificate for those names. A USB disk on the host is handed to the Docker VM and shared at its root by File Browser and Samba, with the Plex library in its media folder.
 
     NET([Internet]) --> R["Router"]
     R -->|hands out the Docker VM as DNS| C([Phones, PCs, TVs])
@@ -74,6 +74,7 @@ graph TB
     NPM --> PL
     NPM --> FB
     NPM -->|VM address, port 32400| PX
+    NPM -->|Home Assistant VM address, port 8123| HA
     C -->|network drive, port 445| SMB
     DISK -->|"/mnt/data"| FB
     DISK -->|"/mnt/data"| SMB
@@ -103,6 +104,7 @@ graph TB
 | Samba | `\\files.internal\files`, not proxied | 445 | 445 | The same folder as a network drive |
 | Plex | `plex.internal`, host network | 32400 | 32400 | Films and series from the USB data disk, direct play only |
 | Proxmox web interface | `proxmox.internal`, on the Proxmox host | 8006 | none, not a container | The hypervisor's own web page, proxied by address because it is not in the Compose file |
+| Home Assistant | `hass.internal`, on its own virtual machine | 8123 | none, not a container | The smart home, proxied by address because it is not in the Compose file, see [home_assistant_vm.md](home_assistant_vm.md) |
 | Telegraf | none, host network | none | none | Records a ping and DNS row every second, an HTTP row every 5 seconds, and a download, upload and latency row every hour, as proof of short provider outages, written into the Syncthing folder |
 | internal-ca | none, one-shot job | none | none | Signs the `https` certificate for every `.internal` name from your own certificate authority and hands it to Nginx Proxy Manager, then exits, see [internal_ca.md](internal_ca.md) |
 
@@ -116,7 +118,7 @@ Telegraf has no proxy entry and no published port either. It runs on `network_mo
 
 File Browser and Samba serve the same folder, `/mnt/data`, the top of a USB disk the Proxmox host hands whole to the Docker VM. The Plex library is the `media` folder at the top of that disk, so films are copied in through the network drive or File Browser like any other file, and Plex mounts only that folder, read only. Samba has no proxy entry because SMB is not web traffic: `files.internal` reaches it only because the AdGuard wildcard rewrite sends every `.internal` name to the VM. Plex runs on `network_mode: host` with a hard limit of 1.5 CPU cores, so its proxy entry points at the VM's address and port 32400. The disk is covered in [lan_storage.md](lan_storage.md), Plex in [plex_media_server.md](plex_media_server.md).
 
-Proxmox is not a container and is not in the Compose file, so its proxy entry points at an address rather than a container name. [nginx_proxy_manager.md](nginx_proxy_manager.md) covers that case. Home Assistant is reached directly on `<ha-vm-ip>:8123`, since it is the one service you open constantly from phones that already have it bookmarked.
+Proxmox is not a container and is not in the Compose file, so its proxy entry points at an address rather than a container name. [nginx_proxy_manager.md](nginx_proxy_manager.md) covers that case. Home Assistant is the same case: `hass.internal` points at `<ha-vm-ip>:8123`, Home Assistant must list the Docker VM in its trusted proxies, and the direct address `<ha-vm-ip>:8123` keeps working, see [Proxying Home Assistant](nginx_proxy_manager.md#proxying-home-assistant).
 
 ---
 
