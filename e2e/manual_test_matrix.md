@@ -187,7 +187,7 @@ Copy-Item $env:USERPROFILE\installation_verify.log C:\out\
 |---|---|
 | The whole winget path, all 80 mappings, on client Windows | The seven Microsoft Store product ids, which need the Store and a signed-in account |
 | The client-edition packages the Server runner skips, `partition_wizard` among them | Anything wanting a reboot. Restarting a sandbox destroys it, so the optional features cannot be carried to the end |
-| The Chocolatey path and the custom installers, Java, Node, Flutter, the Android SDK, Gridcoin, Razer Cortex | `setup_wsl` and the Ansible-inside-WSL phase. WSL2 needs a hypervisor and a sandbox has no nested virtualisation |
+| The Chocolatey path and the custom installers, Java, Node, Flutter, the Android SDK, Gridcoin | `setup_wsl` and the Ansible-inside-WSL phase. WSL2 needs a hypervisor and a sandbox has no nested virtualisation |
 | The interactive checklist, on a real desktop | `enable_hyperv`, for the same reason |
 | The verification phase, and the cache reclaim between the packages and the SDKs | Every hardware row. A sandbox has no devices of its own |
 | Repeated clean runs, because every start is a fresh machine | Anything about your real machine's state, which is the point of it |

@@ -57,8 +57,8 @@ gridcoin_flatpak_url = "https://github.com/gridcoin-community/Gridcoin-Research/
 # binary, download from https://lenshq.io/download manually.
 gputest_version = "0.7.0"
 gputest_url = "https://ozone3d.net/gputest/dl/GpuTest_Linux_x64_{{ gputest_version }}.zip"
-# Razer ships evergreen installer URLs with no version in the path, both reached
-# from razer.com via the rzr.to short links (cortex-download, synapse-4-mac-download).
+# Razer ships an evergreen installer URL with no version in the path, reached
+# from razer.com via the rzr.to short link synapse-4-mac-download.
 razer_synapse_macos_pkg_url = "https://dl.razerzone.com/drivers/Synapse4/mac/RazerSynapseInstaller.pkg"
 # Fedora has no OpenRazer package; upstream ships it from the openSUSE Build Service.
 openrazer_fedora_repo_url = "https://openrazer.github.io/hardware:razer.repo"

@@ -378,7 +378,7 @@ git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-
 
 `install.sh` does **not** touch the AUR. Install an AUR helper once, then the packages.
 
-**One-time `yay` bootstrap** (the playbook's `arch_core` does this for you):
+**One-time `yay` bootstrap** (the playbook installs AUR packages through `paru` instead, and its `arch_core` builds `yay` only when `install_yay` is on):
 
 ```bash
 for package in git base-devel; do sudo pacman -S --needed --noconfirm "${package}" || echo "FAILED: ${package}"; done

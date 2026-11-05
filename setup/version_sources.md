@@ -87,7 +87,7 @@ Mapped in `vars/Archlinux.yaml` under `manager: pacman`.
 | RPC JSON API (`info`) | `https://aur.archlinux.org/rpc/?v=5&type=info&arg=<package>` |
 | RPC JSON API (`search`) | `https://aur.archlinux.org/rpc/?v=5&type=search&arg=<keyword>` |
 
-AUR builds need `yay` or `paru`, both built earlier in the playbook. Entries marked `manager: aur` in `vars/Archlinux.yaml`.
+AUR builds go through `paru`, which `arch_core` builds earlier in the playbook. `yay` is built only when `install_yay` is on, and nothing in the playbook uses it. Entries marked `manager: aur` in `vars/Archlinux.yaml`.
 
 ### `flatpak` — Flathub
 

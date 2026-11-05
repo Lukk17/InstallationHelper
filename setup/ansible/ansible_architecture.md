@@ -57,7 +57,7 @@ The `software_installer` role, in [roles/software_installer/tasks/dynamic_instal
 2. macOS: Homebrew first, a formula for a command line tool and a cask for an application, then the Mac App Store or the vendor's own DMG or PKG. Nothing uses the Mac App Store today. The vendor routes are Razer Synapse and Gridcoin, which have no cask, and OpenCode desktop version 1, which `opencode_use_v1` installs instead of the version 2 cask and which has no cask either. Antigravity, JetBrains Toolbox, LM Studio and VirtualBox are casks like any other application, `antigravity`, `jetbrains-toolbox`, `lm-studio` and `virtualbox`. The `lm-studio` cask installs on Apple Silicon only. NVM, Pyenv, SDKMAN and FVM come from their own install scripts on every Unix, macOS included, although Homebrew carries formulae for NVM, Pyenv and FVM and casks for the Temurin JDKs SDKMAN installs. The Android command line tools come from Google's zip although the cask `android-commandlinetools` exists. Claude Code, OpenCode, OpenSpec, Codex and Grok come from npm although Homebrew carries the casks `claude-code`, `codex` and `grok-build` and the formulae `opencode` and `openspec`.
 3. Debian and Ubuntu: the vendor's official apt repository, then Flatpak, then Snap, then the distribution's own apt.
 4. Fedora: the vendor's official dnf repository, then Flatpak, then Snap, then the distribution's own dnf.
-5. Arch: the official repositories through pacman, then the AUR through `yay`, then Flatpak, then Snap.
+5. Arch: the official repositories through pacman, then the AUR through `paru`, then Flatpak, then Snap.
 
 ---
 
