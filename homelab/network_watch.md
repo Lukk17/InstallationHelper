@@ -32,7 +32,8 @@ check domain and is built to be queried constantly. The HTTP check asks the matc
 behind it.
 
 Four files land in the shared folder, one per check: `ping.csv`, `dns.csv`, `http.csv`, `speed.csv`. Each file
-rotates at midnight local time and keeps 30 days of history.
+rotates once every 24 hours, not at midnight, and keeps 30 days of history. The times in the rows are UTC, not
+Polish time. Both are explained under "When the files rotate, and the time in them" further down.
 
 ---
 
@@ -130,8 +131,9 @@ Check it is actually writing, a minute or two after it starts:
 tail -n 5 /opt/docker-stack/syncthing/data/network-watch/ping.csv
 ```
 
-A handful of rows with today's timestamp means it is working. Nothing in that file at all, after giving it a
-minute, means the container never started, check `docker compose logs telegraf`. A file that only ever shows
+A handful of rows with a timestamp from the last minute or two means it is working. The timestamp is UTC, so it
+reads one hour behind Polish time in winter and two hours behind in summer. Nothing in that file at all, after
+giving it a minute, means the container never started, check `docker compose logs telegraf`. A file that only ever shows
 `result_code` of 1 or 2 for every target at once, with the `average_response_ms` column always empty, points back
 at the sysctl step above rather than at your actual network, since that is what every ping looks like when the
 unprivileged socket itself is refused.
@@ -376,6 +378,26 @@ Make the same change in [telegraf/telegraf.conf](telegraf/telegraf.conf) in your
 
 ---
 
+### When the files rotate, and the time in them
+
+The times in every row are UTC, not Polish time. Telegraf's CSV output turns every timestamp into UTC before it writes it, `metric.Time().UTC().Format(...)` in `plugins/serializers/csv/csv.go` of Telegraf 1.40.1, so the `TZ=Europe/Warsaw` line of the `telegraf` service in [compose.yaml](compose.yaml) does not change them. For Polish time, add 1 hour in winter (CET, from the last Sunday of October) and 2 hours in summer (CEST, from the last Sunday of March). Measured on 2026-11-06: the last row of `ping.csv` read `2026-11-06 14:08:13`, and the file itself was last changed at 15:08:13 CET.
+
+To convert one time, for example the start of an outage, use GNU `date` on Linux or in Git Bash:
+
+```bash
+TZ=Europe/Warsaw date -d '2026-11-04 23:24:42 UTC' '+%Y-%m-%d %H:%M:%S %Z'
+```
+
+It prints `2026-11-05 00:24:42 CET`, so that outage happened just after midnight Polish time, on the next day.
+
+The files do not rotate at midnight. `rotation_interval = "24h"` in [telegraf/telegraf.conf](telegraf/telegraf.conf) is a length of time, not a time of day. Telegraf's file writer, `internal/rotate/file_writer.go` in Telegraf 1.40.1, sets the next rotation to 24 hours after it opens the file. When Telegraf starts and `ping.csv` already exists, it counts from the time that file was last changed, which is the moment Telegraf last stopped. So the time of day of the rotation comes from the last restart of Telegraf, and it moves every time Telegraf restarts.
+
+Measured on 2026-11-06 from the file times in the synced folder: Telegraf stopped at 2026-10-27 17:05:43 UTC and started again at 17:09:43 UTC, and since then the files rotate at about 18:05 Polish time (17:05 UTC) every day. Before that restart they rotated at about 14:55 CET (13:55 UTC), and before 2026-10-23 at about 00:40 CEST (22:40 UTC). Telegraf checks the time only when it writes a row, and the next 24 hours start at the moment it rotates, so the rotation moves a little later every day: about one second a day for `ping.csv` and `dns.csv` (18:05:44 on 2026-10-28, 18:05:50 on 2026-11-05), and about five seconds a day for `http.csv`, which gets a row only every 5 seconds.
+
+A rotated file is named after the moment it was rotated: the date in Polish time, then the same moment in seconds since 1970. So `ping.2026-11-05-1793898350.csv` holds the rows from 2026-11-04 17:05:50 to 2026-11-05 17:05:50 UTC, most of them from the day before the date in its name. An outage close to the rotation time can start in one file and end in the next.
+
+---
+
 ### Finding an outage in the files afterward
 
 A target is down once it has failed two rows in a row, which filters out a single lost ping without filtering
@@ -383,12 +405,15 @@ out anything that matters. In `ping.csv` and `dns.csv`, which both get a row eve
 In `http.csv`, which gets a row every 5 seconds, the same two rows in a row is ten seconds. Failed means either
 `result_code` is not 0, or, in `ping.csv` specifically, the fourth column is `percent_packet_loss` sitting at
 100, which catches a plain timeout that the ping plugin itself scored as a success. The command below tells a ping
-file from the others by its file name, `ping.csv` or a rotated `ping.<date>.csv`, so it never misreads
+file from the others by its file name, `ping.csv` or a rotated `ping.<date>-<seconds>.csv`, so it never misreads
 `rcode_value` or `http_response_code` in the other two files as a loss figure. It cannot use the header row for
-this, because Telegraf writes a header only when it creates a file, not after the midnight rotation: measured on
-2026-10-23, that day's `ping.csv` held no header line at all while a rotated `ping.2026-10-11-*.csv` held three.
-It also skips every header line it does find, and there can be more than one in a file, since a container restart
-mid-day appends a fresh header to that day's file.
+this, because Telegraf writes a header only once each time it starts, into whatever file is open at that moment,
+and never into the new file a rotation starts: measured on 2026-10-23, that day's `ping.csv` held no header line
+at all while a rotated `ping.2026-10-11-*.csv` held three. Measured again on 2026-11-06: every file rotated since
+2026-10-28 holds no header, and `ping.2026-10-28-1793207144.csv` holds one, at line 56760, between the last row
+before the restart at 17:05:43 UTC and the first row after it at 17:09:43 UTC. It also skips every header line it
+does find, and there can be more than one in a file, since every container restart adds a fresh header to the
+file open at that moment.
 
 It needs `gawk`. Git Bash on Windows already ships it. On the Docker VM, install it once if `awk --version` does
 not say GNU Awk:
@@ -400,8 +425,10 @@ sudo apt install -y gawk
 The command itself, run from inside the folder that holds the CSV files:
 
 ```bash
-gawk -F, 'FNR==1{is_ping=(FILENAME~/(^|\/)ping[^\/]*$/)} $0~/^timestamp,/{next} {t=$1;tg=$2;rc=$3;loss=$4;gsub(/[-:]/," ",t);ts=mktime(t);bad=(rc!=0)||(is_ping&&loss==100);if(bad){f[tg]++;if(f[tg]==1)d[tg]=ts;if(f[tg]==2&&!r[tg]){print "DOWN",strftime("%Y-%m-%d %H:%M:%S",d[tg]),tg;r[tg]=1}}else{if(r[tg]){print "UP  ",strftime("%Y-%m-%d %H:%M:%S",ts),tg,"after",ts-d[tg],"s"};f[tg]=0;r[tg]=0}}' ping.csv
+gawk -F, 'FNR==1{is_ping=(FILENAME~/(^|\/)ping[^\/]*$/)} $0~/^timestamp,/{next} {t=$1;tg=$2;rc=$3;loss=$4;gsub(/[-:]/," ",t);ts=mktime(t,1);bad=(rc!=0)||(is_ping&&loss==100);if(bad){f[tg]++;if(f[tg]==1)d[tg]=ts;if(f[tg]==2&&!r[tg]){print "DOWN",strftime("%Y-%m-%d %H:%M:%S",d[tg],1),tg;r[tg]=1}}else{if(r[tg]){print "UP  ",strftime("%Y-%m-%d %H:%M:%S",ts,1),tg,"after",ts-d[tg],"s"};f[tg]=0;r[tg]=0}}' ping.csv
 ```
+
+The times it prints are UTC, the same as the rows in the file. The `1` at the end of `mktime(t,1)` and of each `strftime` tells gawk to read and print the times as UTC. Without it, gawk reads them as the local time of the computer it runs on, and on a computer set to Polish time it reads the hour from 02:00 to 02:59 UTC on the last Sunday of March as the hour after it, since that hour does not exist in Polish time. Measured with GNU Awk 5.4.1 and `TZ=Europe/Warsaw`: without the `1`, `2027 03 28 02 30 00` and `2027 03 28 03 30 00` gave the same number, so an outage in that hour would print at the wrong time and with the wrong length.
 
 Tested against a built CSV with a 31 second outage planted in it, it printed exactly this:
 
@@ -423,10 +450,31 @@ than `percent_packet_loss` and happened to sit at 100 for two rows, the command 
 the correct answer, since a DNS failure is already carried by `result_code` and `rcode_value` is not a loss
 figure.
 
-Tested a fourth time against a `ping.csv` with no header row at all, the shape of every file after a midnight
-rotation, with two seconds of 100 percent loss at `result_code` 0, it printed one `DOWN` line and one `UP` line
+Tested a fourth time against a `ping.csv` with no header row at all, the shape of every file a rotation starts,
+with two seconds of 100 percent loss at `result_code` 0, it printed one `DOWN` line and one `UP` line
 two seconds apart, the same shape as the second test. The older version of this command, which looked for
 `percent_packet_loss` in the header, printed nothing for that file.
 
+Tested a fifth time on 2026-11-06 against the real rotated file `ping.2026-11-05-1793898350.csv`, which has no header row. It printed 22 lines, and the first eight are one real outage:
+
+```text
+DOWN 2026-11-04 23:24:42 194.204.159.1
+DOWN 2026-11-04 23:24:42 1.1.1.1
+DOWN 2026-11-04 23:24:42 83.1.5.230
+DOWN 2026-11-04 23:24:42 8.8.8.8
+UP   2026-11-04 23:24:57 1.1.1.1 after 15 s
+UP   2026-11-04 23:24:57 8.8.8.8 after 15 s
+UP   2026-11-04 23:24:57 83.1.5.230 after 15 s
+UP   2026-11-04 23:24:57 194.204.159.1 after 15 s
+```
+
+The router, `192.168.1.1`, kept answering through those 15 seconds, so by the table at the top this was the Orange line. In Polish time it started at 2026-11-05 00:24:42.
+
 Run it against `dns.csv` or `http.csv` the same way, the column layout is the same shape in every file, timestamp
-first, the target second, the result code third.
+first, the target second, the result code third. For a rotated file, put its name in place of `ping.csv`.
+
+To search every day at once, give it all the ping files, the rotated ones first and the live one last. The shell sorts `ping.2*.csv` by the date in the names, so the rows arrive in time order and an outage that runs across a rotation is printed once. The pattern also leaves out the `ping.sync-conflict-*.csv` copies Syncthing can make:
+
+```bash
+gawk -F, 'FNR==1{is_ping=(FILENAME~/(^|\/)ping[^\/]*$/)} $0~/^timestamp,/{next} {t=$1;tg=$2;rc=$3;loss=$4;gsub(/[-:]/," ",t);ts=mktime(t,1);bad=(rc!=0)||(is_ping&&loss==100);if(bad){f[tg]++;if(f[tg]==1)d[tg]=ts;if(f[tg]==2&&!r[tg]){print "DOWN",strftime("%Y-%m-%d %H:%M:%S",d[tg],1),tg;r[tg]=1}}else{if(r[tg]){print "UP  ",strftime("%Y-%m-%d %H:%M:%S",ts,1),tg,"after",ts-d[tg],"s"};f[tg]=0;r[tg]=0}}' ping.2*.csv ping.csv
+```
