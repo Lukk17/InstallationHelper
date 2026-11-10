@@ -123,7 +123,6 @@ install_claude_code: true
 install_claude_desktop: true
 install_jetbrains_toolbox: true
 install_opencode: true
-opencode_use_v1: false  # Installs OpenCode version 1 instead of version 2, the npm package opencode-ai and the version 1 desktop app, and removes version 2. Version 2 is the default.
 install_kilo_code: true  # Kilo Code CLI, the kilo command, npm package @kilocode/cli on every OS like the other AI command line tools.
 install_openspec: true
 install_codex: true

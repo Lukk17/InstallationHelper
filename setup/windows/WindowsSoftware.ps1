@@ -152,40 +152,6 @@ function Get-WindowsSoftwareToggle {
     return $toggles
 }
 
-# The toggle that chooses which OpenCode version the installs take. A version choice rather than a system setting,
-# so WindowsSettings.ps1 does not apply it, and e2e/tier1/windows_settings.sh reads this line to tell the two apart.
-$script:OpenCodeVersionToggle = 'opencode_use_v1'
-
-function Get-OpenCodeVersion {
-    <#
-    .SYNOPSIS
-        v1 when opencode_use_v1 is on for this run, v2 otherwise.
-    .DESCRIPTION
-        One answer for the npm phase, the custom installs and the verification, the way
-        setup/ansible/tasks/opencode_version.yaml is the one answer on Linux and macOS. Read through
-        Get-WindowsGroupVarToggle, so the file layering and the scripted selection apply to it exactly as
-        to every other toggle, and narrowed by OnlyKeys like every other key the checklist offers.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $AllVarsPath,
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $WindowsVarsPath,
-        [hashtable] $ToggleOverride,
-        [string[]] $OnlyKeys
-    )
-
-    $toggles = Get-WindowsGroupVarToggle -AllVarsPath $AllVarsPath -WindowsVarsPath $WindowsVarsPath -ToggleOverride $ToggleOverride
-    $useV1 = $toggles.ContainsKey($script:OpenCodeVersionToggle) -and $toggles[$script:OpenCodeVersionToggle]
-    if ($OnlyKeys -and $script:OpenCodeVersionToggle -notin $OnlyKeys) {
-        $useV1 = $false
-    }
-    if ($useV1) {
-        return 'v1'
-    }
-    return 'v2'
-}
-
 function Get-WindowsSoftwareMapping {
     <#
     .SYNOPSIS
@@ -1000,8 +966,6 @@ function Install-WingetPackage {
         # decide whether winget has to run elevated, see Test-WingetElevationRequired.
         [string] $InstallerType = '',
         [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900,
-        # The directory to install into, passed to winget as --location. Empty means the installer's own default.
-        [string] $Location = '',
         # The mapping's verify_path, for a package winget cannot list. See Get-WingetInstallVerdict.
         [string] $VerifyPath = '',
 
@@ -1056,7 +1020,6 @@ function Install-WingetPackage {
         'install', '--exact', '--id', $PackageId, '--source', $Source, '--silent',
         '--accept-source-agreements', '--accept-package-agreements', '--disable-interactivity')
     if ($Scope) { $arguments += @('--scope', $Scope) }
-    if ($Location) { $arguments += @('--location', $Location) }
     # A timeout is never retried. The deadline exists to stop a hang, and spending it again on one
     # package is the opposite of what it is for. An elevated child that never ran winget is not
     # retried either: there is no flaky installer to give a second chance, and after a refused prompt

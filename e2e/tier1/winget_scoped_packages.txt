@@ -46,7 +46,6 @@ PuTTY.PuTTY machine,none wix
 Python.Python.3.11 machine,user burn
 SlackTechnologies.Slack none,user msix
 Spotify.Spotify user -
-SST.OpenCodeDesktop user -
 SublimeHQ.SublimeText.4 machine,none inno
 Syncthing.Syncthing none portable
 Telegram.TelegramDesktop none,user portable

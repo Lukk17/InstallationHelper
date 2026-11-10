@@ -145,9 +145,8 @@ software_mapping:
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
   # AI
-  # Version 2 of the desktop app, from the vendor's own .rpm, because no package manager carries version 2: Flathub's
-  # ai.opencode.opencode, mapped here until 2026-10-15, is the version 1 app (1.18.8), and there is no dnf repository.
-  # The location is opencode_desktop_rpm_url in setup/pinned_values/pinned_values.toml. `package` is the rpm Name of
+  # Version 2 of the desktop app, from the vendor's own .rpm, because no package manager carries version 2: Flathub has
+  # none, and there is no dnf repository. The location is opencode_desktop_rpm_url in setup/pinned_values/pinned_values.toml. `package` is the rpm Name of
   # the 2.0.29 .rpm, read from its header on 2026-10-15: opencode. The CLI is the npm package.
   # exclude_path sends it down the rpm route instead of dnf: its dependencies through dnf, then rpm -U without that
   # path, through setup/ansible/tasks/install_role_packages.yaml. Its Electron chrome-sandbox has the same build id as
@@ -155,10 +154,6 @@ software_mapping:
   # whichever came second, measured on fedora:44 on 2026-10-18. The links are debugging aids nothing at run time reads.
   # e2e/tier2/rpm_file_conflicts.sh fails on any path two packages of the default set claim outside such a field.
   opencode_desktop: { manager: "dnf_url", package: "opencode", exclude_path: "/usr/lib/.build-id" }
-  # Version 1 of the desktop app, installed instead of opencode_desktop when opencode_use_v1 is true, through
-  # setup/ansible/tasks/opencode_version.yaml, which is why it has no install_ toggle of its own. 1.18.8 on
-  # flathub.org/api/v2/appstream on 2026-10-15, a system installation.
-  opencode_desktop_v1: { manager: "flatpak", package: "ai.opencode.opencode" }
 
   # Media / Design
   vlc: { manager: "dnf", package: "vlc" }

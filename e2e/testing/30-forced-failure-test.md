@@ -148,7 +148,7 @@ The verify log's own assertions, in the order the play runs them. Every containe
 12. `Assert the expected desktop environment is installed` does not run at all, reached or otherwise. The scenario declares `e2e_expect_desktop: none`.
 13. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell` is not reached, for the same reason.
 14. `Assert the desktop session environment carries every development variable` is not reached, for the same reason.
-15. `Assert exactly the selected OpenCode version is installed` is not reached, for the same reason.
+15. `Assert the command line package @opencode/cli replaces is gone` is not reached, for the same reason.
 
 What this capability deliberately does not assert mechanically. The rescue in `dynamic_install.yaml` lists every application in the failed batch, and the injected batch holds one synthetic name, so on this scenario that list is one line long and proves nothing about the real behaviour. Read the `[ERROR] Install step ... failed` line in the log and confirm it names the batch and says a batch is one call, then record that as a judgement in the Result summary rather than ticking an assertion box for it. Asserting the wording of a message is how a test starts failing on a rewording rather than on a defect.
 

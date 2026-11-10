@@ -34,9 +34,8 @@
     Do not upgrade the already-installed winget and Chocolatey packages first.
 .PARAMETER Software
     The starting point the checklist would have started from, for a run with no checklist.
-    defaults is the group_vars values as they are, all turns every selectable toggle on except
-    opencode_use_v1, which stays off so OpenCode stays on version 2, and none turns every selectable
-    toggle off so -EnableKey can build a run up from nothing. Implies -NonInteractive.
+    defaults is the group_vars values as they are, all turns every selectable toggle on, and none
+    turns every selectable toggle off so -EnableKey can build a run up from nothing. Implies -NonInteractive.
 .PARAMETER EnableKey
     Toggle keys to turn on, whatever group_vars says. Comma separated, or a PowerShell array, and
     the keys are the ones -ListSoftware prints. A key the wizard does not offer is refused rather
@@ -135,14 +134,6 @@ $ExcludedVars = @(
     'remove_distro_grub', 'remove_distro_systemd_boot'
 )
 
-# Checklist keys -Software all leaves off rather than on, because turning one on is not more software but a
-# switch away from the default. opencode_use_v1 replaces OpenCode version 2 with version 1 and removes version
-# 2, so "install all" would downgrade OpenCode, which the owner ruled out on 2026-10-15. -EnableKey still turns
-# one on. The checklist's select-all leaves them off too, through Resolve-PickedSelection, and ticking one on its
-# own still turns it on. Must stay identical to ALL_SOFTWARE_KEEPS_OFF in setup.sh, and e2e/tier1/wizard_parse.sh
-# fails if the two ever disagree.
-$AllSoftwareKeepsOff = @('opencode_use_v1')
-
 # System settings share the checklist with software, so their labels have to say what
 # they do. "Wsl" next to "Chrome" tells the user nothing about what ticking it changes.
 # Keys not listed here fall through to the default prefix strip.
@@ -150,7 +141,6 @@ $LabelOverrides = @{
     'set_custom_wallpaper'  = 'System: set the desktop wallpaper'
     'setup_wsl'             = 'System: install WSL and Ubuntu (Windows)'
     'enable_hyperv'         = 'System: enable Hyper-V and the WSL and .NET and Sandbox features. Needs a reboot (Windows)'
-    'opencode_use_v1'       = 'Switch OpenCode from v2 to v1'
 }
 
 if ($env:NO_COLOR -or $NoColor) {
@@ -229,9 +219,7 @@ function Invoke-AndShowNpmTools {
         -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
         -ToggleOverride  $ToggleOverride
 
-    $openCodeVersion = Get-OpenCodeVersion -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars `
-        -ToggleOverride $ToggleOverride -OnlyKeys $OnlyKeys
-    $r = Invoke-WindowsNpmToolInstall -Toggles $toggles -OnlyKeys $OnlyKeys -OpenCodeVersion $openCodeVersion
+    $r = Invoke-WindowsNpmToolInstall -Toggles $toggles -OnlyKeys $OnlyKeys
 
     if ($r.NpmMissing) {
         Write-Hint '  npm is not on PATH, so the CLI tools below were NOT installed:'
@@ -334,10 +322,7 @@ function Invoke-AndShowCustomInstalls {
         -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
         -ToggleOverride  $ToggleOverride
 
-    $openCodeVersion = Get-OpenCodeVersion -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars `
-        -ToggleOverride $ToggleOverride -OnlyKeys $OnlyKeys
-    $mappings = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $AnsibleDir 'vars\Windows.yaml')
-    $r = Invoke-WindowsCustomInstall -Toggles $toggles -OnlyKeys $OnlyKeys -OpenCodeVersion $openCodeVersion -Mappings $mappings
+    $r = Invoke-WindowsCustomInstall -Toggles $toggles -OnlyKeys $OnlyKeys
 
     if ($r.Results.Count -eq 0) {
         Write-Status 'SDKs and standalone installers: none enabled'
@@ -345,8 +330,8 @@ function Invoke-AndShowCustomInstalls {
     }
 
     Write-Status "SDKs and standalone installers: $($r.Installed.Count) done, $($r.Present.Count) already present, $($r.Failed.Count) failed"
-    # The OpenCode rows name what they removed or moved, which nothing else on the screen would say.
-    foreach ($i in @($r.Installed | Where-Object { $_.Key -in @('opencode_desktop', 'opencode_data') -and $_.Detail })) {
+    # The OpenCode desktop row names where the app went, which nothing else on the screen would say.
+    foreach ($i in @($r.Installed | Where-Object { $_.Key -eq 'opencode_desktop' -and $_.Detail })) {
         Write-Hint "  [INFO] $($i.Key): $($i.Detail)"
     }
     foreach ($f in $r.Failed) {
@@ -1117,8 +1102,6 @@ function Resolve-ToggleOverride {
         Here the phases read the files themselves, so an entry per toggle would be a second copy of a
         value nobody asked to change, and a second copy is a thing that can be wrong.
 
-        An all baseline leaves the keys in $AllSoftwareKeepsOff off, and -EnableKey still turns them on.
-
         -DisableKey is applied last so a key named in both ends up off. That order is the safe one.
     #>
     [CmdletBinding()]
@@ -1136,7 +1119,7 @@ function Resolve-ToggleOverride {
 
     $override = @{}
     switch ($Baseline) {
-        'all'  { foreach ($item in $Selectable) { $override[$item.Key] = $item.Key -notin $AllSoftwareKeepsOff } }
+        'all'  { foreach ($item in $Selectable) { $override[$item.Key] = $true } }
         'none' { foreach ($item in $Selectable) { $override[$item.Key] = $false } }
     }
     foreach ($key in $enable)  { $override[$key] = $true }
@@ -1215,10 +1198,6 @@ function Show-SoftwarePicker {
         @{ N = 'Default'; E = { if ($_.Enabled) { 'ON' } else { 'off' } } }
 
     $title = 'Software — type to filter, Space to mark, Enter to confirm, Esc to cancel'
-    $keptOff = @($Items | Where-Object { $_.Key -in $AllSoftwareKeepsOff } | ForEach-Object { '"' + $_.Label + '"' })
-    if ($keptOff.Count -gt 0) {
-        $title += ". Select-all leaves $($keptOff -join ', ') off. Tick it on its own to turn it on."
-    }
 
     $selected = $rows |
         Out-ConsoleGridView `
@@ -1272,16 +1251,11 @@ function Resolve-PickedSelection {
         Ticked means on and unticked means off, whatever group_vars says, which is what the bash wizard's
         checklist does by passing every state as an extra variable. Until 2026-10-15 the ticked keys were
         handed over as OnlyKeys alone, which can only narrow: a key that group_vars has off stayed off
-        however it was ticked, so no toggle that ships off, opencode_use_v1 among them, could be turned on
-        from this checklist. The override carries every offered key, and OnlyKeys still narrows the same
+        however it was ticked, so no toggle that ships off could be turned on from this checklist. The override carries every offered key, and OnlyKeys still narrows the same
         set, so both readers agree.
 
         OnlyKeys is the bare name, without the install_ prefix the checklist carries, because the native
         installers key off it. The system settings have no prefix and pass through unchanged.
-
-        Every offered key ticked is read as select-all, which cannot leave one item out, so the keys in
-        $AllSoftwareKeepsOff are dropped from it the way -Software all drops them. Anything less than
-        everything is kept as ticked, so a key in that list ticked on its own still turns on.
     #>
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
@@ -1291,10 +1265,6 @@ function Resolve-PickedSelection {
     )
 
     $keys = @($PickedKeys)
-    $unticked = @($Selectable | Where-Object { $_.Key -notin $keys })
-    if ($Selectable.Count -gt 0 -and $unticked.Count -eq 0) {
-        $keys = @($keys | Where-Object { $_ -notin $AllSoftwareKeepsOff })
-    }
 
     return [PSCustomObject]@{
         OnlyKeys       = @($keys | ForEach-Object {
@@ -1394,7 +1364,7 @@ function Show-ResolvedPlan {
     # The three later phases own their own key lists and each exposes it, so this asks them instead
     # of restating what they handle. A restated list is how a toggle comes to be reported as planned
     # by one file and ignored by another.
-    $npmPackages = Get-NpmToolPackage -OpenCodeVersion (Get-OpenCodeVersion -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars -ToggleOverride $ToggleOverride)
+    $npmPackages = Get-NpmToolPackage
 
     $wantedNpm     = @(@($npmPackages.Keys)             | Where-Object { $softwareToggles.ContainsKey($_) -and $softwareToggles[$_] })
     $wantedCustom  = @(@(Get-WindowsCustomInstallKey)   | Where-Object { $softwareToggles.ContainsKey($_) -and $softwareToggles[$_] })

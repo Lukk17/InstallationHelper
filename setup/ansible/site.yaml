@@ -32,12 +32,6 @@
       ansible.builtin.import_tasks: tasks/load_os_dict.yaml
       tags: always
 
-    # After the dictionary, because the selected desktop route replaces its opencode_desktop entry. The same file
-    # tells verify_install.yaml which version to expect and which one must be gone.
-    - name: Decide which OpenCode version this run installs
-      ansible.builtin.import_tasks: tasks/opencode_version.yaml
-      tags: always
-
     # Not a bare apt refresh any longer: tasks/apt_cache_refresh.yaml fetches every third-party
     # repository an earlier run added on its own first, and undoes one whose host does not answer,
     # because a refresh of everything at once failed the whole play here for one dead vendor. Fedora

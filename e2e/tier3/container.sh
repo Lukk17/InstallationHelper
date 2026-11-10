@@ -419,14 +419,6 @@ start_run() {
             echo "ERROR: the generated software set is empty, so this scenario would install nothing it claims to" >&2
             exit 2
         fi
-        # all_software leaves off what the wizard's --software all leaves off, opencode_use_v1 among them, so
-        # "install all" keeps OpenCode on version 2 here as it does on a real machine. Read from setup.sh, and
-        # refused when it cannot be, for the reason the empty set above is refused.
-        if ! all_software_keeps_off_text="$(wizard_all_software_keeps_off)"; then
-            echo "ERROR: what --software all leaves off could not be read out of setup.sh" >&2
-            exit 2
-        fi
-        mapfile -t all_software_keeps_off <<<"${all_software_keeps_off_text}"
         mapfile -t excepted < <(sed -n '/^e2e_generate_except:/,/^[a-z]/p' "${SCENARIO_FILE}" \
             | grep -E '^[[:space:]]*-[[:space:]]' | sed -E 's/^[[:space:]]*-[[:space:]]*//' | tr -d '"')
 
@@ -450,11 +442,7 @@ start_run() {
             # So does a container limit, appended below. Emitting it here too would
             # produce a duplicate mapping key and a warning per toggle.
             grep -qhE "^${t}:" "${LIMITS_FILES[@]}" && continue
-            value="${gen_value}"
-            if [[ "${SCENARIO_GENERATE}" == all_software && " ${all_software_keeps_off[*]} " == *" ${t} "* ]]; then
-                value="false"
-            fi
-            echo "${t}: ${value}" >> "${EFFECTIVE_VARS}"
+            echo "${t}: ${gen_value}" >> "${EFFECTIVE_VARS}"
         done
         dim "generated ${#all_toggles[@]} checklist toggles as ${gen_value}"
         [[ ${#skipped[@]} -gt 0 ]] && warn "excluded from the generated set: ${skipped[*]}"

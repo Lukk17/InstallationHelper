@@ -28,14 +28,9 @@ Set-StrictMode -Version Latest
 # reference now. Keyed by the group_vars toggle name without its install_ prefix, so it lines up
 # with the software mapping keys. Replaces names an older package that claims the same bin, which
 # Install-NpmToolPackage removes first, because npm refuses the new one with EEXIST while it is there.
-# OpenCode's two command line packages, by version. Get-OpenCodeVersion picks one, Get-NpmToolPackage puts it in
-# the opencode row and names the other as the package it replaces, because both claim the opencode command. The
-# same pair as ih_opencode_cli in setup/ansible/tasks/opencode_version.yaml, which windows_npm_parity.sh compares.
-$script:OpenCodeCliPackages = [ordered]@{ v2 = '@opencode/cli'; v1 = 'opencode-ai' }
-
 $script:NpmToolPackages = [ordered]@{
     claude_code = @{ Package = '@anthropic-ai/claude-code'; Display = 'Claude Code' }
-    opencode    = @{ Display = 'OpenCode' }
+    opencode    = @{ Package = '@opencode/cli'; Replaces = 'opencode-ai'; Display = 'OpenCode' }
     kilo_code   = @{ Package = '@kilocode/cli';             Display = 'Kilo Code' }
     openspec    = @{ Package = '@fission-ai/openspec';      Display = 'OpenSpec' }
     codex       = @{ Package = '@openai/codex';             Display = 'Codex' }
@@ -46,24 +41,13 @@ $script:NpmToolPackages = [ordered]@{
 function Get-NpmToolPackage {
     <#
     .SYNOPSIS
-        The npm package table for one OpenCode version, so the installer, the plan and the verification read one definition.
-    .DESCRIPTION
-        A copy, with the opencode row filled in from $script:OpenCodeCliPackages: Package is the selected version's
-        package, Replaces the other one's, and ReplacedReason the words the result line uses when it removed it.
+        The npm package table, so the installer, the plan and the verification read one definition.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
-    param([ValidateSet('v1', 'v2')] [string] $OpenCodeVersion = 'v2')
+    param()
 
-    $other = if ($OpenCodeVersion -eq 'v1') { 'v2' } else { 'v1' }
-    $table = [ordered]@{}
-    foreach ($key in $script:NpmToolPackages.Keys) {
-        $table[$key] = $script:NpmToolPackages[$key].Clone()
-    }
-    $table['opencode']['Package']        = $script:OpenCodeCliPackages[$OpenCodeVersion]
-    $table['opencode']['Replaces']       = $script:OpenCodeCliPackages[$other]
-    $table['opencode']['ReplacedReason'] = "OpenCode $other command line tool, $($script:OpenCodeCliPackages[$other]), because $OpenCodeVersion is selected"
-    return $table
+    return $script:NpmToolPackages
 }
 
 function Test-NpmAvailable {
@@ -85,9 +69,7 @@ function Install-NpmToolPackage {
     param(
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $PackageName,
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $DisplayName,
-        [string] $ReplacesPackage = '',
-        # The words the result uses for what was removed and why. Empty means "<package>, which it replaces".
-        [string] $ReplacedReason = ''
+        [string] $ReplacesPackage = ''
     )
 
     $anchor = $env:USERPROFILE
@@ -127,7 +109,7 @@ function Install-NpmToolPackage {
                 }
             }
             if ($removal -match 'removed \d+ package') {
-                $replacedDetail = if ($ReplacedReason) { "removed $ReplacedReason" } else { "removed $ReplacesPackage, which it replaces" }
+                $replacedDetail = "removed $ReplacesPackage, which it replaces"
                 $replacedRemoved = $true
             }
         }
@@ -181,20 +163,17 @@ function Invoke-WindowsNpmToolInstall {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [hashtable] $Toggles,
-        [string[]] $OnlyKeys,
-        # From Get-OpenCodeVersion, the answer the custom installs and the verification are given too.
-        [ValidateSet('v1', 'v2')] [string] $OpenCodeVersion = 'v2'
+        [string[]] $OnlyKeys
     )
 
-    $packages = Get-NpmToolPackage -OpenCodeVersion $OpenCodeVersion
+    $packages = Get-NpmToolPackage
     $wanted = [System.Collections.Generic.List[object]]::new()
     foreach ($key in $packages.Keys) {
         if (-not ($Toggles.ContainsKey($key) -and $Toggles[$key])) { continue }
         if ($OnlyKeys -and $key -notin $OnlyKeys) { continue }
         $entry = $packages[$key]
         $wanted.Add([PSCustomObject]@{ Key = $key; Package = $entry.Package; Display = $entry.Display
-                                       Replaces = if ($entry.ContainsKey('Replaces')) { $entry.Replaces } else { '' }
-                                       ReplacedReason = if ($entry.ContainsKey('ReplacedReason')) { $entry.ReplacedReason } else { '' } })
+                                       Replaces = if ($entry.ContainsKey('Replaces')) { $entry.Replaces } else { '' } })
     }
 
     if ($wanted.Count -eq 0) {
@@ -213,7 +192,7 @@ function Invoke-WindowsNpmToolInstall {
 
     $results = [System.Collections.Generic.List[object]]::new()
     foreach ($tool in $wanted) {
-        $results.Add((Install-NpmToolPackage -PackageName $tool.Package -DisplayName $tool.Display -ReplacesPackage $tool.Replaces -ReplacedReason $tool.ReplacedReason))
+        $results.Add((Install-NpmToolPackage -PackageName $tool.Package -DisplayName $tool.Display -ReplacesPackage $tool.Replaces))
     }
 
     return [PSCustomObject]@{

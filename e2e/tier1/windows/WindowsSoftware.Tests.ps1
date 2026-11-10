@@ -2517,18 +2517,17 @@ Describe 'Install-OpenCodeDesktop' {
         Should -Invoke Install-DirectInstaller -Times 0 -Exactly
     }
 
-    It 'runs the installer over version 1, which shares its uninstall entry, and says it removed version 1' {
-        $script:OpenCodeMajors = [System.Collections.Generic.Queue[int]]::new([int[]]@(1, 1, 2))
+    It 'runs the installer over an older major version' {
+        $script:OpenCodeMajors = [System.Collections.Generic.Queue[int]]::new([int[]]@(1, 2))
         Mock Get-FileProductMajorVersion { $script:OpenCodeMajors.Dequeue() }
 
         $r = Install-OpenCodeDesktop -Versions $script:OpenCodePins -ProofPath $script:OpenCodeExe
 
         $r.Status | Should -Be 'installed'
-        $r.Detail | Should -BeLike 'removed OpenCode v1 desktop because v2 is selected*'
         Should -Invoke Install-DirectInstaller -Times 1 -Exactly
     }
 
-    It 'fails when the installer reports success and version 1 is still at the path' {
+    It 'fails when the installer reports success and an older major version is still at the path' {
         Mock Get-FileProductMajorVersion { 1 }
 
         $r = Install-OpenCodeDesktop -Versions $script:OpenCodePins -ProofPath $script:OpenCodeExe
@@ -2563,99 +2562,7 @@ Describe 'Install-OpenCodeDesktop' {
     }
 }
 
-Describe 'Install-OpenCodeDesktop with opencode_use_v1' {
-
-    # The version 1 desktop app comes from winget, and winget calls an installed version 2 a newer copy of the
-    # same package because both register one uninstall entry, so version 2 has to be uninstalled first. Every
-    # winget call is mocked: this decides what runs, a real run would change the machine.
-    BeforeEach {
-        $script:OpenCodeExe = Join-Path $TestDrive 'Programs/OpenCode/OpenCode.exe'
-        $script:V1Mapping = [PSCustomObject]@{ Manager = 'winget'; Package = 'SST.OpenCodeDesktop'; Scope = 'user' }
-        Mock Get-WingetPath { 'winget.exe' }
-        Mock Invoke-BoundedWinget { [PSCustomObject]@{ Output = 'Successfully uninstalled'; ExitCode = 0; TimedOut = $false } }
-        Mock Install-WingetPackage { [PSCustomObject]@{ Package = $PackageId; Status = 'installed'; Detail = '' } }
-        Mock Install-DirectInstaller { throw 'the version 2 installer must not run when version 1 is selected' }
-    }
-
-    It 'uninstalls version 2, installs version 1 per user into the proof directory, and says so' {
-        # Version 2 before, 2 again for the "was the other one here" question, gone after the uninstall, 1 after the install.
-        $script:OpenCodeMajors = [System.Collections.Generic.Queue[int]]::new([int[]]@(2, 2, 0, 1))
-        Mock Get-FileProductMajorVersion { $script:OpenCodeMajors.Dequeue() }
-        $expectedDir = Split-Path -Parent $script:OpenCodeExe
-
-        $r = Install-OpenCodeDesktop -Versions @{} -ProofPath $script:OpenCodeExe -Version 'v1' -V1Mapping $script:V1Mapping
-
-        $r.Status | Should -Be 'installed'
-        $r.Detail | Should -Be 'removed OpenCode v2 desktop because v1 is selected'
-        Should -Invoke Invoke-BoundedWinget -Times 1 -Exactly -ParameterFilter {
-            ($Arguments -join ' ') -like 'uninstall --product-code d074f30d-5f88-5885-b075-be1348cc7676 *--silent*'
-        }
-        Should -Invoke Install-WingetPackage -Times 1 -Exactly -ParameterFilter {
-            $PackageId -eq 'SST.OpenCodeDesktop' -and $Scope -eq 'user' -and $Location -eq $expectedDir
-        }
-    }
-
-    It 'reports present and runs nothing when version 1 is already installed' {
-        Mock Get-FileProductMajorVersion { 1 }
-
-        $r = Install-OpenCodeDesktop -Versions @{} -ProofPath $script:OpenCodeExe -Version 'v1' -V1Mapping $script:V1Mapping
-
-        $r.Status | Should -Be 'present'
-        Should -Invoke Invoke-BoundedWinget -Times 0 -Exactly
-        Should -Invoke Install-WingetPackage -Times 0 -Exactly
-    }
-
-    It 'installs nothing when version 2 could not be removed' {
-        Mock Get-FileProductMajorVersion { 2 }
-
-        $r = Install-OpenCodeDesktop -Versions @{} -ProofPath $script:OpenCodeExe -Version 'v1' -V1Mapping $script:V1Mapping
-
-        $r.Status | Should -Be 'failed'
-        $r.Detail | Should -BeLike 'OpenCode v2 desktop could not be removed, so version 1 was not installed:*'
-        Should -Invoke Install-WingetPackage -Times 0 -Exactly
-    }
-
-    It 'names the missing mapping instead of installing anything' {
-        Mock Get-FileProductMajorVersion { 0 }
-
-        $r = Install-OpenCodeDesktop -Versions @{} -ProofPath $script:OpenCodeExe -Version 'v1'
-
-        $r.Status | Should -Be 'failed'
-        $r.Detail | Should -BeLike '*maps no opencode_desktop_v1*'
-    }
-
-    It 'reads the version 1 package from vars/Windows.yaml, which no toggle names' {
-        $mappings = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
-
-        $mappings['opencode_desktop_v1'].Package | Should -Be 'SST.OpenCodeDesktop'
-        $mappings['opencode_desktop_v1'].Scope | Should -Be 'user'
-        Get-WindowsCustomInstallMappingKey | Should -Contain 'opencode_desktop_v1'
-    }
-}
-
-Describe 'Get-OpenCodeVersion' {
-
-    BeforeAll {
-        $script:AllVarsFile     = Join-Path $script:AnsibleDir 'group_vars\all.yaml'
-        $script:WindowsVarsFile = Join-Path $script:AnsibleDir 'group_vars\windows.yaml'
-    }
-
-    It 'is v2 with group_vars as they ship' {
-        Get-OpenCodeVersion -AllVarsPath $script:AllVarsFile -WindowsVarsPath $script:WindowsVarsFile | Should -Be 'v2'
-    }
-
-    It 'is v1 when the selection turns opencode_use_v1 on' {
-        Get-OpenCodeVersion -AllVarsPath $script:AllVarsFile -WindowsVarsPath $script:WindowsVarsFile `
-            -ToggleOverride @{ opencode_use_v1 = $true } | Should -Be 'v1'
-    }
-
-    It 'is v2 when the checklist left opencode_use_v1 unticked' {
-        Get-OpenCodeVersion -AllVarsPath $script:AllVarsFile -WindowsVarsPath $script:WindowsVarsFile `
-            -ToggleOverride @{ opencode_use_v1 = $true } -OnlyKeys @('opencode', 'opencode_desktop') | Should -Be 'v2'
-    }
-}
-
-Describe 'The OpenCode command line tool follows the selected version' {
+Describe 'The OpenCode command line tool replaces the older package that claims its command' {
 
     # The same global npm stub as the Install-NpmToolPackage tests above, so the call log says which verbs ran.
     BeforeAll {
@@ -2689,166 +2596,18 @@ Describe 'The OpenCode command line tool follows the selected version' {
         Mock Write-Host { }
     }
 
-    It 'names @opencode/cli and replaces opencode-ai for v2, and the other way round for v1' {
-        $v2 = Get-NpmToolPackage -OpenCodeVersion 'v2'
-        $v1 = Get-NpmToolPackage -OpenCodeVersion 'v1'
+    It 'names @opencode/cli and the older package it replaces' {
+        $table = Get-NpmToolPackage
 
-        $v2['opencode'].Package  | Should -Be '@opencode/cli'
-        $v2['opencode'].Replaces | Should -Be 'opencode-ai'
-        $v1['opencode'].Package  | Should -Be 'opencode-ai'
-        $v1['opencode'].Replaces | Should -Be '@opencode/cli'
-        (Get-NpmToolPackage)['opencode'].Package | Should -Be '@opencode/cli' -Because 'version 2 is the default'
+        $table['opencode'].Package  | Should -Be '@opencode/cli'
+        $table['opencode'].Replaces | Should -Be 'opencode-ai'
     }
 
-    It 'removes version 1 and installs version 2 by default, and says so' {
+    It 'removes the older package and installs @opencode/cli, and says so' {
         $summary = Invoke-WindowsNpmToolInstall -Toggles @{ opencode = $true }
 
         ($global:NpmStubCalls -join ' | ') | Should -Be 'list -g @opencode/cli --depth=0 | uninstall -g opencode-ai | install -g @opencode/cli'
-        @($summary.Installed)[0].Detail | Should -Be 'removed OpenCode v1 command line tool, opencode-ai, because v2 is selected'
-    }
-
-    It 'removes version 2 and installs version 1 when it is selected, and says so' {
-        $summary = Invoke-WindowsNpmToolInstall -Toggles @{ opencode = $true } -OpenCodeVersion 'v1'
-
-        ($global:NpmStubCalls -join ' | ') | Should -Be 'list -g opencode-ai --depth=0 | uninstall -g @opencode/cli | install -g opencode-ai'
-        @($summary.Installed)[0].Detail | Should -Be 'removed OpenCode v2 command line tool, @opencode/cli, because v1 is selected'
-    }
-}
-
-Describe 'Move-OpenCodeData' {
-
-    # Fake data folders carrying only the text the real databases carry, CREATE TABLE `session` for version 1
-    # and CREATE TABLE `session_v2` for version 2, read out of the databases opencode-ai 1.19.1 and
-    # @opencode/cli 2.0.29 created on 2026-10-15. roles/ai_tools/tasks/opencode_data.yaml is held to the same
-    # cases by e2e/tier1/opencode_switch.sh.
-    BeforeAll {
-        function New-FakeOpenCodeData {
-            param([string] $Path, [ValidateSet('v1', 'v2', 'v2-wal', 'migrated')] [string] $Kind, [string] $Marker)
-            $null = New-Item -ItemType Directory -Path $Path -Force
-            switch ($Kind) {
-                'v1'     { Set-Content -LiteralPath (Join-Path $Path 'opencode.db') -Value 'SQLite format 3 CREATE TABLE `session` (' -NoNewline }
-                'v2'     { Set-Content -LiteralPath (Join-Path $Path 'opencode.db') -Value 'SQLite format 3 CREATE TABLE `session_v2` (' -NoNewline }
-                'migrated' { Set-Content -LiteralPath (Join-Path $Path 'opencode.db') -Value 'SQLite format 3 CREATE TABLE `session` ( CREATE TABLE `session_v2` (' -NoNewline }
-                'v2-wal' {
-                    Set-Content -LiteralPath (Join-Path $Path 'opencode.db') -Value 'SQLite format 3' -NoNewline
-                    Set-Content -LiteralPath (Join-Path $Path 'opencode.db-wal') -Value 'WAL CREATE TABLE `session_v2` (' -NoNewline
-                }
-            }
-            Set-Content -LiteralPath (Join-Path $Path 'marker') -Value $Marker
-        }
-    }
-
-    BeforeEach {
-        $script:DataHome = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Path $script:DataHome
-        $script:Folder = Join-Path $script:DataHome 'opencode'
-    }
-
-    It 'moves version 2 data aside when version 1 is selected, deleting nothing' {
-        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2' -Marker 'v2 data'
-
-        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000'
-
-        $r.Status | Should -Be 'installed'
-        $r.Detail | Should -BeLike "moved $script:Folder to *opencode.v2-backup-20261015-120000, because it holds OpenCode v2 data and v1 is selected"
-        Test-Path -LiteralPath $script:Folder | Should -BeFalse
-        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v2-backup-20261015-120000\marker') | Should -Be 'v2 data'
-    }
-
-    It 'brings no version 1 backup back when version 1 is selected, so version 1 starts clean' {
-        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2' -Marker 'v2 data'
-        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v1-backup-20260101-000000') -Kind 'v1' -Marker 'older v1'
-        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v1-backup-20260202-000000') -Kind 'v1' -Marker 'newer v1'
-
-        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000'
-
-        $r.Status | Should -Be 'installed'
-        @($r.Detail -split '; ').Count | Should -Be 1
-        Test-Path -LiteralPath $script:Folder | Should -BeFalse
-        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v2-backup-20261015-120000\marker') | Should -Be 'v2 data'
-        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v1-backup-20260101-000000\marker') | Should -Be 'older v1'
-        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v1-backup-20260202-000000\marker') | Should -Be 'newer v1'
-    }
-
-    It 'leaves a version 1 backup where it is when version 1 is selected and there is no data folder' {
-        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v1-backup-20260101-000000') -Kind 'v1' -Marker 'v1 backup'
-
-        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000'
-
-        $r.Status | Should -Be 'present'
-        Test-Path -LiteralPath $script:Folder | Should -BeFalse
-        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v1-backup-20260101-000000\marker') | Should -Be 'v1 backup'
-    }
-
-    It 'sets version 1 data aside and brings the newest version 2 backup back when version 2 is selected' {
-        New-FakeOpenCodeData -Path $script:Folder -Kind 'v1' -Marker 'v1 data'
-        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v2-backup-20260101-000000') -Kind 'v2-wal' -Marker 'older v2'
-        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v2-backup-20260202-000000') -Kind 'v2' -Marker 'newer v2'
-
-        $r = Move-OpenCodeData -Version 'v2' -DataHome $script:DataHome -Stamp '20261015-120000'
-
-        $r.Status | Should -Be 'installed'
-        Get-Content -LiteralPath (Join-Path $script:Folder 'marker') | Should -Be 'newer v2'
-        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v1-backup-20261015-120000\marker') | Should -Be 'v1 data'
-        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v2-backup-20260101-000000\marker') | Should -Be 'older v2'
-        @($r.Detail -split '; ').Count | Should -Be 2
-    }
-
-    It 'leaves version 1 data for version 2 to migrate when no version 2 backup exists' {
-        New-FakeOpenCodeData -Path $script:Folder -Kind 'v1' -Marker 'v1 data'
-
-        $r = Move-OpenCodeData -Version 'v2' -DataHome $script:DataHome -Stamp '20261015-120000'
-
-        $r.Status | Should -Be 'present'
-        Get-Content -LiteralPath (Join-Path $script:Folder 'marker') | Should -Be 'v1 data'
-    }
-
-    It 'keeps data version 2 migrated from version 1, which carries both tables, when version 2 is selected' {
-        New-FakeOpenCodeData -Path $script:Folder -Kind 'migrated' -Marker 'migrated data'
-        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v2-backup-20260101-000000') -Kind 'v2' -Marker 'older v2'
-
-        $r = Move-OpenCodeData -Version 'v2' -DataHome $script:DataHome -Stamp '20261015-120000'
-
-        $r.Status | Should -Be 'present'
-        Get-Content -LiteralPath (Join-Path $script:Folder 'marker') | Should -Be 'migrated data'
-    }
-
-    It 'reads a version 2 database whose tables are still in the write-ahead log' {
-        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2-wal' -Marker 'v2 data'
-
-        Get-OpenCodeDataVersion -Directory $script:Folder | Should -Be 'v2'
-    }
-
-    It 'finds the table text across the boundary between two blocks it reads' {
-        $null = New-Item -ItemType Directory -Path $script:Folder
-        $needle = [System.Text.Encoding]::ASCII.GetBytes('CREATE TABLE `session_v2`')
-        $bytes = [byte[]]::new(1MB + 64)
-        [Array]::Copy($needle, 0, $bytes, 1MB - 10, $needle.Length)
-        [System.IO.File]::WriteAllBytes((Join-Path $script:Folder 'opencode.db'), $bytes)
-
-        Test-OpenCodeDatabaseTable -Directory $script:Folder -Table 'session_v2' | Should -BeTrue
-        Test-OpenCodeDatabaseTable -Directory $script:Folder -Table 'session' | Should -BeFalse
-    }
-
-    It 'moves nothing the second time' {
-        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2' -Marker 'v2 data'
-        Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000' | Out-Null
-
-        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120001'
-
-        $r.Status | Should -Be 'present'
-        @(Get-ChildItem -LiteralPath $script:DataHome -Directory).Count | Should -Be 1
-    }
-
-    It 'refuses to move onto a backup that already exists, and moves nothing' {
-        New-FakeOpenCodeData -Path $script:Folder -Kind 'v2' -Marker 'v2 data'
-        New-FakeOpenCodeData -Path (Join-Path $script:DataHome 'opencode.v2-backup-20261015-120000') -Kind 'v2' -Marker 'earlier'
-
-        $r = Move-OpenCodeData -Version 'v1' -DataHome $script:DataHome -Stamp '20261015-120000'
-
-        $r.Status | Should -Be 'failed'
-        Get-Content -LiteralPath (Join-Path $script:Folder 'marker') | Should -Be 'v2 data'
-        Get-Content -LiteralPath (Join-Path $script:DataHome 'opencode.v2-backup-20261015-120000\marker') | Should -Be 'earlier'
+        @($summary.Installed)[0].Detail | Should -Be 'removed opencode-ai, which it replaces'
     }
 }
 
@@ -2856,7 +2615,7 @@ Describe 'Resolve-PickedSelection in setup.ps1' {
 
     # Lifted out of the syntax tree for the reason the Install-ConsoleGuiTools tests give: setup.ps1 runs
     # Invoke-Main when it is loaded. Until 2026-10-15 the ticked keys only narrowed the group_vars set, so a
-    # toggle that ships off, opencode_use_v1 among them, could not be turned on from the checklist.
+    # toggle that ships off could not be turned on from the checklist.
     BeforeAll {
         $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
         $parseErrors = $null
@@ -2873,98 +2632,47 @@ Describe 'Resolve-PickedSelection in setup.ps1' {
         foreach ($definition in $definitions) {
             . ([scriptblock]::Create($definition.Extent.Text))
         }
-        # The list Resolve-ToggleOverride reads for -Software all, taken from setup.ps1 rather than restated.
-        $script:KeepsOffAssignment = @($ast.FindAll({
-            param($node)
-            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-                $node.Left.Extent.Text -eq '$AllSoftwareKeepsOff'
-        }, $false))
-        if ($script:KeepsOffAssignment.Count -eq 1) {
-            . ([scriptblock]::Create($script:KeepsOffAssignment[0].Extent.Text))
-        }
         $script:Offered = @(
             [PSCustomObject]@{ Key = 'install_chrome'; Enabled = $true }
             [PSCustomObject]@{ Key = 'install_opencode'; Enabled = $true }
-            [PSCustomObject]@{ Key = 'opencode_use_v1'; Enabled = $false }
+            [PSCustomObject]@{ Key = 'install_stable_diffusion'; Enabled = $false }
             [PSCustomObject]@{ Key = 'setup_wsl'; Enabled = $true }
         )
     }
 
     It 'turns a ticked toggle that ships off on, and an unticked one that ships on off' {
-        $picked = Resolve-PickedSelection -PickedKeys @('install_opencode', 'opencode_use_v1') -Selectable $script:Offered
+        $picked = Resolve-PickedSelection -PickedKeys @('install_opencode', 'install_stable_diffusion') -Selectable $script:Offered
 
-        $picked.ToggleOverride['opencode_use_v1'] | Should -BeTrue
+        $picked.ToggleOverride['install_stable_diffusion'] | Should -BeTrue
         $picked.ToggleOverride['install_opencode'] | Should -BeTrue
         $picked.ToggleOverride['install_chrome'] | Should -BeFalse
         $picked.ToggleOverride['setup_wsl'] | Should -BeFalse
-        ($picked.OnlyKeys -join ' ') | Should -Be 'opencode opencode_use_v1'
+        ($picked.OnlyKeys -join ' ') | Should -Be 'opencode stable_diffusion'
     }
 
-    It 'declares the list -Software all leaves off once, with opencode_use_v1 in it' {
-        $script:KeepsOffAssignment.Count | Should -Be 1
-        $AllSoftwareKeepsOff | Should -Contain 'opencode_use_v1'
-    }
-
-    It 'leaves opencode_use_v1 off under -Software all, so install all keeps OpenCode on version 2' {
+    It 'turns every offered key on under -Software all' {
         $override = Resolve-ToggleOverride -Selectable $script:Offered -Baseline 'all'
 
-        $override['opencode_use_v1'] | Should -BeFalse
+        $override['install_stable_diffusion'] | Should -BeTrue
         $override['install_opencode'] | Should -BeTrue
         $override['install_chrome'] | Should -BeTrue
         $override['setup_wsl'] | Should -BeTrue
     }
 
-    It 'turns opencode_use_v1 on under -Software all when -EnableKey names it' {
-        $override = Resolve-ToggleOverride -Selectable $script:Offered -Baseline 'all' -EnableKey 'opencode_use_v1'
-
-        $override['opencode_use_v1'] | Should -BeTrue
-    }
-
-    It 'makes Get-OpenCodeVersion answer v2 under -Software all' {
-        $override = Resolve-ToggleOverride -Selectable $script:Offered -Baseline 'all'
-
-        Get-OpenCodeVersion -AllVarsPath (Join-Path $script:AnsibleDir 'group_vars\all.yaml') `
-            -WindowsVarsPath (Join-Path $script:AnsibleDir 'group_vars\windows.yaml') `
-            -ToggleOverride $override | Should -Be 'v2'
-    }
-
-    It 'makes Get-OpenCodeVersion answer v1 when the switch is ticked' {
-        $picked = Resolve-PickedSelection -PickedKeys @('install_opencode', 'opencode_use_v1') -Selectable $script:Offered
-
-        Get-OpenCodeVersion -AllVarsPath (Join-Path $script:AnsibleDir 'group_vars\all.yaml') `
-            -WindowsVarsPath (Join-Path $script:AnsibleDir 'group_vars\windows.yaml') `
-            -ToggleOverride $picked.ToggleOverride -OnlyKeys $picked.OnlyKeys | Should -Be 'v1'
-    }
-
-    It 'leaves opencode_use_v1 off when every offered key is ticked, which is how select-all answers' {
+    It 'turns every offered key on when every offered key is ticked, which is how select-all answers' {
         $picked = Resolve-PickedSelection -PickedKeys @($script:Offered.Key) -Selectable $script:Offered
 
-        $picked.ToggleOverride['opencode_use_v1'] | Should -BeFalse
+        $picked.ToggleOverride['install_stable_diffusion'] | Should -BeTrue
         $picked.ToggleOverride['install_opencode'] | Should -BeTrue
         $picked.ToggleOverride['install_chrome'] | Should -BeTrue
         $picked.ToggleOverride['setup_wsl'] | Should -BeTrue
-        $picked.OnlyKeys | Should -Not -Contain 'opencode_use_v1'
-    }
-
-    It 'keeps opencode_use_v1 on when it is ticked on its own' {
-        $picked = Resolve-PickedSelection -PickedKeys @('opencode_use_v1') -Selectable $script:Offered
-
-        $picked.ToggleOverride['opencode_use_v1'] | Should -BeTrue
-        ($picked.OnlyKeys -join ' ') | Should -Be 'opencode_use_v1'
-    }
-
-    It 'keeps opencode_use_v1 on when everything but one other key is ticked with it' {
-        $picked = Resolve-PickedSelection -PickedKeys @('install_opencode', 'opencode_use_v1', 'setup_wsl') -Selectable $script:Offered
-
-        $picked.ToggleOverride['opencode_use_v1'] | Should -BeTrue
-        $picked.ToggleOverride['install_chrome'] | Should -BeFalse
     }
 }
 
 Describe 'Show-SoftwarePicker in setup.ps1 with every row selected' {
 
     # The grid is replaced by a stand-in that hands back every row it was given, which is what its select-all
-    # does, and records the title it was shown. Lifted out of the syntax tree for the reason above.
+    # does. Lifted out of the syntax tree for the reason above.
     BeforeAll {
         $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
         $parseErrors = $null
@@ -2981,39 +2689,21 @@ Describe 'Show-SoftwarePicker in setup.ps1 with every row selected' {
         foreach ($definition in $definitions) {
             . ([scriptblock]::Create($definition.Extent.Text))
         }
-        $assignments = @($ast.FindAll({
-            param($node)
-            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-                ($node.Left.Extent.Text -eq '$AllSoftwareKeepsOff' -or $node.Left.Extent.Text -eq '$LabelOverrides')
-        }, $false))
-        foreach ($assignment in $assignments) {
-            . ([scriptblock]::Create($assignment.Extent.Text))
-        }
         function Import-Module { }
         function Out-ConsoleGridView {
             param([Parameter(ValueFromPipeline)] $InputObject, [string] $Title, [string] $OutputMode)
-            begin { $script:GridTitle = $Title }
             process { $InputObject }
         }
         $script:Items = @(
             [PSCustomObject]@{ Key = 'install_chrome'; Label = 'Chrome'; Enabled = $true }
             [PSCustomObject]@{ Key = 'install_opencode'; Label = 'Opencode'; Enabled = $true }
-            [PSCustomObject]@{ Key = 'opencode_use_v1'; Label = $LabelOverrides['opencode_use_v1']; Enabled = $false }
         )
     }
 
-    It 'says in the grid title that select-all leaves the switch off and that it is ticked on its own' {
-        $null = Show-SoftwarePicker -Items $script:Items
-
-        $script:GridTitle | Should -Match ([regex]::Escape($LabelOverrides['opencode_use_v1']))
-        $script:GridTitle | Should -Match 'on its own'
-    }
-
-    It 'turns select-all into every key on but opencode_use_v1' {
+    It 'turns select-all into every key on' {
         $keys = Show-SoftwarePicker -Items $script:Items
         $picked = Resolve-PickedSelection -PickedKeys $keys -Selectable $script:Items
 
-        $picked.ToggleOverride['opencode_use_v1'] | Should -BeFalse
         $picked.ToggleOverride['install_chrome'] | Should -BeTrue
         $picked.ToggleOverride['install_opencode'] | Should -BeTrue
     }

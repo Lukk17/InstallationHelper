@@ -20,14 +20,12 @@
 # key that reaches the resolution and is not in group_vars, or a key in group_vars that the
 # resolution never mentions, fails by name.
 #
-# --software all is every declared toggle on except the keys setup.sh lists in ALL_SOFTWARE_KEEPS_OFF,
-# which it leaves off. That list is read out of setup.sh, and opencode_use_v1 has to be in it, because the
-# owner decided on 2026-10-15 that "install all" keeps OpenCode on version 2.
+# --software all is every declared toggle on.
 #
 # Nothing here changes the machine. --print-command answers at line 1402 of setup.sh and exits,
 # above prepare_become_password, ensure_ansible and system_upgrade.
 #
-# The seven wizard runs are started together and waited for once, rather than one after another. Each
+# The six wizard runs are started together and waited for once, rather than one after another. Each
 # one is an independent read-only process, and on Git Bash a single run costs nine seconds inside
 # preload_toggles and up to twenty-six with a full software baseline, all of it process creation. Run
 # in sequence they took nearly two minutes of a gate that is supposed to answer in seconds.
@@ -55,17 +53,15 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 # gets the same answer on macOS as on Linux.
 excluded_line="$(grep -m1 '^EXCLUDED_VARS=' "${SETUP_SH}" || true)"
 de_keys_line="$(grep -m1 '^DE_KEYS=' "${SETUP_SH}" || true)"
-keeps_off_line="$(grep -m1 '^ALL_SOFTWARE_KEEPS_OFF=' "${SETUP_SH}" || true)"
 
-if [[ -z "${excluded_line}" || -z "${de_keys_line}" || -z "${keeps_off_line}" ]]; then
-    fail "setup.sh no longer defines EXCLUDED_VARS, DE_KEYS and ALL_SOFTWARE_KEEPS_OFF, so the expected key set cannot be built" \
-         "one of the three was not found in ${SETUP_SH}"
+if [[ -z "${excluded_line}" || -z "${de_keys_line}" ]]; then
+    fail "setup.sh no longer defines EXCLUDED_VARS and DE_KEYS, so the expected key set cannot be built" \
+         "one of the two was not found in ${SETUP_SH}"
     finish "print-command resolution"
 fi
 
 eval "${excluded_line}"
 eval "${de_keys_line}"
-eval "${keeps_off_line}"
 prepare_detect_os "${GROUP_VARS_DIR}/linux.yaml" "${GROUP_VARS_DIR}/macos.yaml" || {
     fail "setup.sh no longer defines detect_os and debian_lineage together, so the OS this check resolves to cannot be built" \
          "one of the two was not found in ${SETUP_SH}"
@@ -99,22 +95,6 @@ if [[ ${#EXPECTED_KEYS[@]} -lt 3 ]]; then
     finish "print-command resolution"
 fi
 
-# The declared keys --software all leaves off, in declared order.
-ALL_OFF_KEYS=()
-for key in "${EXPECTED_KEYS[@]}"; do
-    [[ "${key}" =~ ^(${ALL_SOFTWARE_KEEPS_OFF})$ ]] && ALL_OFF_KEYS+=("${key}")
-done
-if [[ " ${ALL_OFF_KEYS[*]} " == *" opencode_use_v1 "* ]]; then
-    pass "--software all is set to leave opencode_use_v1 off, so it keeps OpenCode on version 2"
-else
-    fail "--software all is not set to leave opencode_use_v1 off, so it would switch OpenCode to version 1" \
-         "ALL_SOFTWARE_KEEPS_OFF in setup.sh is '${ALL_SOFTWARE_KEEPS_OFF}' and the declared keys it names are: ${ALL_OFF_KEYS[*]:-none}"
-fi
-
-# The key the all-with-enable case turns back on. opencode_use_v1 when the list is empty, so that case still
-# runs and still says what it found.
-OFF_PROBE="${ALL_OFF_KEYS[0]:-opencode_use_v1}"
-
 # Three keys taken from the declared set rather than named here. First, second and last, so the two
 # that are turned on are not the same key as the one the enable-and-disable case argues over.
 KEY_FIRST="${EXPECTED_KEYS[0]}"
@@ -131,7 +111,7 @@ KDE_CONFIGURE="$(de_key_matching '^configure_.*kde')"
 GNOME_INSTALL="$(de_key_matching '^install_.*gnome')"
 GNOME_CONFIGURE="$(de_key_matching '^configure_.*gnome')"
 
-# --- the seven runs, started together ------------------------------------------
+# --- the six runs, started together --------------------------------------------
 start_case() {
     local name="$1"; shift
     (
@@ -143,7 +123,6 @@ start_case() {
 }
 
 start_case software_all      --software all
-start_case all_enable_off    --software all --enable "${OFF_PROBE}"
 start_case software_none     --software none --enable "${KEY_FIRST},${KEY_SECOND}"
 start_case enable_and_disable --software all --enable "${KEY_LAST}" --disable "${KEY_LAST}"
 start_case kde_configure     --desktop-environment kde   --desktop-action configure
@@ -183,8 +162,7 @@ line="$(resolved_command software_all)"
 if [[ "${line}" != ansible-playbook* ]]; then
     fail "--software all did not resolve to a command" "${line}"
 else
-    expected_off="$(printf '%s\n' "${ALL_OFF_KEYS[@]+"${ALL_OFF_KEYS[@]}"}" | grep . | sort || true)"
-    expected_on="$(printf '%s\n' "${EXPECTED_KEYS[@]}" | sort | comm -23 - <(echo "${expected_off}"))"
+    expected_on="$(printf '%s\n' "${EXPECTED_KEYS[@]}" | sort)"
     resolved_true="$(keys_resolved_to "${line}" true || true)"
     resolved_false="$(keys_resolved_to "${line}" false || true)"
     missing="$(comm -23 <(echo "${expected_on}") <(echo "${resolved_true}") || true)"
@@ -195,28 +173,17 @@ else
         fail "--software all leaves declared toggles out of the resolved command" \
              "$(grep -c . <<<"${missing}") missing, first five: $(head -5 <<<"${missing}" | tr '\n' ' ')"
     elif [[ -n "${unexpected}" ]]; then
-        fail "--software all turns on toggles group_vars does not declare, or ones ALL_SOFTWARE_KEEPS_OFF leaves off" \
+        fail "--software all turns on toggles group_vars does not declare" \
              "$(grep -c . <<<"${unexpected}") of them, first five: $(head -5 <<<"${unexpected}" | tr '\n' ' ')"
-    elif [[ "${resolved_false}" != "${expected_off}" ]]; then
-        fail "--software all resolves a different set of toggles to false than ALL_SOFTWARE_KEEPS_OFF names" \
-             "resolved false: $(tr '\n' ' ' <<<"${resolved_false}")| expected false: $(tr '\n' ' ' <<<"${expected_off}")"
-    elif [[ "${n_true}" -ne $(( ${#EXPECTED_KEYS[@]} - ${#ALL_OFF_KEYS[@]} )) ]]; then
+    elif [[ -n "${resolved_false}" ]]; then
+        fail "--software all resolves toggles to false" \
+             "resolved false: $(tr '\n' ' ' <<<"${resolved_false}")"
+    elif [[ "${n_true}" -ne ${#EXPECTED_KEYS[@]} ]]; then
         fail "--software all resolves a different number of toggles than group_vars declares" \
-             "resolved ${n_true} on, expected $(( ${#EXPECTED_KEYS[@]} - ${#ALL_OFF_KEYS[@]} ))"
+             "resolved ${n_true} on, expected ${#EXPECTED_KEYS[@]}"
     else
-        pass "--software all turns on all ${n_true} declared toggles but the ${#ALL_OFF_KEYS[@]} it leaves off: $(tr '\n' ' ' <<<"${expected_off}")"
+        pass "--software all turns on all ${n_true} declared toggles"
     fi
-fi
-
-# --- --software all with a key it leaves off enabled ---------------------------------
-line="$(resolved_command all_enable_off)"
-if [[ "${line}" != ansible-playbook* ]]; then
-    fail "--software all --enable ${OFF_PROBE} did not resolve to a command" "${line}"
-elif assignment_present "${line}" "${OFF_PROBE}" true; then
-    pass "--software all --enable ${OFF_PROBE} turns on the key all leaves off"
-else
-    fail "--enable does not turn on a key --software all leaves off" \
-         "${OFF_PROBE} is not true in: ${line}"
 fi
 
 # --- --software none with two keys enabled -------------------------------------
@@ -251,12 +218,8 @@ else
     problems=()
     assignment_present "${line}" "${KEY_LAST}" false || problems+=("${KEY_LAST} did not end up false")
     n_false="$(count_assignments "${line}" false)"
-    off_too=0
-    for key in "${ALL_OFF_KEYS[@]+"${ALL_OFF_KEYS[@]}"}"; do
-        [[ "${key}" != "${KEY_LAST}" ]] && off_too=$(( off_too + 1 ))
-    done
-    [[ "${n_false}" -eq $(( off_too + 1 )) ]] \
-        || problems+=("${n_false} toggles are false where only ${KEY_LAST} and the ${off_too} --software all leaves off should be")
+    [[ "${n_false}" -eq 1 ]] \
+        || problems+=("${n_false} toggles are false where only ${KEY_LAST} should be")
 
     if [[ ${#problems[@]} -eq 0 ]]; then
         pass "--enable and --disable naming ${KEY_LAST} resolves it to disabled"
@@ -339,35 +302,11 @@ fi
 # An assertion over an empty set passes and looks exactly like an assertion that found no problem,
 # so the number of wizard runs that actually answered is asserted too.
 answered="$(grep -lx 0 "${WORK_DIR}"/*.rc 2>/dev/null | grep -c . || true)"
-if [[ "${answered}" -eq 7 ]]; then
-    pass "all seven selections were resolved through the shipped --print-command path"
+if [[ "${answered}" -eq 6 ]]; then
+    pass "all six selections were resolved through the shipped --print-command path"
 else
     fail "not every selection reached the resolution, so part of this check proved nothing" \
-         "${answered} of seven runs exited 0"
-fi
-
-# --- no profile turns on what --software all leaves off ---------------------------------
-# A profile is the third way screen 2 picks a whole set at once, so a profile that turned a key in
-# ALL_SOFTWARE_KEEPS_OFF on would be an "install this preset" that switches OpenCode to version 1 without
-# the user ticking it. Every profile is read, not only the one resolved above.
-profile_turns_on=()
-profile_count=0
-for profile in "${ANSIBLE_DIR}"/profiles/*.yaml; do
-    [[ -f "${profile}" ]] || continue
-    profile_count=$((profile_count + 1))
-    for key in "${ALL_OFF_KEYS[@]+"${ALL_OFF_KEYS[@]}"}"; do
-        grep -qE "^${key}:[[:space:]]*\"?(true|True|on|yes)\"?([[:space:]]|#|$)" "${profile}" \
-            && profile_turns_on+=("profiles/$(basename "${profile}") turns ${key} on")
-    done
-done
-if [[ "${profile_count}" -eq 0 ]]; then
-    fail "no profile was found to read, so no profile was shown to leave the all-keeps-off keys alone" \
-         "${ANSIBLE_DIR}/profiles/*.yaml matched nothing"
-elif [[ ${#profile_turns_on[@]} -gt 0 ]]; then
-    fail "a profile turns on a key --software all leaves off, so loading it installs what select-all never does" \
-         "$(printf '%s | ' "${profile_turns_on[@]}")"
-else
-    pass "none of the ${profile_count} profiles turns on a key --software all leaves off: ${ALL_OFF_KEYS[*]:-none}"
+         "${answered} of six runs exited 0"
 fi
 
 finish "print-command resolution"

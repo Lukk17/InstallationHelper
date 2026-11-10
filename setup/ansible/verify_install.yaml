@@ -108,10 +108,6 @@
     - name: Load the OS translation dictionary
       ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/load_os_dict.yaml"
 
-    # The same file site.yaml decides it through, so this expects the OpenCode version the run installed.
-    - name: Decide which OpenCode version the run installed, the same way the playbook decides
-      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/opencode_version.yaml"
-
   tasks:
     # --- what the toggles asked for -----------------------------------------
     # One list of manager names, read twice below, because a manager that installs a package but is
@@ -793,10 +789,10 @@
           - key: opencode
             toggle: install_opencode
             shell_bin: opencode
-            how: "npm package {{ opencode_cli_package }} under ~/.nvm/versions/node/*/lib/node_modules"
+            how: "npm package @opencode/cli under ~/.nvm/versions/node/*/lib/node_modules"
             expected_path: ""
             disk_cmd: >-
-              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/{{ opencode_cli_package }}/package.json' 2>/dev/null)"
+              grep -q . <<<"$(find "{{ non_root_home }}/.nvm/versions/node" -maxdepth 6 -path '*/lib/node_modules/@opencode/cli/package.json' 2>/dev/null)"
           - key: kilo
             toggle: install_kilo_code
             shell_bin: kilo
@@ -1195,52 +1191,22 @@
     # Every line carries the [verify] marker so setup.sh can lift the report out of the Ansible
     # output it wrote to the log and show that, rather than showing the reader a play recap and
     # calling it a verdict.
-    # --- OpenCode: the selected version and nothing else ------------------------
-    # tasks/opencode_version.yaml chose the version for the run and for this play, and roles/ai_tools removed the
-    # other one by asking the same probes asked here: the desktop probe from opencode_desktop_commands, and for the
-    # command line package the npm list the shared npm helper asks under the LTS Node it installs into. The selected
-    # desktop app is checked through the mapping above, except the macOS version 1 app, which no mapping installs
-    # and which is asked about here. A probe that could not run leaves no rc, and that fails the assertion below,
-    # because an unverifiable claim is not a verified one.
-    - name: Ask whether the OpenCode desktop app of the version not selected is still installed
-      ansible.builtin.shell: "{{ ih_other_commands.probe | replace('PKG', opencode_other_desktop_route.package | quote) }}"
-      args:
-        executable: /bin/bash
-      become: yes
-      become_user: "{{ non_root_user }}"
-      register: ih_opencode_other_desktop
-      changed_when: false
-      failed_when: false
-      ignore_errors: true
-      when:
-        - install_opencode_desktop | default(false) | bool
-        - ih_other_commands | length > 0
-      vars:
-        ih_other_commands: "{{ opencode_desktop_commands[opencode_other_desktop_route.manager | default('')] | default({}) }}"
-
-    - name: Ask whether the selected OpenCode desktop app that no mapping installs is on this machine
-      ansible.builtin.shell: "{{ opencode_desktop_commands.macos_app.probe | replace('PKG', opencode_desktop_route.package | quote) }}"
-      args:
-        executable: /bin/bash
-      register: ih_opencode_selected_app
-      changed_when: false
-      failed_when: false
-      ignore_errors: true
-      when:
-        - install_opencode_desktop | default(false) | bool
-        - opencode_desktop_route.manager | default('') == 'macos_app'
-
-    - name: Ask whether the OpenCode command line package of the version not selected is still installed
+    # --- OpenCode: the older command line package its install replaces ----------
+    # roles/ai_tools/tasks/opencode_unix.yaml removes opencode-ai before installing @opencode/cli, because both claim
+    # the opencode command, and this asks the npm list the shared npm helper asks under the LTS Node it installs into.
+    # A probe that could not run leaves no rc, and that fails the assertion below, because an unverifiable claim is
+    # not a verified one.
+    - name: Ask whether the command line package @opencode/cli replaces is still installed
       ansible.builtin.shell: |
         source {{ non_root_home }}/.nvm/nvm.sh
         nvm use --lts >/dev/null 2>&1
-        grep -q -F {{ opencode_other_cli_package | quote }} <<<"$(npm list -g {{ opencode_other_cli_package | quote }} --depth=0 2>/dev/null)"
+        grep -q -F opencode-ai <<<"$(npm list -g opencode-ai --depth=0 2>/dev/null)"
       args:
         executable: /bin/bash
         chdir: "{{ non_root_home }}"
       become: yes
       become_user: "{{ non_root_user }}"
-      register: ih_opencode_other_cli
+      register: ih_opencode_replaced_cli
       changed_when: false
       failed_when: false
       ignore_errors: true
@@ -1307,14 +1273,8 @@
           [verify]   in /etc/group already, not yet in this session. Log out and back in, a new terminal window alone will not pick it up.
           {% endif %}
           {% endif %}
-          {% if ih_opencode_other_desktop is defined and ih_opencode_other_desktop is not skipped %}
-          [verify] {{ '%-30s %-14s %s' | format('opencode desktop ' ~ opencode_other_version, 'absent' if (ih_opencode_other_desktop.rc | default(0)) != 0 else 'STILL THERE' if ih_opencode_other_desktop.rc is defined else 'UNREADABLE', 'not selected, ' ~ opencode_other_desktop_route.manager ~ ': ' ~ opencode_other_desktop_route.package) }}
-          {% endif %}
-          {% if ih_opencode_selected_app is defined and ih_opencode_selected_app is not skipped %}
-          [verify] {{ '%-30s %-14s %s' | format('opencode desktop ' ~ opencode_version, 'installed' if (ih_opencode_selected_app.rc | default(1)) == 0 else 'MISSING', 'selected, vendor DMG: ' ~ opencode_desktop_route.package) }}
-          {% endif %}
-          {% if ih_opencode_other_cli is defined and ih_opencode_other_cli is not skipped %}
-          [verify] {{ '%-30s %-14s %s' | format('opencode cli ' ~ opencode_other_version, 'absent' if (ih_opencode_other_cli.rc | default(0)) != 0 else 'STILL THERE' if ih_opencode_other_cli.rc is defined else 'UNREADABLE', 'not selected, npm: ' ~ opencode_other_cli_package) }}
+          {% if ih_opencode_replaced_cli is defined and ih_opencode_replaced_cli is not skipped %}
+          [verify] {{ '%-30s %-14s %s' | format('opencode replaced cli', 'absent' if (ih_opencode_replaced_cli.rc | default(0)) != 0 else 'STILL THERE' if ih_opencode_replaced_cli.rc is defined else 'UNREADABLE', 'replaced by @opencode/cli, npm: opencode-ai') }}
           {% endif %}
           [verify] {{ '%-30s %-14s %s' | format('temporary sudo rule', 'removed' if (temp_sudoers.stat is defined and not temp_sudoers.stat.exists) else 'STILL THERE' if (temp_sudoers.stat is defined) else 'UNREADABLE', '/etc/sudoers.d/99-ansible-user') }}
           [verify] --------------------------------------------------------------------------
@@ -1588,17 +1548,14 @@
         quiet: true
       when: ansible_facts['system'] == 'Linux'
 
-    - name: Assert exactly the selected OpenCode version is installed
+    - name: Assert the command line package @opencode/cli replaces is gone
       ansible.builtin.assert:
         that:
-          - ih_opencode_other_desktop is skipped or (ih_opencode_other_desktop.rc is defined and ih_opencode_other_desktop.rc != 0)
-          - ih_opencode_selected_app is skipped or (ih_opencode_selected_app.rc | default(1)) == 0
-          - ih_opencode_other_cli is skipped or (ih_opencode_other_cli.rc is defined and ih_opencode_other_cli.rc != 0)
-        success_msg: "PASS OpenCode {{ opencode_version }} is the only OpenCode version here"
+          - ih_opencode_replaced_cli is skipped or (ih_opencode_replaced_cli.rc is defined and ih_opencode_replaced_cli.rc != 0)
+        success_msg: "PASS opencode-ai, the package @opencode/cli replaces, is not installed"
         fail_msg: >-
-          FAIL OpenCode {{ opencode_version }} was selected and the machine disagrees. See the opencode rows in the table
-          above: STILL THERE means the {{ opencode_other_version }} app or command line package was not removed,
-          UNREADABLE that the probe could not run, and MISSING that the selected version 1 app is not in /Applications.
+          FAIL the machine disagrees about OpenCode's command line package. See the opencode row in the table above:
+          STILL THERE means opencode-ai was not removed, and UNREADABLE that the probe could not run.
         quiet: true
 
 

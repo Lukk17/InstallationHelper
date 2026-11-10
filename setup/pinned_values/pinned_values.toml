@@ -77,9 +77,8 @@ teamviewer_rpm_url = "https://download.teamviewer.com/download/linux/teamviewer.
 # No CentOS Stream 9 RPM is published. The CentOS-8 build works on Fedora 38+
 # and RHEL/CentOS 8/9 (verified against veracrypt.io download manifest).
 veracrypt_rpm_url = "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }}/+download/veracrypt-{{ veracrypt_version }}-CentOS-8-x86_64.rpm"
-# OpenCode desktop, version 2. No package manager carries version 2 on Debian, Ubuntu, Fedora or Windows: Flathub,
-# winget's SST.OpenCodeDesktop and Chocolatey's opencode-desktop are all version 1, read on 2026-10-15. The vendor
-# serves every release under one path per version and keeps the old ones, 2.0.1 still answered 200 on 2026-10-15.
+# OpenCode desktop, version 2. No package manager carries version 2 on Debian, Ubuntu, Fedora or Windows, read on
+# 2026-10-15. The vendor serves every release under one path per version and keeps the old ones, 2.0.1 still answered 200 on 2026-10-15.
 # Verify the newest with `curl -fsSL https://opencode.ai/update/api/latest/desktop/opencode`, which is the same
 # endpoint the AUR opencode-desktop-bin package checks. The Windows installer is signed by Anomaly Innovations, Inc.
 opencode_desktop_version = "2.0.29"
@@ -87,14 +86,6 @@ opencode_desktop_base = "https://opencode.ai/files/bin/{{ opencode_desktop_versi
 opencode_desktop_url = "{{ opencode_desktop_base }}/opencode-desktop-linux-amd64.deb"
 opencode_desktop_rpm_url = "{{ opencode_desktop_base }}/opencode-desktop-linux-x86_64.rpm"
 opencode_desktop_win_installer_url = "{{ opencode_desktop_base }}/opencode-desktop-win-x64.exe"
-# OpenCode desktop, version 1, read on the Mac only, when opencode_use_v1 is true. Homebrew's opencode-desktop cask is
-# version 2 and there is no version 1 cask, read on formulae.brew.sh on 2026-10-15. Linux takes version 1 from Flathub
-# and Windows from winget. The anomalyco/opencode GitHub releases carry version 1 only, v1.19.1 is the newest there,
-# published 2026-10-15, and both DMGs hold OpenCode.app with bundle id ai.opencode.desktop, needing macOS 12 or newer.
-opencode_desktop_v1_version = "1.19.1"
-opencode_desktop_v1_base = "https://github.com/anomalyco/opencode/releases/download/v{{ opencode_desktop_v1_version }}"
-opencode_desktop_v1_macos_arm64_dmg_url = "{{ opencode_desktop_v1_base }}/opencode-desktop-mac-arm64.dmg"
-opencode_desktop_v1_macos_x86_64_dmg_url = "{{ opencode_desktop_v1_base }}/opencode-desktop-mac-x64.dmg"
 # Minikube versions are real semver tags (e.g. v1.38.1); 'latest' is a redirect
 # alias and not a real release filename. Pin a real release. Verify latest via
 # https://github.com/kubernetes/minikube/releases/latest.

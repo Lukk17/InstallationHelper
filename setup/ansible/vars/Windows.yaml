@@ -152,14 +152,7 @@ software_mapping:
   claude_desktop: { manager: "winget", package: "Anthropic.Claude", scope: "user" }           # Publisher "Anthropic, PBC", verified with winget show. The ai_tools role has no Windows path, so this mapping is the only one.
   lm_studio: { manager: "winget", package: "ElementLabs.LMStudio", scope: "machine", installer_type: "nullsoft" }            # Author "Element Labs, Inc.", verified with winget show. Manifest 0.4.26+4, read 2026-10-11: user (/currentuser) and machine (/allusers) nullsoft, the lens shape.
   # opencode_desktop: installed by setup/windows/WindowsCustomInstalls.ps1 from the vendor's own signed installer, because
-  # no Windows source carries version 2. SST.OpenCodeDesktop, mapped here until 2026-10-15, is version 1: its newest
-  # winget manifest, read 2026-10-15, is 1.19.0, and Chocolatey's opencode-desktop is 1.17.9. SST.opencode is the CLI,
-  # which comes from npm instead.
-  # Version 1 of the desktop app, installed instead of version 2 when opencode_use_v1 is true, by
-  # setup/windows/WindowsCustomInstalls.ps1 rather than by the mapping pass, which is why it has no install_ toggle of
-  # its own. Manifest 1.19.0, read 2026-10-15: one nullsoft installer, Scope user, product code
-  # d074f30d-5f88-5885-b075-be1348cc7676, the same one version 2 registers.
-  opencode_desktop_v1: { manager: "winget", package: "SST.OpenCodeDesktop", scope: "user" }
+  # no Windows source carries version 2, read 2026-10-15. SST.opencode is the CLI, which comes from npm instead.
 
   # Media / Design
   vlc: { manager: "winget", package: "VideoLAN.VLC", scope: "machine", installer_type: "wix" }   # Manifest read by tier 2 from winget-pkgs on 2026-11-05: a machine wix installer and one that declares no scope.

@@ -73,18 +73,6 @@ windows_native_consumers() {
         | tr -d "' " | tr ',' '\n'
 }
 
-# Mappings no toggle names, because something else selects them by name: a version that replaces the mapping a
-# toggle does name. tasks/opencode_version.yaml swaps opencode_desktop_v1 in for opencode_desktop when
-# opencode_use_v1 is true, and on Windows WindowsCustomInstalls.ps1 declares the mappings it installs itself.
-# Read out of those two places, comments removed, so a mapping counts here only while its selector still names it.
-selected_mappings="$(
-    {
-        sed -E 's/#.*$//' "${ANSIBLE_DIR}/tasks/opencode_version.yaml" 2>/dev/null | grep -oE '[a-z0-9_]+'
-        sed -n 's/^\$script:CustomInstallMappingKeys = @(\(.*\))$/\1/p' "${WINDOWS_DIR}/WindowsCustomInstalls.ps1" 2>/dev/null \
-            | tr -d "' " | tr ',' '\n'
-    } | sort -u
-)"
-
 check_family() {
     local family="$1" os_gv="$2"
     local vars_file="${VARS_DIR}/${family}.yaml"
@@ -169,7 +157,6 @@ check_family() {
         [[ -z "${key}" ]] && continue
         n_mapped=$((n_mapped + 1))
         grep -qx "${key}" <<<"${defined}" && continue
-        grep -qx "${key}" <<<"${selected_mappings}" && continue
         unreachable+=("${key}")
     done <<<"${mapped}"
 

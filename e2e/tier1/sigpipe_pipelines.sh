@@ -207,8 +207,8 @@ def strings_in(node, path=''):
 
 
 # The setup/ half reads every string in every YAML file under setup/, not only the shell and command
-# modules, because a script also arrives through a variable: the probes in tasks/opencode_version.yaml
-# and the disk_cmd lines in verify_install.yaml are set_fact values a shell task runs later. A Jinja
+# modules, because a script also arrives through a variable: the disk_cmd lines in verify_install.yaml
+# are set_fact values a shell task runs later. A Jinja
 # filter is written `| name` too, and none of them is called head, grep, awk or read, so a filter is
 # never taken for a reader. Shell scripts under setup/ are read whole.
 setup_texts = []   # (label, text)

@@ -182,15 +182,11 @@ software_mapping:
   onlyoffice: { manager: "flatpak", package: "org.onlyoffice.desktopeditors" }
 
   # AI
-  # Version 2 of the desktop app, from the vendor's own .deb, because no package manager carries version 2: Flathub's
-  # ai.opencode.opencode, mapped here until 2026-10-15, is the version 1 app (1.18.8), there is no opencode-desktop snap
-  # and no apt repository. The location is opencode_desktop_url in setup/pinned_values/pinned_values.toml. `package` is
-  # what dpkg records, read with the control file of the 2.0.29 .deb on 2026-10-15: Package: opencode. The CLI is the npm package.
+  # Version 2 of the desktop app, from the vendor's own .deb, because no package manager carries version 2: Flathub has
+  # none, there is no opencode-desktop snap and no apt repository. The location is opencode_desktop_url in
+  # setup/pinned_values/pinned_values.toml. `package` is what dpkg records, read with the control file of the 2.0.29
+  # .deb on 2026-10-15: Package: opencode. The CLI is the npm package.
   opencode_desktop: { manager: "apt_url", package: "opencode", is_deb_url: true }
-  # Version 1 of the desktop app, installed instead of opencode_desktop when opencode_use_v1 is true, through
-  # setup/ansible/tasks/opencode_version.yaml, which is why it has no install_ toggle of its own. 1.18.8 on
-  # flathub.org/api/v2/appstream on 2026-10-15, a system installation.
-  opencode_desktop_v1: { manager: "flatpak", package: "ai.opencode.opencode" }
 
   # Media / Design
   vlc: { manager: "apt", package: "vlc" }

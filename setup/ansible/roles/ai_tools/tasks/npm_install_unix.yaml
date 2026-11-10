@@ -12,7 +12,6 @@
 #   npm_install_extra_args — string appended to `npm install -g` (e.g. "--no-audit")
 #   npm_replaced_pkg       : an older npm package this one replaces, removed before the install
 #                            because both claim the same bin and npm refuses the second with EEXIST
-#   npm_replaced_reason    : the words the [INFO] line uses for what was removed and why
 #
 # Behaviour:
 #   1. Probe ~/.nvm/nvm.sh. If absent, emit a [WARN] and skip the install.
@@ -115,7 +114,7 @@
 
 - name: "Say that {{ npm_replaced_pkg | default('') }} was removed (Unix)"
   ansible.builtin.debug:
-    msg: "[INFO] removed {{ npm_replaced_reason | default(npm_replaced_pkg ~ ', which ' ~ npm_display_name ~ ' replaces') }}"
+    msg: "[INFO] removed {{ npm_replaced_pkg }}, which {{ npm_display_name }} replaces"
   when: npm_replaced_removal is changed
 
 # The replaced package is removed before the new one is proven to install, because npm refuses the

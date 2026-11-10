@@ -324,35 +324,11 @@ Need Node from NVM above first.
 |---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
 | Claude Desktop | AUR `paru -S claude-desktop`, which is what the playbook runs. `yay -S claude-desktop` installs the same package with the `yay` bootstrap below |
-| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
-| OpenCode desktop | AUR `yay -S opencode-desktop-bin`, version 2. Version 1 of the desktop app, the Flathub `ai.opencode.opencode` the playbook installed before 2026-10-15, refuses to start once version 2 has created its database, so remove it with `flatpak uninstall ai.opencode.opencode` |
+| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if that older package is installed, because both claim the `opencode` command |
+| OpenCode desktop | AUR `yay -S opencode-desktop-bin`, version 2 |
 | Kilo Code CLI | `npm install -g @kilocode/cli`, which provides the `kilo` command |
 | OpenSpec | `npm install -g @fission-ai/openspec` |
 | LM Studio | `curl -fsSL https://lmstudio.ai/install.sh \| bash` |
-
-OpenCode version 1 instead of version 2. Version 2 is the default. The wizard switches when `Switch OpenCode from v2 to v1` is ticked on its checklist, or with `./setup.sh --enable opencode_use_v1`: it removes the version 2 command line tool and desktop app, installs version 1, and moves a data folder holding version 2 data to `~/.local/share/opencode.v2-backup-<date>-<time>`, because version 1 refuses to start on a version 2 database. Switching back moves version 1 data aside the same way and brings the newest version 2 backup back. Nothing is deleted. By hand, the same steps, first removing version 2:
-
-```bash
-sudo pacman -R opencode-desktop-bin
-```
-
-```bash
-npm uninstall -g @opencode/cli
-```
-
-```bash
-npm install -g opencode-ai
-```
-
-```bash
-flatpak install -y flathub ai.opencode.opencode
-```
-
-```bash
-mv ~/.local/share/opencode ~/.local/share/opencode.v2-backup-"$(date +%Y%m%d-%H%M%S)"
-```
-
-The last command only when `~/.local/share/opencode` exists. Version 1 of the desktop app is the Flathub application, 1.18.8 on 2026-10-15.
 
 **Stable Diffusion WebUI** (pinned `v1.10.1`):
 

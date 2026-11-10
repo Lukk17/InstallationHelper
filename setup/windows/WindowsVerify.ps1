@@ -280,10 +280,6 @@ function Invoke-WindowsVerification {
         -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
         -ToggleOverride  $ToggleOverride
     $mappings = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $AnsibleDir 'vars\Windows.yaml')
-    $openCodeVersion = Get-OpenCodeVersion `
-        -AllVarsPath     (Join-Path $AnsibleDir 'group_vars\all.yaml') `
-        -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
-        -ToggleOverride  $ToggleOverride -OnlyKeys $OnlyKeys
 
     $rows = [System.Collections.Generic.List[object]]::new()
     $add = {
@@ -313,9 +309,7 @@ function Invoke-WindowsVerification {
             $script:VerdictUnverifiable 'the mapping file parsed to zero entries, so nothing could be checked against it'
     }
 
-    # Without the mappings WindowsCustomInstalls.ps1 installs itself, which no toggle names, so they would only
-    # ever read "not requested". Their verdict is the custom install's, below.
-    $mappedKeys = @($mappings.Keys | Where-Object { $_ -notin @(Get-WindowsCustomInstallMappingKey) } | Sort-Object)
+    $mappedKeys = @($mappings.Keys | Sort-Object)
 
     $wingetKeys = @($mappedKeys | Where-Object { $mappings[$_].Manager -eq 'winget' -and (& $wanted $_) })
     $winget     = $null
@@ -404,7 +398,7 @@ function Invoke-WindowsVerification {
     }
 
     # --- the npm CLI tools ---------------------------------------------------
-    $npmPackages = Get-NpmToolPackage -OpenCodeVersion $openCodeVersion
+    $npmPackages = Get-NpmToolPackage
     $npmKeys     = @(@($npmPackages.Keys) | Where-Object { & $wanted $_ })
     $npmGlobals  = $null
     if ($npmKeys.Count -gt 0) {
@@ -424,15 +418,15 @@ function Invoke-WindowsVerification {
             & $add $key 'npm' $package $script:VerdictMissing 'npm ls -g does not list it among the global packages'
         }
 
-        # The package this one replaces, which the npm phase removed, the other OpenCode version.
+        # The package this one replaces, which the npm phase removed.
         $replaced = if ($npmPackages[$key].ContainsKey('Replaces')) { $npmPackages[$key].Replaces } else { '' }
         if (-not $replaced -or $key -notin $npmKeys) { continue }
         if ($null -eq $npmGlobals) {
-            & $add "$key, not selected" 'npm' $replaced $script:VerdictUnverifiable 'npm is not on PATH or did not answer, so whether it is gone is unknown'
+            & $add "$key, replaced" 'npm' $replaced $script:VerdictUnverifiable 'npm is not on PATH or did not answer, so whether it is gone is unknown'
         } elseif ($npmGlobals -contains $replaced) {
-            & $add "$key, not selected" 'npm' $replaced $script:VerdictStillThere "npm ls -g still lists it, and it claims the same command as $package"
+            & $add "$key, replaced" 'npm' $replaced $script:VerdictStillThere "npm ls -g still lists it, and it claims the same command as $package"
         } else {
-            & $add "$key, not selected" 'npm' $replaced $script:VerdictAbsent ''
+            & $add "$key, replaced" 'npm' $replaced $script:VerdictAbsent ''
         }
     }
 
@@ -447,7 +441,7 @@ function Invoke-WindowsVerification {
     } catch {
         $pinsWhy = $_.Exception.Message
     }
-    $proofs = Get-WindowsCustomInstallProof -Versions $versions -OpenCodeVersion $openCodeVersion
+    $proofs = Get-WindowsCustomInstallProof -Versions $versions
 
     foreach ($key in (Get-WindowsCustomInstallKey)) {
         if (-not (& $wanted $key)) {
@@ -476,11 +470,10 @@ function Invoke-WindowsVerification {
         $found = @($paths | Where-Object { Test-Path -Path $_ })
         $ok = if ($proof.Mode -eq 'Any') { $found.Count -gt 0 } else { $found.Count -eq $paths.Count }
 
-        # The OpenCode desktop app: both versions install to the same path, so the path alone cannot say which.
-        if ($ok -and $proof.PSObject.Properties['OpenCodeVersion'] -and
-                -not (Test-OpenCodeDesktopVersion -Path $paths[0] -Version $proof.OpenCodeVersion)) {
+        # The OpenCode desktop app: an older major version sits at the same path, so the path alone cannot say which.
+        if ($ok -and $key -eq 'opencode_desktop' -and -not (Test-OpenCodeDesktopVersion -Path $paths[0])) {
             & $add $key 'custom' $proof.Description $script:VerdictMissing `
-                "$($paths[0]) is there and is not OpenCode $($proof.OpenCodeVersion), the version this run selected"
+                "$($paths[0]) is there and is not OpenCode version 2"
             continue
         }
 

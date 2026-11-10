@@ -199,48 +199,12 @@ Need Node from NVM above first.
 |---|---|
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
 | Claude Desktop | `brew install --cask claude` |
-| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
+| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if that older package is installed, because both claim the `opencode` command |
 | OpenCode desktop | `brew install --cask opencode-desktop`, version 2 |
 | Kilo Code CLI | `npm install -g @kilocode/cli`, which provides the `kilo` command |
 | OpenSpec | `npm install -g @fission-ai/openspec` |
 | ChatGPT | `brew install --cask chatgpt` |
 | LM Studio | `brew install --cask lm-studio`, Apple Silicon only, macOS 12 or newer |
-
-OpenCode version 1 instead of version 2. Version 2 is the default. The wizard switches when `Switch OpenCode from v2 to v1` is ticked on its checklist, or with `./setup.sh --enable opencode_use_v1`: it removes the version 2 command line tool and desktop app, installs version 1, and moves a data folder holding version 2 data to `~/.local/share/opencode.v2-backup-<date>-<time>`, because version 1 refuses to start on a version 2 database. Switching back moves version 1 data aside the same way and brings the newest version 2 backup back. Nothing is deleted. By hand, the same steps, first removing version 2:
-
-```bash
-brew uninstall --cask opencode-desktop
-```
-
-```bash
-npm uninstall -g @opencode/cli
-```
-
-```bash
-npm install -g opencode-ai
-```
-
-```bash
-curl -fsSLo /tmp/opencode-desktop-v1.dmg https://github.com/anomalyco/opencode/releases/download/v1.19.1/opencode-desktop-mac-arm64.dmg
-```
-
-```bash
-hdiutil attach -nobrowse /tmp/opencode-desktop-v1.dmg
-```
-
-```bash
-cp -R "<mount point>/OpenCode.app" /Applications/
-```
-
-```bash
-hdiutil detach "<mount point>"
-```
-
-```bash
-mv ~/.local/share/opencode ~/.local/share/opencode.v2-backup-"$(date +%Y%m%d-%H%M%S)"
-```
-
-Homebrew has no version 1 cask, so version 1 comes from the vendor's DMG on the GitHub release, pinned `1.19.1`. On an Intel Mac take `opencode-desktop-mac-x64.dmg` instead. `<mount point>` is the `/Volumes/...` path `hdiutil attach` prints. The last command only when `~/.local/share/opencode` exists.
 
 **Stable Diffusion WebUI** (pinned `v1.10.1`):
 

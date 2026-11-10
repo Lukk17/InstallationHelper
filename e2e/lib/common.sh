@@ -489,47 +489,12 @@ wizard_toggle_keys() {
     printf '%s\n' "${keys}"
 }
 
-# wizard_all_software_keeps_off  ->  the checklist keys --software all leaves off, one per line
-#
-# Read out of setup.sh's ALL_SOFTWARE_KEEPS_OFF rather than restated, for the reason wizard_toggle_keys gives,
-# so an all_software scenario leaves off what the wizard's --software all leaves off. Returns 3 when setup.sh
-# no longer defines it, because an empty answer here would turn on what the wizard keeps off.
-wizard_all_software_keeps_off() {
-    local setup_sh="${REPO_ROOT}/setup/setup.sh" line
-    line="$(grep -m1 '^ALL_SOFTWARE_KEEPS_OFF=' "${setup_sh}" 2>/dev/null || true)"
-    if [[ -z "${line}" ]]; then
-        printf 'ERROR: %s no longer defines ALL_SOFTWARE_KEEPS_OFF\n' "${setup_sh}" >&2
-        return 3
-    fi
-    (
-        eval "${line}"
-        tr '|' '\n' <<<"${ALL_SOFTWARE_KEEPS_OFF}" | grep . || true
-    )
-}
-
-# opencode_cli_pair  ->  "v1 <package>" and "v2 <package>", one per line
-#
-# OpenCode's two npm packages as setup/ansible/tasks/opencode_version.yaml declares them in ih_opencode_cli, which
-# opencode_unix.yaml installs as {{ opencode_cli_package }} rather than by name.
-opencode_cli_pair() {
-    sed -n '/^    ih_opencode_cli:$/,/^    [a-z_]*:$/p' "${ANSIBLE_DIR}/tasks/opencode_version.yaml" 2>/dev/null \
-        | grep -E '^      v[12]: ' | sed -E 's/^ +(v[12]): "?([^"]+)"?$/\1 \2/' | sort
-}
-
 # ai_tools_npm_packages  ->  every npm package an ai_tools *_unix.yaml installs, one per line
-#
-# The literal npm_pkg values, and both OpenCode packages for the consumer that names the selected one.
 ai_tools_npm_packages() {
-    local f named
+    local f
     for f in "${ANSIBLE_DIR}"/roles/ai_tools/tasks/*_unix.yaml; do
         [[ "$(basename "${f}")" == "npm_install_unix.yaml" ]] && continue
         grep -hE '^\s*npm_pkg:' "${f}" 2>/dev/null | sed -E 's/^\s*npm_pkg:\s*//; s/"//g; s/\s+$//'
-    done | while IFS= read -r named; do
-        if [[ "${named}" == "{{ opencode_cli_package }}" ]]; then
-            opencode_cli_pair | awk '{print $2}'
-        else
-            printf '%s\n' "${named}"
-        fi
     done | sort -u
 }
 

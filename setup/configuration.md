@@ -109,7 +109,7 @@ Windows is not provisioned by Ansible at all. `setup/setup.ps1` runs natively an
 |------|------|-------------|
 | Claude Code | ai_tools | Claude CLI tool via NPM |
 | Claude Desktop | ai_tools | Claude Desktop app |
-| OpenCode | ai_tools | OpenCode CLI, version 2 from the npm package `@opencode/cli`, or version 1 from `opencode-ai` when `opencode_use_v1` is true. Removes the other version's CLI and desktop app and moves a data folder the selected version cannot open aside. Version 1 always starts clean, an earlier version 1 backup is not brought back, while version 2 gets its newest backup back |
+| OpenCode | ai_tools | OpenCode CLI, version 2 from the npm package `@opencode/cli`, after removing the older package `opencode-ai`, which claims the same command |
 | Kilo Code | ai_tools | Kilo Code CLI, the `kilo` command, from the npm package `@kilocode/cli` |
 | OpenSpec | ai_tools | OpenSpec CLI |
 
@@ -151,7 +151,7 @@ Configuration is controlled via Ansible group variables in `group_vars/`:
 
 The cross-platform toggle file has 50+ entries grouped by category — see the file directly for the authoritative list. Highlights:
 
-- **AI tools:** `install_claude_code`, `install_claude_desktop`, `install_opencode`, `install_opencode_desktop` (desktop app, version 2: AUR on Arch, the vendor .deb, .rpm and installer on Debian, Ubuntu, Fedora and Windows, cask on macOS), `opencode_use_v1` (off by default and left off by `--software all` and `-Software all`, installs OpenCode version 1 instead of version 2 and removes version 2, see [software.md](software.md)), `install_kilo_code`, `install_openspec`, `install_codex`, `install_grok`, `install_chatgpt` (desktop app, Windows and macOS only), `install_bruno_cli`, `install_stable_diffusion`, `install_lm_studio`
+- **AI tools:** `install_claude_code`, `install_claude_desktop`, `install_opencode`, `install_opencode_desktop` (desktop app, version 2: AUR on Arch, the vendor .deb, .rpm and installer on Debian, Ubuntu, Fedora and Windows, cask on macOS), `install_kilo_code`, `install_openspec`, `install_codex`, `install_grok`, `install_chatgpt` (desktop app, Windows and macOS only), `install_bruno_cli`, `install_stable_diffusion`, `install_lm_studio`
 - **Browsers/Dev:** `install_chrome`, `install_brave`, `install_tor`, `install_vscode`, `install_sublime`, `install_kubectl`, `install_minikube`, `install_k3d`, `install_helm`, `install_terraform`, `install_gh`, `install_jq`, `install_fzf`, `install_ripgrep`, `install_uv`, `install_pipx`, `install_go`, `install_lens`, `install_postman`, `install_docker`
 - **Comms:** `install_discord`, `install_slack`, `install_telegram`, `install_whatsapp`, `install_signal`, `install_zoom`
 - **Productivity:** `install_obsidian`, `install_bitwarden`, `install_keepassxc`, `install_onlyoffice`

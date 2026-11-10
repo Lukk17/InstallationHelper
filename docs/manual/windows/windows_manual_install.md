@@ -92,8 +92,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | ChatGPT | `winget install -e --id 9PLM9XGG6VKS --source msstore` |
 | Claude Desktop | `winget install -e --id Anthropic.Claude --scope user`. The machine-wide msix was refused on Windows Server in GitHub sweep 38130934506, so it stays per user until a Windows 11 test proves that route |
 | LM Studio | `winget install -e --id ElementLabs.LMStudio --scope machine` |
-| OpenCode desktop | Version 2 is in no Windows package source, `SST.OpenCodeDesktop` on winget is version 1. See [Manual install required](#manual-install-required) |
-| OpenCode desktop, version 1 | `winget install -e --id SST.OpenCodeDesktop --scope user`, only instead of version 2. See [OpenCode version 1](#opencode-version-1) |
+| OpenCode desktop | Version 2 is in no Windows package source. See [Manual install required](#manual-install-required) |
 
 ## Media and design
 
@@ -218,7 +217,7 @@ The wizard installs these natively on Windows, from [`setup/windows/WindowsCusto
 | Flutter | `dart pub global activate fvm` (needs the Dart SDK above), then `fvm install stable` and `fvm global stable` |
 | pipx | `py -m pip install --user pipx`, then `py -m pipx ensurepath` and a new shell. winget has no pipx, and Chocolatey's pulls in a second Python ahead of 3.11 |
 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` *(needs Node)* |
-| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if version 1 is installed, because both claim the `opencode` command |
+| OpenCode | `npm install -g @opencode/cli`, after `npm uninstall -g opencode-ai` if that older package is installed, because both claim the `opencode` command |
 | Kilo Code CLI | `npm install -g @kilocode/cli`, which provides the `kilo` command |
 | OpenSpec | `npm install -g @fission-ai/openspec` |
 | Codex | `npm install -g @openai/codex` |
@@ -237,8 +236,6 @@ Invoke-WebRequest -Uri "https://opencode.ai/files/bin/2.0.29/opencode-desktop-wi
 Start-Process -FilePath "$env:TEMP\OpenCode-Setup.exe" -ArgumentList "/S", "/D=$env:LOCALAPPDATA\Programs\OpenCode" -Wait
 ```
 
-It replaces a version 1 install from `SST.OpenCodeDesktop`, because both versions use the same uninstall entry.
-
 **Gridcoin** (pinned `5.5.0.0`) has no winget manifest, so install the NSIS `.exe` from GitHub releases. In an elevated PowerShell:
 
 ```powershell
@@ -248,29 +245,3 @@ Invoke-WebRequest -Uri "https://github.com/gridcoin-community/Gridcoin-Research/
 ```powershell
 Start-Process -FilePath "$env:TEMP\Gridcoin-Setup.exe" -ArgumentList "/S" -Wait
 ```
-
-## OpenCode version 1
-
-Version 2 is the default. The wizard switches when `Switch OpenCode from v2 to v1` is ticked in its custom menu, or with `.\setup.ps1 -EnableKey opencode_use_v1`: it removes the version 2 command line tool and desktop app, installs version 1, and moves a data folder holding version 2 data to `%USERPROFILE%\.local\share\opencode.v2-backup-<date>-<time>`, because version 1 refuses to start on a version 2 database. Switching back moves version 1 data aside the same way and brings the newest version 2 backup back. Nothing is deleted. By hand, in a normal, not elevated, PowerShell:
-
-```powershell
-npm uninstall -g @opencode/cli
-```
-
-```powershell
-npm install -g opencode-ai
-```
-
-```powershell
-winget uninstall --product-code d074f30d-5f88-5885-b075-be1348cc7676
-```
-
-```powershell
-winget install -e --id SST.OpenCodeDesktop --scope user --location "$env:LOCALAPPDATA\Programs\OpenCode"
-```
-
-```powershell
-Move-Item "$HOME\.local\share\opencode" "$HOME\.local\share\opencode.v2-backup-$(Get-Date -Format yyyyMMdd-HHmmss)"
-```
-
-The `winget uninstall` removes version 2, because both versions register that product code and winget would otherwise call version 2 a newer copy of `SST.OpenCodeDesktop` and install nothing. The last command only when that folder exists.

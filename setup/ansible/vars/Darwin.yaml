@@ -1,8 +1,4 @@
 ---
-# Where both OpenCode desktop versions keep the app: OpenCode.app, bundle id ai.opencode.desktop, read from the
-# v1.19.1 app archive and from the opencode-desktop cask on 2026-10-15. tasks/opencode_version.yaml reads it.
-opencode_desktop_app: "/Applications/OpenCode.app"
-
 software_mapping:
   # Browsers
   chrome: { manager: "brew_cask", package: "google-chrome" }
@@ -63,8 +59,6 @@ software_mapping:
   # AI
   chatgpt: { manager: "brew_cask", package: "chatgpt" }   # Official OpenAI build from persistent.oaistatic.com (arm64 + x86_64), needs macOS 12 or newer
   opencode_desktop: { manager: "brew_cask", package: "opencode-desktop" }   # Version 2, 2.0.29 on formulae.brew.sh on 2026-10-15, OpenCode.app in /Applications, needs macOS 13 or newer. The CLI is the npm package, not this cask.
-  # opencode_desktop_v1: Homebrew has no version 1 cask, so when opencode_use_v1 is true macos_install.yaml installs the
-  # vendor DMG from the GitHub release instead, see opencode_desktop_v1_macos_*_dmg_url in setup/pinned_values/pinned_values.toml.
   lm_studio: { manager: "brew_cask", package: "lm-studio", requires_architecture: "arm64" }   # Element Labs' own DMG, Apple Silicon only, needs macOS 12 or newer. The cask declares depends_on arch: :arm64, so an Intel Mac skips it with a note, through tasks/architecture_availability.yaml. Linux takes the vendor script in roles/ai_tools.
 
   # Peripherals

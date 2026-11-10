@@ -15,10 +15,7 @@
       install_android_sdk   the command line tools zip, then sdkmanager, beside the Studio package
       install_gridcoin      a direct installer download, no package anywhere
       install_pipx          pip inside the pinned Python, because no package installs it cleanly
-      install_opencode_desktop  the vendor's signed installer, because winget and Chocolatey carry version 1 only,
-                                or winget's version 1 when opencode_use_v1 is true, removing the other version
-
-    It also moves the OpenCode data folder out of the selected version's way, see Move-OpenCodeData.
+      install_opencode_desktop  the vendor's signed installer, because no package manager carries version 2
 
     Every version comes from the pinned values, read through setup/pinned_values, so the pins
     stay a single source of truth with the Unix path. Nothing here writes to the console: the
@@ -46,11 +43,6 @@ Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'pinned_values\Pinne
 # reported full coverage.
 $script:CustomInstallKeys = @('java', 'nodejs', 'flutter', 'android_sdk', 'gridcoin', 'pipx', 'opencode_desktop')
 
-# The vars/Windows.yaml mappings this file installs itself rather than the mapping pass, because no toggle names
-# them: opencode_desktop_v1 is what install_opencode_desktop installs when opencode_use_v1 is true. Declared for
-# the same reason as the list above, so the verification and e2e/tier1/toggle_coverage.sh read it.
-$script:CustomInstallMappingKeys = @('opencode_desktop_v1')
-
 # Where the Android SDK goes on Windows. Chosen by Lukk, and it works without elevation: the default
 # ACL on the root of C: grants Authenticated Users AppendData on the folder itself, so a standard
 # user can create a directory there and owns what it creates. Measured on this machine, where
@@ -76,17 +68,6 @@ function Get-WindowsCustomInstallKey {
     [OutputType([string[]])]
     param()
     return $script:CustomInstallKeys
-}
-
-function Get-WindowsCustomInstallMappingKey {
-    <#
-    .SYNOPSIS
-        The vars/Windows.yaml mappings this file installs itself, which have no toggle of their own.
-    #>
-    [CmdletBinding()]
-    [OutputType([string[]])]
-    param()
-    return $script:CustomInstallMappingKeys
 }
 
 function Get-FlutterChannel {
@@ -136,12 +117,7 @@ function Get-WindowsCustomInstallProof {
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
-    param(
-        [Parameter(Mandatory)] [hashtable] $Versions,
-        # From Get-OpenCodeVersion. The opencode_desktop entry carries it, so the verification asks which version
-        # the app at the path is, through Test-OpenCodeDesktopVersion, the question the installer asks.
-        [ValidateSet('v1', 'v2')] [string] $OpenCodeVersion = 'v2'
-    )
+    param([Parameter(Mandatory)] [hashtable] $Versions)
 
     $adoptium = Join-Path $env:ProgramFiles 'Eclipse Adoptium'
 
@@ -195,15 +171,13 @@ function Get-WindowsCustomInstallProof {
             Mode        = 'All'
             Description = 'pipx in the user scripts directory of the Python that pip installed it into'
         }
-        # The installer is told this directory with /D, and winget's version 1 with --location, so the
-        # installers and this proof cannot disagree about it. OpenCode.exe is the productName of the Windows
-        # build, read from packages/desktop/electron-builder.config.ts at tag v2.0.29, which sets
-        # executableName for Linux only.
+        # The installer is told this directory with /D, so the installer and this proof cannot disagree about it.
+        # OpenCode.exe is the productName of the Windows build, read from packages/desktop/electron-builder.config.ts
+        # at tag v2.0.29, which sets executableName for Linux only.
         opencode_desktop = [PSCustomObject]@{
-            Path            = @(Join-Path $env:LOCALAPPDATA 'Programs\OpenCode\OpenCode.exe')
-            Mode            = 'All'
-            Description     = "the OpenCode desktop app, version $($OpenCodeVersion.Substring(1)), in the per-user programs directory"
-            OpenCodeVersion = $OpenCodeVersion
+            Path        = @(Join-Path $env:LOCALAPPDATA 'Programs\OpenCode\OpenCode.exe')
+            Mode        = 'All'
+            Description = 'the OpenCode desktop app, version 2, in the per-user programs directory'
         }
     }
 }
@@ -1258,282 +1232,58 @@ function Get-FileProductMajorVersion {
 function Test-OpenCodeDesktopVersion {
     <#
     .SYNOPSIS
-        Whether the OpenCode.exe at Path is the given version: major 1 for v1, 2 or later for v2.
+        Whether the OpenCode.exe at Path is version 2 or later.
     .DESCRIPTION
         Asked by Install-OpenCodeDesktop before and after it installs and by the verification, so the three
-        cannot disagree about which version is there. Both versions register the same uninstall entry and
-        install to the same directory here, so one file answers for both and only one version can be present.
+        cannot disagree about which version is there.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Path,
-        [Parameter(Mandatory)] [ValidateSet('v1', 'v2')] [string] $Version
-    )
+    param([Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Path)
 
-    $major = Get-FileProductMajorVersion -Path $Path
-    if ($Version -eq 'v1') {
-        return $major -eq 1
-    }
-    return $major -ge 2
-}
-
-# The uninstall entry both desktop versions register, which is also the product code SST.OpenCodeDesktop
-# 1.19.0 declares, read 2026-10-15. electron-builder derives it from the app id ai.opencode.desktop.
-$script:OpenCodeDesktopProductCode = 'd074f30d-5f88-5885-b075-be1348cc7676'
-
-function Remove-OpenCodeDesktop {
-    <#
-    .SYNOPSIS
-        Uninstalls the OpenCode desktop app through its uninstall entry, and returns an empty string or why it failed.
-    .DESCRIPTION
-        winget uninstall by product code, so it finds the entry whichever installer wrote it. Asked again
-        afterwards through Test-OpenCodeDesktopVersion, because an uninstaller that exits 0 and leaves the app
-        behind is not a removal.
-    #>
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ProofPath,
-        [Parameter(Mandatory)] [ValidateSet('v1', 'v2')] [string] $Version
-    )
-
-    if (-not $PSCmdlet.ShouldProcess("OpenCode desktop $Version", 'winget uninstall')) {
-        return ''
-    }
-    $winget = Get-WingetPath
-    $run = Invoke-BoundedWinget -WingetPath $winget -TimeoutSeconds 600 -Arguments @(
-        'uninstall', '--product-code', $script:OpenCodeDesktopProductCode, '--exact', '--silent',
-        '--accept-source-agreements', '--disable-interactivity')
-    if ($run.TimedOut) {
-        return 'winget uninstall ran out of time'
-    }
-    if (Test-OpenCodeDesktopVersion -Path $ProofPath -Version $Version) {
-        $tail = Get-CommandOutputTail -Text $run.Output
-        return "winget uninstall exited $($run.ExitCode) and OpenCode $Version is still at $ProofPath. $tail"
-    }
-    return ''
+    return (Get-FileProductMajorVersion -Path $Path) -ge 2
 }
 
 function Install-OpenCodeDesktop {
     <#
     .SYNOPSIS
-        Installs the OpenCode desktop app of the selected version, removing the other one.
+        Installs the OpenCode desktop app, version 2.
     .DESCRIPTION
-        Version 2 comes from the vendor's own installer, because winget's SST.OpenCodeDesktop and Chocolatey's
-        opencode-desktop are version 1 only, read on 2026-10-15. It is an electron-builder one-click per-user
-        NSIS build: its manifest asks for asInvoker and the build sets oneClick true and perMachine false, so
-        /S installs for the user who runs the wizard without a consent prompt. It is signed by Anomaly
-        Innovations, Inc, so the Authenticode check stays on. /D names the directory, so the installer and the
-        proof cannot disagree about it.
+        Version 2 comes from the vendor's own installer, because no package manager carries it on Windows, read on
+        2026-10-15. It is an electron-builder one-click per-user NSIS build: its manifest asks for asInvoker and the
+        build sets oneClick true and perMachine false, so /S installs for the user who runs the wizard without a
+        consent prompt. It is signed by Anomaly Innovations, Inc, so the Authenticode check stays on. /D names the
+        directory, so the installer and the proof cannot disagree about it.
 
-        Version 1, when opencode_use_v1 is true, comes from winget's SST.OpenCodeDesktop, the
-        opencode_desktop_v1 mapping, installed per user into the same directory with --location.
-
-        Both versions register the uninstall entry $script:OpenCodeDesktopProductCode. The version 2 installer
-        therefore replaces a version 1 install rather than sitting beside it, and winget would call version 2
-        an installed, newer SST.OpenCodeDesktop and refuse to install version 1 over it, so version 2 is
-        uninstalled first. The app updates itself, so a copy already at the proof path counts as present when
-        Test-OpenCodeDesktopVersion says it is the selected version, whatever its minor version.
+        The app updates itself, so a copy already at the proof path counts as present when
+        Test-OpenCodeDesktopVersion says it is version 2, whatever its minor version.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [hashtable] $Versions,
         # The opencode_desktop entry of Get-WindowsCustomInstallProof, so this and the verification ask about one path.
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ProofPath,
-        [ValidateSet('v1', 'v2')] [string] $Version = 'v2',
-        # The opencode_desktop_v1 entry of Get-WindowsSoftwareMapping, read only for version 1.
-        [PSCustomObject] $V1Mapping
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $ProofPath
     )
 
-    $other = if ($Version -eq 'v1') { 'v2' } else { 'v1' }
-    if (Test-OpenCodeDesktopVersion -Path $ProofPath -Version $Version) {
-        return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = "OpenCode desktop $Version"; Status = 'present'; Detail = $ProofPath }
+    if (Test-OpenCodeDesktopVersion -Path $ProofPath) {
+        return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = 'OpenCode desktop v2'; Status = 'present'; Detail = $ProofPath }
     }
-    $otherWasHere = Test-OpenCodeDesktopVersion -Path $ProofPath -Version $other
     $installDir = Split-Path -Parent $ProofPath
 
-    if ($Version -eq 'v2') {
-        $pin = Resolve-PinnedInstallerUrl -Versions $Versions -Name 'opencode_desktop_win_installer_url'
-        if (-not $pin.Url) {
-            return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = 'opencode_desktop_win_installer_url'; Status = 'failed'; Detail = $pin.Reason }
-        }
-        $result = Install-DirectInstaller -Key 'opencode_desktop' -Url $pin.Url -SilentArgument @('/S', "/D=$installDir") -ProofPath $ProofPath
-    } else {
-        if (-not $V1Mapping) {
-            return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = 'opencode_desktop_v1'; Status = 'failed'
-                                      Detail = 'vars/Windows.yaml maps no opencode_desktop_v1, so there is no version 1 to install' }
-        }
-        if ($otherWasHere) {
-            $why = Remove-OpenCodeDesktop -ProofPath $ProofPath -Version 'v2'
-            if ($why) {
-                return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = $V1Mapping.Package; Status = 'failed'
-                                          Detail = "OpenCode v2 desktop could not be removed, so version 1 was not installed: $why" }
-            }
-        }
-        $result = Install-WingetPackage -WingetPath (Get-WingetPath) -PackageId $V1Mapping.Package -Scope $V1Mapping.Scope -Location $installDir
-        $result = [PSCustomObject]@{ Key = 'opencode_desktop'; Package = $V1Mapping.Package; Status = $result.Status; Detail = $result.Detail }
+    $pin = Resolve-PinnedInstallerUrl -Versions $Versions -Name 'opencode_desktop_win_installer_url'
+    if (-not $pin.Url) {
+        return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = 'opencode_desktop_win_installer_url'; Status = 'failed'; Detail = $pin.Reason }
     }
+    $result = Install-DirectInstaller -Key 'opencode_desktop' -Url $pin.Url -SilentArgument @('/S', "/D=$installDir") -ProofPath $ProofPath
 
     if ($result.Status -ne 'installed') {
         return $result
     }
-    if (-not (Test-OpenCodeDesktopVersion -Path $ProofPath -Version $Version)) {
+    if (-not (Test-OpenCodeDesktopVersion -Path $ProofPath)) {
         return [PSCustomObject]@{ Key = 'opencode_desktop'; Package = $result.Package; Status = 'failed'
-                                  Detail = "the installer reported success and $ProofPath is not OpenCode $Version" }
-    }
-    if ($otherWasHere) {
-        $result.Detail = (@("removed OpenCode $other desktop because $Version is selected", $result.Detail) | Where-Object { $_ }) -join ', '
+                                  Detail = "the installer reported success and $ProofPath is not OpenCode v2" }
     }
     return $result
-}
-
-function Get-OpenCodeDataHome {
-    <#
-    .SYNOPSIS
-        The directory OpenCode's data folder sits in: XDG_DATA_HOME when it is set, else .local\share in the profile.
-    .DESCRIPTION
-        Both versions resolve it the way the xdg-basedir package does on every platform, Windows included,
-        read out of the Windows binaries of 2.0.29 and 1.19.1 on 2026-10-15: XDG_DATA_HOME first, then the
-        home directory joined with .local and share.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-
-    if ($env:XDG_DATA_HOME) {
-        return $env:XDG_DATA_HOME
-    }
-    $profileDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
-    return (Join-Path (Join-Path $profileDir '.local') 'share')
-}
-
-function Test-OpenCodeDatabaseTable {
-    <#
-    .SYNOPSIS
-        Whether OpenCode's database in Directory declares the named table.
-    .DESCRIPTION
-        SQLite keeps each table's CREATE TABLE statement as text, in opencode.db or, until a checkpoint, in
-        opencode.db-wal, so both files are searched for it rather than opened, which needs no SQLite on the
-        machine. roles/ai_tools/tasks/opencode_data.yaml searches for the same text the same way. Read in
-        blocks, each one overlapping the last by the length of the text, so a match across two blocks counts.
-    #>
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Directory,
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Table
-    )
-
-    $needle = 'CREATE TABLE `' + $Table + '`'
-    $latin1 = [System.Text.Encoding]::Latin1
-    foreach ($name in @('opencode.db', 'opencode.db-wal')) {
-        $file = Join-Path $Directory $name
-        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
-            continue
-        }
-        $stream = [System.IO.File]::Open($file, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-        try {
-            $buffer = [byte[]]::new(1MB)
-            $carry = ''
-            while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-                $text = $carry + $latin1.GetString($buffer, 0, $read)
-                if ($text.IndexOf($needle, [System.StringComparison]::Ordinal) -ge 0) {
-                    return $true
-                }
-                $carry = $text.Substring([Math]::Max(0, $text.Length - $needle.Length + 1))
-            }
-        } finally {
-            $stream.Dispose()
-        }
-    }
-    return $false
-}
-
-function Get-OpenCodeDataVersion {
-    <#
-    .SYNOPSIS
-        v2 when the data folder's database has a session_v2 table, v1 when it has a session table and no session_v2, else empty.
-    .DESCRIPTION
-        Measured with @opencode/cli 2.0.29 and opencode-ai 1.19.1 on 2026-10-15: version 1 creates a table named
-        session, version 2 one named session_v2 and none named session, version 1 refuses a version 2 database
-        with "Database is not empty and has no session table", and version 2 migrates a version 1 database in
-        place by adding session_v2 beside session, which then counts as version 2 data.
-    #>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param([Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Directory)
-
-    if (Test-OpenCodeDatabaseTable -Directory $Directory -Table 'session_v2') {
-        return 'v2'
-    }
-    if (Test-OpenCodeDatabaseTable -Directory $Directory -Table 'session') {
-        return 'v1'
-    }
-    return ''
-}
-
-function Move-OpenCodeData {
-    <#
-    .SYNOPSIS
-        Moves OpenCode data the selected version cannot open out of its way, and brings back the newest version 2 backup for version 2.
-    .DESCRIPTION
-        The rule roles/ai_tools/tasks/opencode_data.yaml applies on Linux and macOS, with the same folder names.
-        Switching to version 1 moves a folder holding version 2 data to opencode.v2-backup-<date>-<time> beside
-        it and brings no version 1 backup back, so version 1 starts clean. Switching to version 2 moves a folder
-        holding version 1 data to opencode.v1-backup-<date>-<time> only when a version 2 backup exists to come
-        back, because version 2 opens version 1 data by itself, and once the folder is free the newest version 2
-        backup is moved back into it. Nothing is deleted, and a move never lands on a path that exists. Returns
-        one row: Status installed when anything moved, present when nothing had to, failed when a move did not
-        happen, and Detail names every move.
-    #>
-    [CmdletBinding(SupportsShouldProcess)]
-    param(
-        [Parameter(Mandatory)] [ValidateSet('v1', 'v2')] [string] $Version,
-        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $DataHome,
-        # The stamp in a new backup's name. A parameter so a test can name it.
-        [ValidatePattern('^\d{8}-\d{6}$')] [string] $Stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-    )
-
-    $other = if ($Version -eq 'v1') { 'v2' } else { 'v1' }
-    $dir = Join-Path $DataHome 'opencode'
-    $moves = [System.Collections.Generic.List[string]]::new()
-    $row = { param($status, $detail) [PSCustomObject]@{ Key = 'opencode_data'; Package = $dir; Status = $status; Detail = $detail } }
-
-    $v2Backup = $null
-    if (Test-Path -LiteralPath $DataHome -PathType Container) {
-        $v2Backup = Get-ChildItem -LiteralPath $DataHome -Directory |
-            Where-Object { $_.Name -like 'opencode.v2-backup-*' } |
-            Sort-Object Name | Select-Object -Last 1
-    }
-
-    try {
-        $holdsOther = (Test-Path -LiteralPath $dir -PathType Container) -and ((Get-OpenCodeDataVersion -Directory $dir) -eq $other)
-        if ($holdsOther -and ($Version -eq 'v1' -or $v2Backup)) {
-            $target = Join-Path $DataHome "opencode.$other-backup-$Stamp"
-            if (Test-Path -LiteralPath $target) {
-                return (& $row 'failed' "refusing to move $dir to $target, which already exists")
-            }
-            if ($PSCmdlet.ShouldProcess($dir, "move to $target")) {
-                Move-Item -LiteralPath $dir -Destination $target -ErrorAction Stop
-                $moves.Add("moved $dir to $target, because it holds OpenCode $other data and $Version is selected")
-            }
-        }
-        if ($Version -eq 'v2' -and $v2Backup -and -not (Test-Path -LiteralPath $dir)) {
-            if ($PSCmdlet.ShouldProcess($v2Backup.FullName, "move back to $dir")) {
-                Move-Item -LiteralPath $v2Backup.FullName -Destination $dir -ErrorAction Stop
-                $moves.Add("moved $($v2Backup.FullName) back to $dir, the newest OpenCode v2 data, because v2 is selected")
-            }
-        }
-    } catch {
-        $done = if ($moves.Count) { " after $($moves -join '; ')" } else { '' }
-        return (& $row 'failed' "$($_.Exception.Message)$done")
-    }
-
-    if ($moves.Count -eq 0) {
-        return (& $row 'present' '')
-    }
-    return (& $row 'installed' ($moves -join '; '))
 }
 
 function Invoke-WindowsCustomInstall {
@@ -1548,11 +1298,7 @@ function Invoke-WindowsCustomInstall {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [hashtable] $Toggles,
-        [string[]] $OnlyKeys,
-        # From Get-OpenCodeVersion, the answer the npm phase and the verification are given too.
-        [ValidateSet('v1', 'v2')] [string] $OpenCodeVersion = 'v2',
-        # From Get-WindowsSoftwareMapping, for the version 1 desktop app's winget package.
-        [hashtable] $Mappings = @{}
+        [string[]] $OnlyKeys
     )
 
     $results = [System.Collections.Generic.List[object]]::new()
@@ -1581,7 +1327,7 @@ function Invoke-WindowsCustomInstall {
 
     # The paths an install has to leave behind, held in one table so the proof this phase demands and
     # the proof the verification looks for after the run are the same paths.
-    $proofs = Get-WindowsCustomInstallProof -Versions $versions -OpenCodeVersion $OpenCodeVersion
+    $proofs = Get-WindowsCustomInstallProof -Versions $versions
 
     # [object[]]@( ) around each call, the same wrapper WindowsSettings.ps1 uses, and for a measured
     # reason. A function here returns a list of results normally and a single object when it gives
@@ -1641,16 +1387,8 @@ function Invoke-WindowsCustomInstall {
         }
     }
 
-    # Either OpenCode toggle, because the command line tool and the desktop app read the same data folder. Before
-    # the desktop app, which is the order the Linux and macOS role keeps as well.
-    if ((& $wanted 'opencode') -or (& $wanted 'opencode_desktop')) {
-        $results.Add((Move-OpenCodeData -Version $OpenCodeVersion -DataHome (Get-OpenCodeDataHome)))
-    }
-
     if (& $wanted 'opencode_desktop') {
-        $v1Mapping = if ($Mappings.ContainsKey('opencode_desktop_v1')) { $Mappings['opencode_desktop_v1'] } else { $null }
-        $results.Add((Install-OpenCodeDesktop -Versions $versions -ProofPath (@($proofs['opencode_desktop'].Path)[0]) `
-            -Version $OpenCodeVersion -V1Mapping $v1Mapping))
+        $results.Add((Install-OpenCodeDesktop -Versions $versions -ProofPath (@($proofs['opencode_desktop'].Path)[0])))
     }
 
     return [PSCustomObject]@{

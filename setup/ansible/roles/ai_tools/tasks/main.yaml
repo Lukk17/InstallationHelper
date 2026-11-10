@@ -30,12 +30,8 @@
           Claude Code or Claude Desktop is NOT installed. Every other AI tool continues, and the run is
           marked failed.
 
-# Either toggle, because the version switch in opencode.yaml removes the other version's desktop app and moves
-# the data folder for the desktop app as much as for the command line tool.
 - name: Install OpenCode
-  when:
-    - install_opencode | default(false) | bool
-      or install_opencode_desktop | default(false) | bool
+  when: install_opencode | default(false) | bool
   tags: [opencode]
   block:
     - name: Import the OpenCode tasks
