@@ -34,6 +34,7 @@ services:
     container_name: nginx-proxy-manager
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 384m
     depends_on:
       internal-ca:
         condition: service_completed_successfully
@@ -52,6 +53,7 @@ services:
     container_name: adguard-home
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 512m
     networks:
       - proxy-tier
     ports:
@@ -71,6 +73,7 @@ services:
     container_name: homepage
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 256m
     networks:
       - proxy-tier
     environment:
@@ -85,6 +88,7 @@ services:
     container_name: uptime-kuma
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 512m
     networks:
       - proxy-tier
     ports:
@@ -97,6 +101,7 @@ services:
     container_name: syncthing
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 256m
     networks:
       - proxy-tier
     environment:
@@ -117,6 +122,7 @@ services:
     container_name: perlite
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 128m
     networks:
       - proxy-tier
     environment:
@@ -138,6 +144,7 @@ services:
     container_name: perlite-web
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 64m
     networks:
       - proxy-tier
     ports:
@@ -154,6 +161,7 @@ services:
     container_name: redis
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 128m
     networks:
       - proxy-tier
     ports:
@@ -169,6 +177,7 @@ services:
     container_name: filebrowser
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 256m
     user: "1000:1000"
     networks:
       - proxy-tier
@@ -189,6 +198,7 @@ services:
     container_name: samba
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 256m
     environment:
       - NAME=files
       - USER=${SAMBA_USER:?set SAMBA_USER in /opt/docker-stack/.env}
@@ -211,6 +221,7 @@ services:
     logging: *default-logging
     network_mode: host
     cpus: 1.5
+    mem_limit: 2g
     environment:
       - TZ=Europe/Warsaw
       - PLEX_UID=1000
@@ -231,6 +242,7 @@ services:
     container_name: telegraf
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 256m
     network_mode: host
     user: "1000:1000"
     environment:

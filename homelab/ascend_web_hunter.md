@@ -114,7 +114,7 @@ Everything sensitive lives in `.env` inside [ascend-web-hunter_deploy/](ascend-w
 
 ### Resource footprint
 
-Every container carries a hard memory and CPU ceiling, sized for an 8 GB host that already runs the rest of this homelab stack.
+Every container carries a hard memory and CPU ceiling. The numbers come from the AscendAI bundle, which sizes them for an 8 GB host that already runs other services, and this lab's Docker VM has 9 GiB.
 
 | Container | CPU limit | Memory limit |
 |---|---|---|

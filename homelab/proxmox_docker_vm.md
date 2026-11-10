@@ -63,7 +63,11 @@ CPU. One socket, four cores, type `x86-64-v2-AES`. One socket matches one physic
 consumer hardware. The AES type passes hardware encryption acceleration into the VM, which speeds up TLS work in the
 reverse proxy.
 
-Memory. 4096 MiB is enough for the whole Compose stack with room to spare.
+Concrete example, the lab these documents were written from: VM 101 `docker-vm` had one socket and two cores on 2026-11-10 (`sockets: 1`, `cores: 2` in its Proxmox configuration), so the Plex cap of 1.5 cores leaves the rest of the stack at least 0.5, see [plex_media_server.md](plex_media_server.md#the-cpu-cap).
+
+Memory. 4096 MiB is enough for the Compose stack alone with room to spare. ascend-web-hunter, which runs beside it, needs about 3 GB more, because its memory ceilings total 3.0 GB, see [ascend_web_hunter.md](ascend_web_hunter.md#resource-footprint).
+
+Concrete example, the lab these documents were written from: VM 101 `docker-vm` has 9216 MiB since 2026-11-10. The Proxmox host has 15.4 GiB, the Home Assistant VM takes 4096 MiB, and the Proxmox wiki page [System Requirements](https://pve.proxmox.com/wiki/System_Requirements) (read 2026-11-10) asks for "Minimum 2 GB for the OS and Proxmox VE services", so 9 GiB is the most this lab can give the Docker VM.
 
 Network. Bridge `vmbr0`, model VirtIO, firewall unticked.
 
