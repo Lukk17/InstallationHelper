@@ -1,0 +1,9 @@
+# Item numbers missing on purpose from the numbered list of tier 1 checks under "## Expected" in
+# e2e/testing/10-wizard-toggle-parse-test.md, each with the reason. Items keep their numbers when a
+# check is deleted, because ledger entries and other pages cite checks by those numbers.
+#
+# Read by e2e/tier1/check_list_numbering.sh. One entry per line: the item number, then " | ", then
+# why. An entry whose number starts a line of the list again, or lies past its last item, fails the
+# check as well, so this file cannot quietly outlive what it excuses.
+
+60 | the opencode_switch check this item described was deleted with OpenCode Desktop version 1, and items 61 to 73 keep their numbers because ledger entries cite capabilities 62, 64 to 68 and 73 by those numbers, docs/regression_ledger.md 10.254

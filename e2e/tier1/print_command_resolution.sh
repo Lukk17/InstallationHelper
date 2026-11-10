@@ -22,8 +22,9 @@
 #
 # --software all is every declared toggle on.
 #
-# Nothing here changes the machine. --print-command answers at line 1402 of setup.sh and exits,
-# above prepare_become_password, ensure_ansible and system_upgrade.
+# Nothing here changes the machine. --print-command answers in the OPT_PRINT_COMMAND block of
+# setup.sh, through resolve_overrides and build_playbook_args, and exits, above
+# prepare_become_password, ensure_ansible and system_upgrade.
 #
 # The six wizard runs are started together and waited for once, rather than one after another. Each
 # one is an independent read-only process, and on Git Bash a single run costs nine seconds inside

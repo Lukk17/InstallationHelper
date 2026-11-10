@@ -20,7 +20,8 @@
 # setup.sh itself. The four desktop keys are removed because preload_toggles keeps them off the
 # checklist and gives them a screen of their own. Nothing here restates a toggle name.
 #
-# Nothing changes the machine. --list-software answers at line 1391 of setup.sh and exits, above
+# Nothing changes the machine. --list-software answers through list_software in setup.sh, which the
+# OPT_LIST_SOFTWARE block calls right after preload_toggles and then exits, above
 # prepare_become_password, ensure_ansible and system_upgrade.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
