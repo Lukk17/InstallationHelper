@@ -7663,7 +7663,7 @@ Mechanical check: none added. The wrong lines and the right ones use the same wo
 
 #### 10.212 Five custom installs on Linux and macOS are checked by nothing after the run
 
-Status: open, not introduced by this change and not fixed here. Defect class 19 in a second form: the verification covers what it lists, and nothing compares that list with the custom installs the software installer runs.
+Status: open, not introduced by this change and not fixed here. Defect class 19 in a second form: the verification covers what it lists, and nothing compares that list with the custom installs the software installer runs. Four of the five closed on 2026-11-10, Gridcoin on macOS still open, see the last paragraphs.
 
 Cause: [setup/ansible/verify_install.yaml](../setup/ansible/verify_install.yaml) expects the mapped packages, the companion_packages entries and the rows of `ih_outside_pm_tools`, and a custom install in [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) or [macos_install.yaml](../setup/ansible/roles/software_installer/tasks/macos_install.yaml) is in none of those unless someone adds a row for it by hand.
 
@@ -7672,6 +7672,10 @@ Effect: no failed run, which is the point. Gridcoin on Linux, the flatpak bundle
 How it was proven: on the tree of 2026-10-27, `grep -c -i` against verify_install.yaml returned 0 for `gridcoin`, `synapse`, `gputest` and `k3d`. KiCad 9, added in the same change, is a row of `ih_outside_pm_tools` on Linux and on macOS, so it is not part of this gap. Nothing was run, because the brief for this change allowed only file edits, git read commands and the manifest generator.
 
 Fix: none yet. Each of the five needs a row asking the disk or the package database for what its task leaves behind, and e2e/tier1/verify_wiring.sh could compare the toggles custom_installs.yaml and macos_install.yaml act on with the toggles verify_install.yaml expects something for, the way it already does for role package installs.
+
+Added on 2026-11-10: four of the five are closed, Gridcoin on macOS is still open. [setup/ansible/verify_install.yaml](../setup/ansible/verify_install.yaml) has a task that sets one fact per custom install under the same conditions as the block that installs it, and a row of `ih_outside_pm_tools` for each. k3d on Linux asks for `[ -x /usr/local/bin/k3d ]` and finds `k3d` from an interactive shell, the path the install task's own `stat` guard reads before it runs k3d's install.sh. GpuTest on Debian, Ubuntu and Fedora asks for `[ -x /usr/local/bin/GpuTest ]` and finds `GpuTest` from an interactive shell, the symlink the install task creates. Gridcoin on Linux asks `flatpak info --system us.gridcoin.GridcoinResearch`, the id named in the install task's comment and installed in the stored tier 3 logs under `e2e/runs`, which print `Installing app/us.gridcoin.GridcoinResearch/x86_64/master` on Debian, Ubuntu, Fedora, Arch and CachyOS. Razer Synapse on an arm64 Mac on macOS 15 or newer asks `pkgutil --pkg-info com.razer.install.SynapseInstall`, the receipt the install task itself asks for before it downloads the pkg. k3d's install.sh was not read, so its path rests on the install task's guard, not on k3d's documentation. Gridcoin on macOS cannot be verified yet: the copy task takes the name of whichever `.app` the disk image holds, found at run time by `find`, and no run log, commit or vendor source in this repository records that name. Its block is named with that reason in [e2e/tier1/unverified_custom_installs.txt](../e2e/tier1/unverified_custom_installs.txt). The same check found two more custom installs checked by nothing, which are 10.267 below. The new rows run only on real machines and in tier 3, so the Linux rows are proven only by a tier 3 run on a GitHub-hosted runner and the Synapse row only by a macOS run on an arm64 runner on macOS 15 or newer. None was dispatched in this change.
+
+Mechanical check: the section "every custom install is verified" of [e2e/tier1/verify_wiring.sh](../e2e/tier1/verify_wiring.sh), added on 2026-11-10. It follows the includes of `roles/software_installer/tasks/main.yaml` with their conditions, takes every block whose rescue adds the application to `not_installed_with_reason` and whose conditions name a toggle, and fails when no row of `ih_outside_pm_tools` expects that toggle on that platform, either directly or through a fact whose expression names it, unless unverified_custom_installs.txt names the block. It also fails on a line of that file a row now covers or that names no block any more, and when it finds no custom install at all. Proven in the whole tier 1 gate on two full `git clone`s of HEAD `d8e7348` with the section and unverified_custom_installs.txt added. In `mut-k3d`, which also carried every new row except the one for k3d, it was the only check that failed, `verification wiring: 15 checks, 1 FAILED`, with `FAIL a custom install is not verified` and `software_installer/tasks/custom_installs.yaml, "Install k3d via its official script (Linux)", installs under install_k3d on Linux, and no row of ih_outside_pm_tools in setup/ansible/verify_install.yaml expects it there`. In `mut-head`, which kept HEAD's play with none of the new rows, it was again the only check that failed, `verification wiring: 20 checks, 6 FAILED`, naming Antigravity, AppImageLauncher, k3d, Gridcoin on Linux, GpuTest and Razer Synapse on Darwin, while the Gridcoin macOS exception passed. On the working tree it printed `PASS all 10 custom installs of the software installer under a toggle are expected by a row of ih_outside_pm_tools on their platform, or are a documented exception (1)` and `verification wiring: 15 checks, all passed`. Both clones are under the session scratch folder `/tmp/claude-1000/-home-lukk-Projects-InstallationHelper/49d1eb38-7bcf-4e50-b3ab-bdb4d5ccfcdb/scratchpad/`.
 
 #### 10.213 The Windows verification named a function it is forbidden to call as its dependency
 
@@ -8504,5 +8508,49 @@ Effect: one log file was written into the session's scratch folder under `/tmp/c
 How it was proven: the commands are in the session's own record.
 
 Fix: none needed on the machine. From then on the agent read the logs of its later runs with its file reading tool.
+
+Mechanical check: none can stop a command typed on the host.
+
+### Found while adding the verification of 10.212, 2026-11-10
+
+#### 10.267 Antigravity on Debian, Ubuntu and Fedora and AppImageLauncher on Fedora were checked by nothing after the run
+
+Status: not introduced by this change, found by the check it adds and fixed here. Defect class 19, the same gap as 10.212, which missed these two because it was found by searching four names rather than by comparing the play with the role.
+
+Cause: the custom installs "Install Antigravity from the official tarball (Linux, non-Arch)" and "Install AppImageLauncher from the vendor RPM (Fedora)" in [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) had no row of `ih_outside_pm_tools` in [setup/ansible/verify_install.yaml](../setup/ansible/verify_install.yaml), and no mapping or `companion_packages` entry the play reads names what they leave behind.
+
+Effect: no failed run. A run in which either block ended with nothing on disk, without its rescue firing, would end green with the application absent. Read in the task files, not run.
+
+How it was proven: `git grep -n -i -E 'antigravity|appimagelauncher|k3d|gridcoin|gputest|synapse' HEAD -- setup/ansible/verify_install.yaml` on HEAD `d8e7348` returned three comment lines about the AppImageLauncher apt_url mapping and nothing that checks either install. The new check, run in the whole tier 1 gate on a full clone of that HEAD with only the check and its exceptions file added, failed with `verification wiring: 20 checks, 6 FAILED`, and two of the six were `software_installer/tasks/custom_installs.yaml, "Install Antigravity from the official tarball (Linux, non-Arch)", installs under install_antigravity on Linux` and `software_installer/tasks/custom_installs.yaml, "Install AppImageLauncher from the vendor RPM (Fedora)", installs under install_appimagelauncher on Linux`, each followed by `and no row of ih_outside_pm_tools in setup/ansible/verify_install.yaml expects it there`.
+
+Fix: two more facts and rows in [setup/ansible/verify_install.yaml](../setup/ansible/verify_install.yaml). Antigravity, on Linux outside the Arch family, asks for `[ -x /opt/antigravity/antigravity ] && [ -x /usr/local/bin/antigravity ]` and finds `antigravity` from an interactive shell, the `creates` and the symlink of its install task. AppImageLauncher, on the RedHat family, asks for `[ -x /usr/bin/AppImageLauncher ]`, the `creates` of its install task, and asks no shell because it is a desktop integration. Both are proven on a real machine only by a tier 3 run on a GitHub-hosted runner, which was not dispatched in this change.
+
+Mechanical check: the section "every custom install is verified" of [e2e/tier1/verify_wiring.sh](../e2e/tier1/verify_wiring.sh), the one named in 10.212, which is what found these two.
+
+#### 10.268 LM Studio on Linux and the Stable Diffusion WebUI on Linux and macOS are checked by nothing after the run
+
+Status: open, not introduced by this change and not fixed here, because the brief for this change named five installs and these are not among them. Defect class 19.
+
+Cause: "Install LM Studio via official script (Linux)" and "Clone Stable Diffusion WebUI (Linux/Mac)" in [setup/ansible/roles/ai_tools/tasks/local_llm.yaml](../setup/ansible/roles/ai_tools/tasks/local_llm.yaml) install under `install_lm_studio` and `install_stable_diffusion`, and [setup/ansible/verify_install.yaml](../setup/ansible/verify_install.yaml) has no row, mapping read or fact for either.
+
+Effect: no failed run. The run reports both through their own tasks and then nothing asks the machine whether `lms` or `~/stable-diffusion-webui` is there.
+
+How it was proven: `git grep -n -i -E 'lm_studio|lmstudio|lms|stable_diffusion|stable-diffusion' -- setup/ansible/verify_install.yaml` on the working tree of 2026-11-10 returned nothing. The new check of 10.212 does not see them, because it reads only `roles/software_installer/tasks` and these tasks are not blocks whose rescue adds the application to `not_installed_with_reason`.
+
+Fix: none yet. LM Studio's CLI lives in `<lmstudio home>/bin/lms`, where the home is `~/.lmstudio` unless `~/.lmstudio-home-pointer` names another, as the probe in local_llm.yaml reads it, so a row would ask the same probe. The WebUI is a git clone at `{{ non_root_home }}/stable-diffusion-webui`. The check would have to read the `ai_tools` role as well.
+
+Mechanical check: none yet.
+
+#### 10.269 The change that closed 10.212 mounted the background runner's output folder into the gate image
+
+Status: introduced by this change, and reported to the owner here. A breach of the brief, which allowed on the host `docker run --rm` of the gate image only with a repository or clone mounted read-only, the same shape as 10.266.
+
+Cause: to search the output of its first gate run, the agent started `docker run --rm` of the gate image with the folder its own background runner writes output files to, under `/tmp/claude-1000/`, mounted read-only, and grep as the entrypoint, instead of reading the file with its file reading tool. Later it started `docker run --rm` of the gate image with the mutation clone mounted read-only and `true` as the entrypoint, a container that searched nothing, outside the one purpose the brief allowed that command for.
+
+Effect: nothing on the machine changed. Every mount was read-only, both containers ran with `--rm` and no added privilege, grep only searched text and `true` did nothing.
+
+How it was proven: the command is in the session's own record.
+
+Fix: none needed on the machine. From then on the agent read every gate output with its file reading tool.
 
 Mechanical check: none can stop a command typed on the host.

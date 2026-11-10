@@ -739,6 +739,23 @@
         ih_kicad9_appimage_applies: "{{ (install_kicad9 | default(false) | bool) and (kicad9_appimage_applies | bool) }}"
         ih_kicad9_disk_image_applies: "{{ (install_kicad9 | default(false) | bool) and ih_family == 'Darwin' }}"
 
+    # The custom installs of roles/software_installer/tasks/custom_installs.yaml and macos_install.yaml, each
+    # under the same conditions as the block that installs it. e2e/tier1/verify_wiring.sh fails on a custom
+    # install there that no row of ih_outside_pm_tools expects.
+    - name: Decide which custom installs of the software installer ran on this machine
+      ansible.builtin.set_fact:
+        ih_antigravity_tarball_applies: >-
+          {{ (install_antigravity | default(false) | bool) and ansible_facts['system'] == 'Linux' and ih_family != 'Archlinux' }}
+        ih_appimagelauncher_rpm_applies: "{{ (install_appimagelauncher | default(false) | bool) and ih_family == 'RedHat' }}"
+        ih_k3d_script_applies: "{{ (install_k3d | default(false) | bool) and ansible_facts['system'] == 'Linux' }}"
+        ih_gridcoin_flatpak_applies: "{{ (install_gridcoin | default(false) | bool) and ansible_facts['system'] == 'Linux' }}"
+        ih_gputest_archive_applies: >-
+          {{ (install_gputest | default(false) | bool) and ansible_facts['system'] == 'Linux' and ih_family != 'Archlinux' }}
+        ih_synapse_pkg_applies: >-
+          {{ (install_synapse | default(false) | bool) and ih_family == 'Darwin'
+             and ansible_facts['architecture'] == 'arm64'
+             and ansible_facts['distribution_version'] is version('15.0', '>=') }}
+
     # One entry per tool this playbook installs outside a package manager. shell_bin is the name a
     # login shell is asked to resolve; left empty for the four pinned Java majors and the four pinned
     # Python builds, because only one of each is ever the active java or python on PATH at a time,
@@ -995,6 +1012,48 @@
             expected_path: "/usr/local/bin/uvx"
             disk_cmd: >-
               [ -x /usr/local/bin/uvx ] && [ -x /usr/local/bin/uv ]
+          - key: antigravity
+            toggle: ih_antigravity_tarball_applies
+            shell_bin: antigravity
+            how: "/opt/antigravity/antigravity, unpacked from Google's tarball, linked as /usr/local/bin/antigravity"
+            expected_path: "/usr/local/bin/antigravity"
+            disk_cmd: >-
+              [ -x /opt/antigravity/antigravity ] && [ -x /usr/local/bin/antigravity ]
+          - key: appimagelauncher
+            toggle: ih_appimagelauncher_rpm_applies
+            shell_bin: ""
+            how: "/usr/bin/AppImageLauncher, from the vendor rpm installed with rpm --nodigest. A desktop integration, so no shell is asked to find it"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x /usr/bin/AppImageLauncher ]
+          - key: k3d
+            toggle: ih_k3d_script_applies
+            shell_bin: k3d
+            how: "/usr/local/bin/k3d, the path the install asks for before it runs k3d's install.sh"
+            expected_path: "/usr/local/bin/k3d"
+            disk_cmd: >-
+              [ -x /usr/local/bin/k3d ]
+          - key: gridcoin
+            toggle: ih_gridcoin_flatpak_applies
+            shell_bin: ""
+            how: "us.gridcoin.GridcoinResearch, the system flatpak the Gridcoin bundle installs. A desktop application started from its menu entry, so no shell is asked to find it"
+            expected_path: ""
+            disk_cmd: >-
+              flatpak info --system us.gridcoin.GridcoinResearch >/dev/null 2>&1
+          - key: gputest
+            toggle: ih_gputest_archive_applies
+            shell_bin: GpuTest
+            how: "/usr/local/bin/GpuTest, linked to the GpuTest binary unpacked from the ozone3d archive under /opt/gputest"
+            expected_path: "/usr/local/bin/GpuTest"
+            disk_cmd: >-
+              [ -x /usr/local/bin/GpuTest ]
+          - key: synapse
+            toggle: ih_synapse_pkg_applies
+            shell_bin: ""
+            how: "the com.razer.install.SynapseInstall receipt the Razer Synapse pkg leaves, the one the install asks pkgutil for. A desktop application, so no shell is asked to find it"
+            expected_path: ""
+            disk_cmd: >-
+              pkgutil --pkg-info com.razer.install.SynapseInstall >/dev/null 2>&1
 
     - name: Determine which outside-package-manager tools this run enabled
       ansible.builtin.set_fact:

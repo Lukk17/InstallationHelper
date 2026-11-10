@@ -590,6 +590,200 @@ while IFS= read -r line; do
 done <<<"${companion_report}"
 
 
+# --- every custom install is verified ---------------------------------------------------------------
+# A custom install of the software installer is a block in roles/software_installer/tasks whose rescue
+# adds the application to not_installed_with_reason, a vendor download, script, bundle or package the
+# software mapping does not carry. The play expects one through a row of ih_outside_pm_tools, and until
+# 2026-11-10 seven of them had none: Antigravity and GpuTest on Debian, Ubuntu and Fedora, AppImageLauncher
+# on Fedora, k3d and Gridcoin on Linux, and Razer Synapse and Gridcoin on macOS, docs/regression_ledger.md
+# 10.212 and 10.267. Every task file of the role is read, following its includes from tasks/main.yaml with
+# their conditions, and a file no include reaches is still read with its own. Asserted:
+#   1. every such block whose conditions name a toggle is expected by a row of ih_outside_pm_tools in
+#      setup/ansible/verify_install.yaml whose toggle is one of those toggles, or a fact whose expression
+#      names one, on the same platform: Darwin when the conditions compare with 'Darwin', Linux when they
+#      name 'Linux', a Linux family or != 'Darwin', both otherwise. Or it is named with its reason in
+#      unverified_custom_installs.txt;
+#   2. every line of unverified_custom_installs.txt names such a block that no row expects yet.
+# The number of custom installs under a toggle is reported and must not be zero, so a rewrite that hides
+# them from this parser fails here rather than passing over nothing.
+custom_status=0
+custom_report="$("${PYTHON}" - "${ANSIBLE_DIR}" "${E2E_ROOT}/tier1/unverified_custom_installs.txt" <<'PYEOF'
+import pathlib
+import re
+import sys
+
+import yaml
+
+ANSIBLE = pathlib.Path(sys.argv[1])
+ALLOWED_FILE = pathlib.Path(sys.argv[2])
+ROLE_TASKS = ANSIBLE / 'roles' / 'software_installer' / 'tasks'
+INCLUDE_KEYS = ('ansible.builtin.include_tasks', 'include_tasks', 'ansible.builtin.import_tasks', 'import_tasks')
+PLATFORMS = frozenset(('Linux', 'Darwin'))
+WORD = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+lines = []
+
+
+def load(path):
+    return yaml.safe_load(path.read_text(encoding='utf-8')) or {}
+
+
+def when_text(task):
+    cond = task.get('when')
+    if isinstance(cond, list):
+        return ' and '.join(str(c) for c in cond)
+    return '' if cond is None else str(cond)
+
+
+def joined(*parts):
+    return ' and '.join(p for p in parts if p)
+
+
+def tasks_of(node, inherited=''):
+    if not isinstance(node, list):
+        return
+    for task in node:
+        if not isinstance(task, dict):
+            continue
+        text = joined(inherited, when_text(task))
+        yield task, text
+        for section in ('block', 'rescue', 'always'):
+            yield from tasks_of(task.get(section), text)
+
+
+def included_file(task):
+    for key in INCLUDE_KEYS:
+        if key in task:
+            value = task[key]
+            return str(value.get('file', '')) if isinstance(value, dict) else str(value)
+    return ''
+
+
+def platforms(text):
+    if re.search(r"==\s*'Darwin'", text):
+        return frozenset(('Darwin',))
+    if re.search(r"'(Linux|Archlinux|Debian|RedHat)'|!=\s*'Darwin'", text):
+        return frozenset(('Linux',))
+    return PLATFORMS
+
+
+group = [load(ANSIBLE / 'group_vars' / (name + '.yaml')) for name in ('all', 'linux', 'macos')]
+toggles = {k for values in group for k, v in values.items() if isinstance(v, bool)}
+
+# The play: every fact's expression, and every row of ih_outside_pm_tools with the toggles and the
+# platform it is expected under.
+facts = {}
+rows = []
+for play in yaml.safe_load((ANSIBLE / 'verify_install.yaml').read_text(encoding='utf-8')) or []:
+    for section in ('pre_tasks', 'tasks', 'post_tasks'):
+        for task, _ in tasks_of(play.get(section)):
+            values = task.get('ansible.builtin.set_fact') or task.get('set_fact')
+            if not isinstance(values, dict):
+                continue
+            for name, value in values.items():
+                facts.setdefault(name, []).append(str(value))
+            if isinstance(values.get('ih_outside_pm_tools'), list):
+                rows.extend(r for r in values['ih_outside_pm_tools'] if isinstance(r, dict))
+if not rows:
+    lines.append('FAIL no row of ih_outside_pm_tools was read out of setup/ansible/verify_install.yaml, so the '
+                 'parser broke and nothing was compared')
+expected = []
+for row in rows:
+    toggle = str(row.get('toggle', ''))
+    if toggle in toggles:
+        expected.append(({toggle}, PLATFORMS))
+    else:
+        expression = ' '.join(facts.get(toggle, []))
+        expected.append((set(WORD.findall(expression)) & toggles, platforms(expression)))
+
+# The documented exceptions: <task file under roles/> | <task name> | <reason>.
+allowed = {}
+if not ALLOWED_FILE.is_file():
+    lines.append('FAIL %s is missing, so no custom install can be excused and none can be checked' % ALLOWED_FILE.name)
+else:
+    for raw in ALLOWED_FILE.read_text(encoding='utf-8').splitlines():
+        text = raw.strip()
+        if not text or text.startswith('#'):
+            continue
+        parts = [p.strip() for p in text.split('|')]
+        if len(parts) != 3 or not all(parts):
+            lines.append('FAIL a line in %s is not <file> | <task name> | <reason>: %s' % (ALLOWED_FILE.name, text))
+            continue
+        allowed[(parts[0], parts[1])] = False
+
+# The role: every block whose rescue names the application as not installed, with every condition above
+# it from tasks/main.yaml down through the includes.
+blocks = []
+visited = set()
+
+
+def visit(path, cond, stack):
+    if not path.is_file() or path in stack:
+        return
+    visited.add(path)
+    for task, text in tasks_of(load(path)):
+        full = joined(cond, text)
+        if 'block' in task and 'not_installed_with_reason' in yaml.safe_dump(task.get('rescue') or [], width=100000):
+            blocks.append((path, task, full))
+        target = included_file(task)
+        if target and '/' not in target and '{' not in target:
+            visit(path.parent / target, full, stack | {path})
+
+
+visit(ROLE_TASKS / 'main.yaml', '', frozenset())
+for path in sorted(ROLE_TASKS.glob('*.yaml')):
+    if path not in visited:
+        visit(path, '', frozenset())
+
+under_toggle = 0
+for path, task, cond in blocks:
+    named = set(WORD.findall(cond)) & toggles
+    if not named:
+        continue
+    under_toggle += 1
+    rel = path.relative_to(ANSIBLE / 'roles').as_posix()
+    name = str(task.get('name', '?'))
+    where = platforms(cond)
+    covered = any((row_toggles & named) and (row_platforms & where) for row_toggles, row_platforms in expected)
+    if (rel, name) in allowed:
+        allowed[(rel, name)] = True
+        if covered:
+            lines.append('FAIL %s names %s, "%s", and a row of ih_outside_pm_tools now expects it, so the '
+                         'exception outlived what it excused' % (ALLOWED_FILE.name, rel, name))
+    elif not covered:
+        lines.append('FAIL %s, "%s", installs under %s on %s, and no row of ih_outside_pm_tools in '
+                     'setup/ansible/verify_install.yaml expects it there, so the run installs it and nothing '
+                     'checks it. Add a row asking the disk or the package database for what the block leaves '
+                     'behind, or name the block in %s with the reason'
+                     % (rel, name, ', '.join(sorted(named)), ' and '.join(sorted(where)), ALLOWED_FILE.name))
+
+for (rel, name), used in sorted(allowed.items()):
+    if not used:
+        lines.append('FAIL %s names %s, "%s", and no custom install under a toggle has that file and name any '
+                     'more, so the exception outlived what it excused' % (ALLOWED_FILE.name, rel, name))
+
+if under_toggle == 0:
+    lines.append('FAIL no custom install under a toggle was found in roles/software_installer/tasks, so either '
+                 'the parser broke or the blocks moved, and nothing here was checked')
+
+if not lines:
+    lines.append('OK all %d custom installs of the software installer under a toggle are expected by a row of '
+                 'ih_outside_pm_tools on their platform, or are a documented exception (%d)'
+                 % (under_toggle, len(allowed)))
+
+print('\n'.join(lines))
+PYEOF
+)" || custom_status=$?
+assert_python_ran "${custom_status}" "verification wiring"
+
+while IFS= read -r line; do
+    case "${line}" in
+        OK*)   pass "${line#OK }" ;;
+        FAIL*) fail "a custom install is not verified" "${line#FAIL }" ;;
+        *)     [[ -n "${line}" ]] && fail "the custom install check printed something unexpected" "${line}" ;;
+    esac
+done <<<"${custom_report}"
+
+
 # --- every manager that installs anything is verified ----------------------------------------------
 # The verification once named its managers in one fixed list, written in e155568 on 2026-08-18, and
 # nothing compared that list with the managers the software installer dispatches. snap and dnf_repo were

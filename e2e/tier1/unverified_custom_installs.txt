@@ -1,0 +1,14 @@
+# Custom installs of the software installer that setup/ansible/verify_install.yaml does not expect yet, with
+# the reason. Read by e2e/tier1/verify_wiring.sh, which fails on any block in
+# setup/ansible/roles/software_installer/tasks whose rescue adds an application to not_installed_with_reason,
+# whose conditions name a toggle, and that no row of ih_outside_pm_tools expects on its platform, unless it is
+# named here. It also fails on a line here that no longer names such a block, or names one a row now expects.
+#
+# Format: <task file under setup/ansible/roles> | <task name> | <reason>
+#
+# Before adding a line, ask whether a row could ask the disk or the package database for what the block
+# leaves behind after all. A line belongs here only while what the block produces cannot be named.
+
+# The copy keeps the name of whichever .app the disk image holds, read at run time, and no run or vendor
+# source in this repository records that name yet. docs/regression_ledger.md 10.212.
+software_installer/tasks/macos_install.yaml | Install Gridcoin from DMG | the bundle copied to /Applications is named after the .app inside Gridcoin's disk image, which is found at run time and has never been measured, so no row can name the path it leaves
