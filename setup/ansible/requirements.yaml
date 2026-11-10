@@ -3,7 +3,7 @@
 # ansible-galaxy resolves to a version that actually exists on Galaxy
 # given the user's installed ansible-core. Bump the upper bound only
 # after verifying compatibility against every supported ansible-core
-# branch, which today means 2.19.x, 2.20.x and 2.21.x.
+# branch, which today means 2.19.x, 2.20.x, 2.21.x and 2.22.x.
 #
 # ansible-core itself is not pinned from this file and cannot be, because
 # ansible-galaxy resolves collections and nothing else. The supported range is

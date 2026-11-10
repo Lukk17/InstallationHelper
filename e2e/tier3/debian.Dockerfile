@@ -35,10 +35,10 @@ RUN apt-get update && apt-get install -y \
 # ansible-core is whatever Debian trixie publishes, and it cannot be pinned to an exact version here:
 # the suite carries exactly one version, and a point release replaces it in place, so an exact
 # `ansible-core=<version>` would start failing the build the day the archive rotates. trixie ships
-# 2.19.4 today.
+# 2.19.11, measured on 2026-11-10.
 #
 # What can be pinned is the range, and it is the same half-open range setup/setup.sh enforces on a
-# real machine, 2.19.0 accepted up to but not including 2.22.0. Every release inside it still carries
+# real machine, 2.19.0 accepted up to but not including 2.23.0. Every release inside it still carries
 # the ansiballz result-deserialization race documented in AGENTS.md, because the upstream fix is
 # unmerged, so this range is about running a version the playbook has been exercised on, not about
 # escaping that bug.
@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y \
 # Checked at build time on purpose. An image outside the range is a broken image, and this fails the
 # build in seconds rather than a scenario twenty-five minutes in.
 ARG ANSIBLE_CORE_MIN_VERSION=2.19.0
-ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=2.22.0
+ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=2.23.0
 RUN CORE="$(ansible-playbook --version | head -1)" python3 -c 'import os, re, sys; found = re.search("core ([0-9.]+)", os.environ["CORE"]); version = lambda s: tuple(int(n) for n in (re.findall("[0-9]+", s) + ["0", "0"])[:3]); low, high = os.environ["ANSIBLE_CORE_MIN_VERSION"], os.environ["ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE"]; core = found.group(1) if found else ""; sys.exit(0 if found and version(low) <= version(core) < version(high) else "this image has ansible-core " + (core or "an unreadable version") + ", outside the range " + low + " <= version < " + high + " that setup/setup.sh accepts")'
 
 # The playbook runs as a normal user who escalates with sudo, matching how a person

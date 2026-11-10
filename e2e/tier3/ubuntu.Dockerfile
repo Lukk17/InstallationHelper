@@ -23,7 +23,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 # ubuntu:26.04 (resolute) ships ansible-core 2.20.1 in the universe component, which
 # is already enabled by default in this image's sources, confirmed against the real
-# archive index. That satisfies the project's 2.19/2.20 target on its own, so unlike
+# archive index. That is inside the range setup/setup.sh accepts on its own, so unlike
 # an older Ubuntu release this image needs no Ansible PPA. The next person changing
 # this file should re-check that fact before removing this comment. procps is not
 # listed either: unlike Debian, Ubuntu carries it at Priority: required and it is
@@ -41,10 +41,10 @@ RUN apt-get update && apt-get install -y \
 # ansible-core is whatever Ubuntu 26.04 publishes, and it cannot be pinned to an exact version here:
 # the release pocket carries exactly one version, and a security update replaces it in place, so
 # an exact `ansible-core=<version>` would start failing the build the day the archive rotates. 26.04
-# ships 2.20.1 today.
+# ships 2.20.1, measured on 2026-11-10.
 #
 # What can be pinned is the range, and it is the same half-open range setup/setup.sh enforces on a
-# real machine, 2.19.0 accepted up to but not including 2.22.0. Every release inside it still carries
+# real machine, 2.19.0 accepted up to but not including 2.23.0. Every release inside it still carries
 # the ansiballz result-deserialization race documented in AGENTS.md, because the upstream fix is
 # unmerged, so this range is about running a version the playbook has been exercised on, not about
 # escaping that bug.
@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y \
 # Checked at build time on purpose. An image outside the range is a broken image, and this fails the
 # build in seconds rather than a scenario twenty-five minutes in.
 ARG ANSIBLE_CORE_MIN_VERSION=2.19.0
-ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=2.22.0
+ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=2.23.0
 RUN CORE="$(ansible-playbook --version | head -1)" python3 -c 'import os, re, sys; found = re.search("core ([0-9.]+)", os.environ["CORE"]); version = lambda s: tuple(int(n) for n in (re.findall("[0-9]+", s) + ["0", "0"])[:3]); low, high = os.environ["ANSIBLE_CORE_MIN_VERSION"], os.environ["ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE"]; core = found.group(1) if found else ""; sys.exit(0 if found and version(low) <= version(core) < version(high) else "this image has ansible-core " + (core or "an unreadable version") + ", outside the range " + low + " <= version < " + high + " that setup/setup.sh accepts")'
 
 # The playbook runs as a normal user who escalates with sudo, matching how a person

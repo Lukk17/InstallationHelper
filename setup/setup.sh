@@ -380,26 +380,30 @@ detect_os() {
 # The ansible-core versions this repository is written against, as a half-open range: the minimum is
 # accepted and the maximum is not. Checked rather than installed, because not one of the four package
 # managers below can be told which version to fetch. Each distribution publishes exactly one, and they
-# do not agree. Measured from the e2e images on 2026-08-20: Debian trixie carries 2.19.4, Ubuntu 26.04
-# carries 2.20.1, Fedora 44 carries 2.20.7 and the two Arch-family images carry 2.21.2 and 2.21.3. An
-# exact pin would therefore be a pin only on paper, so the range is the honest form of it, and this is
-# the one place that states it for a real machine.
+# do not agree. Measured on 2026-11-10: Debian trixie carries 2.19.11, Ubuntu 26.04 carries 2.20.1,
+# Fedora 44 carries 2.20.7, the Ansible PPA carries 2.21.5, Homebrew's ansible 14.6.0 needs
+# ansible-core ~=2.21.6, and Arch extra, which CachyOS takes it from, has carried 2.22.0-1 since 2026-11-03.
+# An exact pin would therefore be a pin only on paper, so the range is the honest form of it, and this
+# is the one place that states it for a real machine.
 #
 # The floor is 2.19.0 because that is the floor this project has always declared: the collection
 # ranges in setup/ansible/requirements.yaml are resolved against it, docs/pinned_values_adapter_design.md
 # is written against 2.19 and later, and the oldest supported distribution, Debian trixie, already
-# carries 2.19.4, so nothing supported sits below it.
+# carries 2.19.11, so nothing supported sits below it.
 #
-# The ceiling is 2.22.0 because 2.21 is the newest branch anything here has actually run. Arch and
-# CachyOS ship it today, so refusing it would refuse two of the five supported distributions outright.
-# 2.22 does not exist yet, and a branch nobody has run is not a branch this repository can claim.
+# The ceiling is 2.23.0 because 2.22 is the newest branch any supported distribution ships. Arch and
+# CachyOS have shipped it since 2026-11-03, and the old ceiling of 2.22.0 refused both of them outright
+# (docs/regression_ledger.md 10.263). 2.22 was read against its changelog and porting guide before it
+# was let in, and a branch nobody has read is not a branch this repository can claim, so 2.23 stays out
+# until it has been read the same way. e2e/tier2/arch_ansible_core_range.sh asks Arch for the version
+# it ships, so the next branch fails a check before it refuses a machine.
 #
 # Note what the range deliberately does NOT promise. Every release inside it carries the ansiballz
 # result-deserialization race documented in setup/ansible/ansible_architecture.md, because the upstream fix, pull request 86739
 # against ansible/ansible, is still unmerged. There is no version to move to that escapes it, so the
 # mitigations in this repository stay whatever version this check accepts.
 ANSIBLE_CORE_MIN_VERSION="2.19.0"
-ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE="2.22.0"
+ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE="2.23.0"
 
 # version_lt <a> <b>  true when dotted-numeric a is strictly older than b.
 #

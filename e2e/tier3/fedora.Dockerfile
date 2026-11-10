@@ -17,7 +17,7 @@ FROM fedora:44
 
 # Fedora images use dnf5, not the older dnf/yum, confirmed by inspecting the image
 # directly (dnf itself is a symlink to dnf5 here). fedora:44 ships ansible-core
-# 2.20.7, already inside the project's 2.19/2.20 target, so nothing extra is needed
+# 2.20.7, already inside the range setup/setup.sh accepts, so nothing extra is needed
 # to get a current enough version. sudo is already present in this base image, but
 # it is still listed explicitly so the install list documents the real dependency
 # and stays correct if a future Fedora base image drops it. which and procps-ng are
@@ -37,10 +37,10 @@ RUN dnf5 install -y \
 # ansible-core is whatever Fedora 44 publishes, and it cannot be pinned to an exact version here:
 # the release repository carries exactly one version and updates replace it in place, so an exact
 # `ansible-core-<version>` would start failing the build the day the repository rotates. fedora:44
-# ships 2.20.7 today.
+# ships 2.20.7, measured on 2026-11-10.
 #
 # What can be pinned is the range, and it is the same half-open range setup/setup.sh enforces on a
-# real machine, 2.19.0 accepted up to but not including 2.22.0. Every release inside it still carries
+# real machine, 2.19.0 accepted up to but not including 2.23.0. Every release inside it still carries
 # the ansiballz result-deserialization race documented in AGENTS.md, because the upstream fix is
 # unmerged, so this range is about running a version the playbook has been exercised on, not about
 # escaping that bug.
@@ -48,7 +48,7 @@ RUN dnf5 install -y \
 # Checked at build time on purpose. An image outside the range is a broken image, and this fails the
 # build in seconds rather than a scenario twenty-five minutes in.
 ARG ANSIBLE_CORE_MIN_VERSION=2.19.0
-ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=2.22.0
+ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=2.23.0
 RUN CORE="$(ansible-playbook --version | head -1)" python3 -c 'import os, re, sys; found = re.search("core ([0-9.]+)", os.environ["CORE"]); version = lambda s: tuple(int(n) for n in (re.findall("[0-9]+", s) + ["0", "0"])[:3]); low, high = os.environ["ANSIBLE_CORE_MIN_VERSION"], os.environ["ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE"]; core = found.group(1) if found else ""; sys.exit(0 if found and version(low) <= version(core) < version(high) else "this image has ansible-core " + (core or "an unreadable version") + ", outside the range " + low + " <= version < " + high + " that setup/setup.sh accepts")'
 
 # The playbook runs as a normal user who escalates with sudo, matching how a person
