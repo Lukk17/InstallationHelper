@@ -138,7 +138,7 @@ run_tier1() {
     return ${rc}
 }
 
-TIER2_CHECKS=(resolve_packages resolve_role_packages resolve_pinned_urls resolve_apt_repositories pacman_database_check rpm_file_conflicts)
+TIER2_CHECKS=(resolve_packages resolve_role_packages resolve_pinned_urls resolve_cask_downloads resolve_apt_repositories pacman_database_check rpm_file_conflicts)
 
 run_tier2() {
     local rc=0 check checks=("${TIER2_CHECKS[@]}")

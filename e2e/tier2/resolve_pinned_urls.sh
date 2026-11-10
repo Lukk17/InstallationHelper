@@ -40,16 +40,6 @@ require_cmd curl
 
 ALLOWED_FILE="$(dirname "${BASH_SOURCE[0]}")/pinned_urls_allowed.txt"
 
-# --connect-timeout separately from --max-time so a refused or unroutable host is concluded in
-# seconds instead of burning the whole budget, while a slow but working vendor still gets time to
-# answer. An unresolved location is asked again rather than written off, because the fault this exists
-# for came and went between two runs minutes apart. A host that stays silent therefore costs two
-# requests times the attempt count, so roughly two minutes each, which is the price of not crying
-# wolf and is paid only by a location nothing could reach.
-PROBE_CURL_OPTS=(--connect-timeout 10 --max-time 20)
-PROBE_ATTEMPTS=3
-PROBE_RETRY_PAUSE=3
-
 info "Tier 2: pinned download locations"
 
 # Every pinned value that looks like a location, one per line as <key> <url>. The port hands back
@@ -102,120 +92,9 @@ else
          "kicad9_icon_base in setup/pinned_values/pinned_values.toml and a tool in every kicad9_launchers entry of setup/ansible/group_vars/all.yaml are both needed"
 fi
 
-# What one HTTP status says about the object itself, which is a narrower question than whether the
-# request went well.
+# Each location is asked through url_verdict in lib/http_ask.sh, which owns the HEAD and ranged GET
+# probe, the retry of a location that gave no answer, and which statuses read as alive or gone.
 #
-#   alive       a 200 or a 206 header arrived, so the object is served. 401 and 403 join them on
-#               purpose: they prove the location exists and the download wants a session, which is a
-#               different problem from rot.
-#   gone        the server was asked about this exact object and said it does not have it.
-#   indefinite  the server said something else. 405 is a vendor refusing HEAD, 429 and the 5xx range
-#               are the vendor's own trouble, and a 3xx still standing at the end means curl never
-#               reached the end of the redirect chain. None of those is evidence either way, and
-#               treating one of them as evidence is the bug being fixed here: launchpad.net answers
-#               303 towards launchpadlibrarian.net, so when the librarian said nothing at all the
-#               last code seen was that 303 and the pin read as dead.
-http_verdict() {
-    case "$1" in
-        200|206|401|403) printf 'alive' ;;
-        404|410)         printf 'gone' ;;
-        *)               printf 'indefinite' ;;
-    esac
-}
-
-# The host a location really failed at, which is not always the host written in the pin. Both
-# VeraCrypt pins name launchpad.net and both of them fail at launchpadlibrarian.net, so the skip line
-# reads %{url_effective} rather than the pinned string and names the host a reader would have to go
-# and poke.
-url_host() {
-    local rest="${1#*://}"
-    rest="${rest%%/*}"
-    printf '%s' "${rest%%\?*}"
-}
-
-# probe_once <url>  ->  "<verdict><tab><detail><tab><url actually reached>"
-#
-# curl's own exit status decides whether there is an answer to read at all, rather than the answer
-# being guessed at from a body or from the last number that went past. Non-zero means the exchange
-# never completed, and %{http_code} in that case holds whatever was seen on the way, which for a
-# redirect is the redirect. So a non-zero exit contributes no verdict at all and only a clean exit
-# gets its status interpreted.
-#
-# Two requests, HEAD first because it is the cheapest question that gets a real answer, then the
-# one-byte ranged GET. The ranged GET runs whenever the HEAD did not prove the object is there, which
-# includes the HEAD hanging: a host that will not answer a HEAD is refusing HEAD whether it says so
-# with a 405 or by saying nothing, and this repository would rather spend one more request than call
-# a live location unproven. Only the ranged GET's 404 or 410 counts as gone: the PowerShell Gallery
-# answers HEAD with 404 for a package it serves, and its ranged GET then took 13 to 29 seconds on
-# 2026-10-22, so a HEAD 404 beside a GET that timed out read as a dead pin when it was a slow one.
-probe_once() {
-    local url="$1" mode out code status effective saw_gone=0
-    local notes=()
-
-    effective="${url}"
-    for mode in "HEAD" "a ranged GET"; do
-        status=0
-        if [[ "${mode}" == "HEAD" ]]; then
-            out="$(curl -s -o /dev/null -w '%{http_code} %{url_effective}' -I -L "${PROBE_CURL_OPTS[@]}" "${url}")" || status=$?
-        else
-            out="$(curl -s -o /dev/null -w '%{http_code} %{url_effective}' -r 0-0 -L "${PROBE_CURL_OPTS[@]}" "${url}")" || status=$?
-        fi
-        code="${out%% *}"
-        [[ "${out}" == *" "* ]] && effective="${out#* }"
-
-        if [[ ${status} -ne 0 ]]; then
-            notes+=("${mode} $(curl_fault_reason "${status}")")
-            continue
-        fi
-
-        case "$(http_verdict "${code}")" in
-            alive)
-                printf 'alive\t%s answered HTTP %s\t%s\n' "${mode}" "${code}" "${effective}"
-                return 0
-                ;;
-            gone)
-                if [[ "${mode}" == "HEAD" ]]; then
-                    notes+=("${mode} answered HTTP ${code}, which some vendors answer for an object they serve")
-                else
-                    saw_gone=1
-                    notes+=("${mode} answered HTTP ${code}")
-                fi
-                ;;
-            *)
-                notes+=("${mode} answered HTTP ${code}, which says nothing about the object")
-                ;;
-        esac
-    done
-
-    local detail="${notes[0]}"
-    if [[ ${#notes[@]} -gt 1 ]]; then
-        detail="${detail} and ${notes[1]}"
-    fi
-
-    if [[ ${saw_gone} -eq 1 ]]; then
-        printf 'gone\t%s\t%s\n' "${detail}" "${effective}"
-    else
-        printf 'unresolved\t%s\t%s\n' "${detail}" "${effective}"
-    fi
-}
-
-# Retries only what is worth retrying. A definite answer is taken the first time it arrives, and an
-# unresolved one is asked again, because an intermittent fault is exactly what this is.
-url_verdict() {
-    local url="$1" attempt result=""
-    for (( attempt = 1; attempt <= PROBE_ATTEMPTS; attempt++ )); do
-        result="$(probe_once "${url}")"
-        if [[ "${result}" != unresolved* ]]; then
-            printf '%s\n' "${result}"
-            return 0
-        fi
-        if [[ ${attempt} -lt ${PROBE_ATTEMPTS} ]]; then
-            sleep "${PROBE_RETRY_PAUSE}"
-        fi
-    done
-    printf '%s\n' "${result}"
-}
-
 # A key naming a base or a repository is not a downloadable object. An apt or yum repository answers
 # on the files beneath it, Release and the package pool, and returns 404 on the base itself, and a
 # content-delivery base is the same. Probing those reports rot that is not there, which is how a check
