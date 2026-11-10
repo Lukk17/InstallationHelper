@@ -39,6 +39,26 @@ EOF
     exit 2
 }
 
+# gate_repo_root  ->  the root of the repository this copy of the harness belongs to
+gate_repo_root() {
+    (cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+}
+
+# gate_refuse_linked_worktree  ->  returns from a main checkout or a full clone, exits 2 where .git is a
+# file
+gate_refuse_linked_worktree() {
+    local repo_root
+    repo_root="$(gate_repo_root)"
+    [[ -f "${repo_root}/.git" ]] || return 0
+    cat >&2 <<EOF
+REFUSED: the gate cannot run from a git worktree, and ${repo_root} is one: its .git is a file, not a folder.
+Nothing was run. Run it from the main checkout, or from a full clone made with git clone, instead:
+
+    bash e2e/run.sh
+EOF
+    exit 2
+}
+
 # gate_build <repository root>  ->  builds the gate image, quietly when nothing changed
 #
 # A workflow that built the image once and loaded it on this runner says so with
@@ -97,6 +117,7 @@ gate_container_path() {
 # login. Called only for a tier that reads GitHub, so the other tiers never hold it.
 gate_lend_github_token() {
     e2e_inside_gate && return 0
+    gate_refuse_linked_worktree
     local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
     if [[ -z "${token}" ]] && command -v gh &>/dev/null; then
         token="$(gh auth token 2>/dev/null || true)"
@@ -156,11 +177,12 @@ gate_enter() {
     local mode="$1" script="$2"
     shift 2
 
+    gate_refuse_linked_worktree
     gate_refuse_foreign_container
     require_docker_host
 
     local repo_root
-    repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    repo_root="$(gate_repo_root)"
     gate_build "${repo_root}"
     if [[ "${GATE_REQUIRES_THROWAWAY:-}" == 1 ]]; then
         gate_probe_throwaway_machine "${repo_root}"
