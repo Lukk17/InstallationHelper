@@ -73,7 +73,7 @@ software_mapping:
   terraform: { manager: "winget", package: "Hashicorp.Terraform" }
   gh: { manager: "winget", package: "GitHub.cli", scope: "machine", installer_type: "wix" }   # Manifest 2.102.0, read 2026-10-11: machine wix beside an unscoped zip, the bruno shape.
   jq: { manager: "winget", package: "jqlang.jq" }
-  fzf: { manager: "winget", package: "junegunn.fzf" }
+  fzf: { manager: "winget", package: "junegunn.fzf", scope: "machine", installer_type: "wix" }   # Manifest 0.75.0 read by tier 2 from winget-pkgs on 2026-11-09: a machine wix installer beside two zip portable ones that declare no scope.
   ripgrep: { manager: "winget", package: "BurntSushi.ripgrep.MSVC" }
   uv: { manager: "winget", package: "astral-sh.uv" }   # Manifest 0.13.0, read 2026-10-13: one unscoped portable zip per architecture, so no scope to pin; provides uv, uvx and uvw.
   go: { manager: "winget", package: "GoLang.Go" }   # Manifest 1.27.0, read 2026-10-13: machine wix only, from go.dev, so there is no scope to choose.
@@ -162,7 +162,7 @@ software_mapping:
   opencode_desktop_v1: { manager: "winget", package: "SST.OpenCodeDesktop", scope: "user" }
 
   # Media / Design
-  vlc: { manager: "winget", package: "VideoLAN.VLC" }
+  vlc: { manager: "winget", package: "VideoLAN.VLC", scope: "machine", installer_type: "wix" }   # Manifest read by tier 2 from winget-pkgs on 2026-11-05: a machine wix installer and one that declares no scope.
   # user_context, because Spotify's own installer refuses with "The installer cannot be run from an
   # administrator context". That is true and deliberate on their side, and it only bites when the
   # wizard itself was started elevated, which -AllowAdministrator does in the e2e cells. Reported as

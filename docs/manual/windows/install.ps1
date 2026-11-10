@@ -45,7 +45,7 @@ $Packages = @(
     @{ Manager = 'winget'; Id = 'Hashicorp.Terraform' }
     @{ Manager = 'winget'; Id = 'GitHub.cli'; Scope = 'machine'; InstallerType = 'wix' }
     @{ Manager = 'winget'; Id = 'jqlang.jq' }
-    @{ Manager = 'winget'; Id = 'junegunn.fzf' }
+    @{ Manager = 'winget'; Id = 'junegunn.fzf'; Scope = 'machine'; InstallerType = 'wix' }
     @{ Manager = 'winget'; Id = 'BurntSushi.ripgrep.MSVC' }
     @{ Manager = 'winget'; Id = 'astral-sh.uv' }
     @{ Manager = 'winget'; Id = 'GoLang.Go' }
@@ -72,7 +72,7 @@ $Packages = @(
     @{ Manager = 'winget'; Id = '9PLM9XGG6VKS'; Source = 'msstore' }
     @{ Manager = 'winget'; Id = 'Anthropic.Claude'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'ElementLabs.LMStudio'; Scope = 'machine'; InstallerType = 'nullsoft' }
-    @{ Manager = 'winget'; Id = 'VideoLAN.VLC' }
+    @{ Manager = 'winget'; Id = 'VideoLAN.VLC'; Scope = 'machine'; InstallerType = 'wix' }
     @{ Manager = 'winget'; Id = 'Spotify.Spotify'; Scope = 'user' }
     @{ Manager = 'winget'; Id = 'GIMP.GIMP.3'; Scope = 'machine'; InstallerType = 'inno' }
     @{ Manager = 'winget'; Id = 'KDE.Krita' }

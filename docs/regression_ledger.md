@@ -7717,6 +7717,22 @@ Fix: none needed on the machine. Every other command in the session was git, a f
 
 Mechanical check: none can stop a command typed on the host.
 
+### Found when KiCad 9 moved from winget to Chocolatey on Windows, 2026-11-05
+
+#### 10.237 VLC is mapped with no scope although its winget manifest has a machine installer
+
+Status: found by tier 2 on 2026-11-05, fixed here.
+
+Cause: the newest VLC manifest in microsoft/winget-pkgs has a machine `wix` installer and one that declares no scope, and the `vlc` mapping in [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) named no scope, so [e2e/tier1/winget_scoped_packages.txt](../e2e/tier1/winget_scoped_packages.txt) did not list it. When the manifest changed is not known.
+
+Effect: the tier 2 run on the working tree earlier on 2026-11-05 failed with `FAIL winget scopes: tier1/winget_scoped_packages.txt no longer matches winget-pkgs` and `> VideoLAN.VLC machine,none wix`. With no `--scope`, winget picks the installer itself, so a run could have put VLC where the machine-wide rule in setup/software.md says it should not be. What winget picks is not measured.
+
+How it was proven: by that tier 2 failure, and by the tier 2 run after the fix, which printed `PASS winget scopes: the 32 packages whose manifest leaves the installer to a scope or whose mapping pins one are exactly the ones tier1/winget_scoped_packages.txt lists, with the same machine installer types`.
+
+Fix: the mapping is `vlc: { manager: "winget", package: "VideoLAN.VLC", scope: "machine", installer_type: "wix" }`, the list line is `VideoLAN.VLC machine,none wix`, [docs/manual/windows/install.ps1](manual/windows/install.ps1) has `@{ Manager = 'winget'; Id = 'VideoLAN.VLC'; Scope = 'machine'; InstallerType = 'wix' }`, and the row of [docs/manual/windows/windows_manual_install.md](manual/windows/windows_manual_install.md) is `winget install -e --id VideoLAN.VLC --scope machine`. setup/software.md keeps `winget install -e --id VideoLAN.VLC`, because its Windows cells leave out the scope on purpose, as its own paragraph says.
+
+Mechanical check: the existing tier 2 `check_winget_scopes`, which is how it was found.
+
 ### Found while moving the worktree refusal into lib/gate.sh, 2026-11-05
 
 #### 10.240 The change that moved the worktree refusal ran head, grep, cut, wc and echo on the owner's computer
@@ -7732,6 +7748,24 @@ How it was proven: the commands are in the session's own record.
 Fix: none needed on the machine. Every other command in the session was git (`git grep`, `git ls-files`, `git status`, `git diff`, `git apply`, `git clone`, `git checkout` in a clone, `git worktree add`, `remove`, `prune` and `list`), a file edit, `mkdir` and `cp` that built the scratch clones and filled the worktree, `rm -rf` of the clones, `bash e2e/run.sh` from the clones and from the worktree and `bash e2e/tier3/container.sh` from the worktree, each inside `timeout`, or `docker ps`, `docker image ls` and `docker events`.
 
 Mechanical check: none can stop a command typed on the host.
+
+### Found when tier 2 ran after the code review fixes of the KiCad change, 2026-11-09
+
+#### 10.247 winget-pkgs dropped SST.OpenCodeDesktop, and a new fzf release added a machine-scope installer
+
+Status: found by tier 2, open. Nothing in the repository caused either change, and the fix of each is a decision for the owner, so no mapping was changed here.
+
+Cause: two changes in `microsoft/winget-pkgs` on 2026-11-07. The `SST.OpenCodeDesktop` versions were removed, and `junegunn.fzf` 0.75.0, released that day, carries a `wix` installer with `Scope: machine` beside its two `zip` portable ones.
+
+Effect: `bash e2e/run.sh --tier 2` exits 1 with three FAIL lines of `package name resolution`: `winget: 1 manifest ids do not exist` naming `SST.OpenCodeDesktop`, `winget scopes: 1 installer manifest(s) could not be read` naming the same id, and `winget scopes: tier1/winget_scoped_packages.txt no longer matches winget-pkgs` with `< SST.OpenCodeDesktop user - > junegunn.fzf machine,none wix`. The `opencode_desktop_v1` mapping in [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml), used only when `opencode_use_v1` is on, names a package winget's source may no longer serve. The default OpenCode desktop route, the vendor's version 2 installer, does not use it. For `junegunn.fzf`, which has no scope in its mapping, winget now has a choice of installer the mapping does not settle.
+
+How it was proven: measured on 2026-11-09 from throwaway `docker run --rm` containers of the gate image, on the exact paths the check reads. `https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/s/SST/OpenCodeDesktop` answered `HTTP 404`, and so did its parent `manifests/s/SST`. `https://api.github.com/repos/microsoft/winget-pkgs/commits?path=manifests/s/SST/OpenCodeDesktop&per_page=3` answered `2026-11-07T08:29:20Z 77ef43d6c6 Remove: SST.OpenCodeDesktop version 1.18.17 (#473008)`, with 1.18.27 and 1.18.33 removed in the two commits before it. The newest folder under `manifests/j/junegunn/fzf` is `0.75.0`, and its `junegunn.fzf.installer.yaml` holds `ReleaseDate: 2026-11-07` and both `InstallerType: zip` and `InstallerType: wix` with `Scope: machine`. Not measured: why the manifests were removed, whether the id moved to another name, and what a real winget does for either package, because no run here reaches Windows.
+
+Fix: none yet. `SST.OpenCodeDesktop` needs a choice of what `opencode_use_v1` installs on Windows now, and `junegunn.fzf` needs a choice of scope, after which `e2e/tier1/winget_scoped_packages.txt` takes the live list the check prints.
+
+Status and fix of the `junegunn.fzf` finding, 2026-11-09: fixed by the owner's choice of the machine scope. The mapping in [setup/ansible/vars/Windows.yaml](../setup/ansible/vars/Windows.yaml) pins `scope: "machine"` and `installer_type: "wix"` the way the VLC row does, [docs/manual/windows/install.ps1](../docs/manual/windows/install.ps1) and [docs/manual/windows/windows_manual_install.md](../docs/manual/windows/windows_manual_install.md) follow it, and [e2e/tier1/winget_scoped_packages.txt](../e2e/tier1/winget_scoped_packages.txt) holds `junegunn.fzf machine,none wix`, the line the check printed. `bash e2e/run.sh --tier 2` then reported `PASS winget scopes: the 32 packages whose manifest leaves the installer to a scope or whose mapping pins one are exactly the ones tier1/winget_scoped_packages.txt lists, with the same machine installer types` and exited 0. Measured the same day from the 0.75.0 manifest, printed by a copy of the tier 2 check in a full clone: both `wix` installers declare `DefaultInstallLocation: '%ProgramFiles%/fzf/bin'`, and the manifest has no line about PATH. Not measured: whether the MSI adds that folder to PATH, because no run here reaches Windows. For this finding, this paragraph replaces the "none yet" under Fix and the last clause under Mechanical check.
+
+Mechanical check: the three tier 2 checks named above caught it, and they stay failing until the owner's choice is applied.
 
 ### Found while reading the network watch files, 2026-11-06
 

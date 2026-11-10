@@ -42,7 +42,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | Terraform | `winget install -e --id Hashicorp.Terraform` |
 | GitHub CLI | `winget install -e --id GitHub.cli --scope machine` |
 | jq | `winget install -e --id jqlang.jq` |
-| fzf | `winget install -e --id junegunn.fzf` |
+| fzf | `winget install -e --id junegunn.fzf --scope machine` |
 | ripgrep | `winget install -e --id BurntSushi.ripgrep.MSVC` |
 | uv | `winget install -e --id astral-sh.uv` |
 | Go | `winget install -e --id GoLang.Go` |
@@ -99,7 +99,7 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 
 | App | Install command |
 |---|---|
-| VLC | `winget install -e --id VideoLAN.VLC` |
+| VLC | `winget install -e --id VideoLAN.VLC --scope machine` |
 | Spotify | `winget install -e --id Spotify.Spotify --scope user`, from a normal PowerShell, because its installer refuses an administrator |
 | GIMP | `winget install -e --id GIMP.GIMP.3 --scope machine` |
 | Krita | `winget install -e --id KDE.Krita` |

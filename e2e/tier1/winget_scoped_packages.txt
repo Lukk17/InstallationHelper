@@ -51,3 +51,5 @@ SublimeHQ.SublimeText.4 machine,none inno
 Syncthing.Syncthing none portable
 Telegram.TelegramDesktop none,user portable
 TorProject.TorBrowser user -
+VideoLAN.VLC machine,none wix
+junegunn.fzf machine,none wix
