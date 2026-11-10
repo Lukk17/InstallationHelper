@@ -3884,12 +3884,14 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
     It 'fails a winget package with a VerifyPath that winget lists while the path never appears, as KiCad 10 beside the Chocolatey KiCad 9' {
         $global:ManualSilent = 99
         $global:ManualInstalled = @('KiCad.KiCad')
+        $verifyPath = Join-Path $TestDrive 'KiCad/10.0/bin/kicad.exe'
+        $absent = "*$([WildcardPattern]::Escape($verifyPath)) does not exist, so KiCad.KiCad is not installed*"
 
-        $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'KiCad.KiCad'; Scope = 'machine'; InstallerType = 'nullsoft'; VerifyPath = (Join-Path $TestDrive 'KiCad/10.0/bin/kicad.exe') })))
+        $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'KiCad.KiCad'; Scope = 'machine'; InstallerType = 'nullsoft'; VerifyPath = $verifyPath })))
 
         $code | Should -Be 1
         @($global:ManualCalls | Where-Object { $_ -like 'winget install *KiCad.KiCad*' }).Count | Should -Be 4
-        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*KiCad/10.0/bin/kicad.exe does not exist, so KiCad.KiCad is not installed*' }
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like $absent }
     }
 
     It 'fails a winget package with a VerifyPath when winget answers already installed and the path does not exist' {

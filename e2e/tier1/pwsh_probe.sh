@@ -2,7 +2,7 @@
 #
 # Sourceable helper, not a check of its own. Sourced by every tier 1 check that has to run something
 # in PowerShell, currently windows_mapping.sh, windows_settings.sh, powershell_variables.sh,
-# pinned_values.sh and windows_pester.sh.
+# pinned_values.sh, windows_pester.sh and pester_path_separators.sh.
 #
 # It lives in one file because two copies of one piece of shell, one of them fixed and the other not,
 # is the wizard toggle parse desync in docs/regression_ledger.md.
@@ -23,6 +23,6 @@ find_runnable_pwsh() {
 
 # The reason a check reports when find_runnable_pwsh comes back empty. Shared so every check says the
 # same true thing rather than one of them going stale.
-# Read by the five checks that source this file, never inside it.
+# Read by the six checks that source this file, never inside it.
 # shellcheck disable=SC2034
 PWSH_ABSENT_REASON="No runnable PowerShell 7 found. The gate image installs pwsh from e2e/gate/provision.sh, so this means the image did not get it: rebuild it with bash e2e/run.sh."

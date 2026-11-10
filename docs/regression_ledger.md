@@ -8554,3 +8554,55 @@ How it was proven: the command is in the session's own record.
 Fix: none needed on the machine. From then on the agent read every gate output with its file reading tool.
 
 Mechanical check: none can stop a command typed on the host.
+
+### Found by the Windows Pester job of GitHub runs 42852802501 and 42852810353, 2026-11-10
+
+#### 10.270 A Pester test expected the forward slashes of a path it had built with Join-Path, so it failed on Windows only
+
+Status: introduced by this session in commit `b1a03ec`, the KiCad 9 beside KiCad 10 change, and fixed here. The fixed test is proven on Windows only by the next GitHub run that runs Pester, and none ran in this change.
+
+Cause: the test "fails a winget package with a VerifyPath that winget lists while the path never appears, as KiCad 10 beside the Chocolatey KiCad 9" in [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) passed `(Join-Path $TestDrive 'KiCad/10.0/bin/kicad.exe')` as the VerifyPath to `Get-InstallExpression` in [docs/manual/windows/install.ps1](../docs/manual/windows/install.ps1) and asked `Should -Invoke Write-Host` for `'*KiCad/10.0/bin/kicad.exe does not exist, so KiCad.KiCad is not installed*'`, while on Windows Join-Path writes the forward slashes of its child as backslashes.
+
+Effect: `Get-InstallExpression` writes its message as `"    $($p.VerifyPath) does not exist, so $($p.Id) is not installed"` from the VerifyPath exactly as it was given, so on Windows the message held `KiCad\10.0\bin\kicad.exe` and the filter matched nothing. The job "Windows unit tests" of both runs, sweeps of `e2e-matrix.yml` at `84777f0`, failed with `Expected Write-Host to be called at least 1 times, but was called 0 times` at `Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*KiCad/10.0/bin/kicad.exe does not exist, so KiCad.KiCad is not installed*' }, D:\a\InstallationHelper\InstallationHelper\e2e\tier1\windows\WindowsSoftware.Tests.ps1:3892` and `pester totals: total=262 passed=253 failed=1 skipped=5`, so "Gate: checks passed" failed and none of the installs of either sweep ran. The install script was right: it failed the package after four attempts and named the path. Only the test was wrong.
+
+How it was proven: `gh run view --job 129957745239 --log-failed --repo Lukk17/InstallationHelper`, the Windows job of run 42852802501 on runner image `windows-2025-vs2026`, printed the lines above. The same file passed on Linux PowerShell in the "Tier 1 checks" job of the same run, `PASS the Windows installer unit tests pass (total=262 passed=254 failed=0 skipped=5)` in `gh run view --job 129959733857 --log`. `gh run view 42852810353 --json` showed the same commit and the same failed job. On the Windows runner the Chocolatey test "fails when the VerifyPath is missing after the install" passed, whose filter reads `*nowhere*kicad.exe` and so matches either separator. The PowerShell documentation of Join-Path was not read in this change, because the agent had no documentation tool, so the reading rests on that run and on the message code above.
+
+Why nothing caught it: tier 1 runs the Pester suite only on Linux PowerShell inside the gate container, through `windows_pester`, and there Join-Path keeps the forward slashes. The single-platform workflow `.github/workflows/e2e-manual.yaml` runs no Pester at all: `git grep -n Invoke-Pester -- .github/workflows` names only `e2e-matrix.yml`, the sweep, whose "Windows unit tests" job is the one place the suite runs on Windows.
+
+Fix: the test keeps the path in `$verifyPath`, passes that to `Get-InstallExpression`, and builds the filter as `"*$([WildcardPattern]::Escape($verifyPath)) does not exist, so KiCad.KiCad is not installed*"`, so the expected text carries whichever separator Join-Path wrote and every wildcard character a temporary path could hold is matched as itself. The assertion is as strict as before, the same message with the whole path. A `git grep` of the file for a Join-Path whose child holds a forward slash found 19 lines, and none of the others expects those forward slashes: they build the expected text from the path variable, as `"$missing"`, match either separator with `*nowhere*kicad.exe`, or expect the forward slashes of the mapping's own `%ProgramFiles%/KiCad/9.0/bin/kicad.exe` and `%ProgramFiles%/KiCad/10.0/bin/kicad.exe`, whose file `BeforeEach` creates and which passed on the Windows runner. This was the only instance.
+
+Mechanical check: [e2e/tier1/pester_path_separators.sh](../e2e/tier1/pester_path_separators.sh), item 77 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md), with its parser [e2e/tier1/pester_path_separators.ps1](../e2e/tier1/pester_path_separators.ps1), added in this change. It parses every `e2e/tier1/windows/*.Tests.ps1` with PowerShell's own parser and fails an `It` block that hands Join-Path a string constant holding a forward slash and holds, in an operand of `-eq`, `-ne`, `-like`, `-notlike`, `-match` or `-notmatch` or anywhere inside `Should`, a string with two neighbouring segments of that child joined by a forward slash. Only the `It` block is read, so the KiCad 9 and KiCad 10 verification tests, which join in `BeforeEach` and rightly expect the mapping's forward slashes, pass. It does not read `-ForEach` data, so an expected text handed in through `-ForEach` is not seen. Proven on 2026-11-10 in the whole tier 1 gate against a full `git clone` of HEAD `2f99316`, with the check and its documentation added and the old test left as it was: it was the only check that failed, `Pester path separators: 2 checks, 1 FAILED`, with `e2e/tier1/windows/WindowsSoftware.Tests.ps1:3892: It 'fails a winget package with a VerifyPath that winget lists while the path never appears, as KiCad 10 beside the Chocolatey KiCad 9' expects 'KiCad/10.0' from 'KiCad/10.0/bin/kicad.exe', which Join-Path at line 3888 writes with a backslash on Windows`, while `windows_pester` in the same run passed the old test on Linux, `total=262 passed=254 failed=0 skipped=5`. On the fixed working tree the gate exited 0 with `PASS no Pester test expects the forward slashes of a path it built with Join-Path (files=1 its=259 joins=92 slashed=13)`, and the fixed test passed in `windows_pester` on Linux, which also proves its filter sees `$absent`, because a filter that could not see it would match nothing.
+
+### Found by the GitHub-hosted Arch and CachyOS runs at 84777f0, 2026-11-10
+
+#### 10.271 Arch core moved to OpenSSL 4.1, and pyenv builds none of the four Pythons against it
+
+Status: an outside defect, open. Nothing in this repository caused it, and the fix waits on the owner's decision, so nothing was changed.
+
+Cause: Arch core moved `openssl` to 4.1.0-1, built 2026-10-24, and the `_ssl` module of CPython does not compile against it, while [setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml) builds every Python against the system OpenSSL, which [setup/ansible/vars/Archlinux.yaml](../setup/ansible/vars/Archlinux.yaml) installs as `openssl`.
+
+Effect: GitHub runs 42852782981, Arch, and 42852790003, CachyOS, both of the single-platform workflow at `84777f0`, failed on `sdk_manager : Wait for parallel Pyenv Python builds to finish`. All four builds, 3.10.20, 3.11.15, 3.12.13 and 3.13.13, failed on both. For 3.12.13 the compiler printed `./Modules/_ssl/cert.c:131:52: note: expected 'X509_NAME *' ... but argument is of type 'const X509_NAME *'` and then `make: *** [Makefile:3146: Modules/_ssl.o] Error 1`, and for 3.13.13 the install stopped at `install: cannot stat 'Modules/_ssl.cpython-313-x86_64-linux-gnu.so': No such file or directory`. `installation-packages.log` showed `openssl-4.1.0-1` and gcc 16.2.1. Read from the task file rather than run, a real Arch or CachyOS machine ends the run with no pyenv Python either.
+
+How it was proven: the error lines and the package versions are from the `playbook.log` and `installation-packages.log` of both runs, which the main thread downloaded, and the OpenSSL version and build date are from `https://archlinux.org/packages/core/x86_64/openssl/json/`, which the main thread measured on 2026-11-10. This change did not measure them again, because its brief allowed only `gh run view` on GitHub and no network probe. This change measured with `gh run view --json` that both runs ran at `84777f0` and failed in the step "Run the tier-3 container harness" of the job `linux-e2e`, and that sweep 40339583817, created 2026-10-26T14:25:53Z at `40db25b`, concluded success, the last green Arch and CachyOS run. Rejected hypothesis: ansible-core 2.22.0, which these runs were the first Arch and CachyOS runs to use after 10.263 raised the ceiling. It was wrong, because the compiler itself reported the OpenSSL type error.
+
+The cause had to be read from leftover lines, because the output truncation of [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py) cut the real error line of each build and the `BUILD FAILED` block python-build prints, so `playbook.log` held only the lines around them. That is checklist item 8 above, a wrapper that swallows the one line that names the failure, and it is open as well.
+
+Fix: none yet, pending the owner's decision. Arch core also ships `openssl-3` 3.5.9-2, with its headers in `/usr/include/openssl-3` and its pkg-config files in `/usr/lib/openssl-3/pkgconfig`, measured by the main thread from the package file list, so one route is to build the Arch family's Pythons against that copy. Whether python-build then finds it, and whether a newer CPython release builds against OpenSSL 4, was not measured.
+
+Mechanical check: none. Tier 2 resolves package names, not versions, and nothing asks which major version of OpenSSL Arch ships. The tier 3 Arch and CachyOS scenarios on a GitHub-hosted runner caught it.
+
+### Found while fixing 10.270, 2026-11-10
+
+#### 10.272 The change that fixed 10.270 let the host shell try to run two commands named `script:` and `global:`
+
+Status: introduced by this change, and reported to the owner here. A breach of the brief, which allowed on the host read-only git commands, `git clone`, the gate run, `docker ps`, `docker logs` and `gh run view`, and nothing else.
+
+Cause: to search the Pester file, the agent ran `git grep` with its pattern in double quotes, and the pattern held `$(script:|global:)`. zsh read that as a command substitution and tried to run `script:` and then `global:` as commands before git started.
+
+Effect: nothing ran and nothing changed. zsh printed `command not found: script:` and `command not found: global:`, and git printed no match.
+
+How it was proven: the command and its output are in the session's own record.
+
+Fix: none needed on the machine. Every later `git grep` in this change put its pattern in single quotes.
+
+Mechanical check: none can stop a command typed on the host.
