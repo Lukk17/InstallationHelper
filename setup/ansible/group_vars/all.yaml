@@ -81,6 +81,8 @@ install_curseforge: true
 
 # CAD / 3D
 install_freecad: true
+install_kicad9: true
+install_kicad10: true
 install_prusaslicer: true
 
 # Peripherals
@@ -179,3 +181,28 @@ shell_layout_backup_dir: "{{ non_root_home }}/.local/state/installation-helper/s
 jetbrains_toolbox_data_dir: "{{ non_root_home }}/.local/share/JetBrains/Toolbox"
 jetbrains_toolbox_binary: "{{ jetbrains_toolbox_data_dir }}/bin/jetbrains-toolbox"
 jetbrains_toolbox_scripts_dir: "{{ jetbrains_toolbox_data_dir }}/scripts"
+
+# KiCad 9, installed beside the KiCad 10 the package managers carry, read by roles/software_installer and
+# verify_install.yaml. On Linux it is KiCad's own AppImage with one system-wide menu entry and icon per
+# tool, each named kicad9-<tool>. arguments is what follows the AppImage on the Exec line, and wm_class is
+# the StartupWMClass KiCad's own entry for the tool carries. On macOS it is the KiCad folder of KiCad's own
+# disk image, copied apart from the KiCad 10 cask's /Applications/KiCad. kicad9_macos_current_test is the
+# one shell test of whether that folder holds KiCad.app and the stamp of the pinned version, which the
+# install asks before it downloads and the verification asks after the run. kicad9_appimage_applies is
+# true on x86_64 Linux only.
+kicad9_appimage_applies: "{{ ansible_facts['system'] == 'Linux' and ansible_facts['architecture'] == 'x86_64' }}"
+kicad9_appimage: "/opt/kicad9/{{ kicad9_appimage_file }}"
+kicad9_menu_dir: "/usr/local/share/applications"
+kicad9_icon_theme_dir: "/usr/local/share/icons/hicolor"
+kicad9_icon_dir: "{{ kicad9_icon_theme_dir }}/scalable/apps"
+kicad9_launchers:
+  - { tool: "kicad", arguments: "kicad %f", name: "KiCad 9", generic_name: "EDA Suite", comment: "Suite of tools for schematic design and circuit board layout", wm_class: "kicad" }
+  - { tool: "eeschema", arguments: "eeschema %f", name: "KiCad 9 Schematic Editor", generic_name: "Schematic Capture Tool", comment: "Standalone schematic editor for KiCad schematics", wm_class: "eeschema" }
+  - { tool: "pcbnew", arguments: "pcbnew %f", name: "KiCad 9 PCB Editor", generic_name: "PCB layout editor", comment: "Standalone circuit board editor for KiCad boards", wm_class: "pcbnew" }
+  - { tool: "gerbview", arguments: "gerbview %F", name: "KiCad 9 Gerber Viewer", generic_name: "Gerber File Viewer", comment: "View Gerber files", wm_class: "gerbview" }
+  - { tool: "bitmap2component", arguments: "bitmap2component", name: "KiCad 9 Image Converter", generic_name: "Bitmap to Component Converter", comment: "Create a component from a bitmap for use with KiCad", wm_class: "bitmap2component" }
+  - { tool: "pcbcalculator", arguments: "pcb_calculator", name: "KiCad 9 PCB Calculator", generic_name: "PCB Calculator", comment: "Calculator for various electronics-related computations", wm_class: "pcb_calculator" }
+kicad9_macos_dir: "/Applications/KiCad 9"
+kicad9_macos_stamp: "{{ kicad9_macos_dir }}/.installation_helper_version"
+kicad9_macos_current_test: >-
+  [ -d "{{ kicad9_macos_dir }}/KiCad.app" ] && [ "$(cat "{{ kicad9_macos_stamp }}" 2>/dev/null)" = "{{ kicad9_version }}" ]

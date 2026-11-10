@@ -78,6 +78,30 @@ if [[ ${#entries[@]} -lt 10 ]]; then
     finish "pinned download locations"
 fi
 
+# kicad9_icon_urls  ->  "kicad9_icon_<tool> <url>" per line, and 1 when the pin is missing, an entry names no
+#                       tool or there is no entry, built as custom_installs.yaml builds it, {{ kicad9_icon_base }}/{{ item.tool }}.svg
+kicad9_icon_urls() {
+    local base tool count=0
+    base="$(pinned_value kicad9_icon_base)" || return 1
+    [[ -n "${base}" ]] || return 1
+    while IFS= read -r tool; do
+        [[ -n "${tool}" ]] || return 1
+        printf 'kicad9_icon_%s %s/%s.svg\n' "${tool}" "${base}" "${tool}"
+        count=$((count + 1))
+    done < <(kicad9_launcher_tools)
+    [[ ${count} -gt 0 ]]
+}
+
+icon_list=""
+if icon_list="$(kicad9_icon_urls)"; then
+    mapfile -t icon_entries <<<"${icon_list}"
+    entries+=("${icon_entries[@]}")
+    info "KiCad 9 icon locations built from kicad9_icon_base and the ${#icon_entries[@]} tools of kicad9_launchers"
+else
+    fail "no KiCad 9 icon location could be built, so the icons custom_installs.yaml downloads are checked by nothing" \
+         "kicad9_icon_base in setup/pinned_values/pinned_values.toml and a tool in every kicad9_launchers entry of setup/ansible/group_vars/all.yaml are both needed"
+fi
+
 # What one HTTP status says about the object itself, which is a narrower question than whether the
 # request went well.
 #

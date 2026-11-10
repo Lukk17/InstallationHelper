@@ -31,7 +31,10 @@
 #   4. no install command in the guide names a package the dictionaries do not map, on or off, apart
 #      from a documented difference;
 #   5. the script and the guide enable and start docker.service, as virtualization_config does;
-#   6. every usermod and systemctl line in the script reports a skip rather than ending it.
+#   6. every usermod and systemctl line in the script reports a skip rather than ending it;
+#   7. every KiCad 9 menu entry the guide writes with printf carries the Name, the Comment, the
+#      arguments after the AppImage on its Exec line and the StartupWMClass of the kicad9_launchers
+#      entry in all.yaml whose tool its kicad9-<tool>.desktop file names.
 # A documented difference is a line in manual_linux_install_allowed.txt naming the file of the
 # playbook that installs the same package outside the dictionary, and that file must still name it,
 # or naming no file, written -, for a prerequisite only the manual route needs, which the reason has
@@ -456,6 +459,58 @@ for family in "${FAMILIES[@]}"; do
              "$(tr '\n' ' ' <<<"${unguarded}")"
     fi
 done
+
+# --- the KiCad 9 menu entry the guides write by hand -------------------------------------------------
+# The playbook writes one kicad9-<tool>.desktop per entry of kicad9_launchers through
+# templates/kicad9.desktop.j2, and each guide writes the project manager's by hand in one printf line.
+quoted_field() { sed -nE "s/.*[{,][[:space:]]*$1:[[:space:]]*\"([^\"]*)\".*/\1/p" <<<"$2"; }
+entry_field() { sed -nE "s/.*'$1=([^']*)'.*/\1/p" <<<"$2"; }
+
+declare -A launcher_of=()
+while IFS= read -r line; do
+    tool="$(quoted_field tool "${line}")"
+    [[ -n "${tool}" ]] && launcher_of["${tool}"]="${line}"
+done < <(kicad9_launcher_lines)
+
+if [[ ${#launcher_of[@]} -eq 0 ]]; then
+    fail "no entry of kicad9_launchers could be read out of group_vars/all.yaml, so no KiCad 9 menu entry was compared" "${ALL_VARS}"
+else
+    for family in "${FAMILIES[@]}"; do
+        guide="${GUIDE_OF[${family}]}"
+        guide_rel="${guide#"${REPO_ROOT}"/}"
+        entries=0
+        drift=()
+        while IFS= read -r line; do
+            entries=$((entries + 1))
+            tool="$(sed -nE 's/.*kicad9-([a-z0-9_]+)\.desktop.*/\1/p' <<<"${line}")"
+            if [[ ! -v "launcher_of[${tool}]" ]]; then
+                drift+=("kicad9-${tool}.desktop: kicad9_launchers has no tool ${tool}")
+                continue
+            fi
+            launcher="${launcher_of[${tool}]}"
+            for pair in "Name name" "Comment comment" "StartupWMClass wm_class"; do
+                page_value="$(entry_field "${pair% *}" "${line}")"
+                vars_value="$(quoted_field "${pair#* }" "${launcher}")"
+                [[ "${page_value}" == "${vars_value}" ]] \
+                    || drift+=("kicad9-${tool}.desktop ${pair% *}: the guide says '${page_value}', kicad9_launchers says '${vars_value}'")
+            done
+            exec_value="$(entry_field Exec "${line}")"
+            page_value="${exec_value#*.AppImage }"
+            vars_value="$(quoted_field arguments "${launcher}")"
+            [[ "${page_value}" == "${vars_value}" ]] \
+                || drift+=("kicad9-${tool}.desktop Exec arguments: the guide says '${page_value}', kicad9_launchers says '${vars_value}'")
+        done < <(tr -d '\r' <"${guide}" | grep -E "'\[Desktop Entry\]'.*/kicad9-[a-z0-9_]+\.desktop")
+
+        if [[ ${entries} -eq 0 ]]; then
+            fail "${family}: no KiCad 9 menu entry written with printf could be read out of ${guide_rel}, so this proves nothing" "${guide}"
+        elif [[ ${#drift[@]} -eq 0 ]]; then
+            pass "${family}: the ${entries} KiCad 9 menu entry lines in ${guide_rel} carry the Name, Comment, Exec arguments and StartupWMClass of kicad9_launchers"
+        else
+            fail "${family}: ${guide_rel} writes a KiCad 9 menu entry that differs from kicad9_launchers in group_vars/all.yaml" \
+                 "$(printf '%s\n' "${drift[@]}" | tr '\n' ' ')"
+        fi
+    done
+fi
 
 unused=()
 for entry in "${!allowed[@]}"; do

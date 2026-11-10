@@ -428,6 +428,186 @@
         state: absent
       become: true
 
+# --- KiCad 10 libraries (Arch) ---
+- name: Install the KiCad 10 libraries beside KiCad
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: "{{ os_dict.companion_packages.kicad10 }}"
+    role_packages_purpose: the KiCad 10 libraries
+  when: os_dict.companion_packages.kicad10 is defined and install_kicad10 | default(false) | bool
+
+# --- KiCad 9 beside KiCad 10: KiCad's own AppImage (Linux) ---
+# KiCad's official AppImage, placed in /opt/kicad9 under its versioned name. The icons come from the KiCad
+# source at the release tag and the menu entries from templates/kicad9.desktop.j2, one per tool, each named
+# kicad9-<tool>. Its runtime mounts the payload with fusermount3, the kicad9 entry of companion_packages.
+- name: Install FUSE 3 for the KiCad 9 AppImage
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: "{{ os_dict.companion_packages.kicad9 }}"
+    role_packages_purpose: the KiCad 9 AppImage
+  when: install_kicad9 | default(false) | bool and kicad9_appimage_applies | bool
+
+- name: Install KiCad 9 from KiCad's AppImage (Linux)
+  when:
+    - install_kicad9 | default(false) | bool
+    - kicad9_appimage_applies | bool
+  block:
+    - name: Ask whether the KiCad 9 AppImage of the pinned version is in place
+      ansible.builtin.stat:
+        path: "{{ kicad9_appimage }}"
+      register: kicad9_appimage_present
+
+    - name: Create the KiCad 9 directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      become: true
+      loop:
+        - "{{ kicad9_appimage | dirname }}"
+        - "{{ kicad9_menu_dir }}"
+        - "{{ kicad9_icon_dir }}"
+
+    - name: Download the KiCad 9 AppImage archive
+      ansible.builtin.get_url:
+        url: "{{ kicad9_appimage_url }}"
+        dest: "{{ software_installer_stage_dir }}/kicad9-appimage.tar"
+        force: true
+        mode: '0600'
+        checksum: "{{ download_checksums.kicad9_appimage | default(omit) }}"
+        timeout: 120
+      become: true
+      register: kicad9_appimage_download
+      retries: 4
+      delay: 30
+      until: kicad9_appimage_download is succeeded
+      when: not kicad9_appimage_present.stat.exists
+
+    - name: Create the directory the KiCad 9 AppImage is unpacked in
+      ansible.builtin.file:
+        path: "{{ software_installer_stage_dir }}/kicad9-appimage"
+        state: directory
+        mode: '0700'
+      become: true
+      when: not kicad9_appimage_present.stat.exists
+
+    - name: Unpack the KiCad 9 AppImage in the stage directory
+      ansible.builtin.unarchive:
+        src: "{{ software_installer_stage_dir }}/kicad9-appimage.tar"
+        dest: "{{ software_installer_stage_dir }}/kicad9-appimage"
+        remote_src: true
+      become: true
+      when: not kicad9_appimage_present.stat.exists
+
+    - name: Download the KiCad 9 icons of the pinned release
+      ansible.builtin.get_url:
+        url: "{{ kicad9_icon_base }}/{{ item.tool }}.svg"
+        dest: "{{ kicad9_icon_dir }}/kicad9-{{ item.tool }}.svg"
+        force: "{{ not kicad9_appimage_present.stat.exists }}"
+        mode: '0644'
+        timeout: 60
+      become: true
+      register: kicad9_icons
+      retries: 4
+      delay: 30
+      until: kicad9_icons is succeeded
+      loop: "{{ kicad9_launchers }}"
+      loop_control:
+        label: "{{ item.tool }}"
+
+    - name: Place the KiCad 9 AppImage in its directory
+      ansible.builtin.copy:
+        src: "{{ software_installer_stage_dir }}/kicad9-appimage/{{ kicad9_appimage | basename }}"
+        dest: "{{ kicad9_appimage }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: '0755'
+      become: true
+      when: not kicad9_appimage_present.stat.exists
+
+    - name: Keep the KiCad 9 AppImage executable
+      ansible.builtin.file:
+        path: "{{ kicad9_appimage }}"
+        owner: root
+        group: root
+        mode: '0755'
+      become: true
+
+    - name: Find the KiCad 9 AppImages of other versions
+      ansible.builtin.find:
+        paths: "{{ kicad9_appimage | dirname }}"
+        patterns: "kicad-*.AppImage"
+        excludes: "{{ kicad9_appimage | basename }}"
+      register: kicad9_other_appimages
+
+    - name: Remove the KiCad 9 AppImages of other versions
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      become: true
+      loop: "{{ kicad9_other_appimages.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Write the KiCad 9 menu entries
+      ansible.builtin.template:
+        src: kicad9.desktop.j2
+        dest: "{{ kicad9_menu_dir }}/kicad9-{{ item.tool }}.desktop"
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      loop: "{{ kicad9_launchers }}"
+      loop_control:
+        label: "{{ item.tool }}"
+
+    - name: Refresh the icon cache for the KiCad 9 icons
+      ansible.builtin.shell: >-
+        if command -v gtk-update-icon-cache >/dev/null 2>&1;
+        then gtk-update-icon-cache --force --ignore-theme-index {{ kicad9_icon_theme_dir | quote }}; fi
+      args:
+        executable: /bin/bash
+      become: true
+      changed_when: true
+      when: kicad9_icons is changed
+  rescue:
+    - name: Record that KiCad 9 could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['kicad9 (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the KiCad 9 step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          KiCad 9 is NOT installed. Every other install continues, and the run is marked failed.
+  always:
+    - name: Remove the staged KiCad 9 AppImage archive and its unpacked copy
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      become: true
+      loop:
+        - "{{ software_installer_stage_dir }}/kicad9-appimage.tar"
+        - "{{ software_installer_stage_dir }}/kicad9-appimage"
+
+- name: Say why KiCad 9 is skipped on this processor
+  ansible.builtin.debug:
+    msg: "[WARN] Skipping KiCad 9: KiCad builds its Linux AppImage for x86_64 only, and this machine is {{ ansible_facts['architecture'] }}. KiCad 10 is not affected."
+  when:
+    - install_kicad9 | default(false) | bool
+    - not (kicad9_appimage_applies | bool)
+
 # Everything from here down configures a package that Debian and Fedora install from a third-party
 # repository, so every task reads unavailable_repositories from setup/ansible/tasks/
 # repository_availability.yaml. When that repository could not be added the package is not there and

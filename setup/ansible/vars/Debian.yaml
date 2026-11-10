@@ -206,6 +206,10 @@ software_mapping:
 
   # CAD / 3D
   freecad: { manager: "flatpak", package: "org.freecad.FreeCAD" }
+  # KiCad 10, whose install pulls the org.kicad.KiCad.Library extension, the symbols, footprints, templates and 3D
+  # models, as a related ref. KiCad 9 is the AppImage custom_installs.yaml installs, whose fuse3 is the kicad9 entry of
+  # companion_packages below.
+  kicad10: { manager: "flatpak", package: "org.kicad.KiCad" }
   prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
@@ -264,6 +268,7 @@ software_mapping:
 # "Package 'qemu-kvm' has no installation candidate". qemu-system-x86 is what qemu-kvm was the
 # transitional name for, 1:10.0.11 on Debian and 1:10.2.1 on Ubuntu, measured on 2026-08-21.
 companion_packages:
+  kicad9: ["fuse3"]   # fusermount3, which the KiCad 9 AppImage's runtime mounts its payload with, installed by software_installer/tasks/custom_installs.yaml
   qastools: ["qashctl", "qasconfig"]   # trixie and Ubuntu 26.04 build QasMixer, QasHctl and QasConfig as three packages, the mapping installs qasmixer
   virt_manager: ["qemu-system-x86", "libvirt-daemon-system", "libvirt-clients", "virtinst", "bridge-utils", "virtiofsd"]
   docker: ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]   # from download.docker.com, which debian_repos.yaml adds, installed by virtualization_config

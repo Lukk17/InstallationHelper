@@ -96,10 +96,10 @@ http_unresolved_reason() {
 }
 
 # Asks the URL for one name and files the name under the caller's own missing or unresolved array,
-# which bash's dynamic scope makes visible here.
+# which bash's dynamic scope makes visible here. A third argument is the answer pattern http_ask takes.
 ask_name() {
     local name="$1" url="$2" status=0
-    http_ask "${url}" || status=$?
+    http_ask "${url}" "${3:-}" || status=$?
     case ${status} in
         1) missing+=("${name}") ;;
         2) unresolved+=("${name}: $(http_unresolved_reason "${url}")") ;;

@@ -195,13 +195,38 @@ check_choco() {
     report_names "Chocolatey" "package ids" "${#pkgs[@]}"
 }
 
+# --- the version a Chocolatey mapping pins -------------------------------------
+# The feed's own OData entry for that id and version is asked, and only an answer that names the version
+# counts.
+check_choco_versions() {
+    local choco_versions=() missing=() unresolved=() line id version
+    while IFS= read -r line; do
+        id="$(sed -nE 's/.*package:[[:space:]]*"([^"]+)".*/\1/p' <<<"${line}")"
+        version="$(sed -nE 's/^[^}]*[{,][[:space:]]*version:[[:space:]]*"([^"]+)".*/\1/p' <<<"${line}")"
+        [[ -n "${id}" && -n "${version}" ]] && choco_versions+=("${id} ${version}")
+    done < <(tr -d '\r' <"${VARS_DIR}/Windows.yaml" | grep -E '^  [a-z0-9_]+: \{ *manager: "choco"')
+    if [[ ${#choco_versions[@]} -eq 0 ]]; then
+        pass "Chocolatey versions: no mapping pins a version"
+        return
+    fi
+
+    local entry
+    for entry in "${choco_versions[@]}"; do
+        id="${entry% *}"
+        version="${entry#* }"
+        ask_name "${id} ${version}" "https://community.chocolatey.org/api/v2/Packages(Id='${id}',Version='${version}')" \
+            "Version>${version//./\\.}<"
+    done
+    report_names "Chocolatey versions" "pinned versions" "${#choco_versions[@]}"
+}
+
 # --- winget ------------------------------------------------------------------
 # Two ways to resolve these, and the better one only exists on Windows.
 #
 # Preferred: ask winget. `winget show --id <id> --exact` queries the real source the installer
 # will use, has no request budget, and answers the actual question, which is whether the id
 # resolves for the user. Reachable from Git Bash, and measured on 2026-08-20, from WSL too, because
-# the Store winget.exe runs through interop. This is why the probe below runs a candidate instead of
+# the Store winget.exe runs through interop. This is why runnable_winget runs a candidate instead of
 # trusting the shell it is in. It once ran unproven for a long time for exactly the opposite reason:
 # from WSL it skipped, WSL was the documented way to run the gate, and 82 mapped ids had never been
 # resolved by anything.
@@ -211,21 +236,45 @@ check_choco() {
 # unauthenticated GitHub allows 60 requests an hour and there are more ids than that. This
 # proves the manifest exists upstream, which is close to the same thing but not identical: a
 # manifest can exist while the id fails to resolve on a machine whose sources are stale.
+# Prints the winget command that runs here, or nothing when none does. Probed by running it, not by
+# existing on PATH: on Windows the first hit is often the Store app-execution-alias stub, which WSL
+# cannot execute at all. Every winget question below asks through this one probe.
+runnable_winget() {
+    local candidate
+    for candidate in winget winget.exe; do
+        command -v "${candidate}" &>/dev/null || continue
+        if "${candidate}" --version &>/dev/null; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    done
+    return 0
+}
+
+# Answers 0 when gh is on PATH and logged in, so the manifest tree in microsoft/winget-pkgs can be read
+# through it. Every gh question below asks through this one probe.
+gh_authenticated() {
+    command -v gh &>/dev/null && gh auth status &>/dev/null
+}
+
+# Prints the folder of an id in microsoft/winget-pkgs, manifests/<first letter lowercased>/<id split on
+# dots>, the one path every gh question below reads.
+winget_manifest_path() {
+    local first
+    first="$(printf '%s' "${1:0:1}" | tr '[:upper:]' '[:lower:]')"
+    printf 'manifests/%s/%s\n' "${first}" "${1//./\/}"
+}
+
 check_winget() {
     local pkgs=() missing=() skipped=0
     mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Windows.yaml" winget)
     [[ ${#pkgs[@]} -eq 0 ]] && { pass "winget: nothing mapped"; return; }
 
-    # Probed by running it, not by existing on PATH. On Windows the first hit is often the Store
-    # app-execution-alias stub, which WSL cannot execute at all.
-    local winget_cmd=""
-    for candidate in winget winget.exe; do
-        command -v "${candidate}" &>/dev/null || continue
-        if "${candidate}" --version &>/dev/null; then winget_cmd="${candidate}"; break; fi
-    done
+    local winget_cmd
+    winget_cmd="$(runnable_winget)"
 
     local use_gh=false
-    command -v gh &>/dev/null && gh auth status &>/dev/null && use_gh=true
+    gh_authenticated && use_gh=true
 
     if [[ -z "${winget_cmd}" && "${use_gh}" == false ]]; then
         warn "no runnable winget here and gh is not authenticated, so ${#pkgs[@]} winget ids are unresolved. Run this check from a Windows shell where winget works, or 'gh auth login'."
@@ -244,10 +293,7 @@ check_winget() {
             "${winget_cmd}" show --id "${id}" --exact --disable-interactivity --accept-source-agreements &>/dev/null \
                 || missing+=("${id}")
         else
-            local first path
-            first="$(printf '%s' "${id:0:1}" | tr '[:upper:]' '[:lower:]')"
-            path="manifests/${first}/${id//./\/}"
-            gh api "repos/microsoft/winget-pkgs/contents/${path}" &>/dev/null || missing+=("${id}")
+            gh api "repos/microsoft/winget-pkgs/contents/$(winget_manifest_path "${id}")" &>/dev/null || missing+=("${id}")
         fi
     done
     [[ ${skipped} -gt 0 ]] && dim "${skipped} entries skipped, they are Microsoft Store product ids rather than winget manifests"
@@ -293,11 +339,8 @@ check_winget_downloads() {
         return
     fi
 
-    local winget_cmd=""
-    for candidate in winget winget.exe; do
-        command -v "${candidate}" &>/dev/null || continue
-        if "${candidate}" --version &>/dev/null; then winget_cmd="${candidate}"; break; fi
-    done
+    local winget_cmd
+    winget_cmd="$(runnable_winget)"
 
     if [[ -z "${winget_cmd}" ]]; then
         skip "the file every winget manifest points at still exists" \
@@ -363,7 +406,7 @@ check_winget_scopes() {
     local list="${REPO_ROOT}/e2e/tier1/winget_scoped_packages.txt"
     local claim="winget packages that leave the installer to a scope match tier1/winget_scoped_packages.txt"
 
-    if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null; then
+    if ! gh_authenticated; then
         skip "${claim}" "gh is not authenticated, and winget itself prints no scope, so the manifests cannot be read"
         return
     fi
@@ -373,7 +416,7 @@ check_winget_scopes() {
         return
     fi
 
-    local pkgs=() live=() unread=() id first base version manifest scopes
+    local pkgs=() live=() unread=() id base version manifest scopes
     mapfile -t pkgs < <(package_names_for "${VARS_DIR}/Windows.yaml" winget)
     # The winget ids whose mapping pins a scope, read the way tier1/winget_scope_pins.sh reads them.
     # A pinned package is listed even when its manifest offers no choice, Syncthing.Syncthing's one
@@ -388,8 +431,7 @@ check_winget_scopes() {
 
     for id in "${pkgs[@]}"; do
         [[ "${id}" != *.* ]] && continue
-        first="$(printf '%s' "${id:0:1}" | tr '[:upper:]' '[:lower:]')"
-        base="manifests/${first}/${id//./\/}"
+        base="$(winget_manifest_path "${id}")"
         manifest=""
         # A package folder holds its version folders and sometimes the folders of longer ids that
         # share its prefix, so only names starting with a digit are versions. Newest first, and a
@@ -648,6 +690,7 @@ main() {
     check_brew brew_cask cask
     check_brew_companions
     check_choco
+    check_choco_versions
     check_winget
     check_winget_downloads
     check_winget_scopes

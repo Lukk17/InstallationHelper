@@ -171,6 +171,10 @@ software_mapping:
 
   # CAD / 3D
   freecad: { manager: "flatpak", package: "org.freecad.FreeCAD" }
+  # KiCad 10, whose install pulls the org.kicad.KiCad.Library extension, the symbols, footprints, templates and 3D
+  # models, as a related ref. KiCad 9 is the AppImage custom_installs.yaml installs, whose fuse3 is the kicad9 entry of
+  # companion_packages below.
+  kicad10: { manager: "flatpak", package: "org.kicad.KiCad" }
   prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
@@ -222,6 +226,7 @@ software_mapping:
 # names it with the reason. One line per entry in flow style, because the e2e shell checks read these
 # lines one at a time.
 companion_packages:
+  kicad9: ["fuse3"]   # fusermount3, which the KiCad 9 AppImage's runtime mounts its payload with, installed by software_installer/tasks/custom_installs.yaml
   openrazer: ["kernel-devel", "kernel-headers"]   # what the OpenRazer DKMS module builds against, installed by software_installer/tasks/fedora_repos.yaml
   virt_manager: ["qemu-kvm", "libvirt", "virt-install", "bridge-utils", "virtiofsd"]
   docker: ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]   # from download.docker.com, which fedora_repos.yaml adds, installed by virtualization_config

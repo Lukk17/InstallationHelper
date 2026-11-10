@@ -5,7 +5,7 @@
 # Installs every app the playbook manages via Homebrew (formulae + casks), one
 # package per brew call, so a name that fails costs that package and nothing
 # else. The ones that failed are listed at the end and the script exits 1.
-# Gridcoin installs from a direct DMG and is NOT handled here, see
+# Gridcoin and KiCad 9 install from a direct DMG and are NOT handled here, see
 # macos_manual_install.md "Manual install required".
 #
 # Mirrors setup/ansible/vars/Darwin.yaml.
@@ -14,6 +14,7 @@ set -euo pipefail
 
 SKIPPED=(
   "Gridcoin (direct DMG from GitHub releases)"
+  "KiCad 9 (direct DMG from downloads.kicad.org -> /Applications/KiCad 9)"
 )
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$1"; }
@@ -59,7 +60,7 @@ BREW_CASKS=(
   cyberduck jetbrains-toolbox antigravity visual-studio-code sublime-text arduino-ide bruno
   discord slack microsoft-teams zoom telegram signal whatsapp obsidian bitwarden
   keepassxc onlyoffice vlc spotify gimp krita handbrake-app audacity rawtherapee
-  steam ea gog-galaxy epic-games curseforge freecad prusaslicer teamviewer
+  steam ea gog-galaxy epic-games curseforge freecad kicad prusaslicer teamviewer
   veracrypt boinc stats grandperspective lulu balenaetcher utm docker-desktop
   virtualbox claude chatgpt opencode-desktop syncthing-app tailscale-app
 )

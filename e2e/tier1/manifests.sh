@@ -13,7 +13,8 @@
 # trusts the manifest later.
 #
 # It also asserts the generator obeys the rule that the pinned values have exactly one reader: the
-# manifests carry no version today, and the day someone adds pinning, it has to come through
+# one version a manifest carries today, KiCad 9's in packages.config, comes from its mapping in
+# vars/Windows.yaml, and the day someone adds a version from the pinned values, it has to come through
 # setup/pinned_values rather than through a second parse of the TOML.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"

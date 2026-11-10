@@ -18,14 +18,20 @@
     Every install follows the retry rule the wizard follows: four attempts twenty seconds apart,
     with `winget source update` before a winget retry and `choco cache remove` before a Chocolatey
     one, never before a first attempt. A package that fails all four is named at the end.
+
+    A Chocolatey package with a Version, KiCad 9, is installed at exactly that version with
+    `choco install --version <v> --pin`, as the wizard does. A copy already at that version gets the
+    pin through `choco pin add`, another version is left as it is and named at the end, and the
+    VerifyPath has to exist afterwards.
 #>
 
 $ErrorActionPreference = 'Stop'
 
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 
-# One line per package, in vars/Windows.yaml order. Source, Scope, InstallerType and VerifyPath only where the
-# mapping names them. ClientOnly and RequiresNvidiaGpu are the mapping's own conditions.
+# One line per package, in vars/Windows.yaml order. Source, Scope, InstallerType, Version and VerifyPath only where
+# the mapping names them, and Version only on a Chocolatey line. ClientOnly and RequiresNvidiaGpu are the mapping's
+# own conditions.
 $Packages = @(
     @{ Manager = 'winget'; Id = 'Google.Chrome' }
     @{ Manager = 'winget'; Id = 'Brave.Brave'; Scope = 'machine'; InstallerType = 'exe' }
@@ -90,6 +96,8 @@ $Packages = @(
     @{ Manager = 'winget'; Id = 'Overwolf.CurseForge'; Scope = 'machine'; InstallerType = 'nullsoft' }
     @{ Manager = 'choco'; Id = 'razer-synapse-4' }
     @{ Manager = 'winget'; Id = 'FreeCAD.FreeCAD'; Scope = 'machine'; InstallerType = 'nullsoft' }
+    @{ Manager = 'choco'; Id = 'kicad'; Version = '9.0.8'; VerifyPath = '%ProgramFiles%/KiCad/9.0/bin/kicad.exe' }
+    @{ Manager = 'winget'; Id = 'KiCad.KiCad'; Scope = 'machine'; InstallerType = 'nullsoft'; VerifyPath = '%ProgramFiles%/KiCad/10.0/bin/kicad.exe' }
     @{ Manager = 'winget'; Id = 'Prusa3D.PrusaSlicer' }
     @{ Manager = 'winget'; Id = 'TeamViewer.TeamViewer' }
     @{ Manager = 'winget'; Id = 'IDRIX.VeraCrypt' }
@@ -206,17 +214,35 @@ function Get-InstallExpression($p) {
     if ($p.Manager -eq 'choco') {
         # Chocolatey 2 exits 0 with "Chocolatey installed 0/0 packages." when the feed answers 503, so
         # exit 0 counts only when Chocolatey then lists the package as installed.
-        $listed = Format-Literal ('^' + [regex]::Escape($p.Id) + '\|')
-        return "Invoke-InstallWithRetry -Package $id -Install { choco install $id -y --no-progress | Out-Host; if (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } elseif (@(choco list --local-only --limit-output --exact $id) -match $listed) { 0 } else { Write-Host '    choco exited 0 and does not list the package as installed'; 1 } } -Refresh { choco cache remove -y | Out-Host }"
+        $listed = Format-Literal ('^' + [regex]::Escape($p.Id) + '\|' + $(if ($p['Version']) { [regex]::Escape($p.Version) + '\s*$' } else { '' }))
+        $pinned = if ($p['Version']) { " --version $(Format-Literal $p.Version) --pin" } else { '' }
+        $install = "Invoke-InstallWithRetry -Package $id -Install { choco install $id$pinned -y --no-progress | Out-Host; if (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } elseif (@(choco list --limit-output --exact $id) -match $listed) { 0 } else { Write-Host '    choco exited 0 and does not list the package as installed'; 1 } } -Refresh { choco cache remove -y | Out-Host }"
+        if (-not $p['Version']) { return $install }
+        # Install-ChocolateyPackage in setup/windows/WindowsSoftware.ps1: another version is left as it
+        # is, a copy at the version gets the pin it lacks, and the VerifyPath has to exist afterwards.
+        $anyVersion = Format-Literal ('^' + [regex]::Escape($p.Id) + '\|')
+        $nameArgument = Format-Literal "--name=$($p.Id)"
+        $versionArgument = Format-Literal "--version=$($p.Version)"
+        $onDisk = if ($p['VerifyPath']) { "Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($(Format-Literal $p.VerifyPath)))" } else { '$true' }
+        $other = Format-Literal "    Chocolatey holds another version of $($p.Id), left as it is. To move it to $($p.Version): choco pin remove --name=$($p.Id), then choco upgrade $($p.Id) --version $($p.Version) --allow-downgrade -y"
+        $unpinned = Format-Literal "    $($p.Id) $($p.Version) is installed, but choco pin list shows no pin on it, so choco upgrade all would replace it"
+        $repairRest = "$($p.Id) --version $($p.Version) --force -y, then run this script again"
+        $absent = Format-Literal "    $($p.Id) is installed, and $($p['VerifyPath']) does not exist. To install it again: choco install $repairRest"
+        return "`$(`$held = @(choco list --limit-output --exact $id); if ((`$held -match $anyVersion) -and -not (`$held -match $listed)) { Write-Host $other; 1 } else { `$code = if (`$held -match $listed) { 0 } else { $install }; if (`$code -ne 0) { `$code } else { if (-not (@(choco pin list --limit-output) -match $listed)) { choco pin add $nameArgument $versionArgument | Out-Host }; if (-not (@(choco pin list --limit-output) -match $listed)) { Write-Host $unpinned; 1 } elseif (-not ($onDisk)) { Write-Host $absent; 1 } else { 0 } } })"
     }
     $arguments = (Get-WingetArgument $p | ForEach-Object { Format-Literal $_ }) -join ' '
     $source = Format-Literal $(if ($p['Source']) { $p['Source'] } else { 'winget' })
     # winget exited 0 for Prime Video and Slack without installing either, so exit 0 counts only when
-    # winget then lists the package with no scope, or, for a package winget cannot list, when its
-    # VerifyPath exists. The wizard's install and its verification ask the same.
+    # winget then lists the package with no scope, or, for a package with a VerifyPath, when that path
+    # exists, also after winget answers that it is already installed. The wizard's install and its
+    # verification ask the same.
+    if ($p['VerifyPath']) {
+        $onDisk = "Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($(Format-Literal $p.VerifyPath)))"
+        $absent = Format-Literal "    $($p.VerifyPath) does not exist, so $($p.Id) is not installed"
+        return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -ne 0 -and `$LASTEXITCODE -ne -1978335189) { `$LASTEXITCODE } elseif ($onDisk) { 0 } else { Write-Host $absent; 1 } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
+    }
     $listed = "winget list --exact --id $id --accept-source-agreements"
-    $onDisk = if ($p['VerifyPath']) { "Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($(Format-Literal $p.VerifyPath)))" } else { '$false' }
-    return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } elseif (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } else { $listed | Out-Host; if (`$LASTEXITCODE -eq 0 -or ($onDisk)) { 0 } else { Write-Host '    winget exited 0 and does not list the package as installed'; 1 } } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
+    return "Invoke-InstallWithRetry -Package $id -Install { winget $arguments | Out-Host; if (`$LASTEXITCODE -eq -1978335189) { 0 } elseif (`$LASTEXITCODE -ne 0) { `$LASTEXITCODE } else { $listed | Out-Host; if (`$LASTEXITCODE -eq 0) { 0 } else { Write-Host '    winget exited 0 and does not list the package as installed'; 1 } } } -Refresh { winget source update --name $source --disable-interactivity | Out-Host }"
 }
 
 # The script an elevated window runs. It carries Invoke-InstallWithRetry with it, counts its own

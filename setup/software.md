@@ -32,7 +32,7 @@ device software, its installer exited 0 without installing anything under `/S`, 
 no switch it will admit to. Razer Synapse 4 stays and is what configures the devices, through the
 Chocolatey `razer-synapse-4` package on Windows.
 
-6. Custom installs: `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`), `macos_install.yaml` (Razer Synapse PKG, Gridcoin DMG). Windows takes none of this path. `setup/windows/WindowsSoftware.ps1` runs the Chocolatey and winget batches natively and `setup/windows/WindowsCustomInstalls.ps1` runs the Gridcoin and OpenCode desktop silent installs.
+6. Custom installs: `custom_installs.yaml` (Linux: Gridcoin PPA/repo/flatpak, OpenLens AppImage, GpuTest binary, k3d `install.sh`, the KiCad 9 AppImage with its menu entries), `macos_install.yaml` (Razer Synapse PKG, Gridcoin DMG, KiCad 9 DMG). Windows takes none of this path. `setup/windows/WindowsSoftware.ps1` runs the Chocolatey and winget batches natively and `setup/windows/WindowsCustomInstalls.ps1` runs the Gridcoin and OpenCode desktop silent installs.
 
 Gradle is managed via SDKMAN on every Linux distro, not the system package manager. The `pinned_values.toml` pin drives `sdk install gradle`.
 
@@ -184,7 +184,37 @@ sudo gpasswd -a $USER plugdev
 | App | Linux | macOS | Windows |
 |---|---|---|---|
 | FreeCAD | `flatpak install -y flathub org.freecad.FreeCAD` | `brew install --cask freecad` | `winget install -e --id FreeCAD.FreeCAD` |
+| KiCad 10 | `flatpak install -y flathub org.kicad.KiCad` on Debian, Ubuntu and Fedora, `sudo pacman -S --needed kicad kicad-library kicad-library-3d` on Arch | `brew install --cask kicad` | `winget install -e --id KiCad.KiCad` |
+| KiCad 9 | KiCad's AppImage in `/opt/kicad9`, with `fuse3` and six `kicad9-<tool>` menu entries, on x86_64 only, because KiCad builds no AppImage for any other processor, see the manual install page of each distribution | KiCad's disk image, its KiCad folder copied to `/Applications/KiCad 9`, see [macos_manual_install.md](../docs/manual/macos/macos_manual_install.md#manual-install-required) | `choco install -y kicad --version 9.0.8 --pin` |
 | PrusaSlicer | `flatpak install -y flathub com.prusa3d.PrusaSlicer` | `brew install --cask prusaslicer` | `winget install -e --id Prusa3D.PrusaSlicer` |
+
+KiCad 9 and KiCad 10 install side by side on every platform, toggled by `install_kicad9` and `install_kicad10`. The Linux and macOS package managers carry KiCad 10 only, so there KiCad 9 comes from KiCad's own downloads, and on Windows from the Chocolatey package `kicad` at its newest 9, pinned with Chocolatey's own pin so `choco upgrade all` leaves it there. KiCad 10 stays on winget. KiCad 9 is not on winget because winget gives both versions the one id `KiCad.KiCad`, and a winget pin on that id cannot hold KiCad 9 back without holding KiCad 10 back too. On macOS both versions keep their settings under the same parent folders, so `brew uninstall --zap kicad` deletes the settings of KiCad 9 as well. Uninstall the cask without `--zap` to keep them.
+
+On Windows the wizard counts KiCad 9 as installed only when Chocolatey lists `kicad` at the version of the `kicad9` mapping in [vars/Windows.yaml](ansible/vars/Windows.yaml), `choco pin list` shows the pin on it, and `C:\Program Files\KiCad\9.0\bin\kicad.exe` exists. It adds the pin to a copy at that version that lacks one, reports another version of `kicad` as failed and leaves it as it is, and reports a pinned copy whose `kicad.exe` is missing as failed, with the `choco install kicad --version <version> --force -y` that installs it again.
+
+On Debian 12 and on Ubuntu 22.04 and 24.04, installing `fuse3` for the KiCad 9 AppImage replaces the older `fuse` package, and `libfuse2` stays installed. Ubuntu desktop ships `fuse3` already.
+
+Turning `install_kicad9` off on a machine that already has KiCad 9 removes nothing: the playbook and the wizard only skip it, so remove it by hand. On Linux:
+
+```bash
+sudo rm -rf /opt/kicad9 /usr/local/share/applications/kicad9-*.desktop /usr/local/share/icons/hicolor/scalable/apps/kicad9-*.svg
+```
+
+On macOS:
+
+```bash
+sudo rm -rf "/Applications/KiCad 9"
+```
+
+On Windows, remove the Chocolatey pin first, then the package, both in an elevated PowerShell:
+
+```powershell
+choco pin remove --name=kicad
+```
+
+```powershell
+choco uninstall -y kicad
+```
 
 ### Utilities
 

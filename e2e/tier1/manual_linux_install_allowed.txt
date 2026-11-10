@@ -48,6 +48,11 @@ Archlinux  zsh              vars/Archlinux.yaml                                 
 Debian     zsh              vars/Debian.yaml                                       the login shell shell_zsh installs
 RedHat     zsh              vars/RedHat.yaml                                       the login shell shell_zsh installs
 
+# The companion_packages entry of install_kicad9, which has no mapping on Linux.
+Archlinux  fuse3            vars/Archlinux.yaml                                    the fusermount3 the KiCad 9 AppImage mounts itself with, which install_kicad9 installs
+Debian     fuse3            vars/Debian.yaml                                       the fusermount3 the KiCad 9 AppImage mounts itself with, which install_kicad9 installs
+RedHat     fuse3            vars/RedHat.yaml                                       the fusermount3 the KiCad 9 AppImage mounts itself with, which install_kicad9 installs
+
 # Installed by a dedicated task rather than a mapping on that family.
 Archlinux  claude-desktop   roles/ai_tools/tasks/claude_unix.yaml                  the AUR package ai_tools installs through paru, Arch maps no claude_desktop
 Archlinux  base-devel       roles/arch_core/tasks/main.yaml                        the build tools the guide's yay bootstrap needs, as arch_core installs them for paru

@@ -15,16 +15,18 @@
 #
 # Asserted, with each side read by its own expression so one mistake cannot hide on both:
 #   1. the script installs exactly the mappings whose toggle is on by default, all.yaml overlaid by
-#      windows.yaml, with the manager, id, source, scope, installer type and machine conditions the
-#      mapping names;
+#      windows.yaml, with the manager, id, source, scope, installer type, version and machine
+#      conditions the mapping names;
 #   2. the script decides what needs an elevated winget from the same installer types, and opens
 #      the same Syncthing ports and writes the same logon shortcut arguments as
 #      setup/windows/WindowsSoftware.ps1;
-#   3. the page carries the exact install command of every mapping, scope and source included, and
-#      no install command in its package tables names anything the mapping file does not;
+#   3. the page carries the exact install command of every mapping, scope, source and version
+#      included, and no install command in its package tables names anything the mapping file does not;
 #   4. every row whose install needs an elevated winget says so;
 # and, because setup/software.md drifted the same way, that every Windows command there names a
-# package the mapping file or setup/windows/WindowsCustomInstalls.ps1 installs.
+# package the mapping file or setup/windows/WindowsCustomInstalls.ps1 installs;
+#   5. no script, workflow, page or Pester case gives Chocolatey --local-only, with at least one
+#      choco list line read.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -65,6 +67,7 @@ while IFS= read -r line; do
     source_name="$(yaml_field source "${line}")"
     scope="$(yaml_field scope "${line}")"
     kind="$(yaml_field installer_type "${line}")"
+    version="$(yaml_field version "${line}")"
     client="$(yaml_field client_only "${line}")"
     nvidia="$(yaml_field requires_nvidia_gpu "${line}")"
     verify="$(sed -nE 's/.*verify_path:[[:space:]]*"([^"]*)".*/\1/p' <<<"${line}")"
@@ -78,12 +81,13 @@ while IFS= read -r line; do
         fi
     else
         command="choco install -y ${package}"
+        [[ -n "${version}" ]] && command+=" --version ${version} --pin"
     fi
     expected_commands+=("${command}")
     mapped_command["${command}"]=1
 
     if [[ "${default_on[${key}]:-false}" == "true" ]]; then
-        expected_script+=("${manager}|${package}|${source_name}|${scope}|${kind}|${client:-false}|${nvidia:-false}|${verify}")
+        expected_script+=("${manager}|${package}|${source_name}|${scope}|${kind}|${version}|${client:-false}|${nvidia:-false}|${verify}")
     fi
 done < <(tr -d '\r' <"${MAPPING_YAML}" | grep -E '^  [a-z0-9_]+: \{')
 
@@ -98,7 +102,7 @@ ps_flag() { if grep -qE "[{;][[:space:]]*$1 = \\\$true" <<<"$2"; then echo true;
 
 actual_script=()
 while IFS= read -r line; do
-    actual_script+=("$(ps_value Manager "${line}")|$(ps_value Id "${line}")|$(ps_value Source "${line}")|$(ps_value Scope "${line}")|$(ps_value InstallerType "${line}")|$(ps_flag ClientOnly "${line}")|$(ps_flag RequiresNvidiaGpu "${line}")|$(ps_value VerifyPath "${line}")")
+    actual_script+=("$(ps_value Manager "${line}")|$(ps_value Id "${line}")|$(ps_value Source "${line}")|$(ps_value Scope "${line}")|$(ps_value InstallerType "${line}")|$(ps_value Version "${line}")|$(ps_flag ClientOnly "${line}")|$(ps_flag RequiresNvidiaGpu "${line}")|$(ps_value VerifyPath "${line}")")
 done < <(tr -d '\r' <"${MANUAL_PS1}" | sed -n '/^\$Packages = @($/,/^)$/p' | grep -E '^[[:space:]]+@\{')
 
 if [[ ${#actual_script[@]} -eq 0 ]]; then
@@ -106,9 +110,9 @@ if [[ ${#actual_script[@]} -eq 0 ]]; then
 else
     script_diff="$(diff <(printf '%s\n' "${expected_script[@]}" | sort) <(printf '%s\n' "${actual_script[@]}" | sort) || true)"
     if [[ -z "${script_diff}" ]]; then
-        pass "install.ps1 installs exactly the ${#expected_script[@]} mappings on by default, with the id, source, scope, installer type, conditions and verify path vars/Windows.yaml names"
+        pass "install.ps1 installs exactly the ${#expected_script[@]} mappings on by default, with the id, source, scope, installer type, version, conditions and verify path vars/Windows.yaml names"
     else
-        fail "install.ps1 and the default-on mappings in vars/Windows.yaml disagree (< mapping, > script; manager|id|source|scope|installer_type|client_only|requires_nvidia_gpu|verify_path)" \
+        fail "install.ps1 and the default-on mappings in vars/Windows.yaml disagree (< mapping, > script; manager|id|source|scope|installer_type|version|client_only|requires_nvidia_gpu|verify_path)" \
              "$(grep -E '^[<>]' <<<"${script_diff}" | tr '\n' ' ')"
     fi
 fi
@@ -143,9 +147,9 @@ for command in "${expected_commands[@]}"; do
     grep -qF -- "\`${command}\`" "${MANUAL_MD}" || missing_rows+=("${command}")
 done
 if [[ ${#missing_rows[@]} -eq 0 ]]; then
-    pass "the page carries the exact install command of all ${#expected_commands[@]} mappings, scope and source included"
+    pass "the page carries the exact install command of all ${#expected_commands[@]} mappings, scope, source and version included"
 else
-    fail "the page is missing the install command of mappings, or gives it without the scope or source the mapping pins" \
+    fail "the page is missing the install command of mappings, or gives it without the scope, source or version the mapping pins" \
          "$(printf '%s | ' "${missing_rows[@]}")"
 fi
 
@@ -166,7 +170,7 @@ fi
 # the winget ids the mapping had left. A Windows command there must name a mapped package, or one
 # setup/windows/WindowsCustomInstalls.ps1 installs by id.
 declare -A known_package=()
-while IFS= read -r command; do known_package["${command##* }"]=1; done < <(printf '%s\n' "${expected_commands[@]}" | sed -E 's/ --(source|scope) [a-z]+//g')
+while IFS= read -r command; do known_package["${command##* }"]=1; done < <(printf '%s\n' "${expected_commands[@]}" | sed -E 's/ --(source|scope) [a-z]+//g; s/ --version [^ ]+ --pin$//')
 while IFS= read -r package; do known_package["${package}"]=1; done < <(grep -oE "PackageId '[^']+'" "${REPO_ROOT}/setup/windows/WindowsCustomInstalls.ps1" | sed -E "s/PackageId '//; s/'$//")
 SOFTWARE_MD="${REPO_ROOT}/setup/software.md"
 unknown=()
@@ -190,6 +194,23 @@ elif [[ ${#unsaid[@]} -eq 0 ]]; then
     pass "every one of the ${#elevated_ids[@]} rows whose install needs an elevated winget says so"
 else
     fail "rows whose machine-wide install needs an elevated winget do not say so" "${unsaid[*]}"
+fi
+
+# --- 5. Chocolatey is never given --local-only ------------------------------------------------------
+flag_paths=()
+for relative in setup docs/manual .github/workflows e2e/lib e2e/tier2 e2e/tier3 e2e/tier1/windows e2e/manual_test_matrix.md; do
+    [[ -e "${REPO_ROOT}/${relative}" ]] || fail "a path the --local-only search reads is missing" "${REPO_ROOT}/${relative}"
+    flag_paths+=("${REPO_ROOT}/${relative}")
+done
+list_lines="$(grep -rIE '\bchoco(\.exe)? list\b' -- "${flag_paths[@]}" || true)"
+flag_lines="$(grep -rInF -e '--local-only' -- "${flag_paths[@]}" || true)"
+if [[ -z "${list_lines}" ]]; then
+    fail "no choco list line was read, so the --local-only search proves nothing" "${flag_paths[*]}"
+elif [[ -z "${flag_lines}" ]]; then
+    pass "none of the $(grep -c . <<<"${list_lines}") choco list lines, and nothing else under setup/, docs/manual/, the workflows, tier 2, tier 3, the Pester suite or the manual test matrix, passes --local-only"
+else
+    fail "--local-only is given to Chocolatey, which removed the flag from choco list in version 2, docs/regression_ledger.md 10.246" \
+         "$(tr '\n' ' ' <<<"${flag_lines//"${REPO_ROOT}/"/}")"
 fi
 
 finish "manual Windows install"

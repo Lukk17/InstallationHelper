@@ -17,7 +17,8 @@
 
     It reads, and only reads. Four questions, one per way this wizard installs something.
 
-      winget mappings   winget list --exact --id <id>, whose exit status is the answer
+      winget mappings   winget list --exact --id <id>, whose exit status is the answer, or the
+                        verify_path on disk when the mapping carries one
       choco mappings    the ids Chocolatey itself reports as installed locally
       npm CLI tools     npm ls -g --depth=0 --json, one call for the whole set
       custom installs   the paths on disk that the install has to have produced
@@ -30,6 +31,10 @@
     The Chocolatey question goes through Get-ChocolateyInstalledPackage in WindowsSoftware.ps1, which
     already asks Chocolatey what is installed locally and is what the install phase compares against.
     One reader means the install and the verification cannot disagree about what Chocolatey said.
+    A Chocolatey mapping with a version or a verify_path, KiCad 9 pinned at the version of its kicad9
+    mapping, is asked through
+    Get-ChocolateyInstallVerdict instead, the rule the install decides by: that version, a Chocolatey
+    pin on it, and the path on disk.
 
     The custom-install proof paths come from Get-WindowsCustomInstallProof in
     WindowsCustomInstalls.ps1, for the same reason: the installer proves its own work with that
@@ -43,7 +48,7 @@
     run would be wrong as often as right.
 
     Depends on Get-WindowsSoftwareToggle, Get-WindowsSoftwareMapping, Get-WingetPath,
-    Test-WingetPackageInstalled and Get-ChocolateyInstalledPackage from WindowsSoftware.ps1,
+    Get-WingetInstallVerdict, Get-ChocolateyInstalledPackage and Get-ChocolateyInstallVerdict from WindowsSoftware.ps1,
     Get-NpmToolPackage from WindowsNpmTools.ps1, and Get-WindowsCustomInstallKey and
     Get-WindowsCustomInstallProof from WindowsCustomInstalls.ps1. setup.ps1 dot-sources all three
     before this one.
@@ -379,6 +384,15 @@ function Invoke-WindowsVerification {
                 if (-not $chocoHere) {
                     & $add $key 'choco' $mapping.Package $script:VerdictUnverifiable `
                         'choco is not on PATH, so Chocolatey cannot be asked whether this is installed'
+                } elseif (($mapping.PSObject.Properties['Version'] -and $mapping.Version) -or ($mapping.PSObject.Properties['VerifyPath'] -and $mapping.VerifyPath)) {
+                    $verdict = Get-ChocolateyInstallVerdict -PackageId $mapping.Package `
+                        -Version $(if ($mapping.PSObject.Properties['Version']) { $mapping.Version } else { '' }) `
+                        -VerifyPath $(if ($mapping.PSObject.Properties['VerifyPath']) { $mapping.VerifyPath } else { '' })
+                    if ($verdict.Installed) {
+                        & $add $key 'choco' $mapping.Package $script:VerdictInstalled ''
+                    } else {
+                        & $add $key 'choco' $mapping.Package $script:VerdictMissing $verdict.Reason
+                    }
                 } elseif ($chocoIds -contains $mapping.Package) {
                     & $add $key 'choco' $mapping.Package $script:VerdictInstalled ''
                 } else {

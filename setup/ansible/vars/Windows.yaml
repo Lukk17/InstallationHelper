@@ -212,6 +212,15 @@ software_mapping:
 
   # CAD / 3D
   freecad: { manager: "winget", package: "FreeCAD.FreeCAD", scope: "machine", installer_type: "nullsoft" }   # Manifest 1.1.4, read 2026-10-11: user (/CurrentUser) and machine (/AllUsers) nullsoft.
+  # KiCad 9 via Chocolatey, not winget: KiCad 9 and KiCad 10 share the winget id KiCad.KiCad, a winget
+  # pin applies to the id, and `winget pin add --installed` pins the newest install, which is KiCad 10, so
+  # winget cannot hold KiCad 9 back on its own. The Chocolatey package kicad, at the version below, the
+  # newest 9 in the community feed, runs the official installer from GitHub with /S /allusers and a sha256
+  # checksum, into %ProgramFiles%/KiCad/9.0, and the wizard installs it with
+  # `choco install kicad --version <version> --pin`, so `choco upgrade all` skips it. KiCad 10 installs into %ProgramFiles%/KiCad/10.0 beside it, under its
+  # own uninstall entry, and its installer never removes 9.0.
+  kicad9: { manager: "choco", package: "kicad", version: "9.0.8", verify_path: "%ProgramFiles%/KiCad/9.0/bin/kicad.exe" }
+  kicad10: { manager: "winget", package: "KiCad.KiCad", scope: "machine", installer_type: "nullsoft", verify_path: "%ProgramFiles%/KiCad/10.0/bin/kicad.exe" }   # Manifest 10.0.6, read 2026-10-27: user (/currentuser) and machine (/allusers) nullsoft.
   prusaslicer: { manager: "winget", package: "Prusa3D.PrusaSlicer" }
 
   # Utilities

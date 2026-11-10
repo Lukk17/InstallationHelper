@@ -58,7 +58,9 @@ $script:ToggleLinePattern = '^(?<key>[a-z0-9_]+):\s*(?<value>true|false)\s*(#.*)
 # installer_type follows scope, and only a machine pin carries it: the installer type winget selects
 # for --scope machine, which decides whether winget itself has to run elevated, see
 # Test-WingetElevationRequired.
-$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?(,\s*installer_type:\s*"(?<installertype>[a-z]+)"\s*)?(,\s*client_only:\s*(?<clientonly>true|false)\s*)?(,\s*user_context:\s*(?<usercontext>true|false)\s*)?(,\s*requires_nvidia_gpu:\s*(?<nvidia>true|false)\s*)?(,\s*verify_path:\s*"(?<verifypath>[^"]*)"\s*)?\}'
+# version follows installer_type, and only Chocolatey reads it: the exact version choco installs, see
+# Install-ChocolateyPackage. Get-WindowsSoftwareMapping refuses it on any other manager.
+$script:MappingLinePattern = '^\s{2}(?<key>[a-z0-9_]+):\s*\{\s*manager:\s*"(?<manager>[a-z_]+)"\s*,\s*package:\s*"(?<package>[^"]*)"\s*(,\s*source:\s*"(?<source>[a-z]+)"\s*)?(,\s*scope:\s*"(?<scope>[a-z]+)"\s*)?(,\s*installer_type:\s*"(?<installertype>[a-z]+)"\s*)?(,\s*version:\s*"(?<version>[^"]+)"\s*)?(,\s*client_only:\s*(?<clientonly>true|false)\s*)?(,\s*user_context:\s*(?<usercontext>true|false)\s*)?(,\s*requires_nvidia_gpu:\s*(?<nvidia>true|false)\s*)?(,\s*verify_path:\s*"(?<verifypath>[^"]*)"\s*)?\}'
 
 function Get-WindowsGroupVarToggle {
     <#
@@ -184,21 +186,24 @@ function Get-WindowsSoftwareMapping {
         if ($line -notmatch $script:MappingLinePattern) {
             throw "vars/Windows.yaml line ${lineNumber} looks like a mapping but does not parse, so it would be silently skipped: $line"
         }
+        if ($Matches['version'] -and $Matches['manager'] -ne 'choco') {
+            throw "vars/Windows.yaml line ${lineNumber} gives version to a $($Matches['manager']) mapping, and only a choco mapping installs one: $line"
+        }
         $mappings[$Matches['key']] = [PSCustomObject]@{
             Manager = $Matches['manager']
             Package = $Matches['package']
             Source  = if ($Matches['source']) { $Matches['source'] } else { 'winget' }
             Scope   = if ($Matches['scope'])  { $Matches['scope'] }  else { '' }
             InstallerType = if ($Matches['installertype']) { $Matches['installertype'] } else { '' }
+            Version = if ($Matches['version']) { $Matches['version'] } else { '' }
             # Two facts about where a package can install, rather than about what it is. Both are
             # read here so the dispatch can report "skipped, and why" instead of a failure that is
             # true of the machine rather than of the run.
             ClientOnly  = ($Matches['clientonly'] -eq 'true')
             UserContext = ($Matches['usercontext'] -eq 'true')
             RequiresNvidiaGpu = ($Matches['nvidia'] -eq 'true')
-            # A path that proves the package is installed when the package manager cannot say so.
-            # Empty for almost everything, because asking the manager is the better question when
-            # the manager can answer.
+            # The mapping's verify_path, a file that exists once the package is installed. Empty when
+            # the mapping names none.
             VerifyPath = if ($Matches['verifypath']) { $Matches['verifypath'] } else { '' }
         }
     }
@@ -249,6 +254,7 @@ function Resolve-WindowsSoftwarePlan {
                 UserContext = if ($m.PSObject.Properties['UserContext']) { $m.UserContext } else { $false }
                 RequiresNvidiaGpu = if ($m.PSObject.Properties['RequiresNvidiaGpu']) { $m.RequiresNvidiaGpu } else { $false }
                 VerifyPath  = if ($m.PSObject.Properties['VerifyPath'])  { $m.VerifyPath }  else { '' }
+                Version     = if ($m.PSObject.Properties['Version'])     { $m.Version }     else { '' }
             })
         } else {
             $unmapped.Add($key)
@@ -365,11 +371,11 @@ function Test-WingetPackageInstalled {
     return (Get-WingetPackagePresence -WingetPath $WingetPath -PackageId $PackageId -Scope $Scope).Installed
 }
 
-function Test-WingetVerifyPath {
+function Test-MappingVerifyPath {
     <#
     .SYNOPSIS
-        Whether the mapping's verify_path exists, the second question for a package winget installs
-        but cannot list back in the scope it installed to. False when the mapping carries none.
+        Whether the mapping's verify_path exists, asked by Get-WingetInstallVerdict, Install-WingetPackage
+        and Get-ChocolateyInstallVerdict. False when the mapping carries none.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -382,9 +388,10 @@ function Test-WingetVerifyPath {
 function Get-WingetInstallVerdict {
     <#
     .SYNOPSIS
-        Whether a winget package counts as installed, the one rule the install after a winget exit 0
-        and the verification in WindowsVerify.ps1 both ask: winget lists it with no scope, or its
-        verify_path exists. Reason says why not, and is empty when Installed is true.
+        Whether a winget package counts as installed, the one rule the install and the verification in
+        WindowsVerify.ps1 both ask: its verify_path exists when the mapping carries one, whatever winget
+        lists, and otherwise winget lists it with no scope. Reason says why not, and is empty when
+        Installed is true.
     #>
     [CmdletBinding()]
     param(
@@ -393,12 +400,19 @@ function Get-WingetInstallVerdict {
         [string] $VerifyPath = ''
     )
 
-    if ((Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
+    if ($VerifyPath) {
+        if (Test-MappingVerifyPath -VerifyPath $VerifyPath) {
+            return [PSCustomObject]@{ Installed = $true; Reason = '' }
+        }
+        $listed = if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) { 'lists it, but' } else { 'finds nothing and' }
+        return [PSCustomObject]@{ Installed = $false
+            Reason = "winget list --exact --id $PackageId $listed $([Environment]::ExpandEnvironmentVariables($VerifyPath)) does not exist, so $PackageId is not installed" }
+    }
+    if (Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) {
         return [PSCustomObject]@{ Installed = $true; Reason = '' }
     }
-    $notOnDisk = if ($VerifyPath) { " and $([Environment]::ExpandEnvironmentVariables($VerifyPath)) does not exist" } else { '' }
     return [PSCustomObject]@{ Installed = $false
-        Reason = "winget list --exact --id $PackageId finds nothing$notOnDisk, so $PackageId is not installed" }
+        Reason = "winget list --exact --id $PackageId finds nothing, so $PackageId is not installed" }
 }
 
 function Test-WingetElevationRequired {
@@ -966,7 +980,7 @@ function Install-WingetPackage {
         # decide whether winget has to run elevated, see Test-WingetElevationRequired.
         [string] $InstallerType = '',
         [ValidateRange(30, 7200)] [int] $TimeoutSeconds = 900,
-        # The mapping's verify_path, for a package winget cannot list. See Get-WingetInstallVerdict.
+        # The mapping's verify_path, which decides whether the package is installed. See Get-WingetInstallVerdict.
         [string] $VerifyPath = '',
 
         # Parameters so a test can run the retries with no pause, defaulting to the shared rule.
@@ -993,7 +1007,7 @@ function Install-WingetPackage {
             }
             return [PSCustomObject]@{ Package = $PackageId; Status = 'failed'; Detail = $detail }
         }
-        if ($machine.Installed -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
+        if ($(if ($VerifyPath) { Test-MappingVerifyPath -VerifyPath $VerifyPath } else { $machine.Installed })) {
             Write-Verbose "$PackageId already installed machine-wide"
             return [PSCustomObject]@{ Package = $PackageId; Status = 'present'; Detail = '' }
         }
@@ -1007,7 +1021,7 @@ function Install-WingetPackage {
                 Detail  = "installed for this user only, the machine-wide install was skipped. To install it machine-wide, remove the per-user copy with 'winget uninstall --exact --id $PackageId --scope user' and run the wizard again."
             }
         }
-    } elseif ((Test-WingetPackageInstalled -WingetPath $WingetPath -PackageId $PackageId) -or (Test-WingetVerifyPath -VerifyPath $VerifyPath)) {
+    } elseif ((Get-WingetInstallVerdict -WingetPath $WingetPath -PackageId $PackageId -VerifyPath $VerifyPath).Installed) {
         Write-Verbose "$PackageId already installed"
         return [PSCustomObject]@{ Package = $PackageId; Status = 'present'; Detail = '' }
     }
@@ -1057,7 +1071,12 @@ function Install-WingetPackage {
         # winget reports an already-installed package as a failure code with a specific
         # message, so treat that text as success rather than reporting a false failure.
         if ($run.Output -match 'already installed') {
-            return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
+            $verdict = if ($VerifyPath) { Get-WingetInstallVerdict -WingetPath $WingetPath -PackageId $PackageId -VerifyPath $VerifyPath } else { $null }
+            if (-not $verdict -or $verdict.Installed) {
+                return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
+            }
+            return [PSCustomObject]@{ Succeeded = $false; Final = $false
+                Failure = "winget answered that $PackageId is already installed, and $($verdict.Reason). $tail".Trim() }
         }
 
         return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = "exit $($run.ExitCode). $tail" }
@@ -1077,6 +1096,53 @@ function Install-WingetPackage {
     return [PSCustomObject]@{ Package = $PackageId; Status = $status; Detail = $retry.Detail }
 }
 
+function Get-ChocolateyInstallVerdict {
+    <#
+    .SYNOPSIS
+        Whether a Chocolatey package is what a mapping with a version or a verify_path promises, the one
+        rule Install-ChocolateyPackage and the verification in WindowsVerify.ps1 both ask.
+    .DESCRIPTION
+        Installed is true when Chocolatey lists the package, at Version when the mapping names one, a
+        Chocolatey pin holds it at that version, and VerifyPath exists when the mapping names one.
+        InstalledVersion and PinnedVersion are what Chocolatey reported, empty for none. Reason says why
+        not, and is empty when Installed is true. `choco pin list` is asked only when there is a Version.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $PackageId,
+        [string] $Version = '',
+        [string] $VerifyPath = ''
+    )
+
+    $previous = $PSNativeCommandUseErrorActionPreference
+    try {
+        $PSNativeCommandUseErrorActionPreference = $false
+        $listed = @(& choco list --limit-output --exact $PackageId 2>&1 | ForEach-Object { "$_" })
+        $pins = @()
+        if ($Version) { $pins = @(& choco pin list --limit-output 2>&1 | ForEach-Object { "$_" }) }
+    } finally {
+        $PSNativeCommandUseErrorActionPreference = $previous
+    }
+
+    $row = '^' + [regex]::Escape($PackageId) + '\|(?<version>\S+)\s*$'
+    $installed = @($listed | Where-Object { $_ -match $row } | ForEach-Object { ($_ -replace $row, '${version}').Trim() }) + @('') | Select-Object -First 1
+    $pinned = @($pins | Where-Object { $_ -match $row } | ForEach-Object { ($_ -replace $row, '${version}').Trim() }) + @('') | Select-Object -First 1
+
+    $reason = if (-not $installed) {
+        "Chocolatey does not list $PackageId among its locally installed packages"
+    } elseif ($Version -and $installed -ne $Version) {
+        "Chocolatey lists $PackageId $installed, not the $Version its mapping names"
+    } elseif ($Version -and $pinned -ne $Version) {
+        "$PackageId $Version is installed, but choco pin list shows no pin on it, so choco upgrade all would replace it"
+    } elseif ($VerifyPath -and -not (Test-MappingVerifyPath -VerifyPath $VerifyPath)) {
+        "Chocolatey lists $PackageId, and $([Environment]::ExpandEnvironmentVariables($VerifyPath)) does not exist"
+    } else {
+        ''
+    }
+
+    return [PSCustomObject]@{ Installed = (-not $reason); InstalledVersion = $installed; PinnedVersion = $pinned; Reason = $reason }
+}
+
 function Install-ChocolateyPackage {
     <#
     .SYNOPSIS
@@ -1092,36 +1158,89 @@ function Install-ChocolateyPackage {
 
         choco's output is written to the host as it arrives, so the child's transcript keeps it.
         Returns Package, Status, ExitCode, Attempts and Detail.
+
+        Version installs exactly that version with `--version <v> --pin`, and a copy already at that
+        version that lacks the pin gets one through `choco pin add`. Another version already installed is
+        reported as failed and left as it is. A copy already listed whose VerifyPath is missing is reported
+        as failed, with the `choco install <id> --version <v> --force -y` that installs it again. With a
+        Version or a VerifyPath, Get-ChocolateyInstallVerdict decides before the install and after it, and
+        Status is present when the package was already there.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $PackageId,
+        # The mapping's version. Empty means the newest version the feed serves, and no pin.
+        [string] $Version = '',
+        # The mapping's verify_path, a file the install has to leave behind.
+        [string] $VerifyPath = '',
         [ValidateRange(0, 10)] [int] $Retries = $script:PackageRetryCount,
         [ValidateRange(0, 300)] [int] $RetryPauseSeconds = $script:PackageRetryDelaySeconds
     )
+
+    $promise = [bool]($Version -or $VerifyPath)
+    $listedPattern = '^' + [regex]::Escape($PackageId) + '\|'
+    if ($Version) { $listedPattern += [regex]::Escape($Version) + '\s*$' }
 
     $previousNative = $PSNativeCommandUseErrorActionPreference
     try {
         # A non-zero exit from choco is an answer to report, not a fault to throw on.
         $PSNativeCommandUseErrorActionPreference = $false
 
+        # Adds the pin a copy at the mapping's version lacks and asks again. Returns the verdict after it.
+        $holdAtVersion = {
+            param($Verdict)
+            if ($Verdict.Installed -or -not $Version -or $Verdict.InstalledVersion -ne $Version -or $Verdict.PinnedVersion -eq $Version) {
+                return $Verdict
+            }
+            Write-Host "  ... choco pin add --name=$PackageId --version=$Version"
+            $said = @(& choco pin add "--name=$PackageId" "--version=$Version" --limit-output 2>&1 | ForEach-Object { "$_" })
+            $code = $LASTEXITCODE
+            foreach ($line in $said) { Write-Host $line }
+            $again = Get-ChocolateyInstallVerdict -PackageId $PackageId -Version $Version -VerifyPath $VerifyPath
+            if ($again.Installed -or $code -eq 0) { return $again }
+            $tail = (($said | Where-Object { $_.Trim() } | Select-Object -Last 1) -join ' ')
+            return [PSCustomObject]@{ Installed = $false; InstalledVersion = $again.InstalledVersion; PinnedVersion = $again.PinnedVersion
+                Reason = "$($again.Reason). choco pin add --name=$PackageId --version=$Version exited $code. $tail".Trim() }
+        }
+
+        if ($promise) {
+            $before = Get-ChocolateyInstallVerdict -PackageId $PackageId -Version $Version -VerifyPath $VerifyPath
+            if ($Version -and $before.InstalledVersion -and $before.InstalledVersion -ne $Version) {
+                return [PSCustomObject]@{ Package = $PackageId; Status = 'failed'; ExitCode = 0; Attempts = 0
+                    Detail = "$($before.Reason), so the wizard left it as it is rather than replace it. To move it to $Version, run 'choco pin remove --name=$PackageId' and 'choco upgrade $PackageId --version $Version --allow-downgrade -y' in an elevated PowerShell, then run the wizard again, which pins it." }
+            }
+            if ($before.InstalledVersion) {
+                $held = & $holdAtVersion $before
+                $pathMissing = $held.InstalledVersion -and (-not $Version -or $held.PinnedVersion -eq $Version) -and $VerifyPath -and -not (Test-MappingVerifyPath -VerifyPath $VerifyPath)
+                $detail = if ($pathMissing) {
+                    "$($held.Reason). To install it again, run 'choco install $PackageId$(if ($Version) { " --version $Version" }) --force -y' in an elevated PowerShell, then run the wizard again."
+                } elseif (-not $held.Installed) { $held.Reason } elseif (-not $before.Installed) { "was already installed at $Version, and choco pin add now holds it there" } else { '' }
+                return [PSCustomObject]@{ Package = $PackageId; Status = $(if ($held.Installed) { 'present' } else { 'failed' })
+                    ExitCode = 0; Attempts = 0; Detail = $detail }
+            }
+        }
+
         $installOnce = {
-            Write-Host "  ... choco install $PackageId"
-            $lines = @(& choco install $PackageId -y --no-progress --limit-output --execution-timeout=600 2>&1 |
-                       ForEach-Object { "$_" })
+            Write-Host "  ... choco install $PackageId$(if ($Version) { " --version $Version --pin" })"
+            $lines = @($(if ($Version) {
+                           & choco install $PackageId --version $Version --pin -y --no-progress --limit-output --execution-timeout=600 2>&1
+                       } else {
+                           & choco install $PackageId -y --no-progress --limit-output --execution-timeout=600 2>&1
+                       }) | ForEach-Object { "$_" })
             $code = $LASTEXITCODE
             foreach ($line in $lines) { Write-Host $line }
             Write-Host "      choco exited $code for $PackageId"
             if ($code -eq 0) {
                 # Chocolatey 2 exits 0 with "Chocolatey installed 0/0 packages." when the feed answers
                 # 503, so exit 0 counts only when Chocolatey then lists the package as installed.
-                $listed = @(& choco list --local-only --limit-output --exact $PackageId 2>&1 | ForEach-Object { "$_" })
-                if (@($listed | Where-Object { $_ -match ('^' + [regex]::Escape($PackageId) + '\|') }).Count -gt 0) {
+                $listed = @(& choco list --limit-output --exact $PackageId 2>&1 | ForEach-Object { "$_" })
+                if (@($listed | Where-Object { $_ -match $listedPattern }).Count -gt 0) {
                     return [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = ''; ExitCode = 0 }
                 }
                 $said = ($lines | Where-Object { $_.Trim() } | Select-Object -Last 1)
+                $asked = if ($Version) { "$PackageId $Version" } else { $PackageId }
                 return [PSCustomObject]@{ Succeeded = $false; Final = $false; ExitCode = 0
-                                          Failure = "choco exited 0 and does not list $PackageId as installed. $said".Trim() }
+                                          Failure = "choco exited 0 and does not list $asked as installed. $said".Trim() }
             }
             $tail = (($lines | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' ')
             return [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = "choco exited $code. $tail"; ExitCode = $code }
@@ -1135,16 +1254,25 @@ function Install-ChocolateyPackage {
 
         $retry = Invoke-PackageManagerRetry -Package $PackageId -Attempt $installOnce -Refresh $refreshCache `
             -Retries $Retries -DelaySeconds $RetryPauseSeconds
+        $status = if ($retry.Succeeded) { 'installed' } else { 'failed' }
+        $detail = $retry.Detail
+        if ($retry.Succeeded -and $promise) {
+            $after = & $holdAtVersion (Get-ChocolateyInstallVerdict -PackageId $PackageId -Version $Version -VerifyPath $VerifyPath)
+            if (-not $after.Installed) {
+                $status = 'failed'
+                $detail = "choco installed $PackageId, but $($after.Reason). $detail".Trim()
+            }
+        }
     } finally {
         $PSNativeCommandUseErrorActionPreference = $previousNative
     }
 
     return [PSCustomObject]@{
         Package  = $PackageId
-        Status   = $(if ($retry.Succeeded) { 'installed' } else { 'failed' })
+        Status   = $status
         ExitCode = $retry.Outcome.ExitCode
         Attempts = $retry.Attempts
-        Detail   = $retry.Detail
+        Detail   = $detail
     }
 }
 
@@ -1167,7 +1295,11 @@ function Install-ChocolateyPackageBatch {
     param(
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
-        [string[]] $PackageId
+        [string[]] $PackageId,
+
+        # The mapping's Version and VerifyPath by package id, for a package whose mapping names either,
+        # handed on to Install-ChocolateyPackage. A package not named here is installed by id alone.
+        [hashtable] $PackageOption = @{}
     )
 
     if (-not $PSCmdlet.ShouldProcess(($PackageId -join ', '), 'elevated choco install')) {
@@ -1178,7 +1310,11 @@ function Install-ChocolateyPackageBatch {
     # bootstrap also gets the elevation it needs.
     # Quoted one by one so a package name can never be read as two arguments, the same shape
     # Enable-WindowsFeatureSet uses for its feature names.
-    $packageLiterals = ($PackageId | ForEach-Object { "'$_'" }) -join ', '
+    $packageLiterals = ($PackageId | ForEach-Object {
+        $option = if ($PackageOption.ContainsKey($_)) { $PackageOption[$_] } else { @{} }
+        '@{{ Id = {0}; Version = {1}; VerifyPath = {2} }}' -f (ConvertTo-PowerShellLiteral -Value $_),
+            (ConvertTo-PowerShellLiteral -Value ([string]$option['Version'])), (ConvertTo-PowerShellLiteral -Value ([string]$option['VerifyPath']))
+    }) -join ', '
 
     # The child writes its own transcript, because none of its output reaches this process. It runs
     # as a separate elevated process and, when the wizard is not already elevated, through -Verb
@@ -1220,9 +1356,9 @@ if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
 `$worst = 0
 `$results = [System.Collections.Generic.List[object]]::new()
 foreach (`$package in @($packageLiterals)) {
-    `$result = Install-ChocolateyPackage -PackageId `$package
+    `$result = Install-ChocolateyPackage -PackageId `$package.Id -Version `$package.Version -VerifyPath `$package.VerifyPath
     `$results.Add(`$result)
-    if (`$result.Status -ne 'installed') { `$worst = if (`$result.ExitCode) { `$result.ExitCode } else { 1 } }
+    if (`$result.Status -notin @('installed', 'present')) { `$worst = if (`$result.ExitCode) { `$result.ExitCode } else { 1 } }
 }
 ConvertTo-Json -InputObject @(`$results) -Depth 3 | Set-Content -LiteralPath $(ConvertTo-PowerShellLiteral -Value $resultFile) -Encoding utf8
 Stop-Transcript | Out-Null
@@ -1300,10 +1436,6 @@ function Get-ChocolateyInstalledPackage {
         makes when it asks `pacman -Qq` instead of trusting the module's own answer, see
         docs/regression_ledger.md.
 
-        `--local-only` is passed even though Chocolatey 2 lists local packages by default, because
-        Chocolatey 1's bare `list` searches the remote feed instead, and a remote hit would report a
-        package as installed when it is absent. Chocolatey 2 still accepts the switch.
-
         Returns an empty list when choco is not on PATH, which is the honest answer rather than an
         error: it means the bootstrap inside the elevated child never finished, so nothing from the
         batch is installed. Comparison at the callsite is `-contains`, which is case-insensitive for
@@ -1323,7 +1455,7 @@ function Get-ChocolateyInstalledPackage {
     try {
         # A non-zero exit is an answer here, not a fault.
         $PSNativeCommandUseErrorActionPreference = $false
-        $output = & choco list --limit-output --local-only 2>&1 | Out-String
+        $output = & choco list --limit-output 2>&1 | Out-String
     } finally {
         $PSNativeCommandUseErrorActionPreference = $previous
     }
@@ -1841,7 +1973,11 @@ function Invoke-WindowsSoftwareInstall {
         # id marked every package in the batch failed and the summary named losses that were not
         # lost, while a batch that exited zero with one package silently absent named nothing.
         $before = @(Get-ChocolateyInstalledPackage)
-        $batch  = Install-ChocolateyPackageBatch -PackageId ($chocoItems.Package)
+        $options = @{}
+        foreach ($item in @($chocoItems | Where-Object { $_.Version -or $_.VerifyPath })) {
+            $options[$item.Package] = @{ Version = $item.Version; VerifyPath = $item.VerifyPath }
+        }
+        $batch  = Install-ChocolateyPackageBatch -PackageId ($chocoItems.Package) -PackageOption $options
 
         if ($batch.Status -eq 'skipped') {
             # WhatIf. Nothing ran, so asking Chocolatey what is installed would report the machine's
@@ -1854,8 +1990,19 @@ function Invoke-WindowsSoftwareInstall {
             }
         } else {
             $after = @(Get-ChocolateyInstalledPackage)
+            $sessionOutcome = if ($batch.Status -eq 'installed') { 'choco exited 0' } else { $batch.Detail }
+            $sessionDetail = "The elevated Chocolatey session shared by all $($chocoItems.Count) Chocolatey package(s) of this run ended with: $sessionOutcome. That is the shared session's result, not a failure of every package in it"
             foreach ($item in $chocoItems) {
-                if ($before -contains $item.Package) {
+                $own = $batch.Packages[$item.Package]
+                if ($options.ContainsKey($item.Package)) {
+                    if ($own) {
+                        $status = $own.Status
+                        $detail = $own.Detail
+                    } else {
+                        $status = 'failed'
+                        $detail = "the install of $($item.Package) never reported back. $sessionDetail"
+                    }
+                } elseif ($before -contains $item.Package) {
                     $status = 'present'
                     $detail = ''
                 } elseif ($after -contains $item.Package) {
@@ -1863,12 +2010,10 @@ function Invoke-WindowsSoftwareInstall {
                     $detail = ''
                 } else {
                     $status = 'failed'
-                    $own = $batch.Packages[$item.Package]
                     if ($own -and $own.Status -ne 'installed') {
                         $detail = "Chocolatey does not list $($item.Package) as installed after its install, which failed on $($own.Attempts) attempt(s): $($own.Detail)"
                     } else {
-                        $sessionOutcome = if ($batch.Status -eq 'installed') { 'choco exited 0' } else { $batch.Detail }
-                        $detail = "Chocolatey does not list $($item.Package) as installed after its install. The elevated Chocolatey session shared by all $($chocoItems.Count) Chocolatey package(s) of this run ended with: $sessionOutcome. That is the shared session's result, not a failure of every package in it"
+                        $detail = "Chocolatey does not list $($item.Package) as installed after its install. $sessionDetail"
                     }
                 }
                 $results.Add([PSCustomObject]@{

@@ -203,6 +203,44 @@ Describe 'Get-WindowsSoftwareMapping' {
         $m['packaged'].InstallerType | Should -Be 'msix'
     }
 
+    It 'reads version on a choco mapping, and leaves it empty when the entry does not carry one' {
+        $tmp = Join-Path $TestDrive 'version.yaml'
+        @(
+            '---'
+            'software_mapping:'
+            '  plain: { manager: "choco", package: "plain" }'
+            '  older: { manager: "choco", package: "older", version: "9.0.8", verify_path: "%ProgramFiles%/Vendor/9.0" }'
+        ) | Set-Content -LiteralPath $tmp
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath $tmp
+
+        $m['plain'].Version    | Should -BeNullOrEmpty
+        $m['older'].Version    | Should -Be '9.0.8'
+        $m['older'].VerifyPath | Should -Be '%ProgramFiles%/Vendor/9.0'
+    }
+
+    It 'throws on a version given to a mapping of any other manager' {
+        $tmp = Join-Path $TestDrive 'winget-version.yaml'
+        @(
+            '---'
+            'software_mapping:'
+            '  older: { manager: "winget", package: "Vendor.Older", scope: "machine", installer_type: "nullsoft", version: "9.0.8" }'
+        ) | Set-Content -LiteralPath $tmp
+        { Get-WindowsSoftwareMapping -WindowsMappingPath $tmp } |
+            Should -Throw -ExpectedMessage '*gives version to a winget mapping*'
+    }
+
+    It 'reads KiCad 9 out of the real mapping file as Chocolatey kicad at one version, and KiCad 10 as winget at none' {
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
+
+        $m['kicad9'].Manager    | Should -Be 'choco'
+        $m['kicad9'].Package    | Should -Be 'kicad'
+        $m['kicad9'].Version    | Should -Match '^9\.'
+        $m['kicad9'].VerifyPath | Should -Be '%ProgramFiles%/KiCad/9.0/bin/kicad.exe'
+        $m['kicad10'].Manager   | Should -Be 'winget'
+        $m['kicad10'].Package   | Should -Be 'KiCad.KiCad'
+        $m['kicad10'].Version   | Should -BeNullOrEmpty
+    }
+
     It 'carries requires_nvidia_gpu through on the real mapping file' {
         $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
         $m['nvidia_app'].RequiresNvidiaGpu | Should -BeTrue
@@ -320,6 +358,19 @@ Describe 'Resolve-WindowsSoftwarePlan' {
     It 'narrows to OnlyKeys when the wizard checklist supplied a selection' {
         $p = Resolve-WindowsSoftwarePlan -Toggles $script:toggles -Mappings $script:mappings -OnlyKeys @('somethingelse')
         $p.Planned.Count | Should -Be 0
+    }
+
+    It 'carries the version and the verify_path of KiCad 9 from the real files into the plan' {
+        $t = Get-WindowsSoftwareToggle `
+            -AllVarsPath     (Join-Path $script:AnsibleDir 'group_vars\all.yaml') `
+            -WindowsVarsPath (Join-Path $script:AnsibleDir 'group_vars\windows.yaml')
+        $m = Get-WindowsSoftwareMapping -WindowsMappingPath (Join-Path $script:AnsibleDir 'vars\Windows.yaml')
+        $item = @((Resolve-WindowsSoftwarePlan -Toggles $t -Mappings $m -OnlyKeys @('kicad9')).Planned)
+
+        $item.Count         | Should -Be 1
+        $item[0].Manager    | Should -Be 'choco'
+        $item[0].Version    | Should -Be $m['kicad9'].Version
+        $item[0].VerifyPath | Should -Be $m['kicad9'].VerifyPath
     }
 
     It 'produces a plan from the real files that matches the real managers' {
@@ -970,7 +1021,7 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
         $r.Status | Should -Be 'installed'
         $r.Attempts | Should -Be 1
         @($global:ChocoStubCalls) | Should -Be @('install thing -y --no-progress --limit-output --execution-timeout=600'
-                                                 'list --local-only --limit-output --exact thing')
+                                                 'list --limit-output --exact thing')
     }
 
     It 'empties the HTTP cache before the retry' {
@@ -1034,6 +1085,365 @@ Describe 'Install-ChocolateyPackage retries under the shared rule, emptying the 
     }
 }
 
+Describe 'Install-ChocolateyPackage installs a mapping''s version with a Chocolatey pin' {
+
+    # The choco function keeps what it installed and pinned, by id, so list and pin list answer from it.
+    BeforeAll {
+        function global:choco {
+            $global:ChocoStubCalls.Add(($args -join ' '))
+            $global:LASTEXITCODE = 0
+            if ($args[0] -eq 'cache') { return }
+            if ($args[0] -eq 'list') {
+                if ($global:ChocoStubListed.ContainsKey($args[-1])) { return "$($args[-1])|$($global:ChocoStubListed[$args[-1]])" }
+                return
+            }
+            if ($args[0] -eq 'pin' -and $args[1] -eq 'list') {
+                return @('Chocolatey v2.4.3') + @($global:ChocoStubPins.Keys | ForEach-Object { "$_|$($global:ChocoStubPins[$_])" })
+            }
+            if ($args[0] -eq 'pin' -and $args[1] -eq 'add') {
+                if ($global:ChocoStubPinAddExit) {
+                    $global:LASTEXITCODE = $global:ChocoStubPinAddExit
+                    return 'Unable to find package named kicad to pin.'
+                }
+                $name = ($args | Where-Object { $_ -like '--name=*' }) -replace '^--name=', ''
+                $global:ChocoStubPins[$name] = ($args | Where-Object { $_ -like '--version=*' }) -replace '^--version=', ''
+                return "Successfully added a pin for $name."
+            }
+            $at = [array]::IndexOf($args, '--version')
+            $version = if ($at -ge 0) { $args[$at + 1] } else { '1.0.0' }
+            if ($global:ChocoStubServedVersion) { $version = $global:ChocoStubServedVersion }
+            $global:ChocoStubListed[$args[1]] = $version
+            if ($args -contains '--pin') { $global:ChocoStubPins[$args[1]] = $version }
+            return "The install of $($args[1]) was successful."
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:choco -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        $global:ChocoStubCalls = [System.Collections.Generic.List[string]]::new()
+        $global:ChocoStubListed = @{}
+        $global:ChocoStubPins = @{}
+        $global:ChocoStubPinAddExit = 0
+        $global:ChocoStubServedVersion = ''
+        $script:OnDisk = (New-Item -ItemType File -Path (Join-Path $TestDrive 'KiCad/9.0/bin/kicad.exe') -Force).FullName
+        Mock Start-Sleep { }
+        Mock Write-Host { }
+    }
+
+    It 'installs the version with --version and --pin, then asks for the version, the pin and the path' {
+        $r = Install-ChocolateyPackage -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk
+
+        $r.Status | Should -Be 'installed'
+        $r.Attempts | Should -Be 1
+        @($global:ChocoStubCalls) | Should -Be @(
+            'list --limit-output --exact kicad'
+            'pin list --limit-output'
+            'install kicad --version 9.0.8 --pin -y --no-progress --limit-output --execution-timeout=600'
+            'list --limit-output --exact kicad'
+            'list --limit-output --exact kicad'
+            'pin list --limit-output')
+    }
+
+    It 'pins a copy already at the version that lacks the pin, and installs nothing' {
+        $global:ChocoStubListed['kicad'] = '9.0.8'
+
+        $r = Install-ChocolateyPackage -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk
+
+        $r.Status | Should -Be 'present'
+        $r.Detail | Should -Be 'was already installed at 9.0.8, and choco pin add now holds it there'
+        @($global:ChocoStubCalls) | Should -Contain 'pin add --name=kicad --version=9.0.8 --limit-output'
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'install *' }).Count | Should -Be 0
+        $global:ChocoStubPins['kicad'] | Should -Be '9.0.8'
+    }
+
+    It 'changes nothing for a copy already at the version and pinned there' {
+        $global:ChocoStubListed['kicad'] = '9.0.8'
+        $global:ChocoStubPins['kicad'] = '9.0.8'
+
+        $r = Install-ChocolateyPackage -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk
+
+        $r.Status | Should -Be 'present'
+        $r.Detail | Should -BeNullOrEmpty
+        @($global:ChocoStubCalls) | Should -Be @('list --limit-output --exact kicad', 'pin list --limit-output')
+    }
+
+    It 'leaves another installed version as it is, reports it failed, and names the commands that would move it' {
+        $global:ChocoStubListed['kicad'] = '9.0.7'
+
+        $r = Install-ChocolateyPackage -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk
+
+        $r.Status | Should -Be 'failed'
+        $r.Attempts | Should -Be 0
+        $r.Detail | Should -BeLike "Chocolatey lists kicad 9.0.7, not the 9.0.8 its mapping names, so the wizard left it as it is rather than replace it.*'choco pin remove --name=kicad'*'choco upgrade kicad --version 9.0.8 --allow-downgrade -y'*"
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'install *' -or $_ -like 'pin add *' }).Count | Should -Be 0
+    }
+
+    It 'fails an install that leaves the verify_path missing' {
+        $missing = Join-Path $TestDrive 'nowhere/kicad.exe'
+
+        $r = Install-ChocolateyPackage -PackageId 'kicad' -Version '9.0.8' -VerifyPath $missing
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -Be "choco installed kicad, but Chocolatey lists kicad, and $missing does not exist."
+    }
+
+    It 'fails a copy at the version and pinned there whose verify_path is missing, and names the forced reinstall' {
+        $global:ChocoStubListed['kicad'] = '9.0.8'
+        $global:ChocoStubPins['kicad'] = '9.0.8'
+        $missing = Join-Path $TestDrive 'nowhere/kicad.exe'
+
+        $r = Install-ChocolateyPackage -PackageId 'kicad' -Version '9.0.8' -VerifyPath $missing
+
+        $r.Status | Should -Be 'failed'
+        $r.Attempts | Should -Be 0
+        $r.Detail | Should -Be "Chocolatey lists kicad, and $missing does not exist. To install it again, run 'choco install kicad --version 9.0.8 --force -y' in an elevated PowerShell, then run the wizard again."
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'install *' -or $_ -like 'pin add *' }).Count | Should -Be 0
+    }
+
+    It 'names the forced reinstall without a version for a listed mapping with only a verify_path that is missing' {
+        $global:ChocoStubListed['vendor-tool'] = '2.1.0'
+        $missing = Join-Path $TestDrive 'nowhere/vendor-tool.exe'
+
+        $r = Install-ChocolateyPackage -PackageId 'vendor-tool' -VerifyPath $missing
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -Be "Chocolatey lists vendor-tool, and $missing does not exist. To install it again, run 'choco install vendor-tool --force -y' in an elevated PowerShell, then run the wizard again."
+        @($global:ChocoStubCalls | Where-Object { $_ -like 'install *' }).Count | Should -Be 0
+    }
+
+    It 'fails a copy at the version that choco pin add cannot hold there, with what choco said' {
+        $global:ChocoStubListed['kicad'] = '9.0.8'
+        $global:ChocoStubPinAddExit = 1
+
+        $r = Install-ChocolateyPackage -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -Be 'kicad 9.0.8 is installed, but choco pin list shows no pin on it, so choco upgrade all would replace it. choco pin add --name=kicad --version=9.0.8 exited 1. Unable to find package named kicad to pin.'
+    }
+
+    It 'counts an exit 0 that installed some other version as no install of the version asked for' {
+        $global:ChocoStubServedVersion = '10.0.0'
+
+        $r = Install-ChocolateyPackage -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike 'choco exited 0 and does not list kicad 9.0.8 as installed.*'
+    }
+
+    It 'installs a mapping with no version by id alone, with no pin, as before' {
+        $r = Install-ChocolateyPackage -PackageId 'maven'
+
+        $r.Status | Should -Be 'installed'
+        @($global:ChocoStubCalls) | Should -Be @('install maven -y --no-progress --limit-output --execution-timeout=600'
+                                                 'list --limit-output --exact maven')
+    }
+}
+
+Describe 'Get-ChocolateyInstallVerdict, the one rule the Chocolatey install and the verification ask' {
+
+    BeforeAll {
+        function global:choco {
+            $global:ChocoStubCalls.Add(($args -join ' '))
+            $global:LASTEXITCODE = 0
+            if ($args[0] -eq 'list') { return @('Chocolatey v2.4.3') + @($global:ChocoStubList) }
+            if ($args[0] -eq 'pin') { return @($global:ChocoStubPinList) }
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:choco -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        $global:ChocoStubCalls = [System.Collections.Generic.List[string]]::new()
+        $global:ChocoStubList = @('kicad|9.0.8')
+        $global:ChocoStubPinList = @('kicad|9.0.8')
+        $script:OnDisk = (New-Item -ItemType File -Path (Join-Path $TestDrive 'KiCad/9.0/bin/kicad.exe') -Force).FullName
+    }
+
+    It 'counts a package installed at the version, pinned there, with its path on disk, as installed' {
+        $v = Get-ChocolateyInstallVerdict -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk
+
+        $v.Installed | Should -BeTrue
+        $v.Reason | Should -BeNullOrEmpty
+        $v.InstalledVersion | Should -Be '9.0.8'
+        $v.PinnedVersion | Should -Be '9.0.8'
+    }
+
+    It 'counts a package Chocolatey does not list as not installed' {
+        $global:ChocoStubList = @()
+
+        $v = Get-ChocolateyInstallVerdict -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk
+
+        $v.Installed | Should -BeFalse
+        $v.Reason | Should -Be 'Chocolatey does not list kicad among its locally installed packages'
+    }
+
+    It 'counts another version as not installed' {
+        $global:ChocoStubList = @('kicad|10.0.6')
+
+        $v = Get-ChocolateyInstallVerdict -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk
+
+        $v.Installed | Should -BeFalse
+        $v.InstalledVersion | Should -Be '10.0.6'
+        $v.Reason | Should -Be 'Chocolatey lists kicad 10.0.6, not the 9.0.8 its mapping names'
+    }
+
+    It 'counts the version with no pin, or a pin on another package only, as not installed' {
+        $global:ChocoStubPinList = @('kicad-library|9.0.8', 'notkicad|9.0.8')
+
+        $v = Get-ChocolateyInstallVerdict -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk
+
+        $v.Installed | Should -BeFalse
+        $v.PinnedVersion | Should -BeNullOrEmpty
+        $v.Reason | Should -Be 'kicad 9.0.8 is installed, but choco pin list shows no pin on it, so choco upgrade all would replace it'
+    }
+
+    It 'counts a pin at another version as no pin on this one' {
+        $global:ChocoStubPinList = @('kicad|9.0.7')
+
+        (Get-ChocolateyInstallVerdict -PackageId 'kicad' -Version '9.0.8' -VerifyPath $script:OnDisk).Installed | Should -BeFalse
+    }
+
+    It 'counts the version and its pin with the path missing as not installed' {
+        $missing = Join-Path $TestDrive 'nowhere/kicad.exe'
+
+        $v = Get-ChocolateyInstallVerdict -PackageId 'kicad' -Version '9.0.8' -VerifyPath $missing
+
+        $v.Installed | Should -BeFalse
+        $v.Reason | Should -Be "Chocolatey lists kicad, and $missing does not exist"
+    }
+
+    It 'asks choco pin list only when the mapping names a version' {
+        (Get-ChocolateyInstallVerdict -PackageId 'kicad' -VerifyPath $script:OnDisk).Installed | Should -BeTrue
+
+        @($global:ChocoStubCalls) | Should -Be @('list --limit-output --exact kicad')
+    }
+}
+
+Describe 'Invoke-WindowsVerification asks Get-ChocolateyInstallVerdict about a versioned Chocolatey mapping' {
+
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsNpmTools.ps1')
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsVerify.ps1')
+
+        function global:choco {
+            $global:LASTEXITCODE = 0
+            if ($args[0] -eq 'list') { return @($global:ChocoStubList) }
+            if ($args[0] -eq 'pin') { return @($global:ChocoStubPinList) }
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:choco -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        $script:SavedProgramFiles = $env:ProgramFiles
+        $env:ProgramFiles = Join-Path $TestDrive 'Program Files'
+        New-Item -ItemType File -Path (Join-Path $env:ProgramFiles 'KiCad/9.0/bin/kicad.exe') -Force | Out-Null
+        $global:ChocoStubList = @('kicad|9.0.8')
+        $global:ChocoStubPinList = @('kicad|9.0.8')
+        Mock Get-Command { [PSCustomObject]@{ Source = 'choco.exe' } } -ParameterFilter { $Name -contains 'choco' }
+        Mock Get-ChocolateyInstalledPackage { @('kicad') }
+        Mock Get-WindowsMachineFact { [PSCustomObject]@{ InstallationType = 'Client'; IsElevated = $false; NvidiaAdapters = @() } }
+        Mock Get-WindowsCustomInstallProof { [ordered]@{} }
+    }
+
+    AfterEach {
+        $env:ProgramFiles = $script:SavedProgramFiles
+    }
+
+    It 'reports KiCad 9 installed when it is at the mapping''s version, pinned there, and on disk' {
+        $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('kicad9') `
+            -ToggleOverride @{ install_kicad9 = $true } -LogPath (Join-Path $TestDrive 'verify.log')
+
+        $row = @($r.Results | Where-Object { $_.Key -eq 'kicad9' })
+        $row.Count | Should -Be 1
+        $row[0].Verdict | Should -Be 'installed'
+        @($r.Failed).Count | Should -Be 0
+    }
+
+    It 'reports KiCad 9 MISSING with the reason when <Case>, although Chocolatey lists the id' -ForEach @(
+        @{ Case = 'the pin is missing'; List = @('kicad|9.0.8'); Pins = @(); OnDisk = $true; Reason = 'kicad 9.0.8 is installed, but choco pin list shows no pin on it*' }
+        @{ Case = 'the version differs'; List = @('kicad|9.0.7'); Pins = @('kicad|9.0.7'); OnDisk = $true; Reason = 'Chocolatey lists kicad 9.0.7, not the 9.0.8 its mapping names' }
+        @{ Case = 'the verify_path is missing'; List = @('kicad|9.0.8'); Pins = @('kicad|9.0.8'); OnDisk = $false; Reason = 'Chocolatey lists kicad, and *KiCad/9.0/bin/kicad.exe does not exist' }
+    ) {
+        $global:ChocoStubList = $List
+        $global:ChocoStubPinList = $Pins
+        if (-not $OnDisk) { Remove-Item -LiteralPath (Join-Path $env:ProgramFiles 'KiCad') -Recurse -Force }
+
+        $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('kicad9') `
+            -ToggleOverride @{ install_kicad9 = $true } -LogPath (Join-Path $TestDrive 'verify.log')
+
+        $row = @($r.Results | Where-Object { $_.Key -eq 'kicad9' })
+        $row[0].Verdict | Should -Be 'MISSING'
+        $row[0].Detail | Should -BeLike $Reason
+        @($r.Failed | Where-Object { $_.Key -eq 'kicad9' }).Count | Should -Be 1
+    }
+
+    It 'leaves the verification no Chocolatey version question of its own besides Get-ChocolateyInstallVerdict' {
+        $verifyFile = Join-Path $script:RepoRoot 'setup\windows\WindowsVerify.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($verifyFile, [ref]$null, [ref]$null)
+        $called = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() })
+
+        $called | Should -Contain 'Get-ChocolateyInstallVerdict'
+        $called | Should -Not -Contain 'choco'
+    }
+}
+
+Describe 'Invoke-WindowsVerification decides a winget mapping that carries a verify_path by that path' {
+
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsNpmTools.ps1')
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsVerify.ps1')
+    }
+
+    BeforeEach {
+        $script:SavedProgramFiles = $env:ProgramFiles
+        $env:ProgramFiles = Join-Path $TestDrive 'Program Files'
+        New-Item -ItemType File -Path (Join-Path $env:ProgramFiles 'KiCad/9.0/bin/kicad.exe') -Force | Out-Null
+        $global:WingetLists = $true
+        Mock Get-WingetPath { 'winget' }
+        Mock Test-WingetPackageInstalled { $global:WingetLists }
+        Mock Get-WindowsMachineFact { [PSCustomObject]@{ InstallationType = 'Client'; IsElevated = $false; NvidiaAdapters = @() } }
+        Mock Get-WindowsCustomInstallProof { [ordered]@{} }
+    }
+
+    AfterEach {
+        $env:ProgramFiles = $script:SavedProgramFiles
+    }
+
+    It 'reports KiCad 10 MISSING when winget lists KiCad.KiCad and only the KiCad 9 folder exists' {
+        $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('kicad10') `
+            -ToggleOverride @{ install_kicad10 = $true } -LogPath (Join-Path $TestDrive 'verify.log')
+
+        $row = @($r.Results | Where-Object { $_.Key -eq 'kicad10' })
+        $row.Count | Should -Be 1
+        $row[0].Verdict | Should -Be 'MISSING'
+        $row[0].Detail | Should -BeLike 'winget list --exact --id KiCad.KiCad lists it, but *KiCad/10.0/bin/kicad.exe does not exist, so KiCad.KiCad is not installed'
+        @($r.Failed | Where-Object { $_.Key -eq 'kicad10' }).Count | Should -Be 1
+    }
+
+    It 'reports KiCad 10 installed when <Case> and its verify_path exists' -ForEach @(
+        @{ Case = 'winget lists KiCad.KiCad'; Lists = $true }
+        @{ Case = 'winget lists nothing'; Lists = $false }
+    ) {
+        $global:WingetLists = $Lists
+        New-Item -ItemType File -Path (Join-Path $env:ProgramFiles 'KiCad/10.0/bin/kicad.exe') -Force | Out-Null
+
+        $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('kicad10') `
+            -ToggleOverride @{ install_kicad10 = $true } -LogPath (Join-Path $TestDrive 'verify.log')
+
+        $row = @($r.Results | Where-Object { $_.Key -eq 'kicad10' })
+        $row[0].Verdict | Should -Be 'installed'
+        @($r.Failed).Count | Should -Be 0
+    }
+}
+
 Describe 'Install-ChocolateyPackageBatch runs the shared rule in its elevated child' {
 
     # The child script is run for real, in a separate pwsh, with a choco function and a no-op
@@ -1049,7 +1459,9 @@ function Start-Sleep { }
 function choco {
     Add-Content -LiteralPath $logLiteral -Value (`$args -join ' ')
     if (`$args[0] -eq 'cache') { `$global:LASTEXITCODE = 0; return }
-    if (`$args[0] -eq 'list') { `$global:LASTEXITCODE = 0; if (`$args[-1] -eq 'good-pkg') { return 'good-pkg|1.0.0' }; return }
+    `$pinnedKicad = Select-String -LiteralPath $logLiteral -SimpleMatch -Pattern 'install kicad --version 9.0.8 --pin ' -Quiet
+    if (`$args[0] -eq 'pin') { `$global:LASTEXITCODE = 0; if (`$pinnedKicad) { return 'kicad|9.0.8' }; return }
+    if (`$args[0] -eq 'list') { `$global:LASTEXITCODE = 0; if (`$args[-1] -eq 'good-pkg') { return 'good-pkg|1.0.0' }; if (`$args[-1] -eq 'kicad' -and `$pinnedKicad) { return 'kicad|9.0.8' }; return }
     if (`$args[1] -eq 'broken-pkg') { `$global:LASTEXITCODE = 42; return 'ERROR: Running installer failed' }
     `$global:LASTEXITCODE = 0
     if (`$args[1] -eq 'silent-pkg') { return 'Chocolatey installed 0/0 packages.' }
@@ -1087,6 +1499,66 @@ function choco {
         $batch.Packages['silent-pkg'].Detail | Should -BeLike 'choco exited 0 and does not list silent-pkg as installed. Chocolatey installed 0/0 packages. (attempt 4 of 4;*'
         $calls = @(Get-Content -LiteralPath $global:ChildCallLog)
         @($calls | Where-Object { $_ -like 'install silent-pkg *' }).Count | Should -Be 4
+    }
+
+    It 'hands a package''s version and verify_path to the child, which installs that version with its pin' {
+        $onDisk = (New-Item -ItemType File -Path (Join-Path $TestDrive 'KiCad/9.0/bin/kicad.exe') -Force).FullName
+
+        $batch = Install-ChocolateyPackageBatch -PackageId @('good-pkg', 'kicad') `
+            -PackageOption @{ kicad = @{ Version = '9.0.8'; VerifyPath = $onDisk } }
+
+        $batch.Status | Should -Be 'installed'
+        $batch.Packages['kicad'].Status | Should -Be 'installed'
+        $batch.Packages['good-pkg'].Status | Should -Be 'installed'
+        $calls = @(Get-Content -LiteralPath $global:ChildCallLog)
+        $calls | Should -Contain 'install kicad --version 9.0.8 --pin -y --no-progress --limit-output --execution-timeout=600'
+        $calls | Should -Contain 'install good-pkg -y --no-progress --limit-output --execution-timeout=600'
+        @($calls | Where-Object { $_ -like 'pin add *' }).Count | Should -Be 0
+    }
+
+    It 'fails a versioned package in the child when its verify_path is missing after the install' {
+        $batch = Install-ChocolateyPackageBatch -PackageId @('kicad') `
+            -PackageOption @{ kicad = @{ Version = '9.0.8'; VerifyPath = (Join-Path $TestDrive 'nowhere/kicad.exe') } }
+
+        $batch.Status | Should -Be 'failed'
+        $batch.Packages['kicad'].Status | Should -Be 'failed'
+        $batch.Packages['kicad'].Detail | Should -BeLike 'choco installed kicad, but Chocolatey lists kicad, and *nowhere*kicad.exe does not exist.*'
+    }
+
+    It 'takes the child''s own verdict for a mapping with a version, not Chocolatey listing its id' {
+        Mock Get-WindowsMachineFact { [PSCustomObject]@{ InstallationType = 'Client'; IsElevated = $false; NvidiaAdapters = @() } }
+        Mock Get-ChocolateyInstalledPackage { @('kicad') }
+        Mock Install-ChocolateyPackageBatch {
+            [PSCustomObject]@{
+                Status   = 'failed'
+                Detail   = 'choco exited 1'
+                Packages = @{
+                    'kicad' = [PSCustomObject]@{ Package = 'kicad'; Status = 'failed'; ExitCode = 0; Attempts = 0; Detail = 'Chocolatey lists kicad 9.0.7, not the 9.0.8 its mapping names, so the wizard left it as it is rather than replace it.' }
+                }
+            }
+        }
+
+        $summary = Invoke-WindowsSoftwareInstall -AnsibleDir $script:AnsibleDir -OnlyKeys @('kicad9') `
+            -ToggleOverride @{ install_kicad9 = $true }
+
+        @($summary.Installed).Count | Should -Be 0
+        @($summary.Failed).Count | Should -Be 1
+        $summary.Failed[0].Package | Should -Be 'kicad'
+        $summary.Failed[0].Detail | Should -BeLike 'Chocolatey lists kicad 9.0.7, not the 9.0.8 its mapping names*'
+        Should -Invoke Install-ChocolateyPackageBatch -Times 1 -Exactly -ParameterFilter {
+            $PackageOption['kicad'].Version -eq '9.0.8' -and $PackageOption['kicad'].VerifyPath -eq '%ProgramFiles%/KiCad/9.0/bin/kicad.exe'
+        }
+    }
+
+    It 'reports a versioned package the child never reported on as failed' {
+        Mock Get-WindowsMachineFact { [PSCustomObject]@{ InstallationType = 'Client'; IsElevated = $false; NvidiaAdapters = @() } }
+        Mock Get-ChocolateyInstalledPackage { @('kicad') }
+        Mock Install-ChocolateyPackageBatch { [PSCustomObject]@{ Status = 'failed'; Detail = 'could not run choco: refused'; Packages = @{} } }
+
+        $summary = Invoke-WindowsSoftwareInstall -AnsibleDir $script:AnsibleDir -OnlyKeys @('kicad9') `
+            -ToggleOverride @{ install_kicad9 = $true }
+
+        $summary.Failed[0].Detail | Should -BeLike 'the install of kicad never reported back. The elevated Chocolatey session shared by all 1 Chocolatey package(s) of this run ended with: could not run choco: refused.*'
     }
 
     It 'names the failing package with its own attempts in the software phase result' {
@@ -1181,6 +1653,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $global:UnscopedCopy = $false
         $global:InstallListsUnscopedOnly = $false
         $global:InstallCreates = ''
+        $global:InstallAnswersAlreadyInstalled = $false
         Mock Start-Sleep { }
         Mock Write-Host { }
         Mock Test-IsAdministrator { $false }
@@ -1201,6 +1674,9 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
             if ($global:InstallFailuresLeft -gt 0) {
                 $global:InstallFailuresLeft--
                 return [PSCustomObject]@{ Output = 'Installer failed with exit code: 3221225477'; ExitCode = 1; TimedOut = $false }
+            }
+            if ($global:InstallAnswersAlreadyInstalled) {
+                return [PSCustomObject]@{ Output = 'Found an existing package already installed.'; ExitCode = -1978335189; TimedOut = $false }
             }
             if ($global:InstallListsUnscopedOnly) {
                 $global:UnscopedCopy = $true
@@ -1287,7 +1763,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
         $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'TorProject.TorBrowser' -Scope 'user' -VerifyPath $global:InstallCreates -Retries 0 -RetryPauseSeconds 0
 
         $r.Status | Should -Be 'installed'
-        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user', 'bounded list')
+        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user')
     }
 
     It 'counts a machine-wide install winget lists only without a scope as installed, as Python in runs 40038350703 and 40038353129' {
@@ -1322,7 +1798,7 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
 
         $called | Should -Contain 'Get-WingetInstallVerdict'
         $called | Should -Not -Contain 'Test-WingetPackageInstalled'
-        $called | Should -Not -Contain 'Test-WingetVerifyPath'
+        $called | Should -Not -Contain 'Test-MappingVerifyPath'
     }
 
     It 'reports a machine-wide copy winget lists only per user as present when its verify_path exists, rather than as a per-user copy' {
@@ -1332,6 +1808,51 @@ Describe 'Install-WingetPackage asks about a machine-wide copy by scope and elev
 
         $r.Status | Should -Be 'present'
         @($global:WingetCalls) | Should -Be @('bounded list machine')
+    }
+
+    It 'installs a machine-pinned package winget already lists when its verify_path is missing, as KiCad 10 beside the Chocolatey KiCad 9' {
+        $global:MachineCopy = $true
+        $global:InstallCreates = Join-Path $TestDrive 'KiCad/10.0/bin'
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'KiCad.KiCad' -Scope 'machine' -InstallerType 'nullsoft' -VerifyPath $global:InstallCreates -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine')
+    }
+
+    It 'fails a machine-pinned package winget lists when the install leaves its verify_path missing, saying winget lists it' {
+        $global:MachineCopy = $true
+        $missing = Join-Path $TestDrive 'KiCad/10.0/bin/kicad.exe'
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'KiCad.KiCad' -Scope 'machine' -InstallerType 'nullsoft' -VerifyPath $missing -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike "winget exited 0 and winget list --exact --id KiCad.KiCad lists it, but $missing does not exist, so KiCad.KiCad is not installed.*"
+    }
+
+    It 'installs a package not pinned to machine that winget already lists when its verify_path is missing' {
+        $global:UserCopy = $true
+        $global:InstallCreates = Join-Path $TestDrive 'Tor Browser Listed'
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'TorProject.TorBrowser' -Scope 'user' -VerifyPath $global:InstallCreates -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        @($global:WingetCalls) | Should -Be @('bounded list', 'bounded install user')
+    }
+
+    It 'fails a package whose verify_path is missing when winget answers that it is already installed' {
+        $global:MachineCopy = $true
+        $global:InstallAnswersAlreadyInstalled = $true
+        $missing = Join-Path $TestDrive 'KiCad/10.0/bin/kicad.exe'
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'KiCad.KiCad' -Scope 'machine' -InstallerType 'nullsoft' -VerifyPath $missing -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'failed'
+        $r.Detail | Should -BeLike "winget answered that KiCad.KiCad is already installed, and winget list --exact --id KiCad.KiCad lists it, but $missing does not exist, so KiCad.KiCad is not installed.*"
+    }
+
+    It 'still counts winget answering already installed as success for a mapping with no verify_path' {
+        $global:InstallAnswersAlreadyInstalled = $true
+        $r = Install-WingetPackage -WingetPath 'winget' -PackageId 'Git.Git' -Scope 'machine' -InstallerType 'inno' -Retries 0 -RetryPauseSeconds 0
+
+        $r.Status | Should -Be 'installed'
+        @($global:WingetCalls) | Should -Be @('bounded list machine', 'bounded list user', 'bounded install machine')
     }
 
     It 'reports a machine-wide copy as present and installs nothing' {
@@ -3327,7 +3848,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'maven' })))
 
         $code | Should -Be 0
-        @($global:ManualCalls) | Should -Be @('choco install maven -y --no-progress', 'wait 20', 'choco cache remove -y', 'choco install maven -y --no-progress', 'choco list --local-only --limit-output --exact maven')
+        @($global:ManualCalls) | Should -Be @('choco install maven -y --no-progress', 'wait 20', 'choco cache remove -y', 'choco install maven -y --no-progress', 'choco list --limit-output --exact maven')
     }
 
     It 'retries a Chocolatey package that exits 0 without being installed, and fails it when that never changes' {
@@ -3336,7 +3857,7 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $retried = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'hwinfo.install' })))
 
         $retried | Should -Be 0
-        @($global:ManualCalls) | Should -Be @('choco install hwinfo.install -y --no-progress', 'choco list --local-only --limit-output --exact hwinfo.install', 'wait 20', 'choco cache remove -y', 'choco install hwinfo.install -y --no-progress', 'choco list --local-only --limit-output --exact hwinfo.install')
+        @($global:ManualCalls) | Should -Be @('choco install hwinfo.install -y --no-progress', 'choco list --limit-output --exact hwinfo.install', 'wait 20', 'choco cache remove -y', 'choco install hwinfo.install -y --no-progress', 'choco list --limit-output --exact hwinfo.install')
 
         $global:ManualSilent = 99
         $never = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'choco'; Id = 'dart-sdk' })))
@@ -3358,6 +3879,26 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
 
         $missing | Should -Be 1
         @($global:ManualCalls | Where-Object { $_ -like 'winget install *Example.MachineWide*' }).Count | Should -Be 4
+    }
+
+    It 'fails a winget package with a VerifyPath that winget lists while the path never appears, as KiCad 10 beside the Chocolatey KiCad 9' {
+        $global:ManualSilent = 99
+        $global:ManualInstalled = @('KiCad.KiCad')
+
+        $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'KiCad.KiCad'; Scope = 'machine'; InstallerType = 'nullsoft'; VerifyPath = (Join-Path $TestDrive 'KiCad/10.0/bin/kicad.exe') })))
+
+        $code | Should -Be 1
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *KiCad.KiCad*' }).Count | Should -Be 4
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*KiCad/10.0/bin/kicad.exe does not exist, so KiCad.KiCad is not installed*' }
+    }
+
+    It 'fails a winget package with a VerifyPath when winget answers already installed and the path does not exist' {
+        function winget { $global:ManualCalls.Add("winget $($args -join ' ')"); $global:LASTEXITCODE = -1978335189 }
+
+        $code = & ([scriptblock]::Create((Get-InstallExpression @{ Manager = 'winget'; Id = 'KiCad.KiCad'; Scope = 'machine'; InstallerType = 'nullsoft'; VerifyPath = (Join-Path $TestDrive 'KiCad/10.0/bin/kicad.exe') })))
+
+        $code | Should -Be 1
+        @($global:ManualCalls | Where-Object { $_ -like 'winget install *' }).Count | Should -Be 4
     }
 
     It 'retries a winget package that exits 0 without being installed, and fails it when that never changes' {
@@ -3413,6 +3954,66 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
 
         $LASTEXITCODE | Should -Be 1 -Because "maven succeeds on its retry and gradle fails all four attempts: $($out -join ' ')"
         "$out" | Should -BeLike '*gradle failed all 4 attempts*'
+    }
+
+    Context 'a Chocolatey package with a Version, KiCad 9' {
+
+        # Chocolatey's answers for kicad alone: the version it holds, and the version its pin holds.
+        BeforeEach {
+            function choco {
+                $global:ManualCalls.Add("choco $($args -join ' ')")
+                $global:LASTEXITCODE = 0
+                if ($args[0] -eq 'list') { if ($global:ManualHeld) { return "kicad|$($global:ManualHeld)" }; return }
+                if ($args[0] -eq 'pin' -and $args[1] -eq 'list') { if ($global:ManualPin) { return @('Chocolatey v2.4.3', "kicad|$($global:ManualPin)") }; return }
+                if ($args[0] -eq 'pin') { $global:ManualPin = $args[3] -replace '^--version=', ''; return }
+                if ($args[0] -eq 'cache') { return }
+                $global:ManualHeld = $args[3]
+                if ($args -contains '--pin') { $global:ManualPin = $args[3] }
+            }
+            $global:ManualHeld = ''
+            $global:ManualPin = ''
+            $script:KiCad9 = @{ Manager = 'choco'; Id = 'kicad'; Version = '9.0.8'; VerifyPath = (New-Item -ItemType File -Path (Join-Path $TestDrive 'KiCad/9.0/bin/kicad.exe') -Force).FullName }
+        }
+
+        It 'installs the version with --version and --pin, then finds the pin and the path' {
+            $code = & ([scriptblock]::Create((Get-InstallExpression $script:KiCad9)))
+
+            $code | Should -Be 0
+            @($global:ManualCalls) | Should -Be @('choco list --limit-output --exact kicad'
+                                                  'choco install kicad --version 9.0.8 --pin -y --no-progress'
+                                                  'choco list --limit-output --exact kicad'
+                                                  'choco pin list --limit-output'
+                                                  'choco pin list --limit-output')
+        }
+
+        It 'pins a copy already at the version that lacks the pin, and installs nothing' {
+            $global:ManualHeld = '9.0.8'
+
+            $code = & ([scriptblock]::Create((Get-InstallExpression $script:KiCad9)))
+
+            $code | Should -Be 0
+            @($global:ManualCalls) | Should -Contain 'choco pin add --name=kicad --version=9.0.8'
+            @($global:ManualCalls | Where-Object { $_ -like 'choco install *' }).Count | Should -Be 0
+        }
+
+        It 'leaves another version as it is, installs and pins nothing, and fails' {
+            $global:ManualHeld = '9.0.7'
+
+            $code = & ([scriptblock]::Create((Get-InstallExpression $script:KiCad9)))
+
+            $code | Should -Be 1
+            @($global:ManualCalls) | Should -Be @('choco list --limit-output --exact kicad')
+            Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*Chocolatey holds another version of kicad, left as it is*choco pin remove --name=kicad*' }
+        }
+
+        It 'fails when the VerifyPath is missing after the install' {
+            $script:KiCad9.VerifyPath = Join-Path $TestDrive 'nowhere/kicad.exe'
+
+            $code = & ([scriptblock]::Create((Get-InstallExpression $script:KiCad9)))
+
+            $code | Should -Be 1
+            Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*kicad is installed, and *nowhere*kicad.exe does not exist. To install it again: choco install kicad --version 9.0.8 --force -y, then run this script again' }
+        }
     }
 
     It 'sends every install in the script through the retry' {

@@ -35,6 +35,7 @@ Git.Git machine,user inno
 GitHub.cli machine,none wix
 Google.AntigravityIDE user -
 JetBrains.Toolbox user -
+KiCad.KiCad machine,user nullsoft
 Microsoft.PowerToys machine,user burn
 Microsoft.VisualStudioCode machine,user inno
 Mirantis.Lens machine,user nullsoft

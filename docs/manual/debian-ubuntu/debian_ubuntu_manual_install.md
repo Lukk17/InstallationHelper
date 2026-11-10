@@ -272,6 +272,8 @@ sudo apt-get update
 | App | Install command |
 |---|---|
 | FreeCAD | `flatpak install -y flathub org.freecad.FreeCAD` |
+| KiCad 10 | `flatpak install -y flathub org.kicad.KiCad`, which pulls the symbol, footprint and 3D model libraries with it |
+| KiCad 9 | KiCad's AppImage, see [Manual install required](#manual-install-required) |
 | PrusaSlicer | `flatpak install -y flathub com.prusa3d.PrusaSlicer` |
 
 ## Utilities
@@ -514,6 +516,29 @@ These are **not** in `install.sh` — no package-manager path exists. Install by
   sudo mkdir -p /opt/gputest && sudo unzip -o /tmp/gputest.zip -d /opt/gputest
   ```
 
+- KiCad 9, beside KiCad 10: KiCad's own AppImage, pinned `9.0.9.1`, a 445.1 MB download, unpacked into `/opt/kicad9`. Its runtime mounts the AppImage with `fusermount3`, so install FUSE 3 first:
+
+  ```bash
+  sudo apt-get install -y fuse3
+  ```
+
+  On Debian 12 and on Ubuntu 22.04 and 24.04, installing `fuse3` replaces the older `fuse` package, and `libfuse2` stays installed. Ubuntu desktop ships `fuse3` already.
+
+  ```bash
+  kicad_tar="$(mktemp --suffix=.tar)" && curl -fsSLo "$kicad_tar" "https://downloads.kicad.org/kicad/linux/explore/stable/download/kicad-9.0.9.1-x86_64.AppImage.tar" && sudo mkdir -p /opt/kicad9 && sudo tar --no-same-owner -xf "$kicad_tar" -C /opt/kicad9 && sudo chmod 0755 /opt/kicad9/kicad-9.0.9.1-x86_64.AppImage && rm -f "$kicad_tar"
+  ```
+
+  The playbook writes a menu entry and an icon for each of the six tools, each named `kicad9-<tool>` so none replaces a KiCad 10 one. By hand, the KiCad 9 project manager is enough, because it opens the other tools itself:
+
+  ```bash
+  sudo curl -fsSLo /usr/local/share/icons/hicolor/scalable/apps/kicad9-kicad.svg --create-dirs "https://gitlab.com/kicad/code/kicad/-/raw/9.0.9/resources/linux/icons/hicolor/scalable/apps/kicad.svg"
+  ```
+
+  ```bash
+  printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=KiCad 9' 'GenericName=EDA Suite' 'Comment=Suite of tools for schematic design and circuit board layout' 'Exec=env APPIMAGELAUNCHER_DISABLE=1 /opt/kicad9/kicad-9.0.9.1-x86_64.AppImage kicad %f' 'Icon=kicad9-kicad' 'StartupWMClass=kicad' 'Terminal=false' 'Categories=Science;Electronics;' | sudo tee /usr/local/share/applications/kicad9-kicad.desktop >/dev/null
+  ```
+
+  `APPIMAGELAUNCHER_DISABLE=1` makes AppImageLauncher, which registers itself as the program that opens every AppImage, hand the file straight on instead of asking to integrate it. The entry names no file types, so a double-click on a KiCad file keeps opening KiCad 10, never KiCad 9, which cannot open a file KiCad 10 saved. KiCad 9 opens files from its own window.
 - **Ledger Live** — download the AppImage from [ledger.com/ledger-live](https://www.ledger.com/ledger-live).
 - Trezor Suite: download the AppImage from [trezor.io/trezor-suite](https://trezor.io/trezor-suite). The playbook installs the udev rules only, so the application itself is a manual download and carries no pinned version.
 - **VMware Workstation Player** — downloads now require a Broadcom Support Portal login. Use VirtualBox or QEMU/KVM instead.

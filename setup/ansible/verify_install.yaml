@@ -294,6 +294,9 @@
               else {})
              | combine({'snapd': 'snapd ships with Ubuntu, and the playbook neither installs nor removes it there'}
                        if ('snapd' in (ih_companion_keys_enabled | default([])) and (ih_snapd_with_system | default(false) | bool))
+                       else {})
+             | combine({'kicad9': 'KiCad builds its Linux AppImage for x86_64 only, and this machine is ' ~ ansible_facts['architecture']}
+                       if ('kicad9' in (ih_companion_keys_enabled | default([])) and not (kicad9_appimage_applies | bool))
                        else {}) }}
 
     - name: Name every package a role installs under an enabled toggle
@@ -727,6 +730,15 @@
              and ansible_facts['system'] == 'Linux'
              and os_dict.software_mapping.jetbrains_toolbox is not defined }}
 
+    # KiCad 9 is installed beside KiCad 10 from KiCad's own artefacts: the AppImage with its menu entries
+    # and icons on Linux, where kicad9_appimage_applies leaves out every processor but x86_64, and the KiCad
+    # folder of the disk image on macOS, whose stamp file holds the pinned version it was copied from. Both
+    # paths come from group_vars/all.yaml, which the role reads too.
+    - name: Decide whether KiCad 9 came from KiCad's AppImage or disk image on this machine
+      ansible.builtin.set_fact:
+        ih_kicad9_appimage_applies: "{{ (install_kicad9 | default(false) | bool) and (kicad9_appimage_applies | bool) }}"
+        ih_kicad9_disk_image_applies: "{{ (install_kicad9 | default(false) | bool) and ih_family == 'Darwin' }}"
+
     # One entry per tool this playbook installs outside a package manager. shell_bin is the name a
     # login shell is asked to resolve; left empty for the four pinned Java majors and the four pinned
     # Python builds, because only one of each is ever the active java or python on PATH at a time,
@@ -961,6 +973,21 @@
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ jetbrains_toolbox_binary }}" ]
+          - key: kicad9
+            toggle: ih_kicad9_appimage_applies
+            shell_bin: ""
+            how: "{{ kicad9_appimage }}, KiCad's AppImage, with a kicad9-<tool> menu entry in {{ kicad9_menu_dir }} and icon in {{ kicad9_icon_dir }} for {{ kicad9_launchers | map(attribute='tool') | join(', ') }}. A desktop application started from its menu entries, so no shell is asked to find it"
+            expected_path: ""
+            disk_cmd: >-
+              [ -x "{{ kicad9_appimage }}" ]{% for launcher in kicad9_launchers %}
+              && [ -f "{{ kicad9_menu_dir }}/kicad9-{{ launcher.tool }}.desktop" ]
+              && [ -f "{{ kicad9_icon_dir }}/kicad9-{{ launcher.tool }}.svg" ]{% endfor %}
+          - key: "kicad9 (macOS)"
+            toggle: ih_kicad9_disk_image_applies
+            shell_bin: ""
+            how: "{{ kicad9_macos_dir }}, the KiCad folder of KiCad's {{ kicad9_version }} disk image. A desktop application started from Finder, so no shell is asked to find it"
+            expected_path: ""
+            disk_cmd: "{{ kicad9_macos_current_test }}"
           - key: uvx
             toggle: ih_uv_installer_applies
             shell_bin: uvx

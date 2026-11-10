@@ -498,4 +498,16 @@ ai_tools_npm_packages() {
     done | sort -u
 }
 
+# kicad9_launcher_lines  ->  every entry line of kicad9_launchers in group_vars/all.yaml, as written
+kicad9_launcher_lines() {
+    tr -d '\r' <"${ANSIBLE_DIR}/group_vars/all.yaml" \
+        | awk '/^kicad9_launchers:/ { inside = 1; next } /^[^[:space:]#]/ { inside = 0 } inside && /^  - \{/'
+}
+
+# kicad9_launcher_tools  ->  the tool of every kicad9_launchers entry, one per line, and an empty line for
+#                            an entry that names none
+kicad9_launcher_tools() {
+    kicad9_launcher_lines | sed -E 's/.*[{,][[:space:]]*tool:[[:space:]]*"([^"]*)".*/\1/;t;s/.*//'
+}
+
 timestamp() { date -u +%Y-%m-%dT%H-%M-%SZ; }

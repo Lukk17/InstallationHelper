@@ -8,7 +8,7 @@ Run the commands from a normal PowerShell. A `--scope user` install goes into th
 
 ## Prerequisites
 
-Install Chocolatey (needed for Maven, Gradle, the Dart SDK, FileZilla, Razer Synapse, HWiNFO, GlassWire, the NVIDIA App and VMware) in an elevated PowerShell:
+Install Chocolatey (needed for Maven, Gradle, the Dart SDK, FileZilla, Razer Synapse, KiCad 9, HWiNFO, GlassWire, the NVIDIA App and VMware) in an elevated PowerShell:
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
@@ -139,7 +139,25 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManage
 | App | Install command |
 |---|---|
 | FreeCAD | `winget install -e --id FreeCAD.FreeCAD --scope machine` |
+| KiCad 9 | `choco install -y kicad --version 9.0.8 --pin`, in an elevated PowerShell |
+| KiCad 10 | `winget install -e --id KiCad.KiCad --scope machine` |
 | PrusaSlicer | `winget install -e --id Prusa3D.PrusaSlicer` |
+
+KiCad 9 and KiCad 10 install side by side, into `C:\Program Files\KiCad\9.0` and `C:\Program Files\KiCad\10.0`, each with its own entry in Installed apps. KiCad 9 comes from Chocolatey because winget gives both versions the one id `KiCad.KiCad`, and a winget pin on that id cannot hold KiCad 9 back without holding KiCad 10 back too. The `--pin` makes `choco upgrade all` skip KiCad 9. If Chocolatey already holds kicad at the version in the table above without a pin, add one in an elevated PowerShell:
+
+```powershell
+choco pin add --name=kicad --version=9.0.8
+```
+
+To remove KiCad 9, take the pin off first, then uninstall it, both in an elevated PowerShell:
+
+```powershell
+choco pin remove --name=kicad
+```
+
+```powershell
+choco uninstall -y kicad
+```
 
 ## Utilities
 

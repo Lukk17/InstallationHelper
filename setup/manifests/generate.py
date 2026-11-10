@@ -20,14 +20,17 @@ and e2e/tier1/pinned_values.sh fails the gate if a second parser appears.
 
 On pinning. Only two of the three formats can carry a version at all, and this repository pins a
 version for very few of the applications they cover, so the manifests deliberately do not pin. Three
-reasons, in order of weight. The playbook does not pin either: the Windows installer runs
-`winget install --exact --id <id>` with no version argument, so pinning here would be new behaviour
-rather than a translation of existing behaviour. A version that does not exist in the target feed is
-a hard failure rather than a fallback, and two of the pins that would apply are in the wrong shape
-for their feed already, `v1.38.1` for minikube and a Python patch release that the winget package's
-own versioning does not follow. And Homebrew has said it will never support pinning, so a Brewfile
-could not agree with the other two anyway. If pinning is wanted later, it needs a check that each
-version really exists in the feed, which is a network call this generator does not make.
+reasons, in order of weight. The playbook pins almost nothing either: the Windows installer runs
+`winget install --exact --id <id>` with no version argument, and `choco install <id>` with none for
+every Chocolatey mapping that names no version, so pinning those here would be new behaviour rather
+than a translation of existing behaviour. A Chocolatey mapping that does name one, KiCad 9, carries
+it into packages.config, whose header names the `choco pin add` it needs afterwards. A version that
+does not exist in the target feed is a hard failure rather than a fallback, and two of the pins that
+would apply are in the wrong shape for their feed already, `v1.38.1` for minikube and a Python patch
+release that the winget package's own versioning does not follow. And Homebrew has said it will never
+support pinning, so a Brewfile could not agree with the other two anyway. If pinning is wanted later,
+it needs a check that each version really exists in the feed, which is a network call this generator
+does not make.
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ MAPPING = re.compile(
     re.MULTILINE,
 )
 SOURCE = re.compile(r'source:\s*"([^"]*)"')
+VERSION = re.compile(r'(?:^|,)\s*version:\s*"([^"]*)"')
 ARCHITECTURE = re.compile(r'requires_architecture:\s*"([^"]*)"')
 
 # Homebrew's own test for each processor architecture a mapping can be bound to, in the spelling
@@ -80,6 +84,7 @@ def mappings(family: str) -> list[dict[str, str]]:
     for match in MAPPING.finditer(text):
         source = SOURCE.search(match.group("rest") or "")
         architecture = ARCHITECTURE.search(match.group("rest") or "")
+        version = VERSION.search(match.group("rest") or "")
         entries.append(
             {
                 "key": match.group("key"),
@@ -87,6 +92,7 @@ def mappings(family: str) -> list[dict[str, str]]:
                 "package": match.group("package"),
                 "source": source.group(1) if source else "",
                 "architecture": architecture.group(1) if architecture else "",
+                "version": version.group(1) if version else "",
             }
         )
     return entries
@@ -163,12 +169,31 @@ def packages_config() -> str:
         "",
         "      choco install setup\\manifests\\packages.config -y --no-progress",
         "",
-        "  No version attribute is emitted, because the playbook does not pin one either. See the",
-        "  note at the top of the generator for why.",
+    ]
+    versioned = [entry for entry in chosen if entry["version"]]
+    if not versioned:
+        lines += [
+            "  No version attribute is emitted, because the playbook does not pin one either. See the",
+            "  note at the top of the generator for why.",
+        ]
+    else:
+        lines += [
+            "  A version attribute is emitted only for a mapping that names one. See the note at the",
+            "  top of the generator.",
+            "",
+            "  The wizard holds each of those at its version with Chocolatey's own pin. This file",
+            "  carries no pin, so add each one after the install, from the same shell:",
+            "",
+        ]
+        lines += [f"      choco pin add --name={entry['package']} --version={entry['version']}" for entry in versioned]
+    lines += [
         "-->",
         "<packages>",
     ]
-    lines += [f'  <package id="{entry["package"]}" />' for entry in chosen]
+    lines += [
+        f'  <package id="{entry["package"]}" version="{entry["version"]}" />' if entry["version"] else f'  <package id="{entry["package"]}" />'
+        for entry in chosen
+    ]
     lines.append("</packages>")
     return "\n".join(lines) + "\n"
 

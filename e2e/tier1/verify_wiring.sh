@@ -220,9 +220,10 @@ fi
 # asked and found everything. So the four questions are asserted by name: winget through the shared
 # read in WindowsSoftware.ps1, Chocolatey through the shared local-package reader, npm through its
 # own global list, and the disk through the proof paths the custom installs have to leave behind.
+verify_code="$(tr -d '\r' <"${VERIFY_PS1}" | awk '/^[[:space:]]*<#/ { in_help = 1 } !in_help && !/^[[:space:]]*#/ { print } /#>[[:space:]]*$/ { in_help = 0 }')"
 missing_reads=()
-for probe in 'Test-WingetPackageInstalled' 'Get-ChocolateyInstalledPackage' 'npm ls -g' 'Test-Path'; do
-    grep -qF "${probe}" "${VERIFY_PS1}" || missing_reads+=("${probe}")
+for probe in 'Get-WingetInstallVerdict' 'Get-ChocolateyInstalledPackage' 'npm ls -g' 'Test-Path'; do
+    grep -qF "${probe}" <<<"${verify_code}" || missing_reads+=("${probe}")
 done
 
 if [[ ${#missing_reads[@]} -eq 0 ]]; then

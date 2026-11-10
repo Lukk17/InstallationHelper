@@ -88,6 +88,9 @@ software_mapping:
 
   # CAD / 3D
   freecad: { manager: "flatpak", package: "org.freecad.FreeCAD" }
+  # KiCad 10 from extra, with its libraries as the kicad10 entry of companion_packages below. KiCad 9 is the AppImage
+  # custom_installs.yaml installs.
+  kicad10: { manager: "pacman", package: "kicad" }
   prusaslicer: { manager: "flatpak", package: "com.prusa3d.PrusaSlicer" }
 
   # Utilities
@@ -144,6 +147,8 @@ software_mapping:
 # verification alike. CachyOS reads this list too, tasks/load_os_dict.yaml merges only software_mapping.
 companion_packages:
   virt_manager: ["qemu-full", "libvirt", "dnsmasq", "nftables", "virtiofsd"]
+  kicad9: ["fuse3"]   # fusermount3, which the KiCad 9 AppImage's runtime mounts its payload with, installed by software_installer/tasks/custom_installs.yaml
+  kicad10: ["kicad-library", "kicad-library-3d"]   # the symbols, footprints and 3D models the kicad package only suggests, installed by software_installer/tasks/custom_installs.yaml
   docker: ["docker", "docker-buildx", "docker-compose", "iptables"]   # the engine and its plugins, installed by virtualization_config, which explains iptables
   waydroid: ["waydroid"]   # from extra, installed by the waydroid role
   snapper: ["snapper"]   # installed by the snapper role on a btrfs root only, which setup/ansible/tasks/snapper_applicability.yaml decides

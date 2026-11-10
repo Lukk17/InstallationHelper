@@ -17,6 +17,7 @@ AUR_PACKAGES="google-chrome brave-bin lens-bin jetbrains-toolbox visual-studio-c
 SKIPPED=(
   "AUR packages (need yay/paru): $AUR_PACKAGES"
   "Gridcoin (Flatpak bundle from GitHub releases)"
+  "KiCad 9 (AppImage from downloads.kicad.org -> /opt/kicad9, with fuse3)"
   "Ledger Live (AppImage)"
   "Trezor Suite (AppImage)"
 )
@@ -65,7 +66,7 @@ PACMAN_PACKAGES=(
   speedtest-cli boinc lynis clamav hardinfo2 lm_sensors baobab gparted
   partitionmanager virt-manager qemu-full libvirt dnsmasq nftables
   virtiofsd docker docker-buildx docker-compose iptables zsh syncthing tailscale
-  openrazer-daemon
+  openrazer-daemon kicad kicad-library kicad-library-3d
 )
 
 # The gaming suite: Lutris on Arch, the CachyOS gaming metapackage on CachyOS, as

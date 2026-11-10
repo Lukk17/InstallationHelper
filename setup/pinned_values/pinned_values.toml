@@ -86,6 +86,19 @@ opencode_desktop_base = "https://opencode.ai/files/bin/{{ opencode_desktop_versi
 opencode_desktop_url = "{{ opencode_desktop_base }}/opencode-desktop-linux-amd64.deb"
 opencode_desktop_rpm_url = "{{ opencode_desktop_base }}/opencode-desktop-linux-x86_64.rpm"
 opencode_desktop_win_installer_url = "{{ opencode_desktop_base }}/opencode-desktop-win-x64.exe"
+# KiCad 9, installed beside the KiCad 10 the package managers carry. Linux takes KiCad's own AppImage, the Full
+# build, served as a tar with the AppImage at its root. kicad9_appimage_version is the release with the rebuild number
+# of its AppImage after it, the fourth version component. The icons come from the KiCad source at the release tag,
+# and macOS takes the unified universal disk image of the same release. Windows takes the Chocolatey package kicad at
+# the version vars/Windows.yaml names. Verify the newest 9
+# at https://downloads.kicad.org/kicad/linux/explore/stable and https://downloads.kicad.org/kicad/macos/explore/stable,
+# and the tag at https://gitlab.com/kicad/code/kicad/-/tags.
+kicad9_version = "9.0.9"
+kicad9_appimage_version = "{{ kicad9_version }}.1"
+kicad9_appimage_file = "kicad-{{ kicad9_appimage_version }}-x86_64.AppImage"
+kicad9_appimage_url = "https://downloads.kicad.org/kicad/linux/explore/stable/download/{{ kicad9_appimage_file }}.tar"
+kicad9_icon_base = "https://gitlab.com/kicad/code/kicad/-/raw/{{ kicad9_version }}/resources/linux/icons/hicolor/scalable/apps"
+kicad9_macos_dmg_url = "https://downloads.kicad.org/kicad/macos/explore/stable/download/kicad-unified-universal-{{ kicad9_version }}.dmg"
 # Minikube versions are real semver tags (e.g. v1.38.1); 'latest' is a redirect
 # alias and not a real release filename. Pin a real release. Verify latest via
 # https://github.com/kubernetes/minikube/releases/latest.
@@ -231,6 +244,8 @@ gate_ansible_lint_version = "26.10.1"
 # gridcoin_flatpak = "sha256:..."
 # gridcoin_macos = "sha256:..."
 # gputest = "sha256:..."
+# kicad9_appimage = "sha256:..."
+# kicad9_macos = "sha256:..."
 # razer_synapse_macos = "sha256:..."
 # appimagelauncher_rpm = "sha256:..."
 # minikube_deb = "sha256:..."

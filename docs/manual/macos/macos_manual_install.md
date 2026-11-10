@@ -2,7 +2,7 @@
 
 Install commands for every app the playbook manages on macOS, via Homebrew. To install the whole `brew` set at once, run [`install.sh`](install.sh). It installs one package per `brew` call, so a name that fails costs only that package. A package that fails is tried again after twenty seconds and a `brew update`, four attempts in all, and it lists every package that failed at the end and exits 1.
 
-> `brew install` = CLI formulae; `brew install --cask` = GUI apps. The one direct DMG install, Gridcoin, is in [Manual install required](#manual-install-required).
+> `brew install` = CLI formulae; `brew install --cask` = GUI apps. The two direct DMG installs, Gridcoin and KiCad 9, are in [Manual install required](#manual-install-required).
 
 ## Prerequisites
 
@@ -107,6 +107,8 @@ Install Homebrew if you don't have it:
 | App | Install command |
 |---|---|
 | FreeCAD | `brew install --cask freecad` |
+| KiCad 10 | `brew install --cask kicad` |
+| KiCad 9 | KiCad's disk image, see [Manual install required](#manual-install-required) |
 | PrusaSlicer | `brew install --cask prusaslicer` |
 
 ## Utilities
@@ -228,10 +230,22 @@ git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-
 
 ## Manual install required
 
-This is **not** in `install.sh`, because the playbook installs it from a direct DMG. Install it by hand:
+These are **not** in `install.sh`, because the playbook installs them from a direct DMG. Install them by hand:
 
 - **Gridcoin** (pinned `5.5.0.0`) — download the DMG and drag the app to `/Applications`:
 
   ```bash
   curl -fsSLo /tmp/gridcoin.dmg https://github.com/gridcoin-community/Gridcoin-Research/releases/download/5.5.0.0/gridcoin-5.5.0.0-macos-x86_64.dmg
   ```
+
+- KiCad 9, beside the KiCad 10 cask: KiCad's unified universal disk image, pinned `9.0.9`, 1.3 GB. Its KiCad folder goes to `/Applications/KiCad 9`, apart from the cask's `/Applications/KiCad`, and replaces the whole folder an earlier copy left there, as the playbook does:
+
+  ```bash
+  curl -fsSLo /tmp/kicad9.dmg https://downloads.kicad.org/kicad/macos/explore/stable/download/kicad-unified-universal-9.0.9.dmg
+  ```
+
+  ```bash
+  kicad_volume="$(hdiutil attach -nobrowse -readonly -noautoopen /tmp/kicad9.dmg | awk -F '\t' '/\/Volumes\// && !done {print $NF; done = 1}')" && sudo rm -rf "/Applications/KiCad 9" && sudo ditto "$kicad_volume/KiCad" "/Applications/KiCad 9" && hdiutil detach -quiet "$kicad_volume" && rm -f /tmp/kicad9.dmg
+  ```
+
+  KiCad 9 and KiCad 10 keep their settings in folders of their own version, but both read and write the same parent folders, so `brew uninstall --zap kicad` deletes the settings of KiCad 9 as well. Uninstall the cask without `--zap` to keep them.

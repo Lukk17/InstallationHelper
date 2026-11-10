@@ -3,7 +3,7 @@
 # Every application the playbook would install on macOS with the toggles as they ship,
 # expressed as a Brewfile so a Mac can be brought up with Homebrew alone.
 #
-# 19 formulae and 53 casks. Install with:
+# 19 formulae and 54 casks. Install with:
 #
 #     brew bundle install --file setup/manifests/Brewfile
 #
@@ -62,6 +62,7 @@ cask "grandperspective"
 cask "handbrake-app"
 cask "jetbrains-toolbox"
 cask "keepassxc"
+cask "kicad"
 cask "krita"
 cask "lens"
 cask "lm-studio" if Hardware::CPU.arm?

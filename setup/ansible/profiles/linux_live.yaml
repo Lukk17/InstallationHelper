@@ -57,6 +57,8 @@ install_curseforge: false
 
 # ---- CAD / 3D (all off) ----
 install_freecad: false
+install_kicad9: false
+install_kicad10: false
 install_prusaslicer: false
 
 # ---- Utilities ----

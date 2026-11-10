@@ -201,3 +201,108 @@
         path: "{{ software_installer_stage_dir }}/gridcoin.dmg"
         state: absent
       become: true
+
+# --- KiCad 9 beside KiCad 10 ---
+# KiCad's own unified universal disk image. Its KiCad folder, KiCad.app, the other tools and the
+# libraries, is copied with ditto to the folder group_vars/all.yaml names, apart from the cask's
+# /Applications/KiCad, with the volume mounted read-only. A stamp file in that folder holds the pinned
+# version it was copied from. The test is kicad9_macos_current_test in group_vars/all.yaml, the one
+# verify_install.yaml asks after the run.
+- name: Install KiCad 9 from KiCad's disk image
+  when: install_kicad9 | default(false) | bool
+  block:
+    - name: Ask whether the KiCad 9 folder holds KiCad.app at the pinned version
+      ansible.builtin.shell: "{{ kicad9_macos_current_test }}"
+      args:
+        executable: /bin/bash
+      register: kicad9_macos_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Decide whether the KiCad 9 folder is at the pinned version
+      ansible.builtin.set_fact:
+        kicad9_macos_current: "{{ kicad9_macos_installed.rc == 0 }}"
+
+    - name: Download the KiCad 9 disk image
+      ansible.builtin.get_url:
+        url: "{{ kicad9_macos_dmg_url }}"
+        dest: "{{ software_installer_stage_dir }}/kicad9.dmg"
+        force: true
+        mode: '0600'
+        checksum: "{{ download_checksums.kicad9_macos | default(omit) }}"
+        timeout: 300
+      become: true
+      register: kicad9_macos_download
+      retries: 3
+      delay: 10
+      until: kicad9_macos_download is succeeded
+      when: not (kicad9_macos_current | bool)
+
+    - name: Mount the KiCad 9 disk image read-only and capture the mount point
+      ansible.builtin.shell: |
+        set -e -o pipefail
+        hdiutil attach -nobrowse -readonly -noautoopen {{ (software_installer_stage_dir ~ '/kicad9.dmg') | quote }} \
+          | awk -F '\t' '/\/Volumes\// && !done {print $NF; done = 1}'
+      args:
+        executable: /bin/bash
+      become: true
+      register: kicad9_macos_mount
+      changed_when: true
+      when: not (kicad9_macos_current | bool)
+
+    - name: Fail when the KiCad 9 disk image mounted nowhere
+      ansible.builtin.fail:
+        msg: hdiutil attach printed no /Volumes mount point for the KiCad 9 disk image, so there is no KiCad folder to copy.
+      when:
+        - not (kicad9_macos_current | bool)
+        - kicad9_macos_mount.stdout | default('') | trim | length == 0
+
+    - name: Remove a KiCad 9 folder of another version or without KiCad.app
+      ansible.builtin.file:
+        path: "{{ kicad9_macos_dir }}"
+        state: absent
+      become: true
+      when: not (kicad9_macos_current | bool)
+
+    - name: Copy the KiCad folder of the disk image to the KiCad 9 folder
+      ansible.builtin.command: ditto {{ (kicad9_macos_mount.stdout ~ '/KiCad') | quote }} {{ kicad9_macos_dir | quote }}
+      become: true
+      changed_when: true
+      when: not (kicad9_macos_current | bool)
+
+    - name: Record the version the KiCad 9 folder was copied from
+      ansible.builtin.copy:
+        content: "{{ kicad9_version }}\n"
+        dest: "{{ kicad9_macos_stamp }}"
+        mode: '0644'
+      become: true
+      when: not (kicad9_macos_current | bool)
+  rescue:
+    - name: Record that KiCad 9 could not be installed
+      ansible.builtin.set_fact:
+        any_role_failed: true
+        not_installed_with_reason: >-
+          {{ (not_installed_with_reason | default([]))
+             + ['kicad9 (' ~ (ansible_failed_task.name | default('a step')) ~ ' failed)'] }}
+
+    - name: Name the KiCad 9 step that failed
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Step '{{ ansible_failed_task.name | default('unknown') }}' failed with:
+          {{ ansible_failed_result.msg | default('no message given') }}
+          KiCad 9 is NOT installed. Every other install continues, and the run is marked failed.
+  always:
+    - name: Detach the KiCad 9 disk image
+      ansible.builtin.command: hdiutil detach -quiet {{ kicad9_macos_mount.stdout | quote }}
+      become: true
+      changed_when: true
+      failed_when: false
+      when:
+        - kicad9_macos_mount is defined
+        - kicad9_macos_mount.stdout | default('') | length > 0
+
+    - name: Remove the staged KiCad 9 disk image
+      ansible.builtin.file:
+        path: "{{ software_installer_stage_dir }}/kicad9.dmg"
+        state: absent
+      become: true

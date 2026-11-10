@@ -15,7 +15,7 @@
 # the shell is already elevated. No flag suppresses that dialog, so an already-elevated
 # session is the only unattended route.
 #
-# 74 packages from the winget community repository and 7 from the
+# 75 packages from the winget community repository and 7 from the
 # Microsoft Store. The Store entries are product identifiers rather than manifests, they need
 # the Store present and its agreement accepted, and they are the least portable thing here.
 #
@@ -311,6 +311,14 @@ properties:
         allowPrerelease: false
       settings:
         id: KeePassXCTeam.KeePassXC
+        source: winget
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      id: kicad10
+      directives:
+        description: Install kicad10 (KiCad.KiCad)
+        allowPrerelease: false
+      settings:
+        id: KiCad.KiCad
         source: winget
     - resource: Microsoft.WinGet.DSC/WinGetPackage
       id: krita

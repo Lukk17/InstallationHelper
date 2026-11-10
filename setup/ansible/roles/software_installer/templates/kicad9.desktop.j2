@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name={{ item.name }}
+GenericName={{ item.generic_name }}
+Comment={{ item.comment }}
+Exec=env APPIMAGELAUNCHER_DISABLE=1 {{ kicad9_appimage }} {{ item.arguments }}
+Icon=kicad9-{{ item.tool }}
+StartupWMClass={{ item.wm_class }}
+Terminal=false
+Categories=Science;Electronics;

@@ -21,7 +21,7 @@ Each OS folder has two files:
 
 **The scripts do NOT install** (each is listed in its page's *Manual install required* section, with commands):
 
-- Binary blobs with no package-manager path: Antigravity (Linux tarball), Gridcoin, GpuTest, OpenLens, JetBrains Toolbox on Debian, Ubuntu and Fedora, Ledger Live / Trezor Suite AppImages.
+- Binary blobs with no package-manager path: Antigravity (Linux tarball), Gridcoin, GpuTest, OpenLens, JetBrains Toolbox on Debian, Ubuntu and Fedora, Ledger Live / Trezor Suite AppImages, KiCad 9 (KiCad's AppImage on Linux, its disk image on macOS).
 - **Arch AUR packages** — they need an AUR helper (`yay` / `paru`); the page lists the exact `yay -S` commands and a one-time `yay` bootstrap.
 - **SDK / runtime managers** (NVM, SDKMAN, Pyenv, FVM, Android SDK), **AI tools** (Claude Code, OpenCode, OpenSpec, LM Studio on Linux, SD WebUI), and **shell setup** (zsh, Oh My Zsh, Powerlevel10k). These install via `curl | bash` into your shell rc and have ordering/sourcing dependencies, so each page documents them with exact commands to run by hand, in order.
 

@@ -83,6 +83,7 @@ software_mapping:
 
   # CAD / 3D
   freecad: { manager: "brew_cask", package: "freecad" }
+  kicad10: { manager: "brew_cask", package: "kicad" }   # KiCad 9 is the vendor disk image macos_install.yaml copies to /Applications/KiCad 9
   prusaslicer: { manager: "brew_cask", package: "prusaslicer" }
 
   # Utilities

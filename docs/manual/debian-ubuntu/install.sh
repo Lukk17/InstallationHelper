@@ -17,6 +17,7 @@ SKIPPED=(
   "Antigravity (Linux tarball -> /opt/antigravity)"
   "Gridcoin (Flatpak bundle from GitHub releases)"
   "GpuTest (zip from ozone3d.net -> /opt/gputest)"
+  "KiCad 9 (AppImage from downloads.kicad.org -> /opt/kicad9, with fuse3)"
   "Ledger Live (AppImage)"
   "Trezor Suite (AppImage)"
   "VMware Workstation Player (Broadcom login required)"
@@ -104,7 +105,7 @@ FLATPAK_APPS=(
   com.discordapp.Discord com.slack.Slack org.telegram.desktop org.signal.Signal us.zoom.Zoom
   md.obsidian.Obsidian com.bitwarden.desktop org.onlyoffice.desktopeditors
   com.spotify.Client org.gimp.GIMP org.kde.krita fr.handbrake.ghb
-  org.audacityteam.Audacity com.valvesoftware.Steam org.freecad.FreeCAD
+  org.audacityteam.Audacity com.valvesoftware.Steam org.freecad.FreeCAD org.kicad.KiCad
   com.prusa3d.PrusaSlicer com.leinardi.gwe app.polychromatic.controller
   net.lutris.Lutris com.overwolf.curseforge io.podman_desktop.PodmanDesktop
 )
