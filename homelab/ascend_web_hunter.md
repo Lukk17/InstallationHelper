@@ -17,8 +17,8 @@ The deployment files live in [ascend-web-hunter_deploy/](ascend-web-hunter_deplo
 ### Before the first start
 
 1. The homelab stack in [compose.yaml](compose.yaml) must be up, because it creates the `proxy-tier` network and runs the Redis this stack uses.
-2. The image `lukk17/ascend-ai-ascend-web-hunter:latest` must exist in the registry. On 2026-10-24 Docker Hub listed no tag for it at all, so `docker compose up -d` could not pull it. The check is in the [Prerequisites](ascend-web-hunter_deploy/README.md#prerequisites) of the deploy README.
-3. The three secrets must be in `.env`, covered below.
+2. The image `lukk17/ascend-ai-ascend-web-hunter:v0.0.15` must exist in the registry. The AscendAI release workflow published it on 2026-11-09. The check is in the [Prerequisites](ascend-web-hunter_deploy/README.md#prerequisites) of the deploy README.
+3. The secrets must be in `.env`, covered below.
 
 Only if the earlier AscendWebSearch stack ever ran on this VM: stop it before starting this one. Both stacks use the project name `ascend-scrapper` and the container name `searxng`, and a git pull removes the old compose file, so stop it by its project name:
 
@@ -58,9 +58,9 @@ AscendAI's bundle has a fourth container, its own Redis. This copy leaves it out
 
 ### Image tags, and why a restart is not an upgrade
 
-`ascend-web-hunter` is the one image in this homelab published from this account, so its `image:` line follows the `latest` tag instead of naming a version. The deployment therefore always points at the newest build of that service, and the drift that a floating tag brings is accepted here because the same person decides what goes into the tag. The other two containers in the stack are somebody else's builds and stay pinned to exact versions.
+`ascend-web-hunter` runs the release tag `v0.0.15`, the same tag the AscendAI bundle pins, so the deployment changes only when somebody edits the `image:` line. The other two containers in the stack are somebody else's builds and stay pinned to a tag plus its `sha256` digest.
 
-What this does not give you is an upgrade that happens by itself. `restart: unless-stopped` brings the container back from the image already on the host, and a plain `docker compose up -d` pulls only when nothing local carries that tag, so a newer published build sits in the registry unnoticed until something fetches it. Getting onto it takes an explicit pull and then a recreate, and both are one command each in [ascend-web-hunter_deploy/README.md](ascend-web-hunter_deploy/README.md#upgrading), which also covers going back to an older build when a new one misbehaves.
+`restart: unless-stopped` brings the container back from the image already on the host, so a newer release never arrives on its own. Moving to it means putting its tag on the `image:` line, then an explicit pull and a recreate, each one command in [ascend-web-hunter_deploy/README.md](ascend-web-hunter_deploy/README.md#upgrading), which also covers going back to an older build when a new one misbehaves.
 
 ---
 
@@ -88,7 +88,7 @@ The Model Context Protocol endpoint, `/mcp`, checks the Host header of every req
 
 ### Redis
 
-ascend-web-hunter needs Redis to remember authentication cookies and Cloudflare clearance tokens between requests. Without it every request starts a cold session and the readiness check below reports it as degraded.
+ascend-web-hunter needs Redis to remember authentication cookies and Cloudflare clearance tokens between requests. Without it every request starts a cold session and the readiness check below answers `not-ready` with the `redis` check reading `error`.
 
 This homelab's [compose.yaml](compose.yaml) runs Redis as one of its own services, the container `redis`, published on the host at `6379:6379` with no password and no data volume. The tradeoff was made deliberately and is not repeated as a warning here beyond this one sentence: an unauthenticated Redis published on 6379 is reachable from every device on the local network, and with no volume its contents are lost on every restart. For ascend-web-hunter that loss is cheap, cookies and clearance tokens are the kind of thing that is fine to make again.
 
@@ -102,13 +102,13 @@ Now that both stacks share `proxy-tier`, `redis://redis:6379/0` would also work,
 
 ### The three secrets
 
-Everything sensitive lives in `.env` inside [ascend-web-hunter_deploy/](ascend-web-hunter_deploy/), written before the first start with the commands in the [Quick start](ascend-web-hunter_deploy/README.md#quick-start) of its README. Compose refuses to start and names the missing variable if any of the three is blank.
+Everything sensitive lives in `.env` inside [ascend-web-hunter_deploy/](ascend-web-hunter_deploy/), written before the first start with the commands in the [Quick start](ascend-web-hunter_deploy/README.md#quick-start) of its README. `SEARXNG_SECRET` and `NGROK_AUTHTOKEN` are required, and Compose refuses to start and names the missing variable if either is blank. `VNC_PASSWORD` is optional.
 
 | Variable | Real constraint |
 |---|---|
-| `SEARXNG_SECRET` | At least 32 characters, unique to this deployment, and never the literal string `ultrasecretkey`, which SearXNG rejects outright. Nobody types this by hand, so there is no reason to make it short. |
-| `VNC_PASSWORD` | Virtual Network Computing, the protocol behind the remote desktop below, truncates any password at 8 characters. A longer value is not rejected, it is silently cut, and the extra characters do nothing. Treat it as an 8 character password even if you type more. |
-| `NGROK_AUTHTOKEN` | The account token from [the ngrok dashboard](https://dashboard.ngrok.com/get-started/your-authtoken). Authenticates the tunnel container to your ngrok account, it does not by itself protect anything the tunnel exposes. |
+| `SEARXNG_SECRET` | Required. At least 32 characters, unique to this deployment, and never the literal string `ultrasecretkey`, which SearXNG rejects outright. Nobody types this by hand, so there is no reason to make it short. |
+| `VNC_PASSWORD` | Optional. Empty means the remote desktop below accepts any client, and the container logs a warning at boot. When set, Virtual Network Computing, the protocol behind that desktop, truncates it at 8 characters. A longer value is not rejected, it is silently cut, and the extra characters do nothing. Treat it as an 8 character password even if you type more. |
+| `NGROK_AUTHTOKEN` | Required. The account token from [the ngrok dashboard](https://dashboard.ngrok.com/get-started/your-authtoken). Authenticates the tunnel container to your ngrok account, it does not by itself protect anything the tunnel exposes. |
 
 ---
 
@@ -156,9 +156,9 @@ curl -s http://ascend-web-hunter.internal/ready
 
 The stack keeps an ngrok tunnel running by design, and this section documents what that means rather than arguing for turning it off.
 
-When the scraping chain hits a challenge it cannot clear itself, it hands control to a real Chrome browser running inside the container, and `ngrok-ascend-web-hunter` publishes that browser's remote desktop to a public ngrok address for as long as the container runs. Reaching that address opens a working browser session inside the container, driven exactly like a browser on your own machine, protected by nothing except the `VNC_PASSWORD` from `.env`, which is at most 8 characters because the protocol truncates it there. Anyone who guesses or brute forces that password gets a real browser they can drive, not just a view of one.
+When the scraping chain hits a challenge it cannot clear itself, it hands control to a real Chrome browser running inside the container, and `ngrok-ascend-web-hunter` publishes that browser's remote desktop to a public ngrok address for as long as the container runs. Reaching that address opens a working browser session inside the container, driven exactly like a browser on your own machine, protected by nothing except the `VNC_PASSWORD` from `.env`, which is at most 8 characters because the protocol truncates it there. With `VNC_PASSWORD` empty there is no barrier at all: anyone who reaches the address controls the browser, including any login a human is part way through. With a password, anyone who guesses or brute forces it gets a real browser they can drive, not just a view of one.
 
-That password is the entire barrier. It is not a login form with rate limiting, it is a fixed length password on a protocol that was never designed with the public internet in mind. The tradeoff was made deliberately in exchange for being able to solve a CAPTCHA, a challenge test a website presents to tell a human apart from a bot, by hand from anywhere without opening a port on the router.
+That password, when set, is the entire barrier. It is not a login form with rate limiting, it is a fixed length password on a protocol that was never designed with the public internet in mind. The tradeoff was made deliberately in exchange for being able to solve a CAPTCHA, a challenge test a website presents to tell a human apart from a bot, by hand from anywhere without opening a port on the router.
 
 ---
 

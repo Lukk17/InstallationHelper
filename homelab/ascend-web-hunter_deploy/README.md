@@ -1,6 +1,6 @@
 # ascend-web-hunter standalone deployment
 
-Everything needed to run the web search and scraping stack on its own host, without the rest of the AscendAI platform. Copy this directory to the target machine, fill in three secrets, and start it.
+Everything needed to run the web search and scraping stack on its own host, without the rest of the AscendAI platform. Copy this directory to the target machine, fill in its secrets, and start it.
 
 ---
 
@@ -10,7 +10,7 @@ The [AscendAI](https://github.com/Lukk17/AscendAI) repository runs this stack as
 
 This directory is the deployment counterpart, copied from `apps/ascend-web-hunter/deploy-standalone/` in AscendAI and changed for this homelab. It pulls a published image instead of building, drops everything that depends on services which are not here, and is written for Docker Engine on Linux. Every change against the AscendAI copy is listed under [Differences from the AscendAI bundle](#differences-from-the-ascendai-bundle).
 
-The copy was taken on 2026-10-24 from the owner's local AscendAI branch `feature/all-openspec-groups` at commit `aa82a35`, which had removed the FlareSolverr container. On that date the `master` branch on GitHub still shipped FlareSolverr, so the bundle on GitHub can differ from this one until that branch is merged.
+The copy was first taken on 2026-10-24 from AscendAI commit `aa82a35`, and brought in line on 2026-11-10 with commit `5dee225` of the AscendAI branch `feature/all-openspec-groups`, which runs the image release `v0.0.15`. On that date the branch was on GitHub but not merged into `master`, so the bundle on `master` can differ from this one until it is.
 
 Three containers run:
 
@@ -31,13 +31,13 @@ The Compose project name is `ascend-scrapper`, the same name AscendAI still give
 | Docker Engine | 20.10 or newer, with the Compose plugin |
 | Redis | Reachable at port 6379 on the Docker host. Not part of this stack. |
 | The `proxy-tier` network | Created by the homelab [compose.yaml](../compose.yaml), so that stack must be up first |
-| The published image | `lukk17/ascend-ai-ascend-web-hunter:latest` must exist in the registry, see the check below |
+| The published image | `lukk17/ascend-ai-ascend-web-hunter:v0.0.15` must exist in the registry, see the check below |
 | Free RAM | Roughly 3.0 GB free, on top of whatever the host already uses. See [Resource footprint](#resource-footprint) |
 | CPU | 2 cores is enough. CPU contention costs scraping speed, not stability. |
-| Free port | 7021 on the host. Nothing else is published. |
+| Free port | 7021 on the host. Nothing else is published. The service has no login, so keep port 7021 reachable only from trusted devices. |
 | Ngrok account | Free tier, for the CAPTCHA intervention tunnel |
 
-Redis holds authentication cookies and Cloudflare clearance tokens between requests, so that a challenge solved once keeps working afterwards. Without it the service still runs, but every request starts from a cold session and `/ready` reports degraded.
+Redis holds authentication cookies and Cloudflare clearance tokens between requests, so that a challenge solved once keeps working afterwards. Without it the service still runs, but every request starts from a cold session and `/ready` answers `not-ready` with the `redis` check reading `error`.
 
 The AscendAI bundle runs its own Redis container named `redis`. This copy does not, because the homelab [compose.yaml](../compose.yaml) already runs a container with that name and Docker allows one container per name on a host, so the bundled one would refuse to start. Where Redis lives decides what `REDIS_URL` must be. The compose file defaults to the first option below.
 
@@ -61,7 +61,7 @@ PowerShell:
 curl.exe -s https://hub.docker.com/v2/repositories/lukk17/ascend-ai-ascend-web-hunter/tags
 ```
 
-The answer must list a tag named `latest`. On 2026-10-24 it answered `"count": 0` with no tag at all, and the registry answered `manifest unknown` for both `latest` and `v0.0.3`, so a pull fails until the AscendAI release workflow publishes the service under its new name. The old image, `lukk17/ascend-web-search`, is a build from 2026-08-14 that still expects FlareSolverr, so it does not fit this file.
+The answer must list a tag named `v0.0.15`. The AscendAI release workflow published that tag on 2026-11-09, to Docker Hub and to `ghcr.io/lukk17/ascend-ai-ascend-web-hunter`. The old image, `lukk17/ascend-web-search`, is a build from 2026-08-14 that still expects FlareSolverr, so it does not fit this file.
 
 ---
 
@@ -74,10 +74,10 @@ Create the secrets file, `.env`, with the commands below. What each value has to
 | Variable | Must be |
 |---|---|
 | SEARXNG_SECRET | At least 32 characters, unique to this deployment, and not the literal `ultrasecretkey`, which SearXNG rejects. Nothing ever types this by hand. |
-| VNC_PASSWORD | 8 characters or fewer. The VNC protocol truncates anything longer, so only the first 8 count. See [NoVNC and CAPTCHA solving](#novnc-and-captcha-solving). |
+| VNC_PASSWORD | Optional. When set, 8 characters or fewer. The VNC protocol truncates anything longer, so only the first 8 count. See [NoVNC and CAPTCHA solving](#novnc-and-captcha-solving). |
 | NGROK_AUTHTOKEN | Your account token from [the ngrok dashboard](https://dashboard.ngrok.com/get-started/your-authtoken). |
 
-Type the VNC password. It is not shown, and the `echo` only moves to a new line afterwards. Leave out `$`, `#` and quotes, because the Docker Compose page [Interpolation](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/) says a `$` in an unquoted value of this file starts a variable name, and a space followed by `#` starts a comment:
+Type the VNC password, or press Enter to leave it empty. It is not shown, and the `echo` only moves to a new line afterwards. Leave out `$`, `#` and quotes, because the Docker Compose page [Interpolation](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/) says a `$` in an unquoted value of this file starts a variable name, and a space followed by `#` starts a comment:
 
 ```bash
 read -r -s -p 'VNC password, 8 characters at most: ' VNC_PASSWORD; echo
@@ -113,7 +113,7 @@ Check that no required value is empty, without printing them. This prints each n
 awk -F= '{print $1, length($2)}' .env
 ```
 
-`SEARXNG_SECRET` must show 64, `VNC_PASSWORD` a number from 1 to 8, and `NGROK_AUTHTOKEN` a number above 0. The last three show 0.
+`SEARXNG_SECRET` must show 64, `VNC_PASSWORD` 0 when you left it empty or a number from 1 to 8, and `NGROK_AUTHTOKEN` a number above 0. The last three show 0.
 
 Start the stack.
 
@@ -121,7 +121,7 @@ Start the stack.
 docker compose up -d
 ```
 
-All three secrets are required. Compose refuses to start and names the missing variable if any is blank, so a typo fails immediately instead of producing a half working stack.
+SEARXNG_SECRET and NGROK_AUTHTOKEN are required. Compose refuses to start and names the missing variable if either is blank, so a typo fails immediately instead of producing a half working stack. VNC_PASSWORD may stay empty, see [NoVNC and CAPTCHA solving](#novnc-and-captcha-solving).
 
 ---
 
@@ -160,7 +160,7 @@ Three secrets live in `.env`, and any optional setting you change goes there too
 | Variable | Required | What it does |
 |---|---|---|
 | SEARXNG_SECRET | Yes | SearXNG session signing key. Read by SearXNG from the environment, which is why `searxng/settings.yaml` has no `secret_key` entry. Generate a fresh one per deployment. |
-| VNC_PASSWORD | Yes | Password for the NoVNC desktop. Turned into an encrypted x11vnc password file at container start. |
+| VNC_PASSWORD | No | Password for the NoVNC desktop. Turned into an encrypted x11vnc password file at container start. Unset means x11vnc runs with `-nopw`, the desktop accepts any client, and the container logs a warning at boot. |
 | NGROK_AUTHTOKEN | Yes | Authenticates the ngrok tunnel. |
 | REDIS_URL | No | Where the cookie and session cache lives. Defaults to `redis://host.docker.internal:6379/0`, see [Prerequisites](#prerequisites). |
 | WEB_HUNTER_MCP_ALLOWED_HOST_HEADERS | No | Host names the `/mcp` endpoint accepts in the Host header. Defaults to `ascend-web-hunter,ascend-web-hunter.internal,localhost,127.0.0.1`, see [The MCP endpoint and host names](#the-mcp-endpoint-and-host-names). |
@@ -169,7 +169,7 @@ Three secrets live in `.env`, and any optional setting you change goes there too
 
 Every other optional setting is listed with its default and a one line description in [.env.example](.env.example), and each is passed through the `environment:` block of the ascend-web-hunter service in `compose.yaml`. The full reference is [configuration.md](https://github.com/Lukk17/AscendAI/blob/master/apps/ascend-web-hunter/docs/configuration.md) in AscendAI.
 
-Two groups of those settings point at services this stack does not run. The PDF, image and audio routes call `docling-serve`, `ascend-ocr` and `ascend-audio-scribe`, and crawl results go to an S3 compatible object store at `host.docker.internal:9070`. Search, page reading and CAPTCHA intervention do not need any of them.
+Two groups of those settings point at services this stack does not run. The PDF, image and audio routes need `docling-serve`, `ascend-ocr` and `ascend-audio-scribe`, so `DOCLING_SERVE_URL`, `ASCEND_OCR_URL` and `AUDIO_SCRIBE_URL` are empty by default, which turns those routes off. Set them in `.env` to reach those services on another machine. Crawl results go to an S3 compatible object store at `host.docker.internal:9070`. Search, page reading and CAPTCHA intervention do not need any of them.
 
 ---
 
@@ -203,9 +203,9 @@ Find the current tunnel address. Ngrok generates a new one every time the contai
 docker exec ngrok-ascend-web-hunter curl -s http://localhost:4040/api/tunnels
 ```
 
-Opening that address prompts for the VNC password from `.env`.
+Opening that address prompts for the VNC password from `.env` when VNC_PASSWORD is set. When it is empty, the desktop opens with no password and the container logs a warning at boot.
 
-Two things to understand about this. The VNC protocol truncates passwords at 8 characters, so anything longer is silently cut and the extra characters do nothing. And the tunnel is a public internet address for as long as the container runs, protected only by that 8 character password. If you do not need interactive CAPTCHA solving, the safest configuration is to not run the tunnel at all.
+Two things to understand about this. The tunnel is a public internet address for as long as the container runs. Without a password, anyone who reaches that address can control the browser, including any login a human is part way through, so a deployment reachable beyond a trusted network should set one. With a password, the VNC protocol truncates it at 8 characters, so anything longer is silently cut and the extra characters do nothing. If you do not need interactive CAPTCHA solving, the safest configuration is to not run the tunnel at all.
 
 ```bash
 docker compose up -d --scale ngrok-ascend-web-hunter=0
@@ -219,7 +219,7 @@ Telemetry. In the full platform this service exports traces over OTLP to an Open
 
 This is not a degraded mode. The service reads `OTEL_EXPORTER_OTLP_ENDPOINT` once at startup and, finding it unset, never starts OpenTelemetry at all. Nothing retries, nothing logs errors, nothing waits. The application works fully without it.
 
-To get traces back you would need a collector accepting OTLP over gRPC on port 4317, plus somewhere to store and view what it collects. The working configuration for all of that is in the AscendAI repository root: the `otel-collector`, `tempo` and `grafana` services in `compose.yaml`, with their config files under `infra/observability/`. Add them here, then set `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` on the ascend-web-hunter service.
+To get traces back you would need a collector accepting OTLP over gRPC on port 4317, plus somewhere to store and view what it collects. The working configuration for all of that is in the AscendAI repository root: the `otel-collector`, `tempo` and `grafana` services in `compose.yaml`, with their config files under `infra/observability/`. Add them here, then set `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` on the ascend-web-hunter service. The service version on every span comes from the installed package, so no `OTEL_RESOURCE_ATTRIBUTES` is needed for it.
 
 Metrics are a separate matter. The service exposes Prometheus metrics on its own HTTP port whether or not OpenTelemetry is configured, so any Prometheus that can reach port 7021 can scrape them without adding anything to this stack.
 
@@ -267,11 +267,9 @@ There is no log collection in this stack. The Loki and Grafana setup used in dev
 
 ### Upgrading
 
-The ascend-web-hunter image tracks `latest`, so this deployment follows the newest published build of the service without editing the file. The other two images, SearXNG and ngrok, are pinned, because they are other people's builds and a change there is a change nobody here chose.
+Images are pinned to exact versions rather than `latest`, so a restart never changes what is running and you can always go back to a version you know worked. The ascend-web-hunter image is pinned to the release tag `v0.0.15`, the same tag the AscendAI bundle runs. SearXNG and ngrok are pinned to a tag plus its `sha256` digest, because they are other people's builds and a change there is a change nobody here chose.
 
-A floating tag does not make the upgrade happen on its own, and this is the part that catches people out. `restart: unless-stopped` restarts the existing container from the image already on the host, and a plain `docker compose up -d` pulls only when no local image carries that tag. Both of those leave the old build running for as long as an image tagged `latest` exists locally, however new the published one is. Moving to a newer build takes an explicit pull first, then a recreate.
-
-The two commands are identical in both shells, because `docker compose` takes the same arguments everywhere.
+To move to a newer ascend-web-hunter build, put its tag on the `image:` line with the commands below, then pull and recreate. The two commands are identical in both shells, because `docker compose` takes the same arguments everywhere.
 
 Unix shell:
 
@@ -293,9 +291,9 @@ docker compose pull ascend-web-hunter
 docker compose up -d ascend-web-hunter
 ```
 
-The pull rewrites what `latest` points at locally, and the recreate is what swaps the running container onto it. Naming the service keeps both commands off the other two containers, which stay untouched.
+The pull fetches the image of the new tag, and the recreate is what swaps the running container onto it. Naming the service keeps both commands off the other two containers, which stay untouched.
 
-To go back to a build you know worked, put the exact tag of that build on the `image:` line, run the same pull and recreate, and set the line back to `latest` once the newer build is fixed. Unix shell, from inside this directory:
+The same steps go back to a build you know worked: put that build's tag on the `image:` line, then run the same pull and recreate. Unix shell, from inside this directory:
 
 ```bash
 sed -i 's|^\([[:space:]]*image: lukk17/ascend-ai-ascend-web-hunter:\).*|\1<tag>|' compose.yaml
@@ -317,9 +315,9 @@ grep -n 'image: lukk17/ascend-ai-ascend-web-hunter' compose.yaml
 Select-String -Path compose.yaml -Pattern 'image: lukk17/ascend-ai-ascend-web-hunter'
 ```
 
-To set the line back, run the same command with `latest` in place of `<tag>`. Published tags are listed at [hub.docker.com/r/lukk17/ascend-ai-ascend-web-hunter/tags](https://hub.docker.com/r/lukk17/ascend-ai-ascend-web-hunter/tags). The AscendAI release workflow pushes the same tags to `ghcr.io/lukk17/ascend-ai-ascend-web-hunter`. Docker Hub needs no login to pull. A GitHub registry package starts private and stays so until the owner makes it public once by hand, and on 2026-10-24 an anonymous request for this one was refused.
+Published tags are listed at [hub.docker.com/r/lukk17/ascend-ai-ascend-web-hunter/tags](https://hub.docker.com/r/lukk17/ascend-ai-ascend-web-hunter/tags). The AscendAI release workflow pushes the same tags to `ghcr.io/lukk17/ascend-ai-ascend-web-hunter`. Docker Hub needs no login to pull. The AscendAI bundle says the GitHub registry needs none either. This copy has not measured that since 2026-10-24, when an anonymous request there was refused.
 
-Upstream images move on their own schedule and need their tag edited by hand. SearXNG ships a new build most days and its search engines break as the sites they scrape change, so it is worth bumping every few months even when nothing appears wrong.
+Upstream images move on their own schedule and need their tag and digest edited by hand. SearXNG ships a new build most days and its search engines break as the sites they scrape change, so it is worth bumping every few months even when nothing appears wrong.
 
 ---
 
@@ -329,7 +327,9 @@ The service has no authentication. Anything that can reach port 7021 can make it
 
 SearXNG publishes no ports at all here. It is reachable only from inside the stack.
 
-The container runs with the `SYS_ADMIN` capability, which Chromium's sandbox needs. It renders untrusted web content with an elevated capability, which is worth knowing even though it is the standard way to run a browser in a container.
+The NoVNC desktop has no password unless VNC_PASSWORD is set, and the ngrok tunnel puts it on the internet. See [NoVNC and CAPTCHA solving](#novnc-and-captcha-solving).
+
+The ascend-web-hunter container runs as the unprivileged user `webhunter` (UID 10001) and adds no Linux capability. Every Chromium launch passes `--no-sandbox`, so Chromium's own sandbox is off and the container boundary is the only isolation around the untrusted web content it renders. That is worth knowing even though it is the usual way to run a browser in a container.
 
 ---
 
@@ -339,7 +339,6 @@ Everything below is a deliberate difference from `apps/ascend-web-hunter/deploy-
 
 | Topic | AscendAI bundle | This copy |
 |---|---|---|
-| ascend-web-hunter image tag | Pinned to `v0.0.3` | `latest`, see [Upgrading](#upgrading) |
 | redis service | Runs a container named `redis` with a `redisdata` volume | Absent. The homelab already runs a container named `redis`, see [Prerequisites](#prerequisites) |
 | REDIS_URL default | `redis://redis:6379/0`, the bundled Redis | `redis://host.docker.internal:6379/0`, the homelab Redis on the Docker host |
 | ascend-web-hunter `depends_on` | searxng and redis | searxng only |

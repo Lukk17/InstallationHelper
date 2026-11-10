@@ -300,7 +300,7 @@ The `proxy-tier` network in `compose.yaml` carries an explicit `name: proxy-tier
 
 Persistent data lives under `/opt/docker-stack/`, one directory per service, bind mounted into the containers. The shared files, with the Plex library inside them, are the exception: they live on the USB data disk under `/mnt/data`, which Proxmox backups skip on purpose. The Compose file alone will not restore your setup, because AdGuard filters, proxy hosts, dashboard layout, uptime monitors and Syncthing keys all live in those directories.
 
-Every image tag in this file is pinned to an exact version rather than `latest`. An unattended pull with floating tags can hand you a breaking major release on a random Tuesday. Bump a tag deliberately, one service at a time. The separate ascend-web-hunter stack makes one deliberate exception for the one image published from this account, described in [ascend_web_hunter.md](ascend_web_hunter.md).
+Every image tag in this file is pinned to an exact version rather than `latest`. An unattended pull with floating tags can hand you a breaking major release on a random Tuesday. Bump a tag deliberately, one service at a time. The separate ascend-web-hunter stack pins its images the same way, described in [ascend_web_hunter.md](ascend_web_hunter.md).
 
 ---
 
