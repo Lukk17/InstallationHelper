@@ -9,7 +9,8 @@
 # ansible-galaxy resolves collections and nothing else. The supported range is
 # enforced where ansible-core actually arrives: setup/setup.sh refuses a control
 # node outside ANSIBLE_CORE_MIN_VERSION to ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE,
-# and each Linux e2e/tier3 Dockerfile asserts the same two bounds at build time.
+# and each Linux e2e/tier3 Dockerfile asserts the same two bounds at build time,
+# taking both from setup.sh as build arguments.
 collections:
   - name: community.general
     version: ">=9.0.0,<12.0.0"

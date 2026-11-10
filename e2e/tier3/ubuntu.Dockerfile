@@ -43,17 +43,20 @@ RUN apt-get update && apt-get install -y \
 # an exact `ansible-core=<version>` would start failing the build the day the archive rotates. 26.04
 # ships 2.20.1, measured on 2026-11-10.
 #
-# What can be pinned is the range, and it is the same half-open range setup/setup.sh enforces on a
-# real machine, 2.19.0 accepted up to but not including 2.23.0. Every release inside it still carries
-# the ansiballz result-deserialization race documented in AGENTS.md, because the upstream fix is
-# unmerged, so this range is about running a version the playbook has been exercised on, not about
-# escaping that bug.
+# What can be pinned is the range, the same half-open range setup/setup.sh enforces on a real machine.
+# setup.sh is the only place it is written: e2e/tier3/container.sh reads ANSIBLE_CORE_MIN_VERSION and
+# ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE out of it and passes both as build arguments, so neither has a
+# default here, and a build that is not given both fails below and names the harness. Every release
+# inside the range still carries the ansiballz result-deserialization race documented in
+# setup/ansible/ansible_architecture.md, because the upstream fix is unmerged, so the range is about
+# running a version the playbook has been exercised on, not about escaping that bug.
 #
 # Checked at build time on purpose. An image outside the range is a broken image, and this fails the
 # build in seconds rather than a scenario twenty-five minutes in.
-ARG ANSIBLE_CORE_MIN_VERSION=2.19.0
-ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=2.23.0
-RUN CORE="$(ansible-playbook --version | head -1)" python3 -c 'import os, re, sys; found = re.search("core ([0-9.]+)", os.environ["CORE"]); version = lambda s: tuple(int(n) for n in (re.findall("[0-9]+", s) + ["0", "0"])[:3]); low, high = os.environ["ANSIBLE_CORE_MIN_VERSION"], os.environ["ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE"]; core = found.group(1) if found else ""; sys.exit(0 if found and version(low) <= version(core) < version(high) else "this image has ansible-core " + (core or "an unreadable version") + ", outside the range " + low + " <= version < " + high + " that setup/setup.sh accepts")'
+ARG ANSIBLE_CORE_MIN_VERSION
+ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE
+RUN { [ -n "${ANSIBLE_CORE_MIN_VERSION}" ] && [ -n "${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}" ]; } || { echo "the build arguments ANSIBLE_CORE_MIN_VERSION and ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE were not both given. setup/setup.sh is the only place the accepted ansible-core range is written, and e2e/tier3/container.sh reads both out of it and passes them, so build this image through e2e/run.sh --tier 3, which runs container.sh" >&2; exit 1; } \
+    && CORE="$(ansible-playbook --version | head -1)" python3 -c 'import os, re, sys; found = re.search("core ([0-9.]+)", os.environ["CORE"]); version = lambda s: tuple(int(n) for n in (re.findall("[0-9]+", s) + ["0", "0"])[:3]); low, high = os.environ["ANSIBLE_CORE_MIN_VERSION"], os.environ["ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE"]; core = found.group(1) if found else ""; sys.exit(0 if found and version(low) <= version(core) < version(high) else "this image has ansible-core " + (core or "an unreadable version") + ", outside the range " + low + " <= version < " + high + " that setup/setup.sh accepts")'
 
 # The playbook runs as a normal user who escalates with sudo, matching how a person
 # runs setup.sh. This sudoers file is named so that site.yaml's cleanup task, which

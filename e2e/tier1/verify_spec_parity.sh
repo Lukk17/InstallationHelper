@@ -83,7 +83,7 @@ done
 # --- capability 10 against the tier 1 script list -----------------------------
 # The list is read out of run_tier1's own for loop, so adding a check to the runner without
 # mentioning it in the spec fails here rather than going unnoticed.
-tier1_checks="$(sed -nE 's/^[[:space:]]*for check in ([a-z_ ]+); do$/\1/p' "${RUN_SH}")"
+tier1_checks="$(sed -nE 's/^[[:space:]]*for check in ([a-z0-9_ ]+); do$/\1/p' "${RUN_SH}")"
 
 if [[ -z "${tier1_checks}" ]]; then
     fail "could not read the tier 1 check list out of run.sh, so this check cannot mean anything" \

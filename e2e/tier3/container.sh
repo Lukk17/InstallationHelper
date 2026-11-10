@@ -275,7 +275,10 @@ build_base_chain() {
 
     build_base_chain "${base_dockerfile}" "$(( depth + 1 ))"
     info "Building the ${base_os} image that ${OS} builds on"
-    docker build -q -f "$(host_path "${base_dockerfile}")" -t "${base}" "$(host_path "${TIER3_DIR}")" >/dev/null
+    docker build -q \
+        --build-arg "ANSIBLE_CORE_MIN_VERSION=${ANSIBLE_CORE_MIN_VERSION}" \
+        --build-arg "ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}" \
+        -f "$(host_path "${base_dockerfile}")" -t "${base}" "$(host_path "${TIER3_DIR}")" >/dev/null
 }
 
 start_run() {
@@ -490,6 +493,14 @@ start_run() {
     grep -hE '^[a-z0-9_]+: false$' "${LIMITS_FILES[@]}" | sed 's/^/       /' || true
 
     # --- container ------------------------------------------------------------
+    # Every image checks its ansible-core against the range setup/setup.sh accepts, and setup.sh is the
+    # only place that range is written, so both bounds reach every build below as build arguments. The
+    # Dockerfiles give them no default and fail the build without them.
+    if ! setup_sh_ansible_core_range; then
+        echo "ERROR: ANSIBLE_CORE_MIN_VERSION and ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE could not be read out of ${REPO_ROOT}/setup/setup.sh, so no image can check its ansible-core and nothing was built" | tee "${RUN_DIR}/result.txt" >&2
+        exit 2
+    fi
+    dim "ansible-core range from setup/setup.sh: ${ANSIBLE_CORE_MIN_VERSION} <= version < ${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}"
     build_base_chain "${DOCKERFILE}" 0
     info "Building the ${OS} base image (cached after the first run)"
     # Both the Dockerfile and the build context name a location on this machine, so both go
@@ -507,7 +518,10 @@ start_run() {
     # buried by a retry loop is worse than the flake it was hiding.
     build_attempt=1
     build_log="$(mktemp)"
-    until docker build --progress=plain -f "$(host_path "${DOCKERFILE}")" -t "${IMAGE}" "$(host_path "${TIER3_DIR}")" >"${build_log}" 2>&1; do
+    until docker build --progress=plain \
+            --build-arg "ANSIBLE_CORE_MIN_VERSION=${ANSIBLE_CORE_MIN_VERSION}" \
+            --build-arg "ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}" \
+            -f "$(host_path "${DOCKERFILE}")" -t "${IMAGE}" "$(host_path "${TIER3_DIR}")" >"${build_log}" 2>&1; do
         if [[ "${build_attempt}" -ge 3 ]]; then
             warn "the ${OS} image failed to build three times, the last attempt said:"
             grep -E '^(#[0-9]+ )?ERROR' "${build_log}" | sed 's/^/       /' || true

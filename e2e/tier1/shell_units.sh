@@ -144,8 +144,9 @@ fi
 
 # The two bounds the wizard actually enforces, read out of the file, so a widened range is exercised
 # rather than merely declared. This is the assertion that connects the function to its one caller.
-min_version="$(sed -n 's/^ANSIBLE_CORE_MIN_VERSION="\(.*\)"$/\1/p' "${SETUP_SH}")"
-max_version="$(sed -n 's/^ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE="\(.*\)"$/\1/p' "${SETUP_SH}")"
+setup_sh_ansible_core_range || true
+min_version="${ANSIBLE_CORE_MIN_VERSION}"
+max_version="${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}"
 if [[ -z "${min_version}" || -z "${max_version}" ]]; then
     fail "setup.sh still declares both ends of the accepted ansible-core range" \
          "ANSIBLE_CORE_MIN_VERSION or ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE was not found"

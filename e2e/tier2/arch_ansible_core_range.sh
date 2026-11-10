@@ -4,7 +4,7 @@
 #
 # setup.sh refuses a control node whose ansible-core is outside ANSIBLE_CORE_MIN_VERSION up to but not
 # including ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE, and every e2e/tier3/*.Dockerfile asserts the same two
-# bounds at build time. Arch is rolling and CachyOS takes ansible-core from Arch's extra repository, so
+# bounds at build time, handed to it by e2e/tier3/container.sh as build arguments. Arch is rolling and CachyOS takes ansible-core from Arch's extra repository, so
 # the day extra moves to a branch at or above the ceiling, setup.sh refuses every Arch and CachyOS
 # machine and the tier 3 arch and cachyos images stop building. That happened when extra moved to
 # ansible-core 2.22.0-1 on 2026-11-03 under a ceiling of 2.22.0. Nothing said so until the tier 3 Arch
@@ -12,7 +12,8 @@
 #
 # So this asks https://archlinux.org/packages/search/json/?name=ansible-core for the pkgver extra carries
 # now, through http_ask in lib/http_ask.sh, the way check_pacman in resolve_packages.sh asks for a name,
-# and compares it with both bounds read out of setup/setup.sh, using the version_lt that setup.sh itself
+# and compares it with both bounds read out of setup/setup.sh by setup_sh_ansible_core_range in
+# lib/common.sh, using the version_lt that setup.sh itself
 # enforces them with. A version at or above the ceiling, or below the floor, fails and names the version
 # and the range. Only the extra repository counts, because a release still in extra-testing has not
 # reached a machine. A lookup that never gets a definite answer fails as `could not be checked`, the way
@@ -32,8 +33,9 @@ info "Tier 2: ${CLAIM}"
 
 require_python "${CLAIM}" "${LABEL}"
 
-floor="$(sed -n 's/^ANSIBLE_CORE_MIN_VERSION="\(.*\)"$/\1/p' "${SETUP_SH}")"
-ceiling="$(sed -n 's/^ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE="\(.*\)"$/\1/p' "${SETUP_SH}")"
+setup_sh_ansible_core_range || true
+floor="${ANSIBLE_CORE_MIN_VERSION}"
+ceiling="${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}"
 version_lt_source="$(sed -n '/^version_lt()/,/^}/p' "${SETUP_SH}")"
 if [[ -z "${floor}" || -z "${ceiling}" || -z "${version_lt_source}" ]]; then
     fail "setup/setup.sh no longer declares ANSIBLE_CORE_MIN_VERSION, ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE and version_lt, so there is no range to compare with" \
@@ -81,7 +83,7 @@ while IFS= read -r version; do
              "${ARCH_URL}"
     elif ! version_lt "${version}" "${ceiling}"; then
         fail "Arch extra carries ansible-core ${version}, at or above the ceiling of the range ${range} that setup/setup.sh accepts, so setup.sh refuses every Arch and CachyOS machine and the tier 3 arch and cachyos images fail their base check" \
-             "read the ${version%.*} changelog and porting guide against this repository, then raise ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE in setup/setup.sh and in every e2e/tier3/*.Dockerfile together. ${ARCH_URL}"
+             "read the ${version%.*} changelog and porting guide against this repository, then raise ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE in setup/setup.sh, the only place it is written. ${ARCH_URL}"
     else
         pass "Arch extra carries ansible-core ${version}, inside the range ${range} that setup/setup.sh accepts"
     fi

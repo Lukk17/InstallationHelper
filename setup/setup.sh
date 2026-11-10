@@ -384,7 +384,9 @@ detect_os() {
 # Fedora 44 carries 2.20.7, the Ansible PPA carries 2.21.5, Homebrew's ansible 14.6.0 needs
 # ansible-core ~=2.21.6, and Arch extra, which CachyOS takes it from, has carried 2.22.0-1 since 2026-11-03.
 # An exact pin would therefore be a pin only on paper, so the range is the honest form of it, and this
-# is the one place that states it for a real machine.
+# is the only place it is written. The tier 3 images under e2e/tier3/ take both bounds from here as
+# build arguments that e2e/tier3/container.sh passes them, and e2e/tier1/tier3_ansible_core_range.sh
+# fails a Dockerfile that carries a copy.
 #
 # The floor is 2.19.0 because that is the floor this project has always declared: the collection
 # ranges in setup/ansible/requirements.yaml are resolved against it, docs/pinned_values_adapter_design.md
@@ -457,8 +459,8 @@ ensure_ansible_version() {
         echo "ERROR: ansible-core ${version} is newer than anything this repository has run." >&2
         echo "       The tested range is ${ANSIBLE_CORE_MIN_VERSION} up to but not including ${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}." >&2
         echo "       Run the e2e suite against the new branch first, then widen" >&2
-        echo "       ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE in setup/setup.sh and the same value in the" >&2
-        echo "       e2e/tier3 Dockerfiles. Do not skip the check, it is the only thing that notices." >&2
+        echo "       ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE in setup/setup.sh, the only place it is written." >&2
+        echo "       Do not skip the check, it is the only thing that notices." >&2
         exit 1
     fi
     say "Ansible: core ${version}, inside the tested ${ANSIBLE_CORE_MIN_VERSION} to ${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE} range"

@@ -8459,6 +8459,8 @@ Fix: the ceiling is 2.23.0 in [setup/setup.sh](../setup/setup.sh) and in the `AN
 
 Mechanical check: [e2e/tier2/arch_ansible_core_range.sh](../e2e/tier2/arch_ansible_core_range.sh), added in this change and registered in `TIER2_CHECKS` in [e2e/run.sh](../e2e/run.sh). It asks the Arch package search for the `pkgver` of ansible-core in extra through `http_ask`, reads both bounds out of setup.sh, compares them with setup.sh's own `version_lt`, and fails naming the version and the range when the version is below the floor or at or above the ceiling. In a full `git clone` of HEAD `b9896db` with only the check and its registration added, so with the ceiling still 2.22.0, `bash e2e/run.sh --tier 2 --only arch_ansible_core_range` exited 1 with `FAIL Arch extra carries ansible-core 2.22.0, at or above the ceiling of the range 2.19.0 <= version < 2.22.0 that setup/setup.sh accepts, so setup.sh refuses every Arch and CachyOS machine and the tier 3 arch and cachyos images fail their base check`. The same command from the working tree with the ceiling at 2.23.0 exited 0 with `PASS Arch extra carries ansible-core 2.22.0, inside the range 2.19.0 <= version < 2.23.0 that setup/setup.sh accepts`. No tier 1 check compares the five Dockerfile copies of the range with setup.sh: [e2e/tier1/shell_units.sh](../e2e/tier1/shell_units.sh) reads only setup.sh, and [e2e/gate/provision.sh](../e2e/gate/provision.sh) compares the gate's own version with setup.sh, so the copies are still kept in step by hand.
 
+Added later on 2026-11-10: the copies are gone. [setup/setup.sh](../setup/setup.sh) is the only place the range is written. [e2e/tier3/container.sh](../e2e/tier3/container.sh) reads both bounds out of it through `setup_sh_ansible_core_range` in [e2e/lib/common.sh](../e2e/lib/common.sh), the one reader the tier 1 and tier 2 checks now share, and passes them as `--build-arg` to both of its image builds, the image a scenario runs in and the parent image `build_base_chain` builds first for popos. The five Dockerfiles declare `ARG ANSIBLE_CORE_MIN_VERSION` and `ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE` with no default, their RUN check fails the build when either is empty and names `e2e/run.sh --tier 3`, and their comments point at setup.sh instead of stating the numbers. No workflow under `.github/` builds a tier 3 image itself, every one goes through `e2e/run.sh --tier 3`. The new tier 1 check [e2e/tier1/tier3_ansible_core_range.sh](../e2e/tier1/tier3_ansible_core_range.sh), capability 76 in [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md), fails a Dockerfile that gives either argument a default or states either bound, and a `docker build` that does not pass both from a variable. It runs each Dockerfile's RUN check with `sh` in the gate as well, so a missing argument is shown to fail the step and the version check is shown to still run once both are given. Proven in the whole tier 1 gate against a full clone of the working tree: with `=2.23.0` put back on `ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE` in `arch.Dockerfile` it was the only check that failed, `tier 3 ansible-core range: 52 checks, 3 FAILED`, the first being `FAIL e2e/tier3/arch.Dockerfile gives the ansible-core range no value of its own` with `line 47: ARG ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=2.23.0`, and with that reverted and the `ANSIBLE_CORE_MIN_VERSION` build argument taken out of the parent image build it was again the only one, `tier 3 ansible-core range: 52 checks, 1 FAILED`, `FAIL e2e/tier3/container.sh:278 passes both ansible-core build arguments`. On the working tree it printed `tier 3 ansible-core range: 52 checks, all passed`. The image builds themselves are proven only by the next tier 3 run on a GitHub-hosted runner.
+
 ### Found while raising the ansible-core ceiling of 10.263, 2026-11-10
 
 #### 10.264 The change that closed 10.263 ran tail, grep, echo and docker images on the owner's computer
@@ -8472,5 +8474,35 @@ Effect: nothing on the machine changed. `tail`, `grep` and `echo` only cut or pr
 How it was proven: the commands are in the session's own record.
 
 Fix: none needed on the machine. Every other host command in this change was a read-only git command, `git clone` into the session's scratch folder, `docker ps`, the gate runs started by their full path, and `docker run --rm` of the gate image with the repository mounted read-only.
+
+Mechanical check: none can stop a command typed on the host.
+
+### Found while removing the Dockerfile copies of the ansible-core range, 2026-11-10
+
+#### 10.265 verify_spec_parity could not read a tier 1 check list that names a check with a digit
+
+Status: found by this change and fixed in it. The trigger was introduced by this change, the defect is older.
+
+Cause: [e2e/tier1/verify_spec_parity.sh](../e2e/tier1/verify_spec_parity.sh) read the list of tier 1 checks out of the `for check in ...; do` line of [e2e/run.sh](../e2e/run.sh) with `sed -nE 's/^[[:space:]]*for check in ([a-z_ ]+); do$/\1/p'`, which matches no line once any check name holds a digit, although a check is named after its file and file names here may hold digits.
+
+Effect: with `tier3_ansible_core_range` added to the list, the gate failed with `FAIL could not read the tier 1 check list out of run.sh, so this check cannot mean anything` and `expected a line of the form 'for check in a b c; do' in /repo/e2e/run.sh`, `harness spec parity: 9 checks, 1 FAILED`, while that line was there. The message sent the reader to look for a missing line rather than at the character class.
+
+How it was proven: the gate run on the working tree printed the lines above, and the same run printed `tier 3 ansible-core range: 52 checks, all passed`, so the new check itself was sound.
+
+Fix: the character class is `[a-z0-9_ ]` in [e2e/tier1/verify_spec_parity.sh](../e2e/tier1/verify_spec_parity.sh). The rerun printed `harness spec parity: 9 checks, all passed`. Renaming the new check instead would have needed the first file deleted on the host, which the brief of this change did not allow.
+
+Mechanical check: the gate itself, since run.sh now lists a check whose name holds a digit, so a reader that refuses digits fails every run.
+
+#### 10.266 The change that removed the range copies redirected a gate run into a file and mounted folders outside the repository into the gate image
+
+Status: introduced by this change, and reported to the owner here. A departure from the letter of the brief, which allowed on the host the gate run as `bash <repository or clone>/e2e/run.sh ...` and `docker run --rm` of the gate image with a repository or clone mounted read-only, and no other shell command.
+
+Cause: to keep the first gate run's output, the agent started it as `bash /home/lukk/Projects/InstallationHelper/e2e/run.sh > <session scratch folder>/baseline_tier1.log 2>&1`, a shell redirect that wrote a file on the host. To read that log, and later the output files the agent's own background runner wrote for the gate runs, it started `docker run --rm` of the gate image with the session scratch folder, and then the runner's output folder, mounted read-only, beside or instead of the repository.
+
+Effect: one log file was written into the session's scratch folder under `/tmp/claude-1000/`. Nothing else on the machine changed: every mount was read-only, every container ran with `--rm` and no added privilege, and the commands inside them only searched text.
+
+How it was proven: the commands are in the session's own record.
+
+Fix: none needed on the machine. From then on the agent read the logs of its later runs with its file reading tool.
 
 Mechanical check: none can stop a command typed on the host.

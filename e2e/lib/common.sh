@@ -489,6 +489,24 @@ wizard_toggle_keys() {
     printf '%s\n' "${keys}"
 }
 
+# setup_sh_ansible_core_range  ->  prints nothing, sets ANSIBLE_CORE_MIN_VERSION and
+#                                  ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE to the values setup/setup.sh
+#                                  declares, and returns 3 with both empty when either is missing
+#
+# setup/setup.sh is the only place the accepted ansible-core range is written. tier3/container.sh passes
+# both values to every tier 3 image build as build arguments, and every check that compares a version
+# with the range reads it here, so the harness has one reader of it.
+setup_sh_ansible_core_range() {
+    local setup_sh="${REPO_ROOT}/setup/setup.sh"
+    ANSIBLE_CORE_MIN_VERSION="$(sed -n 's/^ANSIBLE_CORE_MIN_VERSION="\(.*\)"$/\1/p' "${setup_sh}" 2>/dev/null || true)"
+    ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE="$(sed -n 's/^ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE="\(.*\)"$/\1/p' "${setup_sh}" 2>/dev/null || true)"
+    if [[ -z "${ANSIBLE_CORE_MIN_VERSION}" || -z "${ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE}" ]]; then
+        ANSIBLE_CORE_MIN_VERSION=""
+        ANSIBLE_CORE_MAX_VERSION_EXCLUSIVE=""
+        return 3
+    fi
+}
+
 # ai_tools_npm_packages  ->  every npm package an ai_tools *_unix.yaml installs, one per line
 ai_tools_npm_packages() {
     local f
