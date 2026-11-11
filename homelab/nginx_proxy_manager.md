@@ -40,7 +40,7 @@ Go to Hosts, then Proxy Hosts, then Add Proxy Host, and fill in the Details tab 
 2. Scheme: the Scheme column, `http` for every name but Proxmox.
 3. Forward Hostname / IP: the container name or the address alone, never with a `:port` after it.
 4. Forward Port: the port inside the container, not the published host port. This field is the only place the port goes.
-5. Turn on Websockets Support on every entry. Turn on Block Common Exploits too, except for `files.internal`, `plex.internal` and `proxmox.internal`, where the Block common exploits column says off. On those three its filter can block real uploads and long addresses, and the names are reachable only inside the home network, so the filter stays off there.
+5. Turn on Websockets Support on every entry. Turn on Block Common Exploits too, except for `files.internal`, `plex.internal` and `proxmox.internal`, where the Block common exploits column says off. The owner keeps it off on those three by choice. The filter answers 403 when the query string of a request, the part of the address after `?`, or its user agent matches one of its patterns, so a host whose own addresses carry such values breaks with the filter on.
 6. SSL tab: leave it on None, on every entry. The include from [internal_ca.md](internal_ca.md) already gives every
    entry `listen 443 ssl` and the certificate. A certificate picked here would add a second `listen 443` to the same
    entry, nginx refuses that with `a duplicate listen 0.0.0.0:443` (nginx 1.30.4 in a throwaway container,

@@ -1,8 +1,17 @@
 # Telegraf network watch
 
-Read this before setting up the per-second network probes, changing their config, reading their CSV files after a drop, or changing the speed test. The rules live in [SKILL.md](../SKILL.md). Facts marked VERIFIED were measured on the owner's homelab on 2026-10-23 with `telegraf:1.40.1`, unless the mark names another date. Every other command here is UNVERIFIED.
+Contents:
 
-Sources, fetched on 2026-10-23 at tag v1.40.1 of https://github.com/influxdata/telegraf: `plugins/inputs/ping/README.md`, `plugins/inputs/internet_speed/README.md`, `plugins/outputs/file/README.md`, `plugins/serializers/csv/README.md`, `docs/CONFIGURATION.md`, and `config/config.go` for the default of `round_interval`.
+- [What it proves](#what-it-proves)
+- [The config](#the-config)
+- [CSV output with rotation](#csv-output-with-rotation)
+- [Changing the config](#changing-the-config)
+- [The speed test and its traffic](#the-speed-test-and-its-traffic)
+- [Keep the probe name out of AdGuard Home](#keep-the-probe-name-out-of-adguard-home)
+
+Read this before setting up the per-second network probes, changing their config, reading their CSV files after a drop, or changing the speed test. The rules live in [SKILL.md](../SKILL.md). Facts marked VERIFIED were measured on the owner's homelab on one Telegraf 1 release. Every other command here is UNVERIFIED.
+
+Sources in https://github.com/influxdata/telegraf: `plugins/inputs/ping/README.md`, `plugins/inputs/internet_speed/README.md`, `plugins/outputs/file/README.md`, `plugins/serializers/csv/README.md`, `docs/CONFIGURATION.md`, and `config/config.go` for the default of `round_interval`.
 
 ---
 
@@ -23,11 +32,11 @@ Write the files into a folder Syncthing sends to the owner's PC, so the record l
 
 ### The config
 
-Run the container with `network_mode: host` and as user 1000, and mount the config file read only and the output folder:
+Run the container with `network_mode: host` and as user 1000, and mount the config file read only and the output folder. Replace `<version-tag>` with a Telegraf 1 release tag and `<digest>` with the digest that tag resolves to, read with `docker buildx imagetools inspect telegraf:<version-tag>`, so a re-pushed tag cannot change what runs:
 
 ```yaml
 telegraf:
-  image: telegraf:1.40.1
+  image: telegraf:<version-tag>@sha256:<digest>
   network_mode: host
   user: "1000:1000"
   volumes:
@@ -77,7 +86,7 @@ It must include 1000. Ubuntu Server ships `0 2147483647` from systemd. Every pin
 
 ### CSV output with rotation
 
-One `[[outputs.file]]` per input, selected with `namepass`, with a short fixed list of columns, rotated daily and kept 30 days:
+One `[[outputs.file]]` per input, selected with `namepass`, with a short fixed list of columns, rotated every 24 hours and kept 30 days:
 
 ```toml
 [[outputs.file]]
@@ -91,9 +100,13 @@ One `[[outputs.file]]` per input, selected with `namepass`, with a short fixed l
   rotation_max_archives = 30
 ```
 
-The file README says of `rotation_max_archives`: "Maximum number of rotated archives to keep, any older logs are deleted." Pinning `csv_columns` keeps the rows short. VERIFIED on 2026-10-09: about 535,000 rows and 22.6 MiB a day across three files for four ping targets.
+The file README says of `rotation_max_archives`: "Maximum number of rotated archives to keep, any older logs are deleted." Pinning `csv_columns` keeps the rows short. VERIFIED: about 535,000 rows and 22.6 MiB a day across three files for four ping targets.
 
-`csv_header` writes the header only when Telegraf creates a file, as the CSV README says, "Enable the header when outputting metrics to a new file". VERIFIED: the current day's `ping.csv` held no header line, while a rotated file held three, one per container start that day. So a script that reads the files tells a ping file by its name, not by its header, and skips every header line it meets.
+`rotation_interval = "24h"` is a length of time, not a time of day. In `internal/rotate/file_writer.go` of Telegraf 1.40.1, opening a file sets the next rotation 24 hours ahead (line 113, `w.expireTime = time.Now().Add(w.interval)`) and then replaces that with 24 hours after the file's modification time (line 127), so a new file counts from the moment it was opened and a file that already exists counts from its last write. There is no timer: while Telegraf runs, the check happens only inside `Write`, and the only other checks are when a file is opened or closed. With a row every second the last write is a moment before a restart, so the time of day of the rotation comes from the last Telegraf restart and creeps later a little each day. VERIFIED: measured on 2026-11-06, rotations at 18:05:44 to 18:05:50 local on eight days after a restart at 17:05 UTC.
+
+Row times are always UTC, whatever `TZ` the container has: with a layout in `csv_timestamp_format`, `plugins/serializers/csv/csv.go` of the same release (lines 169 and 208) uses `metric.Time().UTC().Format(s.TimestampFormat)`. Archive file names use the container's local time and are named after the rotation moment, as `ping.<date>-<unix-seconds>.csv`. So an archive holds the 24 hours that end at the moment in its name, and the rows of one day can sit in two files. After a rotation before noon most rows in the archive are from the day before the name, and after a later rotation most are from the day in the name.
+
+`csv_header` writes the header once per Telegraf start, not once per file: `SerializeBatch` in the same `csv.go` writes it with the first rows and then sets `s.Header` to false (line 92). It goes into whatever file is open then, so a file that a rotation starts while Telegraf runs has no header. The CSV README only advises "Enable the header when outputting metrics to a new file". VERIFIED: the current day's `ping.csv` held no header line, while a rotated file held three, one per container start that day. So a script that reads the files tells a ping file by its name, not by its header, and skips every header line it meets.
 
 A failed row has `result_code` other than 0. A ping that timed out can still carry `result_code` 0 with `percent_packet_loss` at 100, so count both. Two failed rows in a row is a drop, which filters out one lost packet.
 
@@ -113,7 +126,7 @@ Check that it writes, a minute later:
 tail -n 3 <output-dir>/ping.csv
 ```
 
-A full disk stops the writes, and the rows of that time are lost. VERIFIED: the rows from the night of 2026-10-22, when the VM's root file system was full, are missing, see [disk-full.md](disk-full.md).
+A full disk stops the writes, and the rows of that time are lost. VERIFIED: the rows from a night when the VM's root file system was full, are missing, see [disk-full.md](disk-full.md).
 
 ---
 
@@ -121,7 +134,7 @@ A full disk stops the writes, and the rows of that time are lost. VERIFIED: the 
 
 `[[inputs.internet_speed]]` runs a real speedtest.net test, so every test moves real data. The README warns: "This plugin downloads many MB of data each time it is run. As such consider setting a higher interval for this plugin to reduce the demand on your internet connection."
 
-VERIFIED on 2026-10-09 with `telegraf:1.40.1`, measured with `telegraf --test --input-filter internet_speed` in a container on its own bridge network, reading `/proc/net/dev` afterwards: one test received 282,184,059 bytes and sent 402,764,399 bytes, about 685 MB, at about 200 Mbit/s, and filled the line for about 40 seconds. The test runs for a fixed time, so a faster line moves more data. At one test an hour that is about 16 GB a day, and at one every 10 minutes about 100 GB a day.
+VERIFIED, measured on a Telegraf 1 release with `telegraf --test --input-filter internet_speed` in a container on its own bridge network, reading `/proc/net/dev` afterwards: one test received 282,184,059 bytes and sent 402,764,399 bytes, about 685 MB, at about 200 Mbit/s, and filled the line for about 40 seconds. The test runs for a fixed time, so a faster line moves more data. At one test an hour that is about 16 GB a day, and at one every 10 minutes about 100 GB a day.
 
 ```toml
 [[inputs.internet_speed]]
