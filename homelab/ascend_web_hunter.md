@@ -8,7 +8,7 @@
 
 ascend-web-hunter is a small self-contained service from the [AscendAI](https://github.com/Lukk17/AscendAI) project that answers search queries by driving a real search engine and, when a site blocks scrapers, a real browser. It exposes a REST API, a plain way for a program to ask a service for data over HTTP by sending a request and getting a structured answer back, and a Model Context Protocol server, a standard that lets an AI assistant call a tool like this one directly instead of a person clicking through a web page.
 
-The service was called AscendWebSearch, with the container `ascend-web-search` and the proxy name `ascend-scrapper.internal`, until AscendAI renamed it to ascend-web-hunter in its commit `ebe3476` on 2026-09-10. This page, the deploy directory and every proxy, dashboard and monitor entry now use the new names.
+The service was called AscendWebSearch, with the container `ascend-web-search` and the proxy name `ascend-scrapper.internal`, until AscendAI renamed it to ascend-web-hunter in its commit `ebe3476` on 2026-09-10. This page, the deploy directory and every proxy and monitor entry now use the new names. The service has no Homepage dashboard tile, by the owner's choice.
 
 The deployment files live in [ascend-web-hunter_deploy/](ascend-web-hunter_deploy/) inside this `homelab/` directory, but they are a separate Compose project with their own project name, `ascend-scrapper`, which AscendAI has kept. It is not part of `compose.yaml` and is not started by `docker compose up -d` at the root of this directory. It has its own lifecycle, documented in full in [ascend-web-hunter_deploy/README.md](ascend-web-hunter_deploy/README.md). This page covers what matters for running it inside this specific homelab, and does not repeat what is already in that README.
 
@@ -122,6 +122,14 @@ That recreates every container in `compose.yaml`, which is expected and harmless
 
 Once both stacks share `proxy-tier`, Nginx Proxy Manager reaches the service at the container name `ascend-web-hunter`, which is how the `ascend-web-hunter.internal` entry in [nginx_proxy_manager.md](nginx_proxy_manager.md) works. The proxy name is the container name with `.internal` added, the name the `ascend-web-hunter` agent skill tries before `localhost:7021`, and the same pattern the other entries follow. The service keeps its `7021:7021` port mapping on the host too, so it stays reachable three separate ways at once: by container name from the proxy, directly at `<docker-vm-ip>:7021`, and its Redis connection over the host gateway described next.
 
+The proxy host for `ascend-web-hunter.internal` also needs one line in its Advanced tab, Custom Nginx Configuration:
+
+```nginx
+proxy_read_timeout 180s;
+```
+
+One read can take up to 150 seconds, and the proxy's default `proxy_read_timeout` is 90 seconds, so without the line a long read ends in an error page from the proxy at 90 seconds. The full row is in [nginx_proxy_manager.md](nginx_proxy_manager.md#every-internal-name).
+
 The Model Context Protocol endpoint, `/mcp`, checks the Host header of every request and answers `421 Misdirected Request` to a name it does not know. The deploy file accepts `ascend-web-hunter.internal` by default, so a client that uses the proxy name works. A client that uses `<docker-vm-ip>:7021` needs that address added, as [ascend-web-hunter_deploy/README.md](ascend-web-hunter_deploy/README.md#the-mcp-endpoint-and-host-names) shows.
 
 ---
@@ -206,5 +214,4 @@ That password, when set, is the entire barrier. It is not a login form with rate
 
 - [ascend-web-hunter_deploy/README.md](ascend-web-hunter_deploy/README.md), full prerequisites, quick start, upgrading, and the complete security notes for this stack
 - [nginx_proxy_manager.md](nginx_proxy_manager.md), the `ascend-web-hunter.internal` proxy entry
-- [homepage_dashboard.md](homepage_dashboard.md), the dashboard tile
 - [uptime_kuma.md](uptime_kuma.md), the uptime monitor

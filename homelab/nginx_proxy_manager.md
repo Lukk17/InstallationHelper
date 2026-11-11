@@ -46,7 +46,7 @@ Go to Hosts, then Proxy Hosts, then Add Proxy Host, and fill in the Details tab 
    entry, nginx refuses that with `a duplicate listen 0.0.0.0:443` (nginx 1.30.4 in a throwaway container,
    2026-10-24), and Nginx Proxy Manager then renames that entry's file to `.err` and shows it Offline, lines 57 to 89
    of `backend/internal/nginx.js` at tag v2.15.1.
-7. Advanced tab: leave it empty, unless the Advanced column of the row links to lines to paste.
+7. Advanced tab: leave it empty, unless the Advanced column of the row gives a line or links to lines to paste.
 8. Save. The entry turns green and reports Online.
 9. Add the name to `INTERNAL_DNS_NAMES` and run the certificate job, as
    [Add a new .internal name](internal_ca.md#add-a-new-internal-name) says. Until then the entry works over `http`
@@ -70,7 +70,7 @@ This is the one list of `.internal` names in this lab. Set up every entry from i
 | `plex.internal` | http | `<docker-vm-ip>` | 32400 | on | on | none | Host network, see [Proxying Plex](#proxying-plex). Open as `/web` |
 | `proxmox.internal` | https | `<proxmox-host>` | 8006 | on | on | [the Proxmox lines](#the-advanced-lines-for-proxmox) | Not a container, see [Proxying the Proxmox interface](#proxying-the-proxmox-interface). Open over `https` |
 | `hass.internal` | http | `<ha-vm-ip>` | 8123 | on | on | none | Home Assistant on its own virtual machine. Needs the proxy in its trusted proxies, see [Proxying Home Assistant](#proxying-home-assistant) |
-| `ascend-web-hunter.internal` | http | `ascend-web-hunter` | 7021 | on | on | none | ascend-web-hunter, a separate Compose project, see [ascend_web_hunter.md](ascend_web_hunter.md). Forward port and host port are the same, see below |
+| `ascend-web-hunter.internal` | http | `ascend-web-hunter` | 7021 | on | on | `proxy_read_timeout 180s;` | ascend-web-hunter, a separate Compose project, see [ascend_web_hunter.md](ascend_web_hunter.md). Forward port and host port are the same, see below |
 
 In this lab the three addresses are:
 
@@ -86,6 +86,11 @@ host port instead is the usual reason a new entry returns 502.
 `ascend-web-hunter` is the one entry where the forward port and the published host port are the same number,
 7021. That is not a mistake to "fix" by looking for a different container port, the service happens to publish and
 listen on the same port. See [ascend_web_hunter.md](ascend_web_hunter.md) for how that stack joins this network.
+
+Its Advanced tab holds `proxy_read_timeout 180s;`, because one read through the service can take up to 150 seconds,
+and the default `proxy_read_timeout` of Nginx Proxy Manager 2.15.1 is 90 seconds, in `/etc/nginx/nginx.conf` inside
+the container on 2026-11-11. With the default, a read that took about 110 seconds left the client with an error page
+at 90 seconds.
 
 Never type the port into Forward Hostname / IP as well. Nginx Proxy Manager 2.15.1 puts the two fields together as
 `proxy_pass $forward_scheme://$server:$port$request_uri`, so `192.168.1.10:8006` in the hostname field and `8006` in
@@ -230,8 +235,8 @@ against a throwaway copy of the proxy, with `--resolve`. The PowerShell line has
 
 On 2026-10-25 every name in [Every .internal name](#every-internal-name) that had an entry on this lab answered over
 `https` with certificate check 0 and over `http`. `ascend-web-hunter.internal` was already in the certificate. On
-2026-11-11 the owner added its entry as in the table, `/ready` answered 200 with status `ready` over both `http` and
-`https`, and a POST to `https://ascend-web-hunter.internal/mcp` answered 200.
+2026-11-11 the owner added its entry as in the table, at first without the Advanced line, `/ready` answered 200 with
+status `ready` over both `http` and `https`, and a POST to `https://ascend-web-hunter.internal/mcp` answered 200.
 
 After the DNS cutover in [adguard_dns.md](adguard_dns.md), open `http://dashboard-proxmox.internal` or
 `https://dashboard-proxmox.internal` in a browser instead.
