@@ -17,6 +17,7 @@ The Proxmox host has to exist first. If you have not built it yet, do [proxmox_h
 |---|---|
 | `<proxmox-host>` | Address of the Proxmox node, the machine you open on port 8006 |
 | `<docker-vm-ip>` | Address the VM gets from your router once it boots |
+| `<router-ip>` | The router's address on your own network |
 | `<user>` | Login you create during the Ubuntu install |
 | `<vmid>` | The VM ID Proxmox assigns in the General tab of Create VM |
 | `<size>` | How many GiB to add to the VM disk, a whole number |
@@ -26,6 +27,7 @@ Concrete example, the lab these documents were written from:
 ```text
 <proxmox-host>   192.168.1.10
 <docker-vm-ip>   192.168.1.12
+<router-ip>      192.168.1.1
 ```
 
 ---
@@ -233,17 +235,26 @@ disabled. Replace it with a static file.
 sudo rm /etc/resolv.conf
 ```
 
-Write the new file, which holds one line:
+Write the new file, which holds two lines. The router comes first, because it forwards every question to AdGuard Home, so the VM and its containers resolve the `.internal` names that only AdGuard Home knows. `1.1.1.1` follows as the backup for when the router does not answer. It must never come first: it answers `NXDOMAIN` for every `.internal` name, and that answer ends the lookup, so the router is never asked. Setting the router to forward to AdGuard Home is "Point the network at it" in [adguard_dns.md](adguard_dns.md#point-the-network-at-it).
 
 ```bash
-printf 'nameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf
+printf 'nameserver <router-ip>\nnameserver 1.1.1.1\n' | sudo tee /etc/resolv.conf
 ```
 
-Check it. This must print only `nameserver 1.1.1.1`:
+Check it:
 
 ```bash
 cat /etc/resolv.conf
 ```
+
+This must print only these two lines, in this order, with your own router address in place of the placeholder:
+
+```text
+nameserver <router-ip>
+nameserver 1.1.1.1
+```
+
+A container copies this list when it is created. A container created before this change keeps the old list until it is recreated, so recreate it to let it resolve `.internal` names.
 
 Restart the resolver:
 

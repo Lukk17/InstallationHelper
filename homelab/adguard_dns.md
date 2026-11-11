@@ -233,37 +233,33 @@ of which client asked.
 
 Until the router hands out AdGuard as the DNS server, nothing above has any effect on other devices.
 
-Do this in two stages. The first is reversible in seconds and does not take the house down if something is wrong,
-the second is the one you leave in place.
+Every device and every service asks AdGuard Home or the router for names, and the router asks AdGuard Home, which answers every `.internal` name with `<docker-vm-ip>`. The Docker VM asks the router first, as "Free port 53" in [proxmox_docker_vm.md](proxmox_docker_vm.md#free-port-53) sets it. Two router settings make this work, and both are needed. The field names below are the ones of this lab's ASUS GT-AX6000 on stock firmware 3.0.0.4.386_49273.
 
-While you are still building and testing, set it on the WAN side. In the router administration pages, open the WAN or
-internet connection section, find the DNS server fields, and set the first to `<docker-vm-ip>` and the second to a
-public resolver. The router then asks AdGuard first and has somewhere to fall back to, so a container restart does
-not knock the whole house offline while you are still fiddling with it. The cost is that every query in the log
-appears to come from the router, since the router is the only thing asking.
+1. The router's own DNS, which it uses for every question it answers. Open WAN, then Internet Connection, then WAN DNS Setting, and press Assign. Choose Manual Setting, set DNS Server1 to `<docker-vm-ip>`, leave DNS Server2 empty, press OK, then Apply. Apply restarts the internet connection for a few seconds.
+2. The DNS servers the DHCP server hands to devices. Open the LAN or DHCP server section, set the first DNS server to `<docker-vm-ip>` and the second to `<router>`. Apply, then reconnect a device or renew its lease so it picks up the change.
 
-Once it has run for a few days without surprises, move it to the LAN side and drop the fallback. Open the LAN or DHCP
-server section, find the DNS server fields that the DHCP server advertises, set the first to `<docker-vm-ip>`, and
-leave the second one empty. Undo the WAN setting you made earlier and put it back to automatic. Apply, then reconnect
-a device or renew its lease so it picks up the change.
+DNS Rebind protection and DNSSEC on the router must stay off. With either on, the router drops AdGuard Home's private answers, and `.internal` names fail at the router.
+
+The router's own DNS matters because the router answers every device that uses its second DHCP entry and every machine whose name server is the router, the Docker VM and its containers included. With the WAN DNS on automatic, the router asks the internet provider and answers `NXDOMAIN` for every `.internal` name. DNS Server2 stays empty because the router's DNS server, dnsmasq, sends each question to whichever server answered fastest recently, not to the second only when the first fails. A public server there would answer some `.internal` questions with `NXDOMAIN`, so the names would fail now and then.
+
+Worst case: when AdGuard Home or the Docker VM is down, the router has no names to give either, so the house has no DNS until AdGuard Home is back. Undo: WAN, Internet Connection, WAN DNS Setting, Assign, choose "ISP: Get the DNS IP from your ISP automatically", OK, Apply. The router then answers public names from the provider's servers again, and `.internal` names fail at the router.
+
+Measured on this lab on 2026-11-11: before the change `nvram get wan_dnsenable_x` and `nvram get wan0_dnsenable_x` printed `1`, so the router used the provider's servers `194.204.159.1` and `194.204.152.34` and ignored the typed `192.168.1.12` and `1.1.1.1`, and it answered `NXDOMAIN` for `.internal` names. After the change the router answered `ascend-web-hunter.internal` with `192.168.1.12` and public names normally.
 
 Now every device asks AdGuard directly, which is what makes per device names appear in the query log and what makes
 `.internal` names resolve on phones rather than only on the router.
 
-Leave the WAN or upstream DNS setting on automatic afterwards. That one is what the router uses for itself, and
-keeping it independent means the router still resolves names when the VM is down.
-
 ---
 
-### Why no secondary DNS server
+### Why no public secondary DNS server
 
 A public resolver in the second slot looks like sensible redundancy and is a trap here. Devices do not treat the
 second entry as a failover of last resort, they query whichever resolver answers, so roughly half of your `.internal`
 lookups go to a resolver that has never heard of those names and gets an NXDOMAIN back. Internal names then break at
-random, which is far harder to diagnose than a clean outage.
+random, which is far harder to diagnose than a clean outage. The router is safe in the second DHCP slot because it asks AdGuard Home itself and gives the same answers. The router's own DNS Server2 stays empty for the same reason, as the section above explains.
 
-The cost of a single entry is real and worth stating: if the AdGuard container is down, the network has no DNS at
-all. That failure is loud and obvious, and the fix is to start the container. Give it `restart: unless-stopped`,
+The cost is real and worth stating: if the AdGuard container or the Docker VM is down, the network has no DNS at
+all, through either entry. That failure is loud and obvious, and the fix is to start the container. Give it `restart: unless-stopped`,
 which the Compose file already does, and make it the first thing you check when the network goes quiet.
 
 ---

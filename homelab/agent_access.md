@@ -24,7 +24,7 @@ So one rule covers every credential here: the agent reads freely, asks you befor
 | `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, read only alternative | Proxmox API token with the `PVEAuditor` role | Reading nodes, virtual machines, storage and tasks. Proxmox refuses every change |
 | `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, edit alternative | Proxmox API token of a user with `PVEAuditor` on `/`, `PVEVMAdmin` on `/vms` and `PVEDatastoreUser` on `/storage` | Reading everything the read only alternative reads, plus every `VM.*` privilege on every virtual machine, and using space on storage. What the token can do was measured and is listed under the edit alternative below |
 | `PROXMOX_SSH`, `HOMELAB_SSH_KEY` | SSH key for `root` on the Proxmox host | Everything on the host: every virtual machine, every disk, the host's own settings and a reboot |
-| `DOCKER_VM_SSH`, `HOMELAB_SSH_KEY` | SSH key for your login on the Docker VM | Everything your login can do. Your login is in the `docker` group from [proxmox_docker_vm.md](proxmox_docker_vm.md), which is the same as root on that VM |
+| `DOCKER_VM_SSH`, `HOMELAB_SSH_KEY` | SSH key for your login on the Docker VM | Everything your login can do. Your login is in the `docker` group from [proxmox_docker_vm.md](proxmox_docker_vm.md), which is the same as root on that VM, and `sudo` without a password once the rule in [DOCKER_VM_SSH](#docker_vm_ssh) is set |
 | `ASUS_ROUTER_SSH`, `ASUS_ROUTER_SSH_PORT`, `HOMELAB_SSH_KEY` | The same SSH key, for the router's administrator login | A shell as the router's administrator: every setting, the firewall and a reboot |
 | `SYNCTHING_SERVER_API_KEY` | Syncthing API key | The whole Syncthing REST API, including changing folders and devices |
 | `UPTIME_KUMA_API_KEY` | Uptime Kuma API key | Reading the `/metrics` page and nothing else. It cannot open the web page and cannot change a monitor |
@@ -573,6 +573,22 @@ An agent cannot type a key passphrase either. Either leave the passphrase empty,
     ```
 
 The agent connects the same way, with `-i` and the value of `HOMELAB_SSH_KEY`, and the value of `DOCKER_VM_SSH`.
+
+The agent logs in with the key only and never gets your VM password, so `sudo` would stop it at the password prompt. One rule file gives your login `sudo` without a password. It adds no real power, because the `docker` group already makes your login the same as root on the VM. The rule that the agent asks you before every change on the VM stays.
+
+Run this on the Docker VM yourself, because `sudo` asks for your password this one time:
+
+```bash
+echo '<your-user> ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/90-<your-user>-nopasswd && sudo chmod 440 /etc/sudoers.d/90-<your-user>-nopasswd && sudo visudo -c
+```
+
+`visudo -c` checks every sudoers file and must report each one as parsed OK. To take the rule back, on the Docker VM:
+
+```bash
+sudo rm /etc/sudoers.d/90-<your-user>-nopasswd
+```
+
+On this lab the login is `lukk`, and the owner created `/etc/sudoers.d/90-lukk-nopasswd` with the line `lukk ALL=(ALL) NOPASSWD:ALL` at mode 440 on 2026-11-11.
 
 The same key also opens the VM's `/opt/docker-stack` folder in Dolphin over SFTP, with a short host name in your SSH config, as [Open the Docker VM in Dolphin](lan_storage.md#open-the-docker-vm-in-dolphin) shows.
 

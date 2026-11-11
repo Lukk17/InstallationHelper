@@ -8742,3 +8742,19 @@ How it was proven: the commands and their output are in the session's own record
 Fix: none needed on the machine. Every later command in this change was a plain git command, `cp`, `sha256sum` or the gate.
 
 Mechanical check: none can stop a command typed on the host.
+
+### Found while tracing why Hermes could not reach ascend-web-hunter.internal, 2026-11-11
+
+#### 10.282 The Docker VM asked 1.1.1.1 first and the router asked the internet provider, so no container on the VM could resolve the .internal names
+
+Status: not introduced by this change, fixed here. The VM guide line dates from commit `cb0fc04` of 2026-08-03, and commit `b56c3af` of 2026-10-23 kept it when it turned the step into a one-line command.
+
+Cause: "Free port 53" in [homelab/proxmox_docker_vm.md](../homelab/proxmox_docker_vm.md) gave the VM only `nameserver 1.1.1.1` in a static `/etc/resolv.conf`, the live VM had `nameserver 1.1.1.1` then `nameserver 192.168.1.1`, the router, and the router itself used the provider's DNS because "Connect to DNS Server automatically" was on, which "Point the network at it" in [homelab/adguard_dns.md](../homelab/adguard_dns.md) told the reader to keep. So `.internal` failed both on the VM and at the router.
+
+Effect: `1.1.1.1` answers `NXDOMAIN` for every `.internal` name, and that answer ends the lookup, so the router was never asked, and the router answered `NXDOMAIN` for `.internal` names too. A container copies the VM's list when it is created, so no container on the VM could resolve `.internal` names, and Hermes could not reach `http://ascend-web-hunter.internal`. The owner's rule is that every service reaches another service only by its Nginx Proxy Manager `.internal` name, so the VM broke that rule for every container.
+
+How it was proven: the brief of this change gave the measurements, taken by the main thread on 2026-11-11. On the VM, `/etc/resolv.conf` held `nameserver 1.1.1.1` then `nameserver 192.168.1.1`. On the router, ASUS GT-AX6000 on stock firmware 3.0.0.4.386_49273, `nvram get wan_dnsenable_x` and `nvram get wan0_dnsenable_x` printed `1`, so it used the provider's servers `194.204.159.1` and `194.204.152.34` and ignored the typed `192.168.1.12` and `1.1.1.1`. After both fixes the router answered `ascend-web-hunter.internal` with `192.168.1.12` and public names normally, Hermes, recreated, reached `http://ascend-web-hunter.internal/health` with 200, and Uptime Kuma, not recreated, still could not. This change ran nothing against the lab. `git log -S "nameserver 1.1.1.1"` named the two commits. A first draft of this fix put AdGuard Home first in the VM's file, and the owner rejected that order in favour of one chain through the router.
+
+Fix: on 2026-11-11 the owner set the router's WAN DNS to Manual Setting with DNS Server1 `192.168.1.12`, AdGuard Home, and DNS Server2 empty, and the VM's `/etc/resolv.conf` to `nameserver 192.168.1.1` then `nameserver 1.1.1.1`. "Free port 53" now writes those two lines with `<router-ip>` first, which joins the placeholder table with the same meaning as in [homelab/agent_access.md](../homelab/agent_access.md), says why the router comes first and why `1.1.1.1` follows, and says to recreate containers created before the change. "Point the network at it" in [homelab/adguard_dns.md](../homelab/adguard_dns.md) now sets the router's WAN DNS to AdGuard Home with DNS Server2 empty and the DHCP DNS servers to AdGuard Home first and the router second, as the router hands them out, gives the reason, the worst case and the undo, and no longer advises a public second server or the automatic setting. The troubleshooting line in [homelab/README_HOMELAB.md](../homelab/README_HOMELAB.md) names the router's own DNS as a cause.
+
+Mechanical check: none. The file lives on the Docker VM, which the gate container cannot reach, and the owner decided on 2026-10-10 not to add automatic checks for this set of homelab defects, as 10.273 records.

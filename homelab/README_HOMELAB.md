@@ -332,7 +332,7 @@ An ad domain ends earlier. AdGuard answers `0.0.0.0` and the browser has nowhere
 
 The whole network loses DNS. The AdGuard container is down, or something else grabbed port 53 on the virtual machine. Check `docker ps` and see [adguard_dns.md](adguard_dns.md) for the port 53 conflict.
 
-Internal names fail but the internet works. The router is handing out a public DNS server, or the wildcard rewrite is missing in AdGuard.
+Internal names fail but the internet works. The router is handing out a public DNS server, the router's own WAN DNS setting still asks the internet provider instead of AdGuard, or the wildcard rewrite is missing in AdGuard. See "Point the network at it" in [adguard_dns.md](adguard_dns.md#point-the-network-at-it).
 
 One internal name returns 502. That container is stopped, or the port in its proxy host entry is wrong. The forward port is the container port, not the published host port.
 
