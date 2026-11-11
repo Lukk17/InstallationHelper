@@ -70,7 +70,7 @@ This is the one list of `.internal` names in this lab. Set up every entry from i
 | `plex.internal` | http | `<docker-vm-ip>` | 32400 | on | on | none | Host network, see [Proxying Plex](#proxying-plex). Open as `/web` |
 | `proxmox.internal` | https | `<proxmox-host>` | 8006 | on | on | [the Proxmox lines](#the-advanced-lines-for-proxmox) | Not a container, see [Proxying the Proxmox interface](#proxying-the-proxmox-interface). Open over `https` |
 | `hass.internal` | http | `<ha-vm-ip>` | 8123 | on | on | none | Home Assistant on its own virtual machine. Needs the proxy in its trusted proxies, see [Proxying Home Assistant](#proxying-home-assistant) |
-| `ascend-web-hunter.internal` | http | `ascend-web-hunter` | 7021 | on | on | none | Not deployed yet, so this lab has no entry for it. Forward port and host port are the same, see below |
+| `ascend-web-hunter.internal` | http | `ascend-web-hunter` | 7021 | on | on | none | ascend-web-hunter, a separate Compose project, see [ascend_web_hunter.md](ascend_web_hunter.md). Forward port and host port are the same, see below |
 
 In this lab the three addresses are:
 
@@ -228,9 +228,10 @@ curl.exe -sS -o NUL -w "%{http_code} %{ssl_verify_result}\n" --cacert <ca-dir>\c
 On 2026-10-24 curl 8.23.0 in a container ran these options against the lab, with DNS instead of `--resolve`, and
 against a throwaway copy of the proxy, with `--resolve`. The PowerShell line has not been run on Windows.
 
-On 2026-10-25 every name in [Every .internal name](#every-internal-name) that has an entry on this lab answered over
-`https` with certificate check 0 and over `http`. `ascend-web-hunter.internal` is in the certificate but has no entry
-yet, because the service is not deployed.
+On 2026-10-25 every name in [Every .internal name](#every-internal-name) that had an entry on this lab answered over
+`https` with certificate check 0 and over `http`. `ascend-web-hunter.internal` was already in the certificate. On
+2026-11-11 the owner added its entry as in the table, `/ready` answered 200 with status `ready` over both `http` and
+`https`, and a POST to `https://ascend-web-hunter.internal/mcp` answered 200.
 
 After the DNS cutover in [adguard_dns.md](adguard_dns.md), open `http://dashboard-proxmox.internal` or
 `https://dashboard-proxmox.internal` in a browser instead.

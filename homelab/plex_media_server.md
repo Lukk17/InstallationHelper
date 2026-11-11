@@ -88,7 +88,7 @@ With host networking there is no `ports:` list. Plex opens 32400 for the server 
 
 `cpus: 1.5` in [compose.yaml](compose.yaml) is a hard ceiling enforced by the kernel. Plex cannot use more than one and a half cores' worth of time, whatever it is doing.
 
-The number counts the Docker VM's cores, not the host's. [proxmox_docker_vm.md](proxmox_docker_vm.md) suggests four, so Plex gets at most 1.5 of them and AdGuard, Nginx Proxy Manager and the rest always keep at least 2.5. This lab's VM 101 has two (`cores: 2` in its Proxmox configuration), so there Plex can take 1.5 and the rest keep at least 0.5. On the host's six cores 1.5 is a quarter of the machine.
+The number counts the Docker VM's cores, not the host's. [proxmox_docker_vm.md](proxmox_docker_vm.md) suggests four, so Plex gets at most 1.5 of them and AdGuard, Nginx Proxy Manager and the rest always keep at least 2.5. This lab's VM 101 has four as well since 2026-11-10 (`cores: 4` in its Proxmox configuration), so there too Plex can take 1.5 and the rest keep at least 2.5. On the host's six cores 1.5 is a quarter of the machine.
 
 Direct Play sends the file as it is and costs almost nothing, and Direct Stream only repackages it, which Plex's [Direct Play and Direct Stream](https://support.plex.tv/articles/200250387-streaming-media-direct-play-and-direct-stream/) article describes as using "very little processing power without any loss in video quality". Both fit inside 1.5 cores with room to spare. A real video conversion does not: under the cap it simply runs slower than real time and the player buffers, which is the visible sign that a file is in the wrong format. That is the intended failure, a stuttering film rather than the whole house losing DNS.
 

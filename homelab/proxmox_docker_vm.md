@@ -63,7 +63,7 @@ CPU. One socket, four cores, type `x86-64-v2-AES`. One socket matches one physic
 consumer hardware. The AES type passes hardware encryption acceleration into the VM, which speeds up TLS work in the
 reverse proxy.
 
-Concrete example, the lab these documents were written from: VM 101 `docker-vm` had one socket and two cores on 2026-11-10 (`sockets: 1`, `cores: 2` in its Proxmox configuration), so the Plex cap of 1.5 cores leaves the rest of the stack at least 0.5, see [plex_media_server.md](plex_media_server.md#the-cpu-cap).
+Concrete example, the lab these documents were written from: VM 101 `docker-vm` has one socket and four cores since 2026-11-10 (`sockets: 1`, `cores: 4` in its Proxmox configuration, and `nproc` in the VM prints 4), and had two before that. So the Plex cap of 1.5 cores leaves the rest of the stack at least 2.5, see [plex_media_server.md](plex_media_server.md#the-cpu-cap).
 
 Memory. 4096 MiB is enough for the Compose stack alone with room to spare. ascend-web-hunter, which runs beside it, needs about 3 GB more, because its memory ceilings total 3.0 GB, see [ascend_web_hunter.md](ascend_web_hunter.md#resource-footprint).
 

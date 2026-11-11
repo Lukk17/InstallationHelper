@@ -20,27 +20,67 @@ The deployment files live in [ascend-web-hunter_deploy/](ascend-web-hunter_deplo
 2. The image `lukk17/ascend-ai-ascend-web-hunter:v0.0.15` must exist in the registry. The AscendAI release workflow published it on 2026-11-09. The check is in the [Prerequisites](ascend-web-hunter_deploy/README.md#prerequisites) of the deploy README.
 3. The secrets must be in `.env`, covered below.
 
-Only if the earlier AscendWebSearch stack ever ran on this VM: stop it before starting this one. Both stacks use the project name `ascend-scrapper` and the container name `searxng`, and a git pull removes the old compose file, so stop it by its project name:
+Only if the earlier AscendWebSearch stack ever ran on this VM: stop it before starting this one. Both stacks use the project name `ascend-scrapper` and the container name `searxng`. Stop it by its project name, which works from any folder and does not need its old compose file:
 
 ```bash
 docker compose -p ascend-scrapper down
 ```
 
-The pull leaves the old directory behind holding only its `.env`, because git does not track that file. The new stack needs a new `.env` anyway, so delete the old directory:
+The stack runs from a plain copy of the four files of [ascend-web-hunter_deploy/](ascend-web-hunter_deploy/) on the VM, not a clone of this repository, the same way as the main stack in [Deploying from your clone](README_HOMELAB.md#deploying-from-your-clone). On the VM, create its folder, with the `searxng` folder inside it:
 
 ```bash
-rm -rf /opt/docker-stack/InstallationHelper/homelab/ascend-web-search_deploy
+mkdir -p /opt/docker-stack/ascend-web-hunter/searxng
 ```
 
-Then start the new stack from its own directory:
+From your own machine, copy the Compose file, `.env.example` and the README. Unix shell:
 
 ```bash
-cd /opt/docker-stack/InstallationHelper/homelab/ascend-web-hunter_deploy
+scp <repo>/homelab/ascend-web-hunter_deploy/compose.yaml <repo>/homelab/ascend-web-hunter_deploy/.env.example <repo>/homelab/ascend-web-hunter_deploy/README.md <user>@<docker-vm-ip>:/opt/docker-stack/ascend-web-hunter/
 ```
+
+PowerShell:
+
+```powershell
+scp <repo>\homelab\ascend-web-hunter_deploy\compose.yaml <repo>\homelab\ascend-web-hunter_deploy\.env.example <repo>\homelab\ascend-web-hunter_deploy\README.md <user>@<docker-vm-ip>:/opt/docker-stack/ascend-web-hunter/
+```
+
+Then the SearXNG settings, which SearXNG will not start without. Unix shell:
+
+```bash
+scp <repo>/homelab/ascend-web-hunter_deploy/searxng/settings.yaml <user>@<docker-vm-ip>:/opt/docker-stack/ascend-web-hunter/searxng/settings.yaml
+```
+
+PowerShell:
+
+```powershell
+scp <repo>\homelab\ascend-web-hunter_deploy\searxng\settings.yaml <user>@<docker-vm-ip>:/opt/docker-stack/ascend-web-hunter/searxng/settings.yaml
+```
+
+On this lab, from a clone in `~/Projects/InstallationHelper`:
+
+```bash
+scp ~/Projects/InstallationHelper/homelab/ascend-web-hunter_deploy/compose.yaml ~/Projects/InstallationHelper/homelab/ascend-web-hunter_deploy/.env.example ~/Projects/InstallationHelper/homelab/ascend-web-hunter_deploy/README.md lukk@192.168.1.12:/opt/docker-stack/ascend-web-hunter/
+```
+
+```bash
+scp ~/Projects/InstallationHelper/homelab/ascend-web-hunter_deploy/searxng/settings.yaml lukk@192.168.1.12:/opt/docker-stack/ascend-web-hunter/searxng/settings.yaml
+```
+
+A later change to any of the four files reaches the VM the same way, with the same commands.
+
+Then, on the VM, go into the folder:
+
+```bash
+cd /opt/docker-stack/ascend-web-hunter
+```
+
+Write `.env` there with the commands in the [Quick start](ascend-web-hunter_deploy/README.md#quick-start) of the deploy README, then start the stack:
 
 ```bash
 docker compose up -d
 ```
+
+It was deployed this way on this lab on 2026-11-10, and `/ready` answered `ready` with every check `ok`.
 
 ---
 
@@ -102,7 +142,7 @@ Now that both stacks share `proxy-tier`, `redis://redis:6379/0` would also work,
 
 ### The three secrets
 
-Everything sensitive lives in `.env` inside [ascend-web-hunter_deploy/](ascend-web-hunter_deploy/), written before the first start with the commands in the [Quick start](ascend-web-hunter_deploy/README.md#quick-start) of its README. `SEARXNG_SECRET` and `NGROK_AUTHTOKEN` are required, and Compose refuses to start and names the missing variable if either is blank. `VNC_PASSWORD` is optional.
+Everything sensitive lives in `.env` beside the copy of [ascend-web-hunter_deploy/](ascend-web-hunter_deploy/) on the VM, `/opt/docker-stack/ascend-web-hunter/.env`, written before the first start with the commands in the [Quick start](ascend-web-hunter_deploy/README.md#quick-start) of its README. `SEARXNG_SECRET` and `NGROK_AUTHTOKEN` are required, and Compose refuses to start and names the missing variable if either is blank. `VNC_PASSWORD` is optional.
 
 | Variable | Real constraint |
 |---|---|

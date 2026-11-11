@@ -67,7 +67,7 @@ The answer must list a tag named `v0.0.15`. The AscendAI release workflow publis
 
 ### Quick start
 
-Copy this whole directory to the host. It needs all four files, including `searxng/settings.yaml`, which SearXNG will not start without.
+Copy this whole directory to the host. It needs all four files, including `searxng/settings.yaml`, which SearXNG will not start without. For this homelab the `scp` commands are in [Before the first start](../ascend_web_hunter.md#before-the-first-start).
 
 Create the secrets file, `.env`, with the commands below. What each value has to satisfy:
 
@@ -270,6 +270,8 @@ There is no log collection in this stack. The Loki and Grafana setup used in dev
 Images are pinned to exact versions rather than `latest`, so a restart never changes what is running and you can always go back to a version you know worked. The ascend-web-hunter image is pinned to the release tag `v0.0.15`, the same tag the AscendAI bundle runs. SearXNG and ngrok are pinned to a tag plus its `sha256` digest, because they are other people's builds and a change there is a change nobody here chose.
 
 To move to a newer ascend-web-hunter build, put its tag on the `image:` line with the commands below, then pull and recreate. The two commands are identical in both shells, because `docker compose` takes the same arguments everywhere.
+
+On another host, change the `image:` line in the copy the stack runs from, then pull and recreate there. On this homelab, change it in your clone of this repository, never only in the copy on the VM. Then copy `compose.yaml` to the VM with the `scp` step in [Before the first start](../ascend_web_hunter.md#before-the-first-start), and only then run the pull and recreate below on the VM, from `/opt/docker-stack/ascend-web-hunter`.
 
 Unix shell:
 
