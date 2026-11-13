@@ -412,6 +412,350 @@ Describe 'Get-WingetPath on a machine without winget' {
     }
 }
 
+Describe 'Initialize-Winget installs winget once when this machine has none, owner decision 51.1' {
+
+    # Until 2026-11-13 nothing installed winget, so on a Windows build without App Installer every
+    # winget package failed with "winget was not found", docs/regression_ledger.md 10.338. Every step
+    # it takes is mocked here, because each one reaches the network or Windows itself.
+    BeforeAll {
+        $script:FoundWinget = 'C:\Users\me\AppData\Local\Microsoft\WindowsApps\winget.exe'
+        $script:NotFound = 'winget was not found. Install App Installer from the Microsoft Store, then rerun.'
+        $script:Ok = [PSCustomObject]@{ Succeeded = $true; Detail = '' }
+        $script:Answer = [PSCustomObject]@{ Answered = $true; Version = 'v1.12.350'; Reason = '' }
+    }
+
+    BeforeEach {
+        Mock Get-WingetPath { throw $script:NotFound }
+        Mock Register-WingetAppInstaller { [PSCustomObject]@{ Succeeded = $false; Detail = 'Deployment failed with HRESULT: 0x80073CF1, Package was not found.' } }
+        Mock Find-InstalledWinget { $script:FoundWinget }
+        Mock Install-WingetClientModule { $script:Ok }
+        Mock Install-WingetFromClientModule { $script:Ok }
+        Mock Get-WingetVersion { $script:Answer }
+        Mock Write-Host { }
+    }
+
+    It 'returns the winget it finds and installs nothing when winget is there' {
+        Mock Get-WingetPath { $script:FoundWinget }
+
+        Initialize-Winget | Should -Be $script:FoundWinget
+        Should -Invoke Register-WingetAppInstaller -Times 0 -Exactly
+        Should -Invoke Install-WingetClientModule -Times 0 -Exactly
+        Should -Invoke Install-WingetFromClientModule -Times 0 -Exactly
+        Should -Invoke Write-Host -Times 0 -Exactly
+    }
+
+    It 'stops after registering App Installer when winget then answers, and downloads nothing' {
+        Mock Register-WingetAppInstaller { $script:Ok }
+
+        Initialize-Winget | Should -Be $script:FoundWinget
+        Should -Invoke Register-WingetAppInstaller -Times 1 -Exactly
+        Should -Invoke Get-WingetVersion -Times 1 -Exactly -ParameterFilter { $WingetPath -eq $script:FoundWinget }
+        Should -Invoke Install-WingetClientModule -Times 0 -Exactly
+        Should -Invoke Install-WingetFromClientModule -Times 0 -Exactly
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -like '*winget was not found on this machine, so it is being installed now*' }
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -like '*winget v1.12.350 answers after App Installer was registered*' }
+    }
+
+    It 'installs with Repair-WinGetPackageManager when the register step fails, then asks winget --version' {
+        Initialize-Winget | Should -Be $script:FoundWinget
+        Should -Invoke Register-WingetAppInstaller -Times 1 -Exactly
+        Should -Invoke Install-WingetClientModule -Times 1 -Exactly
+        Should -Invoke Install-WingetFromClientModule -Times 1 -Exactly
+        Should -Invoke Get-WingetVersion -Times 1 -Exactly -ParameterFilter { $WingetPath -eq $script:FoundWinget }
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -like '*Registering App Installer did not bring winget back (Deployment failed with HRESULT: 0x80073CF1*), so it is installed now with Repair-WinGetPackageManager*' }
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -like '*winget v1.12.350 is installed and answers*' }
+    }
+
+    It 'goes on to Repair-WinGetPackageManager when the register step succeeds and winget is still not found' {
+        Mock Register-WingetAppInstaller { $script:Ok }
+        $global:WingetInstalledByTest = $false
+        Mock Find-InstalledWinget { if ($global:WingetInstalledByTest) { $script:FoundWinget } else { '' } }
+        Mock Install-WingetFromClientModule { $global:WingetInstalledByTest = $true; $script:Ok }
+
+        Initialize-Winget | Should -Be $script:FoundWinget
+        Should -Invoke Install-WingetFromClientModule -Times 1 -Exactly
+        Should -Invoke Find-InstalledWinget -Times 2 -Exactly
+        Should -Invoke Get-WingetVersion -Times 1 -Exactly
+    }
+
+    It 'goes on to Repair-WinGetPackageManager when the registered winget does not answer' {
+        Mock Register-WingetAppInstaller { $script:Ok }
+        $global:WingetInstalledByTest = $false
+        Mock Install-WingetFromClientModule { $global:WingetInstalledByTest = $true; $script:Ok }
+        Mock Get-WingetVersion {
+            if ($global:WingetInstalledByTest) { $script:Answer } else { [PSCustomObject]@{ Answered = $false; Version = ''; Reason = 'winget --version exited -1073741515' } }
+        }
+
+        Initialize-Winget | Should -Be $script:FoundWinget
+        Should -Invoke Install-WingetFromClientModule -Times 1 -Exactly
+        Should -Invoke Get-WingetVersion -Times 2 -Exactly
+    }
+
+    It 'stops with the administrator form and the troubleshooting page when Repair-WinGetPackageManager fails' {
+        Mock Install-WingetFromClientModule { [PSCustomObject]@{ Succeeded = $false; Detail = 'Deployment failed with HRESULT: 0x80073CF3 (attempt 4 of 4)' } }
+
+        { Initialize-Winget } | Should -Throw -ExpectedMessage '*Repair-WinGetPackageManager could not install it: Deployment failed with HRESULT: 0x80073CF3*Repair-WinGetPackageManager -AllUsers*elevated PowerShell*https://learn.microsoft.com/en-us/windows/package-manager/winget/troubleshooting*'
+        Should -Invoke Get-WingetVersion -Times 0 -Exactly
+    }
+
+    It 'stops before the repair when the Microsoft.WinGet.Client module cannot be installed' {
+        Mock Install-WingetClientModule { [PSCustomObject]@{ Succeeded = $false; Detail = 'Unable to resolve package source' } }
+
+        { Initialize-Winget } | Should -Throw -ExpectedMessage '*Microsoft.WinGet.Client module did not install: Unable to resolve package source*https://learn.microsoft.com/en-us/windows/package-manager/winget/troubleshooting*'
+        Should -Invoke Install-WingetFromClientModule -Times 0 -Exactly
+    }
+
+    It 'stops when winget is still not found after a repair that reported success' {
+        Mock Find-InstalledWinget { '' }
+
+        { Initialize-Winget } | Should -Throw -ExpectedMessage '*Repair-WinGetPackageManager finished, but winget is still not found*'
+        Should -Invoke Get-WingetVersion -Times 0 -Exactly
+    }
+
+    It 'stops when the installed winget does not answer winget --version' {
+        Mock Get-WingetVersion { [PSCustomObject]@{ Answered = $false; Version = ''; Reason = 'winget --version exited -1073741515' } }
+
+        { Initialize-Winget } | Should -Throw -ExpectedMessage "*winget was installed at $($script:FoundWinget), but it does not answer: winget --version exited -1073741515*"
+    }
+
+    It 'installs nothing under -WhatIf' {
+        Initialize-Winget -WhatIf | Should -BeNullOrEmpty
+        Should -Invoke Register-WingetAppInstaller -Times 0 -Exactly
+        Should -Invoke Install-WingetClientModule -Times 0 -Exactly
+        Should -Invoke Install-WingetFromClientModule -Times 0 -Exactly
+    }
+
+    It 'is called by Invoke-Main in setup.ps1 before the upgrade, the first winget call of a run' {
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'setup\setup.ps1'), [ref]$null, [ref]$errors)
+        $errors | Should -BeNullOrEmpty
+        $main = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-Main' }, $true)
+        $calls = @($main.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
+
+        $initialize = @($calls | Where-Object { $_.GetCommandName() -eq 'Initialize-Winget' })
+        $upgrade = @($calls | Where-Object { $_.GetCommandName() -eq 'Invoke-WindowsSystemUpgrade' })
+
+        $initialize.Count | Should -Be 1
+        $upgrade.Count | Should -Be 1
+        $initialize[0].Extent.StartOffset | Should -BeLessThan $upgrade[0].Extent.StartOffset
+    }
+
+    AfterEach {
+        Remove-Variable -Name WingetInstalledByTest -Scope Global -ErrorAction SilentlyContinue
+    }
+}
+
+Describe 'Get-WingetVersion' {
+
+    It 'answers the version winget --version prints, asked with a deadline' {
+        Mock Invoke-BoundedWinget { [PSCustomObject]@{ Output = "v1.12.350`r`n"; ExitCode = 0; TimedOut = $false } }
+
+        $answer = Get-WingetVersion -WingetPath 'C:\winget.exe'
+
+        $answer.Answered | Should -BeTrue
+        $answer.Version | Should -Be 'v1.12.350'
+        Should -Invoke Invoke-BoundedWinget -Times 1 -Exactly -ParameterFilter { $WingetPath -eq 'C:\winget.exe' -and "$Arguments" -eq '--version' -and $TimeoutSeconds -eq 60 }
+    }
+
+    It 'does not count a non-zero exit as an answer, and says what winget printed' {
+        Mock Invoke-BoundedWinget { [PSCustomObject]@{ Output = "The application was unable to start correctly.`r`n"; ExitCode = -1073741515; TimedOut = $false } }
+
+        $answer = Get-WingetVersion -WingetPath 'C:\winget.exe'
+
+        $answer.Answered | Should -BeFalse
+        $answer.Reason | Should -Be 'winget --version exited -1073741515. The application was unable to start correctly.'
+    }
+
+    It 'does not count an exit 0 without a version as an answer' {
+        Mock Invoke-BoundedWinget { [PSCustomObject]@{ Output = ''; ExitCode = 0; TimedOut = $false } }
+
+        (Get-WingetVersion -WingetPath 'C:\winget.exe').Answered | Should -BeFalse
+    }
+
+    It 'does not count a winget that ran out of time as an answer' {
+        Mock Invoke-BoundedWinget { [PSCustomObject]@{ Output = ''; ExitCode = -1; TimedOut = $true } }
+
+        $answer = Get-WingetVersion -WingetPath 'C:\winget.exe'
+
+        $answer.Answered | Should -BeFalse
+        $answer.Reason | Should -Be 'winget --version did not answer within 60 seconds'
+    }
+}
+
+Describe 'The steps Initialize-Winget takes to install winget' {
+
+    # Functions shadow the cmdlets of the same name, so no test below can reach the PowerShell Gallery
+    # or change App Installer, whether or not PowerShellGet, Appx or Microsoft.WinGet.Client is here.
+    BeforeAll {
+        function Install-PackageProvider {
+            [CmdletBinding()]
+            param([string[]] $Name, [string] $Scope, [switch] $Force)
+        }
+        function Install-Module {
+            [CmdletBinding()]
+            param([string[]] $Name, [string] $Repository, [string] $Scope, [switch] $Force, [switch] $AcceptLicense)
+        }
+        function Repair-WinGetPackageManager {
+            [CmdletBinding()]
+            param([switch] $AllUsers, [switch] $Latest, [switch] $Force)
+        }
+        function Add-AppxPackage {
+            [CmdletBinding()]
+            param([switch] $RegisterByFamilyName, [string[]] $MainPackage)
+        }
+    }
+
+    Context 'Register-WingetAppInstaller' {
+
+        It 'asks Windows to register App Installer by its family name, the command Microsoft documents for a new user account' {
+            Mock Add-AppxPackage { }
+
+            (Register-WingetAppInstaller).Succeeded | Should -BeTrue
+            Should -Invoke Add-AppxPackage -Times 1 -Exactly -ParameterFilter {
+                $RegisterByFamilyName -and "$MainPackage" -eq 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe'
+            }
+        }
+
+        It 'reports a failed registration with what Windows said, instead of throwing' {
+            Mock Add-AppxPackage { throw 'Deployment failed with HRESULT: 0x80073CF1, Package was not found.' }
+
+            $result = Register-WingetAppInstaller
+
+            $result.Succeeded | Should -BeFalse
+            $result.Detail | Should -Be 'Deployment failed with HRESULT: 0x80073CF1, Package was not found.'
+        }
+    }
+
+    Context 'Install-WingetClientModule' {
+
+        It 'installs nothing when the Microsoft.WinGet.Client module is already there' {
+            Mock Get-Module { [PSCustomObject]@{ Name = 'Microsoft.WinGet.Client' } }
+            Mock Install-PackageProvider { }
+            Mock Install-Module { }
+
+            (Install-WingetClientModule).Succeeded | Should -BeTrue
+            Should -Invoke Install-PackageProvider -Times 0 -Exactly
+            Should -Invoke Install-Module -Times 0 -Exactly
+        }
+
+        It 'installs NuGet and the module for this user only, because the default scope needs an administrator' {
+            Mock Get-Module { }
+            Mock Install-PackageProvider { }
+            Mock Install-Module { }
+
+            (Install-WingetClientModule).Succeeded | Should -BeTrue
+            Should -Invoke Install-PackageProvider -Times 1 -Exactly -ParameterFilter {
+                "$Name" -eq 'NuGet' -and $Scope -eq 'CurrentUser' -and $Force
+            }
+            Should -Invoke Install-Module -Times 1 -Exactly -ParameterFilter {
+                "$Name" -eq 'Microsoft.WinGet.Client' -and $Repository -eq 'PSGallery' -and $Scope -eq 'CurrentUser' -and $Force
+            }
+        }
+
+        It 'reports a module install that failed every attempt, with what the gallery said' {
+            Mock Get-Module { }
+            Mock Install-PackageProvider { }
+            Mock Install-Module { throw 'Unable to resolve package source' }
+            Mock Write-Host { }
+            Mock Start-Sleep { }
+
+            $result = Install-WingetClientModule
+
+            $result.Succeeded | Should -BeFalse
+            $result.Detail | Should -BeLike 'Unable to resolve package source (attempt 4 of 4*'
+            Should -Invoke Install-Module -Times 4 -Exactly
+        }
+    }
+
+    Context 'Install-WingetFromClientModule' {
+
+        It 'runs Repair-WinGetPackageManager -Force -Latest, the troubleshooting form, without -AllUsers, which needs an administrator' {
+            Mock Import-Module { }
+            Mock Repair-WinGetPackageManager { }
+
+            (Install-WingetFromClientModule).Succeeded | Should -BeTrue
+            Should -Invoke Import-Module -Times 1 -Exactly -ParameterFilter { "$Name" -eq 'Microsoft.WinGet.Client' }
+            Should -Invoke Repair-WinGetPackageManager -Times 1 -Exactly -ParameterFilter { $Force -and $Latest -and -not $AllUsers }
+        }
+
+        It 'reports a repair that failed every attempt, with what it said' {
+            Mock Import-Module { }
+            Mock Repair-WinGetPackageManager { throw 'Deployment failed with HRESULT: 0x80073CF3' }
+            Mock Write-Host { }
+            Mock Start-Sleep { }
+
+            $result = Install-WingetFromClientModule
+
+            $result.Succeeded | Should -BeFalse
+            $result.Detail | Should -BeLike 'Deployment failed with HRESULT: 0x80073CF3 (attempt 4 of 4*'
+            Should -Invoke Repair-WinGetPackageManager -Times 4 -Exactly
+        }
+    }
+
+    Context 'Add-WingetUserFolderToProcessPath and Find-InstalledWinget' {
+
+        # Real folders under TestDrive stand in for %LOCALAPPDATA%, and both variables are put back
+        # after every test, so nothing here can reach this process's real PATH for longer than one test.
+        BeforeEach {
+            $script:SavedPath = $env:PATH
+            $script:SavedLocalAppData = $env:LOCALAPPDATA
+            $script:LocalAppData = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $script:WindowsApps = Join-Path $script:LocalAppData 'Microsoft' 'WindowsApps'
+            $null = New-Item -ItemType Directory -Path $script:WindowsApps -Force
+            $env:LOCALAPPDATA = $script:LocalAppData
+        }
+
+        AfterEach {
+            $env:PATH = $script:SavedPath
+            $env:LOCALAPPDATA = $script:SavedLocalAppData
+        }
+
+        It 'puts the WindowsApps folder on this process PATH once and returns winget.exe in it' {
+            $exe = Join-Path $script:WindowsApps 'winget.exe'
+            $null = New-Item -ItemType File -Path $exe
+
+            Add-WingetUserFolderToProcessPath | Should -Be $exe
+            Add-WingetUserFolderToProcessPath | Should -Be $exe
+
+            @($env:PATH -split [regex]::Escape([System.IO.Path]::PathSeparator) | Where-Object { $_ -eq $script:WindowsApps }).Count | Should -Be 1
+        }
+
+        It 'changes nothing and returns an empty string when winget.exe is not in that folder' {
+            $before = $env:PATH
+
+            Add-WingetUserFolderToProcessPath | Should -Be ''
+            $env:PATH | Should -Be $before
+        }
+
+        It 'never writes the saved user PATH' {
+            $null = New-Item -ItemType File -Path (Join-Path $script:WindowsApps 'winget.exe')
+            Mock Add-WindowsUserPathEntry { }
+            Mock Invoke-WindowsRegistryChange { }
+
+            $null = Add-WingetUserFolderToProcessPath
+
+            Should -Invoke Add-WindowsUserPathEntry -Times 0 -Exactly
+            Should -Invoke Invoke-WindowsRegistryChange -Times 0 -Exactly
+        }
+
+        It 'returns the winget Get-WingetPath finds without touching PATH' {
+            Mock Get-WingetPath { 'C:\found\winget.exe' }
+            Mock Add-WingetUserFolderToProcessPath { }
+
+            Find-InstalledWinget | Should -Be 'C:\found\winget.exe'
+            Should -Invoke Add-WingetUserFolderToProcessPath -Times 0 -Exactly
+        }
+
+        It 'looks in the WindowsApps folder when Get-WingetPath finds nothing' {
+            Mock Get-WingetPath { throw 'winget was not found. Install App Installer from the Microsoft Store, then rerun.' }
+            Mock Add-WingetUserFolderToProcessPath { 'C:\Users\me\AppData\Local\Microsoft\WindowsApps\winget.exe' }
+
+            Find-InstalledWinget | Should -Be 'C:\Users\me\AppData\Local\Microsoft\WindowsApps\winget.exe'
+            Should -Invoke Add-WingetUserFolderToProcessPath -Times 1 -Exactly
+        }
+    }
+}
+
 Describe 'PinnedValues module' {
 
     # These do not test the resolver, they test the adapter over it. The resolver lives in
@@ -4143,7 +4487,8 @@ Describe 'A picked-apps run of setup.ps1 runs only the steps a picked key asks f
             'Set-Theme'                       = 'console colours only'
             'Invoke-WindowsSystemUpgrade'     = 'every run upgrades the installed packages, owner decision 43, and only -SkipSystemUpgrade turns it off'
             'Start-WindowsConfigChangeRecord' = 'starts the in-memory record of what the run changes'
-            'Install-ConsoleGuiTools'         = 'the interactive picker only, and -Software makes a run non-interactive'
+            'Initialize-Winget'               = 'installs winget only when it is missing, before the upgrade every run makes, owner decision 51.1'
+            'Install-ConsoleGuiTools'        = 'the interactive picker only, and -Software makes a run non-interactive'
             'Invoke-WindowsRun'               = 'the run itself, whose own steps are judged here one by one'
             'Invoke-AndShowVerification'      = 'reads what landed and writes only the run''s own log, installation_verify.log'
         }

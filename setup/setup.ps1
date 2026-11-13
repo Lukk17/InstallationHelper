@@ -27,6 +27,11 @@
     which is what ih_picked_apps_run does on Linux. Every other run does every step. See
     docs/regression_ledger.md 10.310 and 10.320.
 
+    A machine without winget gets it first, before the upgrade: App Installer is registered for the
+    user, and when winget still does not answer, Repair-WinGetPackageManager from the
+    Microsoft.WinGet.Client module installs it. The run stops when winget then does not answer
+    `winget --version`. See Initialize-Winget in setup/windows/WindowsSoftware.ps1.
+
     Every configuration file a run changes is copied first, once per run, to
     %LOCALAPPDATA%\installation-helper\backup\<start time in UTC, 2026-11-13T17-40-37Z>\<its full
     path without the drive colon>, and the end of the run lists every file changed or created and
@@ -1523,6 +1528,7 @@ function Show-ResolvedPlan {
     if ($RunScope.PickedAppsRun) {
         Write-Output "  Picked-apps run: $($RunScope.PickedKeys -join ', ')"
     }
+    Write-Output '  winget: when this machine has none, App Installer is registered first, then installed with Repair-WinGetPackageManager if winget still does not answer winget --version.'
     if ($SkipSystemUpgrade) {
         Write-Output '  Upgrade of the already-installed packages: skipped (-SkipSystemUpgrade).'
     } else {
@@ -1597,6 +1603,13 @@ function Invoke-Main {
 
     if ($script:RunScope.PickedAppsRun) {
         Write-Status "Picked-apps run: $($script:RunScope.PickedKeys -join ', '). The cache cleanup and Ansible inside WSL are skipped, and only the picked apps' environment variables are written."
+    }
+
+    # Before the upgrade, which is the first winget call of a run, by owner decision 51.1.
+    try {
+        $null = Initialize-Winget
+    } catch {
+        Write-Err $_.Exception.Message
     }
 
     # Every run, a picked-apps run included, by owner decision 43. Only -SkipSystemUpgrade turns it off.

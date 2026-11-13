@@ -340,6 +340,222 @@ function Get-WingetPath {
     throw 'winget was not found. Install App Installer from the Microsoft Store, then rerun.'
 }
 
+function Register-WingetAppInstaller {
+    <#
+    .SYNOPSIS
+        Asks Windows to register App Installer, which carries winget, for this user, and returns
+        Succeeded and Detail.
+    .DESCRIPTION
+        The command https://learn.microsoft.com/en-us/windows/package-manager/winget/ gives for a new
+        user account where App Installer is on the machine and not yet registered. It downloads
+        nothing, so it is tried before Repair-WinGetPackageManager and is not retried.
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        Add-AppxPackage -RegisterByFamilyName -MainPackage 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe' -ErrorAction Stop
+        return [PSCustomObject]@{ Succeeded = $true; Detail = '' }
+    } catch {
+        return [PSCustomObject]@{ Succeeded = $false; Detail = $_.Exception.Message }
+    }
+}
+
+function Install-WingetClientModule {
+    <#
+    .SYNOPSIS
+        Makes the Microsoft.WinGet.Client module available, and returns Succeeded and Detail.
+    .DESCRIPTION
+        The NuGet provider and the module, as the troubleshooting page
+        https://learn.microsoft.com/en-us/windows/package-manager/winget/troubleshooting installs them,
+        with -Scope CurrentUser added to both, because the default scope of PowerShellGet 1.x is
+        AllUsers, which needs an administrator. Under the shared retry rule. The module carries
+        Repair-WinGetPackageManager, which Install-WingetFromClientModule runs.
+    #>
+    [CmdletBinding()]
+    param()
+
+    if (Get-Module -ListAvailable -Name Microsoft.WinGet.Client) {
+        return [PSCustomObject]@{ Succeeded = $true; Detail = '' }
+    }
+    return Invoke-PackageManagerRetry -Package 'Microsoft.WinGet.Client' -Attempt {
+        try {
+            $null = Install-PackageProvider -Name NuGet -Scope CurrentUser -Force -ErrorAction Stop
+            Install-Module -Name Microsoft.WinGet.Client -Repository PSGallery -Scope CurrentUser -Force -ErrorAction Stop
+            [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
+        } catch {
+            [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = $_.Exception.Message }
+        }
+    }
+}
+
+function Install-WingetFromClientModule {
+    <#
+    .SYNOPSIS
+        Installs or repairs App Installer, which carries winget, with Repair-WinGetPackageManager, and
+        returns Succeeded and Detail.
+    .DESCRIPTION
+        `Repair-WinGetPackageManager -Force -Latest`, the form the troubleshooting page
+        https://learn.microsoft.com/en-us/windows/package-manager/winget/troubleshooting gives. Without
+        -AllUsers, because its help says that switch "must run the command with administrator
+        permissions" and setup.ps1 runs as the user, so winget is installed for this user. Retried
+        under the shared rule, because it downloads App Installer and its dependencies.
+    #>
+    [CmdletBinding()]
+    param()
+
+    return Invoke-PackageManagerRetry -Package 'winget' -Attempt {
+        try {
+            Import-Module -Name Microsoft.WinGet.Client -ErrorAction Stop
+            $null = Repair-WinGetPackageManager -Force -Latest -ErrorAction Stop
+            [PSCustomObject]@{ Succeeded = $true; Final = $false; Failure = '' }
+        } catch {
+            [PSCustomObject]@{ Succeeded = $false; Final = $false; Failure = $_.Exception.Message }
+        }
+    }
+}
+
+function Add-WingetUserFolderToProcessPath {
+    <#
+    .SYNOPSIS
+        Puts %LOCALAPPDATA%\Microsoft\WindowsApps on this process's PATH when winget.exe is in it, and
+        returns the path of winget.exe, or an empty string when it is not there.
+    .DESCRIPTION
+        The folder the winget-cli troubleshooting document names for the winget alias. A PATH that
+        started before the install may lack it. Only this process's PATH changes, never the saved user
+        PATH, which would be a configuration write.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    if (-not $env:LOCALAPPDATA) {
+        return ''
+    }
+    $folder = Join-Path $env:LOCALAPPDATA 'Microsoft' 'WindowsApps'
+    $exe = Join-Path $folder 'winget.exe'
+    if (-not (Test-Path -LiteralPath $exe)) {
+        return ''
+    }
+    $separator = [System.IO.Path]::PathSeparator
+    if (($env:PATH -split [regex]::Escape($separator)) -notcontains $folder) {
+        $env:PATH = "$env:PATH$separator$folder"
+    }
+    return $exe
+}
+
+function Find-InstalledWinget {
+    <#
+    .SYNOPSIS
+        The path of winget after an install step, from Get-WingetPath or else from
+        Add-WingetUserFolderToProcessPath, or an empty string when neither finds it.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    try {
+        return Get-WingetPath
+    } catch {
+        Write-Verbose "Get-WingetPath found no winget after the install step: $($_.Exception.Message)"
+    }
+    return Add-WingetUserFolderToProcessPath
+}
+
+function Get-WingetVersion {
+    <#
+    .SYNOPSIS
+        What `winget --version` answers, as Answered, Version and Reason.
+    .DESCRIPTION
+        Answered is true only for exit 0 with a version in the output. Reason says why not, and is
+        empty when Answered is true.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $WingetPath)
+
+    $run = Invoke-BoundedWinget -WingetPath $WingetPath -Arguments @('--version') -TimeoutSeconds 60
+    if ($run.TimedOut) {
+        return [PSCustomObject]@{ Answered = $false; Version = ''; Reason = 'winget --version did not answer within 60 seconds' }
+    }
+    $tail = Get-CommandOutputTail -Text $run.Output
+    if ($run.ExitCode -ne 0) {
+        return [PSCustomObject]@{ Answered = $false; Version = ''; Reason = "winget --version exited $($run.ExitCode). $tail".Trim() }
+    }
+    if ($tail -notmatch '(?<version>v?\d+(\.\d+)+)') {
+        return [PSCustomObject]@{ Answered = $false; Version = ''; Reason = "winget --version exited 0 and printed no version. $tail".Trim() }
+    }
+    return [PSCustomObject]@{ Answered = $true; Version = $Matches['version']; Reason = '' }
+}
+
+function Initialize-Winget {
+    <#
+    .SYNOPSIS
+        Returns the path of a winget that answers, installing winget first when this machine has none.
+    .DESCRIPTION
+        Owner decision 51.1: the Windows setup is built on winget, so an old or stripped Windows build
+        without App Installer gets winget installed once, before the first winget call of the run,
+        rather than losing every winget package. First Register-WingetAppInstaller, which downloads
+        nothing, and when winget then answers that is the end. Otherwise Install-WingetClientModule and
+        Install-WingetFromClientModule. Throws with what failed and what to do by hand when the install
+        fails, when winget is still not found, or when it does not answer `winget --version`. Under
+        -WhatIf it installs nothing and returns nothing. docs/regression_ledger.md 10.338.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string])]
+    param()
+
+    try {
+        return Get-WingetPath
+    } catch {
+        Write-Verbose "winget is missing: $($_.Exception.Message)"
+    }
+
+    if (-not $PSCmdlet.ShouldProcess('App Installer, which carries winget', 'register it, or install it with Repair-WinGetPackageManager')) {
+        return
+    }
+
+    Write-Host '  [*] winget was not found on this machine, so it is being installed now. First Windows is asked to register App Installer, which carries winget. This happens once.'
+    $troubleshooting = 'https://learn.microsoft.com/en-us/windows/package-manager/winget/troubleshooting'
+    $byHand = "Follow $troubleshooting, or install App Installer from the Microsoft Store, then run setup.ps1 again."
+
+    $register = Register-WingetAppInstaller
+    $registerOutcome = $register.Detail
+    if ($register.Succeeded) {
+        $registered = Find-InstalledWinget
+        $registerOutcome = 'winget was still not found'
+        if ($registered) {
+            $registeredAnswer = Get-WingetVersion -WingetPath $registered
+            if ($registeredAnswer.Answered) {
+                Write-Host "  [*] winget $($registeredAnswer.Version) answers after App Installer was registered."
+                return $registered
+            }
+            $registerOutcome = $registeredAnswer.Reason
+        }
+    }
+
+    Write-Host "  [*] Registering App Installer did not bring winget back ($registerOutcome), so it is installed now with Repair-WinGetPackageManager from the Microsoft.WinGet.Client module."
+    $module = Install-WingetClientModule
+    if (-not $module.Succeeded) {
+        throw "winget is not on this machine and could not be installed, because the Microsoft.WinGet.Client module did not install: $($module.Detail). $byHand"
+    }
+    $repair = Install-WingetFromClientModule
+    if (-not $repair.Succeeded) {
+        throw "winget is not on this machine and Repair-WinGetPackageManager could not install it: $($repair.Detail). This machine may need the administrator form: run 'Repair-WinGetPackageManager -AllUsers' in an elevated PowerShell, then run setup.ps1 again. See $troubleshooting."
+    }
+
+    $wingetPath = Find-InstalledWinget
+    if (-not $wingetPath) {
+        throw "Repair-WinGetPackageManager finished, but winget is still not found, neither on PATH nor in %LOCALAPPDATA%\Microsoft\WindowsApps. $byHand"
+    }
+
+    $answer = Get-WingetVersion -WingetPath $wingetPath
+    if (-not $answer.Answered) {
+        throw "winget was installed at $wingetPath, but it does not answer: $($answer.Reason). $byHand"
+    }
+    Write-Host "  [*] winget $($answer.Version) is installed and answers."
+    return $wingetPath
+}
+
 function Get-WingetPackagePresence {
     <#
     .SYNOPSIS
