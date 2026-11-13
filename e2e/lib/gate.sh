@@ -32,9 +32,13 @@ Nothing was run. Start it from the machine that runs Docker instead:
 
     bash e2e/run.sh
 
-For a run that has to outlive the terminal, the gate container itself is the queue:
+Tier 3 runs only on a GitHub-hosted runner. Dispatch it there instead. One distribution, one scenario:
 
-    bash e2e/run.sh --queue --tier 3 --scenario all --jobs 3
+    gh workflow run e2e-manual.yaml -f target_platform=debian -f software_mode=defaults
+
+Every scenario on every distribution, which takes hours:
+
+    gh workflow run e2e-matrix.yml
 EOF
     exit 2
 }

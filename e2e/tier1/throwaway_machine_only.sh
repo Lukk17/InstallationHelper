@@ -278,4 +278,22 @@ else
          "$(printf '%s; ' "${launcher_gaps[@]}")"
 fi
 
+# A refusal is read on the machine it refused, so a tier 3 command it suggests sends the reader into
+# the next refusal, and tells them a local run is how tier 3 is done. gate.sh suggested one,
+# docs/regression_ledger.md 10.316. The refusals point at gh workflow run and nothing else.
+LOCAL_TIER3_PATTERN='e2e/run\.sh[^"]*--tier[= ](3|all)|e2e/tier3/container\.sh '
+local_tier3_lines=()
+while IFS= read -r line; do
+    [[ -n "${line}" ]] && local_tier3_lines+=("lib/gate.sh: ${line}")
+done < <(grep -E -- "${LOCAL_TIER3_PATTERN}" <<<"${gate_code}" || true)
+while IFS= read -r line; do
+    [[ -n "${line}" ]] && local_tier3_lines+=("lib/throwaway_machine.sh: ${line}")
+done < <(grep -E -- "${LOCAL_TIER3_PATTERN}" <<<"${throwaway_code}" || true)
+if [[ ${#local_tier3_lines[@]} -eq 0 ]]; then
+    pass "no refusal in lib/gate.sh or lib/throwaway_machine.sh suggests a local tier 3 command"
+else
+    fail "a refusal suggests a tier 3 command on the machine it just refused, where tier 3 runs only on a GitHub-hosted runner" \
+         "$(printf '%s; ' "${local_tier3_lines[@]}")"
+fi
+
 finish "tier 3 throwaway machines only"

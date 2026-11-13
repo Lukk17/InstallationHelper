@@ -70,6 +70,8 @@
 #
 # Reproducing a run locally, without GitHub Actions:
 #
+#   WARNING: the setup.sh and setup.ps1 lines below install software on whatever machine runs them, so run them only in a throwaway virtual machine, never on the owner's computer.
+#
 #   Linux/macOS shell. The first line is what this workflow runs, and it runs only on a GitHub-hosted
 #   runner, because tier 3 refuses with exit 2 anywhere else, a virtual machine included
 #   (e2e/lib/throwaway_machine.sh):

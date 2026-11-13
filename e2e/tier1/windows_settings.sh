@@ -224,6 +224,27 @@ else
          "${undispatched[*]}"
 fi
 
+# --- the sweep's settings cell turns on every setting key and nothing else -----------------------
+# The "Windows settings only" job of e2e-matrix.yml is the run of the sweep that applies these settings
+# with no software beside them. It passes -Software none, which turns every selectable key off, so a setting
+# key its -EnableKey leaves out is never applied there, whatever the comments above the job claim.
+# set_custom_wallpaper was left out that way, docs/regression_ledger.md 10.315.
+MATRIX_WORKFLOW="${REPO_ROOT}/.github/workflows/e2e-matrix.yml"
+settings_job="$(sed -n '/^  stage3_windows_settings_only:$/,/^  [a-z0-9_]*:$/p' "${MATRIX_WORKFLOW}" 2>/dev/null \
+    | grep -vE '^[[:space:]]*#' || true)"
+settings_call="$(grep -E 'setup/setup\.ps1 .*-Software none .*-EnableKey ' <<<"${settings_job}" | sed -n 1p || true)"
+settings_enabled="$(sed -E 's/.*-EnableKey ([A-Za-z0-9_,]+).*/\1/' <<<"${settings_call}" | tr ',' '\n' | sed '/^$/d' | sort -u)"
+
+if [[ -z "${settings_call}" ]]; then
+    fail "the Windows settings only job of e2e-matrix.yml has no setup.ps1 call with -Software none and -EnableKey, so nothing proves which settings it applies" \
+         "${MATRIX_WORKFLOW}, job stage3_windows_settings_only"
+elif [[ "${settings_enabled}" == "${sorted_keys}" ]]; then
+    pass "the Windows settings only job of e2e-matrix.yml turns on all $(grep -c . <<<"${sorted_keys}") setting keys and nothing else"
+else
+    fail "the Windows settings only job of e2e-matrix.yml does not turn on exactly the setting keys WindowsSettings.ps1 applies, so a setting is never run on Windows" \
+         "$(diff <(echo "${sorted_keys}") <(echo "${settings_enabled}") | tr '\n' ' ')"
+fi
+
 # --- the writer and the reader of the feature result format agree on its words ------------------
 # One file, one line format, two halves that disagreed about its vocabulary. The elevated child
 # writes "<state>|<feature>|<detail>" into a result file, and the parent reads it back with a

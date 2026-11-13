@@ -1981,19 +1981,18 @@ jobs:
           wsl --list --verbose 2>&1 | Write-Host
 
       # -Software none turns every selectable toggle off, including the three settings keys
-      # below (setup_wsl and enable_hyperv are ordinary entries in the same
+      # below (setup_wsl, enable_hyperv and set_custom_wallpaper are ordinary entries in the same
       # selectable list -Software all/none sweeps, per setup.ps1's own Resolve-ToggleOverride),
-      # so -EnableKey turns exactly those three back on. The fourth of the "four Windows system
-      # settings" (the desktop wallpaper) is not selectable at all: setup.ps1 excludes it from
-      # the checklist entirely and always applies it, the same as non_root_user and
-      # non_root_home, so it needs no key here to run.
+      # so -EnableKey turns exactly those three back on. They are the three keys
+      # setup/windows/WindowsSettings.ps1 applies, and e2e/tier1/windows_settings.sh fails the
+      # gate when this list and that file disagree.
       - name: Run the bootstrap wizard, no software, the three native system settings
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path (Join-Path $env:RUNNER_TEMP 'wizard-run.log') -Force | Out-Null
           try {
-            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade -Software none -EnableKey setup_wsl,enable_hyperv
+            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade -Software none -EnableKey setup_wsl,enable_hyperv,set_custom_wallpaper
             if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
           } finally {
             Stop-Transcript | Out-Null

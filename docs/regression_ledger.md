@@ -9065,6 +9065,8 @@ Three contradictions in the same documents were fixed on 2026-11-13, each read a
 
 Found in passing and not fixed, because that change was limited to those three. The "Windows settings only" job of e2e-matrix.yml is described in the header as "the three native settings" and, in the comment above its wizard step, as turning "exactly those three back on" while the wallpaper "needs no key here to run". Its command enables two keys, `setup_wsl` and `enable_hyperv`. `set_custom_wallpaper` is a boolean in [setup/ansible/group_vars/all.yaml](../setup/ansible/group_vars/all.yaml) and is not in `$ExcludedVars` of [setup/setup.ps1](../setup/setup.ps1), so it is selectable, and `Resolve-ToggleOverride` turns every selectable key off for `-Software none`. So the cell runs two of the three settings and leaves the wallpaper off. Read in the code only, no run has shown it.
 
+That was fixed on 2026-11-13, recorded as 10.315.
+
 ### Found while fixing the figures 10.299 found in passing, 2026-11-13
 
 #### 10.300 The change that wrote 10.299 ran python3 on the owner's computer
@@ -9111,4 +9113,64 @@ Fix: each now dispatches the same scenario with `gh workflow run e2e-matrix.yml 
 
 Found and not fixed, because the brief limited the change to documents. The refusal that `gate_refuse_foreign_container` prints in e2e/lib/gate.sh still suggests `bash e2e/run.sh --queue --tier 3 --scenario all --jobs 3`, which is refused anywhere but a runner, and a change to that file owes the gate from Git Bash and from WSL as well, rule 4 of [e2e/AGENTS.md](../e2e/AGENTS.md). Task 1.2.1 of openspec/changes/implement-unconsumed-linux-toggles/tasks.md, which tasks 2.3.1 and 3.2.1 point to, runs `ansible-playbook --syntax-check` on the owner's computer through WSL, against rule 1 of "never run anything on the owner's computer for testing" in [AGENTS.md](../AGENTS.md). The "Reproducing a run locally" lines of the e2e-manual.yaml header still give `setup.sh` and `setup.ps1` commands, which install software on the machine that runs them.
 
+The gate.sh refusal and the e2e-manual.yaml lines were fixed on 2026-11-13, recorded as 10.316 and 10.317. Task 1.2.1 of openspec/changes/implement-unconsumed-linux-toggles/tasks.md is still open.
+
 Mechanical check: none added. The command alone is not the defect: the same `e2e/run.sh --tier 3` line is right where a sentence beside it says only a runner runs it, and wrong where nothing does, so a check would have to judge prose. A list of files allowed to carry the command would have to admit e2e-manual.yaml, which carries a correct one, and so would have passed the `act` line. And the brief for this change allowed edits to existing files only, not a new check script.
+
+### Found while fixing what 10.299 and 10.302 found in passing, 2026-11-13
+
+#### 10.315 The Windows settings only cell of the sweep never set the wallpaper
+
+Status: fixed on 2026-11-13. Found in passing during the third fix at the end of 10.299, where it is recorded as read in the code only.
+
+Cause: the comment above the wizard step of the `stage3_windows_settings_only` job in [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) said the desktop wallpaper "is not selectable at all" and that setup.ps1 "always applies it", so the command passed `-Software none -EnableKey setup_wsl,enable_hyperv`. The comment mistook `default_wallpaper`, the file name, which is in `$ExcludedVars` of [setup/setup.ps1](../setup/setup.ps1), for `set_custom_wallpaper`, the boolean toggle in [setup/ansible/group_vars/all.yaml](../setup/ansible/group_vars/all.yaml), which is not, carries the checklist label "System: set the desktop wallpaper" and is one of the three keys `$script:SettingKeys` in [setup/windows/WindowsSettings.ps1](../setup/windows/WindowsSettings.ps1) applies. `Resolve-ToggleOverride` turns every selectable key off for `-Software none`. The comment was written that way in db7db22 on 2026-08-20, when the command enabled `setup_wsl,enable_hyperv,import_hibernate_task` and `set_custom_wallpaper` was already selectable, and a23243e on 2026-08-22 removed the hibernate key and left the rest. Nothing compared the job's `-EnableKey` with the keys WindowsSettings.ps1 applies.
+
+Effect: the cell the header of e2e-matrix.yml describes as "the three native settings, no software" applied two of them, so the one sweep cell that runs the settings alone never ran the wallpaper path. The "Windows default apps" and "Windows all apps" cells still select it, as shipped and through `-Software all`, beside their software. No run has shown the effect, it is read in the code.
+
+How it was proven: the new assertion described below failed against the unfixed job. In the tier 1 gate on 2026-11-13, against the working tree with the job still passing `setup_wsl,enable_hyperv`, `windows_settings` failed 1 of 8 with `FAIL the Windows settings only job of e2e-matrix.yml does not turn on exactly the setting keys WindowsSettings.ps1 applies, so a setting is never run on Windows` and the detail `2d1 < set_custom_wallpaper`. The gate exited 1, and the only other failure was the assertion of 10.316.
+
+Fix: the command in [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) now passes `-EnableKey setup_wsl,enable_hyperv,set_custom_wallpaper`, the comment above it names the three keys and the check that holds them, and the Windows paragraph of [e2e/README_E2E.md](../e2e/README_E2E.md) names `set_custom_wallpaper` beside the other two. Not run on a Windows runner, because no workflow is started without the owner. Whether SystemParametersInfo repaints the desktop in a runner session is what the cell will show on the next sweep, and `Set-WindowsWallpaper` reports a refused repaint as failed rather than hiding it.
+
+Mechanical check: a new assertion at the end of [e2e/tier1/windows_settings.sh](../e2e/tier1/windows_settings.sh), described in item 7 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md). It reads the `stage3_windows_settings_only` job, comments left out, finds the setup.ps1 call with `-Software none` and `-EnableKey`, and requires its keys to be exactly the ones `Get-WindowsSettingKey` returns, failing as well when no such call is found. Proven by the failing run above.
+
+#### 10.316 The foreign container refusal of gate.sh suggested a local tier 3 command
+
+Status: fixed on 2026-11-13. Found by 10.302, which recorded it as found and not fixed.
+
+Cause: `gate_refuse_foreign_container` in [e2e/lib/gate.sh](../e2e/lib/gate.sh) ended its refusal with "For a run that has to outlive the terminal, the gate container itself is the queue:" and `bash e2e/run.sh --queue --tier 3 --scenario all --jobs 3`. It was written in 31b16b9 on 2026-10-16, before 800edd1 made tier 3 run only on a GitHub-hosted runner, owner decision 79, and was not rewritten with it. Nothing read the refusals for a tier 3 command.
+
+Effect: a reader refused for starting the harness inside another container was sent to a command that exits 2 on every machine but a GitHub-hosted runner, and was told a local tier 3 run is how the work is done, the belief behind 10.126 to 10.129. The refusal itself was never weakened by it.
+
+How it was proven: the new assertion described below failed against the unfixed file. In the same gate run as 10.315, `throwaway_machine_only` failed 1 of 25 with `FAIL a refusal suggests a tier 3 command on the machine it just refused, where tier 3 runs only on a GitHub-hosted runner` and the detail `lib/gate.sh:     bash e2e/run.sh --queue --tier 3 --scenario all --jobs 3`, while its other 24 assertions passed.
+
+Fix: the refusal keeps `bash e2e/run.sh` for the gate and now says tier 3 runs only on a GitHub-hosted runner and gives the two dispatch commands `require_throwaway_machine` in [e2e/lib/throwaway_machine.sh](../e2e/lib/throwaway_machine.sh) already gives, `gh workflow run e2e-manual.yaml -f target_platform=debian -f software_mode=defaults` and `gh workflow run e2e-matrix.yml`. Only the text inside the heredoc changed, the condition and the `exit 2` did not. Rule 4 of [e2e/AGENTS.md](../e2e/AGENTS.md) asks for the gate to be started from Git Bash and from WSL after a change to gate.sh. This change ran it only on the owner's Linux computer, inside the gate container, and the owner was given the two commands to run from Windows himself.
+
+Mechanical check: a new assertion in [e2e/tier1/throwaway_machine_only.sh](../e2e/tier1/throwaway_machine_only.sh), described in item 63 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md) and in its row of the tier 1 table of [e2e/README_E2E.md](../e2e/README_E2E.md). It reads the code lines of gate.sh and throwaway_machine.sh, comments left out and heredoc text kept, and fails on any `e2e/run.sh` line with `--tier 3`, `--tier=3` or `--tier all`, and on any `e2e/tier3/container.sh` call. Proven by the failing run above.
+
+#### 10.317 The "Reproducing a run locally" lines of e2e-manual.yaml install software with no warning
+
+Status: fixed on 2026-11-13. Found by 10.302, which recorded it as found and not fixed.
+
+Cause: the header of [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) has listed `bash setup/setup.sh --non-interactive --passwordless-sudo ...` and `pwsh setup/setup.ps1 -NonInteractive ...` under "Reproducing a run locally, without GitHub Actions" since edbfe6a on 2026-08-18, and nothing beside them said what they do to the machine that runs them.
+
+Effect: copied as given, each line installs the default set, or Docker and Vim, on whatever computer runs it, and `--passwordless-sudo` changes how sudo asks on it. On the owner's computer that is against rule 3 of "never run anything on the owner's computer for testing" in [AGENTS.md](../AGENTS.md). Nobody is known to have run them.
+
+How it was proven: read in the header. Not run, because running them is the defect.
+
+Fix: one warning line under the section heading of the header says the setup.sh and setup.ps1 lines install software on whatever machine runs them, so they run only in a throwaway virtual machine, never on the owner's computer.
+
+Mechanical check: none. Whether a line is dangerous depends on the sentence beside it, the same reason 10.302 gives, so a check would have to judge prose.
+
+#### 10.318 This change ran python3 on the owner's computer
+
+Status: introduced by this change, and reported to the owner here. A breach of rule 1 of "never run anything on the owner's computer for testing" in [AGENTS.md](../AGENTS.md), which keeps every experiment inside a container, and of the brief, which allowed on the host only git, file edits inside the repository and `bash e2e/run.sh`. The same kind of breach as 10.300.
+
+Cause: a shell command written to change a comment in [e2e/tier1/windows_settings.sh](../e2e/tier1/windows_settings.sh) with `sed -i` started with a stray `python3 - 2>/dev/null;`, typed by mistake.
+
+Effect: python3 started with `-`, which reads a program from standard input. The tool gives a command no input, so it read an empty program and exited, and its error output was thrown away. Nothing else ran, and nothing of the owner's was read or changed. The `sed -i` after it made the intended edit.
+
+How it was proven: the command is in the session's own record. It was not run again to check, because that would be the same breach.
+
+Fix: none needed on the machine.
+
+Mechanical check: none can stop a command typed on the host.
