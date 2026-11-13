@@ -1,7 +1,7 @@
 # Full end-to-end pipeline: three gated stages, cheapest first, the Linux container sweep in the
 # middle because that is where the playbook does the most and where a real defect is most likely.
 #
-# Trigger: workflow_dispatch only, on purpose. Same rule as e2e-manual.yml and the same reason:
+# Trigger: workflow_dispatch only, on purpose. Same rule as e2e-manual.yaml and the same reason:
 # no workflow in this repository may start on push, pull_request, schedule or any other automatic
 # event. Every run here is a deliberate action by whoever clicks "Run workflow", and this one is
 # the expensive one, so an accidental automatic trigger would be the worst place for it.
@@ -62,13 +62,12 @@
 # The separate 5-concurrent-macOS cap is unaffected: stage 2 runs entirely on ubuntu-latest, and
 # stage 3, where the macOS jobs live, only ever has 3 running at once, under that cap on its own.
 #
-# How long the sweep takes, using the numbers e2e/README_E2E.md's own section states: each
-# distribution carries 1800 minutes of declared scenario ceilings (180 + 300 + 300 + 300 + 300 +
-# 120 + 90 + 90 + 90), so six distributions is 10800 minutes of total declared work. At twenty
-# concurrent that is nine hours in the worst case, and the real figure should be
-# well under it,
-# because every ceiling is generous and the two newest scenarios are the two least likely to reach
-# theirs: an idempotency second pass has nothing to download, and forced-failure stops the software
+# How long the sweep takes, adding up the declared ceilings of the scenario files: each
+# distribution carries 1770 minutes of declared scenario ceilings (180 + 300 + 300 + 300 + 300 +
+# 120 + 90 + 90 + 90), so six distributions is 10620 minutes of total declared work. At twenty
+# concurrent that is 531 minutes, just under nine hours, in the worst case, and the real figure
+# should be well under it, because every ceiling is generous and the two newest scenarios are the
+# two least likely to reach theirs: an idempotency second pass has nothing to download, and forced-failure stops the software
 # installer at its first batch. Stage 1 and stage 3 are small enough that concurrency never binds
 # them either way.
 #
@@ -100,27 +99,27 @@
 #
 # Per-job timeout for stage 2: each matrix cell's `timeout-minutes` is that scenario's own
 # declared timeout (from e2e_timeout_minutes in its scenario file, the same value
-# `e2e/run.sh --list` prints) plus a 40-minute buffer for container build, copy and
-# verification overhead, the same buffer e2e-manual.yml uses for its one 300-minute case
-# (300 -> 340). Capped defensively at the 360-minute hosted-runner ceiling, though nothing
-# shipped today reaches it: all-software, kde-full, gnome-full and idempotency are the scenarios
-# with the longest declared timeout (300 minutes each, idempotency's covering two passes rather
-# than one), so at 340 minutes buffered they are the ones closest to the 360-minute ceiling, 20
-# minutes (about 5.6 percent) under it. kde-configure-only and forced-failure are the other end of
-# the range at 90 minutes declared and 130 buffered, and forced-failure is the cheapest cell in the
-# sweep by measured cost, 45m 55s on debian, because it is the only scenario that never installs
-# the software set. A future scenario
-# whose own timeout plus 40 exceeds 360 would be silently truncated to 360 by this cap rather
-# than rejected, which is worth knowing if a run times out right at 360: raise the scenario's
-# own e2e_timeout_minutes first and check whether this workflow's buffer is still enough,
-# rather than assuming the buffer failed.
+# `e2e/run.sh --list` prints) plus a 25-minute buffer for container build, copy and
+# verification overhead, written into each job's `timeout_minutes` input to e2e-linux-cell.yml.
+# The linux-e2e job of e2e-manual.yaml uses a 40-minute buffer instead, 340 for a 300-minute
+# scenario. Nothing here caps the value, so a scenario whose own timeout plus 25 passes 360 would
+# be stopped at 360 by GitHub's own job limit, though nothing shipped today reaches it:
+# all-software, kde-full, gnome-full and idempotency are the scenarios with the longest declared
+# timeout (300 minutes each, idempotency's covering two passes rather than one), so at 325 minutes
+# buffered they are the ones closest to the 360-minute ceiling, 35 minutes (about 9.7 percent)
+# under it. kde-configure-only, forced-failure and picked-apps are the other end of the range at 90
+# minutes declared and 115 buffered, and forced-failure is the cheapest cell in the sweep by
+# measured cost, 45m 55s on debian, because it is the only scenario that never installs the
+# software set. If a run times out right at its job's ceiling, raise the scenario's own
+# e2e_timeout_minutes first and check whether this workflow's buffer is still enough, rather than
+# assuming the buffer failed.
 #
-# Stage 3 timeouts are reused rather than freshly calibrated: 120 minutes for the macOS jobs and
-# 60 for the Windows jobs, the same figures e2e-manual.yml already uses for one wizard run on
-# each of those runners. NEVER RUN IN CI: those figures were calibrated against a defaults-shaped
-# dispatch, not against "every selectable toggle on", so the macOS-everything and
-# Windows-everything jobs reusing them is an assumption, not a measurement. If either times out,
-# raise its own timeout-minutes rather than assuming the harness is broken.
+# Stage 3 timeouts: 120 minutes for the macOS jobs and 150 for the Windows jobs, the same figures
+# the macos-wizard and windows-wizard jobs of e2e-manual.yaml use for one wizard run on each of
+# those runners, and e2e/tier1/workflow_timeouts.sh fails the gate when the manual one is the
+# smaller. Both leave room over the durations measured in e2e/run_durations.md: the slowest macOS
+# cell so far took 45 minutes, and the slowest Windows cell, `Windows all apps`, 122. If either
+# times out, raise its own timeout-minutes rather than assuming the harness is broken.
 #
 # NEVER RUN IN CI, stated here rather than only in chat:
 #   1. Whether every stage 2 scenario actually completes within its buffered timeout on GitHub's
@@ -137,9 +136,10 @@
 #      toggle including install_stable_diffusion, which clones gigabytes of model weights on a
 #      runner whose disk this workflow does not clean up first (stage 3 runners keep their
 #      default free space, unlike stage 2's own cleanup step). This may fail on disk space or
-#      time out at 120 minutes. That risk is accepted here rather than quietly excluding the
-#      toggle, because e2e-manual.yml's own exclusion is stated as a deliberate deviation from a
-#      literal `--software all`, and stage 3 exists to run the wizard exactly as documented.
+#      time out at 120 minutes on macOS or 150 on Windows. That risk is accepted here rather
+#      than quietly excluding the toggle, because e2e-manual.yaml's own exclusion is stated as a
+#      deliberate deviation from a literal `--software all`, and stage 3 exists to run the wizard
+#      exactly as documented.
 #   4. stage1_windows_pester runs e2e/tier1/windows/WindowsSoftware.Tests.ps1 on windows-latest
 #      itself through the shared action .github/actions/windows-pester, excluding the Slow and
 #      Network tagged Describe block (the Chocolatey bootstrap, which installs something and so
@@ -167,7 +167,7 @@
 #      uploaded.
 #   7. Whether Assert-NotAdmin's -AllowAdministrator escape hatch and Assert-KnownSelectionKey's
 #      handling of enable_hyperv and setup_wsl as ordinary selectable
-#      keys behave as read here, since e2e-manual.yml's own equivalent job has never run either
+#      keys behave as read here, since e2e-manual.yaml's own equivalent job has never run either
 #      (its own header says so).
 #
 # `--privileged` systemd-in-Docker, which every tier-3 scenario needs (see container.sh), is not
@@ -187,7 +187,7 @@
 #
 # Static verification performed on this file: YAML parses (python -c "import yaml;
 # list(yaml.safe_load_all(open(...)))"). actionlint is not installed anywhere on this machine
-# (same gap e2e-manual.yml's own header names), so it was not run. Nothing here has been
+# (same gap e2e-manual.yaml's own header names), so it was not run. Nothing here has been
 # executed: a workflow_dispatch run needs an explicit, separate action by whoever runs it, and
 # writing this file does not take that action.
 name: E2E - test software install and configuration on every OS
@@ -366,7 +366,7 @@ jobs:
   # 5. setup.ps1 -PrintPlan resolves without installing. -AllowAdministrator is needed because
   # GitHub's hosted Windows runners execute the job as a member of the local Administrators
   # group with UAC disabled, which Assert-NotAdmin (called before -PrintPlan is even read) would
-  # otherwise refuse. See e2e-manual.yml's own windows-wizard job for the longer citation.
+  # otherwise refuse. See e2e-manual.yaml's own windows-wizard job for the longer citation.
   stage1_windows_wizard_plan:
     name: "Windows wizard plan"
     if: inputs.start_from_stage == 'stage-1'
