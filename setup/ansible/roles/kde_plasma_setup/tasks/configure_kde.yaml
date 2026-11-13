@@ -67,6 +67,61 @@
     path: "{{ playbook_dir }}/../config/lukk_desktop_profile.knsv"
   register: konsave_profile_file
 
+# Applying the profile copies every entry of its save section over the file of the same name, and
+# conf.yaml inside the profile names the folder each entry belongs in, so those are the files the run's
+# configuration backup takes first, together with every file already in a folder the profile writes,
+# so a file the profile replaces the folder around is in the backup too. Read with the interpreter
+# running Ansible, which always carries PyYAML. The export section is themes, icons and wallpapers
+# that konsave adds beside what is there, not configuration, and is left out.
+- name: List the configuration files the Konsave profile writes
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -I
+      - -c
+      - |
+        import json, os, sys, zipfile
+        import yaml
+        profile, home = sys.argv[1], sys.argv[2]
+        places = {'$CONFIG_DIR': home + '/.config', '$SHARE_DIR': home + '/.local/share',
+                  '$BIN_DIR': home + '/.local/bin', '$HOME': home}
+        with zipfile.ZipFile(profile) as archive:
+            save = (yaml.safe_load(archive.read('conf.yaml')) or {}).get('save') or {}
+            paths, folders = set(), set()
+            for name in archive.namelist():
+                parts = name.split('/', 2)
+                if len(parts) != 3 or parts[0] != 'save' or not parts[2] or name.endswith('/') or parts[1] not in save:
+                    continue
+                location = str(save[parts[1]].get('location', ''))
+                for placeholder, value in places.items():
+                    location = location.replace(placeholder, value)
+                paths.add(os.path.normpath(os.path.join(location, parts[2])))
+                if '/' in parts[2]:
+                    folders.add(os.path.normpath(os.path.join(location, parts[2].split('/', 1)[0])))
+        for folder in folders:
+            for root, _, files in os.walk(folder):
+                paths.update(os.path.join(root, file) for file in files)
+        print(json.dumps(sorted(paths)))
+      - "{{ playbook_dir }}/../config/lukk_desktop_profile.knsv"
+      - "{{ non_root_home }}"
+  register: konsave_profile_targets
+  changed_when: false
+  when:
+    - konsave_profile_file.stat.exists
+    - os_dict.software_mapping.pipx.package not in (role_packages_missing | default([]))
+
+- name: Back up the configuration files the Konsave profile writes, before it writes them
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/config_backup.yaml"
+    apply:
+      tags: [always]
+  vars:
+    config_backup_paths: "{{ konsave_profile_targets.stdout | from_json }}"
+  when:
+    - konsave_profile_file.stat.exists
+    - os_dict.software_mapping.pipx.package not in (role_packages_missing | default([]))
+  tags: [always]
+
 - name: Import and apply Konsave profile
   ansible.builtin.shell: |
     set -o pipefail
@@ -187,7 +242,6 @@
   ansible.builtin.file:
     path: "{{ non_root_home }}/applet-window-buttons/build"
     state: directory
-    mode: '0755'
   when: applet_window_buttons_needs_build | bool
 
 # One task for every family now. The Debian variant used to override KDE_INSTALL_QMLDIR with a

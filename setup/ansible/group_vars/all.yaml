@@ -139,11 +139,15 @@ install_grok: true
 # single apps", lists what a picked-apps run touches.
 ih_picked_apps: ""
 ih_picked_apps_run: "{{ ih_picked_apps | default('') | string | length > 0 }}"
+ih_picked_toggles: "{{ (ih_picked_apps | default('') | string).split(',') | select | list }}"
 # env_variables is the one exception, decided by ih_env_variables_run. The apps below put a variable
 # or a PATH entry into dev_env_file, or rely on the ones env_variables writes there, and only
 # env_variables makes every shell import that file. So a picked-apps run that picks one of them runs
-# env_variables, and one that picks none of them does not. e2e/tier1/picked_apps_scope.sh fails when
-# a task that writes dev_env_file, or an SDK block in sdk_manager, is gated on a toggle missing here.
+# env_variables, and one that picks none of them does not. Even then it runs only what the picked apps
+# need: their own blocks, in dev_env_file_in_use, and the shell imports where none exists yet, never
+# the blocks of other apps and never the migrations. e2e/tier1/picked_apps_scope.sh fails when a task
+# that writes the environment file, or an SDK block in sdk_manager, is gated on a toggle missing here,
+# and when an env_variables task runs in a picked-apps run without picked_apps_allowed.txt naming it.
 env_variables_dependent_toggles:
   - install_nodejs
   - install_java
@@ -154,7 +158,7 @@ env_variables_dependent_toggles:
   - install_jetbrains_toolbox
 ih_env_variables_run: >-
   {{ not (ih_picked_apps_run | bool)
-     or ((ih_picked_apps | default('') | string).split(',') | intersect(env_variables_dependent_toggles) | length > 0) }}
+     or (ih_picked_toggles | intersect(env_variables_dependent_toggles) | length > 0) }}
 
 # Logging configuration
 # Set to true to allow playbook to continue if log file creation fails
@@ -189,6 +193,15 @@ projects_dir: "{{ non_root_home }}/Projects"
 # /usr/lib/environment.d, because Ubuntu's /etc/environment assigns PATH outright and a file read
 # before it loses every PATH entry it added. setup/configuration.md has the measurement.
 dev_env_file: "{{ non_root_home }}/.config/environment.d/990-dev.conf"
+# A machine provisioned between 2026-10-15 and 2026-10-18 keeps the same blocks in 50-dev.conf. A full
+# run moves it out of the way and writes dev_env_file. A picked-apps run never migrates, so it writes
+# its blocks into the file the machine already uses: 50-dev.conf when the pre_tasks of site.yaml found
+# it, dev_env_file otherwise. Every task that writes a block reads dev_env_file_in_use.
+dev_env_file_retired: "{{ non_root_home }}/.config/environment.d/50-dev.conf"
+dev_env_file_in_use: >-
+  {{ dev_env_file_retired
+     if (ih_picked_apps_run | bool and ih_dev_env_file_retired_present | default(false) | bool)
+     else dev_env_file }}
 # zsh_config_dir is ~/.config/zsh when this run sets zsh up, and also when an earlier run already did,
 # which ih_zdotdir_stub says: the pre_tasks of site.yaml set it when ~/.zshenv carries the block that
 # shell_zsh writes under zdotdir_stub_marker. zsh then reads ~/.config/zsh and never ~/.zshrc, so a
@@ -203,7 +216,83 @@ shell_startup_files: >-
   {{ [non_root_home ~ '/.bashrc', non_root_home ~ '/.bash_profile', non_root_home ~ '/.profile',
       non_root_home ~ '/.zshrc', non_root_home ~ '/.zprofile',
       zsh_config_dir ~ '/.zshrc', zsh_config_dir ~ '/.zprofile'] | unique }}
-shell_layout_backup_dir: "{{ non_root_home }}/.local/state/installation-helper/shell-layout-backup"
+
+# The configuration backup, Linux and macOS, owner decision 40. The pre_tasks of site.yaml copy every
+# file in ih_config_files_all that exists into ih_config_backup_dir, under its own absolute path,
+# before any role runs, through tasks/config_backup.yaml. A role that learns a path only while it
+# runs, systemd_boot's ESP and the files of the Konsave profile, includes the same file before it
+# writes. The post_tasks, through tasks/config_backup_report.yaml, keep the backup of every file the
+# run changed or removed, drop the rest, and hand the list to the end-of-run summary. ih_run_timestamp
+# is fixed once in the pre_tasks. e2e/tier1/config_backup_coverage.sh fails when a task that writes a
+# configuration file in a home directory or under /etc is covered by neither this list nor an include,
+# and config_backup_targets.txt beside it holds what the check cannot read from a task by itself.
+ih_config_backup_root: "{{ non_root_home }}/.local/state/installation-helper/backup"
+ih_config_backup_dir: "{{ ih_config_backup_root }}/{{ ih_run_timestamp }}"
+ih_config_files:
+  - "{{ dev_env_file_retired }}"
+  - "{{ dev_env_file_in_use }}"
+  - "{{ zsh_config_dir }}/.zshenv"
+  - "{{ zsh_config_dir }}/.zshrc"
+  - "{{ zsh_config_dir }}/.p10k.zsh"
+  - "{{ non_root_home }}/.zshenv"
+  - "{{ non_root_home }}/.zshrc"
+  - "{{ non_root_home }}/.zshrc.pre-oh-my-zsh"
+  - "{{ non_root_home }}/.p10k.zsh"
+  - "{{ non_root_home }}/.bashrc"
+  - "{{ non_root_home }}/apps_config/env.sh"
+  - "{{ non_root_home }}/.xinputrc"
+  - "{{ non_root_home }}/.flutter"
+  - "{{ non_root_home }}/.dart-tool/dart-flutter-telemetry.config"
+  - "{{ non_root_home }}/.config/konsolerc"
+  - "{{ non_root_home }}/.config/kglobalshortcutsrc"
+  - "{{ non_root_home }}/.config/gtk-3.0/bookmarks"
+  - "{{ non_root_home }}/.config/mimeapps.list"
+  - "{{ non_root_home }}/.config/dconf/user"
+  - "{{ non_root_home }}/.local/share/konsole/Default.profile"
+  - "{{ non_root_home }}/.local/share/applications/jetbrains-toolbox.desktop"
+  - "{{ non_root_home }}/Library/Preferences/com.apple.finder.plist"
+  - "{{ non_root_home }}/Library/Preferences/.GlobalPreferences.plist"
+  - /etc/sudoers.d/99-ansible-user
+  - /etc/fstab
+  - /etc/default/locale
+  - /etc/locale.gen
+  - /etc/locale.conf
+  - /etc/pacman.conf
+  - /etc/pacman.d/hooks/95-systemd-boot.hook
+  - /etc/apt/sources.list.d/contrib-non-free.list
+  - /etc/apt/keyrings/google-chrome.asc
+  - /etc/apt/keyrings/packages.microsoft.gpg.legacy
+  - /etc/apt/keyrings/sublimehq-pub.asc
+  - /etc/apt/keyrings/kubernetes-apt-keyring.asc
+  - /etc/apt/keyrings/lens.asc
+  - /etc/apt/keyrings/docker.asc
+  - /etc/profile.d/sbin-path.sh
+  - /etc/sddm.conf
+  - /etc/gdm3/custom.conf
+  - /etc/modprobe.d/nvidia-power-management.conf
+  - /etc/libvirt/network.conf
+  - /etc/polkit-1/rules.d/10-enable-hibernate.rules
+  - /etc/udev/rules.d/20-hw1.rules
+  - /etc/udev/rules.d/51-trezor.rules
+  - /etc/kernel/install.conf
+  - /etc/kernel/postinst.d/zz-bootctl-update
+ih_config_files_all: >-
+  {{ (ih_config_files + shell_startup_files + (interactive_rc_files | map(attribute='path') | list)
+      + (os_dict.third_party_repositories | default({}) | dict2items | map(attribute='value')
+         | map(attribute='files', default=[]) | flatten)
+      + (os_dict.third_party_repositories | default({}) | dict2items | map(attribute='value')
+         | map(attribute='keyrings', default=[]) | flatten))
+     | map('trim') | unique | list }}
+# What tasks/config_backup.yaml records before the run and tasks/config_backup_report.yaml finds at its
+# end, for each path the two stat into config_state_probe: "<sha256> <mode> <uid> <gid>", or an empty
+# string when the file is not there. A change of mode or owner alone counts as a change.
+ih_config_states: >-
+  {{ dict(config_state_probe.results | map(attribute='item')
+          | zip(config_state_probe.results | map(attribute='stat') | map(attribute='checksum', default='')
+                | zip(config_state_probe.results | map(attribute='stat') | map(attribute='mode', default=''),
+                      config_state_probe.results | map(attribute='stat') | map(attribute='uid', default=''),
+                      config_state_probe.results | map(attribute='stat') | map(attribute='gid', default=''))
+                | map('join', ' ') | map('trim'))) }}
 
 # JetBrains Toolbox on Linux, read by roles/jetbrains_toolbox and verify_install.yaml, so the two
 # cannot name different paths. The data directory is Toolbox's own fixed one. The tarball unpacks

@@ -1,0 +1,70 @@
+---
+# The end of the configuration backup that tasks/config_backup.yaml starts. Every path it tracked is
+# asked again and sorted by what this run did to it: changed in content, changed in mode or owner
+# alone, created, removed, or left as it was. The backup of a file left as it was is deleted, so the
+# backup folder ends up holding exactly the files this run changed or removed, and is deleted itself
+# when that is none of them. The lists reach the end-of-run summary of callback_plugins/dual_logger.py
+# through set_stats, which prints them on the terminal and into ~/installation_full.log with the
+# backup folder. Deleting a backup touches only the run's own state folder, so it reports ok, as the
+# copies in config_backup.yaml do.
+- name: Ask what each configuration file holds at the end of this run
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: true
+    get_checksum: true
+    checksum_algorithm: sha256
+  loop: "{{ ih_config_tracked | default({}) | list }}"
+  register: config_state_probe
+  become: true
+
+- name: Keep what each configuration file holds at the end of this run
+  ansible.builtin.set_fact:
+    config_report_after: "{{ ih_config_states }}"
+
+- name: Sort each configuration file by what this run did to it
+  ansible.builtin.set_fact:
+    config_report: "{{ config_report | default({}) | combine({config_report_state: [item.key]}, list_merge='append') }}"
+  vars:
+    config_report_before: "{{ ih_config_tracked[item.key] }}"
+    config_report_state: >-
+      {{ 'unchanged' if config_report_before == item.value
+         else 'created' if config_report_before == ''
+         else 'removed' if item.value == ''
+         else 'changed' if (config_report_before.split() | first) != (item.value.split() | first)
+         else 'permissions' }}
+  loop: "{{ config_report_after | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Delete the backup of each configuration file this run left as it was
+  ansible.builtin.file:
+    path: "{{ ih_config_backup_dir ~ item }}"
+    state: absent
+  loop: >-
+    {{ config_report.unchanged | default([])
+       | reject('in', ih_config_tracked | dict2items | selectattr('value', 'equalto', '') | map(attribute='key') | list)
+       | list }}
+  changed_when: false
+  become: true
+
+- name: Delete the folders of the configuration backup that hold nothing now
+  ansible.builtin.command:
+    argv: [find, "{{ ih_config_backup_dir }}", -depth, -type, d, -empty, -print, -delete]
+    removes: "{{ ih_config_backup_dir }}"
+  changed_when: false
+  become: true
+
+- name: Hand the configuration files this run changed to the end-of-run summary
+  ansible.builtin.set_stats:
+    data:
+      ih_config_report:
+        changed: "{{ config_report.changed | default([]) | sort }}"
+        permissions: "{{ config_report.permissions | default([]) | sort }}"
+        created: "{{ config_report.created | default([]) | sort }}"
+        removed: "{{ config_report.removed | default([]) | sort }}"
+        backup_dir: >-
+          {{ ih_config_backup_dir
+             if (config_report.changed | default([]) + config_report.permissions | default([])
+                 + config_report.removed | default([])) | length > 0
+             else '' }}
+    aggregate: false

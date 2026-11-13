@@ -1,0 +1,47 @@
+# What e2e/tier1/config_backup_coverage.sh cannot read from a task by itself: the files a shell or
+# command task writes, the include of setup/ansible/tasks/config_backup.yaml that backs up a path read
+# only while the run goes, and the tasks that write in a home directory or under /etc something that is
+# not configuration.
+#
+# Format: <task file> | <task name> | <what it writes>
+#
+# <what it writes> is one of:
+#   a path, written as the task writes it, which ih_config_files in setup/ansible/group_vars/all.yaml
+#     or the literal list of an include of config_backup.yaml must name. A task that writes several
+#     files has one line per file.
+#   backed up by: <task name>   an include of config_backup.yaml in the same file, before the task
+#   not configuration: <reason>
+#
+# An entry that names no task, or a task that needs no entry, fails, and so does a path no backup names.
+
+# Configuration a tool writes without naming the file.
+setup/ansible/roles/gnome_setup/tasks/configure_gnome.yaml | Set Default Apps via xdg-mime | {{ non_root_home }}/.config/mimeapps.list
+setup/ansible/roles/gnome_setup/tasks/configure_gnome.yaml | Enable Dash to Dock and Disable Ubuntu Dock | {{ non_root_home }}/.config/dconf/user
+setup/ansible/roles/gnome_setup/tasks/configure_gnome.yaml | Set Gnome Screenshot Shortcut | {{ non_root_home }}/.config/dconf/user
+setup/ansible/roles/shell_zsh/tasks/terminal_config.yaml | Configure GNOME Terminal to use ZSH | {{ non_root_home }}/.config/dconf/user
+setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml | Set Spectacle Shortcut | {{ non_root_home }}/.config/kglobalshortcutsrc
+setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml | Install Konsave via pipx | shell_startup_files
+setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml | Import and apply Konsave profile | backed up by: Back up the configuration files the Konsave profile writes, before it writes them
+setup/ansible/roles/macos_core/tasks/main.yaml | Set macOS Finder Defaults | {{ non_root_home }}/Library/Preferences/com.apple.finder.plist
+setup/ansible/roles/macos_core/tasks/main.yaml | Set macOS Finder Defaults | {{ non_root_home }}/Library/Preferences/.GlobalPreferences.plist
+setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml | Move the Powerlevel10k configuration into the zsh configuration directory | {{ non_root_home }}/.p10k.zsh
+setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml | Move the Powerlevel10k configuration into the zsh configuration directory | {{ zsh_config_dir }}/.p10k.zsh
+setup/ansible/roles/systemd_boot/tasks/remove_grub.yaml | Remove this distro's GRUB EFI directory | backed up by: Back up this distro's GRUB EFI directory before it is removed
+
+# Written in a home directory or on the ESP, and not configuration.
+setup/ansible/site.yaml | Clean Flatpak per-user app caches | not configuration: per-application caches under ~/.var/app, which the applications rebuild
+setup/ansible/site.yaml | Remove temporary installation folder | not configuration: ~/.lukkInstall, the run's own download folder, which system_core creates for the run
+setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml | Clear KDE QML and system configuration caches | not configuration: ~/.cache/qmlcache and the ksycoca6 cache, which KDE rebuilds at once
+setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml | Raise the widget C++ standard to 20 for the KDecoration3 headers | not configuration: a line of the widget's own source tree, which the run clones for the build
+setup/ansible/roles/jetbrains_toolbox/tasks/main.yaml | Download JetBrains Toolbox tarball | not configuration: the downloaded archive, in the run's own staging folder under ~/.lukkInstall
+setup/ansible/roles/jetbrains_toolbox/tasks/main.yaml | Unpack JetBrains Toolbox into its data directory (Linux) | not configuration: the Toolbox program files, which the archive replaces as a whole
+setup/ansible/roles/sdk_manager/tasks/android_sdk_unix.yaml | Extract Android Command Line Tools | not configuration: the Android SDK program files
+setup/ansible/roles/shell_zsh/tasks/fonts_theme.yaml | Download Nerd Fonts (macOS) | not configuration: font files
+setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml | Move Oh My Zsh out of the home directory | not configuration: the Oh My Zsh program folder, moved whole and never edited
+setup/ansible/roles/software_installer/tasks/custom_installs.yaml | Download Antigravity Linux tarball | not configuration: the downloaded archive, in the run's own folder ~/.lukkInstall
+setup/ansible/roles/software_installer/tasks/custom_installs.yaml | Remove the KiCad 9 AppImages of other versions | not configuration: earlier KiCad 9 AppImages in /opt/kicad9, program files
+setup/ansible/roles/software_installer/tasks/dynamic_install.yaml | Download .deb files for apt_url installs | not configuration: vendor packages downloaded into the root-owned staging folder
+setup/ansible/roles/software_installer/tasks/dynamic_install.yaml | Remove the staged vendor .deb files | not configuration: the same downloaded packages, removed after the install
+setup/ansible/roles/systemd_boot/tasks/debian.yaml | Stage kernel and initrd onto ESP when /boot is not the ESP | not configuration: copies of the kernel and initrd images from /boot
+setup/ansible/roles/waydroid/tasks/main.yaml | Download Aurora Store | not configuration: the downloaded package, in the run's own folder ~/.lukkInstall
+setup/ansible/roles/sdk_manager/tasks/android_sdk_unix.yaml | Rename extracted cmdline-tools to stable layout | not configuration: the Android SDK program folder, moved within the SDK

@@ -10,14 +10,22 @@
 # so /proc/<plasmashell>/environ carried none of them and an IDE started from the menu had no
 # ANDROID_HOME, JAVA_HOME or KUBECONFIG. See docs/regression_ledger.md and setup/configuration.md,
 # "Shell and environment layout".
+#
+# A picked-apps run, owner decision 42, runs only what the picked apps need: the Android SDK and
+# Flutter blocks when it picked them, and each shell import only where that shell imports nothing yet.
+# Every block goes into dev_env_file_in_use, which is 50-dev.conf on a machine that still keeps its
+# environment there and dev_env_file otherwise. The general block, the two directories and the
+# migrations at the end belong to the machine rather than to an app, so a picked-apps run leaves them
+# out. e2e/tier1/picked_apps_scope.sh fails when a task here runs in a picked-apps run and
+# e2e/tier1/picked_apps_allowed.txt does not name it.
 - name: Ensure the apps_config directory the variables below point into exists (Linux/macOS)
   ansible.builtin.file:
     path: "{{ non_root_home }}/apps_config"
     state: directory
     owner: "{{ non_root_user }}"
     group: "{{ ih_non_root_group }}"
-    mode: '0755'
   become: yes
+  when: not (ih_picked_apps_run | bool)
 
 - name: Ensure the projects directory exists (Linux/macOS)
   ansible.builtin.file:
@@ -25,26 +33,28 @@
     state: directory
     owner: "{{ non_root_user }}"
     group: "{{ ih_non_root_group }}"
-    mode: '0755'
   become: yes
+  when: not (ih_picked_apps_run | bool)
 
 - name: Ensure the environment.d directory exists (Linux/macOS)
   ansible.builtin.file:
-    path: "{{ dev_env_file | dirname }}"
+    path: "{{ dev_env_file_in_use | dirname }}"
     state: directory
-    mode: '0755'
   become: yes
   become_user: "{{ non_root_user }}"
 
 # KEY=VALUE lines only, because systemd reads this file as well as the shells: environment.d expands
 # ${HOME} and ${PATH} and strips a pair of double quotes, and a POSIX shell sourcing it under set -a
 # does the same, so one file serves both. No `export`, no `~`, no shell syntax beyond that.
+#
+# Three blocks rather than one, so a picked-apps run can write the Android SDK or Flutter half alone.
+# A full run writes all three, whatever the SDK toggles say, as it did when they were one block,
+# because Android Studio and a Flutter checkout read them without this project installing either SDK.
 - name: Set Dev Apps Environment Variables (Linux/macOS)
   ansible.builtin.blockinfile:
-    path: "{{ dev_env_file }}"
+    path: "{{ dev_env_file_in_use }}"
     marker: "# {mark} ANSIBLE DEV APPS CONFIG"
     create: yes
-    mode: '0644'
     block: |
       GRADLE_USER_HOME=${HOME}/apps_config/.gradle
       DOCKER_CONFIG=${HOME}/apps_config/.docker
@@ -53,6 +63,16 @@
       # Where source checkouts live, from projects_dir in group_vars/all.yaml. Quoted, so a path with
       # a space survives both systemd and the shell.
       PROJECTS_DIR="{{ projects_dir }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: not (ih_picked_apps_run | bool)
+
+- name: Set the Android SDK environment variables (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file_in_use }}"
+    marker: "# {mark} ANSIBLE ANDROID SDK ENVIRONMENT"
+    create: yes
+    block: |
       # The SDK location, from the same android_home the installer writes to. ANDROID_HOME is the
       # current name and ANDROID_SDK_ROOT is the deprecated one, and both are set to the same path
       # because Android Studio and the Gradle plugin check the two for consistency when the old one
@@ -65,21 +85,58 @@
       # apps_config rather than apps_config/.android.
       ANDROID_USER_HOME=${HOME}/apps_config/.android
       ANDROID_SDK_HOME=${HOME}/apps_config
+      PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:${PATH}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: not (ih_picked_apps_run | bool) or 'install_android_sdk' in ih_picked_toggles
+
+- name: Set the Flutter environment variables (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file_in_use }}"
+    marker: "# {mark} ANSIBLE FLUTTER ENVIRONMENT"
+    create: yes
+    block: |
       # Pub (Dart/Flutter) installs user-level executables into ${HOME}/.pub-cache/bin, on PATH below.
       PUB_CACHE=${HOME}/.pub-cache
       # ${HOME}/fvm/bin is FVM's own binary and ${HOME}/fvm/default/bin the SDK its `fvm global`
       # symlink points at, both under FVM's default fvmDir (lib/src/utils/context.dart). The
       # per-channel directory, ~/fvm/versions/<channel>/bin, carries the channel name and so cannot
       # be a fixed entry. docs/regression_ledger.md has why ${HOME}/fvm/bin is here.
-      PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:${HOME}/.pub-cache/bin:${HOME}/fvm/bin:${HOME}/fvm/default/bin:${PATH}"
+      PATH="${HOME}/.pub-cache/bin:${HOME}/fvm/bin:${HOME}/fvm/default/bin:${PATH}"
   become: yes
   become_user: "{{ non_root_user }}"
+  when: not (ih_picked_apps_run | bool) or 'install_flutter' in ih_picked_toggles
+
+# A picked-apps run writes a shell's import only where that shell imports nothing yet, so a machine
+# whose own layout already reads environment.d keeps it as it is. zsh imports from either .zshenv, so
+# both are asked, and bash from ~/.bashrc.
+- name: Ask whether each shell already imports environment.d (Linux/macOS)
+  ansible.builtin.command:
+    argv: "{{ ['grep', '-qsxF', '--', env_variables_import_marker | replace('{mark}', 'BEGIN')] + item.files }}"
+  loop:
+    - { shell: zsh, files: ["{{ zsh_config_dir }}/.zshenv", "{{ non_root_home }}/.zshenv"] }
+    - { shell: bash, files: ["{{ non_root_home }}/.bashrc"] }
+  loop_control:
+    label: "{{ item.shell }}"
+  register: env_variables_import_lookup
+  changed_when: false
+  failed_when: false
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: ih_picked_apps_run | bool
+
+- name: Record which shells already import environment.d (Linux/macOS)
+  ansible.builtin.set_fact:
+    env_variables_imported_by: >-
+      {{ env_variables_import_lookup.results | default([]) | selectattr('rc', 'defined')
+         | selectattr('rc', 'equalto', 0) | map(attribute='item.shell') | list }}
+  when: ih_picked_apps_run | bool
 
 # zsh reads .zshenv for every shell it starts, login or not, interactive or not, so this is where it
 # imports the file above. Where zsh is set up, by this run or an earlier one, that is
 # ~/.config/zsh/.zshenv, which the ~/.zshenv stub shell_zsh writes sources, and elsewhere
 # zsh_config_dir is the home directory and this is ~/.zshenv itself. The directory task never runs
-# for the home directory, which exists already, so no mode is ever set on it. `typeset -U` keeps
+# for the home directory, and no task here sets a mode, so a file or folder keeps the one it has. `typeset -U` keeps
 # PATH free of duplicates when a shell starts another one, which prepends the same entries again,
 # and it comes first so it covers the import. The `(N)` qualifier makes an empty directory import
 # nothing rather than fail on an unmatched glob. The last line drops the entries that are not a
@@ -90,17 +147,17 @@
   ansible.builtin.file:
     path: "{{ zsh_config_dir }}"
     state: directory
-    mode: '0755'
   become: yes
   become_user: "{{ non_root_user }}"
-  when: zsh_config_dir != non_root_home
+  when:
+    - zsh_config_dir != non_root_home
+    - not (ih_picked_apps_run | bool) or 'zsh' not in env_variables_imported_by | default([])
 
 - name: Import environment.d into every zsh (Linux/macOS)
   ansible.builtin.blockinfile:
     path: "{{ zsh_config_dir }}/.zshenv"
-    marker: "# {mark} ANSIBLE ENVIRONMENT.D IMPORT"
+    marker: "{{ env_variables_import_marker }}"
     create: yes
-    mode: '0644'
     block: |
       typeset -U path PATH
       for ih_env_conf in "$HOME"/.config/environment.d/*.conf(N); do
@@ -110,6 +167,7 @@
       path=($^path(N-/))
   become: yes
   become_user: "{{ non_root_user }}"
+  when: not (ih_picked_apps_run | bool) or 'zsh' not in env_variables_imported_by | default([])
 
 # bash has no file it reads for every shell, so the import goes at the very top of ~/.bashrc, ahead of
 # the early return every distribution's .bashrc carries for a non-interactive shell. Every supported
@@ -121,10 +179,9 @@
 - name: Import environment.d into every bash (Linux)
   ansible.builtin.blockinfile:
     path: "{{ non_root_home }}/.bashrc"
-    marker: "# {mark} ANSIBLE ENVIRONMENT.D IMPORT"
+    marker: "{{ env_variables_import_marker }}"
     insertbefore: BOF
     create: yes
-    mode: '0644'
     block: |
       for ih_env_conf in "$HOME"/.config/environment.d/*.conf; do
         [ -r "$ih_env_conf" ] && { set -a; . "$ih_env_conf"; set +a; }
@@ -139,13 +196,17 @@
       unset ih_env_conf ih_path ih_dirs ih_dir
   become: yes
   become_user: "{{ non_root_user }}"
-  when: ansible_facts['system'] == 'Linux'
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - not (ih_picked_apps_run | bool) or 'bash' not in env_variables_imported_by | default([])
 
 # --- migration from the ~/apps_config/env.sh layout -------------------------------------------
 # A machine provisioned before 2026-10-15 has ~/apps_config/env.sh and a marked line sourcing it in
-# ~/.bashrc and ~/.zshrc. Both lines go, wherever they are, and the file is moved into
-# shell_layout_backup_dir rather than deleted. lineinfile with state absent leaves a missing file
-# alone, which blockinfile does not, so a machine without one of these files reports ok.
+# ~/.bashrc and ~/.zshrc. Both lines go, wherever they are, and the file goes. The pre_tasks of
+# site.yaml copied all of them into the run's configuration backup before any role ran, see
+# ih_config_files in group_vars/all.yaml. lineinfile with state absent leaves a missing file alone,
+# which blockinfile does not, so a machine without one of these files reports ok. A picked-apps run
+# never migrates.
 - name: Remove the line that sourced the retired ~/apps_config/env.sh (Linux/macOS)
   ansible.builtin.lineinfile:
     path: "{{ item.0 }}"
@@ -160,32 +221,26 @@
       - '^\[ -f "\$HOME/apps_config/env\.sh" \] && \. "\$HOME/apps_config/env\.sh"$'
   become: yes
   become_user: "{{ non_root_user }}"
+  when: not (ih_picked_apps_run | bool)
 
-- name: Move the retired ~/apps_config/env.sh into the shell layout backup (Linux/macOS)
-  ansible.builtin.shell: |
-    set -eu
-    mkdir -p "{{ shell_layout_backup_dir }}"
-    mv "{{ non_root_home }}/apps_config/env.sh" "{{ shell_layout_backup_dir }}/env.sh.$(date +%Y%m%d%H%M%S)"
-  args:
-    executable: /bin/bash
-    removes: "{{ non_root_home }}/apps_config/env.sh"
+- name: Remove the retired ~/apps_config/env.sh, which the run's configuration backup holds (Linux/macOS)
+  ansible.builtin.file:
+    path: "{{ non_root_home }}/apps_config/env.sh"
+    state: absent
   become: yes
   become_user: "{{ non_root_user }}"
+  when: not (ih_picked_apps_run | bool)
 
 # --- migration from ~/.config/environment.d/50-dev.conf -----------------------------------------
 # A machine provisioned between 2026-10-15 and 2026-10-18 has the same blocks in 50-dev.conf, which
 # systemd reads before /etc/environment, so on Ubuntu its PATH entries never reached the desktop
-# session. env_variables and every role that appends a block write it into dev_env_file on this run,
-# so the old file is moved into shell_layout_backup_dir rather than left to repeat every entry.
-- name: Move the retired ~/.config/environment.d/50-dev.conf into the shell layout backup (Linux/macOS)
-  ansible.builtin.shell: |
-    set -eu
-    mkdir -p "{{ shell_layout_backup_dir }}"
-    mv "{{ env_variables_retired_env_file }}" "{{ shell_layout_backup_dir }}/50-dev.conf.$(date +%Y%m%d%H%M%S)"
-  args:
-    executable: /bin/bash
-    removes: "{{ env_variables_retired_env_file }}"
-  vars:
-    env_variables_retired_env_file: "{{ dev_env_file | dirname }}/50-dev.conf"
+# session. A full run writes every block into dev_env_file, so the old file goes rather than being
+# left to repeat every entry, and the run's configuration backup holds it. A picked-apps run never
+# migrates: it writes into 50-dev.conf instead, through dev_env_file_in_use.
+- name: Remove the retired ~/.config/environment.d/50-dev.conf, which the run's configuration backup holds (Linux/macOS)
+  ansible.builtin.file:
+    path: "{{ dev_env_file_retired }}"
+    state: absent
   become: yes
   become_user: "{{ non_root_user }}"
+  when: not (ih_picked_apps_run | bool)

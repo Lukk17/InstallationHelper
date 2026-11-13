@@ -30,7 +30,7 @@ import shutil
 import sys
 import threading
 import time
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 import yaml
 from ansible.plugins.callback import CallbackBase
 
@@ -201,32 +201,6 @@ OS_MANAGER_KEYWORDS = [
     "APT ", "DNF ", "Pacman", "Snap ", "Flatpak", "Homebrew",
     "brew_cask", "AUR", "Chocolatey", "Winget", "Windows_",
 ]
-
-# Map role name → list of toggle names we associate with it. Used to attribute
-# skipped roles to specific user-facing toggles in the summary.
-ROLE_TOGGLE_MAPPING: Dict[str, List[str]] = {
-    'gnome_setup':         ['install_gnome', 'configure_gnome'],
-    'kde_plasma_setup':    ['install_kde_plasma', 'configure_kde_plasma'],
-    'shell_zsh':           ['setup_zsh'],
-    'env_variables':       ['set_custom_env', 'configure_env'],
-    'system_core':         ['install_system_core'],
-    'systemd_boot':        ['setup_systemd_boot', 'setup_grub',
-                            'remove_distro_grub', 'remove_distro_systemd_boot'],
-    'snapper':             ['install_snapper'],
-    'sdk_manager':         ['install_flutter', 'install_android_sdk',
-                            'install_nodejs', 'install_python', 'install_java',
-                            'install_maven', 'install_gradle'],
-    'ai_tools':            ['install_claude_code', 'install_claude_desktop',
-                            'install_lm_studio', 'install_stable_diffusion',
-                            'install_opencode', 'install_openspec',
-                            'install_codex', 'install_grok', 'install_kilo_code',
-                            'install_bruno_cli'],
-    'software_installer':  [],   # mapped per-software via the toggle key itself
-    'virtualization_config': ['install_virt_manager', 'install_docker'],
-    'linux_security':      ['install_lynis', 'install_chkrootkit', 'install_clamav'],
-    'waydroid':            ['install_waydroid'],
-    'jetbrains_toolbox':   ['install_jetbrains_toolbox'],
-}
 
 # The group_vars beside this plugin. Whatever they declare as a boolean is a toggle, the same rule
 # e2e/tier1/toggle_coverage.sh reads them by.
@@ -1262,8 +1236,9 @@ class CallbackModule(CallbackBase):
         self._emit_skipped_summary()
         self._emit_tolerated_summary()
         self._emit_failed_summary(rescued_count=total_rescued)
+        self._emit_config_summary(stats)
 
-        finish = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        finish =datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self._display_and_log(f"Playbook finished at {finish}", "INFO")
 
         for fh in (self.full_log, self.errors_log, self.warnings_log, self.skipped_log):
@@ -1341,6 +1316,36 @@ class CallbackModule(CallbackBase):
             self._display_and_log(f"  • {entry['name']}", "ERROR")
             if entry.get("error"):
                 self._display_and_log(f"      reason: {entry['error']}", "ERROR")
+
+    def _emit_config_summary(self, stats) -> None:
+        """Every configuration file the run changed, changed the mode or owner of, created or removed, and the
+        folder holding their backups, from what setup/ansible/tasks/config_backup_report.yaml hands over through
+        set_stats. A run that stopped before its post_tasks hands over only its backup folder, which then still
+        holds every file it copied. A play that backs nothing up, verify_install.yaml for one, hands
+        over neither and prints nothing here."""
+        custom = (getattr(stats, "custom", None) or {}).get("_run", {})
+        report = custom.get("ih_config_report")
+        if not isinstance(report, dict):
+            if custom.get("ih_config_backup_dir"):
+                self._display_and_log("", "INFO")
+                self._display_and_log(
+                    f"═══ CONFIGURATION FILES: not reported, because the run stopped before its end. "
+                    f"Every file it backed up is in {custom['ih_config_backup_dir']} ═══", "WARNING")
+            return
+        self._display_and_log("", "INFO")
+        labels = {"changed": "changed", "permissions": "permissions changed", "created": "created", "removed": "removed"}
+        sections = [(labels[state], sorted(report.get(state) or [])) for state in labels]
+        counts = ", ".join(f"{len(paths)} {state}" for state, paths in sections)
+        if not any(paths for _, paths in sections):
+            self._display_and_log("═══ CONFIGURATION FILES (none changed or created) ═══", "INFO")
+            return
+        self._display_and_log(f"═══ CONFIGURATION FILES ({counts}) ═══", "INFO")
+        for state, paths in sections:
+            for path in paths:
+                self._display_and_log(f"  {state}: {path}", "INFO")
+        if report.get("backup_dir"):
+            self._display_and_log(
+                f"  backup of every file changed or removed, as it was before this run: {report['backup_dir']}", "INFO")
 
     # ------------------------------------------------------------------
     # Error detail extraction (preserved from the previous version)

@@ -3,7 +3,6 @@
   ansible.builtin.file:
     path: "{{ android_home }}/cmdline-tools"
     state: directory
-    mode: '0755'
 
 - name: Check if Android cmdline-tools are already installed
   ansible.builtin.stat:

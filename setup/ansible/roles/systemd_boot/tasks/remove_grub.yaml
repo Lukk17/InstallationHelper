@@ -18,6 +18,34 @@
         }[ansible_facts['distribution']] | default(ansible_facts['distribution'] | lower)
       }}
 
+# --- Back up this distro's GRUB EFI directory, before the package removal below deletes files in it ---
+
+- name: Check if this distro's GRUB EFI directory exists
+  ansible.builtin.stat:
+    path: "{{ esp_path }}/EFI/{{ distro_grub_efi_dir }}"
+  register: distro_grub_dir
+
+# Its grub.cfg is configuration and the rest is what boots the machine today, so every file in it goes
+# into the run's configuration backup first, by the same step that backs up every other file.
+- name: List the files in this distro's GRUB EFI directory
+  become: yes
+  ansible.builtin.find:
+    paths: "{{ esp_path }}/EFI/{{ distro_grub_efi_dir }}"
+    recurse: true
+    hidden: true
+  register: distro_grub_files
+  when: distro_grub_dir.stat.exists | default(false)
+
+- name: Back up this distro's GRUB EFI directory before it is removed
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/config_backup.yaml"
+    apply:
+      tags: [always]
+  vars:
+    config_backup_paths: "{{ distro_grub_files.files | map(attribute='path') | list }}"
+  when: distro_grub_dir.stat.exists | default(false)
+  tags: [always]
+
 # --- Remove GRUB packages ---
 
 - name: Remove GRUB packages (Debian/Ubuntu)
@@ -58,11 +86,6 @@
   when: ih_family == 'RedHat'
 
 # --- Remove this distro's GRUB EFI directory from ESP ---
-
-- name: Check if this distro's GRUB EFI directory exists
-  ansible.builtin.stat:
-    path: "{{ esp_path }}/EFI/{{ distro_grub_efi_dir }}"
-  register: distro_grub_dir
 
 - name: Remove this distro's GRUB EFI directory
   become: yes

@@ -3,6 +3,9 @@
 #
 # Format: role <name> | <reason>  for a role site.yaml imports
 #         task <name> | <reason>  for a task in the cleanup in the post_tasks of site.yaml
+#         env <name> | <reason>   for a task of env_variables/tasks/env_unix.yaml, owner decision 42
+#         remove <name> | <reason> for a lineinfile or file task with state absent that a picked-apps run
+#                                  reaches, which only an install of the picked apps may need
 #
 # A role here may still hold tasks that configure the machine, as long as each of them reads
 # ih_picked_apps_run itself. system_core's system settings and upgrade and debian_core's /sbin PATH
@@ -14,3 +17,31 @@ role debian_core | the temporary sudo grant, contrib and non-free, the package d
 role system_core | the temporary installation folder, flatpak, the base utilities and the Flathub remote, which the installs use
 role software_installer | it is the install itself, and every package and custom install in it reads its own key
 task Remove temporary installation folder | the run's own folder, which system_core creates for this run
+env Ensure the environment.d directory exists (Linux/macOS) | the folder of dev_env_file_in_use, which the picked app's block goes into. It sets no mode, so a folder that exists keeps the mode it has, which config_backup_coverage.sh enforces
+env Set the Android SDK environment variables (Linux/macOS) | the Android SDK block, written only when install_android_sdk was picked
+env Set the Flutter environment variables (Linux/macOS) | the Flutter block, written only when install_flutter was picked
+env Ask whether each shell already imports environment.d (Linux/macOS) | reads the shell files and changes nothing, so the two imports below write only where none exists
+env Record which shells already import environment.d (Linux/macOS) | keeps what the task above found, and changes nothing
+env Ensure the zsh configuration directory exists (Linux/macOS) | the folder of the zsh import, made only when zsh imports environment.d nowhere yet. It sets no mode, so a folder that exists keeps the mode it has
+env Import environment.d into every zsh (Linux/macOS) | written only when neither .zshenv imports environment.d yet, so the picked app's block reaches a terminal
+env Import environment.d into every bash (Linux) | written only when ~/.bashrc imports environment.d nowhere yet, so the picked app's block reaches a terminal
+remove Remove the temporary passwordless sudoers entry (Linux) | the run's own sudoers grant, which its bootstrap wrote for this run
+remove Remove temporary passwordless sudoers entry (Linux) | the same grant, removed again where the run ends early
+remove Remove temporary installation folder | the run's own folder, which system_core creates for this run
+remove Delete the backup of each configuration file this run left as it was | the run's own backup copies of files it did not change
+remove Ensure clean yay build directory exists | /tmp/yay, the build folder of the yay install the picked packages may need
+remove Ensure clean paru build directory exists | /tmp/paru, the build folder of the paru install the picked AUR packages need
+remove Retire the zsh files left in the home directory, which the run's configuration backup holds | runs only when setup_zsh itself was picked, which asks for the zsh layout, and the run's configuration backup holds each file
+remove Remove the staged AppImageLauncher RPM (Fedora) | the downloaded package, after it installed
+remove Remove the staged Gridcoin flatpak bundle (Linux) | the downloaded bundle, after it installed
+remove Remove the staged GpuTest archive | the downloaded archive, after it was unpacked
+remove Remove the KiCad 9 AppImages of other versions | program files of an earlier KiCad 9 in /opt/kicad9, which the picked install replaces
+remove Remove the staged KiCad 9 AppImage archive and its unpacked copy | the downloaded archive, after it installed
+remove Remove legacy ASCII keyring files (post-dearmor migration) | keyring copies an older run of this project wrote, which make apt refuse a repository a picked package may need, and the run's configuration backup holds each one
+remove Remove the staged vendor .deb files | the downloaded packages, after they installed
+remove Purge corrupted flatpak ostree repository (opt-in only) | runs only when flatpak_force_repo_reset is set and the Flatpak repository is broken, so the picked Flatpak installs can work
+remove Remove the staged Razer Synapse pkg | the downloaded package, after it installed
+remove Remove the staged Gridcoin DMG | the downloaded disk image, after it installed
+remove Remove a KiCad 9 folder of another version or without KiCad.app | program files of an earlier KiCad 9, which the picked install replaces
+remove Remove the staged KiCad 9 disk image | the downloaded disk image, after it installed
+remove Remove what was written for the repository that could not be added | the repository files this run wrote moments before and could not use, so the next package database refresh works

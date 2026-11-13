@@ -1,0 +1,5 @@
+---
+# The marker of the block that makes zsh and bash import ~/.config/environment.d. The import tasks in
+# tasks/env_unix.yaml write under it, and a picked-apps run asks for its BEGIN line to decide whether
+# a shell already imports the file, so the two cannot name different markers.
+env_variables_import_marker: "# {mark} ANSIBLE ENVIRONMENT.D IMPORT"

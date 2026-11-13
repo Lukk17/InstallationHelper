@@ -67,11 +67,20 @@
 # So the tarball is unpacked into the data directory with its versioned top directory stripped, which
 # puts the binary exactly where 2.x's --install put it, jetbrains_toolbox_binary, and Toolbox updates
 # itself in place from there.
+- name: Ask whether the JetBrains Toolbox data directory exists (Linux)
+  ansible.builtin.stat:
+    path: "{{ jetbrains_toolbox_data_dir }}"
+  register: toolbox_data_dir
+  when:
+    - install_jetbrains_toolbox | default(true) | bool
+    - ansible_facts['system'] == 'Linux'
+    - not toolbox_binary.stat.exists
+
 - name: Create the JetBrains Toolbox data directory (Linux)
   ansible.builtin.file:
     path: "{{ jetbrains_toolbox_data_dir }}"
     state: directory
-    mode: '0700'
+    mode: "{{ omit if toolbox_data_dir.stat.exists | default(false) else '0700' }}"
   become: yes
   become_user: "{{ non_root_user }}"
   when:
@@ -127,7 +136,6 @@
   ansible.builtin.file:
     path: "{{ non_root_home }}/.local/share/applications"
     state: directory
-    mode: '0755'
   become: yes
   become_user: "{{ non_root_user }}"
   when:
@@ -169,10 +177,9 @@
 # directory missing from PATH, so with this block in place it has no reason to write them again.
 - name: Ensure the JetBrains Toolbox launcher directory is in the project's environment file (Linux)
   ansible.builtin.blockinfile:
-    path: "{{ dev_env_file }}"
+    path: "{{ dev_env_file_in_use }}"
     marker: "# {mark} ANSIBLE JETBRAINS TOOLBOX ENVIRONMENT"
     create: yes
-    mode: '0644'
     block: |
       PATH="${PATH}:{{ jetbrains_toolbox_scripts_dir }}"
   become: yes
@@ -196,6 +203,7 @@
   become: yes
   become_user: "{{ non_root_user }}"
   when:
+    - not (ih_picked_apps_run | bool)
     - install_jetbrains_toolbox | default(true) | bool
     - ansible_facts['system'] == 'Linux'
 

@@ -39,7 +39,6 @@
   ansible.builtin.file:
     path: "{{ non_root_home }}/.local/share/konsole"
     state: directory
-    mode: '0755'
   become: yes
   become_user: "{{ non_root_user }}"
   when: install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool
@@ -50,7 +49,6 @@
     section: General
     option: "{{ item.option }}"
     value: "{{ item.value }}"
-    mode: '0644'
   loop:
     - { option: "Name", value: "Default" }
     - { option: "Command", value: "{{ konsole_zsh_path.stdout | default('/usr/bin/zsh') }}" }
@@ -66,7 +64,6 @@
     section: Desktop Entry
     option: DefaultProfile
     value: Default.profile
-    mode: '0644'
   become: yes
   become_user: "{{ non_root_user }}"
   when: install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool

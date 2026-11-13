@@ -1,0 +1,86 @@
+---
+# The one backup step for every configuration file the playbook changes, owner decision 40. It takes
+# config_backup_paths, a list of absolute paths, and copies each one that exists and that no earlier
+# call in this run has seen into ih_config_backup_dir under its own absolute path, so
+# /etc/fstab lands in <backup>/etc/fstab and ~/.bashrc in <backup>/home/<user>/.bashrc. A path this
+# run has already seen is left alone, so the copy is always the file as it was before the run. A path
+# that does not exist yet is remembered as absent, because a file the run creates needs no backup.
+#
+# The site.yaml pre_tasks call this with ih_config_files_all from group_vars/all.yaml before any role
+# runs. A role that learns a path only while it runs calls it again before it writes.
+# tasks/config_backup_report.yaml compares what each path holds at the end with what this recorded:
+# its content, mode, owner and group, read through ih_config_states in group_vars/all.yaml.
+#
+# Each copy keeps the owner, group and mode of its original, and every folder of the backup belongs
+# to the user with mode 0700, so a copy of a root-only file stays unreadable to anybody else and the
+# user can still delete the whole backup. stat and copy follow a symbolic link, so a dotfile kept as a
+# link into a dotfiles repository is backed up by its content. Nothing here tolerates a failure: a
+# backup that cannot be written stops the run here, before the change it was meant to protect.
+#
+# The folders and copies are the run's own records in its own state folder, not a change to the
+# machine, so they report ok, and a second run that changes nothing reports no change here. What the
+# run changed is what the end-of-run summary lists. A run under --check changes nothing, so it copies
+# nothing either.
+- name: Ask which configuration files exist before this run changes them
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: true
+    get_checksum: true
+    checksum_algorithm: sha256
+  loop: "{{ config_backup_paths | map('trim') | unique | difference(ih_config_tracked | default({}) | list) | list }}"
+  register: config_state_probe
+  become: true
+
+- name: Create the folder that holds the state of Installation Helper
+  ansible.builtin.file:
+    path: "{{ ih_config_backup_root | dirname }}"
+    state: directory
+  become: true
+  become_user: "{{ non_root_user }}"
+  when:
+    - not ansible_check_mode
+    - config_state_probe.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg') | list | length > 0
+
+- name: Create the folders of this run's configuration backup
+  ansible.builtin.file:
+    path: "{{ ih_config_backup_dir ~ item }}"
+    state: directory
+    mode: '0700'
+  loop: >-
+    {{ [''] + (config_state_probe.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg')
+               | map(attribute='item') | map('dirname') | unique | list) }}
+  changed_when: false
+  become: true
+  become_user: "{{ non_root_user }}"
+  when:
+    - not ansible_check_mode
+    - config_state_probe.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg') | list | length > 0
+
+- name: Back up each configuration file before this run changes it
+  ansible.builtin.copy:
+    src: "{{ item.item }}"
+    dest: "{{ ih_config_backup_dir ~ item.item }}"
+    remote_src: true
+    force: false
+    owner: "{{ item.stat.uid }}"
+    group: "{{ item.stat.gid }}"
+    mode: preserve
+  loop: "{{ config_state_probe.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+  changed_when: false
+  become: true
+  when: not ansible_check_mode
+
+- name: Remember what each configuration file held before this run
+  ansible.builtin.set_fact:
+    ih_config_tracked: "{{ ih_config_tracked | default({}) | combine(ih_config_states) }}"
+
+# So the end-of-run summary can name this run's backup even when the run stops before
+# tasks/config_backup_report.yaml, which is the only other place that hands it anything.
+- name: Tell the end-of-run summary where this run's configuration backup is
+  ansible.builtin.set_stats:
+    data:
+      ih_config_backup_dir: "{{ ih_config_backup_dir }}"
+    aggregate: false
+  when: not ansible_check_mode

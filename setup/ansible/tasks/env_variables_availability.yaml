@@ -10,8 +10,16 @@
 # because a verification runs as its own play, long after the run that decided.
 # e2e/tier1/availability_facts.sh fails the gate when the rescue, this file or the sdk_manager gate
 # drift apart.
+#
+# A picked-apps run writes only the blocks of the apps it picked, never the general block, and on a
+# machine that still keeps 50-dev.conf it writes there, so for such a run the file being in either place
+# is the answer.
 - name: Ask whether the project's environment file carries the env_variables block
-  ansible.builtin.command: grep -qF "# BEGIN ANSIBLE DEV APPS CONFIG" "{{ dev_env_file }}"
+  ansible.builtin.command:
+    argv: >-
+      {{ ['test', '-f', dev_env_file, '-o', '-f', dev_env_file_retired]
+         if (ih_picked_apps_run | bool)
+         else ['grep', '-qF', '# BEGIN ANSIBLE DEV APPS CONFIG', dev_env_file] }}
   register: env_variables_lookup
   changed_when: false
   failed_when: false

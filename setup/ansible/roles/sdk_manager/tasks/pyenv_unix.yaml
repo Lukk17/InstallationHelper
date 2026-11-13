@@ -74,10 +74,9 @@
 # version" below, so a desktop application gets the same python either way.
 - name: Ensure PYENV_ROOT is in the project's environment file (Linux/Mac)
   ansible.builtin.blockinfile:
-    path: "{{ dev_env_file }}"
+    path: "{{ dev_env_file_in_use }}"
     marker: "# {mark} ANSIBLE PYENV ENVIRONMENT"
     create: yes
-    mode: '0644'
     block: |
       PYENV_ROOT=${HOME}/.pyenv
       PATH=${HOME}/.pyenv/bin:${PATH}
@@ -89,7 +88,6 @@
     path: "{{ item.path }}"
     marker: "# {mark} ANSIBLE PYENV SHELL INIT"
     create: yes
-    mode: '0644'
     block: |
       command -v pyenv >/dev/null 2>&1 && eval "$(pyenv init - {{ item.shell }})"
   loop: "{{ interactive_rc_files }}"

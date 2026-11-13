@@ -6,7 +6,6 @@
     dest: "{{ non_root_home }}/.xinputrc"
     content: |
       run_im none
-    mode: '0644'
   when: ih_family == 'Debian'
 
 - name: Pre-answer display manager prompt for SDDM (Debian)

@@ -1,8 +1,10 @@
 ---
 # Bootloader-rewrite role: re-checks the toggle and UEFI here so a
 # `--tags systemd_boot` run can't bypass the site.yaml gate and brick a
-# BIOS host. No-ops via `meta: end_host`, never `fail:`, so the outer
-# playbook survives a mis-enable.
+# BIOS host. No-ops via `meta: end_role`, never `fail:`, so the outer
+# playbook survives a mis-enable. Not `end_host`, which ends the whole play for the host and so skips
+# every later role, the always sections and the post_tasks of site.yaml, among them the removal of
+# the temporary sudoers grant, docs/regression_ledger.md 10.307.
 
 - name: Validate systemd_boot toggle and UEFI prerequisites
   ansible.builtin.stat:
@@ -17,7 +19,7 @@
   when: not (setup_systemd_boot | default(false) | bool) or not (efi_dir.stat.exists | default(false))
 
 - name: End systemd_boot role early on BIOS or disabled toggle
-  ansible.builtin.meta: end_host
+  ansible.builtin.meta: end_role
   when: not (setup_systemd_boot | default(false) | bool) or not (efi_dir.stat.exists | default(false))
 
 - name: Detect ESP mount point
@@ -43,6 +45,21 @@
 - name: Set ESP path fact
   ansible.builtin.set_fact:
     esp_path: "{{ esp_raw.stdout | trim }}"
+
+# The ESP is found only here, so the boot loader files this role writes on it are backed up here, by
+# the same step the pre_tasks of site.yaml run for every other configuration file.
+- name: Back up the boot loader files this role writes, before it writes them
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/config_backup.yaml"
+    apply:
+      tags: [always]
+  vars:
+    config_backup_paths:
+      - "{{ esp_path }}/loader/loader.conf"
+      - "{{ esp_path }}/loader/entries/arch.conf"
+      - "{{ esp_path }}/loader/entries/arch-fallback.conf"
+      - "{{ esp_path }}/loader/entries/{{ ansible_distribution | lower }}.conf"
+  tags: [always]
 
 - name: Verify ESP is a vfat filesystem
   ansible.builtin.command: findmnt -n -o FSTYPE "{{ esp_path }}"

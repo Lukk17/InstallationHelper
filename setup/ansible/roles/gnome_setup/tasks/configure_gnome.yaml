@@ -18,7 +18,6 @@
   ansible.builtin.file:
     path: "{{ non_root_home }}/Templates"
     state: directory
-    mode: '0755'
   become: yes
   become_user: "{{ non_root_user }}"
 
@@ -26,7 +25,6 @@
   ansible.builtin.file:
     path: "{{ non_root_home }}/Templates/{{ item }}"
     state: touch
-    mode: '0644'
   loop:
     - file
     - text.txt

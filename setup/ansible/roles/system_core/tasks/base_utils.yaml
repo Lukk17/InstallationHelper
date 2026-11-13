@@ -3,7 +3,6 @@
   ansible.builtin.file:
     path: "{{ non_root_home }}/.lukkInstall"
     state: directory
-    mode: '0755'
     owner: "{{ non_root_user }}"
     group: "{{ ih_non_root_group }}"
   become: yes

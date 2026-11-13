@@ -47,6 +47,55 @@
         ih_zdotdir_stub: "{{ (ih_zdotdir_stub_lookup.rc | default(1)) == 0 }}"
       tags: always
 
+    # Asked once, before any role reads dev_env_file_in_use in group_vars/all.yaml, so a picked-apps
+    # run writes its blocks into the environment.d file the machine already uses.
+    - name: Ask whether this machine still keeps its environment in ~/.config/environment.d/50-dev.conf
+      ansible.builtin.stat:
+        path: "{{ dev_env_file_retired }}"
+      register: ih_dev_env_file_retired_lookup
+      when: ih_family != 'Windows'
+      tags: always
+
+    - name: Record whether this machine still keeps its environment in ~/.config/environment.d/50-dev.conf
+      ansible.builtin.set_fact:
+        ih_dev_env_file_retired_present: "{{ ih_dev_env_file_retired_lookup.stat.exists | default(false) }}"
+      tags: always
+
+    # Before anything changes, and after the two answers above, because ih_config_files_all names
+    # files through zsh_config_dir and dev_env_file_in_use. The time stamp is fixed here once, so every
+    # backup of the run lands in one folder. It is UTC, because local time repeats an hour when the
+    # clocks go back, and a folder already there stops the run rather than mixing two runs' backups.
+    # See ih_config_files in group_vars/all.yaml.
+    - name: Fix the time stamp that names this run's configuration backup
+      ansible.builtin.set_fact:
+        ih_run_timestamp: "{{ now(utc=true, fmt='%Y-%m-%dT%H-%M-%SZ') }}"
+      tags: always
+
+    - name: Ask whether a configuration backup of this name exists already
+      ansible.builtin.stat:
+        path: "{{ ih_config_backup_dir }}"
+      register: ih_config_backup_dir_lookup
+      when: ih_family != 'Windows'
+      tags: always
+
+    - name: Stop when a configuration backup of this name exists already
+      ansible.builtin.fail:
+        msg: >-
+          [ERROR] {{ ih_config_backup_dir }} exists already, so this run's backup would mix with another
+          run's. Start the run again in a second.
+      when: ih_config_backup_dir_lookup.stat.exists | default(false)
+      tags: always
+
+    - name: Back up every configuration file this run may change, before anything changes
+      ansible.builtin.include_tasks:
+        file: tasks/config_backup.yaml
+        apply:
+          tags: [always]
+      vars:
+        config_backup_paths: "{{ ih_config_files_all }}"
+      when: ih_family != 'Windows'
+      tags: always
+
     # Not a bare apt refresh any longer: tasks/apt_cache_refresh.yaml fetches every third-party
     # repository an earlier run added on its own first, and undoes one whose host does not answer,
     # because a refresh of everything at once failed the whole play here for one dead vendor. Fedora
@@ -559,6 +608,16 @@
           become: yes
           when: ansible_facts['system'] == 'Linux'
           tags: always
+
+    # After every task that can change a configuration file, the sudoers removal above included, and
+    # before the task that fails the run, so a failed run reports what it changed as well.
+    - name: Report the configuration files this run changed, and keep only their backups
+      ansible.builtin.include_tasks:
+        file: tasks/config_backup_report.yaml
+        apply:
+          tags: [always]
+      when: ih_config_tracked is defined and not ansible_check_mode
+      tags: always
 
     # Named here as well as where the software installer skipped them, because that line scrolled past
     # forty minutes ago and this is the end of the run the user reads. Not a failure: turning snapd off

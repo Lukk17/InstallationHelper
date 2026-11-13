@@ -64,7 +64,6 @@
   ansible.builtin.file:
     path: "{{ non_root_home }}/.dart-tool"
     state: directory
-    mode: '0755'
     owner: "{{ non_root_user }}"
     group: "{{ ih_non_root_group }}"
   become: yes
@@ -75,7 +74,6 @@
     dest: "{{ non_root_home }}/{{ item }}"
     content: |
       {"firstRun":false,"enabled":false,"analytics-opt-out":true}
-    mode: '0644'
   become: yes
   become_user: "{{ non_root_user }}"
   loop:

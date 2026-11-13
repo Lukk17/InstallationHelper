@@ -70,15 +70,16 @@ What `setup.sh` does on Linux and macOS:
 
 What `setup.ps1` does on Windows: it never runs the Ansible playbook, because a playbook run from inside WSL would configure the WSL distribution rather than Windows, see [docs/regression_ledger.md](../docs/regression_ledger.md). Instead it:
 
-1. Upgrades already-installed winget and Chocolatey packages, unless `-SkipSystemUpgrade` is given.
+1. Upgrades already-installed winget and Chocolatey packages on every run, a picked-apps run included, unless `-SkipSystemUpgrade` is given.
 2. Installs `Microsoft.PowerShell.ConsoleGuiTools` if missing.
 3. Presents an interactive picker for software and the three Windows system settings together, or applies `group_vars` defaults non-interactively.
 4. Installs the selected software natively through winget, Chocolatey and npm, from [setup/windows/](windows/). winget programs go machine-wide wherever a working machine-wide route exists, and per user only where none does, see [software.md](software.md#how-to-read-this-file). Syncthing is a machine-wide portable install, which winget performs only when winget itself is elevated, so Windows asks for consent for that winget call. Slack and Claude Desktop install per user: their machine-wide msix was refused on Windows Server in GitHub sweep 38130934506, so they stay per user until a Windows 11 test proves that route, see [e2e/manual_test_matrix.md](../e2e/manual_test_matrix.md). Every step that needs an administrator, that winget call, the Chocolatey batch, the optional features and the Syncthing firewall rules, opens its own consent prompt. A refused prompt is reported by the step it belongs to. Syncthing then gets a per-user Startup folder shortcut and its firewall ports, see [software.md](software.md#utilities). Every package install, by winget, Chocolatey and npm, and the apt, dnf or pacman steps that install Ansible inside WSL, follows the retry rule [setup/ansible/tasks/install_role_packages.yaml](ansible/tasks/install_role_packages.yaml) uses: a first attempt with no refresh, then up to three retries twenty seconds apart, each after refreshing that manager's own package list. For winget that is `winget source update --name <source>`, for Chocolatey `choco cache remove`, which empties the cached feed answers, and npm has nothing to refresh, so it only waits. A package still missing after the last attempt is named in the summary with what its attempts said. A timeout or a refused consent prompt is not retried.
-5. Empties the winget and Chocolatey download caches, printing what that freed and how much is left on the system drive. Here rather than at the end, because the two steps after it are the ones that need the room: the Android SDK unzips into the temporary directory and `wsl --install` fetches a distribution image, and both have failed for want of disk. Chocolatey is what fills it, since it installs from its own download directory and leaves the file there.
-6. Runs the installs no single package can express (Java, Node.js, Flutter, the Android SDK, Gridcoin), then writes the development environment variables that point at what they just installed.
+5. Empties the winget and Chocolatey download caches, printing what that freed and how much is left on the system drive, except in a picked-apps run. Here rather than at the end, because the two steps after it are the ones that need the room: the Android SDK unzips into the temporary directory and `wsl --install` fetches a distribution image, and both have failed for want of disk. Chocolatey is what fills it, since it installs from its own download directory and leaves the file there.
+6. Runs the installs no single package can express (Java, Node.js, Flutter, the Android SDK, Gridcoin), then writes the development environment variables that point at what they just installed. Each entry has one owning toggle, in the table `Get-WindowsDevEnvironmentEntry` of [setup/windows/WindowsCustomInstalls.ps1](windows/WindowsCustomInstalls.ps1): the Android variables and the three Android PATH entries belong to `install_android_sdk`, and the `apps_config` and `Projects` folders with `GRADLE_USER_HOME`, `DOCKER_CONFIG`, `M2_HOME`, `KUBECONFIG` and `PROJECTS_DIR` belong to no app, as on Linux. A full run writes every entry. A picked-apps run writes only the entries its picked apps own, and none of the shared ones.
 7. Applies the three Windows system settings natively: the optional features, WSL registration, and the desktop wallpaper.
-8. Installs Ansible inside WSL, because the toggle wants that tool available there. Nothing else in WSL is touched.
+8. Installs Ansible inside WSL, because the toggle wants that tool available there. Nothing else in WSL is touched. A picked-apps run skips it.
 9. Asks the machine what actually landed, per application, and exits 3 when something the run asked for is not there. It queries winget, Chocolatey, npm and the disk itself, installs and changes nothing, and writes the full per-application verdict to `installation_verify.log` in your user profile. There is no flag to turn it off, the same way there is none on the Linux side.
+10. Backs up every configuration file before its first change in the run, and lists at the end, under "Configuration changed by this run", every file it changed or created and every registry value it changed, with the value it held before. The copy goes to `%LOCALAPPDATA%\installation-helper\backup\<yyyyMMdd-HHmmss>\<the full path without the drive colon>`, so `C:\Users\me\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\Syncthing.lnk` is copied to `...\backup\20261113-055934\C\Users\me\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\Syncthing.lnk`. A file the run creates has nothing to copy. The registry values are the user environment variables in `HKCU\Environment`, `JAVA_HOME`, `PATH` and the development variables, and the wallpaper in `HKCU\Control Panel\Desktop`. A user environment variable is read and written as the registry holds it, so a `PATH` that names `%USERPROFILE%` or `%NVM_HOME%` keeps those names and stays an expandable value, and the summary shows the value as it was held. A value that was not set reads "(not set)" and an empty one "(empty)". The summary prints even when the run stops on an error. Restore a file by copying it back. Every write goes through [setup/windows/WindowsConfigBackup.ps1](windows/WindowsConfigBackup.ps1), and the Pester suite fails a write that does not.
 
 #### Script options
 
@@ -150,18 +151,33 @@ A picked-apps run still does what the installs need:
 3. The package database refresh. On Arch and CachyOS that is the sync with the full upgrade in `arch_core`, because a package installed against a refreshed database without the upgrade is a partial upgrade, which Arch does not support.
 4. The tools the installs use: Homebrew and coreutils on macOS, contrib and non-free and curl and gpg on Debian, multilib, unzip, zip and paru on Arch, and flatpak, the base utilities and the Flathub remote on every Linux.
 5. The temporary installation folder `~/.lukkInstall`, removed at the end, and the private staging folder `/var/cache/installation_helper`.
-6. The `env_variables` role, only when a picked app needs it: Node.js, Java, Python, Flutter, the Android SDK, LM Studio or JetBrains Toolbox. They put their variables and PATH entries in `~/.config/environment.d/990-dev.conf`, and `env_variables` is what makes every shell read that file. The list is `env_variables_dependent_toggles` in `setup/ansible/group_vars/all.yaml`.
+6. The part of the `env_variables` role a picked app needs, only when one does: Node.js, Java, Python, Flutter, the Android SDK, LM Studio or JetBrains Toolbox. The list is `env_variables_dependent_toggles` in `setup/ansible/group_vars/all.yaml`. Each writes only its own marked block, into the environment.d file the machine already uses: `~/.config/environment.d/50-dev.conf` where it exists, otherwise `~/.config/environment.d/990-dev.conf`. `env_variables` writes the Android SDK or Flutter block only for that pick, and the import that makes zsh or bash read that folder only where that shell has no import yet. It never moves or removes a file in a picked-apps run. Every file it changes is backed up first, see [Configuration file backup](#configuration-file-backup).
 7. The verification at the end, which asks for the picked apps and for the tools above that it checks on every run, flatpak and the Flathub remote among them.
 
 A picked-apps run leaves out everything that configures the machine whatever was picked:
 
-1. The `env_variables` role, when no picked app needs it.
+1. The `env_variables` role, when no picked app needs it, and when one does, its general block, its two folders, `~/apps_config` and the projects folder, and its migrations.
 2. The system settings of `system_core`: the hardware clock in UTC, the locales and `/tmp` in RAM, and its full system upgrade with `apt-get autoremove` on Debian.
 3. `/etc/profile.d/sbin-path.sh` on Debian.
 4. The `linux_security` role, which sets up hibernation, and the `systemd_boot` role.
 5. The cache cleanup at the end: Flatpak's unused runtimes and per-user caches, old Snap revisions and the Snap download cache, the Homebrew cache, and the apt, pacman and dnf caches.
+6. The removal of the lines the NVM, SDKMAN, LM Studio and JetBrains Toolbox installers appended to `~/.bashrc`, `~/.profile`, `~/.zshrc` and the other shell startup files in earlier installs. A full run removes them.
 
-`--software none` with no key left on is a configure-only run, and it runs all of those. So does every run with `--software defaults` or `--software all`, and every `--profile` run. `setup.sh` marks a picked-apps run by passing the picked keys as `ih_picked_apps`, and `ih_picked_apps_run` in `setup/ansible/group_vars/all.yaml` is the one variable the roles read. This applies to `setup.sh`. `setup.ps1 -Software none -EnableKey` is not changed by it.
+`--software none` with no key left on is a configure-only run, and it runs all of those. So does every run with `--software defaults` or `--software all`, and every `--profile` run. `setup.sh` marks a picked-apps run by passing the picked keys as `ih_picked_apps`, and `ih_picked_apps_run` in `setup/ansible/group_vars/all.yaml` is the one variable the roles read.
+
+`setup.ps1` follows the same rule, with the same trigger: `-Software none` with one or more `-EnableKey` keys left on is a picked-apps run, decided once by `Resolve-WindowsRunScope` in [setup/setup.ps1](setup.ps1). Install KiCad 9 and nothing else:
+
+```powershell
+pwsh setup/setup.ps1 -Software none -EnableKey install_kicad9
+```
+
+Print what that run would do, without doing it:
+
+```powershell
+pwsh setup/setup.ps1 -Software none -EnableKey install_kicad9 -PrintPlan
+```
+
+On Windows a picked-apps run installs the picked apps through winget, Chocolatey, npm or their own installer, setting up winget and Chocolatey first when they are missing, and applies a picked system setting. Like `setup.sh`, it still upgrades the installed winget and Chocolatey packages unless `-SkipSystemUpgrade` is given. It writes only the environment variables and PATH entries its picked apps own, which with today's table means only for `install_android_sdk`, and it still verifies what landed. It leaves out the package cache cleanup and Ansible inside WSL. The Pester suite in [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1) fails a step on the main path of `setup.ps1` that neither takes the selection nor checks the run scope.
 
 Requirements:
 
@@ -308,6 +324,50 @@ attempt, a `[WARN]` or `[ERROR]` message from the playbook, the task and phase h
 summary. Tasks that were already done or were skipped are written to `~/installation_full.log` alone. The terminal
 summary lists only what the run was asked to install, and says how many items were skipped and that each is listed with
 its reason in `~/installation_skipped.log`.
+
+#### Configuration file backup
+
+---
+
+On Linux and macOS every run, full or picked-apps, copies each configuration file it may change before it changes it,
+without asking. The copy keeps the file's original absolute path below a folder named after the time the run started,
+in UTC, so the hour the clocks repeat in autumn cannot give two runs the same folder:
+
+```text
+~/.local/state/installation-helper/backup/<YYYY-MM-DDTHH-MM-SSZ>/<original absolute path>
+```
+
+`~/.zshenv` of a run started at 13:05:09 UTC on 2026-11-13 is kept as
+`~/.local/state/installation-helper/backup/2026-11-13T13-05-09Z/home/<user>/.zshenv`, and `/etc/fstab` as
+`.../2026-11-13T13-05-09Z/etc/fstab`. A run whose folder exists already stops before it changes anything. A file the
+run creates has nothing to copy. At its end the run compares each file's content, mode, owner and group with what they
+were, keeps the copies of the files it changed or removed and deletes the rest, and both the terminal summary and
+`~/installation_full.log` list every configuration file it touched, with the backup folder:
+
+```text
+═══ CONFIGURATION FILES (2 changed, 1 permissions changed, 1 created, 0 removed) ═══
+  changed: /home/<user>/.bashrc
+  changed: /home/<user>/.config/environment.d/50-dev.conf
+  permissions changed: /home/<user>/.profile
+  created: /home/<user>/.config/zsh/.zshenv
+  backup of every file changed or removed, as it was before this run: /home/<user>/.local/state/installation-helper/backup/2026-11-13T13-05-09Z
+```
+
+"permissions changed" means the content is the same and the mode, owner or group is not. No task forces a mode on a
+file or folder in your home directory that exists already, so this line names a change a tool made, and the copy keeps
+what it was. The copies and their folders are the run's own records, so they never count as a change in the task
+results, and a second run that changes nothing reports nothing changed. A run under `--check` copies and reports
+nothing.
+
+A run that stops before its end prints a warning naming the backup folder instead, which then holds every file it
+copied. Put a file back with `cp -a`. The files are listed in `ih_config_files` in
+[ansible/group_vars/all.yaml](ansible/group_vars/all.yaml), and a role that learns a path only while it runs, the
+Konsave profile, the systemd-boot files on the EFI partition and the GRUB EFI folder, backs it up through the same
+[ansible/tasks/config_backup.yaml](ansible/tasks/config_backup.yaml) before it writes. Not copied: the theme, icon and
+wallpaper files of the Konsave profile's export section, the user and group account files, which `useradd` and
+`usermod` on Linux back up themselves as `/etc/passwd-` and the like, and the files packages install under `/etc`.
+`e2e/tier1/config_backup_coverage.sh` fails when a task writes a file in a home directory or under `/etc` that nothing
+backs up, when a task forces a mode in the home directory, and when a task ends the play before the summary.
 
 #### Watching progress live
 

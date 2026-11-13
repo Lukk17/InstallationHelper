@@ -245,14 +245,12 @@ check_derivatives
 #
 # Neither wizard counts as a consumer. setup.sh and setup.ps1 each name every toggle twice over, in
 # a label table and in an exclusion list, and both of those are display. Counting them is what made
-# setup_grub and remove_distro_systemd_boot look implemented while this was being written. The
-# callback plugin's role-to-toggle table is left out for the same reason: it decides how a skipped
-# role is described in the summary, and describing is not acting.
+# setup_grub and remove_distro_systemd_boot look implemented while this was being written.
 implementation_tokens="$(
     {
         { find "${ANSIBLE_DIR}/roles" "${ANSIBLE_DIR}/tasks" -name '*.yaml' -o -name '*.yml' 2>/dev/null
           echo "${ANSIBLE_DIR}/site.yaml"; } | xargs -r sed -E 's/#.*$//'
-        sed -E '/^ROLE_TOGGLE_MAPPING/,/^\}/d; s/#.*$//' "${ANSIBLE_DIR}/callback_plugins/dual_logger.py"
+        sed -E 's/#.*$//' "${ANSIBLE_DIR}/callback_plugins/dual_logger.py"
         find "${WINDOWS_DIR}" -name '*.ps1' -exec sed -E '/<#/,/#>/d; s/#.*$//' {} +
     } | grep -ohE '[a-z0-9_]+' | sort -u || true
 )"

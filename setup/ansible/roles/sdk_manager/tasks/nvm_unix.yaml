@@ -32,10 +32,9 @@
 # so that goes in each interactive rc file instead.
 - name: Ensure NVM_DIR is in the project's environment file (Linux/Mac)
   ansible.builtin.blockinfile:
-    path: "{{ dev_env_file }}"
+    path: "{{ dev_env_file_in_use }}"
     marker: "# {mark} ANSIBLE NVM ENVIRONMENT"
     create: yes
-    mode: '0644'
     block: |
       NVM_DIR=${HOME}/.nvm
   become: yes
@@ -46,7 +45,6 @@
     path: "{{ item.path }}"
     marker: "# {mark} ANSIBLE NVM SHELL INIT"
     create: yes
-    mode: '0644'
     block: |
       [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
       [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
@@ -73,6 +71,7 @@
       - '# This loads nvm bash_completion$'
   become: yes
   become_user: "{{ non_root_user }}"
+  when: not (ih_picked_apps_run | bool)
 
 # `nvm` is a shell function, not a binary — `timeout nvm …` fails with
 # "No such file or directory" because timeout uses execve(). Wrap the
