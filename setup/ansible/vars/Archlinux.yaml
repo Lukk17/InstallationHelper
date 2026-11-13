@@ -9,6 +9,15 @@ openrazer_device_group: "openrazer"
 # project's own Arch container run log: "Creating group 'docker' with GID 946."
 docker_group: "docker"
 
+# The environment sdk_manager/tasks/pyenv_unix.yaml hands every pyenv Python build. core/openssl is
+# OpenSSL 4 since 4.1.0-1, and CPython's _ssl does not compile against it (docs/regression_ledger.md
+# 10.271). core/openssl-3, in companion_packages.python below, installs beside it with its own
+# pkg-config files, and CPython's configure asks pkg-config for openssl, so this one path makes every
+# build compile and link against OpenSSL 3. Debian, RedHat and Darwin carry no such key, so their
+# builds run with the environment they always had.
+pyenv_build_environment:
+  PKG_CONFIG_PATH: "/usr/lib/openssl-3/pkgconfig"
+
 software_mapping:
   # Browsers
   chrome: { manager: "aur", package: "google-chrome" }
@@ -152,7 +161,7 @@ companion_packages:
   docker: ["docker", "docker-buildx", "docker-compose", "iptables"]   # the engine and its plugins, installed by virtualization_config, which explains iptables
   waydroid: ["waydroid"]   # from extra, installed by the waydroid role
   snapper: ["snapper"]   # installed by the snapper role on a btrfs root only, which setup/ansible/tasks/snapper_applicability.yaml decides
-  python: ["base-devel", "openssl", "xz", "tk", "curl"]   # what pyenv builds Python against, installed by sdk_manager/tasks/pyenv_unix.yaml, which explains why zlib is absent
+  python: ["base-devel", "openssl", "openssl-3", "xz", "tk", "curl"]   # what pyenv builds Python against, installed by sdk_manager/tasks/pyenv_unix.yaml, which explains why zlib is absent. openssl-3 is the copy pyenv_build_environment below points the builds at
   setup_zsh: ["zsh", "curl", "git"]   # the shell, and what Oh-My-Zsh is fetched and cloned with, installed by shell_zsh
   system_core: ["flatpak", "unzip", "zip", "git"]   # installed by system_core/tasks/base_utils.yaml
   kde_plasma: ["plasma-meta", "kde-applications-meta", "sddm"]   # installed by kde_plasma_setup/tasks/install_kde.yaml

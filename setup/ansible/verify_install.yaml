@@ -881,31 +881,35 @@
           - key: "python {{ python310_id }}"
             toggle: install_python
             shell_bin: ""
-            how: "~/.pyenv/versions/{{ python310_id }}, one of the four builds pyenv was asked to install"
+            how: "~/.pyenv/versions/{{ python310_id }}, one of the four builds pyenv was asked to install, with an ssl module that imports"
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.pyenv/versions/{{ python310_id }}/bin/python" ]
+              && "{{ non_root_home }}/.pyenv/versions/{{ python310_id }}/bin/python" -c 'import ssl'
           - key: "python {{ python311_id }}"
             toggle: install_python
             shell_bin: ""
-            how: "~/.pyenv/versions/{{ python311_id }}, one of the four builds pyenv was asked to install"
+            how: "~/.pyenv/versions/{{ python311_id }}, one of the four builds pyenv was asked to install, with an ssl module that imports"
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.pyenv/versions/{{ python311_id }}/bin/python" ]
+              && "{{ non_root_home }}/.pyenv/versions/{{ python311_id }}/bin/python" -c 'import ssl'
           - key: "python {{ python312_id }}"
             toggle: install_python
             shell_bin: ""
-            how: "~/.pyenv/versions/{{ python312_id }}, one of the four builds pyenv was asked to install"
+            how: "~/.pyenv/versions/{{ python312_id }}, one of the four builds pyenv was asked to install, with an ssl module that imports"
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.pyenv/versions/{{ python312_id }}/bin/python" ]
+              && "{{ non_root_home }}/.pyenv/versions/{{ python312_id }}/bin/python" -c 'import ssl'
           - key: "python {{ python313_id }}"
             toggle: install_python
             shell_bin: ""
-            how: "~/.pyenv/versions/{{ python313_id }}, one of the four builds pyenv was asked to install"
+            how: "~/.pyenv/versions/{{ python313_id }}, one of the four builds pyenv was asked to install, with an ssl module that imports"
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.pyenv/versions/{{ python313_id }}/bin/python" ]
+              && "{{ non_root_home }}/.pyenv/versions/{{ python313_id }}/bin/python" -c 'import ssl'
           - key: sdk
             toggle: install_java
             shell_bin: sdk

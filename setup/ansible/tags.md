@@ -72,7 +72,7 @@ Pass any of these to run just that subsystem. Inherits the parent role tag autom
 |---|---|---|
 | `nvm` | NVM install + Node LTS install | — |
 | `sdkman` | SDKMAN install + all four Java JDKs (11, 17, 21, 25) | — |
-| `pyenv` | Pyenv install + four Python builds | system build deps (gcc, make) — covered by `linux_core` |
+| `pyenv` | Pyenv install + four Python builds | the build dependencies in `companion_packages.python` of `vars/<OS>.yaml`, which `pyenv_unix.yaml` installs itself, `openssl-3` among them on Arch and CachyOS, where `pyenv_build_environment` points the builds at it |
 | `fvm` | FVM install via its own install script (fvm.app/install.sh) + Flutter SDK | — |
 | `android` | Android cmdline-tools + platform + build-tools + SDK licenses | `sdkman` (skips with warning if SDKMAN Java is missing) |
 

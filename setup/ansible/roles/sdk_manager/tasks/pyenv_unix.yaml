@@ -114,6 +114,10 @@
 # counts quotes across the whole string including comment lines, and three apostrophes in three
 # words ending in s broke every Linux run at parse time with "failed at splitting arguments". A
 # comment inside a shell body is not inert.
+#
+# os_dict.pyenv_build_environment is the family's build environment, set only in vars/Archlinux.yaml,
+# which Arch and CachyOS share, to point the builds at OpenSSL 3. The environment keyword reaches the
+# async job and through it python-build, and the other families get an empty one.
 - name: Fire all Python builds via Pyenv (parallel)
   ansible.builtin.shell: |
     set -o pipefail
@@ -129,6 +133,7 @@
     exit 1
   args:
     executable: /bin/bash
+  environment: "{{ os_dict.pyenv_build_environment | default({}) }}"
   become: yes
   become_user: "{{ non_root_user }}"
   loop:

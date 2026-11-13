@@ -265,7 +265,7 @@ Installed by the `sdk_manager` role. All versions are pinned in [setup/pinned_va
 | SDKMAN | `curl -fsSL https://get.sdkman.io \| bash` | `curl -fsSL https://get.sdkman.io \| bash` | not used, SDKMAN needs bash |
 | Java (Temurin) | `sdk install java 21.0.11-tem` | `sdk install java 21.0.11-tem` | the winget packages `EclipseAdoptium.Temurin.11.JDK`, `EclipseAdoptium.Temurin.17.JDK`, `EclipseAdoptium.Temurin.21.JDK` and `EclipseAdoptium.Temurin.25.JDK`, one per pinned major, then `JAVA_HOME` at user scope |
 | Pyenv | `curl -fsSL https://pyenv.run \| bash` | `curl -fsSL https://pyenv.run \| bash` | not used, see Python |
-| Python | `pyenv install 3.11.15` | `pyenv install 3.11.15` | `winget install -e --id Python.Python.3.11` |
+| Python | `pyenv install 3.11.15`, and on Arch and CachyOS `sudo pacman -S --needed openssl-3` first and then `PKG_CONFIG_PATH=/usr/lib/openssl-3/pkgconfig pyenv install 3.11.15`, because their `openssl` is OpenSSL 4, which the Python `ssl` module does not build against | `pyenv install 3.11.15` | `winget install -e --id Python.Python.3.11` |
 | Dart SDK | not installed standalone, bundled with FVM's Flutter SDK below | not installed standalone, bundled with FVM's Flutter SDK below | `choco install dart-sdk`, needed only so `dart pub global activate fvm` can run: FVM's own install script has no Windows build |
 | FVM (Flutter) | `curl -fsSL https://fvm.app/install.sh \| bash` | `curl -fsSL https://fvm.app/install.sh \| bash` | `dart pub global activate fvm` |
 | Flutter (stable) | `fvm install stable` | `fvm install stable` | `fvm install stable` |

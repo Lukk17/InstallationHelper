@@ -302,8 +302,14 @@ sdk install java 21.0.11-tem
 curl -fsSL https://pyenv.run | bash
 ```
 
+Arch's `openssl` is OpenSSL 4, which the Python `ssl` module does not build against, so install OpenSSL 3 beside it and point the build at it, as the playbook does:
+
 ```bash
-pyenv install 3.11.15
+sudo pacman -S --needed openssl-3
+```
+
+```bash
+PKG_CONFIG_PATH=/usr/lib/openssl-3/pkgconfig pyenv install 3.11.15
 ```
 
 **FVM** (Flutter) + Flutter stable:
