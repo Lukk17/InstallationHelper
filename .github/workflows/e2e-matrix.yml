@@ -66,10 +66,11 @@
 # distribution carries 1770 minutes of declared scenario ceilings (180 + 300 + 300 + 300 + 300 +
 # 120 + 90 + 90 + 90), so six distributions is 10620 minutes of total declared work. At twenty
 # concurrent that is 531 minutes, just under nine hours, in the worst case, and the real figure
-# should be well under it, because every ceiling is generous and the two newest scenarios are the
-# two least likely to reach theirs: an idempotency second pass has nothing to download, and forced-failure stops the software
-# installer at its first batch. Stage 1 and stage 3 are small enough that concurrency never binds
-# them either way.
+# should be well under it, because every ceiling is generous and the three newest scenarios are the
+# three least likely to reach theirs: an idempotency second pass has nothing to download,
+# forced-failure stops the software installer at its first batch, and picked-apps installs KiCad 9
+# alone, with none of the SDKs and none of the software set. Stage 1 and stage 3 are small enough
+# that concurrency never binds them either way.
 #
 # ---------------------------------------------------------------------------------------------
 # Facts this design was verified against on 2026-08-20 (see the URLs, not re-fetched by this
@@ -91,11 +92,10 @@
 #     Disk usage is printed before and after so a disk-exhaustion failure is diagnosable from
 #     the job log alone rather than guessed at.
 #
-# Matrix shape and job count for stage 2: 5 distributions (arch, debian, ubuntu, fedora,
-# cachyos, read from e2e/tier3/*.Dockerfile at plan time and checked against the deliberate
-# order below rather than hardcoded blind) times 9 scenarios (read from
-# e2e/tier3/scenarios/*.yaml at plan time, same check) is 54 jobs for a full, unfiltered sweep,
-# well under the 256-job matrix ceiling.
+# Matrix shape and job count for stage 2: 6 distributions (debian, ubuntu, popos, fedora, arch,
+# cachyos, one per e2e/tier3/*.Dockerfile, in the order of the job list below) times 9 scenarios
+# (one per e2e/tier3/scenarios/*.yaml) is 54 jobs for a full, unfiltered sweep, well under the
+# 256-job matrix ceiling.
 #
 # Per-job timeout for stage 2: each matrix cell's `timeout-minutes` is that scenario's own
 # declared timeout (from e2e_timeout_minutes in its scenario file, the same value

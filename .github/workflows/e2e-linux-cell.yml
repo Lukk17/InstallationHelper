@@ -1,12 +1,12 @@
 # One Linux container cell: one distribution, one scenario, one real Ansible run.
 #
-# This file exists so the sweep can be 48 separate jobs instead of one matrix. GitHub's run graph
-# collapses a matrix into a single node reading "Matrix: stage2_sweep, 1/48 job completed", which
+# This file exists so the sweep can be 54 separate jobs instead of one matrix. GitHub's run graph
+# collapses a matrix into a single node reading "Matrix: stage2_sweep, 1/54 job completed", which
 # tells a reader nothing about which distribution or scenario is where. A job that calls a reusable
-# workflow gets its own node with its own name, so the graph shows 48 named tiles and a failure is
+# workflow gets its own node with its own name, so the graph shows 54 named tiles and a failure is
 # visible without opening anything.
 #
-# The steps are here rather than duplicated 48 times for the obvious reason: one copy, one place to
+# The steps are here rather than duplicated 54 times for the obvious reason: one copy, one place to
 # fix. e2e-matrix.yml passes the distribution, the scenario and the ceiling.
 
 name: E2E Linux cell

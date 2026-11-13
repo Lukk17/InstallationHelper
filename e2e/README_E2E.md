@@ -404,13 +404,13 @@ and it is the canary for the day Ansible's family table or Pop's identity change
 about System76's own packages, and no container can. The image asserts its own identity at build time
 and refuses to become Ubuntu wearing a different tag.
 
-How long the sweep takes. Adding the ceilings gives 1800 minutes of work per distribution, which is
-180 plus 300 plus 300 plus 300 plus 300 plus 120 plus 90 plus 90 plus 90, and 10800 minutes across all six.
-At twenty concurrent that is nine hours in the worst case, and the real figure should
-be well under it, because every ceiling is generous and the two newest scenarios are the two least
-likely to reach theirs: the second pass of the idempotency run has nothing to download, and the
+How long the sweep takes. Adding the ceilings gives 1770 minutes of work per distribution, which is
+180 plus 300 plus 300 plus 300 plus 300 plus 120 plus 90 plus 90 plus 90, and 10620 minutes across all six.
+At twenty concurrent that is 531 minutes, just under nine hours, in the worst case, and the real figure should
+be well under it, because every ceiling is generous and the three newest scenarios are the three least
+likely to reach theirs: the second pass of the idempotency run has nothing to download, the
 forced-failure run stops the software installer at its first batch, which on debian measured 45m 55s
-against its 90 minute ceiling. Stage 1 and stage 3 are small enough that concurrency never binds
+against its 90 minute ceiling, and the picked-apps run installs KiCad 9 alone, with none of the SDKs and none of the software set. Stage 1 and stage 3 are small enough that concurrency never binds
 them.
 
 ---

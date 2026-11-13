@@ -17,7 +17,7 @@
 #
 # The timeout is not double the defaults ceiling. A second pass has nothing to download and nothing
 # to compile, so it costs a fraction of the first, and 300 minutes is generous for the pair against
-# defaults' own 180 for one. It also stays under the point where the CI matrix's own 40 minute
+# defaults' own 180 for one. It also stays under the point where the CI matrix's own 25 minute
 # buffer would be truncated by GitHub's 360 minute per-job ceiling.
 e2e_scenario_name: "idempotency"
 e2e_scenario_description: "the default configuration applied twice, where the second pass must change nothing"
