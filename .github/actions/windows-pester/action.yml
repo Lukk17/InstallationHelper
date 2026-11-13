@@ -1,0 +1,48 @@
+# Runs the Pester suite over the Windows installer's own logic, e2e/tier1/windows/WindowsSoftware.Tests.ps1,
+# on the Windows runner itself. This is the one copy of that step: the sweep's stage 1 job "Windows unit
+# tests" in e2e-matrix.yml calls it, and so does the windows-wizard job of e2e-manual.yaml before it
+# changes anything on its runner, so a failing test stops that job before the wizard installs anything.
+# e2e/tier1/workflow_windows_pester.sh fails the gate when a job starts setup.ps1 to install without
+# this action first, or when a workflow runs Pester anywhere else.
+#
+# The Describe block tagged Slow and Network, the Chocolatey bootstrap, is left out, because it installs
+# something and both callers run this before anything may be installed.
+name: Run the Windows unit tests
+description: Run the Pester suite over the Windows installer on this runner, without the Slow and Network tagged tests, and fail on a failed test or on no tests at all
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure Pester 5 is available
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $mod = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [Version]'5.0.0' } | Select-Object -First 1
+        if ($mod) {
+          Write-Host "Pester $($mod.Version) already available."
+        } else {
+          Write-Host 'Installing Pester 5, not found preinstalled on this runner image.'
+          Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+        }
+
+    - name: Run the Pester suite, excluding the Slow and Network tagged Chocolatey bootstrap
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        Import-Module Pester -MinimumVersion 5.0
+        $cfg = New-PesterConfiguration
+        $cfg.Run.Path = Join-Path $env:GITHUB_WORKSPACE 'e2e/tier1/windows/WindowsSoftware.Tests.ps1'
+        $cfg.Run.PassThru = $true
+        $cfg.Output.Verbosity = 'Detailed'
+        $cfg.Filter.ExcludeTag = @('Slow', 'Network')
+        $r = Invoke-Pester -Configuration $cfg
+        if ($null -eq $r) {
+          Write-Host 'Invoke-Pester returned no result object, so nothing can be proved about this run.'
+          exit 1
+        }
+        Write-Host "pester totals: total=$($r.TotalCount) passed=$($r.PassedCount) failed=$($r.FailedCount) skipped=$($r.SkippedCount)"
+        if ($r.TotalCount -eq 0) {
+          Write-Host 'Pester discovered no tests, which is a failure of this gate rather than a clean run.'
+          exit 1
+        }
+        exit $r.FailedCount

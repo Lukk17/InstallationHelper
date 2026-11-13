@@ -8776,3 +8776,55 @@ How it was proven: the refused command and the refusal are in the session's own 
 Fix: none needed on the machine. Every later wait in this change was a plain `docker logs` and every later read of the gate output used the file reading tool.
 
 Mechanical check: none can stop a command typed on the host.
+
+### Found while following up the gap that 10.270 named, 2026-11-13
+
+#### 10.284 The single-platform workflow installed on Windows without running the Windows unit tests
+
+Status: fixed in this change. The workflow change is unproven until the next Windows dispatch of [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml).
+
+Cause: the Pester suite over the Windows installer ran on Windows only inline in the sweep's stage 1 job "Windows unit tests" of [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml), and the `windows-wizard` job of [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) had no such step.
+
+Effect: a dispatch at `target_platform=windows` installed the whole software set with no Windows run of [e2e/tier1/windows/WindowsSoftware.Tests.ps1](../e2e/tier1/windows/WindowsSoftware.Tests.ps1). So a test that fails only on Windows, like the KiCad 10 Join-Path test of 10.270 (`pester totals: total=262 passed=253 failed=1 skipped=5` on the sweep's runner, passing on Linux in `windows_pester`), could not be seen through that workflow.
+
+How it was proven: on 2026-11-13 the whole gate ran against a full clone of HEAD `2d14464` with this change and only the step removed from `windows-wizard`. The new check was the only check that failed, 1 of 3, naming `.github/workflows/e2e-manual.yaml job windows-wizard starts setup.ps1 to install at step 5 and runs ./.github/actions/windows-pester neither before it nor in a job it needs`.
+
+Fix: the suite now lives once, in [.github/actions/windows-pester/action.yml](../.github/actions/windows-pester/action.yml), a composite action. `stage1_windows_pester` in [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) and `windows-wizard` in [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) call it, the latter right after checkout and before the wizard.
+
+Mechanical check: [e2e/tier1/workflow_windows_pester.sh](../e2e/tier1/workflow_windows_pester.sh), item 78 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md), proven to fail against the defect as described above.
+
+Found in passing and not fixed yet: the AppArmor comment block for `unix_chkpwd` appears twice in a row in the `linux-e2e` job of [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml). The header of [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) says the Windows stage 3 timeouts are 60 minutes while the jobs carry 150, and it names the manual workflow `e2e-manual.yml` when the file is `e2e-manual.yaml`.
+
+### Found by the owner's KiCad 9 run on CachyOS, 2026-11-13
+
+#### 10.285 Custom installs never run when no package manager mapping is requested
+
+Status: open, and the fix waits for the owner's decision 36. For KiCad 9 it was introduced by this session in commit `b1a03ec`, the KiCad 9 beside KiCad 10 change. For the other custom installs it is older.
+
+Cause: in [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) the include of [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) for Linux, at about line 1359, and of [macos_install.yaml](../setup/ansible/roles/software_installer/tasks/macos_install.yaml), at about line 1363, sit inside the block "Dynamically Install Packages" at line 148, whose condition at line 1393 is `software_installer_packages is defined and software_installer_packages | length > 0`. That list counts only `software_mapping` entries.
+
+Effect: the owner ran `bash /home/lukk/Projects/InstallationHelper/setup/setup.sh --non-interactive --desktop-environment skip --software none --enable install_kicad9` on his CachyOS machine on 2026-11-13. The log printed `Include Linux custom install tasks [condition not met]`, the verification printed `kicad9 MISSING /opt/kicad9/kicad-9.0.9.1-x86_64.AppImage` and the run ended with `Verification FAILED, ansible-playbook exited 2`. Every custom install (KiCad 9, k3d, GpuTest, Antigravity, Gridcoin and others) is skipped the same way whenever it is requested without any mapped app.
+
+How it was proven: the lines above are from the log of the owner's run, and the include lines and the block condition were read in [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml).
+
+Why nothing caught it: every tier 3 scenario also requests mapped apps, so the block condition is always true there. The verification caught it on the real machine, as designed.
+
+Fix: pending the owner's decision 36.
+
+Mechanical check: none yet. It belongs with the fix.
+
+#### 10.286 The main thread told the owner that a setup.sh command would install only KiCad 9
+
+Status: introduced by this session, by the main thread, and reported to the owner here. It is the advice that led to 10.285 being hit on the owner's machine.
+
+Cause: on 2026-11-13 the main thread told the owner that the command of 10.285 would "install only KiCad 9". It did not say that every `setup.sh` run also runs the always-on roles. It also gave the command while two workers had uncommitted edits in `/home/lukk/Projects/InstallationHelper`.
+
+Effect: the owner's run changed 9 things on his machine. `env_variables` rewrote the development environment variables, created the zsh configuration directory, made every zsh import `~/.config/environment.d`, and moved `~/.config/environment.d/50-dev.conf` into the shell layout backup. The cleanup steps removed the temporary sudoers entry, the Snap download cache and the temporary installation folder, and cleaned the Flatpak and pacman caches. The run also used half-finished files: its verification table showed `openssl-3` in the python row, from the uncommitted pyenv change. Nothing from those edits ran, because Python was not requested.
+
+How it was proven: the advice is in the session's own record, and the changes and the verification table are in the log of the owner's run.
+
+Fix: none on the machine. Lesson: before giving the owner a `setup.sh` command, state everything the run will change, and never point him at the working tree while workers have uncommitted edits in it.
+
+Mechanical check: none can stop advice given in a conversation.
+
+Found in the same log, cosmetic, to be fixed with decision 30: the skip reason `toggle disabled (install_software_installer : Build list of packages to dynamically install=false)` names a toggle that does not exist. It is written by [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py).

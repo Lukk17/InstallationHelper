@@ -48,6 +48,12 @@
 #     does with WSL (installing Ansible inside an already-registered distribution) is a
 #     best-effort phase inside the script itself, not something this workflow drives.
 #
+#     UNIT TESTS FIRST: before it changes anything on the runner, the job runs the Pester suite
+#     over the Windows installer through .github/actions/windows-pester, the same action the
+#     sweep's stage 1 job "Windows unit tests" calls, so a failing test stops the job before the
+#     wizard installs anything. e2e/tier1/workflow_windows_pester.sh fails the gate when that
+#     step is missing, comes after the wizard, or is allowed to fail.
+#
 #     ELEVATION, which used to block this job entirely: Invoke-Main's first call is
 #     Assert-NotAdmin, which throws "Do not run this script as Administrator" whenever
 #     [Security.Principal.WindowsPrincipal]::IsInRole(Administrator) is true. GitHub's hosted
@@ -651,7 +657,8 @@ jobs:
   # Windows: the real PowerShell wizard, on an ephemeral runner. setup.ps1 no longer runs
   # Ansible or touches WSL beyond installing the ansible package inside an already-registered
   # distribution, as a best-effort phase inside the script itself (see setup.ps1's own
-  # Invoke-AndShowWslAnsible). Nothing here drives WSL directly.
+  # Invoke-AndShowWslAnsible). Nothing here drives WSL directly. The Windows unit tests run first,
+  # through the same action as the sweep's stage 1 job.
   # -----------------------------------------------------------------------
   windows-wizard:
     needs: plan
@@ -669,6 +676,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/windows-pester
 
       - name: Make room on the runner, which ships full of toolchains this does not use
         shell: pwsh

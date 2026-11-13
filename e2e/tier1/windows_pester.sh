@@ -10,7 +10,9 @@
 # skipped and an hour went by.
 #
 # So the same suite CI runs, runs here too when it can. Not a copy of it: the same file, the same
-# way, `Invoke-Pester` with the Slow and Network tags excluded, which is what the stage 1 job does.
+# way, `Invoke-Pester` with the Slow and Network tags excluded, which is what the shared action
+# .github/actions/windows-pester does on a Windows runner for the stage 1 job and the single platform
+# workflow.
 #
 # SKIP rather than pass when Pester or pwsh is missing, because a check that quietly proves nothing
 # is the thing this repository keeps paying for. The CI job stays as it is: it runs on a clean

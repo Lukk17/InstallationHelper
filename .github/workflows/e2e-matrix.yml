@@ -140,15 +140,17 @@
 #      time out at 120 minutes. That risk is accepted here rather than quietly excluding the
 #      toggle, because e2e-manual.yml's own exclusion is stated as a deliberate deviation from a
 #      literal `--software all`, and stage 3 exists to run the wizard exactly as documented.
-#   4. stage1_windows_pester runs Invoke-Pester directly against
-#      e2e/tier1/windows/WindowsSoftware.Tests.ps1 on windows-latest itself, excluding the
-#      Slow and Network tagged Describe block (the Chocolatey bootstrap, which installs
-#      something and so does not belong in a stage that installs nothing). This is the only
-#      place that suite runs in CI. It used to have a second home, a Server Core container
-#      driven from a developer machine, and that was retired on 2026-08-26: it could not
-#      install a single winget package, which is 80 of the 89 Windows mappings, and no workflow
-#      ever ran it. Local Windows verification is Windows Sandbox now, see
-#      e2e/manual_test_matrix.md.
+#   4. stage1_windows_pester runs e2e/tier1/windows/WindowsSoftware.Tests.ps1 on windows-latest
+#      itself through the shared action .github/actions/windows-pester, excluding the Slow and
+#      Network tagged Describe block (the Chocolatey bootstrap, which installs something and so
+#      does not belong in a stage that installs nothing). That action is the only place the
+#      suite runs on Windows in CI, and two jobs call it: this one, and the windows-wizard job of
+#      e2e-manual.yaml, before its wizard step. e2e/tier1/workflow_windows_pester.sh fails the
+#      gate when a job starts setup.ps1 to install without it first. The suite also had a home in
+#      a Server Core container driven from a developer machine, and that was retired on
+#      2026-08-26: it could not install a single winget package, which is 80 of the 89 Windows
+#      mappings, and no workflow ever ran it. Local Windows verification is Windows Sandbox now,
+#      see e2e/manual_test_matrix.md.
 #   5. The Windows-settings-only job in stage 3 enables enable_hyperv, which turns on the
 #      Hyper-V Windows optional feature and asks for a reboot. Whether that succeeds inside a
 #      GitHub-hosted Windows runner's own virtualised environment (nested virtualisation) has
@@ -292,11 +294,11 @@ jobs:
           set -euo pipefail
           bash e2e/run.sh --tier 2 --only rpm_file_conflicts
 
-  # 2. The Pester suite over the Windows installer's own logic. Run directly on the runner,
-  # excluding the one Describe block tagged Slow and Network (the Chocolatey bootstrap, which
-  # actually installs something), so this job keeps stage 1's "nothing is installed" property.
-  # See the NEVER RUN IN CI note at the top of this file: this direct invocation, as opposed to
-  # rather than through a container, which this repository no longer has for Windows.
+  # 2. The Pester suite over the Windows installer's own logic, run directly on the runner through
+  # the shared action .github/actions/windows-pester, which leaves out the one Describe block tagged
+  # Slow and Network (the Chocolatey bootstrap, which actually installs something), so this job keeps
+  # stage 1's "nothing is installed" property. The windows-wizard job of e2e-manual.yaml calls the
+  # same action. See note 4 of the NEVER RUN IN CI list at the top of this file.
   stage1_windows_pester:
     name: "Windows unit tests"
     if: inputs.start_from_stage == 'stage-1'
@@ -307,39 +309,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure Pester 5 is available
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $mod = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [Version]'5.0.0' } | Select-Object -First 1
-          if ($mod) {
-            Write-Host "Pester $($mod.Version) already available."
-          } else {
-            Write-Host 'Installing Pester 5, not found preinstalled on this runner image.'
-            Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
-          }
-
-      - name: Run the Pester suite, excluding the Slow and Network tagged Chocolatey bootstrap
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Import-Module Pester -MinimumVersion 5.0
-          $cfg = New-PesterConfiguration
-          $cfg.Run.Path = 'e2e/tier1/windows/WindowsSoftware.Tests.ps1'
-          $cfg.Run.PassThru = $true
-          $cfg.Output.Verbosity = 'Detailed'
-          $cfg.Filter.ExcludeTag = @('Slow', 'Network')
-          $r = Invoke-Pester -Configuration $cfg
-          if ($null -eq $r) {
-            Write-Host 'Invoke-Pester returned no result object, so nothing can be proved about this run.'
-            exit 1
-          }
-          Write-Host "pester totals: total=$($r.TotalCount) passed=$($r.PassedCount) failed=$($r.FailedCount) skipped=$($r.SkippedCount)"
-          if ($r.TotalCount -eq 0) {
-            Write-Host 'Pester discovered no tests, which is a failure of this gate rather than a clean run.'
-            exit 1
-          }
-          exit $r.FailedCount
+      - uses: ./.github/actions/windows-pester
 
   # 3. setup.sh --print-command resolves a real selection into a real playbook command, and
   # exits without installing anything or asking for Ansible.

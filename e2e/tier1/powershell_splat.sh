@@ -41,12 +41,13 @@ report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 import re
 
-# Both places PowerShell is written here: the wizard and its modules, and the workflow steps that
-# drive them. A workflow is not a .ps1 file, so an abstract syntax tree cannot reach it, and this is
-# a text rule that reads the same in both.
+# Both places PowerShell is written here: the wizard and its modules, and the workflow steps and local
+# actions that drive them. A workflow is not a .ps1 file, so an abstract syntax tree cannot reach it,
+# and this is a text rule that reads the same in both.
 targets = sorted(pathlib.Path('setup').rglob('*.ps1'))
 targets += sorted(pathlib.Path('.github/workflows').glob('*.yml'))
 targets += sorted(pathlib.Path('.github/workflows').glob('*.yaml'))
+targets += sorted(pathlib.Path('.github/actions').glob('*/action.y*ml'))
 targets += sorted(pathlib.Path('e2e').rglob('*.ps1'))
 
 assign_array = re.compile(r'\$(\w+)\s*=\s*@\(')

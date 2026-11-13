@@ -9,9 +9,11 @@
     skips, the pinned values adapters and the cache reclaim.
 
     Two callers, and they run the same file rather than a copy of it. The windows_pester check in
-    tier 1 runs it on a developer machine, and the stage 1 job of .github/workflows/e2e-matrix.yml
-    runs it on a hosted Windows runner. It lived under tier3/windows until 2026-08-26, driven by a
-    Server Core container that was retired for being unable to install a single winget package.
+    tier 1 runs it on a developer machine, and .github/actions/windows-pester runs it on a hosted
+    Windows runner, called by the stage 1 job of .github/workflows/e2e-matrix.yml and by the
+    windows-wizard job of .github/workflows/e2e-manual.yaml before its wizard. It lived under
+    tier3/windows until 2026-08-26, driven by a Server Core container that was retired for being
+    unable to install a single winget package.
 
     Installing anything for real is a different job, and it belongs to the hosted runner cells or
     to Windows Sandbox, see e2e/manual_test_matrix.md.
