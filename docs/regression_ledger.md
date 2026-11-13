@@ -9634,3 +9634,75 @@ How it was proven: the command is in the session's own record. It was not run ag
 Fix: none needed on the machine.
 
 Mechanical check: none can stop a command typed on the host.
+
+### Found while giving a picked-apps run the shell init of the SDK it picked, owner decision 50, 2026-11-13
+
+#### 10.339 A picked-apps run added a second shell init beside the vendor's or the user's own
+
+Status: fixed, owner decision 50. Older than this change: 10.326 rightly kept the vendor's init lines out of reach of a picked-apps run, and nothing asked whether they were there before the project's own block went in beside them.
+
+Cause: the tasks that write the NVM, SDKMAN and Pyenv shell init blocks into every file of `interactive_rc_files`, in [nvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/nvm_unix.yaml), [sdkman_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/sdkman_unix.yaml) and [pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml), had no condition, so a picked-apps run that picks one of the three wrote its block into a file that already initialized the tool.
+
+Effect: measured with the three task files of `HEAD` in the gate image, as below. A picked-apps run of NVM changed an rc file holding nvm's own three lines, one holding `source /usr/share/nvm/init-nvm.sh` and one whose Oh My Zsh `plugins=` list names `nvm`. A run of SDKMAN changed one holding SDKMAN's own lines, and a run of Pyenv changed one holding `eval "$(pyenv init - bash)"`, one holding `eval "$(pyenv init -)"` and one holding `plugins=(git pyenv)`. A new terminal then loads the tool twice. No picked-apps run left a tool out of a new terminal: the same runs wrote the environment block into `dev_env_file_in_use` and exactly one init block into every rc file that had none, a missing one included, brought a stale block of an earlier run up to date, and changed nothing on a second run. So the first question asked, whether a picked-apps run of NVM, SDKMAN or Pyenv leaves the tool unreachable from a new terminal, was measured as no for all three.
+
+How it was proven: the new check `e2e/tier1/picked_apps_shell_init.sh`, run in the whole tier 1 gate on 2026-11-13 against a full clone of the working tree with the three task files of `HEAD`, failed 8 of 23. The seven rc files above were changed, and an rc file that is a directory failed at "Ensure NVM shell init is present in every interactive rc file (Linux/Mac)" instead of at the lookup. Assertion 9 of `e2e/tier1/picked_apps_scope.sh` failed 3 of 7 in the same run, naming each of the three init tasks as writing under a literal marker the defaults give no patterns for. Against a second clone, with only the condition of the NVM init task taken off, the two checks were again the only ones that failed: `picked_apps_scope` 1 of 5, naming that task as writing every rc file in a picked-apps run without skipping the files that already initialize nvm, and `picked_apps_shell_init` 3 of 23, one per NVM file above. A third clone, with the step that cuts the project's own block out of the lookup taken off, is in 10.342. The gate on the fixed working tree passed both, 23 of 23 and 5 of 5, and exited 0.
+
+Fix: [setup/ansible/roles/sdk_manager/tasks/shell_init_lookup.yaml](../setup/ansible/roles/sdk_manager/tasks/shell_init_lookup.yaml), which each of the three task files includes before its init block in a picked-apps run, reads every rc file and records the ones that already initialize the tool, by the patterns of `sdk_manager_shell_init` in [defaults/main.yaml](../setup/ansible/roles/sdk_manager/defaults/main.yaml), searched outside the project's own block. Each init block takes its marker from the same entry and skips those files in a picked-apps run. A full run is unchanged: it writes every block and removes the NVM and SDKMAN vendor lines. That left the same double init in a full run, and the lookup now runs in every run, 10.344. Every rc file written is in `ih_config_files_all`, through `interactive_rc_files`, so it is backed up first and named in the summary at the end. Described in "Picking single apps" in [setup/README_SETUP.md](../setup/README_SETUP.md) and in [setup/configuration.md](../setup/configuration.md).
+
+Mechanical check: `e2e/tier1/picked_apps_shell_init.sh`, item 87 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md), and assertion 9 of `e2e/tier1/picked_apps_scope.sh`.
+
+#### 10.340 The rc file lookup of this change failed on every rc file that did not exist yet
+
+Status: introduced by this change, and fixed before it was handed over.
+
+Cause: the `failed_when` of "Read each interactive rc file before a picked-apps run adds the shell init of ..." tolerated a missing file only when slurp's message started with `file not found`, written from memory of the module. The ansible-core in the gate image writes `File not found: <path>`, with a capital F, so the hypothesis was wrong.
+
+Effect: the first gate run of this change failed 4 of 5 in `picked_apps_shell_init`. Each picked-apps run stopped at the lookup with `"msg": "File not found: /tmp/tmp.lOiecF6pik/home-nvm/not-there-yet.rc"`, and the same for SDKMAN and Pyenv. On a real machine a picked-apps run of one of the three, where `~/.bashrc` or the zsh `.zshrc` does not exist yet, would have failed that SDK.
+
+How it was proven: the log of that gate run. The second gate run, with the fix, passed 23 of 23.
+
+Fix: the message is matched with `is match('file not found', ignorecase=true)` in [shell_init_lookup.yaml](../setup/ansible/roles/sdk_manager/tasks/shell_init_lookup.yaml). Any other failure to read still stops the lookup, which the check proves for an rc file that is a directory. A file the user cannot read is not tested, because the gate runs as root.
+
+Mechanical check: the file `not-there-yet.rc` of `e2e/tier1/picked_apps_shell_init.sh`, which is what caught it, and its directory case for the other side.
+
+#### 10.341 This change tried to run python3 on the owner's computer
+
+Status: introduced by this change, refused by the agent tool's permission check before it started, and reported to the owner here. An attempted breach of rule 1 of "never run anything on the owner's computer for testing" in [AGENTS.md](../AGENTS.md) and of the brief, which allowed on the host only git, file edits inside the repository and `bash e2e/run.sh`. The same kind as 10.318.
+
+Cause: while rewording a comment in `setup/ansible/roles/sdk_manager/defaults/main.yaml`, a shell command was written that started `python3 -` with an empty program, to see whether an interpreter was there.
+
+Effect: the permission check refused the command, so python3 never started and nothing ran. Nothing of the owner's was read or changed. The comment was then changed with the file edit tool.
+
+How it was proven: the refusal is in the session's own record.
+
+Fix: none needed on the machine.
+
+Mechanical check: none can stop a command typed on the host. The tool's permission check stopped this one.
+
+#### 10.342 The new check could not tell whether the lookup searched inside the project's own block
+
+Status: introduced by this change, and fixed before it was handed over.
+
+Cause: the fixture rc file of `e2e/tier1/picked_apps_shell_init.sh` that stands for an earlier run held the project's own block with the single line `STALE BLOCK OF AN EARLIER RUN`, which none of the patterns matches, so a lookup that searched the whole file, the project's block included, found nothing there either.
+
+Effect: a clone of the fixed working tree with the step that cuts the project's own block out taken off [shell_init_lookup.yaml](../setup/ansible/roles/sdk_manager/tasks/shell_init_lookup.yaml) passed the whole gate, exit 0, on 2026-11-13. On a real machine that lookup would take the block an earlier run wrote for a line of the user's and never bring it up to date again.
+
+How it was proven: that gate run, against that clone. With the fixture fixed, the same clone failed the gate, and `picked_apps_shell_init` was the only check that failed, 3 of 23, naming `earlier-run.rc` for NVM, SDKMAN and Pyenv as keeping the stale block of an earlier run.
+
+Fix: the block of that fixture now holds the init line the project writes, which the patterns match, and one stale line more.
+
+Mechanical check: `e2e/tier1/picked_apps_shell_init.sh` itself.
+
+#### 10.344 A full run added a second shell init beside a line of the user's that already initialized the tool
+
+Status: fixed, owner decision 50. Older than this change, and left in place by 10.339, whose fix asked the question only in a picked-apps run. The owner's rule, check whether the rc file already initializes the tool and add the init only once, was for every run, and the brief of 10.339 had narrowed it to picked-apps runs.
+
+Cause: in [nvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/nvm_unix.yaml), [sdkman_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/sdkman_unix.yaml) and [pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml) the include of [shell_init_lookup.yaml](../setup/ansible/roles/sdk_manager/tasks/shell_init_lookup.yaml) and the condition of each init block read `ih_picked_apps_run`, so a full run wrote the block into every file of `interactive_rc_files` without asking. A full run removes only the lines the NVM and SDKMAN installers append, and Pyenv has no removal at all, so any other line that initializes the tool stayed beside the block.
+
+Effect: measured with the shipped tasks in the gate image, as below. A full run of Pyenv changed an rc file holding `eval "$(pyenv init - bash)"`, the snippet pyenv.run prints and asks the user to paste, one holding `eval "$(pyenv init -)"` and one whose Oh My Zsh `plugins=` list names `pyenv`. A full run of NVM changed an rc file holding `source /usr/share/nvm/init-nvm.sh`, the line the Arch Linux nvm package asks for, and one whose `plugins=` list names `nvm`. A full run of SDKMAN changed an rc file holding `source "$HOME/.sdkman/bin/sdkman-init.sh"`, which the removal of the vendor lines does not match. A new terminal then loads the tool twice.
+
+How it was proven: `e2e/tier1/picked_apps_shell_init.sh`, extended to make a full run of each tool beside the picked-apps run, and assertion 9 of `e2e/tier1/picked_apps_scope.sh`, extended to forbid a condition on `ih_picked_apps_run` in the include and the init block, were run in the whole tier 1 gate on 2026-11-13 against a full clone of the working tree as it stood with the 10.339 fix. Those two were the only checks that failed. `picked_apps_shell_init` failed 8 of 41: the six files above, and for NVM and SDKMAN the file holding the vendor's lines, which kept them beside the block. That last pair is not a defect on a real machine. The check lifts the tasks from the environment block to the init block, and in that tree the removal of the vendor lines came after the init block, outside what the check runs, so the full run on a real machine did remove them. It is the order the fix needed, which is why the check asks for it. `picked_apps_scope` failed 8 of 12, naming the three init conditions, the three includes that read `ih_picked_apps_run`, and the removals of NVM and SDKMAN placed after the lookup. The gate on the fixed working tree passed both, 41 of 41 and 5 of 5, and exited 0.
+
+Fix: the include of the lookup and the condition of each init block no longer read `ih_picked_apps_run`, so every run skips an rc file that already initializes the tool by a line outside the project's own block. In nvm_unix.yaml and sdkman_unix.yaml the removal of the vendor lines, still a full run only, now comes before the lookup, so a full run writes their block in place of the lines it took away, as before. Every other full-run step is unchanged. Described in "Picking single apps" in [setup/README_SETUP.md](../setup/README_SETUP.md) and in [setup/configuration.md](../setup/configuration.md).
+
+Mechanical check: `e2e/tier1/picked_apps_shell_init.sh`, item 87 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md), and assertion 9 of `e2e/tier1/picked_apps_scope.sh`.

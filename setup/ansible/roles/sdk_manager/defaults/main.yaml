@@ -13,3 +13,31 @@ sdk_manager_pyenv_components:
   - { repository: https://github.com/pyenv/pyenv-doctor.git, directory: plugins/pyenv-doctor, command: pyenv-doctor }
   - { repository: https://github.com/pyenv/pyenv-update.git, directory: plugins/pyenv-update, command: pyenv-update }
   - { repository: https://github.com/pyenv/pyenv-virtualenv.git, directory: plugins/pyenv-virtualenv, command: pyenv-virtualenv }
+
+# The project's shell init block of each SDK that has one, and the lines that already initialize that
+# SDK in an interactive rc file, owner decision 50. Every run adds the block to a file of
+# interactive_rc_files only when none of the tool's patterns matches the file outside the block itself,
+# through tasks/shell_init_lookup.yaml, so a line the user or the vendor installer wrote is not joined
+# by a second init. A full run first removes the vendor lines of NVM and SDKMAN, so it writes their
+# blocks in place of those lines, and a picked-apps run keeps them. Each pattern is a Python regular expression, searched with ^ and $ matching at every
+# line, and a line that starts a comment before the match does not count. The first pattern of NVM and
+# SDKMAN matches the vendor lines nvm_unix.yaml and sdkman_unix.yaml remove in a full run, and any other
+# line that sources nvm.sh or sdkman-init.sh. The first pattern of Pyenv matches `pyenv init - bash` and
+# `pyenv init - zsh`, the snippet pyenv.run prints, and `pyenv init -`. `pyenv init --path` puts the
+# shims on PATH and defines no pyenv function, so it does not count. The plugins lines are the Oh My Zsh
+# nvm and pyenv plugins, which load the tool themselves.
+sdk_manager_shell_init:
+  nvm:
+    marker: "# {mark} ANSIBLE NVM SHELL INIT"
+    patterns:
+      - '^[^#\n]*(^|[\s;&|(])(\.|\\\.|source)\s+["'']?[^\s"'';]*nvm\.sh\b'
+      - '^[ \t]*plugins=\([^)]*\bnvm\b'
+  sdkman:
+    marker: "# {mark} ANSIBLE SDKMAN SHELL INIT"
+    patterns:
+      - '^[^#\n]*(^|[\s;&|(])(\.|\\\.|source)\s+["'']?[^\s"'';]*sdkman-init\.sh\b'
+  pyenv:
+    marker: "# {mark} ANSIBLE PYENV SHELL INIT"
+    patterns:
+      - '^[^#\n]*\bpyenv\s+init\s+-(\s|["'')]|$)'
+      - '^[ \t]*plugins=\([^)]*\bpyenv\b'

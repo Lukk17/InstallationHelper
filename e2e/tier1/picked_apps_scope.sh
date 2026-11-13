@@ -42,6 +42,13 @@
 #      state absent anywhere in the playbook is reachable in a picked-apps run, through its own
 #      conditions, its block, the include of its file or the import of its role, unless
 #      picked_apps_allowed.txt names it as a removal an install needs, docs/regression_ledger.md 10.326.
+#   9. every blockinfile outside env_variables that writes every file of interactive_rc_files takes its
+#      marker from sdk_manager_shell_init.<tool> in the defaults of sdk_manager, which names patterns
+#      for that tool, and in every run skips the files tasks/shell_init_lookup.yaml of sdk_manager
+#      found already initializing the tool. The same file includes that lookup for the tool before
+#      it, under no condition on ih_picked_apps_run, and removes no vendor line from
+#      shell_startup_files after it, owner decision 50, docs/regression_ledger.md 10.339 and 10.344.
+#      e2e/tier1/picked_apps_shell_init.sh runs those tasks.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -517,12 +524,63 @@ for name in allowed['remove']:
 if len(removals) < 15:
     lines.append('FAIL only %d removals were read, so nothing about them is proven' % len(removals))
 
+# --- 9. the shell init of an SDK, in every run, owner decision 50 ---------------------------------
+shell_init = (load(ROLES / 'sdk_manager' / 'defaults' / 'main.yaml') or {}).get('sdk_manager_shell_init') or {}
+rc_writers = 0
+for path in sorted(ROLES.glob('*/tasks/*.yaml')):
+    if path.parts[-3] == 'env_variables':
+        continue
+    flat = [t for t, _ in walk(load(path))]
+    for index, task in enumerate(flat):
+        args = task.get('ansible.builtin.blockinfile')
+        if not isinstance(args, dict) or 'interactive_rc_files' not in str(task.get('loop', '')):
+            continue
+        rc_writers += 1
+        name = task.get('name', '(unnamed)')
+        tool = re.fullmatch(r'{{\s*sdk_manager_shell_init\.(\w+)\.marker\s*}}', str(args.get('marker', '')).strip())
+        tool = tool.group(1) if tool else None
+        if tool not in shell_init or not (shell_init[tool] or {}).get('patterns'):
+            lines.append('FAIL "%s" in %s writes every interactive rc file under the marker %s, which is not '
+                         'sdk_manager_shell_init.<tool>.marker of a tool the defaults of sdk_manager give patterns '
+                         'for, so no run can tell a line that already initializes it'
+                         % (name, path.as_posix(), args.get('marker')))
+            continue
+        skip_re = (r'^\s*item\.path\s+not\s+in\s+\(\s*sdk_manager_shell_init_found\s*\|\s*default\(\{\}\)\s*\)'
+                   r'\.%s\s*\|\s*default\(\[\]\)\s*$' % re.escape(tool))
+        if not re.search(skip_re, ' and '.join(conditions(task))):
+            lines.append('FAIL "%s" in %s writes every interactive rc file without skipping, in every run, the '
+                         'files that already initialize %s, so a line of the user\'s or a vendor line a picked-apps '
+                         'run keeps is joined by a second init, docs/regression_ledger.md 10.339 and 10.344'
+                         % (name, path.as_posix(), tool))
+        lookups = [i for i, t in enumerate(flat[:index]) if include_target(t) == 'shell_init_lookup.yaml'
+                   and (t.get('vars') or {}).get('sdk_manager_shell_init_tool') == tool]
+        if not lookups:
+            lines.append('FAIL "%s" in %s is not preceded by the include of shell_init_lookup.yaml for %s, so '
+                         'nothing has asked which rc files already initialize it' % (name, path.as_posix(), tool))
+            continue
+        if picked_re.search(' '.join(conditions(flat[lookups[-1]]))):
+            lines.append('FAIL the include of shell_init_lookup.yaml for %s in %s reads ih_picked_apps_run, so some '
+                         'run writes the init block without asking, docs/regression_ledger.md 10.344'
+                         % (tool, path.as_posix()))
+        for removal in flat[lookups[-1] + 1:]:
+            removal_args = removal.get('ansible.builtin.lineinfile')
+            if isinstance(removal_args, dict) and removal_args.get('state') == 'absent' \
+                    and 'shell_startup_files' in str(removal.get('loop', '')):
+                lines.append('FAIL "%s" in %s removes the vendor lines after the lookup for %s, so a full run takes '
+                             'the lines it is about to remove for an init and writes no block'
+                             % (removal.get('name', '(unnamed)'), path.as_posix(), tool))
+if rc_writers < 3:
+    lines.append('FAIL only %d tasks were found writing every interactive rc file, so nothing about the shell '
+                 'init is proven' % rc_writers)
+
 if not lines:
     lines.append('OK %d roles, %d cleanup tasks, both custom install includes, %d file tasks, %d tasks that '
                  'write the environment.d file and %d tasks of env_variables keep a picked-apps run to what it '
                  'picked, %d of them named as env tasks, none of the %d removals of a line or a file reaches a '
-                 'picked-apps run unless the allowed list names it, and %d keys a user can pick were read'
-                 % (len(roles_seen), cleanup_count, file_tasks, writers, len(env_tasks), env_allowed, len(removals), len(selectable)))
+                 'picked-apps run unless the allowed list names it, the %d shell init blocks skip an rc file that '
+                 'already initializes their tool, and %d keys a user can pick were read'
+                 % (len(roles_seen), cleanup_count, file_tasks, writers, len(env_tasks), env_allowed, len(removals),
+                    rc_writers, len(selectable)))
 print('\n'.join(lines))
 PYEOF
 )" || report_status=$?

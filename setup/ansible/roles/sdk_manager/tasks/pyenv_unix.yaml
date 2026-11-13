@@ -83,10 +83,19 @@
   become: yes
   become_user: "{{ non_root_user }}"
 
+# Every run asks first which rc file already runs `pyenv init -`, written by the user from the snippet
+# pyenv.run prints, and leaves that file alone, so Pyenv is initialized once, owner decision 50. No run
+# removes such a line, because it is the user's.
+- name: Ask which interactive rc files already initialize Pyenv (Linux/Mac)
+  ansible.builtin.include_tasks:
+    file: shell_init_lookup.yaml
+  vars:
+    sdk_manager_shell_init_tool: pyenv
+
 - name: Persist Pyenv shell init into every interactive rc file (Linux/Mac)
   ansible.builtin.blockinfile:
     path: "{{ item.path }}"
-    marker: "# {mark} ANSIBLE PYENV SHELL INIT"
+    marker: "{{ sdk_manager_shell_init.pyenv.marker }}"
     create: yes
     block: |
       command -v pyenv >/dev/null 2>&1 && eval "$(pyenv init - {{ item.shell }})"
@@ -95,6 +104,7 @@
     label: "{{ item.path }}"
   become: yes
   become_user: "{{ non_root_user }}"
+  when: item.path not in (sdk_manager_shell_init_found | default({})).pyenv | default([])
 
 # Fire all 4 Python builds in parallel (poll: 0). Each compiles from source
 # in ~5–10 min — serial is 20–40 min, parallel is bound by CPU contention

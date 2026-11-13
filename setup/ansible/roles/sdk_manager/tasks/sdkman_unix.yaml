@@ -49,22 +49,10 @@
   become: yes
   become_user: "{{ non_root_user }}"
 
-- name: Ensure SDKMAN shell init is present in every interactive rc file (Linux/Mac)
-  ansible.builtin.blockinfile:
-    path: "{{ item.path }}"
-    marker: "# {mark} ANSIBLE SDKMAN SHELL INIT"
-    create: yes
-    block: |
-      [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && . "$SDKMAN_DIR/bin/sdkman-init.sh"
-  loop: "{{ interactive_rc_files }}"
-  loop_control:
-    label: "{{ item.path }}"
-  become: yes
-  become_user: "{{ non_root_user }}"
-
 # What an earlier install, run without rcupdate=false, appended to .bashrc and .zshrc. The block
-# above uses single brackets and `.`, so the third pattern, the vendor's `[[ -s ... ]] && source`,
-# never matches it.
+# below uses single brackets and `.`, so the third pattern, the vendor's `[[ -s ... ]] && source`,
+# never matches it. It runs before the lookup below, so a full run that removes these lines writes the
+# project's block in their place.
 - name: Remove the init lines the SDKMAN installer appended before this project wired SDKMAN itself (Linux/Mac)
   ansible.builtin.lineinfile:
     path: "{{ item.0 }}"
@@ -81,6 +69,29 @@
   become: yes
   become_user: "{{ non_root_user }}"
   when: not (ih_picked_apps_run | bool)
+
+# Every run asks which rc file already loads sdkman-init.sh by a line of its own and leaves that file
+# alone, so the tool is initialized once, owner decision 50. In a picked-apps run that includes the
+# vendor lines it keeps, and in a full run only what is left after the removal above.
+- name: Ask which interactive rc files already initialize SDKMAN (Linux/Mac)
+  ansible.builtin.include_tasks:
+    file: shell_init_lookup.yaml
+  vars:
+    sdk_manager_shell_init_tool: sdkman
+
+- name: Ensure SDKMAN shell init is present in every interactive rc file (Linux/Mac)
+  ansible.builtin.blockinfile:
+    path: "{{ item.path }}"
+    marker: "{{ sdk_manager_shell_init.sdkman.marker }}"
+    create: yes
+    block: |
+      [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && . "$SDKMAN_DIR/bin/sdkman-init.sh"
+  loop: "{{ interactive_rc_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: item.path not in (sdk_manager_shell_init_found | default({})).sdkman | default([])
 
 # SDKMAN's `sdk install` writes to shared state files (~/.sdkman/etc/config,
 # ~/.sdkman/var/, the installed-candidates registry under candidates/) without

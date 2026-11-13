@@ -1,0 +1,40 @@
+---
+# Owner decision 50. Every run adds an SDK's shell init block to an interactive rc file only where that
+# file does not already initialize the SDK by a line of its own, one the user or the vendor installer
+# wrote, because a second init beside it would load the tool twice. A picked-apps run never removes
+# such a line, and a full run removes only the NVM and SDKMAN vendor lines, before it includes this.
+# sdk_manager_shell_init_tool names the SDK, a key of sdk_manager_shell_init in defaults/main.yaml,
+# which holds its marker and its patterns. The project's own block is cut out before the patterns are
+# searched, so a block an earlier run wrote is still kept up to date. The rc files that already
+# initialize the SDK end up in sdk_manager_shell_init_found[<tool>], and the init task beside the
+# include skips them. Reading changes nothing, and a file that is not there yet initializes nothing, so
+# only a missing file is tolerated here.
+- name: Read each interactive rc file before adding the shell init of {{ sdk_manager_shell_init_tool }}
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  loop: "{{ interactive_rc_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: sdk_manager_rc_read
+  failed_when:
+    - sdk_manager_rc_read.content is not defined
+    - not ((sdk_manager_rc_read.msg | default('')) is match('file not found', ignorecase=true))
+  become: yes
+  become_user: "{{ non_root_user }}"
+
+- name: Record which interactive rc files already initialize {{ sdk_manager_shell_init_tool }}
+  ansible.builtin.set_fact:
+    sdk_manager_shell_init_found: >-
+      {{ sdk_manager_shell_init_found | default({}) | combine({sdk_manager_shell_init_tool:
+           sdk_manager_rc_read.results | selectattr('content', 'defined') | map(attribute='item.path')
+           | zip(sdk_manager_rc_read.results | selectattr('content', 'defined') | map(attribute='content')
+                 | map('b64decode') | map('regex_replace', sdk_manager_shell_init_own_block, '', multiline=true))
+           | selectattr('1', 'search', sdk_manager_shell_init_any_pattern, multiline=true)
+           | map('first') | list}) }}
+  vars:
+    sdk_manager_shell_init_marker: "{{ sdk_manager_shell_init[sdk_manager_shell_init_tool].marker }}"
+    sdk_manager_shell_init_own_block: >-
+      {{ '(?s)^' ~ (sdk_manager_shell_init_marker | replace('{mark}', 'BEGIN') | regex_escape) ~ '$.*?^'
+         ~ (sdk_manager_shell_init_marker | replace('{mark}', 'END') | regex_escape) ~ '$' }}
+    sdk_manager_shell_init_any_pattern: >-
+      {{ '(?:' ~ (sdk_manager_shell_init[sdk_manager_shell_init_tool].patterns | join(')|(?:')) ~ ')' }}

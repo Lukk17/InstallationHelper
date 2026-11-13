@@ -40,22 +40,9 @@
   become: yes
   become_user: "{{ non_root_user }}"
 
-- name: Ensure NVM shell init is present in every interactive rc file (Linux/Mac)
-  ansible.builtin.blockinfile:
-    path: "{{ item.path }}"
-    marker: "# {mark} ANSIBLE NVM SHELL INIT"
-    create: yes
-    block: |
-      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-      [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
-  loop: "{{ interactive_rc_files }}"
-  loop_control:
-    label: "{{ item.path }}"
-  become: yes
-  become_user: "{{ non_root_user }}"
-
 # What an earlier install, run before PROFILE=/dev/null, appended to a profile. The patterns match the
-# vendor's lines only: the block above carries no export and no trailing comment.
+# vendor's lines only: the block below carries no export and no trailing comment. It runs before the
+# lookup below, so a full run that removes these lines writes the project's block in their place.
 - name: Remove the init lines the NVM installer appended before this project wired NVM itself (Linux/Mac)
   ansible.builtin.lineinfile:
     path: "{{ item.0 }}"
@@ -72,6 +59,30 @@
   become: yes
   become_user: "{{ non_root_user }}"
   when: not (ih_picked_apps_run | bool)
+
+# Every run asks which rc file already loads nvm.sh by a line of its own and leaves that file alone, so
+# the tool is initialized once, owner decision 50. In a picked-apps run that includes the vendor lines
+# it keeps, and in a full run only what is left after the removal above.
+- name: Ask which interactive rc files already initialize NVM (Linux/Mac)
+  ansible.builtin.include_tasks:
+    file: shell_init_lookup.yaml
+  vars:
+    sdk_manager_shell_init_tool: nvm
+
+- name: Ensure NVM shell init is present in every interactive rc file (Linux/Mac)
+  ansible.builtin.blockinfile:
+    path: "{{ item.path }}"
+    marker: "{{ sdk_manager_shell_init.nvm.marker }}"
+    create: yes
+    block: |
+      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+      [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+  loop: "{{ interactive_rc_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: item.path not in (sdk_manager_shell_init_found | default({})).nvm | default([])
 
 # `nvm` is a shell function, not a binary — `timeout nvm …` fails with
 # "No such file or directory" because timeout uses execve(). Wrap the
