@@ -44,7 +44,7 @@
 #   macOS four apps only     macos-26        every toggle off, then four by name
 #   Windows default apps     windows-latest  toggles as shipped
 #   Windows all apps         windows-latest  every selectable toggle on
-#   Windows four apps only   windows-latest  every toggle off, then four, Java and the Android SDK by name
+#   Windows picked apps only windows-latest  every toggle off, then four, Java and the Android SDK by name
 #   Windows settings only    windows-latest  the three native settings, no software
 #
 # Two jobs sit outside those lists. "Gate: checks passed" decides whether stage 2 and stage 3 may
@@ -1272,10 +1272,11 @@ jobs:
   # setup.sh and setup.ps1 already verify themselves before exiting, and adding a second check
   # here would test the harness rather than the thing it is supposed to prove.
   #
-  # "A handful enabled by name" (the from-nothing jobs) uses the same four keys on both
-  # platforms: install_git, install_chrome, install_docker and install_vscode. All four exist in
-  # group_vars/all.yaml or the platform's own group_vars file on macOS and Windows alike, are
-  # fast, and are not gated behind anything that only makes sense on Linux.
+  # "A handful enabled by name" (macOS four apps only and Windows picked apps only) uses the same
+  # four keys on both platforms: install_git, install_chrome, install_docker and install_vscode. All
+  # four exist in group_vars/all.yaml or the platform's own group_vars file on macOS and Windows
+  # alike, are fast, and are not gated behind anything that only makes sense on Linux. The Windows
+  # job adds install_java and install_android_sdk, for the reason its wizard step gives.
   #
   # Stage 3 runs once stage1_gate says the static checks passed or were legitimately bypassed. It
   # deliberately does not wait for the Linux container sweep: these are different operating systems,
@@ -1752,8 +1753,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  stage3_windows_from_nothing:
-    name: "Windows four apps only"
+  stage3_windows_picked_apps:
+    name: "Windows picked apps only"
     needs: [stage1_gate, stage2_verdict]
     if: "!cancelled() && needs.stage1_gate.outputs.ok == 'true'"
     runs-on: windows-latest
@@ -1870,7 +1871,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-stage3-windows-from-nothing-${{ github.run_id }}
+          name: e2e-stage3-windows-picked-apps-${{ github.run_id }}
           path: ${{ runner.temp }}\wizard-logs\
           if-no-files-found: warn
           retention-days: 14

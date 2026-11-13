@@ -7,7 +7,7 @@
 .DESCRIPTION
     Owner decision 40. Before its first change in a run, a configuration file that already exists is
     copied to %LOCALAPPDATA%\installation-helper\backup\<run timestamp>\<its full path without the
-    drive colon>, so C:\Users\me\file.ini goes to ...\backup\20261113-055934\C\Users\me\file.ini. A
+    drive colon>, so C:\Users\me\file.ini goes to ...\backup\2026-11-13T17-40-37Z\C\Users\me\file.ini. A
     file the run creates needs no copy. The registry has no file to copy, so a changed value is
     recorded with the value it held before. setup.ps1 prints both lists at the end of the run, through
     Write-ConfigChangeSummary.
@@ -35,8 +35,12 @@ function Start-WindowsConfigChangeRecord {
         Starts the record of what this run changes, and names its backup folder after the run's start time.
     .DESCRIPTION
         Creates no folder. The backup folder is made by the first copy, so a run that changes no
-        existing file leaves nothing behind. The name is the Gregorian date and time whatever the
-        culture, docs/regression_ledger.md 10.330.
+        existing file leaves nothing behind. The name is the start time in UTC, Gregorian whatever
+        the culture, in the shape the Linux backup uses, 2026-11-13T17-40-37Z, because local time
+        repeats an hour when the clocks go back, docs/regression_ledger.md 10.330 and 10.337.
+    .NOTES
+        Throws when a folder of that name exists already, because this run's copies would mix with
+        another run's.
     #>
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
@@ -52,8 +56,14 @@ function Start-WindowsConfigChangeRecord {
         $BackupRoot = Join-Path $env:LOCALAPPDATA 'installation-helper\backup'
     }
 
+    $stamp = $Started.ToUniversalTime().ToString("yyyy-MM-dd'T'HH-mm-ss'Z'", [System.Globalization.CultureInfo]::InvariantCulture)
+    $backupFolder = Join-Path $BackupRoot $stamp
+    if (Test-Path -LiteralPath $backupFolder) {
+        throw "$backupFolder exists already, so this run's backup would mix with another run's. Start the run again in a second."
+    }
+
     $script:ConfigChangeRecord = [PSCustomObject]@{
-        BackupFolder = Join-Path $BackupRoot $Started.ToString('yyyyMMdd-HHmmss', [System.Globalization.CultureInfo]::InvariantCulture)
+        BackupFolder = $backupFolder
         Files        = [System.Collections.Generic.List[object]]::new()
         Registry     = [System.Collections.Generic.List[object]]::new()
     }

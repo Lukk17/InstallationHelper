@@ -863,6 +863,13 @@ jobs:
               Write-Host "absent, nothing to collect: $name"
             }
           }
+          $backup = Join-Path $env:LOCALAPPDATA 'installation-helper\backup'
+          if (Test-Path -LiteralPath $backup) {
+            Copy-Item -LiteralPath $backup -Destination (Join-Path $dest 'config-backup') -Recurse -Force
+            Write-Host "collected the configuration backup, $backup"
+          } else {
+            Write-Host "absent, nothing to collect: $backup"
+          }
 
       - name: Upload wizard log artefacts
         if: always()

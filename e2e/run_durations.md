@@ -153,8 +153,10 @@ A full macOS install takes about 41 minutes whether the toggles are at their def
 |---|---|---|---|---|
 | Windows all apps | 3 | 98 | 78 | 122 |
 | Windows default apps | 3 | 82 | 72 | 87 |
-| Windows four apps only | 3 | 14 | 13 | 15 |
+| Windows picked apps only | 3 | 14 | 13 | 15 |
 | Windows settings only | 3 | 9 | 8 | 11 |
+
+The picked apps cell was measured under its old name, Windows four apps only, when it picked four keys. Since 2026-11-13 it also picks `install_java` and `install_android_sdk`, so its next runs will take longer than these figures.
 
 Windows is by far the most expensive platform, and it sets the wall clock of the entire sweep. Around eighty packages install one at a time through winget and Chocolatey, and no batching anywhere means eighty process starts and eighty separate downloads. Both long cells carry a 150 minute ceiling, and the slowest `Windows all apps` so far took 122 minutes, so the headroom is smaller than the average suggests. The two long cells also vary more than any other cell, by up to 44 minutes between runs.
 

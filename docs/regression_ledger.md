@@ -9395,6 +9395,48 @@ Fix: the "Windows four apps only" job also picks `install_android_sdk`, the one 
 
 Mechanical check: none. A check that every Windows collect step copies the backup folder would fail on e2e-manual.yaml until it is changed too.
 
+#### 10.335 The "Windows four apps only" job picked six keys
+
+Status: introduced by the fix of 10.334 in this change, and fixed on 2026-11-13 the same day.
+
+Cause: 10.334 added `install_java` and `install_android_sdk` to the job and kept its name.
+
+Effect: the name said four apps, the header of [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) and the tables of [e2e/README_E2E.md](../e2e/README_E2E.md) said four, and the job picked six.
+
+How it was proven: read in the workflow.
+
+Fix: the job is `stage3_windows_picked_apps`, named "Windows picked apps only", with the artefact `e2e-stage3-windows-picked-apps`, in the workflow, its header and its stage 3 comment, [e2e/README_E2E.md](../e2e/README_E2E.md) and [e2e/run_durations.md](../e2e/run_durations.md). The durations page says its figures were measured under the old name with four keys. No check named the job. The macOS job keeps "macOS four apps only", because it still picks four.
+
+Mechanical check: none. Whether a name describes a job is not something a reader can decide.
+
+#### 10.336 The single platform workflow lost the Windows configuration backup
+
+Status: introduced by 10.311 in this change, found by the review of 10.334, and fixed on 2026-11-13.
+
+Cause: the `windows-wizard` job of [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) collected `installation_verify.log` and `installation_errors.log` and not `%LOCALAPPDATA%\installation-helper\backup`.
+
+Effect: read in the workflow. A Windows dispatch of the single platform workflow threw the configuration backup away with the runner.
+
+How it was proven: the new check below, run in the tier 1 gate on 2026-11-13 before the fix, failed 1 of 2 with `.github/workflows/e2e-manual.yaml job windows-wizard starts setup.ps1 at step 6 and no later step copies %LOCALAPPDATA%\installation-helper\backup`, and passed its planted workflows. The four sweep jobs fixed by 10.334 passed.
+
+Fix: the job's collect step copies the folder into the artefact as `config-backup`, and says so when it is absent.
+
+Mechanical check: [e2e/tier1/workflow_windows_backup_artefact.sh](../e2e/tier1/workflow_windows_backup_artefact.sh), item 86 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md). Every job that starts setup.ps1 to install needs a later step under `if: always()` that copies the folder and, after it, an upload under `if: always()` of a folder that step names. It finds those jobs through [e2e/lib/windows_wizard_jobs.py](../e2e/lib/windows_wizard_jobs.py), which `workflow_windows_pester` now imports instead of carrying its own copy. Proven by the failing run above.
+
+#### 10.337 The Windows backup folder was named in local time and could be shared by two runs
+
+Status: introduced by 10.311 in this change, and fixed on 2026-11-13. The Windows half of 10.328.
+
+Cause: `Start-WindowsConfigChangeRecord` in [setup/windows/WindowsConfigBackup.ps1](../setup/windows/WindowsConfigBackup.ps1) named the folder from the local start time, `yyyyMMdd-HHmmss`, and used a folder of that name when one was there already.
+
+Effect: read in the code. Two runs started in the same second, or one in each pass through the hour the clocks go back, wrote their copies into one folder, and the second run's copy of a file replaced the first run's. The name also differed from the Linux backup's.
+
+How it was proven: in the same failing gate run as 10.336, `windows_pester` failed 4 of 315. `names the backup folder after the run timestamp in UTC, the shape the Linux backup uses` and `turns a local start time into UTC for the name` got `20261113-055934` and `20261113-174037` where they expected `2026-11-13T05-59-34Z` and `2026-11-13T17-40-37Z`, the test of 10.330 failed the same way, and `refuses a backup folder that exists already, so two runs never share one` failed with `no exception was thrown`.
+
+Fix: the name is the start time in UTC with a Z, `yyyy-MM-dd'T'HH-mm-ss'Z'` in the invariant culture, the shape `ih_run_timestamp` gives the Linux backup in [setup/ansible/site.yaml](../setup/ansible/site.yaml). A folder of that name that exists already throws "exists already, so this run's backup would mix with another run's. Start the run again in a second.", which `Invoke-Main` meets before the package upgrade and before anything else changes. Described in step 10 of [setup/README_SETUP.md](../setup/README_SETUP.md).
+
+Mechanical check: the three tests above. Proven by the failing run above.
+
 ### Found while giving setup.sh the configuration backup and the picked-apps scope of env_variables, owner decisions 40, 41 and 42, 2026-11-13
 
 #### 10.303 A run changed configuration files with no copy and no notice

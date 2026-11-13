@@ -4264,25 +4264,42 @@ Describe 'WindowsConfigBackup.ps1, the backup and record of what the wizard chan
     # docs/regression_ledger.md 10.311. WindowsConfigBackup.ps1 is loaded by the BeforeAll at the top.
     BeforeEach {
         Remove-Item -LiteralPath (Join-Path $TestDrive 'backup') -Recurse -Force -ErrorAction SilentlyContinue
-        $script:Run = Start-WindowsConfigChangeRecord -BackupRoot (Join-Path $TestDrive 'backup') -Started ([datetime]::new(2026, 11, 13, 5, 59, 34))
+        $script:Run = Start-WindowsConfigChangeRecord -BackupRoot (Join-Path $TestDrive 'backup') -Started ([datetime]::new(2026, 11, 13, 5, 59, 34, [DateTimeKind]::Utc))
         $script:Config = Join-Path $TestDrive 'settings.ini'
         Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
     }
 
-    It 'names the backup folder after the run timestamp' {
-        $script:Run.BackupFolder | Should -Be (Join-Path (Join-Path $TestDrive 'backup') '20261113-055934')
+    It 'names the backup folder after the run timestamp in UTC, the shape the Linux backup uses, docs/regression_ledger.md 10.337' {
+        $script:Run.BackupFolder | Should -Be (Join-Path (Join-Path $TestDrive 'backup') '2026-11-13T05-59-34Z')
+    }
+
+    It 'turns a local start time into UTC for the name' {
+        $local = [datetime]::new(2026, 11, 13, 17, 40, 37, [DateTimeKind]::Utc).ToLocalTime()
+
+        $run = Start-WindowsConfigChangeRecord -BackupRoot 'B' -Started $local
+
+        Split-Path -Leaf $run.BackupFolder | Should -BeExactly '2026-11-13T17-40-37Z'
+    }
+
+    It 'refuses a backup folder that exists already, so two runs never share one, docs/regression_ledger.md 10.337' {
+        $started = [datetime]::new(2026, 11, 13, 17, 40, 37, [DateTimeKind]::Utc)
+        $taken = Join-Path (Join-Path $TestDrive 'backup') '2026-11-13T17-40-37Z'
+        $null = New-Item -ItemType Directory -Path $taken -Force
+
+        { Start-WindowsConfigChangeRecord -BackupRoot (Join-Path $TestDrive 'backup') -Started $started } |
+            Should -Throw -ExpectedMessage "*$([WildcardPattern]::Escape($taken)) exists already*"
     }
 
     It 'names the backup folder with the Gregorian date whatever the culture, docs/regression_ledger.md 10.330' {
         $saved = [System.Globalization.CultureInfo]::CurrentCulture
         try {
             [System.Globalization.CultureInfo]::CurrentCulture = [System.Globalization.CultureInfo]::new('th-TH')
-            $run = Start-WindowsConfigChangeRecord -BackupRoot 'B' -Started ([datetime]::new(2026, 11, 13, 5, 59, 34))
+            $run = Start-WindowsConfigChangeRecord -BackupRoot 'B' -Started ([datetime]::new(2026, 11, 13, 5, 59, 34, [DateTimeKind]::Utc))
         } finally {
             [System.Globalization.CultureInfo]::CurrentCulture = $saved
         }
 
-        Split-Path -Leaf $run.BackupFolder | Should -BeExactly '20261113-055934'
+        Split-Path -Leaf $run.BackupFolder | Should -BeExactly '2026-11-13T05-59-34Z'
     }
 
     It 'treats two spellings of one path as one file, with one copy and one record, docs/regression_ledger.md 10.331' {
@@ -4621,7 +4638,8 @@ Describe 'Write-ConfigChangeSummary in setup.ps1' {
 
     BeforeEach {
         Mock Write-Host { }
-        $script:Run = Start-WindowsConfigChangeRecord -BackupRoot (Join-Path $TestDrive 'backup') -Started ([datetime]::new(2026, 11, 13, 5, 59, 34))
+        Remove-Item -LiteralPath (Join-Path $TestDrive 'backup') -Recurse -Force -ErrorAction SilentlyContinue
+        $script:Run = Start-WindowsConfigChangeRecord -BackupRoot (Join-Path $TestDrive 'backup') -Started ([datetime]::new(2026, 11, 13, 5, 59, 34, [DateTimeKind]::Utc))
     }
 
     It 'names every file changed or created, the copy of each changed one, the backup folder and every registry value' {

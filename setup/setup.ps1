@@ -28,9 +28,10 @@
     docs/regression_ledger.md 10.310 and 10.320.
 
     Every configuration file a run changes is copied first, once per run, to
-    %LOCALAPPDATA%\installation-helper\backup\<yyyyMMdd-HHmmss>\<its full path without the drive
-    colon>, and the end of the run lists every file changed or created and every registry value
-    changed. See setup/windows/WindowsConfigBackup.ps1.
+    %LOCALAPPDATA%\installation-helper\backup\<start time in UTC, 2026-11-13T17-40-37Z>\<its full
+    path without the drive colon>, and the end of the run lists every file changed or created and
+    every registry value changed. A run whose backup folder exists already stops before it changes
+    anything. See setup/windows/WindowsConfigBackup.ps1.
 
     Uses Microsoft.PowerShell.ConsoleGuiTools (Out-ConsoleGridView) for the multi-select picker
     with filter-as-you-type.

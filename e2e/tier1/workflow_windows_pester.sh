@@ -39,47 +39,21 @@ report_status=0
 report="$("${PYTHON}" - <<'PYEOF'
 import pathlib
 import re
+import sys
 
 import yaml
 
-SHARED_USES = './.github/actions/windows-pester'
+sys.path.insert(0, 'e2e/lib')
+from windows_wizard_jobs import SHARED_USES, code_lines, local_uses, starts_wizard, steps_of
+
 SHARED_FILE = pathlib.Path('.github/actions/windows-pester/action.yml')
-SETUP_PS1 = re.compile(r'setup[/\\]setup\.ps1')
-PLAN_ONLY = re.compile(r'(?<![\w-])-(PrintPlan|ListSoftware)\b', re.IGNORECASE)
 RUNS_PESTER = re.compile(r'\b(Invoke-Pester|New-PesterConfiguration)\b', re.IGNORECASE)
 OVERRIDES_FAILURE = re.compile(r'\b(always|failure|cancelled)\s*\(')
 EXCLUDE_TAG = re.compile(r'ExcludeTag\s*=\s*@\(([^)]*)\)')
 
 
-def code_lines(body):
-    return [line for line in body.splitlines() if not line.strip().startswith('#')]
-
-
 def is_true(value):
     return value is True or (isinstance(value, str) and value.strip().lower() == 'true')
-
-
-def steps_of(container):
-    return [step for step in ((container or {}).get('steps') or []) if isinstance(step, dict)]
-
-
-def local_uses(step):
-    uses = step.get('uses')
-    if isinstance(uses, str) and uses.startswith('./'):
-        return uses.rstrip('/')
-    return None
-
-
-def starts_wizard(step, actions, seen=()):
-    """True when the step, or a local action it uses, starts setup.ps1 for anything but a plan."""
-    body = step.get('run')
-    if isinstance(body, str):
-        return any(SETUP_PS1.search(line) and not PLAN_ONLY.search(line) for line in code_lines(body))
-    uses = local_uses(step)
-    if uses is None or uses == SHARED_USES or uses in seen:
-        return False
-    runs = (actions.get(uses) or {}).get('runs')
-    return any(starts_wizard(inner, actions, seen + (uses,)) for inner in steps_of(runs))
 
 
 def runs_pester_inline(step):
