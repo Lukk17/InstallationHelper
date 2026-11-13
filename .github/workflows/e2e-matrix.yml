@@ -32,9 +32,10 @@
 #   scenarios       defaults, all software, KDE full, GNOME full, KDE configure, idempotency,
 #                   live profile, forced failure, picked apps
 #
-# Two of those scenarios are not wizard paths. idempotency applies the defaults configuration twice
-# in one container and asserts the second pass changes nothing, and forced-failure breaks the run on
-# purpose and asserts the failure is reported in all four places a person or a script would look.
+# Only forced-failure is not a wizard path: it breaks the run on purpose with values the wizard never
+# writes, and asserts the failure is reported in all four places a person or a script would look.
+# idempotency is the defaults wizard path applied twice in one container, asserting the second pass
+# changes nothing, and picked-apps is the wizard path setup.sh --software none --enable install_kicad9.
 #
 # Stage 3, the short real installs on the other two platforms, seven jobs, each a real wizard run
 # ending in the wizard's own verification:

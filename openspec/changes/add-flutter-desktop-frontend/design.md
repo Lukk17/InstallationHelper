@@ -739,7 +739,7 @@ Every job sets `timeout-minutes`. Values are estimates until the first run, then
 | Script | JSON listing equals text listing, schemas validate, group parity, verdict table complete, result file on success, missing and early exit | new `e2e/tier1/machine_output.sh` and Pester tests in [e2e/tier1/windows/](../../../e2e/tier1/windows/) | `bash e2e/run.sh` |
 | Workflow | every workflow is dispatch-only or call-only | new `e2e/tier1/workflow_triggers.sh` | `bash e2e/run.sh` |
 | Cask | `Casks/installation-helper.rb` equals the template except `version` and `sha256`, no `.rb` file in the repository root | new `e2e/tier1/homebrew_cask.sh` | `bash e2e/run.sh` |
-| Container | result file in a real run and in the forced-failure run | existing scenarios with a result path added | `bash e2e/run.sh --tier 3 --scenario forced-failure` and `--scenario defaults --os debian` |
+| Container | result file in a real run and in the forced-failure run | existing scenarios with a result path added | dispatched to GitHub-hosted runners, `gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=arch` and `-f scenario=defaults -f distro=debian` |
 | Artifact | `--self-test` of every artifact | release workflow | each dispatch |
 | Manual | a real run through the GUI on each platform, listed in [e2e/manual_test_matrix.md](../../../e2e/manual_test_matrix.md) | virtual machines | before the first published release |
 

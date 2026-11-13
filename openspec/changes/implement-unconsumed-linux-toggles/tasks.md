@@ -29,13 +29,13 @@ Make a Wayland session available and preferred on a machine with the NVIDIA prop
   bash e2e/run.sh
   ```
   `toggle_coverage.sh` must stop naming `toggle_wayland_nvidia` in its skip list. Exit code must be 0.
-- [ ] 1.2.3 Tier 3 defaults, because this adds tasks to `system_core`, which every scenario runs. It proves the toggle-off path changes nothing, which is the first requirement in the spec:
+- [ ] 1.2.3 Tier 3 defaults, because this adds tasks to `system_core`, which every scenario runs. It proves the toggle-off path changes nothing, which is the first requirement in the spec. Tier 3 runs only on a GitHub-hosted runner and exits 2 anywhere else (owner decision 79), so dispatch it:
   ```bash
-  bash e2e/run.sh --tier 3 --scenario defaults
+  gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=arch
   ```
-- [ ] 1.2.4 Tier 3 idempotency, because 1.1.3 and 1.1.5 both write files conditionally and a mis-written condition reports `changed` forever:
+- [ ] 1.2.4 Tier 3 idempotency, because 1.1.3 and 1.1.5 both write files conditionally and a mis-written condition reports `changed` forever. Dispatched to a GitHub-hosted runner, like every tier 3 run:
   ```bash
-  bash e2e/run.sh --tier 3 --scenario idempotency
+  gh workflow run e2e-matrix.yml -f scenario=idempotency -f distro=arch
   ```
 - [ ] 1.2.5 Manual, on a virtual machine with a desktop and no NVIDIA card: enable the toggle, run, and confirm the run reports the skip with its reason and writes nothing. This is the "refuses a machine with no NVIDIA driver" scenario and it is the half a VM can prove.
 - [ ] 1.2.6 Manual, on a real machine with an NVIDIA card, snapshot or backup first because a broken session is what the toggle's own label warns about: enable the toggle, run, reboot, log in, and check `echo $XDG_SESSION_TYPE` and `cat /sys/module/nvidia_drm/parameters/modeset`. Then run the playbook a second time and confirm nothing reports changed.
@@ -74,9 +74,9 @@ Getting a bootloader wrong leaves a machine that will not start. Nothing in this
   ```bash
   bash e2e/run.sh --tier 2
   ```
-- [ ] 2.3.4 Tier 3 defaults, on every Linux distribution and not just one, because this changes a role that touches per-distribution behaviour. It proves the toggle-off path is unchanged, which is all a container can prove here:
+- [ ] 2.3.4 Tier 3 defaults, on every Linux distribution and not just one, because this changes a role that touches per-distribution behaviour. It proves the toggle-off path is unchanged, which is all a container can prove here. Dispatched to GitHub-hosted runners, like every tier 3 run:
   ```bash
-  bash e2e/run.sh --tier 3 --scenario defaults
+  gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=all
   ```
 - [ ] 2.3.5 Manual, and this is the only thing that proves the feature. UEFI virtual machine, snapshot taken first, one per Linux family. Enable `setup_grub`, run, reboot. The machine must come up. Then `efibootmgr -v` and the GRUB menu. Roll back to the snapshot between families.
 - [ ] 2.3.6 Manual, the refusal paths: a BIOS virtual machine, which must skip and not abort the play, and a machine with both install toggles true, which must refuse before writing.
@@ -111,9 +111,9 @@ This task is independently selectable but its own gate refers to `grub_verified`
   bash e2e/run.sh
   ```
   `toggle_coverage.sh` must stop naming `remove_distro_systemd_boot`. Exit 0.
-- [ ] 3.2.3 Tier 3 defaults, on every Linux distribution, proving the toggle-off path is unchanged:
+- [ ] 3.2.3 Tier 3 defaults, on every Linux distribution, proving the toggle-off path is unchanged. Dispatched to GitHub-hosted runners, like every tier 3 run:
   ```bash
-  bash e2e/run.sh --tier 3 --scenario defaults
+  gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=all
   ```
 - [ ] 3.2.4 Manual, the refusal paths first, because they are the ones that can be proven without risking a machine. On a UEFI virtual machine with systemd-boot installed: enable `remove_distro_systemd_boot` with `setup_grub` false, run, and confirm nothing was removed and the run said why. Then with `setup_grub` true but its verification forced to fail, and confirm the same.
 - [ ] 3.2.5 Manual, the real path, snapshot first. UEFI virtual machine with systemd-boot installed, both `setup_grub` and `remove_distro_systemd_boot` enabled, one per Linux family. Run, reboot, the machine must come up through GRUB. Then `bootctl status` and `efibootmgr -v`.

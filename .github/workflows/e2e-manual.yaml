@@ -79,11 +79,11 @@
 #   PowerShell (Windows, from a non-administrator prompt once the issue above is resolved):
 #     pwsh setup/setup.ps1 -NonInteractive -Software defaults
 #     pwsh setup/setup.ps1 -NonInteractive -EnableKey docker,vim -DisableKey steam
-#   `act` is not a good fit for the macos/windows jobs (act only emulates Linux containers),
-#   but the linux-e2e job's own harness call runs under `act` the same way any other
-#   Docker-based job does, once the scenario file this job generates exists on disk:
-#     act workflow_dispatch -W .github/workflows/e2e-manual.yaml -j linux-e2e \
-#       --input target_platform=arch --input software_mode=defaults
+#   `act` is not a good fit for the macos/windows jobs (act only emulates Linux containers), and
+#   it cannot run the linux-e2e job's harness call either: act runs a job inside a container by
+#   default, where e2e/lib/gate.sh refuses with exit 2 before the gate starts, and tier 3 runs only
+#   on a GitHub-hosted runner. Dispatch the job instead:
+#     gh workflow run e2e-manual.yaml -f target_platform=arch -f software_mode=defaults
 #
 # Static verification performed on this file: YAML parses (python -c "import yaml;
 # list(yaml.safe_load_all(open(...)))") and yamllint reports no errors. actionlint is not

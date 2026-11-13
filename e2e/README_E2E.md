@@ -540,7 +540,7 @@ winget scopes are read only one way, through `gh`, because `winget show` prints 
 
 ### The tier 3 scenarios
 
-Seven of them are one configuration the wizard can actually produce. The first six between them cover the wizard's whole output space, which is the desktop environment choice crossed with the three software paths, and picked-apps is the one run that installs only what it names. The other two ask something about the run itself rather than about a selection.
+Every scenario but forced-failure reproduces a configuration the wizard can actually produce. The first six in the table below between them cover the wizard's whole output space, which is the desktop environment choice crossed with the three software paths, and picked-apps is the one run that installs only what it names. idempotency and forced-failure, in the second table, ask something about the run itself rather than about a selection.
 
 | Scenario | Wizard path it reproduces |
 |---|---|
@@ -554,7 +554,7 @@ Seven of them are one configuration the wizard can actually produce. The first s
 
 The all-software toggle list is generated at run time from [group_vars/](../setup/ansible/group_vars/) rather than written into the scenario file, so a newly added toggle is covered with no edit here. The exact list used is written into the run directory.
 
-Two scenarios are not wizard paths, and both carry a control key that changes what [tier3/container.sh](tier3/container.sh) does rather than what the playbook installs.
+Both carry a control key that changes what [tier3/container.sh](tier3/container.sh) does rather than what the playbook installs. idempotency is still a wizard path, the one defaults reproduces, applied twice. forced-failure is the only scenario that is not one, because it sets variables the wizard never writes.
 
 | Scenario | Control key | What it asks |
 |---|---|---|
@@ -642,7 +642,7 @@ After that, one command per run. It writes the sandbox configuration from where 
 pwsh e2e/windows-sandbox/Invoke-WindowsSandbox.ps1
 ```
 
-A real install on a hosted Windows Server 2025 runner, which is the automated one. Dispatch [../.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) at its `windows` target, or run the full sweep, whose four Windows cells install the whole set for real. Measured over three sweeps at an average of 82 minutes for the defaults set and 98 with every toggle on, the slowest of them 122, in [run_durations.md](run_durations.md).
+A real install on a hosted Windows Server 2025 runner, which is the automated one. Dispatch [../.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) at its `windows` target, or run the full sweep, whose four Windows cells each install a different selection for real: "Windows default apps" the toggles as shipped, "Windows all apps" every selectable toggle, "Windows four apps only" `install_git`, `install_chrome`, `install_docker` and `install_vscode` and nothing else, and "Windows settings only" no software, only `setup_wsl` and `enable_hyperv`. Measured over three sweeps at an average of 82 minutes for the defaults set and 98 with every toggle on, the slowest of them 122, in [run_durations.md](run_durations.md).
 
 What none of the three can do is in [manual_test_matrix.md](manual_test_matrix.md), and the short version is that the runner is Server rather than client, and a sandbox can neither reboot nor run a hypervisor. Between them that leaves the client-edition packages, the seven Microsoft Store ids, `enable_hyperv`, WSL end to end and every hardware row for a real machine.
 

@@ -477,14 +477,14 @@ bash e2e/run.sh
 
 ### 14. Prove it on real distributions before calling it done
 
-- [ ] 14.1 Run the smoke scenario on Arch, Debian, Ubuntu and Fedora, two at a time.
+- [ ] 14.1 Run the defaults scenario on every Linux distribution, on GitHub-hosted runners.
 
-Not run, and still owed. It was blocked when this was written, because Docker Desktop's WSL integration was off for the Ubuntu distro and the harness would only run the container tiers from a Linux shell. Neither half of that holds now: the guard is `require_docker_host`, which asks whether a daemon answers rather than what the operating system is, so the command below runs from Git Bash, and as measured on 2026-08-20 the Ubuntu distribution has a socket again and runs it too.
+Not run, and still owed. It was blocked when this was written, because Docker Desktop's WSL integration was off for the Ubuntu distro. It no longer runs on a local machine at all: tier 3 runs only on a GitHub-hosted runner and exits 2 anywhere else, a virtual machine included, by the owner's decision 79, because its privileged scenario containers changed the owner's kernel ([regression_ledger.md](regression_ledger.md) entries 10.126 to 10.129). The smoke scenario this task first named was removed, because every toggle it enabled was already true in defaults. So dispatch defaults on every distribution.
 
 Files: none.
 
 ```bash
-./e2e/run.sh --tier 3 --scenario smoke --jobs 2
+gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=all
 ```
 
 ---
