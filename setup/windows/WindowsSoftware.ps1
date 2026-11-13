@@ -17,7 +17,8 @@
     the YAML ever disagree.
 
     Dot-source it, then call Invoke-WindowsSoftwareInstall. Nothing here writes to the
-    console: the caller renders, which keeps the functions testable.
+    console: the caller renders, which keeps the functions testable. Set-SyncthingStartupShortcut
+    writes its shortcut through Invoke-WindowsConfigFileWrite from WindowsConfigBackup.ps1.
 #>
 
 Set-StrictMode -Version Latest
@@ -152,6 +153,55 @@ function Get-WindowsSoftwareToggle {
     }
     Write-Verbose "Read $($toggles.Count) install toggles"
     return $toggles
+}
+
+function Get-WindowsGroupVarList {
+    <#
+    .SYNOPSIS
+        Returns the items of one top-level list in a group_vars file, such as env_variables_dependent_toggles.
+    .DESCRIPTION
+        Reads the block form Ansible's group_vars use, `name:` on its own line and one `  - item` per
+        line below it, and stops at the next line that is neither an item, a blank nor a comment.
+        Throws when the file names no such list or the list holds no item, because a list that reads
+        as empty would quietly change what a run does.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $AllVarsPath,
+        [Parameter(Mandatory)] [ValidatePattern('^[a-z0-9_]+$')] [string] $Name
+    )
+
+    if (-not (Test-Path -LiteralPath $AllVarsPath)) {
+        throw "Toggle file not found: $AllVarsPath"
+    }
+
+    $items = [System.Collections.Generic.List[string]]::new()
+    $inList = $false
+    $found = $false
+    foreach ($line in (Get-Content -LiteralPath $AllVarsPath)) {
+        if (-not $inList) {
+            if ($line -match "^$([regex]::Escape($Name)):\s*(#.*)?$") {
+                $inList = $true
+                $found = $true
+            }
+            continue
+        }
+        if ($line -match '^\s+-\s+(?<item>[a-z0-9_]+)\s*(#.*)?$') {
+            $items.Add($Matches['item'])
+            continue
+        }
+        if ($line -match '^\s*(#.*)?$') { continue }
+        break
+    }
+
+    if (-not $found) {
+        throw "$AllVarsPath names no list called $Name"
+    }
+    if ($items.Count -eq 0) {
+        throw "$Name in $AllVarsPath holds no item"
+    }
+    return $items.ToArray()
 }
 
 function Get-WindowsSoftwareMapping {
@@ -1713,6 +1763,9 @@ function Set-SyncthingStartupShortcut {
     .SYNOPSIS
         Puts a Syncthing shortcut in this user's Startup folder, so Syncthing starts at their logon.
     .DESCRIPTION
+        An existing shortcut that says something else is copied to the run's backup folder before it
+        is replaced, through Invoke-WindowsConfigFileWrite in WindowsConfigBackup.ps1.
+
         The shortcut points at the link winget keeps in %ProgramFiles%\WinGet\Links, which follows
         every upgrade, and not at the versioned folder behind it. A shortcut to a link keeps the link
         path and starts whatever the link points at now, measured on 2026-10-11 by moving a link to a
@@ -1752,7 +1805,7 @@ function Set-SyncthingStartupShortcut {
         $shortcut.Description = 'Syncthing, started at logon with no console and no browser'
         # 7 is a minimised window, so nothing flashes up at logon even before --no-console hides it.
         $shortcut.WindowStyle = 7
-        $shortcut.Save()
+        $null = Invoke-WindowsConfigFileWrite -Path $shortcutPath -Argument $shortcut -Write { param($Target, $Shortcut) $Shortcut.Save() }
         return (& $result 'installed' "$shortcutPath, which starts Syncthing at your next logon. Its web interface is http://localhost:8384")
     } catch {
         return (& $result 'failed' "could not write $shortcutPath ($($_.Exception.Message)), so Syncthing will not start at logon")

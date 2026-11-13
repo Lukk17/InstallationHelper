@@ -40,7 +40,8 @@
 
     Depends on Get-WindowsGroupVarToggle, Test-IsAdministrator, Get-WindowsInstallationType,
     Invoke-InstallStepWithRetry and Wait-BoundedProcess from WindowsSoftware.ps1, which setup.ps1
-    dot-sources first.
+    dot-sources first, and on Invoke-WindowsConfigFileWrite and Invoke-WindowsRegistryChange from
+    WindowsConfigBackup.ps1.
 #>
 
 Set-StrictMode -Version Latest
@@ -425,6 +426,11 @@ function Set-WindowsWallpaper {
         way to apply it, and it writes the per-user value itself. The registry write is kept as well
         so the setting survives even when the live repaint is refused, and a refused repaint is
         reported rather than assumed harmless.
+
+        The copy goes through Invoke-WindowsConfigFileWrite and the registry value through
+        Invoke-WindowsRegistryChange, both in WindowsConfigBackup.ps1, so a different file already at
+        the destination is backed up first and both changes are listed at the end of the run. A file
+        already identical to the source is left alone.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -448,8 +454,17 @@ function Set-WindowsWallpaper {
 
     try {
         $null = New-Item -ItemType Directory -Path $DestinationDirectory -Force
-        Copy-Item -LiteralPath $SourcePath -Destination $destination -Force
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'Wallpaper' -Value $destination
+        $inPlace = (Test-Path -LiteralPath $destination -PathType Leaf) -and
+            ((Get-FileHash -LiteralPath $destination).Hash -eq (Get-FileHash -LiteralPath $SourcePath).Hash)
+        if (-not $inPlace) {
+            $null = Invoke-WindowsConfigFileWrite -Path $destination -Argument $SourcePath -Write {
+                param($Target, $Source)
+                Copy-Item -LiteralPath $Source -Destination $Target -Force -ErrorAction Stop
+            }
+        }
+        $null = Invoke-WindowsRegistryChange -Location 'HKCU\Control Panel\Desktop' -Name 'Wallpaper' -Argument $destination `
+            -Read { try { Get-ItemPropertyValue -Path 'HKCU:\Control Panel\Desktop' -Name 'Wallpaper' -ErrorAction Stop } catch { $null } } `
+            -Write { param($Wallpaper) Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'Wallpaper' -Value $Wallpaper }
     } catch {
         return New-SettingResult -Key 'set_custom_wallpaper' -Package $name -Status 'failed' `
             -Detail "could not put the wallpaper in place: $($_.Exception.Message)"

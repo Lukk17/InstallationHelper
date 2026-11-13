@@ -7,6 +7,7 @@ Rules for the native Windows installer, [../setup.ps1](../setup.ps1) and the mod
 1. Before choosing between winget, Chocolatey and a vendor installer, read "Package manager order per OS" in [../ansible/ansible_architecture.md](../ansible/ansible_architecture.md). A Chocolatey mapping carries the reason beside it in `vars/Windows.yaml`.
 2. Before deciding which run the change owes, read [../../e2e/AGENTS.md](../../e2e/AGENTS.md). Tier 1 runs the Pester suite. A real install is a Windows Sandbox run or the `windows` target of the single platform workflow, and what neither can prove is in [../../e2e/manual_test_matrix.md](../../e2e/manual_test_matrix.md).
 3. Before writing PowerShell here, read defect classes 2, 3, 4, 5 and 20 in [../../docs/regression_ledger.md](../../docs/regression_ledger.md). Each was written in this folder once already.
+4. Before adding a step to `Invoke-Main` or `Invoke-WindowsRun`, or a write of a configuration file or a registry value, read `Resolve-WindowsRunScope` in [../setup.ps1](../setup.ps1) and the header of [WindowsConfigBackup.ps1](WindowsConfigBackup.ps1).
 
 ### Rules no check catches
 
@@ -15,3 +16,4 @@ Rules for the native Windows installer, [../setup.ps1](../setup.ps1) and the mod
 3. A path in `vars/Windows.yaml` uses a separator that needs no escape. Ansible and a PowerShell regex read that file with different escaping rules.
 4. When the winget path, the Chocolatey path and the verification must agree on whether a package applies, they call one function. Three separate decisions disagreed in one run, and the run passed.
 5. A vendor's support matrix is not the installer's behaviour. Measure what the installer does, inside Windows Sandbox or on a hosted runner, never on the owner's computer.
+6. A write the Pester scan does not recognise still goes through `Invoke-WindowsConfigFileWrite` or `Invoke-WindowsRegistryChange`: a `>` redirection, `New-Item -Value`, `reg.exe`, or a vendor tool that edits the user PATH, the way `pipx ensurepath` does.

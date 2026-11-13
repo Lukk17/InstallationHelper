@@ -63,9 +63,18 @@ BeforeAll {
     }
     . $script:PsFile
     . $script:CustomInstallFile
+    # The functions above write configuration through it, as they do in setup.ps1. Its backups go to a
+    # temporary folder the AfterAll below removes, so no test writes one into a real profile.
+    . (Join-Path $script:RepoRoot 'setup\windows\WindowsConfigBackup.ps1')
+    $script:SuiteBackupRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ih-pester-config-backup-$PID"
+    $null = Start-WindowsConfigChangeRecord -BackupRoot $script:SuiteBackupRoot
     # Imported here as well as by WindowsCustomInstalls.ps1, so the adapter tests below state their
     # own dependency instead of relying on a dot-source side effect.
     Import-Module $script:PinnedValuesFile -Force
+}
+
+AfterAll {
+    Remove-Item -LiteralPath $script:SuiteBackupRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Describe 'Get-WindowsSoftwareToggle' {
@@ -2902,6 +2911,7 @@ Describe 'Install-PipxWithPip' {
         Mock Get-Command { [PSCustomObject]@{ Source = 'py' } } -ParameterFilter { $Name -contains 'py' }
         Mock Start-Sleep { }
         Mock Write-Host { }
+        Mock Get-WindowsUserEnvironmentValue { [PSCustomObject]@{ Value = $null; Kind = $null } }
         $global:PipCalls = [System.Collections.Generic.List[string]]::new()
         $global:PipFailuresLeft = 0
     }
@@ -4025,5 +4035,785 @@ function choco { $global:ManualCalls.Add("choco $($args -join ' ')"); if ($args[
         $text | Should -Not -Match '(?m)^\s*& winget @arguments' -Because 'the plain winget loop must go through Get-InstallExpression'
         $text | Should -Not -Match 'choco install \$\(' -Because 'the Chocolatey lines must go through Get-InstallExpression'
         $text | Should -Match "Invoke-InstallWithRetry -Package 'Chocolatey'" -Because 'the Chocolatey bootstrap is a download as well'
+    }
+}
+
+Describe 'Resolve-WindowsRunScope in setup.ps1, which decides what a run is for' {
+
+    # Lifted out of the syntax tree for the reason the Install-ConsoleGuiTools tests give: setup.ps1 runs
+    # Invoke-Main when it is loaded. The Windows half of ih_picked_apps_run, docs/regression_ledger.md 10.310.
+    BeforeAll {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+        $wanted = @('Resolve-WindowsRunScope')
+        $definitions = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in setup.ps1 and found $($definitions.Count)."
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        $script:Dependent = @('install_android_sdk', 'install_java')
+    }
+
+    It 'calls -Software none with a key left on a picked-apps run of that key, without the environment variables' {
+        $scope = Resolve-WindowsRunScope -Baseline 'none' -ToggleOverride @{ install_kicad9 = $true; install_chrome = $false; setup_wsl = $false } `
+            -EnvironmentDependentKey $script:Dependent
+
+        $scope.PickedAppsRun | Should -BeTrue
+        @($scope.PickedKeys) | Should -Be @('install_kicad9')
+        $scope.DevEnvironmentRun | Should -BeFalse
+    }
+
+    It 'keeps the environment variables in a picked-apps run that picks an app which needs them' {
+        $scope = Resolve-WindowsRunScope -Baseline 'none' -ToggleOverride @{ install_kicad9 = $true; install_android_sdk = $true } `
+            -EnvironmentDependentKey $script:Dependent
+
+        $scope.PickedAppsRun | Should -BeTrue
+        @($scope.PickedKeys) | Should -Be @('install_android_sdk', 'install_kicad9')
+        $scope.DevEnvironmentRun | Should -BeTrue
+    }
+
+    It 'calls -Software none with every key off, a key enabled and disabled at once included, a full run' {
+        $scope = Resolve-WindowsRunScope -Baseline 'none' -ToggleOverride @{ install_kicad9 = $false; install_chrome = $false } `
+            -EnvironmentDependentKey $script:Dependent
+
+        $scope.PickedAppsRun | Should -BeFalse
+        @($scope.PickedKeys).Count | Should -Be 0
+        $scope.DevEnvironmentRun | Should -BeTrue
+    }
+
+    It 'calls -Software <Baseline> with -EnableKey a full run' -ForEach @(@{ Baseline = 'defaults' }, @{ Baseline = 'all' }) {
+        $scope = Resolve-WindowsRunScope -Baseline $Baseline -ToggleOverride @{ install_kicad9 = $true } -EnvironmentDependentKey $script:Dependent
+
+        $scope.PickedAppsRun | Should -BeFalse
+        $scope.DevEnvironmentRun | Should -BeTrue
+    }
+
+    It 'calls a run with no selection option at all, the interactive checklist included, a full run' {
+        $scope = Resolve-WindowsRunScope -Baseline '' -ToggleOverride $null -EnvironmentDependentKey $script:Dependent
+
+        $scope.PickedAppsRun | Should -BeFalse
+        $scope.DevEnvironmentRun | Should -BeTrue
+    }
+}
+
+Describe 'Get-WindowsGroupVarList' {
+
+    It 'reads env_variables_dependent_toggles out of group_vars/all.yaml' {
+        $list = @(Get-WindowsGroupVarList -AllVarsPath (Join-Path $script:AnsibleDir 'group_vars\all.yaml') -Name 'env_variables_dependent_toggles')
+
+        $list | Should -Contain 'install_android_sdk'
+        $list | Should -Contain 'install_java'
+        $list.Count | Should -BeGreaterOrEqual 3
+    }
+
+    It 'reads every item up to the next key, and a comment beside an item does not change it' {
+        $vars = Join-Path $TestDrive 'lists.yaml'
+        @('---', 'first_list:', '  - install_a  # the reason', '', '  - install_b', 'next_key: true', '  - install_not_mine') |
+            Set-Content -LiteralPath $vars
+
+        @(Get-WindowsGroupVarList -AllVarsPath $vars -Name 'first_list') | Should -Be @('install_a', 'install_b')
+    }
+
+    It 'throws when the file names no such list, or a list with no item' {
+        $vars = Join-Path $TestDrive 'empty.yaml'
+        @('---', 'empty_list:', 'next_key: true') | Set-Content -LiteralPath $vars
+
+        { Get-WindowsGroupVarList -AllVarsPath $vars -Name 'absent_list' } | Should -Throw -ExpectedMessage '*absent_list*'
+        { Get-WindowsGroupVarList -AllVarsPath $vars -Name 'empty_list' } | Should -Throw -ExpectedMessage '*empty_list*'
+    }
+}
+
+Describe 'A picked-apps run of setup.ps1 runs only the steps a picked key asks for' {
+
+    # Read from the syntax tree of Invoke-Main and Invoke-WindowsRun, the main path of a run. A step is a
+    # call of a function the wizard defines whose verb can change something. It passes when it takes
+    # -OnlyKeys and -ToggleOverride, so it does only what the selection names, when an if around it reads
+    # $script:RunScope, or when it is named below with the reason it changes nothing on the machine.
+    # The Windows half of e2e/tier1/picked_apps_scope.sh, docs/regression_ledger.md 10.310.
+    BeforeAll {
+        $script:ReadOnlyVerbs = @('Assert', 'Format', 'Get', 'Read', 'Resolve', 'Show', 'Split', 'Test', 'Write')
+        $script:AllowedSteps = @{
+            'Set-Theme'                       = 'console colours only'
+            'Invoke-WindowsSystemUpgrade'     = 'every run upgrades the installed packages, owner decision 43, and only -SkipSystemUpgrade turns it off'
+            'Start-WindowsConfigChangeRecord' = 'starts the in-memory record of what the run changes'
+            'Install-ConsoleGuiTools'         = 'the interactive picker only, and -Software makes a run non-interactive'
+            'Invoke-WindowsRun'               = 'the run itself, whose own steps are judged here one by one'
+            'Invoke-AndShowVerification'      = 'reads what landed and writes only the run''s own log, installation_verify.log'
+        }
+
+        $wizardFiles = @(
+            (Join-Path $script:RepoRoot 'setup\setup.ps1')
+            @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'setup\windows') -Filter '*.ps1' | ForEach-Object FullName)
+        )
+        $defined = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $script:SetupAst = $null
+        foreach ($file in $wizardFiles) {
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors)
+            if ($errors) { throw "$file does not parse: $($errors[0].Message)" }
+            if ((Split-Path -Leaf $file) -eq 'setup.ps1') { $script:SetupAst = $ast }
+            foreach ($definition in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+                $null = $defined.Add($definition.Name)
+            }
+        }
+
+        $script:MainPath = @($script:SetupAst.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in @('Invoke-Main', 'Invoke-WindowsRun')
+        }, $true))
+
+        $script:Steps = foreach ($function in $script:MainPath) {
+            foreach ($call in $function.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+                $name = $call.GetCommandName()
+                if (-not $name -or -not $defined.Contains($name)) { continue }
+                if (($name -split '-')[0] -in $script:ReadOnlyVerbs) { continue }
+                [PSCustomObject]@{ Function = $function.Name; Name = $name; Line = $call.Extent.StartLineNumber; Node = $call; Text = $call.Extent.Text }
+            }
+        }
+
+        function global:Test-ReadsRunScope {
+            param([Parameter(Mandatory)] $Node)
+
+            $at = $Node.Parent
+            while ($at) {
+                if ($at -is [System.Management.Automation.Language.IfStatementAst]) {
+                    foreach ($clause in $at.Clauses) {
+                        if ($clause.Item1.Extent.Text -match '\$script:RunScope\.') { return $true }
+                    }
+                }
+                $at = $at.Parent
+            }
+            return $false
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:Test-ReadsRunScope -ErrorAction SilentlyContinue
+    }
+
+    It 'reads both functions of the main path and finds the steps that run whatever is picked' {
+        $script:MainPath.Count | Should -Be 2
+        $names = @($script:Steps.Name)
+        foreach ($name in @('Invoke-WindowsSystemUpgrade', 'Clear-WindowsCacheAndShow', 'Invoke-AndShowDevEnvironment', 'Invoke-AndShowWslAnsible', 'Invoke-WindowsSoftwareInstall')) {
+            $names | Should -Contain $name
+        }
+    }
+
+    It 'runs no step in a picked-apps run that no picked key asks for' {
+        $loose = @($script:Steps | Where-Object {
+            -not $script:AllowedSteps.ContainsKey($_.Name) -and
+            -not ($_.Text -match '-OnlyKeys\b' -and $_.Text -match '-ToggleOverride\b') -and
+            -not (Test-ReadsRunScope -Node $_.Node)
+        } | ForEach-Object { "$($_.Function) line $($_.Line): $($_.Name)" })
+
+        $loose | Should -BeNullOrEmpty
+    }
+
+    It 'names only steps the main path still calls' {
+        foreach ($name in $script:AllowedSteps.Keys) {
+            @($script:Steps.Name) | Should -Contain $name
+        }
+    }
+
+    It 'upgrades the installed packages in a picked-apps run too, owner decision 43, docs/regression_ledger.md 10.320' {
+        $upgrade = @($script:Steps | Where-Object Name -eq 'Invoke-WindowsSystemUpgrade')
+        $upgrade.Count | Should -Be 1
+        $upgrade[0].Function | Should -Be 'Invoke-Main'
+        Test-ReadsRunScope -Node $upgrade[0].Node | Should -BeFalse
+    }
+
+    It 'decides the scope once, in Invoke-Main, from -Software, the selection and env_variables_dependent_toggles' {
+        $assignments = @($script:SetupAst.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$script:RunScope'
+        }, $true))
+
+        $assignments.Count | Should -Be 1
+        $text = $assignments[0].Right.Extent.Text
+        $text | Should -Match 'Resolve-WindowsRunScope'
+        $text | Should -Match '-Baseline \$Software\b'
+        $text | Should -Match '-ToggleOverride \$toggleOverride\b'
+        $text | Should -Match "Get-WindowsGroupVarList .*-Name 'env_variables_dependent_toggles'"
+        $owner = $assignments[0].Parent
+        while ($owner -and $owner -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) { $owner = $owner.Parent }
+        $owner.Name | Should -Be 'Invoke-Main'
+    }
+
+    It 'narrows every phase to the picked keys in a picked-apps run' {
+        $narrowing = @($script:SetupAst.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $n.Left.Extent.Text -eq '$selectedSoftwareKeys' -and
+            $n.Right.Extent.Text -match 'Resolve-PickedSelection -PickedKeys \$script:RunScope\.PickedKeys\b'
+        }, $true))
+
+        $narrowing.Count | Should -Be 1
+        Test-ReadsRunScope -Node $narrowing[0] | Should -BeTrue
+    }
+}
+
+Describe 'WindowsConfigBackup.ps1, the backup and record of what the wizard changes' {
+
+    # docs/regression_ledger.md 10.311. WindowsConfigBackup.ps1 is loaded by the BeforeAll at the top.
+    BeforeEach {
+        Remove-Item -LiteralPath (Join-Path $TestDrive 'backup') -Recurse -Force -ErrorAction SilentlyContinue
+        $script:Run = Start-WindowsConfigChangeRecord -BackupRoot (Join-Path $TestDrive 'backup') -Started ([datetime]::new(2026, 11, 13, 5, 59, 34))
+        $script:Config = Join-Path $TestDrive 'settings.ini'
+        Remove-Item -LiteralPath $script:Config -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'names the backup folder after the run timestamp' {
+        $script:Run.BackupFolder | Should -Be (Join-Path (Join-Path $TestDrive 'backup') '20261113-055934')
+    }
+
+    It 'names the backup folder with the Gregorian date whatever the culture, docs/regression_ledger.md 10.330' {
+        $saved = [System.Globalization.CultureInfo]::CurrentCulture
+        try {
+            [System.Globalization.CultureInfo]::CurrentCulture = [System.Globalization.CultureInfo]::new('th-TH')
+            $run = Start-WindowsConfigChangeRecord -BackupRoot 'B' -Started ([datetime]::new(2026, 11, 13, 5, 59, 34))
+        } finally {
+            [System.Globalization.CultureInfo]::CurrentCulture = $saved
+        }
+
+        Split-Path -Leaf $run.BackupFolder | Should -BeExactly '20261113-055934'
+    }
+
+    It 'treats two spellings of one path as one file, with one copy and one record, docs/regression_ledger.md 10.331' {
+        Set-Content -LiteralPath $script:Config -Value 'before'
+        $sub = Join-Path $TestDrive 'sub'
+        $null = New-Item -ItemType Directory -Path $sub -Force
+        $roundabout = Join-Path (Join-Path $sub '..') 'settings.ini'
+
+        Invoke-WindowsConfigFileWrite -Path $roundabout -Write { Set-Content -LiteralPath $script:Config -Value 'one' }
+        Invoke-WindowsConfigFileWrite -Path $script:Config -Write { Set-Content -LiteralPath $script:Config -Value 'two' }
+
+        @($script:Run.Files).Count | Should -Be 1
+        $script:Run.Files[0].Path | Should -Be ([System.IO.Path]::GetFullPath($script:Config))
+        Get-Content -LiteralPath $script:Run.Files[0].Backup | Should -Be 'before'
+    }
+
+    It 'hands the write the full path and its argument, docs/regression_ledger.md 10.332' {
+        $answer = Invoke-WindowsConfigFileWrite -Path $script:Config -Argument 'extra' -Write { param($Target, $Argument) "$Target|$Argument" }
+
+        $answer | Should -BeExactly "$([System.IO.Path]::GetFullPath($script:Config))|extra"
+    }
+
+    It 'records a file the write created before it threw, and passes the exception on' {
+        { Invoke-WindowsConfigFileWrite -Path $script:Config -Write { Set-Content -LiteralPath $script:Config -Value 'half'; throw 'the write broke' } } |
+            Should -Throw -ExpectedMessage 'the write broke'
+
+        @($script:Run.Files).Count | Should -Be 1
+        $script:Run.Files[0].Action | Should -Be 'created'
+    }
+
+    It 'hands the read and the write of a registry value their argument, docs/regression_ledger.md 10.332' {
+        $global:FakeRegistryValue = 'old'
+
+        Invoke-WindowsRegistryChange -Location 'HKCU\Environment' -Name 'JAVA_HOME' -Argument @{ Value = 'new' } `
+            -Read { param($Change) "$global:FakeRegistryValue" } -Write { param($Change) $global:FakeRegistryValue = $Change.Value }
+
+        $script:Run.Registry[0].After | Should -BeExactly 'new'
+    }
+
+    It 'keeps a value that was not set apart from an empty one, docs/regression_ledger.md 10.333' {
+        $global:FakeRegistryValue = $null
+
+        Invoke-WindowsRegistryChange -Location 'HKCU\Environment' -Name 'EMPTY' -Read { $global:FakeRegistryValue } -Write { $global:FakeRegistryValue = '' }
+
+        @($script:Run.Registry).Count | Should -Be 1
+        $null -eq $script:Run.Registry[0].Before | Should -BeTrue
+        $script:Run.Registry[0].After | Should -BeOfType [string]
+        $script:Run.Registry[0].After | Should -BeExactly ''
+    }
+
+    It 'maps a path into the backup folder without the drive colon' {
+        Get-WindowsConfigBackupPath -BackupFolder 'B' -Path 'C:\Users\me\.gitconfig' | Should -Be (Join-Path 'B' 'C\Users\me\.gitconfig')
+    }
+
+    It 'copies a file that exists before its first change, and the copy holds what the file held' {
+        Set-Content -LiteralPath $script:Config -Value 'before'
+        $backup = Get-WindowsConfigBackupPath -BackupFolder $script:Run.BackupFolder -Path $script:Config
+
+        Invoke-WindowsConfigFileWrite -Path $script:Config -Write { Set-Content -LiteralPath $script:Config -Value 'after' }
+
+        Get-Content -LiteralPath $backup | Should -Be 'before'
+        Get-Content -LiteralPath $script:Config | Should -Be 'after'
+        @($script:Run.Files).Count | Should -Be 1
+        $script:Run.Files[0].Action | Should -Be 'changed'
+        $script:Run.Files[0].Backup | Should -Be $backup
+    }
+
+    It 'records a file the write creates, and copies nothing' {
+        Invoke-WindowsConfigFileWrite -Path $script:Config -Write { Set-Content -LiteralPath $script:Config -Value 'new' }
+
+        $script:Run.Files[0].Action | Should -Be 'created'
+        $script:Run.Files[0].Backup | Should -Be ''
+        Test-Path -LiteralPath $script:Run.BackupFolder | Should -BeFalse
+    }
+
+    It 'copies a file only before its first change in a run' {
+        Set-Content -LiteralPath $script:Config -Value 'before'
+
+        Invoke-WindowsConfigFileWrite -Path $script:Config -Write { Set-Content -LiteralPath $script:Config -Value 'one' }
+        Invoke-WindowsConfigFileWrite -Path $script:Config -Write { Set-Content -LiteralPath $script:Config -Value 'two' }
+
+        Get-Content -LiteralPath $script:Run.Files[0].Backup | Should -Be 'before'
+        @($script:Run.Files).Count | Should -Be 1
+    }
+
+    It 'changes nothing and records nothing when the copy cannot be made' {
+        Set-Content -LiteralPath $script:Config -Value 'before'
+        $blocker = Join-Path $TestDrive 'blocker'
+        Set-Content -LiteralPath $blocker -Value 'a file where the backup folder has to go'
+        $null = Start-WindowsConfigChangeRecord -BackupRoot $blocker
+
+        { Invoke-WindowsConfigFileWrite -Path $script:Config -Write { Set-Content -LiteralPath $script:Config -Value 'after' } } | Should -Throw
+
+        Get-Content -LiteralPath $script:Config | Should -Be 'before'
+        @((Get-WindowsConfigChangeRecord).Files).Count | Should -Be 0
+    }
+
+    It 'hands back what the write returned' {
+        Invoke-WindowsConfigFileWrite -Path $script:Config -Write { 'answer' } | Should -Be 'answer'
+    }
+
+    It 'records a registry value the write changed, with what it held before' {
+        $global:FakeRegistryValue = 'old'
+
+        Invoke-WindowsRegistryChange -Location 'HKCU\Environment' -Name 'JAVA_HOME' -Read { $global:FakeRegistryValue } -Write { $global:FakeRegistryValue = 'new' }
+
+        @($script:Run.Registry).Count | Should -Be 1
+        $script:Run.Registry[0].Location | Should -Be 'HKCU\Environment'
+        $script:Run.Registry[0].Name | Should -Be 'JAVA_HOME'
+        $script:Run.Registry[0].Before | Should -Be 'old'
+        $script:Run.Registry[0].After | Should -Be 'new'
+    }
+
+    It 'records nothing for a registry value the write left as it was' {
+        $global:FakeRegistryValue = 'same'
+
+        Invoke-WindowsRegistryChange -Location 'HKCU\Environment' -Name 'PATH' -Read { $global:FakeRegistryValue } -Write { $global:FakeRegistryValue = 'same' }
+
+        @($script:Run.Registry).Count | Should -Be 0
+    }
+
+    It 'keeps one entry, with the value from before the first change, for a value changed twice' {
+        $global:FakeRegistryValue = 'old'
+
+        Invoke-WindowsRegistryChange -Location 'HKCU\Environment' -Name 'PATH' -Read { $global:FakeRegistryValue } -Write { $global:FakeRegistryValue = 'a' }
+        Invoke-WindowsRegistryChange -Location 'HKCU\Environment' -Name 'PATH' -Read { $global:FakeRegistryValue } -Write { $global:FakeRegistryValue = 'b' }
+
+        @($script:Run.Registry).Count | Should -Be 1
+        $script:Run.Registry[0].Before | Should -Be 'old'
+        $script:Run.Registry[0].After | Should -Be 'b'
+    }
+
+    AfterAll {
+        Remove-Variable -Name FakeRegistryValue -Scope Global -ErrorAction SilentlyContinue
+    }
+}
+
+Describe 'The user environment keeps what HKCU\Environment holds, %VAR% and the value kind' {
+
+    # docs/regression_ledger.md 10.323. The key is a fake, because the real one is the registry of the
+    # machine running the suite. Like the real key, the fake expands an ExpandString value unless it is
+    # asked not to, so a reader that forgets DoNotExpandEnvironmentNames sees the expanded text here too.
+    BeforeAll {
+        $script:SavedProfile = $env:USERPROFILE
+        $env:USERPROFILE = 'C:\Users\fake'
+
+        function global:New-FakeEnvironmentKey {
+            param([hashtable] $Values = @{}, [hashtable] $Kinds = @{})
+            $key = [PSCustomObject]@{ Values = $Values; Kinds = $Kinds; Writes = 0 }
+            $key | Add-Member -MemberType ScriptMethod -Name GetValue -Value {
+                param($Name, $Default, $Options)
+                if (-not $this.Values.ContainsKey($Name)) { return $Default }
+                if ("$($this.Kinds[$Name])" -eq 'ExpandString' -and "$Options" -ne 'DoNotExpandEnvironmentNames') {
+                    return [Environment]::ExpandEnvironmentVariables($this.Values[$Name])
+                }
+                return $this.Values[$Name]
+            }
+            $key | Add-Member -MemberType ScriptMethod -Name GetValueKind -Value {
+                param($Name)
+                if (-not $this.Values.ContainsKey($Name)) { throw [System.IO.IOException]::new("no value named $Name") }
+                return $this.Kinds[$Name]
+            }
+            $key | Add-Member -MemberType ScriptMethod -Name SetValue -Value {
+                param($Name, $Value, $Kind)
+                $this.Values[$Name] = $Value
+                $this.Kinds[$Name] = "$Kind"
+                $this.Writes++
+            }
+            $key | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+            return $key
+        }
+    }
+
+    AfterAll {
+        $env:USERPROFILE = $script:SavedProfile
+        Remove-Item -LiteralPath Function:\global:New-FakeEnvironmentKey -ErrorAction SilentlyContinue
+        Remove-Variable -Name FakeEnvironmentKey, Broadcasts -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        Remove-Item -LiteralPath (Join-Path $TestDrive 'backup') -Recurse -Force -ErrorAction SilentlyContinue
+        $script:Run = Start-WindowsConfigChangeRecord -BackupRoot (Join-Path $TestDrive 'backup')
+        $global:FakeEnvironmentKey = New-FakeEnvironmentKey -Values @{ PATH = '%USERPROFILE%\bin;%NVM_HOME%'; JAVA_HOME = 'C:\old' } `
+            -Kinds @{ PATH = 'ExpandString'; JAVA_HOME = 'String' }
+        $global:Broadcasts = 0
+        Mock Open-WindowsUserEnvironmentKey { $global:FakeEnvironmentKey }
+        Mock Send-WindowsEnvironmentChange { $global:Broadcasts++ }
+    }
+
+    It 'reads a variable as the registry holds it, %VAR% left in, with its kind' {
+        $read = Get-WindowsUserEnvironmentValue -Name 'PATH'
+
+        $read.Value | Should -BeExactly '%USERPROFILE%\bin;%NVM_HOME%'
+        $read.Kind | Should -Be 'ExpandString'
+    }
+
+    It 'answers no value and no kind for a variable that is not set' {
+        $read = Get-WindowsUserEnvironmentValue -Name 'NOT_SET'
+
+        $null -eq $read.Value | Should -BeTrue
+        $null -eq $read.Kind | Should -BeTrue
+    }
+
+    It 'writes PATH back as ExpandString with %VAR% kept, records the value as it was held, and tells Windows' {
+        Set-WindowsUserEnvironmentVariable -Name 'PATH' -Value '%USERPROFILE%\bin;%NVM_HOME%;C:\tools'
+
+        $global:FakeEnvironmentKey.Values['PATH'] | Should -BeExactly '%USERPROFILE%\bin;%NVM_HOME%;C:\tools'
+        $global:FakeEnvironmentKey.Kinds['PATH'] | Should -Be 'ExpandString'
+        $script:Run.Registry[0].Before | Should -BeExactly '%USERPROFILE%\bin;%NVM_HOME%'
+        $script:Run.Registry[0].After | Should -BeExactly '%USERPROFILE%\bin;%NVM_HOME%;C:\tools'
+        $global:Broadcasts | Should -Be 1
+    }
+
+    It 'keeps a String a String, and writes a new value as ExpandString only when it names a variable' {
+        Set-WindowsUserEnvironmentVariable -Name 'JAVA_HOME' -Value 'C:\new'
+        Set-WindowsUserEnvironmentVariable -Name 'PLAIN' -Value 'C:\plain'
+        Set-WindowsUserEnvironmentVariable -Name 'NAMES_ONE' -Value '%USERPROFILE%\x'
+
+        $global:FakeEnvironmentKey.Kinds['JAVA_HOME'] | Should -Be 'String'
+        $global:FakeEnvironmentKey.Kinds['PLAIN'] | Should -Be 'String'
+        $global:FakeEnvironmentKey.Kinds['NAMES_ONE'] | Should -Be 'ExpandString'
+        $null -eq ($script:Run.Registry | Where-Object Name -eq 'PLAIN').Before | Should -BeTrue
+    }
+
+    It 'adds a PATH entry by comparing expanded and appending to the text as held' {
+        $added = Add-WindowsUserPathEntry -Directory @('C:\Users\fake\bin\', 'C:\tools')
+
+        @($added.Missing) | Should -Be @('C:\tools')
+        $added.Written | Should -BeTrue
+        $global:FakeEnvironmentKey.Values['PATH'] | Should -BeExactly '%USERPROFILE%\bin;%NVM_HOME%;C:\tools'
+        $global:FakeEnvironmentKey.Kinds['PATH'] | Should -Be 'ExpandString'
+    }
+
+    It 'writes nothing when every directory is on PATH already' {
+        $added = Add-WindowsUserPathEntry -Directory @('c:\users\fake\BIN')
+
+        @($added.Missing).Count | Should -Be 0
+        $added.Written | Should -BeFalse
+        $global:FakeEnvironmentKey.Writes | Should -Be 0
+        $global:Broadcasts | Should -Be 0
+    }
+
+    It 'writes nothing under -WhatIf, and still names what it would add' {
+        $added = Add-WindowsUserPathEntry -Directory @('C:\tools') -WhatIf
+
+        @($added.Missing) | Should -Be @('C:\tools')
+        $added.Written | Should -BeFalse
+        $global:FakeEnvironmentKey.Writes | Should -Be 0
+    }
+}
+
+Describe 'Set-WindowsDevEnvironment writes only what the picked apps own in a picked-apps run' {
+
+    # Owner decision 42, docs/regression_ledger.md 10.321. The writer is mocked, because a user
+    # environment variable is the registry of the machine running the suite.
+    BeforeAll {
+        $script:SavedProfile = $env:USERPROFILE
+        $script:SavedSdkRoot = $script:AndroidSdkRoot
+        $env:USERPROFILE = Join-Path $TestDrive 'profile'
+        $script:AndroidSdkRoot = Join-Path $TestDrive 'android'
+        $script:SharedVariables = @('GRADLE_USER_HOME', 'DOCKER_CONFIG', 'M2_HOME', 'KUBECONFIG', 'PROJECTS_DIR')
+        $script:AndroidVariables = @('ANDROID_USER_HOME', 'ANDROID_SDK_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT')
+    }
+
+    AfterAll {
+        $env:USERPROFILE = $script:SavedProfile
+        $script:AndroidSdkRoot = $script:SavedSdkRoot
+        Remove-Variable -Name EnvWrites -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        Remove-Item -LiteralPath $env:USERPROFILE -Recurse -Force -ErrorAction SilentlyContinue
+        $global:EnvWrites = [System.Collections.Generic.List[string]]::new()
+        Mock Set-WindowsUserEnvironmentVariable { $global:EnvWrites.Add($Name) }
+        Mock Get-WindowsUserEnvironmentValue { [PSCustomObject]@{ Value = $null; Kind = $null } }
+    }
+
+    It 'gives every entry either no owner or an owner from env_variables_dependent_toggles' {
+        $dependent = @(Get-WindowsGroupVarList -AllVarsPath (Join-Path $script:AnsibleDir 'group_vars\all.yaml') -Name 'env_variables_dependent_toggles')
+        $strays = @(Get-WindowsDevEnvironmentEntry | Where-Object { $_.Owner -and $_.Owner -notin $dependent } | ForEach-Object { "$($_.Name) $($_.Owner)" })
+
+        $strays | Should -BeNullOrEmpty
+    }
+
+    It 'names each variable and each directory once' {
+        $names = @(Get-WindowsDevEnvironmentEntry | Where-Object { $_.Kind -ne 'Path' } | ForEach-Object { $_.Name })
+
+        @($names | Select-Object -Unique).Count | Should -Be $names.Count
+    }
+
+    It 'writes every variable and the PATH, and makes both directories, in a full run' {
+        Set-WindowsDevEnvironment | Out-Null
+
+        foreach ($name in ($script:SharedVariables + $script:AndroidVariables + 'PATH')) {
+            @($global:EnvWrites) | Should -Contain $name
+        }
+        Test-Path -LiteralPath (Join-Path $env:USERPROFILE 'apps_config') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $env:USERPROFILE 'Projects') | Should -BeTrue
+    }
+
+    It 'writes only the Android variables and PATH, and makes no directory, in a picked-apps run of install_android_sdk' {
+        Set-WindowsDevEnvironment -OnlyOwnerKey @('install_android_sdk', 'install_kicad9') | Out-Null
+
+        @($global:EnvWrites | Sort-Object) | Should -Be @(($script:AndroidVariables + 'PATH') | Sort-Object)
+        Test-Path -LiteralPath $env:USERPROFILE | Should -BeFalse
+    }
+
+    It 'writes nothing in a picked-apps run whose keys own no entry' {
+        $r = @(Set-WindowsDevEnvironment -OnlyOwnerKey @('install_java'))
+
+        $r.Count | Should -Be 0
+        $global:EnvWrites.Count | Should -Be 0
+    }
+}
+
+Describe 'Write-ConfigChangeSummary in setup.ps1' {
+
+    # Lifted out of the syntax tree for the reason the Install-ConsoleGuiTools tests give.
+    BeforeAll {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+        $wanted = @('Write-ConfigChangeSummary', 'Write-Section', 'Write-Status', 'Write-Hint')
+        $definitions = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in setup.ps1 and found $($definitions.Count)."
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+    }
+
+    BeforeEach {
+        Mock Write-Host { }
+        $script:Run = Start-WindowsConfigChangeRecord -BackupRoot (Join-Path $TestDrive 'backup') -Started ([datetime]::new(2026, 11, 13, 5, 59, 34))
+    }
+
+    It 'names every file changed or created, the copy of each changed one, the backup folder and every registry value' {
+        $changed = Join-Path $TestDrive 'changed.ini'
+        $created = Join-Path $TestDrive 'created.lnk'
+        Set-Content -LiteralPath $changed -Value 'before'
+        Invoke-WindowsConfigFileWrite -Path $changed -Write { Set-Content -LiteralPath $changed -Value 'after' }
+        Invoke-WindowsConfigFileWrite -Path $created -Write { Set-Content -LiteralPath $created -Value 'new' }
+        $global:FakeRegistryValue = $null
+        Invoke-WindowsRegistryChange -Location 'HKCU\Environment' -Name 'JAVA_HOME' -Read { $global:FakeRegistryValue } -Write { $global:FakeRegistryValue = 'C:\jdk' }
+        $copy = [WildcardPattern]::Escape($script:Run.Files[0].Backup)
+
+        Write-ConfigChangeSummary -Record (Get-WindowsConfigChangeRecord)
+
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like "*changed*$([WildcardPattern]::Escape($changed))*$copy*" }
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like "*created*$([WildcardPattern]::Escape($created))*" }
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like "*$([WildcardPattern]::Escape($script:Run.BackupFolder))*" }
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*HKCU\Environment\JAVA_HOME*not set*C:\jdk*' }
+    }
+
+    It 'says so when the run changed no file and no registry value' {
+        Write-ConfigChangeSummary -Record (Get-WindowsConfigChangeRecord)
+
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*no configuration file*' }
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*no registry value*' }
+    }
+
+    It 'tells a value that was not set from an empty one, docs/regression_ledger.md 10.333' {
+        $script:Run.Registry.Add([PSCustomObject]@{ Location = 'HKCU\Environment'; Name = 'WAS_UNSET'; Before = $null; After = 'x' })
+        $script:Run.Registry.Add([PSCustomObject]@{ Location = 'HKCU\Environment'; Name = 'WAS_EMPTY'; Before = ''; After = $null })
+
+        Write-ConfigChangeSummary -Record (Get-WindowsConfigChangeRecord)
+
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like "*\WAS_UNSET: was (not set), now 'x'*" }
+        Should -Invoke Write-Host -ParameterFilter { "$Object" -like '*\WAS_EMPTY: was (empty), now (not set)*' }
+    }
+
+    It 'prints the configuration summary in a finally around the run, before the exit code is decided, docs/regression_ledger.md 10.324' {
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:RepoRoot 'setup\setup.ps1'), [ref]$null, [ref]$parseErrors)
+        $main = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-Main' }, $true)
+        $summaries = @($main.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Write-ConfigChangeSummary' }, $true))
+        $summaries.Count | Should -Be 1
+
+        $try = $summaries[0].Parent
+        while ($try -and $try -isnot [System.Management.Automation.Language.TryStatementAst]) { $try = $try.Parent }
+        $try | Should -Not -BeNullOrEmpty
+        $try.Finally | Should -Not -BeNullOrEmpty
+        $try.Finally.Extent.StartOffset -le $summaries[0].Extent.StartOffset | Should -BeTrue
+        $inBody = @($try.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | ForEach-Object { $_.GetCommandName() })
+        $inBody | Should -Contain 'Invoke-WindowsRun'
+        $inBody | Should -Contain 'Write-RunSummary'
+        @($try.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true)).Count | Should -Be 0
+        @($main.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] -and $n.Extent.StartOffset -gt $try.Extent.EndOffset }, $true)).Count | Should -BeGreaterThan 0
+    }
+
+    AfterAll {
+        Remove-Variable -Name FakeRegistryValue -Scope Global -ErrorAction SilentlyContinue
+    }
+}
+
+Describe 'Every configuration file and registry value the Windows wizard writes goes through the backup record' {
+
+    # Read from the syntax tree, so a new write that skips the backup fails here by name. A write passes
+    # when it sits inline in a script block handed to Invoke-WindowsConfigFileWrite or
+    # Invoke-WindowsRegistryChange, when it is inside WindowsConfigBackup.ps1, which makes the copies, or
+    # when it is named below with the reason it is no configuration. docs/regression_ledger.md 10.311.
+    BeforeAll {
+        $script:Recorders = @('Invoke-WindowsConfigFileWrite', 'Invoke-WindowsRegistryChange')
+        $script:RecorderFile = 'WindowsConfigBackup.ps1'
+        $script:AllowedWrites = @{
+            'WindowsCustomInstalls.ps1|Invoke-AndroidSdkManager|Set-Content' = 'a temporary file of answers for sdkmanager, removed in the same function'
+            'WindowsCustomInstalls.ps1|Install-AndroidSdk|Move-Item'         = 'moves the unpacked command line tools into the SDK, software rather than configuration, and only when sdkmanager is absent'
+            'WindowsVerify.ps1|Invoke-WindowsVerification|Set-Content'       = 'the run''s own log, installation_verify.log, which every run writes anew'
+        }
+        $fileWriters = @('Copy-Item', 'Move-Item', 'Rename-Item', 'Set-Content', 'Add-Content', 'Out-File', 'Set-Item',
+                         'Set-ItemProperty', 'New-ItemProperty', 'Remove-ItemProperty')
+
+        function global:Get-EnclosingFunctionName {
+            param([Parameter(Mandatory)] $Node)
+            $at = $Node.Parent
+            while ($at -and $at -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) { $at = $at.Parent }
+            if ($at) { return $at.Name }
+            return '(script)'
+        }
+
+        function global:Test-InsideRecorder {
+            param([Parameter(Mandatory)] $Node, [Parameter(Mandatory)] [string[]] $Recorder)
+            $at = $Node.Parent
+            while ($at) {
+                if ($at -is [System.Management.Automation.Language.ScriptBlockExpressionAst] -and
+                    $at.Parent -is [System.Management.Automation.Language.CommandAst] -and
+                    $Recorder -contains $at.Parent.GetCommandName()) {
+                    return $true
+                }
+                $at = $at.Parent
+            }
+            return $false
+        }
+
+        $wizardFiles = @(
+            (Join-Path $script:RepoRoot 'setup\setup.ps1')
+            @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'setup\windows') -Filter '*.ps1' | ForEach-Object FullName)
+        )
+        $script:WizardAsts = @{}
+        $script:Writes = foreach ($file in $wizardFiles) {
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors)
+            if ($errors) { throw "$file does not parse: $($errors[0].Message)" }
+            $leaf = Split-Path -Leaf $file
+            $script:WizardAsts[$leaf] = $ast
+            foreach ($node in $ast.FindAll({ param($n)
+                    ($n -is [System.Management.Automation.Language.CommandAst]) -or
+                    ($n -is [System.Management.Automation.Language.InvokeMemberExpressionAst]) }, $true)) {
+                $kind = $null
+                if ($node -is [System.Management.Automation.Language.CommandAst]) {
+                    if ($fileWriters -contains $node.GetCommandName()) { $kind = $node.GetCommandName() }
+                } else {
+                    $member = $node.Member.Extent.Text
+                    if ($member -eq 'Save') { $kind = '.Save()' }
+                    elseif ($member -eq 'SetValue') { $kind = '.SetValue()' }
+                    elseif ($member -eq 'SetEnvironmentVariable' -and @($node.Arguments).Count -eq 3 -and $node.Arguments[2].Extent.Text -notmatch 'Process') {
+                        $kind = 'SetEnvironmentVariable'
+                    } elseif ($node.Expression.Extent.Text -match 'IO\.File\]$' -and $member -match '^(Write|Append|Copy|Move|Replace)') {
+                        $kind = "[IO.File]::$member"
+                    }
+                }
+                if (-not $kind) { continue }
+                [PSCustomObject]@{ File = $leaf; Function = (Get-EnclosingFunctionName -Node $node); Kind = $kind; Line = $node.Extent.StartLineNumber; Node = $node }
+            }
+        }
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath Function:\global:Get-EnclosingFunctionName, Function:\global:Test-InsideRecorder -ErrorAction SilentlyContinue
+    }
+
+    It 'finds the writes it is meant to judge' {
+        $kinds = @($script:Writes.Kind)
+        foreach ($kind in @('Copy-Item', 'Set-ItemProperty', '.Save()', '.SetValue()', 'Set-Content')) {
+            $kinds | Should -Contain $kind
+        }
+    }
+
+    It 'backs up or records every write, apart from the named temporary file and log' {
+        $loose = @($script:Writes | Where-Object {
+            $_.File -ne $script:RecorderFile -and
+            -not $script:AllowedWrites.ContainsKey("$($_.File)|$($_.Function)|$($_.Kind)") -and
+            -not (Test-InsideRecorder -Node $_.Node -Recorder $script:Recorders)
+        } | ForEach-Object { "$($_.File):$($_.Line) $($_.Function) $($_.Kind)" })
+
+        $loose | Should -BeNullOrEmpty
+    }
+
+    It 'names only writes that are still there' {
+        foreach ($key in $script:AllowedWrites.Keys) {
+            @($script:Writes | ForEach-Object { "$($_.File)|$($_.Function)|$($_.Kind)" }) | Should -Contain $key
+        }
+    }
+
+    It 'hands every script block given to a recorder its values as arguments, docs/regression_ledger.md 10.332' {
+        # A recorder runs the block in its own scope, so a variable the block takes from the function
+        # around it is looked up through the recorder's variables first. Allowed: the block's own
+        # parameters and assignments, loop variables, scope-qualified names and automatic variables.
+        $automatic = @('_', 'PSItem', 'true', 'false', 'null', 'args', 'this', 'input', 'Matches', 'LASTEXITCODE')
+        $loose = foreach ($leaf in $script:WizardAsts.Keys) {
+            $calls = $script:WizardAsts[$leaf].FindAll({ param($n)
+                $n -is [System.Management.Automation.Language.CommandAst] -and
+                @('Invoke-WindowsConfigFileWrite', 'Invoke-WindowsRegistryChange') -contains $n.GetCommandName() }, $true)
+            foreach ($call in $calls) {
+                foreach ($element in @($call.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.ScriptBlockExpressionAst] })) {
+                    $block = $element.ScriptBlock
+                    $own = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+                    foreach ($parameter in $block.FindAll({ param($n) $n -is [System.Management.Automation.Language.ParameterAst] }, $true)) {
+                        $null = $own.Add($parameter.Name.VariablePath.UserPath)
+                    }
+                    foreach ($assignment in $block.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)) {
+                        if ($assignment.Left -is [System.Management.Automation.Language.VariableExpressionAst]) { $null = $own.Add($assignment.Left.VariablePath.UserPath) }
+                    }
+                    foreach ($loop in $block.FindAll({ param($n) $n -is [System.Management.Automation.Language.ForEachStatementAst] }, $true)) {
+                        $null = $own.Add($loop.Variable.VariablePath.UserPath)
+                    }
+                    foreach ($variable in $block.FindAll({ param($n) $n -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)) {
+                        $path = $variable.VariablePath
+                        if (-not $path.IsUnqualified -or $own.Contains($path.UserPath) -or $automatic -contains $path.UserPath) { continue }
+                        "$($leaf):$($variable.Extent.StartLineNumber) `$$($path.UserPath)"
+                    }
+                }
+            }
+        }
+
+        @($script:WizardAsts.Keys).Count | Should -BeGreaterThan 1
+        @($loose) | Should -BeNullOrEmpty
     }
 }

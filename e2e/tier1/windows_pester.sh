@@ -75,7 +75,7 @@ elif [[ "${totals}" == *"failed=0 "* ]]; then
     pass "the Windows installer unit tests pass (${totals#TOTALS })"
 else
     fail "the Windows installer unit tests fail, and CI would refuse the whole sweep for it" \
-         "${totals#TOTALS } | $(grep '^FAILED ' <<<"${out}" | sed -n 1,3p | tr '\n' ' ')"
+         "${totals#TOTALS } | $(grep '^FAILED ' <<<"${out}" | tr '\n' ' ')"
 fi
 
 finish "Windows installer unit tests"

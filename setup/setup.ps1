@@ -20,6 +20,18 @@
     The full result goes to installation_verify.log in the user profile, named on screen when the
     wizard finishes, and a missing application makes this script exit non-zero.
 
+    A picked-apps run, -Software none with at least one key turned on by -EnableKey, installs only
+    the picked applications, with the package managers they need. It still upgrades the installed
+    packages, as every run does unless -SkipSystemUpgrade is given. It skips the package cache
+    cleanup and Ansible inside WSL, and writes only the environment variables the picked keys own,
+    which is what ih_picked_apps_run does on Linux. Every other run does every step. See
+    docs/regression_ledger.md 10.310 and 10.320.
+
+    Every configuration file a run changes is copied first, once per run, to
+    %LOCALAPPDATA%\installation-helper\backup\<yyyyMMdd-HHmmss>\<its full path without the drive
+    colon>, and the end of the run lists every file changed or created and every registry value
+    changed. See setup/windows/WindowsConfigBackup.ps1.
+
     Uses Microsoft.PowerShell.ConsoleGuiTools (Out-ConsoleGridView) for the multi-select picker
     with filter-as-you-type.
 .PARAMETER Profile
@@ -35,7 +47,8 @@
 .PARAMETER Software
     The starting point the checklist would have started from, for a run with no checklist.
     defaults is the group_vars values as they are, all turns every selectable toggle on, and none
-    turns every selectable toggle off so -EnableKey can build a run up from nothing. Implies -NonInteractive.
+    turns every selectable toggle off so -EnableKey can build a run up from nothing. none with
+    -EnableKey is a picked-apps run, described above. Implies -NonInteractive.
 .PARAMETER EnableKey
     Toggle keys to turn on, whatever group_vars says. Comma separated, or a PowerShell array, and
     the keys are the ones -ListSoftware prints. A key the wizard does not offer is refused rather
@@ -108,6 +121,8 @@ $WindowsVars = Join-Path $AnsibleDir 'group_vars\windows.yaml'
 # runs inside WSL against localhost, so its facts describe the WSL distribution rather than
 # Windows. WindowsSoftware.ps1 is first because the other three read the toggles through it.
 . (Join-Path $ScriptDir 'windows\WindowsSoftware.ps1')
+# Before the three that write configuration, because each of them writes through it.
+. (Join-Path $ScriptDir 'windows\WindowsConfigBackup.ps1')
 . (Join-Path $ScriptDir 'windows\WindowsNpmTools.ps1')
 . (Join-Path $ScriptDir 'windows\WindowsCustomInstalls.ps1')
 . (Join-Path $ScriptDir 'windows\WindowsSettings.ps1')
@@ -379,10 +394,13 @@ function Invoke-AndShowDevEnvironment {
         os_family Debian, so on Windows they were never written at all. Not gated on a toggle, for
         the same reason the Unix role is not: the paths are where this project keeps tool state, and
         a machine configured by either side should agree about them.
-    #>
-    param()
 
-    $r = Set-WindowsDevEnvironment
+        OnlyOwnerKey is empty in a full run, which writes every entry, and holds the picked keys in a
+        picked-apps run, which writes only the entries those keys own.
+    #>
+    param([string[]] $OnlyOwnerKey)
+
+    $r = Set-WindowsDevEnvironment -OnlyOwnerKey $OnlyOwnerKey
     $installed = @($r | Where-Object { $_.Status -eq 'installed' })
     $present   = @($r | Where-Object { $_.Status -eq 'present' })
     $failed    = @($r | Where-Object { $_.Status -eq 'failed' })
@@ -598,6 +616,45 @@ function Write-RunSummary {
         Write-Host "  [!] $total item(s) failed in total. Exiting non-zero so this is not read as a clean run." -ForegroundColor Red
     }
     return $total
+}
+
+function Write-ConfigChangeSummary {
+    <#
+    .SYNOPSIS
+        Prints every configuration file the run changed or created, where the copies are, and every registry value it changed.
+    .DESCRIPTION
+        Owner decision 40. The record is the one setup/windows/WindowsConfigBackup.ps1 kept while the
+        run wrote, so this lists what was written rather than what was meant to be.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [PSCustomObject] $Record)
+
+    Write-Section 'Configuration changed by this run'
+
+    if ($Record.Files.Count -eq 0) {
+        Write-Status 'no configuration file was changed or created'
+    }
+    foreach ($file in $Record.Files) {
+        if ($file.Action -eq 'changed') {
+            Write-Status "changed $($file.Path) (copy: $($file.Backup))"
+        } else {
+            Write-Status "created $($file.Path), new, so there was nothing to copy"
+        }
+    }
+    if (@($Record.Files | Where-Object { $_.Backup }).Count -gt 0) {
+        Write-Hint "  Backup folder for this run: $($Record.BackupFolder)"
+    } else {
+        Write-Hint "  Backup folder for this run: $($Record.BackupFolder), not made, because no existing file was changed"
+    }
+
+    if ($Record.Registry.Count -eq 0) {
+        Write-Status 'no registry value was changed'
+    }
+    # Not set and empty are different states of a value, docs/regression_ledger.md 10.333.
+    $shown = { param($Held) if ($null -eq $Held) { '(not set)' } elseif ("$Held" -eq '') { '(empty)' } else { "'$Held'" } }
+    foreach ($value in $Record.Registry) {
+        Write-Status "$($value.Location)\$($value.Name): was $(& $shown $value.Before), now $(& $shown $value.After)"
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -1127,6 +1184,36 @@ function Resolve-ToggleOverride {
     return $override
 }
 
+function Resolve-WindowsRunScope {
+    <#
+    .SYNOPSIS
+        Decides whether this is a picked-apps run, which keys it picked, and whether it writes the environment variables.
+    .DESCRIPTION
+        The Windows half of ih_picked_apps_run and ih_env_variables_run in group_vars/all.yaml, with
+        the same trigger setup.sh uses: -Software none with at least one key still on. A run with
+        every key off, any other baseline, and the interactive checklist are full runs.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [string] $Baseline,
+        [AllowNull()] [hashtable] $ToggleOverride,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $EnvironmentDependentKey
+    )
+
+    $pickedKeys = @()
+    if ($Baseline -eq 'none' -and $null -ne $ToggleOverride) {
+        $pickedKeys = @($ToggleOverride.Keys | Where-Object { $ToggleOverride[$_] } | Sort-Object)
+    }
+    $pickedAppsRun = $pickedKeys.Count -gt 0
+
+    return [PSCustomObject]@{
+        PickedAppsRun     = $pickedAppsRun
+        PickedKeys        = $pickedKeys
+        DevEnvironmentRun = (-not $pickedAppsRun) -or @($pickedKeys | Where-Object { $_ -in $EnvironmentDependentKey }).Count -gt 0
+    }
+}
+
 function Show-SoftwareList {
     <#
     .SYNOPSIS
@@ -1310,29 +1397,36 @@ function Invoke-WindowsRun {
     # exit code off the phases it is given. And an unassigned call would put its return object into
     # this function's output stream, so the caller's $phases would come back as an array of two
     # things instead of the ordered hashtable it reads.
-    $null = Clear-WindowsCacheAndShow
+    if (-not $script:RunScope.PickedAppsRun) {
+        $null = Clear-WindowsCacheAndShow
+    }
     $customResult = Invoke-AndShowCustomInstalls  -OnlyKeys $OnlyKeys -ToggleOverride $ToggleOverride
-
-    # After the installs, because the Android variables point at what the Android SDK install just
-    # wrote and JAVA_HOME is set by the Java install above.
-    $envResult    = Invoke-AndShowDevEnvironment
-
-    # After the software, because enabling an optional feature can ask for a reboot and there is no
-    # reason to make the packages wait behind that.
-    Write-Section 'Applying Windows system settings'
-    $settingsResult = Invoke-AndShowWindowsSettings -OnlyKeys $OnlyKeys -ToggleOverride $ToggleOverride
-
-    # Last, and the only thing left that touches WSL at all.
-    Write-Section 'Installing Ansible inside WSL'
-    $wslResult = Invoke-AndShowWslAnsible
 
     $phases = [ordered]@{}
     $phases['Windows packages']               = $windowsResult
     $phases['CLI tools']                      = $npmResult
     $phases['SDKs and standalone installers'] = $customResult
-    $phases['Environment variables']          = $envResult
-    $phases['Windows system settings']        = $settingsResult
-    $phases['Ansible inside WSL']             = $wslResult
+
+    # After the installs, because the Android variables point at what the Android SDK install just
+    # wrote and JAVA_HOME is set by the Java install above.
+    if ($script:RunScope.DevEnvironmentRun) {
+        $phases['Environment variables'] = Invoke-AndShowDevEnvironment -OnlyOwnerKey $script:RunScope.PickedKeys
+    } else {
+        Write-Status 'Environment variables: not written, because no picked application needs them.'
+    }
+
+    # After the software, because enabling an optional feature can ask for a reboot and there is no
+    # reason to make the packages wait behind that.
+    Write-Section 'Applying Windows system settings'
+    $phases['Windows system settings'] = Invoke-AndShowWindowsSettings -OnlyKeys $OnlyKeys -ToggleOverride $ToggleOverride
+
+    # Last, and the only thing left that touches WSL at all.
+    if (-not $script:RunScope.PickedAppsRun) {
+        Write-Section 'Installing Ansible inside WSL'
+        $phases['Ansible inside WSL'] = Invoke-AndShowWslAnsible
+    } else {
+        Write-Status 'Ansible inside WSL: not installed, because a picked-apps run installs only what it picked.'
+    }
     return $phases
 }
 
@@ -1354,7 +1448,10 @@ function Show-ResolvedPlan {
         Write-Output rather than Write-Host, for the same reason as Show-SoftwareList.
     #>
     [CmdletBinding()]
-    param([hashtable] $ToggleOverride)
+    param(
+        [hashtable] $ToggleOverride,
+        [Parameter(Mandatory)] [PSCustomObject] $RunScope
+    )
 
     $softwareToggles = Get-WindowsSoftwareToggle -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars -ToggleOverride $ToggleOverride
     $settingToggles  = Get-WindowsGroupVarToggle -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars -ToggleOverride $ToggleOverride
@@ -1419,14 +1516,35 @@ function Show-ResolvedPlan {
     }
     Write-Output ''
 
-    # Neither of these is a toggle, so no selection option can change them. Printed because they are
-    # things the run does, and a plan that leaves them out would understate it.
+    # None of these is a toggle. Printed because they are things the run does, and a plan that leaves
+    # them out would understate it. A picked-apps run skips some of them, docs/regression_ledger.md 10.310.
+    $skippedForPick = 'skipped, because a picked-apps run installs only what it picked.'
+    if ($RunScope.PickedAppsRun) {
+        Write-Output "  Picked-apps run: $($RunScope.PickedKeys -join ', ')"
+    }
     if ($SkipSystemUpgrade) {
         Write-Output '  Upgrade of the already-installed packages: skipped (-SkipSystemUpgrade).'
     } else {
         Write-Output '  Upgrade of the already-installed packages: winget upgrade --all, then choco upgrade all.'
     }
-    Write-Output '  Ansible inside WSL: installed if a distribution is registered and it is not there yet.'
+    if ($RunScope.PickedAppsRun) {
+        Write-Output "  Package cache cleanup: $skippedForPick"
+    } else {
+        Write-Output '  Package cache cleanup: the winget and Chocolatey downloads, after the packages.'
+    }
+    if (-not $RunScope.DevEnvironmentRun) {
+        Write-Output '  Environment variables: skipped, because no picked application needs them.'
+    } elseif ($RunScope.PickedAppsRun) {
+        $owned = @(Get-WindowsDevEnvironmentEntry -OwnerKey $RunScope.PickedKeys | ForEach-Object { $_.Name } | Select-Object -Unique)
+        Write-Output "  Environment variables: only those the picked apps own, $(if ($owned.Count) { $owned -join ', ' } else { '(none)' }), at user scope."
+    } else {
+        Write-Output '  Environment variables: the development variables and the Android PATH entries, at user scope.'
+    }
+    if ($RunScope.PickedAppsRun) {
+        Write-Output "  Ansible inside WSL: $skippedForPick"
+    } else {
+        Write-Output '  Ansible inside WSL: installed if a distribution is registered and it is not there yet.'
+    }
 }
 
 function Invoke-Main {
@@ -1456,8 +1574,17 @@ function Invoke-Main {
     $toggleOverride = Resolve-ToggleOverride -Selectable $selectable -Baseline $Software `
         -EnableKey $EnableKey -DisableKey $DisableKey
 
+    $script:RunScope = Resolve-WindowsRunScope -Baseline $Software -ToggleOverride $toggleOverride `
+        -EnvironmentDependentKey @(Get-WindowsGroupVarList -AllVarsPath $AllVars -Name 'env_variables_dependent_toggles')
+
+    # A picked-apps run narrows every phase to what it picked, the way the checklist does.
+    $selectedSoftwareKeys = $null
+    if ($script:RunScope.PickedAppsRun) {
+        $selectedSoftwareKeys = (Resolve-PickedSelection -PickedKeys $script:RunScope.PickedKeys -Selectable $selectable).OnlyKeys
+    }
+
     if ($PrintPlan) {
-        Show-ResolvedPlan -ToggleOverride $toggleOverride
+        Show-ResolvedPlan -ToggleOverride $toggleOverride -RunScope $script:RunScope
         exit 0
     }
 
@@ -1465,12 +1592,18 @@ function Invoke-Main {
     Write-Banner
     Write-Section 'Bootstrapping'
 
+    $null = Start-WindowsConfigChangeRecord
+
+    if ($script:RunScope.PickedAppsRun) {
+        Write-Status "Picked-apps run: $($script:RunScope.PickedKeys -join ', '). The cache cleanup and Ansible inside WSL are skipped, and only the picked apps' environment variables are written."
+    }
+
+    # Every run, a picked-apps run included, by owner decision 43. Only -SkipSystemUpgrade turns it off.
     Invoke-WindowsSystemUpgrade
 
-    $selectedSoftwareKeys = $null
-
     if ($NonInteractive -or $Profile -or $null -ne $toggleOverride) {
-        # Skipping the prompts is not the same as wanting half a run, so everything still happens.
+        # Skipping the prompts is not the same as wanting half a run, so everything still happens,
+        # apart from what a picked-apps run leaves out.
         if ($Profile) {
             Write-Hint "  -Profile '$Profile' selects nothing here. The profiles are Ansible variable overrides for the Linux side, this wizard configures Windows, and it is accepted only so the documented command still runs."
         }
@@ -1504,11 +1637,17 @@ function Invoke-Main {
         Write-Banner
     }
 
-    $phases = Invoke-WindowsRun -OnlyKeys $selectedSoftwareKeys -ToggleOverride $toggleOverride
+    # The configuration summary is in the finally, so a run that throws or is stopped part way still
+    # lists every file and value it changed and where the copies are, docs/regression_ledger.md 10.324.
+    try {
+        $phases = Invoke-WindowsRun -OnlyKeys $selectedSoftwareKeys -ToggleOverride $toggleOverride
 
-    # Always, and last. Every phase names its own failures as it goes, and a long run scrolls them
-    # off the screen, so this is the one block that reconciles all of them in one place.
-    $failed = Write-RunSummary -Phase $phases
+        # Always, and last. Every phase names its own failures as it goes, and a long run scrolls them
+        # off the screen, so this is the one block that reconciles all of them in one place.
+        $failed = Write-RunSummary -Phase $phases
+    } finally {
+        Write-ConfigChangeSummary -Record (Get-WindowsConfigChangeRecord)
+    }
 
     # Then the machine's own answer, which is a different question from the one above. The summary
     # says what the installers reported, this says what is actually here, and the gap between those

@@ -44,7 +44,7 @@
 #   macOS four apps only     macos-26        every toggle off, then four by name
 #   Windows default apps     windows-latest  toggles as shipped
 #   Windows all apps         windows-latest  every selectable toggle on
-#   Windows four apps only   windows-latest  every toggle off, then four by name
+#   Windows four apps only   windows-latest  every toggle off, then four, Java and the Android SDK by name
 #   Windows settings only    windows-latest  the three native settings, no software
 #
 # Two jobs sit outside those lists. "Gate: checks passed" decides whether stage 2 and stage 3 may
@@ -1601,6 +1601,10 @@ jobs:
           # nothing, the upload step below warns rather than failing the job.
           Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
             Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+          $backup = Join-Path $env:LOCALAPPDATA 'installation-helper\backup'
+          if (Test-Path -LiteralPath $backup) {
+            Copy-Item -LiteralPath $backup -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs\config-backup') -Recurse -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Upload wizard log artefacts
         if: always()
@@ -1734,6 +1738,10 @@ jobs:
           Copy-Item (Join-Path $env:RUNNER_TEMP 'wizard-run.log') (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
           Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
             Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+          $backup = Join-Path $env:LOCALAPPDATA 'installation-helper\backup'
+          if (Test-Path -LiteralPath $backup) {
+            Copy-Item -LiteralPath $backup -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs\config-backup') -Recurse -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Upload wizard log artefacts
         if: always()
@@ -1755,18 +1763,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The wizard's last phase installs Ansible inside WSL, and a runner has WSL with no
-      # distribution registered, so it correctly reported "there is nothing to install Ansible into"
-      # and failed the cell. Registering one is the honest fix: it exercises the real path instead of
-      # teaching the wizard to forgive an empty WSL, which is a state a user should hear about.
-      #
-      # --no-launch on purpose. Without it the first launch stops at a prompt for a username and
-      # password, which in a job nobody is watching is an unbounded hang, and that is the same
-      # reasoning WindowsSettings.ps1 already carries for its own WSL install.
-      #
-      # Failure here is reported and does not stop the job, because a runner image where WSL cannot
-      # register is a fact about the runner, and the wizard's own message about it is the thing under
-      # test either way.
       # Every Windows job installs real software onto a runner whose C: drive is mostly full of
       # toolchains none of this needs. The "every application turned on" cell died at 73 minutes on
       # 2026-08-22 with "System.IO.IOException: There is not enough space on the disk", while writing
@@ -1837,23 +1833,21 @@ jobs:
           }
           Show-Free 'after'
 
-      - name: Register Ubuntu inside WSL, which a bare runner has none of
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          $ErrorActionPreference = 'Continue'
-          wsl --set-default-version 2 2>&1 | Write-Host
-          wsl --install --distribution Ubuntu-26.04 --no-launch 2>&1 | Write-Host
-          Write-Host "wsl --install exited $LASTEXITCODE"
-          wsl --list --verbose 2>&1 | Write-Host
-
+      # -Software none with -EnableKey is a picked-apps run, owner decision 44, so the wizard
+      # installs the picked apps and skips Ansible inside WSL. That is why this cell registers no
+      # Ubuntu inside WSL the way the full-run cells do, docs/regression_ledger.md 10.310 and 10.314.
+      #
+      # install_android_sdk is the one picked key that owns environment variables, so this is the
+      # cell where a picked-apps run writes only the Android variables and PATH entries, owner
+      # decision 42. install_java comes with it, because sdkmanager needs JAVA_HOME and the step
+      # above deletes the runner's own Temurin, docs/regression_ledger.md 10.334.
       - name: Run the bootstrap wizard, everything off then a handful enabled by name
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path (Join-Path $env:RUNNER_TEMP 'wizard-run.log') -Force | Out-Null
           try {
-            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade -Software none -EnableKey install_git,install_chrome,install_docker,install_vscode
+            & ./setup/setup.ps1 -NonInteractive -AllowAdministrator -SkipSystemUpgrade -Software none -EnableKey install_git,install_chrome,install_docker,install_vscode,install_java,install_android_sdk
             if ($LASTEXITCODE -ne 0) { throw "setup.ps1 exited $LASTEXITCODE" }
           } finally {
             Stop-Transcript | Out-Null
@@ -1867,6 +1861,10 @@ jobs:
           Copy-Item (Join-Path $env:RUNNER_TEMP 'wizard-run.log') (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
           Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
             Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+          $backup = Join-Path $env:LOCALAPPDATA 'installation-helper\backup'
+          if (Test-Path -LiteralPath $backup) {
+            Copy-Item -LiteralPath $backup -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs\config-backup') -Recurse -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Upload wizard log artefacts
         if: always()
@@ -1888,18 +1886,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The wizard's last phase installs Ansible inside WSL, and a runner has WSL with no
-      # distribution registered, so it correctly reported "there is nothing to install Ansible into"
-      # and failed the cell. Registering one is the honest fix: it exercises the real path instead of
-      # teaching the wizard to forgive an empty WSL, which is a state a user should hear about.
-      #
-      # --no-launch on purpose. Without it the first launch stops at a prompt for a username and
-      # password, which in a job nobody is watching is an unbounded hang, and that is the same
-      # reasoning WindowsSettings.ps1 already carries for its own WSL install.
-      #
-      # Failure here is reported and does not stop the job, because a runner image where WSL cannot
-      # register is a fact about the runner, and the wizard's own message about it is the thing under
-      # test either way.
       # Every Windows job installs real software onto a runner whose C: drive is mostly full of
       # toolchains none of this needs. The "every application turned on" cell died at 73 minutes on
       # 2026-08-22 with "System.IO.IOException: There is not enough space on the disk", while writing
@@ -1970,22 +1956,17 @@ jobs:
           }
           Show-Free 'after'
 
-      - name: Register Ubuntu inside WSL, which a bare runner has none of
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          $ErrorActionPreference = 'Continue'
-          wsl --set-default-version 2 2>&1 | Write-Host
-          wsl --install --distribution Ubuntu-26.04 --no-launch 2>&1 | Write-Host
-          Write-Host "wsl --install exited $LASTEXITCODE"
-          wsl --list --verbose 2>&1 | Write-Host
-
       # -Software none turns every selectable toggle off, including the three settings keys
       # below (setup_wsl, enable_hyperv and set_custom_wallpaper are ordinary entries in the same
       # selectable list -Software all/none sweeps, per setup.ps1's own Resolve-ToggleOverride),
       # so -EnableKey turns exactly those three back on. They are the three keys
       # setup/windows/WindowsSettings.ps1 applies, and e2e/tier1/windows_settings.sh fails the
       # gate when this list and that file disagree.
+      #
+      # It is a picked-apps run, owner decision 44, so the wizard skips Ansible inside WSL, and
+      # setup_wsl makes the wizard register Ubuntu itself through Install-WslDistribution. So this
+      # cell registers no distribution beforehand, which would hide that path,
+      # docs/regression_ledger.md 10.310 and 10.314.
       - name: Run the bootstrap wizard, no software, the three native system settings
         shell: pwsh
         run: |
@@ -2006,6 +1987,10 @@ jobs:
           Copy-Item (Join-Path $env:RUNNER_TEMP 'wizard-run.log') (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
           Get-ChildItem -Path $env:USERPROFILE -Filter 'installation_*.log' -File -ErrorAction SilentlyContinue |
             Copy-Item -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs') -ErrorAction SilentlyContinue
+          $backup = Join-Path $env:LOCALAPPDATA 'installation-helper\backup'
+          if (Test-Path -LiteralPath $backup) {
+            Copy-Item -LiteralPath $backup -Destination (Join-Path $env:RUNNER_TEMP 'wizard-logs\config-backup') -Recurse -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Upload wizard log artefacts
         if: always()

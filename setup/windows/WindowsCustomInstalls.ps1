@@ -304,7 +304,7 @@ function Install-TemurinJdk {
     }
 
     if ($PSCmdlet.ShouldProcess("JAVA_HOME=$($jdkDir.FullName)", 'set user environment variable')) {
-        [Environment]::SetEnvironmentVariable('JAVA_HOME', $jdkDir.FullName, 'User')
+        Set-WindowsUserEnvironmentVariable -Name 'JAVA_HOME' -Value $jdkDir.FullName
         $results.Add([PSCustomObject]@{ Key = 'java'; Package = 'JAVA_HOME'; Status = 'installed'; Detail = $jdkDir.FullName })
     } else {
         $results.Add([PSCustomObject]@{ Key = 'java'; Package = 'JAVA_HOME'; Status = 'skipped'; Detail = 'WhatIf' })
@@ -535,23 +535,17 @@ function Add-ToUserPath {
         Puts one directory on the user PATH, once, and on this process's PATH straight away.
 
     .DESCRIPTION
-        The same read, compare and write the Android SDK environment step does, factored out because
-        a second install needed it. A directory already there is left alone, so a rerun writes
-        nothing, and the process PATH is updated too, because the wizard runs `fvm` a moment later
-        and a variable written to the registry does not reach a process that is already running.
+        The user PATH goes through Add-WindowsUserPathEntry in WindowsConfigBackup.ps1, which the
+        Android SDK environment step uses too. A directory already there is left alone, so a rerun
+        writes nothing, and the process PATH is updated too, because the wizard runs `fvm` a moment
+        later and a variable written to the registry does not reach a process that is already running.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Directory
     )
 
-    $current = [Environment]::GetEnvironmentVariable('PATH', 'User')
-    $entries = @($current -split ';' | Where-Object { $_ })
-    if ($Directory -notin $entries) {
-        if ($PSCmdlet.ShouldProcess($Directory, 'add to the user PATH')) {
-            [Environment]::SetEnvironmentVariable('PATH', (($entries + $Directory) -join ';'), 'User')
-        }
-    }
+    $null = Add-WindowsUserPathEntry -Directory $Directory
     if (($env:PATH -split ';') -notcontains $Directory) {
         $env:PATH = "$Directory;$env:PATH"
     }
@@ -728,7 +722,10 @@ function Install-PipxWithPip {
         return $pip
     }
 
-    $ensure = Invoke-ManagedTool -Key 'pipx' -FilePath 'py' -ArgumentList @('-m', 'pipx', 'ensurepath') -TimeoutMinutes 5
+    # pipx writes the user PATH itself, so the value is read before and after to list the change.
+    $ensure = Invoke-WindowsRegistryChange -Location 'HKCU\Environment' -Name 'PATH' `
+        -Read { (Get-WindowsUserEnvironmentValue -Name 'PATH').Value } `
+        -Write { Invoke-ManagedTool -Key 'pipx' -FilePath 'py' -ArgumentList @('-m', 'pipx', 'ensurepath') -TimeoutMinutes 5 }
     if ($ensure.Status -ne 'installed') {
         return $ensure
     }
@@ -1090,12 +1087,75 @@ function Invoke-AndroidSdkManager {
     }
 }
 
+function Get-WindowsDevEnvironmentEntry {
+    <#
+    .SYNOPSIS
+        The one table of what Set-WindowsDevEnvironment writes, each entry with the toggle that owns it.
+    .DESCRIPTION
+        Kind is Directory, Variable or Path, where a Path entry is one directory added to the user PATH.
+        Owner is the toggle whose application needs the entry, the same blocks
+        roles/env_variables/tasks/env_unix.yaml writes on Linux and macOS: the Android block belongs to
+        install_android_sdk. An empty Owner is the shared block, the two directories and the five
+        apps_config and projects variables, which Linux writes only in a full run, and so does
+        Set-WindowsDevEnvironment. Owner decision 42, docs/regression_ledger.md 10.321.
+
+        With -OwnerKey, only the entries those toggles own come back, and never a shared one.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject[]])]
+    param([string[]] $OwnerKey)
+
+    $appsConfig = Join-Path $env:USERPROFILE 'apps_config'
+    $sdk = $script:AndroidSdkRoot
+    $entry = { param($Kind, $Name, $Value, $Owner) [PSCustomObject]@{ Kind = $Kind; Name = $Name; Value = $Value; Owner = $Owner } }
+
+    $table = @(
+        & $entry 'Directory' 'apps_config'      $appsConfig ''
+        # The Windows half of projects_dir in group_vars/all.yaml. Declared here because that file is
+        # Ansible's and Ansible never runs on Windows. The repository has no earlier Windows convention
+        # to follow: its only projects path is the owner's own checkout in the docs,
+        # D:\Development\projekty-IT, a choice about one machine and not a default for the next. So the
+        # default has the same shape as the other two families, a Projects folder in the profile. A
+        # machine that keeps its code on another drive changes this one line.
+        & $entry 'Directory' 'projects_dir'     (Join-Path $env:USERPROFILE 'Projects') ''
+        # The same five names and the same layout the Unix shell block writes, so a machine configured
+        # by either one keeps its tool state in the same place.
+        & $entry 'Variable'  'GRADLE_USER_HOME' (Join-Path $appsConfig '.gradle') ''
+        & $entry 'Variable'  'DOCKER_CONFIG'    (Join-Path $appsConfig '.docker') ''
+        & $entry 'Variable'  'M2_HOME'          (Join-Path $appsConfig '.m2') ''
+        & $entry 'Variable'  'KUBECONFIG'       (Join-Path $appsConfig '.kube\config') ''
+        & $entry 'Variable'  'PROJECTS_DIR'     (Join-Path $env:USERPROFILE 'Projects') ''
+        # ANDROID_USER_HOME names the preferences directory. ANDROID_SDK_HOME is the legacy variable
+        # Android Studio 4.3 and earlier read for the same purpose, and it names the PARENT the
+        # .android directory is created under, which is why the two differ by one level.
+        & $entry 'Variable'  'ANDROID_USER_HOME' (Join-Path $appsConfig '.android') 'install_android_sdk'
+        & $entry 'Variable'  'ANDROID_SDK_HOME'  $appsConfig 'install_android_sdk'
+        # Both names for the SDK directory, set to the same path on purpose: ANDROID_SDK_ROOT is
+        # deprecated, and Android Studio and the Gradle plugin check the two agree when it is present.
+        & $entry 'Variable'  'ANDROID_HOME'      $sdk 'install_android_sdk'
+        & $entry 'Variable'  'ANDROID_SDK_ROOT'  $sdk 'install_android_sdk'
+        & $entry 'Path'      'PATH'              (Join-Path $sdk 'cmdline-tools\latest\bin') 'install_android_sdk'
+        & $entry 'Path'      'PATH'              (Join-Path $sdk 'platform-tools') 'install_android_sdk'
+        & $entry 'Path'      'PATH'              (Join-Path $sdk 'emulator') 'install_android_sdk'
+    )
+
+    if ($PSBoundParameters.ContainsKey('OwnerKey')) {
+        return @($table | Where-Object { $_.Owner -and $_.Owner -in $OwnerKey })
+    }
+    return $table
+}
+
 function Set-WindowsDevEnvironment {
     <#
     .SYNOPSIS
         Writes the development environment variables at user scope, the Windows half of what
         roles/env_variables does everywhere else.
     .DESCRIPTION
+        What it writes is the table of Get-WindowsDevEnvironmentEntry. A full run writes every entry.
+        A picked-apps run passes -OnlyOwnerKey with the picked keys and writes only the entries those
+        toggles own, and no shared entry and no directory, which is what env_unix.yaml does on Linux
+        in such a run, owner decision 42.
+
         The five apps_config variables plus the Android ones and PROJECTS_DIR. env_windows.yaml held these and could
         never run, because the playbook is invoked from inside WSL and reports os_family Debian, so
         on Windows they were never written at all.
@@ -1114,58 +1174,28 @@ function Set-WindowsDevEnvironment {
         PATH that eventually stops working because it exceeded its limit.
     #>
     [CmdletBinding(SupportsShouldProcess)]
-    param()
+    param([string[]] $OnlyOwnerKey)
 
     $results = [System.Collections.Generic.List[object]]::new()
-    $appsConfig = Join-Path $env:USERPROFILE 'apps_config'
-    # The Windows half of projects_dir in group_vars/all.yaml. Declared here because that file is
-    # Ansible's and Ansible never runs on Windows. The repository has no earlier Windows convention to
-    # follow: its only projects path is the owner's own checkout in the docs, D:\Development\projekty-IT,
-    # a choice about one machine and not a default for the next. So the default has the same shape as
-    # the other two families, a Projects folder in the profile. A machine that keeps its code on
-    # another drive changes this one line.
-    $projectsDir = Join-Path $env:USERPROFILE 'Projects'
-    $sdk = $script:AndroidSdkRoot
-
-    # The same five names and the same layout the Unix shell block writes, so a machine configured
-    # by either one keeps its tool state in the same place.
-    $variables = [ordered]@{
-        GRADLE_USER_HOME = Join-Path $appsConfig '.gradle'
-        DOCKER_CONFIG    = Join-Path $appsConfig '.docker'
-        M2_HOME          = Join-Path $appsConfig '.m2'
-        KUBECONFIG       = Join-Path $appsConfig '.kube\config'
-        PROJECTS_DIR     = $projectsDir
-        # ANDROID_USER_HOME names the preferences directory. ANDROID_SDK_HOME is the legacy variable
-        # Android Studio 4.3 and earlier read for the same purpose, and it names the PARENT the
-        # .android directory is created under, which is why the two differ by one level.
-        ANDROID_USER_HOME = Join-Path $appsConfig '.android'
-        ANDROID_SDK_HOME  = $appsConfig
-        # Both names for the SDK directory, set to the same path on purpose: ANDROID_SDK_ROOT is
-        # deprecated, and Android Studio and the Gradle plugin check the two agree when it is present.
-        ANDROID_HOME     = $sdk
-        ANDROID_SDK_ROOT = $sdk
+    $table = if (@($OnlyOwnerKey | Where-Object { $_ }).Count -gt 0) {
+        @(Get-WindowsDevEnvironmentEntry -OwnerKey $OnlyOwnerKey)
+    } else {
+        @(Get-WindowsDevEnvironmentEntry)
     }
 
-    if ($PSCmdlet.ShouldProcess($appsConfig, 'create the tool configuration directory')) {
+    foreach ($directory in @($table | Where-Object { $_.Kind -eq 'Directory' })) {
+        if (-not $PSCmdlet.ShouldProcess($directory.Value, "create the $($directory.Name) directory")) { continue }
         try {
-            New-Item -ItemType Directory -Path $appsConfig -Force -ErrorAction Stop | Out-Null
+            New-Item -ItemType Directory -Path $directory.Value -Force -ErrorAction Stop | Out-Null
         } catch {
-            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'apps_config'; Status = 'failed'
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = $directory.Name; Status = 'failed'
                                             Detail = $_.Exception.Message })
         }
     }
 
-    if ($PSCmdlet.ShouldProcess($projectsDir, 'create the projects directory')) {
-        try {
-            New-Item -ItemType Directory -Path $projectsDir -Force -ErrorAction Stop | Out-Null
-        } catch {
-            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'projects_dir'; Status = 'failed'
-                                            Detail = $_.Exception.Message })
-        }
-    }
-
-    foreach ($name in $variables.Keys) {
-        $wanted = $variables[$name]
+    foreach ($variable in @($table | Where-Object { $_.Kind -eq 'Variable' })) {
+        $name = $variable.Name
+        $wanted = $variable.Value
         $current = [Environment]::GetEnvironmentVariable($name, 'User')
         if ($current -eq $wanted) {
             $results.Add([PSCustomObject]@{ Key = 'environment'; Package = $name; Status = 'present'; Detail = $wanted })
@@ -1176,35 +1206,30 @@ function Set-WindowsDevEnvironment {
             continue
         }
         try {
-            [Environment]::SetEnvironmentVariable($name, $wanted, 'User')
+            Set-WindowsUserEnvironmentVariable -Name $name -Value $wanted
             $results.Add([PSCustomObject]@{ Key = 'environment'; Package = $name; Status = 'installed'; Detail = $wanted })
         } catch {
             $results.Add([PSCustomObject]@{ Key = 'environment'; Package = $name; Status = 'failed'; Detail = $_.Exception.Message })
         }
     }
 
-    $wantedPath = @(
-        (Join-Path $sdk 'cmdline-tools\latest\bin')
-        (Join-Path $sdk 'platform-tools')
-        (Join-Path $sdk 'emulator')
-    )
-    $currentPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
-    $entries = @($currentPath -split ';' | Where-Object { $_ })
-    $missing = @($wantedPath | Where-Object { $_ -notin $entries })
-
-    if ($missing.Count -eq 0) {
-        $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'present'
-                                        Detail = 'the three Android tool directories are already there' })
-    } elseif ($PSCmdlet.ShouldProcess(($missing -join '; '), 'add to the user PATH')) {
-        try {
-            [Environment]::SetEnvironmentVariable('PATH', (($entries + $missing) -join ';'), 'User')
+    $wantedPath = @($table | Where-Object { $_.Kind -eq 'Path' } | ForEach-Object { $_.Value })
+    if ($wantedPath.Count -eq 0) {
+        return $results
+    }
+    try {
+        $added = Add-WindowsUserPathEntry -Directory $wantedPath
+        if (@($added.Missing).Count -eq 0) {
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'present'
+                                            Detail = "the $($wantedPath.Count) directories are already there" })
+        } elseif ($added.Written) {
             $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'installed'
-                                            Detail = ($missing -join '; ') })
-        } catch {
-            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'failed'; Detail = $_.Exception.Message })
+                                            Detail = ($added.Missing -join '; ') })
+        } else {
+            $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'skipped'; Detail = 'WhatIf' })
         }
-    } else {
-        $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'skipped'; Detail = 'WhatIf' })
+    } catch {
+        $results.Add([PSCustomObject]@{ Key = 'environment'; Package = 'PATH'; Status = 'failed'; Detail = $_.Exception.Message })
     }
 
     return $results
