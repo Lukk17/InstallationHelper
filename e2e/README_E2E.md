@@ -132,14 +132,14 @@ The nine scenarios above cross six Linux distributions, which is 54 combinations
 
 [.github/workflows/e2e-matrix.yml](../.github/workflows/e2e-matrix.yml) runs the full sweep: every scenario against every distribution, dispatch-only, on GitHub's own standard runners. Public repositories get those for free, and each cell is an isolated virtual machine with its own 4 processors, 16 GB of memory and 14 GB of free disk, so 54 jobs do not contend with each other for host resources the way `--jobs` on a local machine does. Those 54 are 54 separate jobs rather than one matrix, each calling [.github/workflows/e2e-linux-cell.yml](../.github/workflows/e2e-linux-cell.yml), because GitHub's run graph collapses a matrix into a single node that names neither the distribution nor the scenario. It calls the exact same harness this document describes, one `e2e/run.sh --tier 3 --scenario <name> --os <distro>` per cell, so nothing about the harness itself is different in CI.
 
-Runs of the single platform workflow, `e2e-manual.yaml`, and of the sweep narrowed to one scenario and one distribution stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: feedback on the distribution and scenario a change actually touches, without waiting on 47 others. A tier 3 run happens only on a GitHub-hosted runner, so the scoped run and the broad one are both dispatched.
+Runs of the single platform workflow, `e2e-manual.yaml`, and of the sweep narrowed to one scenario and one distribution stay scoped to one scenario on one platform or distribution at a time. That is the right shape for developing a change: feedback on the distribution and scenario a change actually touches, without waiting on the others. A tier 3 run happens only on a GitHub-hosted runner, so the scoped run and the broad one are both dispatched.
 
 What each side proves, and does not:
 
 | | Proves | Does not prove |
 |---|---|---|
 | CI matrix sweep | The full cross product passes on GitHub's own infrastructure, including a distro/scenario pairing nobody happened to run locally | Correctness on the hardware you actually deploy to. A hosted runner's disk, memory and privileged-container behaviour differ from a personal Docker Desktop or WSL setup, and the sweep has not been observed to catch a defect that a local run would have missed, because it has not run yet |
-| Single platform run | The harness works on a GitHub-hosted runner for the one scenario and distribution you are actively changing | The other 47 combinations still pass, unless you run them too |
+| Single platform run | The harness works on a GitHub-hosted runner for the one scenario and distribution you are actively changing | The other combinations still pass, unless you run them too |
 
 Dispatch the sweep from the Actions tab, or narrow it to one scenario or one distribution from the same form.
 

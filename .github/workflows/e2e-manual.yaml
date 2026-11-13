@@ -33,7 +33,7 @@
 #     at dispatch time, from this form's inputs, using the same precedence setup.sh uses
 #     (baseline, then --enable, then --disable winning), and hands it to the unmodified
 #     harness. That is what makes per-toggle selection possible here: earlier drafts of this
-#     workflow claimed it was not, because they called the harness's seven fixed scenarios
+#     workflow claimed it was not, because they called the harness's fixed scenarios
 #     directly instead of generating one.
 #   macos
 #     Nothing to containerise here (a Darwin container cannot run on a Linux or Windows

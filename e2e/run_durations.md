@@ -62,7 +62,7 @@ Counted, although the cell failed:
 
 Stage 1 runs from dispatch until the gate job passes, the Linux stage from there until the last Linux cell ends, and the last stage from the Linux verdict until the last macOS or Windows cell ends. The stages run one after another, so they add up to the wall time. Stage 1 in 32839893770 waited 13 minutes for its first job to start, which is why it is 15 rather than 3 or 4. This page used to give 241 minutes for that run, counted from the first job starting rather than from the dispatch.
 
-The Linux stage is the part that surprises people. A Linux cell averages about 36 minutes, yet the stage takes nearly two hours. GitHub Free runs at most 20 jobs at once across the whole account, and the stage has 48 cells. In all three runs exactly 20 Linux cells were running at the peak, never more, so the 48 cells go through in roughly three waves of about 40 minutes each.
+The Linux stage is the part that surprises people. A Linux cell averages about 36 minutes, yet the stage takes nearly two hours. GitHub Free runs at most 20 jobs at once across the whole account, and the stage had 48 cells in those runs. In all three runs exactly 20 Linux cells were running at the peak, never more, so the 48 cells went through in roughly three waves of about 40 minutes each.
 
 The last stage is set by Windows alone. Its two long cells start together with everything else in the stage and finish well after the macOS cells.
 
@@ -72,7 +72,7 @@ So a full sweep is a three to four hour commitment.
 
 ### Linux container cells
 
-Six distributions across nine scenarios, each a real Ansible run inside a systemd container ending in the playbook's own verification.
+Six distributions across every scenario but picked-apps, which came after these three runs, each a real Ansible run inside a systemd container ending in the playbook's own verification.
 
 | Cell | Runs | Average | Fastest | Slowest |
 |---|---|---|---|---|

@@ -25,7 +25,7 @@
 #    package that did not install in an [ERROR] line and sets any_role_failed, every other package in
 #    the list is still attempted, the cleanup in site.yaml still runs, and the terminal fail task
 #    turns the recorded failure into a non-zero exit code.
-# 2. It fails the same way on all five distributions. apt, dnf and pacman each answer "no such
+# 2. It fails the same way on every distribution. apt, dnf and pacman each answer "no such
 #    package" for a name nobody has published. An injection through apt_raw_flags would have been
 #    Debian only, and one through a vendor download location would have been silently skipped on
 #    Arch and CachyOS, which map nothing to apt_url or dnf_url.

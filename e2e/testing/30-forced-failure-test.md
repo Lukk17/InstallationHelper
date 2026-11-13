@@ -112,7 +112,7 @@ gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian
 gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian
 ```
 
-`--os` defaults to arch, and this scenario is written to fail identically on all five distributions: the injected package name is offered to apt, dnf and pacman alike and none of them has ever carried it. Debian is the fastest image and therefore the sensible one for a first run, but a pass on one distribution is not evidence about the others, so the run record has to say which one it targeted.
+`--os` defaults to arch, and this scenario is written to fail identically on every distribution: the injected package name is offered to apt, dnf and pacman alike and none of them has ever carried it. Debian is the fastest image and therefore the sensible one for a first run, but a pass on one distribution is not evidence about the others, so the run record has to say which one it targeted.
 
 ---
 

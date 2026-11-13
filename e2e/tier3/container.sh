@@ -19,8 +19,8 @@
 # exact variable file that was used, the full playbook log, the verify log, and a
 # result file. Nothing is inferred after the fact.
 #
-# Two scenario keys change what this script does rather than what the playbook installs, and both
-# are read out of the scenario file below:
+# These scenario keys change what this script does rather than what the playbook installs, and each
+# is read out of the scenario file below:
 #
 #   e2e_run_twice: true       run the same command a second time once the first pass exits 0, and
 #                             assert the second pass reports no changed task that is not named, with

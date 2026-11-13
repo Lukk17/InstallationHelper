@@ -74,7 +74,7 @@ Getting a bootloader wrong leaves a machine that will not start. Nothing in this
   ```bash
   bash e2e/run.sh --tier 2
   ```
-- [ ] 2.3.4 Tier 3 defaults, on all four Linux distributions and not just one, because this changes a role that touches per-distribution behaviour. It proves the toggle-off path is unchanged, which is all a container can prove here:
+- [ ] 2.3.4 Tier 3 defaults, on every Linux distribution and not just one, because this changes a role that touches per-distribution behaviour. It proves the toggle-off path is unchanged, which is all a container can prove here:
   ```bash
   bash e2e/run.sh --tier 3 --scenario defaults
   ```
@@ -111,7 +111,7 @@ This task is independently selectable but its own gate refers to `grub_verified`
   bash e2e/run.sh
   ```
   `toggle_coverage.sh` must stop naming `remove_distro_systemd_boot`. Exit 0.
-- [ ] 3.2.3 Tier 3 defaults, on all four Linux distributions, proving the toggle-off path is unchanged:
+- [ ] 3.2.3 Tier 3 defaults, on every Linux distribution, proving the toggle-off path is unchanged:
   ```bash
   bash e2e/run.sh --tier 3 --scenario defaults
   ```

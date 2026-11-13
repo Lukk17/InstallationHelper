@@ -241,7 +241,7 @@ permissions:
   contents: read
 
 # Queues a second dispatch behind a running sweep rather than cancelling either one. These runs
-# are expensive (up to 52 jobs, hours apiece), and silently cancelling a partially finished sweep
+# are expensive (dozens of jobs, hours apiece), and silently cancelling a partially finished sweep
 # because someone else clicked "Run workflow" would throw away real signal for no reason. A
 # second full sweep queuing behind the first is the safe default. A human who wants to abandon
 # one can still cancel it from the Actions tab.
@@ -457,7 +457,7 @@ jobs:
   #
   # The `if` on each job is what the deleted stage2_plan used to compute. Each cell asks whether the
   # dispatch selected it, so `scenario: defaults` with `distro: all` runs six jobs and skips
-  # forty-two, exactly as the plan's matrix used to.
+  # the rest, exactly as the plan's matrix used to.
   # ===========================================================================================
 
   stage2_debian_defaults:
