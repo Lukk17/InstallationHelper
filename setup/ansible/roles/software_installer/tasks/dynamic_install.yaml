@@ -145,6 +145,33 @@
            | list }}
   tags: always
 
+# Vendor .deb files are staged in a directory only root can enter, never in /tmp. The old path
+# was /tmp/apt_url-<key>.deb, which is a predictable name in a directory every local account can
+# write to, and the file is then handed to apt and installed as root. Any unprivileged user on
+# the machine could sit in a loop replacing that file between the download and the install and
+# get their own package installed with root maintainer scripts. Mode 0700 on the directory closes
+# the window without needing to trust the file name.
+#
+# Not gated on os_family, because custom_installs.yaml stages its own vendor artifacts here on
+# Fedora as well, and a directory that exists only on Debian would send those back to /tmp. Outside
+# both install blocks below and not gated on the mapped list either, because the custom installs need
+# it in a run that picks no mapped app at all, the KiCad 9 AppImage alone among them.
+#
+# No `group:` on purpose, and this is the second time a hardcoded per-platform name has bitten this
+# repository. Asking for `group: root` fails on macOS, where the group owning gid 0 is named wheel,
+# and this task runs on every platform ahead of every install, so a failed group lookup would have
+# taken the Homebrew batches and every macOS custom install down with it and named only this task.
+# Omitting it gives the directory root's own primary group, which is root on Linux and wheel on macOS,
+# decided by the platform rather than by us. At mode 0700 the group cannot read it anyway.
+- name: Create the private staging directory for vendor downloads
+  ansible.builtin.file:
+    path: "{{ software_installer_stage_dir }}"
+    state: directory
+    owner: root
+    mode: '0700'
+  become: true
+  tags: [apt_batch]
+
 - name: Dynamically Install Packages
   block:
     # ------------------ LINUX MANAGERS ------------------
@@ -314,31 +341,6 @@
         - item_url | trim | length > 0
       loop_control:
         label: "{{ item.key }}"
-      tags: [apt_batch]
-
-    # Vendor .deb files are staged in a directory only root can enter, never in /tmp. The old path
-    # was /tmp/apt_url-<key>.deb, which is a predictable name in a directory every local account can
-    # write to, and the file is then handed to apt and installed as root. Any unprivileged user on
-    # the machine could sit in a loop replacing that file between the download and the install and
-    # get their own package installed with root maintainer scripts. Mode 0700 on the directory closes
-    # the window without needing to trust the file name.
-    #
-    # Not gated on os_family, because custom_installs.yaml stages its own vendor artifacts here on
-    # Fedora as well, and a directory that exists only on Debian would send those back to /tmp.
-    #
-    # No `group:` on purpose, and this is the second time a hardcoded per-platform name has bitten this
-    # repository. Asking for `group: root` fails on macOS, where the group owning gid 0 is named wheel,
-    # and this task runs on every platform and sits early in the block, so a failed group lookup would
-    # have taken the Homebrew batches and every macOS custom install down with it and named only this
-    # task. Omitting it gives the directory root's own primary group, which is root on Linux and wheel
-    # on macOS, decided by the platform rather than by us. At mode 0700 the group cannot read it anyway.
-    - name: Create the private staging directory for vendor downloads
-      ansible.builtin.file:
-        path: "{{ software_installer_stage_dir }}"
-        state: directory
-        owner: root
-        mode: '0700'
-      become: true
       tags: [apt_batch]
 
     # Two-step pattern: fetch the .deb, then install from the local file. The apt module's own
@@ -1034,10 +1036,12 @@
     # committed is visible as an absence of any `installed <name>` line, and a partial transaction is
     # visible as an `upgraded`/`removed` pair without it.
     #
-    # `shell` rather than `debug` on purpose. The dual_logger callback renders a command's stdout and
-    # does not render a debug message on an ok task, which is why the three warnings above were
-    # invisible and why this took three runs to notice. It must not fail the task either, or it would
-    # abandon the rest of the install, which is what `fail` or `assert` here would do.
+    # `shell` rather than `debug` on purpose. When this was written the dual_logger callback rendered
+    # a command's stdout and no debug message on an ok task, which is why the three warnings above
+    # were invisible and why this took three runs to notice. It now writes the stdout of an ok task to
+    # ~/installation_full.log only, and shows a line on the terminal when it starts with [WARN],
+    # [ERROR] or [FATAL]. It must not fail the task either, or it would abandon the rest of the
+    # install, which is what `fail` or `assert` here would do.
     - name: Show what pacman recorded for every AUR package that is absent
       ansible.builtin.shell:
         cmd: >-
@@ -1355,14 +1359,6 @@
         - software_installer_packages | selectattr('value.manager', 'equalto', 'brew_cask') | list | length > 0
       tags: [brew]
 
-    # ------------------ CUSTOM INSTALLS (flatpak bundles, AppImages, binaries) --
-    - name: Include Linux custom install tasks
-      ansible.builtin.include_tasks: custom_installs.yaml
-      when: ansible_facts['system'] == 'Linux'
-
-    - name: Include macOS custom install tasks
-      ansible.builtin.include_tasks: macos_install.yaml
-      when: ih_family == 'Darwin'
   # This rescue keeps the rest of the playbook running after an install error, but
   # it used to emit one anonymous warning line, which hid both which task failed
   # and the fact that every later task in this block was skipped. It also never
@@ -1391,3 +1387,30 @@
       ansible.builtin.set_fact:
         any_role_failed: true
   when: software_installer_packages is defined and software_installer_packages | length > 0
+
+# Its own block, with no condition of its own, because each custom install is gated on its own toggle
+# and none of them is in software_installer_packages, which counts only software_mapping entries.
+# Under the block above they never ran in a run that picked no mapped app, so a run of KiCad 9 alone
+# installed nothing and its verification failed, docs/regression_ledger.md 10.285.
+# e2e/tier1/picked_apps_scope.sh fails the gate if either include goes back under that condition.
+- name: Install the custom installs (flatpak bundles, AppImages, binaries)
+  block:
+    - name: Include Linux custom install tasks
+      ansible.builtin.include_tasks: custom_installs.yaml
+      when: ansible_facts['system'] == 'Linux'
+
+    - name: Include macOS custom install tasks
+      ansible.builtin.include_tasks: macos_install.yaml
+      when: ih_family == 'Darwin'
+  rescue:
+    - name: Name the custom install step that failed and what it cost
+      ansible.builtin.debug:
+        msg: >-
+          [ERROR] Install step '{{ ansible_failed_task.name | default('unknown') }}' failed:
+          {{ ansible_failed_result.msg | default(ansible_failed_result.stderr | default('no message given')) }}
+          Every remaining custom install was skipped, so anything listed after this step is NOT
+          installed.
+
+    - name: Propagate the custom install failure to the play summary
+      ansible.builtin.set_fact:
+        any_role_failed: true

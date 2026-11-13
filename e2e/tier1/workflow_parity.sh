@@ -64,7 +64,7 @@ import yaml
 
 MATRIX = pathlib.Path('.github/workflows/e2e-matrix.yml')
 MANUAL = pathlib.Path('.github/workflows/e2e-manual.yaml')
-# The sweep's Linux cells are this reusable workflow, called forty-eight times.
+# The sweep's Linux cells are this reusable workflow, called fifty-four times.
 CELL = pathlib.Path('.github/workflows/e2e-linux-cell.yml')
 
 for path in (MATRIX, MANUAL, CELL):

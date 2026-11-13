@@ -1,0 +1,37 @@
+---
+# Wizard path: setup.sh --software none --enable install_kicad9, the picked-apps run. It is the run the
+# owner made on his CachyOS machine on 2026-11-13, which installed nothing it was asked for and changed
+# the machine's own configuration instead, docs/regression_ledger.md 10.285 and 10.289.
+#
+# The selection is the same three things setup.sh resolves those flags into, written here because
+# container.sh starts setup.sh with --profile and setup.sh refuses --software beside a profile:
+#
+#   e2e_generate: no_software   every checklist toggle off, which is what --software none sets
+#   install_kicad9: true        the one key --enable turned back on
+#   ih_picked_apps              the line setup.sh adds for a picked-apps run, naming the same key
+#
+# e2e/tier1/picked_apps_scope.sh proves that setup.sh resolves --software none --enable install_kicad9
+# into exactly that ih_picked_apps line, so this file and the wizard cannot drift apart unnoticed.
+#
+# KiCad 9 is a custom install, the AppImage in /opt/kicad9, and no software_mapping entry, so this run
+# requests no mapped package at all. That is the shape 10.285 broke: the custom installs sat under the
+# condition that at least one mapped package was requested. setup.sh's own verification asks for the
+# AppImage and, for every KiCad 9 tool, its menu entry in /usr/local/share/applications and its icon,
+# and must pass.
+#
+# e2e_expect_picked_apps_run makes container.sh assert on the container's disk that env_variables and
+# the cleanup in site.yaml stayed out of the run, as container.sh's header describes.
+#
+# The ceiling is not measured yet. The run pays the bootstrap and the KiCad 9 download, and none of
+# the SDKs and the software set that make up most of forced-failure's measured 46 minutes, so the 90
+# minutes forced-failure and kde-configure-only declare are taken as the ceiling until the first run
+# measures it.
+e2e_scenario_name: "picked-apps"
+e2e_scenario_description: "KiCad 9 alone, as setup.sh --software none --enable install_kicad9 produces"
+e2e_generate: no_software
+e2e_timeout_minutes: 90
+e2e_expect_desktop: none
+e2e_expect_picked_apps_run: true
+
+install_kicad9: true
+ih_picked_apps: "install_kicad9"

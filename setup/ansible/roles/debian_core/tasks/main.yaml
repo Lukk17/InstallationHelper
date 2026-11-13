@@ -136,6 +136,7 @@
         *) export PATH="$PATH:/sbin:/usr/sbin" ;;
       esac
     mode: '0644'
+  when: not (ih_picked_apps_run | bool)
 
 # The Antigravity apt repository used to be set up here, as critical bootstrap with no rescue, so a key
 # host that did not answer stopped the whole run before a single package was installed. It lives in

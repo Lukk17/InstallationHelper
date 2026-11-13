@@ -29,6 +29,11 @@
 #                             non-zero exit code is the pass, and the failure has to be named in the
 #                             terminal summary, in the error log the run writes, and by the
 #                             verification, which must refuse rather than report a clean machine.
+#   e2e_expect_picked_apps_run: true
+#                             the scenario is a picked-apps run, setup.sh --software none with
+#                             --enable keys, so the roles that configure the machine must stay out
+#                             of it. A cache the cleanup in site.yaml empties is seeded before the run
+#                             and must survive it, and the file env_variables writes must not exist.
 #
 # The playbook always runs detached INSIDE the container, writing its own log and exit
 # code there, and this script only watches it. That matters for the long scenarios: a
@@ -84,6 +89,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 TIER3_DIR="${E2E_ROOT}/tier3"
 E2E_USER="lukk"
+
+# Relative to the run user's home. The seeded cache of a picked-apps scenario, and the file only
+# env_variables writes, dev_env_file in setup/ansible/group_vars/all.yaml.
+PICKED_APPS_CACHE_SENTINEL=".var/app/io.github.ih_e2e.PickedAppsSentinel/cache/seeded-before-the-run"
+PICKED_APPS_ENV_FILE=".config/environment.d/990-dev.conf"
 
 MODE="wait"
 SCENARIO_FILE=""
@@ -297,6 +307,7 @@ start_run() {
     SCENARIO_GENERATE="$(scenario_get e2e_generate)"
     SCENARIO_RUN_TWICE="$(scenario_get e2e_run_twice)"
     SCENARIO_EXPECT_FAILURE="$(scenario_get e2e_expect_failure)"
+    SCENARIO_EXPECT_PICKED_APPS_RUN="$(scenario_get e2e_expect_picked_apps_run)"
     TIMEOUT_MIN="$(scenario_get e2e_timeout_minutes)"
     : "${SCENARIO_NAME:=$(basename "${SCENARIO_FILE}" .yaml)}"
     : "${TIMEOUT_MIN:=180}"
@@ -885,6 +896,18 @@ start_run() {
     # time regardless of any when, so a missing collection breaks every distribution, and the error
     # it produces names a line that would never have run. A scenario that cannot install its
     # collections has not started, and it should say so here rather than fail unrecognisably later.
+    # A picked-apps scenario seeds a per-user Flatpak application cache, which "Clean Flatpak per-user
+    # app caches" in site.yaml deletes on every Linux run it reaches, with or without flatpak. Its
+    # survival is the observable proof that the cleanup stayed out of the run.
+    if [[ "${SCENARIO_EXPECT_PICKED_APPS_RUN}" == "true" ]]; then
+        if ! docker exec -u "${E2E_USER}" "${CONTAINER}" bash -c "mkdir -p ~${E2E_USER}/${PICKED_APPS_CACHE_SENTINEL%/*} && touch ~${E2E_USER}/${PICKED_APPS_CACHE_SENTINEL}" \
+            >"${RUN_DIR}/picked-apps-sentinel.log" 2>&1; then
+            abort_before_playbook "the cache the cleanup would empty could not be seeded, so this picked-apps run could not show whether the cleanup ran" \
+                "${RUN_DIR}/picked-apps-sentinel.log"
+            return 1
+        fi
+    fi
+
     info "Installing Ansible collections"
     local galaxy_attempt=1
     until docker exec -u "${E2E_USER}" -w /work/setup/ansible "${CONTAINER}" \
@@ -950,6 +973,7 @@ start_run() {
     local launch_script="${home_export} ${setup_cmd} > /work/playbook.log 2>&1; rc1=\$?"
     launch_script+="; ${record_host_state} after-pass1 ${masked_units_words} >/dev/null 2>&1"
     launch_script+="; cp -f ~${E2E_USER}/installation_errors.log /work/installation_errors.log 2>/dev/null || true"
+    launch_script+="; cp -f ~${E2E_USER}/installation_full.log /work/installation_full.log 2>/dev/null || true"
     if [[ "${SCENARIO_RUN_TWICE}" == "true" ]]; then
         info "This scenario runs the playbook twice, and the second pass must change nothing"
         launch_script+="; if [ \"\${rc1}\" -eq 0 ]; then ${home_export} ${setup_cmd} > /work/playbook2.log 2>&1"
@@ -987,6 +1011,7 @@ SCENARIO_NAME="${SCENARIO_NAME}"
 SCENARIO_DESC="${SCENARIO_DESC}"
 SCENARIO_RUN_TWICE="${SCENARIO_RUN_TWICE}"
 SCENARIO_EXPECT_FAILURE="${SCENARIO_EXPECT_FAILURE}"
+SCENARIO_EXPECT_PICKED_APPS_RUN="${SCENARIO_EXPECT_PICKED_APPS_RUN}"
 TIMEOUT_MIN="${TIMEOUT_MIN}"
 RUN_ID="${RUN_ID}"
 STARTED_AT="$(timestamp)"
@@ -1022,6 +1047,7 @@ collect_and_verify() {
 
     SECOND_LOG="${RUN_DIR}/playbook2.log"
     ERRORS_LOG="${RUN_DIR}/installation_errors.log"
+    FULL_LOG="${RUN_DIR}/installation_full.log"
 
     docker cp "${CONTAINER}:/work/playbook.log" "$(host_path "${PLAYBOOK_LOG}")" &>/dev/null || echo "(no playbook log)" > "${PLAYBOOK_LOG}"
 
@@ -1064,6 +1090,10 @@ collect_and_verify() {
     # record is the only place a failure can still be read once the container is gone.
     docker cp "${CONTAINER}:/work/installation_errors.log" "$(host_path "${ERRORS_LOG}")" &>/dev/null \
         || echo "(no installation_errors.log was copied out of the container)" > "${ERRORS_LOG}"
+    # The callback's whole record of the first pass. The terminal, and so playbook.log, no longer
+    # carries ok, skipped, included or imported lines, so an assertion on those reads this file.
+    docker cp "${CONTAINER}:/work/installation_full.log" "$(host_path "${FULL_LOG}")" &>/dev/null \
+        || echo "(no installation_full.log was copied out of the container)" > "${FULL_LOG}"
 
     # The package manager's own transcripts, which are where the reason for a failed install actually
     # lives. Every apt, dnf, pacman, flatpak and snap install, through
@@ -1322,14 +1352,15 @@ collect_and_verify() {
 
         # Every family carries a fourth injection, a Pyenv installer location that answers 404. The
         # Pyenv block's rescue has to name it in the error log, and the two SDK blocks after it have to
-        # run anyway, which the callback records as an included task file for each.
+        # run anyway, which the callback records as an included task file for each in the full log, the
+        # terminal no longer printing included lines.
         if grep -qF "Pyenv and Python, or some of the Python builds, are NOT installed" "${ERRORS_LOG}" \
-            && grep -qE "included: .*sdk_manager/tasks/fvm\.yaml" "${PLAYBOOK_LOG}" \
-            && grep -qE "included: .*sdk_manager/tasks/android_sdk\.yaml" "${PLAYBOOK_LOG}"; then
+            && grep -qE "included: .*sdk_manager/tasks/fvm\.yaml" "${FULL_LOG}" \
+            && grep -qE "included: .*sdk_manager/tasks/android_sdk\.yaml" "${FULL_LOG}"; then
             pass "${SCENARIO_NAME}: the failed Pyenv build was recorded, and FVM and the Android SDK still ran after it"
         else
             fail "${SCENARIO_NAME}: the failed Pyenv build was not reported, or it stopped the SDKs after it" \
-                 "expected the Pyenv [ERROR] line in ${ERRORS_LOG} and fvm.yaml and android_sdk.yaml included in ${PLAYBOOK_LOG}"
+                 "expected the Pyenv [ERROR] line in ${ERRORS_LOG} and fvm.yaml and android_sdk.yaml included in ${FULL_LOG}"
         fi
 
         # Arch and CachyOS carry a second injection, a paru clone from a .invalid host, which no
@@ -1367,6 +1398,24 @@ collect_and_verify() {
             pass "${SCENARIO_NAME}: verification passed"
         else
             fail "${SCENARIO_NAME}: verification failed" "see ${VERIFY_LOG}"
+        fi
+    fi
+
+    # A picked-apps run must leave the machine's own configuration alone. Asked of the container's
+    # disk, not of the log: the cache seeded before the run is still there, so the cleanup did not
+    # run, and the environment file does not exist, so env_variables did not run.
+    if [[ "${SCENARIO_EXPECT_PICKED_APPS_RUN:-}" == "true" ]]; then
+        if docker exec -u "${E2E_USER}" "${CONTAINER}" bash -c "test -f ~${E2E_USER}/${PICKED_APPS_CACHE_SENTINEL}" &>/dev/null; then
+            pass "${SCENARIO_NAME}: the per-user Flatpak cache seeded before the run is still there, so the cleanup in site.yaml stayed out of this picked-apps run"
+        else
+            fail "${SCENARIO_NAME}: the per-user Flatpak cache seeded before the run is gone, so the cleanup in site.yaml ran in a picked-apps run" \
+                 "~${E2E_USER}/${PICKED_APPS_CACHE_SENTINEL} is missing, see 'Clean the package caches' in ${FULL_LOG}"
+        fi
+        if docker exec -u "${E2E_USER}" "${CONTAINER}" bash -c "test ! -e ~${E2E_USER}/${PICKED_APPS_ENV_FILE}" &>/dev/null; then
+            pass "${SCENARIO_NAME}: ~/${PICKED_APPS_ENV_FILE} does not exist, so env_variables stayed out of this picked-apps run"
+        else
+            fail "${SCENARIO_NAME}: ~/${PICKED_APPS_ENV_FILE} exists, so env_variables ran in a picked-apps run" \
+                 "see 'Set Dev Apps Environment Variables' in ${FULL_LOG}"
         fi
     fi
 

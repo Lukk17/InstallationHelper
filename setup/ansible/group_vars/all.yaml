@@ -130,6 +130,32 @@ install_openspec: true
 install_codex: true
 install_grok: true
 
+# The scope of a run. setup.sh --software none with one or more --enable keys passes those keys as
+# ih_picked_apps, comma separated. Such a picked-apps run installs only what was picked, so every role
+# and task that configures the machine whatever was picked reads ih_picked_apps_run and stays out of
+# it: system_core's system settings and upgrade, the /sbin PATH file of debian_core, linux_security,
+# systemd_boot and the cache cleanup in site.yaml. A full run, a configure-only run (--software none
+# with nothing enabled) and a profile leave ih_picked_apps empty. setup/README_SETUP.md, "Picking
+# single apps", lists what a picked-apps run touches.
+ih_picked_apps: ""
+ih_picked_apps_run: "{{ ih_picked_apps | default('') | string | length > 0 }}"
+# env_variables is the one exception, decided by ih_env_variables_run. The apps below put a variable
+# or a PATH entry into dev_env_file, or rely on the ones env_variables writes there, and only
+# env_variables makes every shell import that file. So a picked-apps run that picks one of them runs
+# env_variables, and one that picks none of them does not. e2e/tier1/picked_apps_scope.sh fails when
+# a task that writes dev_env_file, or an SDK block in sdk_manager, is gated on a toggle missing here.
+env_variables_dependent_toggles:
+  - install_nodejs
+  - install_java
+  - install_python
+  - install_flutter
+  - install_android_sdk
+  - install_lm_studio
+  - install_jetbrains_toolbox
+ih_env_variables_run: >-
+  {{ not (ih_picked_apps_run | bool)
+     or ((ih_picked_apps | default('') | string).split(',') | intersect(env_variables_dependent_toggles) | length > 0) }}
+
 # Logging configuration
 # Set to true to allow playbook to continue if log file creation fails
 # Default: false (playbook fails if cannot write logs)
@@ -163,7 +189,13 @@ projects_dir: "{{ non_root_home }}/Projects"
 # /usr/lib/environment.d, because Ubuntu's /etc/environment assigns PATH outright and a file read
 # before it loses every PATH entry it added. setup/configuration.md has the measurement.
 dev_env_file: "{{ non_root_home }}/.config/environment.d/990-dev.conf"
-zsh_config_dir: "{{ non_root_home ~ '/.config/zsh' if (setup_zsh | default(false) | bool) else non_root_home }}"
+# zsh_config_dir is ~/.config/zsh when this run sets zsh up, and also when an earlier run already did,
+# which ih_zdotdir_stub says: the pre_tasks of site.yaml set it when ~/.zshenv carries the block that
+# shell_zsh writes under zdotdir_stub_marker. zsh then reads ~/.config/zsh and never ~/.zshrc, so a
+# block written into the home directory would be ignored. The home directory is the answer only on a
+# machine zsh was never set up on.
+zdotdir_stub_marker: "# {mark} ANSIBLE ZDOTDIR"
+zsh_config_dir: "{{ non_root_home ~ '/.config/zsh' if (setup_zsh | default(false) | bool or ih_zdotdir_stub | default(false) | bool) else non_root_home }}"
 interactive_rc_files: >-
   {{ ([{'shell': 'bash', 'path': non_root_home ~ '/.bashrc'}] if ansible_facts['system'] == 'Linux' else [])
      + [{'shell': 'zsh', 'path': zsh_config_dir ~ '/.zshrc'}] }}

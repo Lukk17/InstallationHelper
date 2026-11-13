@@ -289,7 +289,7 @@ jobs:
   # -----------------------------------------------------------------------
   # arch / debian / ubuntu / fedora / cachyos / popos: the proven tier-3 container harness, fed a
   # scenario file generated from this dispatch's own inputs so it can exercise an arbitrary
-  # toggle selection, not just the eight scenarios checked into e2e/tier3/scenarios/.
+  # toggle selection, not just the nine scenarios checked into e2e/tier3/scenarios/.
   # -----------------------------------------------------------------------
   # The gate image, built by the same reusable workflow the sweep calls and loaded by linux-e2e below
   # rather than built there, owner decision 90, so both workflows run e2e/run.sh on an image made
@@ -531,6 +531,20 @@ jobs:
           for key in "${!OVERRIDE[@]}"; do
               echo "${key}: ${OVERRIDE[${key}]}" >> "${SCENARIO_FILE}"
           done
+
+          # --- picked-apps run, the same rule as setup.sh's software_override_vars ----------
+          # software_mode none with a key left on is a picked-apps run, and setup.sh names those
+          # keys in ih_picked_apps, which keeps the roles that configure the machine out of it.
+          if [[ "${SEL_SOFTWARE}" == none ]]; then
+              picked=()
+              for key in "${!OVERRIDE[@]}"; do
+                  [[ "${OVERRIDE[${key}]}" == true ]] && picked+=("${key}")
+              done
+              if [[ ${#picked[@]} -gt 0 ]]; then
+                  printf -v joined '%s,' "${picked[@]}"
+                  echo "ih_picked_apps: \"${joined%,}\"" >> "${SCENARIO_FILE}"
+              fi
+          fi
 
           {
             # A heuristic, not measured like the shipped scenarios' timeouts: 300 minutes for

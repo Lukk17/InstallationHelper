@@ -11,11 +11,12 @@
     mode: '0755'
   become: yes
   become_user: "{{ non_root_user }}"
+  when: zsh_config_dir != non_root_home
 
 - name: Point zsh at its configuration directory from ~/.zshenv
   ansible.builtin.blockinfile:
     path: "{{ non_root_home }}/.zshenv"
-    marker: "# {mark} ANSIBLE ZDOTDIR"
+    marker: "{{ zdotdir_stub_marker }}"
     insertbefore: BOF
     create: yes
     mode: '0644'

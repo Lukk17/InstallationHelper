@@ -72,7 +72,7 @@ So a full sweep is a three to four hour commitment.
 
 ### Linux container cells
 
-Six distributions across eight scenarios, each a real Ansible run inside a systemd container ending in the playbook's own verification.
+Six distributions across nine scenarios, each a real Ansible run inside a systemd container ending in the playbook's own verification.
 
 | Cell | Runs | Average | Fastest | Slowest |
 |---|---|---|---|---|

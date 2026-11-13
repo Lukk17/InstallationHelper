@@ -33,6 +33,7 @@ Every one of these was written by an agent working on this project, shipped, and
 19. A verification that names what it covers in its own fixed list. verify_install.yaml listed the package managers it checks once, when it was written, and nothing compared that list with the managers the software installer dispatches, so snap and dnf_repo were installed and checked by nothing for two months, unnoticed only because no mapping used either. A list of what a check covers must be derived from, or compared with, the code it covers. Guarded now by the manager section of `e2e/tier1/verify_wiring.sh`.
 20. Text cut from a program's output on line feeds alone. On Windows the output ends every line with a carriage return, so each kept line carried it into the error message, and the Linux PowerShell in the gate never sees it because it rewrites redirected output line by line. Split command output on `'\r?\n'`, through `Get-CommandOutputTail` in `setup/windows/WindowsSoftware.ps1`.
 21. A pipe whose writer the kernel kills under pipefail. `yes | command` always reports 141, because `yes` is still writing when the reader exits, and a reader that stops early, `grep -q`, `grep -m` or `head`, does the same to a writer that still has output to send, at random. A check reported a guide line missing that was there (10.32, 10.190). Give a grep a here-string, `grep -q pattern <<<"$(producer)"`, end a pipe that wants the first lines in `sed -n 1,Np`, let an awk program keep a flag rather than call exit, and feed answers from a file. Guarded now by `e2e/tier1/sigpipe_pipelines.sh`, for e2e/ and setup/ (10.196).
+22. A step whose reach is wider than what the run was asked for. A run that picked one app also wrote the shell environment, set a mode on the home directory and cleaned every package cache, because those roles ran whatever was picked, and a setting the wizard hides kept its default and ran linux_security as well (10.289). A directory variable that falls back to the home directory made a directory task set a mode on the home directory itself (10.287). Decide from one derived variable what a run is for, gate every step that changes the machine on it or on its own key, and never point a mode at a path that can be the home directory. Guarded now by `e2e/tier1/picked_apps_scope.sh`.
 
 ---
 
@@ -8799,7 +8800,7 @@ Found in passing and not fixed yet: the AppArmor comment block for `unix_chkpwd`
 
 #### 10.285 Custom installs never run when no package manager mapping is requested
 
-Status: open, and the fix waits for the owner's decision 36. For KiCad 9 it was introduced by this session in commit `b1a03ec`, the KiCad 9 beside KiCad 10 change. For the other custom installs it is older.
+Status: fixed on 2026-11-13 by the owner's decision 36, and unproven in a container until the `picked-apps` scenario is dispatched. For KiCad 9 it was introduced by this session in commit `b1a03ec`, the KiCad 9 beside KiCad 10 change. For the other custom installs it is older.
 
 Cause: in [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml) the include of [custom_installs.yaml](../setup/ansible/roles/software_installer/tasks/custom_installs.yaml) for Linux, at about line 1359, and of [macos_install.yaml](../setup/ansible/roles/software_installer/tasks/macos_install.yaml), at about line 1363, sit inside the block "Dynamically Install Packages" at line 148, whose condition at line 1393 is `software_installer_packages is defined and software_installer_packages | length > 0`. That list counts only `software_mapping` entries.
 
@@ -8809,9 +8810,9 @@ How it was proven: the lines above are from the log of the owner's run, and the 
 
 Why nothing caught it: every tier 3 scenario also requests mapped apps, so the block condition is always true there. The verification caught it on the real machine, as designed.
 
-Fix: pending the owner's decision 36.
+Fix: both includes left the block "Dynamically Install Packages" for a block of their own at the end of [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml), "Install the custom installs (flatpak bundles, AppImages, binaries)", which has no condition of its own and a rescue of its own that names the failed step and sets `any_role_failed`. Each include keeps its own condition on the operating system, and every custom install inside reads its own key. "Create the private staging directory for vendor downloads" moved out of the mapped block as well, to the top of the file, because the custom installs download into it too. The tier 3 scenario [e2e/tier3/scenarios/09-picked-apps.yaml](../e2e/tier3/scenarios/09-picked-apps.yaml) runs KiCad 9 alone on all six distributions of the sweep.
 
-Mechanical check: none yet. It belongs with the fix.
+Mechanical check: [e2e/tier1/picked_apps_scope.sh](../e2e/tier1/picked_apps_scope.sh), item 79 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md), fails when either include is missing, appears twice, sits under any condition that reads `software_installer_packages`, or sits in a block without a rescue. Proven on 2026-11-13 in the whole gate against a full clone of the working tree with `when: software_installer_packages is defined and software_installer_packages | length > 0` put on the block of the custom installs, where it was the only check that failed, 2 of 6, naming the include of `custom_installs.yaml` and of `macos_install.yaml`.
 
 #### 10.286 The main thread told the owner that a setup.sh command would install only KiCad 9
 
@@ -8828,3 +8829,117 @@ Fix: none on the machine. Lesson: before giving the owner a `setup.sh` command, 
 Mechanical check: none can stop advice given in a conversation.
 
 Found in the same log, cosmetic, to be fixed with decision 30: the skip reason `toggle disabled (install_software_installer : Build list of packages to dynamically install=false)` names a toggle that does not exist. It is written by [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py).
+
+#### 10.287 A run without zsh set up made the home directory mode 755
+
+Status: fixed on 2026-11-13. It came with the zsh layout of commit `0e98682`, 2026-10-16, which let `zsh_config_dir` fall back to the home directory.
+
+Cause: `zsh_config_dir` in [setup/ansible/group_vars/all.yaml](../setup/ansible/group_vars/all.yaml) is the home directory whenever the run does not set zsh up, and "Ensure the zsh configuration directory exists (Linux/macOS)" in [setup/ansible/roles/env_variables/tasks/env_unix.yaml](../setup/ansible/roles/env_variables/tasks/env_unix.yaml) ran a `file` task with `state: directory` and `mode: '0755'` on that path, so it set mode 755 on the home directory.
+
+Effect: in the owner's run of 10.285, with `setup_zsh` off, the run log showed "Ensure the zsh configuration directory exists" as changed, and his home directory went from mode 700 to 755, so every local user could list it. He set it back by hand. "Ensure the zsh configuration directory exists" in [setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml](../setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml) had the same shape, and only did not reach the home directory because shell_zsh runs only with `setup_zsh` on.
+
+How it was proven: the changed task and the two modes are from the owner's run log as the main thread relayed it in the brief for this change. Nothing on his machine was read by an agent. The path follows from the code: with `setup_zsh` false and no stub, `zsh_config_dir` renders to `non_root_home`, and the task carried no condition. The check was proven on 2026-11-13 in the whole gate against a full clone of the working tree with `when: zsh_config_dir != non_root_home` taken off the env_unix.yaml task, where it was the only check that failed, 1 of 5, naming "Ensure the zsh configuration directory exists (Linux/macOS)" as setting mode 0755 on `zsh_config_dir`, which is or can be the home directory.
+
+Fix: both directory tasks run only `when: zsh_config_dir != non_root_home`, so no task sets a mode on the home directory, which exists already. 10.288 makes the home directory the answer only on a machine where zsh was never set up.
+
+Mechanical check: section 6 of [e2e/tier1/picked_apps_scope.sh](../e2e/tier1/picked_apps_scope.sh), item 79 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md), fails on a `file` task with a `mode` whose path is `{{ non_root_home }}`, and on one whose path is a variable that can be the home directory without a `<variable> != non_root_home` condition.
+
+#### 10.288 A run without zsh set up wrote the zsh import into ~/.zshenv on a machine that keeps zsh in ~/.config/zsh
+
+Status: fixed on 2026-11-13. It came with the same layout change as 10.287, commit `0e98682`.
+
+Cause: `zsh_config_dir` followed `setup_zsh` of the current run alone, so a run with `setup_zsh` off on a machine an earlier run had set zsh up on still took the home directory as the zsh directory, although `~/.zshenv` there holds the `# BEGIN ANSIBLE ZDOTDIR` stub that points zsh at `~/.config/zsh`.
+
+Effect: in the owner's run of 10.285, "Import environment.d into every zsh (Linux/macOS)" reported changed and appended its `# BEGIN ANSIBLE ENVIRONMENT.D IMPORT` block to `~/.zshenv`, beside the stub, while the copy that belongs there is in `~/.config/zsh/.zshenv`, which the stub sources. So the import ran twice in every zsh and `~/.zshenv` no longer held only the stub. He removed the block by hand. The brief for this change said his zsh never reads `~/.zshenv`. That was wrong: zsh reads `~/.zshenv` first, which is how the stub works, so the stray block did run, and the harm was the duplicate outside the layout rather than an import that never ran.
+
+How it was proven: the changed task is from the owner's run log as the main thread relayed it. The rendering follows from the old line `zsh_config_dir: "{{ non_root_home ~ '/.config/zsh' if (setup_zsh | default(false) | bool) else non_root_home }}"`, which reads nothing about the machine. No mutation was run for section 7 of the check: it reads the text of `zsh_config_dir`, the pre_tasks and the shell_zsh marker, and the whole gate passes with the fix.
+
+Fix: the pre_tasks of [setup/ansible/site.yaml](../setup/ansible/site.yaml) ask once whether `~/.zshenv` holds the line `# BEGIN ANSIBLE ZDOTDIR`, "Ask whether ~/.zshenv already points zsh at its configuration directory", and set the fact `ih_zdotdir_stub`. `zsh_config_dir` in [setup/ansible/group_vars/all.yaml](../setup/ansible/group_vars/all.yaml) is `~/.config/zsh` when `setup_zsh` is on or that fact is true. The marker is written once, as `zdotdir_stub_marker` in the same file, and shell_zsh writes its stub under it, so the question and the stub cannot drift apart.
+
+Mechanical check: section 7 of [e2e/tier1/picked_apps_scope.sh](../e2e/tier1/picked_apps_scope.sh) fails when `zsh_config_dir` does not read `ih_zdotdir_stub`, when the pre_tasks question or the fact is missing or repeated, or when shell_zsh writes its stub under any marker other than `{{ zdotdir_stub_marker }}`.
+
+#### 10.289 A run that picked one app ran every role that runs whatever is picked
+
+Status: fixed on 2026-11-13 by the owner's decision about picked-apps runs, and unproven in a container until the `picked-apps` scenario is dispatched.
+
+Cause: nothing told the playbook that a run had picked apps. `setup.sh --software none --enable <key>` turned every software key off and the picked keys on, and every role that is not tied to a software key ran as in a full run: env_variables always, linux_security through `setup_hibernate`, a setting the wizard hides and `--software none` leaves at its default of true, systemd_boot the same way, the system settings and the full upgrade in system_core, the `/sbin` PATH file in debian_core, and the cache cleanup in the post_tasks of [setup/ansible/site.yaml](../setup/ansible/site.yaml).
+
+Effect: the owner's run of 10.285 changed, apart from the install steps, "Set Dev Apps Environment Variables (Linux/macOS)", which wrote `~/.config/environment.d/990-dev.conf`, "Ensure the zsh configuration directory exists (Linux/macOS)" (10.287), "Import environment.d into every zsh (Linux/macOS)" (10.288), "Move the retired ~/.config/environment.d/50-dev.conf into the shell layout backup (Linux/macOS)", "Clean Pacman package cache (Arch, keeps latest version)", which ran `pacman -Sc`, and "Remove Snap download cache directory", which deleted `/var/lib/snapd/cache`. The temporary sudo grant and the temporary installation folder changed too, and those are install steps. The brief's list of changed tasks does not name linux_security, so whether it changed anything on his machine is not known.
+
+How it was proven: the changed tasks are from the owner's run log as the main thread relayed them. That linux_security and systemd_boot run with `--software none` was read from `EXCLUDED_VARS` in [setup/setup.sh](../setup/setup.sh), which keeps the hidden settings out of the override, and from their defaults in `group_vars`. The check was proven on 2026-11-13 in the whole gate against three full clones of the working tree, where in each it was the only check that failed. With the condition taken off env_variables and the picked clause taken off linux_security it failed 2 of 6, naming `role env_variables runs in a picked-apps run whatever was picked` and the same for `role linux_security`. With the condition taken off "Clean the package caches" it failed 9 of 13, one per cache task. With the lines that print `ih_picked_apps` taken out of setup.sh it failed 1 of 5, reading `ih_picked_apps=[]`.
+
+Fix: `software_override_vars` in [setup/setup.sh](../setup/setup.sh) adds `ih_picked_apps=<keys>` when the baseline is `none` and at least one key is still on after `--enable` and `--disable`. [setup/ansible/group_vars/all.yaml](../setup/ansible/group_vars/all.yaml) defaults it to empty and derives `ih_picked_apps_run` from it, and `ih_env_variables_run`, which is true outside a picked-apps run and in one that picks a key of `env_variables_dependent_toggles`, the SDKs, LM Studio and JetBrains Toolbox, whose installs write `dev_env_file` or need the PATH env_variables writes. site.yaml gates env_variables on `ih_env_variables_run`, and systemd_boot, linux_security and the block "Clean the package caches" on `not ih_picked_apps_run`. system_core's system settings, its full upgrade and debian_core's `/sbin` PATH file read it too, and verify_install.yaml asks for the env_variables variables only when env_variables ran. "Remove temporary installation folder" and the removal of the sudo grant still run, because the run made both. A full run and a configure-only run, `--software none` with nothing enabled, leave `ih_picked_apps` empty and run everything as before. The single-platform workflow [.github/workflows/e2e-manual.yaml](../.github/workflows/e2e-manual.yaml) writes the same `ih_picked_apps` into its generated scenario for `software_mode=none`, so it does not drift from setup.sh (defect class 7). [setup/setup.ps1](../setup/setup.ps1) is unchanged and still runs its configuration phases in such a run. The tier 3 scenario [e2e/tier3/scenarios/09-picked-apps.yaml](../e2e/tier3/scenarios/09-picked-apps.yaml) seeds a per-user Flatpak cache that "Clean Flatpak per-user app caches" would delete and asserts it survives, and asserts `~/.config/environment.d/990-dev.conf` is absent.
+
+Mechanical check: sections 1 to 4 and 7 of [e2e/tier1/picked_apps_scope.sh](../e2e/tier1/picked_apps_scope.sh), with [e2e/tier1/picked_apps_allowed.txt](../e2e/tier1/picked_apps_allowed.txt) naming the roles and the cleanup task allowed in a picked-apps run because the installs need them.
+
+#### 10.290 The first version of picked_apps_scope.sh misread setup.sh and stopped on an include written as a mapping
+
+Status: introduced by this change and fixed in it before it shipped. Found by the first whole gate run on 2026-11-13.
+
+Cause: two mistakes in [e2e/tier1/picked_apps_scope.sh](../e2e/tier1/picked_apps_scope.sh). It read the value of `ih_picked_apps` up to the first backslash, but `--print-command` prints the command through `printf %q`, which writes the comma between two keys as `\,`. And it used the value of every `include_tasks` as a dictionary key, while most includes in dynamic_install.yaml are written as a mapping with `file:`. The check was also not named in the list of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md).
+
+Effect: the gate printed `FAIL --software none --enable install_kicad9,install_k3d does not name both keys in ih_picked_apps` with `ih_picked_apps=[install_k3d]` while the command ended in `ih_picked_apps=install_k3d\,install_kicad9`, then `TypeError: unhashable type: 'dict'` and `FAIL the Python half of this check did not run to completion, so nothing here is proven`, and `harness spec parity` failed with `1 tier 1 check script(s) are not named in the spec`.
+
+How it was proven: those lines are from that gate run, and the fixed check passed in the next one.
+
+Fix: the reader takes the value up to the first unescaped space and drops the escapes, the include reader takes `file:` from a mapping and skips anything that is not a string, and the check is item 79 of the spec.
+
+Found with them: the new scenario `09-picked-apps.yaml` was first added with no capability spec, because [e2e/tier1/verify_spec_parity.sh](../e2e/tier1/verify_spec_parity.sh) read the container specs from a fixed list of seven and never asked whether a scenario had a spec at all (defect class 19). It now has [e2e/testing/25-picked-apps-test.md](../e2e/testing/25-picked-apps-test.md) and its template, and capability 25 in every index.
+
+Mechanical check: the gate itself. `assert_python_ran` in [e2e/lib/common.sh](../e2e/lib/common.sh) turned the crash into a failure, and `verify_spec_parity` caught the missing item. `verify_spec_parity` now reads the container specs from [e2e/testing/](../e2e/testing/) and fails a scenario file no container spec links, proven on 2026-11-13 in the whole gate against a full clone of the working tree without the new spec, where it was the only check that failed, 1 of 10, naming `09-picked-apps.yaml`.
+
+#### 10.291 The dual_logger callback printed every ok and skipped result, mislabelled skips and cut error lines out of failed builds
+
+Status: fixed on 2026-11-13 by another worker in the same session. Found by the owner on the one-application install of 10.285. Seven defects in [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py).
+
+Cause and effect, one per defect:
+
+1. Every result hook called `_display_and_log`, which always printed, so a one-application install printed hundreds of lines such as `skipping: [localhost] virtualization_config : Add current user to docker group (Linux) [toggle disabled (install_virt_manager=false)]`, and the summary listed every disabled app.
+2. The build-list shortcut in `_categorise_skip` was applied to the skip of a whole task with the task name as the item, which printed `toggle disabled (install_software_installer : Build list of packages to dynamically install=false)`. `_TOGGLE_REGEX` had no word boundary, so conditions such as `install_failures | length > 0` and a negated `setup_systemd_boot` were labelled disabled toggles.
+3. `_extract_error_details` kept only 3 lines from the head and 6 from the tail of a failed command, which dropped the `error:` and `BUILD FAILED` lines between them.
+4. An operating system mismatch skip as a role's first task cleared the pending phase, so that role's PHASE banner was lost.
+5. Debug messages in a loop were never rendered: the processor architecture `[WARN] Skipping ...` printed only as `present: [localhost] <key>`.
+6. An unreachable result never showed its reason. Measured: a bare `unreachable: [localhost] TASK: ...` when the cause was `Failed to create temporary directory`.
+7. The PLAY line printed twice, and the output of a failed command printed twice, from `stdout` and from `stdout_lines`.
+
+How it was proven: the result shapes of ansible-core 2.21.5 were measured in a throwaway container from the gate image, and a demo playbook ran through the real callback there. 6 of 18 new assertions failed against HEAD, and five mutants, each with a single fix, each failed their own assertion.
+
+Fix: in [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py). `_show` decides what reaches the terminal, and the terminal headers are kept apart from the log headers, so the terminal shows the recap, the INSTALLED and FAILED sections, `[WARN]`, `[ERROR]` and `[FATAL]` lines, a TASK header with its CHANGED or failed result and the PHASE banner above a shown line, while ok, skipped, `included:` and `imported:` lines go to `~/installation_full.log` only and the skipped list becomes one count line. `_keep_ends_and_errors` keeps up to 10 error lines. `_sole_toggle` labels a skip a disabled toggle only when the condition reads one boolean declared in `group_vars`, and otherwise says `condition not met: <condition>` or `every item skipped`.
+
+Found with it: the forced-failure assertion in [e2e/tier3/container.sh](../e2e/tier3/container.sh) that the Pyenv failure did not stop the SDKs after it grepped `playbook.log`, the terminal output, for `included: .*sdk_manager/tasks/fvm\.yaml` and `android_sdk\.yaml`, so it would have failed on every distribution from this change on. The launch now copies `~/installation_full.log` to `/work/installation_full.log` beside the error log, the collection copies it into the run directory, and the assertion reads it there. Every other read of `playbook.log` in container.sh was checked against what still prints: the recap, the INSTALLED and FAILED sections, setup.sh's own result lines, the `[ERROR]` lines of the Lens and paru assertions, and the TASK header with its CHANGED line that `changed_task_names` reads for idempotency. The tier 3 workflows read no line of it. The forced-failure spec, [e2e/testing/30-forced-failure-test.md](../e2e/testing/30-forced-failure-test.md) item 6, says where the lines are now. Two comments, above "Fail the run because at least one role failed" in [setup/ansible/site.yaml](../setup/ansible/site.yaml) and above "Show what pacman recorded for every AUR package that is absent" in [setup/ansible/roles/software_installer/tasks/dynamic_install.yaml](../setup/ansible/roles/software_installer/tasks/dynamic_install.yaml), said the callback renders no debug message on an ok task, and now say what it does. The stdout of that pacman task, which is `changed_when: false`, now reaches `~/installation_full.log` only and no longer the terminal.
+
+Mechanical check: seven new assertions in [e2e/tier1/ansible_static.sh](../e2e/tier1/ansible_static.sh). Nothing in tier 1 reads the container.sh assertions against the logs, so the move to the full log is unproven until a forced-failure cell runs.
+
+#### 10.292 The dual_logger heartbeat left a permanent running line on the terminal for every task over two seconds
+
+Status: fixed on 2026-11-13. Found by the coordinator in the dual_logger worker's own report after the first terminal fix, 10.291, so it was introduced before 10.291 and left in place by it.
+
+Cause: `_emit_progress` in [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py) printed every heartbeat line as a permanent terminal line.
+
+Effect: every task that ran longer than 2 seconds left `running: <task>` with an hourglass on the terminal, even when the task then ended ok or skipped and nothing else about it was shown, so the line sat there under no header.
+
+How it was proven: an assertion in [e2e/tier1/ansible_static.sh](../e2e/tier1/ansible_static.sh) drives a real heartbeat thread with a fake terminal and a fake stream that is not a terminal. It fails against HEAD and against a copy with only the permanent print put back. A real ansible-core 2.21.5 run under `docker run -t` showed the line written over itself and then erased.
+
+Fix: `_show_status`, `_clear_status` and `_heartbeat_loop` in [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py). The live line is shown on a terminal only, not on a pipe, a file or `TERM=dumb`. `_show` and `_stop_heartbeat` erase it, it is cut to the terminal width, and `~/installation_full.log` keeps the permanent lines as before.
+
+Known limit: text another writer puts on stderr while the status line is up, such as a core Ansible `[WARNING]`, lands on that line and stays.
+
+Consequence for tier 3: `playbook.log` is not a terminal, so it gets no heartbeat text. To watch a run live, follow `installation_full.log` in the run user's home instead. [e2e/README_E2E.md](../e2e/README_E2E.md) says so beside the command that follows a detached run.
+
+Mechanical check: "the heartbeat is an erasable status line on a terminal and leaves nothing behind for a task that ends ok" in [e2e/tier1/ansible_static.sh](../e2e/tier1/ansible_static.sh).
+
+#### 10.293 The dual_logger callback printed a traceback placeholder for every failure
+
+Status: fixed on 2026-11-13, in the same change as 10.292.
+
+Cause: `_extract_error_details` in [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py) printed any `exception` field, and ansible-core 2.19 and later always send the placeholder `(traceback unavailable)` unless tracebacks are switched on. The string was checked in `_internal/_templating/_transform.py` of ansible-core 2.21.5.
+
+Effect: every failure printed `Exception (full):` and `(traceback unavailable)` on the terminal and in `~/installation_errors.log`, measured in a real ansible-core 2.21.5 run.
+
+Found while fixing it, a defect the first version of this fix introduced: removing those lines let the "Full result" dump print for every plain failed command, because the placeholder lines had been what kept that dump off.
+
+How it was proven: an assertion in [e2e/tier1/ansible_static.sh](../e2e/tier1/ansible_static.sh) fails against HEAD and against three copies, one each with the placeholder filter, the routing to the full log only, or the dump guard taken out.
+
+Fix: `_report_error_details`, `_traceback_lines`, `TRACEBACK_PLACEHOLDER` and the dump guard in `_extract_error_details`, all in [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py). A real traceback now goes to `~/installation_full.log` only.
+
+Mechanical check: "a failure shows no traceback on the terminal, and only a real one reaches installation_full.log" in [e2e/tier1/ansible_static.sh](../e2e/tier1/ansible_static.sh).

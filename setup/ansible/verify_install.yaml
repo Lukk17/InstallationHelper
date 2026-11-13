@@ -1173,16 +1173,22 @@
     # answers the same in a container as on a desktop. systemd-path names the generator directory on
     # every distribution this project supports, and the fallback is the path all of them use. Linux
     # only: macOS has no systemd and its desktop does not read environment.d at all.
+    #
+    # The variables and the two PATH entries env_variables writes are asked only when the run ran
+    # env_variables, which a picked-apps run leaves out unless it picked an app that needs it, see
+    # ih_env_variables_run in group_vars/all.yaml. The ones an SDK or JetBrains Toolbox writes are asked
+    # whenever that toggle is on.
     - name: Define what the desktop session environment must carry
       ansible.builtin.set_fact:
         ih_session_env_vars: >-
-          {{ ['GRADLE_USER_HOME', 'DOCKER_CONFIG', 'M2_HOME', 'KUBECONFIG', 'PROJECTS_DIR', 'ANDROID_HOME',
-              'ANDROID_SDK_ROOT', 'ANDROID_USER_HOME', 'ANDROID_SDK_HOME', 'PUB_CACHE']
+          {{ ([] if not (ih_env_variables_run | bool) else
+              ['GRADLE_USER_HOME', 'DOCKER_CONFIG', 'M2_HOME', 'KUBECONFIG', 'PROJECTS_DIR', 'ANDROID_HOME',
+               'ANDROID_SDK_ROOT', 'ANDROID_USER_HOME', 'ANDROID_SDK_HOME', 'PUB_CACHE'])
              + (['NVM_DIR'] if (install_nodejs | default(false) | bool) else [])
              + (['SDKMAN_DIR', 'JAVA_HOME'] if (install_java | default(false) | bool) else [])
              + (['PYENV_ROOT'] if (install_python | default(false) | bool) else []) }}
         ih_session_path_entries: >-
-          {{ [android_home ~ '/platform-tools', non_root_home ~ '/fvm/bin']
+          {{ ([] if not (ih_env_variables_run | bool) else [android_home ~ '/platform-tools', non_root_home ~ '/fvm/bin'])
              + ([non_root_home ~ '/.sdkman/candidates/java/current/bin'] if (install_java | default(false) | bool) else [])
              + ([non_root_home ~ '/.pyenv/bin'] if (install_python | default(false) | bool) else [])
              + ([jetbrains_toolbox_scripts_dir] if (install_jetbrains_toolbox | default(false) | bool) else []) }}

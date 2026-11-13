@@ -35,8 +35,16 @@ VERIFY_YAML="${ANSIBLE_DIR}/verify_install.yaml"
 TESTING_DIR="${E2E_ROOT}/testing"
 RUN_SH="${E2E_ROOT}/run.sh"
 
-# Capabilities that drive a container scenario, and therefore run verify.yaml.
-CONTAINER_SPECS=(30-forced-failure 40-kde-configure-only 50-live-profile 60-defaults 70-desktop-environments 80-all-software 90-idempotency)
+# Capabilities that drive a container scenario, and therefore run verify.yaml: every spec in
+# testing/ but the two static tiers. Read from the folder rather than listed here, because a fixed
+# list skips a spec added after it was written, defect class 19 in docs/regression_ledger.md.
+CONTAINER_SPECS=()
+for spec in "${TESTING_DIR}"/[0-9]*-test.md; do
+    [[ -f "${spec}" ]] || continue
+    spec_stem="$(basename "${spec}" -test.md)"
+    case "${spec_stem}" in 10-*|20-*) continue ;; esac
+    CONTAINER_SPECS+=("${spec_stem}")
+done
 
 # Capability 10 is the whole of tier 1, so its spec has to name every check tier 1 runs. It named
 # three of six. windows_mapping, windows_npm_parity and this script itself were absent, so a reader
@@ -79,6 +87,32 @@ for spec_stem in "${CONTAINER_SPECS[@]}"; do
              "$(printf '%s; ' "${missing[@]}")"
     fi
 done
+
+# --- every tier 3 scenario against the container specs -------------------------
+# A scenario no spec links runs in the sweep with nobody's definition of what it proves. The
+# picked-apps scenario was nearly added that way, docs/regression_ledger.md 10.290.
+if [[ ${#CONTAINER_SPECS[@]} -eq 0 ]]; then
+    fail "no container capability spec found in ${TESTING_DIR}, so no scenario can be matched to one" "${TESTING_DIR}"
+fi
+unlinked=()
+n_scenarios=0
+for scenario in "${E2E_ROOT}"/tier3/scenarios/*.yaml; do
+    [[ -f "${scenario}" ]] || continue
+    n_scenarios=$((n_scenarios + 1))
+    linked=no
+    for spec_stem in "${CONTAINER_SPECS[@]}"; do
+        grep -qF "tier3/scenarios/$(basename "${scenario}")" "${TESTING_DIR}/${spec_stem}-test.md" && { linked=yes; break; }
+    done
+    [[ "${linked}" == yes ]] || unlinked+=("$(basename "${scenario}")")
+done
+if [[ ${n_scenarios} -eq 0 ]]; then
+    fail "no tier 3 scenario found, so this comparison proves nothing" "${E2E_ROOT}/tier3/scenarios"
+elif [[ ${#unlinked[@]} -eq 0 ]]; then
+    pass "every one of ${n_scenarios} tier 3 scenarios is linked from a container capability spec"
+else
+    fail "${#unlinked[@]} tier 3 scenario(s) are linked from no container capability spec in ${TESTING_DIR}" \
+         "$(printf '%s ' "${unlinked[@]}")"
+fi
 
 # --- capability 10 against the tier 1 script list -----------------------------
 # The list is read out of run_tier1's own for loop, so adding a check to the runner without

@@ -1,3 +1,6 @@
 ---
 - import_tasks: base_utils.yaml
+# The clock, the locales and tmpfs belong to the machine, not to an app, so a picked-apps run leaves
+# them alone, see ih_picked_apps_run in group_vars/all.yaml.
 - import_tasks: system_config.yaml
+  when: not (ih_picked_apps_run | bool)

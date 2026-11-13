@@ -31,6 +31,11 @@
 #   key is refused rather than ignored, because a typo that installs nothing while the run reports
 #   success is this project's most repeated defect.
 #
+#   --software none with one or more --enable keys is a picked-apps run: it installs those apps and
+#   what they need, and leaves out the roles and tasks that configure the machine whatever was picked,
+#   the cache cleanup among them. --software none with no key left on is a configure-only run and
+#   runs all of them. "Picking single apps" in setup/README_SETUP.md lists both sides.
+#
 # Verification. Every run ends by asking the machine what it actually ended up with, per
 # application: installed, missing, or not requested. There is no flag to turn it off, because a run
 # that reports success without checking is how every regression in docs/regression_ledger.md
@@ -877,6 +882,11 @@ assert_known_keys() {
 #
 # --disable is applied after --enable so a key named in both ends up off. That order is the safe
 # one: the option that removes software wins over the option that adds it.
+#
+# --software none with at least one key left on is a picked-apps run, and one more line names those
+# keys as ih_picked_apps. group_vars/all.yaml derives ih_picked_apps_run from it, and that one
+# variable keeps the roles that configure the machine out of the run. --software none with nothing
+# left on is a configure-only run and names nothing.
 software_override_vars() {
     [[ -z "${OPT_SOFTWARE}${OPT_ENABLE}${OPT_DISABLE}" ]] && return 0
 
@@ -885,7 +895,7 @@ software_override_vars() {
     enabled="$(split_key_list "${OPT_ENABLE}")"
     disabled="$(split_key_list "${OPT_DISABLE}")"
 
-    local i key value
+    local i key value picked=()
     for (( i=0; i<${#PRELOADED_KEYS[@]}; i++ )); do
         key="${PRELOADED_KEYS[$i]}"
         case "${baseline}" in
@@ -896,7 +906,16 @@ software_override_vars() {
         grep -qx -- "${key}" <<<"${enabled}"  && value=true
         grep -qx -- "${key}" <<<"${disabled}" && value=false
         printf '%s=%s\n' "${key}" "${value}"
+        if [[ "${baseline}" == none && "${value}" == true ]]; then
+            picked+=("${key}")
+        fi
     done
+
+    if [[ ${#picked[@]} -gt 0 ]]; then
+        local joined
+        printf -v joined '%s,' "${picked[@]}"
+        printf 'ih_picked_apps=%s\n' "${joined%,}"
+    fi
 }
 
 # Called from the entrypoint rather than from software_override_vars, and that placement is the

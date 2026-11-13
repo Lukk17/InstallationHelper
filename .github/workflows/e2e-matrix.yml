@@ -12,8 +12,8 @@
 # does not need the earlier ones to have run in the same workflow run.
 #
 # Every job is its own node in the run graph, with a short name that says what it is. That is why
-# stage 2 is forty-eight jobs calling e2e-linux-cell.yml rather than one matrix: GitHub collapses a
-# matrix into a single node reading "Matrix: stage2_sweep, 1/48 job completed", which names neither
+# stage 2 is fifty-four jobs calling e2e-linux-cell.yml rather than one matrix: GitHub collapses a
+# matrix into a single node reading "Matrix: stage2_sweep, 1/54 job completed", which names neither
 # the distribution nor the scenario, so nobody can see what failed without opening the run.
 #
 # Before stage 1, "Gate image" builds the gate image once for the run (e2e-gate-image.yml), and the
@@ -27,10 +27,10 @@
 #   macOS wizard plan      macos-26        setup.sh --print-command, Darwin toggles
 #   Windows wizard plan    windows-latest  setup.ps1 -PrintPlan
 #
-# Stage 2, the container sweep, forty-eight jobs on ubuntu-latest, one per distribution and scenario:
+# Stage 2, the container sweep, fifty-four jobs on ubuntu-latest, one per distribution and scenario:
 #   distributions   Debian, Ubuntu, Pop!_OS, Fedora, Arch, CachyOS
 #   scenarios       defaults, all software, KDE full, GNOME full, KDE configure, idempotency,
-#                   live profile, forced failure
+#                   live profile, forced failure, picked apps
 #
 # Two of those scenarios are not wizard paths. idempotency applies the defaults configuration twice
 # in one container and asserts the second pass changes nothing, and forced-failure breaks the run on
@@ -47,7 +47,7 @@
 #   Windows settings only    windows-latest  the three native settings, no software
 #
 # Two jobs sit outside those lists. "Gate: checks passed" decides whether stage 2 and stage 3 may
-# start, and "Verdict: Linux installs" turns forty-eight cells into one red or green line. Stage 3
+# start, and "Verdict: Linux installs" turns fifty-four cells into one red or green line. Stage 3
 # depends on the verdict rather than on its result, so the graph runs in order while a failed Linux
 # cell still cannot hide a Windows or macOS regression, which is what happened when it was gated on
 # the result: six CachyOS failures skipped all seven stage 3 jobs on the sweep meant to prove a day
@@ -63,9 +63,9 @@
 # stage 3, where the macOS jobs live, only ever has 3 running at once, under that cap on its own.
 #
 # How long the sweep takes, using the numbers e2e/README_E2E.md's own section states: each
-# distribution carries 1710 minutes of declared scenario ceilings (180 + 300 + 300 + 300 + 300 +
-# 120 + 90 + 90), so six distributions is 10260 minutes of total declared work. At twenty
-# concurrent that is a little over seven hours in the worst case, and the real figure should be
+# distribution carries 1800 minutes of declared scenario ceilings (180 + 300 + 300 + 300 + 300 +
+# 120 + 90 + 90 + 90), so six distributions is 10800 minutes of total declared work. At twenty
+# concurrent that is nine hours in the worst case, and the real figure should be
 # well under it,
 # because every ceiling is generous and the two newest scenarios are the two least likely to reach
 # theirs: an idempotency second pass has nothing to download, and forced-failure stops the software
@@ -94,8 +94,8 @@
 #
 # Matrix shape and job count for stage 2: 5 distributions (arch, debian, ubuntu, fedora,
 # cachyos, read from e2e/tier3/*.Dockerfile at plan time and checked against the deliberate
-# order below rather than hardcoded blind) times 8 scenarios (read from
-# e2e/tier3/scenarios/*.yaml at plan time, same check) is 48 jobs for a full, unfiltered sweep,
+# order below rather than hardcoded blind) times 9 scenarios (read from
+# e2e/tier3/scenarios/*.yaml at plan time, same check) is 54 jobs for a full, unfiltered sweep,
 # well under the 256-job matrix ceiling.
 #
 # Per-job timeout for stage 2: each matrix cell's `timeout-minutes` is that scenario's own
@@ -178,7 +178,7 @@
 # has not been exercised in this repository's own CI as of this writing, so the first real run
 # of this workflow is still the first actual proof.
 #
-# One cell of stage 2 cannot be reproduced without GitHub Actions. Each of the forty-eight jobs runs
+# One cell of stage 2 cannot be reproduced without GitHub Actions. Each of the fifty-four jobs runs
 # the command below, and tier 3 refuses with exit 2 anywhere but a GitHub-hosted runner, a virtual
 # machine included (e2e/lib/throwaway_machine.sh). Dispatch that one cell instead, with
 # gh workflow run e2e-matrix.yml -f scenario=defaults -f distro=debian:
@@ -221,6 +221,7 @@ on:
           - live-profile
           - kde-configure-only
           - forced-failure
+          - picked-apps
         default: all
       distro:
         description: "Stage 2 only. Which Linux distribution(s) to run against. 'all' runs every distro with a e2e/tier3/*.Dockerfile."
@@ -442,13 +443,13 @@ jobs:
           echo "ok=true" >> "${GITHUB_OUTPUT}"
 
   # ===========================================================================================
-  # STAGE 2 - the container sweep. Forty-eight jobs, one per distribution and scenario, each a real
+  # STAGE 2 - the container sweep. Fifty-four jobs, one per distribution and scenario, each a real
   # Ansible run inside a systemd container ending in the playbook's own verification. Every cell is
   # one call to `e2e/run.sh --tier 3 --scenario <name> --os <distro>`, the same command a developer
   # runs by hand, through the reusable workflow in e2e-linux-cell.yml.
   #
-  # Forty-eight jobs rather than one matrix, deliberately. GitHub's run graph collapses a matrix into
-  # a single node reading "Matrix: stage2_sweep, 1/48 job completed", which names neither the
+  # Fifty-four jobs rather than one matrix, deliberately. GitHub's run graph collapses a matrix into
+  # a single node reading "Matrix: stage2_sweep, 1/54 job completed", which names neither the
   # distribution nor the scenario, so a reader cannot see what failed without opening the run and
   # expanding it. A job that calls a reusable workflow gets its own named node. The cost is this
   # list, which is generated rather than hand-written, and the loss of `max-parallel`: the account's
@@ -1083,6 +1084,84 @@ jobs:
       distro: cachyos
       scenario: forced-failure
       timeout_minutes: 115
+  stage2_debian_picked_apps:
+    name: "Debian picked apps"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'picked-apps')
+      && (inputs.distro == 'all' || inputs.distro == 'debian')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: debian
+      scenario: picked-apps
+      timeout_minutes: 115
+  stage2_ubuntu_picked_apps:
+    name: "Ubuntu picked apps"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'picked-apps')
+      && (inputs.distro == 'all' || inputs.distro == 'ubuntu')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: ubuntu
+      scenario: picked-apps
+      timeout_minutes: 115
+  stage2_popos_picked_apps:
+    name: "Pop!_OS picked apps"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'picked-apps')
+      && (inputs.distro == 'all' || inputs.distro == 'popos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: popos
+      scenario: picked-apps
+      timeout_minutes: 115
+  stage2_fedora_picked_apps:
+    name: "Fedora picked apps"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'picked-apps')
+      && (inputs.distro == 'all' || inputs.distro == 'fedora')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: fedora
+      scenario: picked-apps
+      timeout_minutes: 115
+  stage2_arch_picked_apps:
+    name: "Arch picked apps"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'picked-apps')
+      && (inputs.distro == 'all' || inputs.distro == 'arch')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: arch
+      scenario: picked-apps
+      timeout_minutes: 115
+  stage2_cachyos_picked_apps:
+    name: "CachyOS picked apps"
+    needs: stage1_gate
+    if: >-
+      !cancelled() && needs.stage1_gate.outputs.ok == 'true'
+      && contains(fromJSON('["stage-1","stage-2"]'), inputs.start_from_stage)
+      && (inputs.scenario == 'all' || inputs.scenario == 'picked-apps')
+      && (inputs.distro == 'all' || inputs.distro == 'cachyos')
+    uses: ./.github/workflows/e2e-linux-cell.yml
+    with:
+      distro: cachyos
+      scenario: picked-apps
+      timeout_minutes: 115
 
   stage2_verdict:
     name: "Verdict: Linux installs"
@@ -1136,6 +1215,12 @@ jobs:
       - stage2_fedora_forced_failure
       - stage2_arch_forced_failure
       - stage2_cachyos_forced_failure
+      - stage2_debian_picked_apps
+      - stage2_ubuntu_picked_apps
+      - stage2_popos_picked_apps
+      - stage2_fedora_picked_apps
+      - stage2_arch_picked_apps
+      - stage2_cachyos_picked_apps
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -1151,7 +1236,7 @@ jobs:
           START_FROM: ${{ inputs.start_from_stage }}
           STAGE1_OK: ${{ needs.stage1_gate.outputs.ok }}
           # One string holding every cell's result, so the verdict does not need to name
-          # forty-eight variables. A cell that was skipped by the dispatch filter contributes
+          # fifty-four variables. A cell that was skipped by the dispatch filter contributes
           # 'skipped', which is not a failure.
           CELL_RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |

@@ -1,0 +1,16 @@
+# What e2e/tier1/picked_apps_scope.sh lets run in a picked-apps run although nothing in it names a
+# key a user picked. Each is a step the installs themselves need, and nothing else.
+#
+# Format: role <name> | <reason>  for a role site.yaml imports
+#         task <name> | <reason>  for a task in the cleanup in the post_tasks of site.yaml
+#
+# A role here may still hold tasks that configure the machine, as long as each of them reads
+# ih_picked_apps_run itself. system_core's system settings and upgrade and debian_core's /sbin PATH
+# file do. docs/regression_ledger.md 10.289 has why this list exists.
+
+role macos_core | Homebrew, its refresh and coreutils, which every macOS install uses. Karabiner, the Finder settings and the wallpaper read their own keys
+role arch_core | the temporary sudo grant, the package database sync with the upgrade Arch needs before any install, multilib, the archive tools and paru, which the installs use. yay, snapd and the Steam graphics alignment read their own keys
+role debian_core | the temporary sudo grant, contrib and non-free, the package database refresh, curl and gpg for repository keys, and snapd, which reads install_snapd
+role system_core | the temporary installation folder, flatpak, the base utilities and the Flathub remote, which the installs use
+role software_installer | it is the install itself, and every package and custom install in it reads its own key
+task Remove temporary installation folder | the run's own folder, which system_core creates for this run

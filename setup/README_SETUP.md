@@ -129,6 +129,40 @@ PowerShell equivalent:
 pwsh setup/setup.ps1 -SkipSystemUpgrade
 ```
 
+#### Picking single apps
+
+`--software defaults|all|none` sets the starting point for every key the checklist offers, `--enable` turns keys on and `--disable` turns keys off, and `--list-software` prints every key they accept. `--software none` with one or more `--enable` keys is a picked-apps run: it installs what it names and leaves the rest of the machine alone. Install KiCad 9 and nothing else:
+
+```bash
+bash setup/setup.sh --non-interactive --desktop-environment skip --software none --enable install_kicad9
+```
+
+Print the playbook command that run resolves to, without running it:
+
+```bash
+bash setup/setup.sh --print-command --software none --enable install_kicad9
+```
+
+A picked-apps run still does what the installs need:
+
+1. The system upgrade `setup.sh` runs before Ansible, unless `--skip-system-upgrade` is given.
+2. The temporary passwordless sudo entry, removed at the end of the run.
+3. The package database refresh. On Arch and CachyOS that is the sync with the full upgrade in `arch_core`, because a package installed against a refreshed database without the upgrade is a partial upgrade, which Arch does not support.
+4. The tools the installs use: Homebrew and coreutils on macOS, contrib and non-free and curl and gpg on Debian, multilib, unzip, zip and paru on Arch, and flatpak, the base utilities and the Flathub remote on every Linux.
+5. The temporary installation folder `~/.lukkInstall`, removed at the end, and the private staging folder `/var/cache/installation_helper`.
+6. The `env_variables` role, only when a picked app needs it: Node.js, Java, Python, Flutter, the Android SDK, LM Studio or JetBrains Toolbox. They put their variables and PATH entries in `~/.config/environment.d/990-dev.conf`, and `env_variables` is what makes every shell read that file. The list is `env_variables_dependent_toggles` in `setup/ansible/group_vars/all.yaml`.
+7. The verification at the end, which asks for the picked apps and for the tools above that it checks on every run, flatpak and the Flathub remote among them.
+
+A picked-apps run leaves out everything that configures the machine whatever was picked:
+
+1. The `env_variables` role, when no picked app needs it.
+2. The system settings of `system_core`: the hardware clock in UTC, the locales and `/tmp` in RAM, and its full system upgrade with `apt-get autoremove` on Debian.
+3. `/etc/profile.d/sbin-path.sh` on Debian.
+4. The `linux_security` role, which sets up hibernation, and the `systemd_boot` role.
+5. The cache cleanup at the end: Flatpak's unused runtimes and per-user caches, old Snap revisions and the Snap download cache, the Homebrew cache, and the apt, pacman and dnf caches.
+
+`--software none` with no key left on is a configure-only run, and it runs all of those. So does every run with `--software defaults` or `--software all`, and every `--profile` run. `setup.sh` marks a picked-apps run by passing the picked keys as `ih_picked_apps`, and `ih_picked_apps_run` in `setup/ansible/group_vars/all.yaml` is the one variable the roles read. This applies to `setup.sh`. `setup.ps1 -Software none -EnableKey` is not changed by it.
+
 Requirements:
 
 - Linux (Ubuntu / Debian, Fedora, Arch, CachyOS) or macOS, with an internet connection and `sudo`.
@@ -265,27 +299,39 @@ Every run writes four log files in your home directory:
 | `~/installation_skipped.log` | Per-item skips with the reason category (toggle disabled, not for this OS, ...). |
 
 All four files are overwritten on each run. Captured stdout / stderr from any single task is truncated after 30 lines
-so license dumps and verbose installer chatter don't bloat the log.
+so license dumps and verbose installer chatter don't bloat the log. A truncated block keeps its first and last lines and
+up to ten lines between them that report an error (`error:`, `Error:`, `ERROR`, `BUILD FAILED`, `FAILURE:`, `fatal:`,
+apt's `E: `), so a failed build still says why.
+
+The terminal shows only what installs, changes or fails: a changed, failed or unreachable task with its reason, a retried
+attempt, a `[WARN]` or `[ERROR]` message from the playbook, the task and phase headers above them, and the end-of-run
+summary. Tasks that were already done or were skipped are written to `~/installation_full.log` alone. The terminal
+summary lists only what the run was asked to install, and says how many items were skipped and that each is listed with
+its reason in `~/installation_skipped.log`.
 
 #### Watching progress live
 
 ---
 
-Long-running tasks (flatpak install of all GUI apps, `apt full-upgrade`, batched apt install) print one in-band
-progress line per package as they go:
+A task that runs longer than two seconds shows one live status line at the bottom of the terminal, with its running
+time, its name and the last line of the tool's own log, rewritten in place every few seconds:
 
 ```text
-⏳ running: software_installer : Install Flatpak packages (Debian, batched...)
-  ↳ [00m08s] Installing 1/47… app/com.spotify.Client/x86_64/stable
-  ↳ [00m42s] Installing 2/47… app/com.bitwarden.desktop/x86_64/stable
-  ↳ [01m15s] Installing 3/47… runtime/org.freedesktop.Platform/x86_64/24.08
-  ↳ [06m15s] still working… (log unchanged)
-  ↳ [09m02s] Installing 4/47… runtime/org.mozilla.firefox.Locale/x86_64/stable
-[+44m 08s] CHANGED: [localhost]
+⏳ [00m42s] software_installer : Install a package set one package at a time  ↳ Unpacking ripgrep (14.1.1-1) ...
 ```
 
-The `↳` lines fire on every progress change. The `still working… (log unchanged)` line fires every 5 minutes when
-the underlying tool stops printing. Three of those in a row is a real stall (network dead, mirror unreachable);
+The status line is erased when the task ends and before any other line is printed, so a task that ends ok or skipped
+leaves nothing on the terminal. It appears only on a terminal, because only a terminal can erase it, and not when the
+output goes to a pipe or a file. `~/installation_full.log` keeps the permanent record in either case:
+
+```text
+  ⏳ running: software_installer : Install a package set one package at a time, first attempt without refreshing the package index
+  ↳ [00m08s] Unpacking ripgrep (14.1.1-1) ...
+  ↳ [06m15s] still working… (log unchanged)
+```
+
+A `↳` line is written on every progress change. The `still working… (log unchanged)` line is written every 5 minutes
+when the underlying tool stops printing. Three of those in a row is a real stall (network dead, mirror unreachable),
 otherwise the install is just slow.
 
 For verbose live output from the underlying tool, open a second terminal and tail the per-tool log directly:

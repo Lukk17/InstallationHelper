@@ -76,14 +76,16 @@
   become_user: "{{ non_root_user }}"
 
 # zsh reads .zshenv for every shell it starts, login or not, interactive or not, so this is where it
-# imports the file above. With setup_zsh that is ~/.config/zsh/.zshenv, which the ~/.zshenv stub
-# shell_zsh writes sources, and without it zsh_config_dir is the home directory and this is
-# ~/.zshenv itself. `typeset -U` keeps PATH free of duplicates when a shell starts another one, which
-# prepends the same entries again, and it comes first so it covers the import. The `(N)` qualifier
-# makes an empty directory import nothing rather than fail on an unmatched glob. The last line drops
-# the entries that are not a directory yet, ${HOME}/.pub-cache/bin before the first `dart pub global
-# activate` and the Android emulator before Android Studio installs it, so a shell's PATH names only
-# what is there. The desktop session keeps them, since systemd cannot test a path.
+# imports the file above. Where zsh is set up, by this run or an earlier one, that is
+# ~/.config/zsh/.zshenv, which the ~/.zshenv stub shell_zsh writes sources, and elsewhere
+# zsh_config_dir is the home directory and this is ~/.zshenv itself. The directory task never runs
+# for the home directory, which exists already, so no mode is ever set on it. `typeset -U` keeps
+# PATH free of duplicates when a shell starts another one, which prepends the same entries again,
+# and it comes first so it covers the import. The `(N)` qualifier makes an empty directory import
+# nothing rather than fail on an unmatched glob. The last line drops the entries that are not a
+# directory yet, ${HOME}/.pub-cache/bin before the first `dart pub global activate` and the Android
+# emulator before Android Studio installs it, so a shell's PATH names only what is there. The
+# desktop session keeps them, since systemd cannot test a path.
 - name: Ensure the zsh configuration directory exists (Linux/macOS)
   ansible.builtin.file:
     path: "{{ zsh_config_dir }}"
@@ -91,6 +93,7 @@
     mode: '0755'
   become: yes
   become_user: "{{ non_root_user }}"
+  when: zsh_config_dir != non_root_home
 
 - name: Import environment.d into every zsh (Linux/macOS)
   ansible.builtin.blockinfile:

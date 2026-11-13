@@ -2,16 +2,17 @@
 
 Heading levels follow the `e2e-runbooks` tasks-template, which fixes the section headings at level two, overriding this repository's level-three rule.
 
-This file is an index, not a template. The schema gives a change one `tasks-template.md`, which assumes one capability per change, and this change introduces nine. The nine real templates live in [../../../e2e/testing/templates/](../../../e2e/testing/templates/), one per spec, sharing the `{N}` prefix and capability name of the spec they mirror. Copy from there, never from here.
+This file is an index, not a template. The schema gives a change one `tasks-template.md`, which assumes one capability per change, and this change introduces ten. The ten real templates live in [../../../e2e/testing/templates/](../../../e2e/testing/templates/), one per spec, sharing the `{N}` prefix and capability name of the spec they mirror. Copy from there, never from here.
 
 ---
 
-## The nine templates
+## The ten templates
 
 | N | Capability | Spec | Template |
 |---|---|---|---|
 | 10 | wizard-toggle-parse | [10-wizard-toggle-parse-test.md](../../../e2e/testing/10-wizard-toggle-parse-test.md) | [10-wizard-toggle-parse-tasks.template.md](../../../e2e/testing/templates/10-wizard-toggle-parse-tasks.template.md) |
 | 20 | package-name-resolution | [20-package-name-resolution-test.md](../../../e2e/testing/20-package-name-resolution-test.md) | [20-package-name-resolution-tasks.template.md](../../../e2e/testing/templates/20-package-name-resolution-tasks.template.md) |
+| 25 | picked-apps | [25-picked-apps-test.md](../../../e2e/testing/25-picked-apps-test.md) | [25-picked-apps-tasks.template.md](../../../e2e/testing/templates/25-picked-apps-tasks.template.md) |
 | 30 | forced-failure | [30-forced-failure-test.md](../../../e2e/testing/30-forced-failure-test.md) | [30-forced-failure-tasks.template.md](../../../e2e/testing/templates/30-forced-failure-tasks.template.md) |
 | 40 | kde-configure-only | [40-kde-configure-only-test.md](../../../e2e/testing/40-kde-configure-only-test.md) | [40-kde-configure-only-tasks.template.md](../../../e2e/testing/templates/40-kde-configure-only-tasks.template.md) |
 | 50 | live-profile | [50-live-profile-test.md](../../../e2e/testing/50-live-profile-test.md) | [50-live-profile-tasks.template.md](../../../e2e/testing/templates/50-live-profile-tasks.template.md) |
@@ -26,7 +27,7 @@ This file is an index, not a template. The schema gives a change one `tasks-temp
 
 Every one mirrors its spec's Prerequisites, Reset state, Run and Expected items as checkboxes, in the spec's order, then adds a Verdict checkbox and a Result summary block with Input tokens, Output tokens, Start (UTC), End (UTC) and Duration, then an "Additional tasks I did" section for anything done off-spec.
 
-Every template from 30 up opens its Prerequisites with a box that records where the run happened, a GitHub-hosted runner with its workflow run id, because tier 3 runs nowhere else and refuses everywhere else with exit 2, the owner's computer and every virtual machine included. That box mirrors the first paragraph of each of those specs' Prerequisites.
+Every template from 25 up opens its Prerequisites with a box that records where the run happened, a GitHub-hosted runner with its workflow run id, because tier 3 runs nowhere else and refuses everywhere else with exit 2, the owner's computer and every virtual machine included. That box mirrors the first paragraph of each of those specs' Prerequisites.
 
 One shape deviates from a plain mirror, because the harness behaves that way. The template for capability 70 covers two container runs, KDE and GNOME, in one record. Every assertion box is ticked twice or not at all, and one green run beside one red run is a FAIL.
 

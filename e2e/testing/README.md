@@ -41,6 +41,7 @@ The `{N}` prefix is setup cost, cheapest first, which is also the order a sweep 
 |---|---|---|---|
 | 10 | [wizard-toggle-parse](10-wizard-toggle-parse-test.md) | `./e2e/run.sh` | minutes, measured at 3 minutes 39 seconds |
 | 20 | [package-name-resolution](20-package-name-resolution-test.md) | `./e2e/run.sh --tier 2` | minutes, measured at 7 minutes 57 seconds |
+| 25 | [picked-apps](25-picked-apps-test.md) | `./e2e/run.sh --tier 3 --scenario picked-apps` | 90 minute timeout, not measured yet |
 | 30 | [forced-failure](30-forced-failure-test.md) | `./e2e/run.sh --tier 3 --scenario forced-failure` | 90 minute timeout, measured at 46 minutes |
 | 40 | [kde-configure-only](40-kde-configure-only-test.md) | `./e2e/run.sh --tier 3 --scenario kde-configure-only` | 90 minute timeout |
 | 50 | [live-profile](50-live-profile-test.md) | `./e2e/run.sh --tier 3 --scenario live-profile` | 120 minute timeout |
@@ -49,17 +50,19 @@ The `{N}` prefix is setup cost, cheapest first, which is also the order a sweep 
 | 80 | [all-software](80-all-software-test.md) | `./e2e/run.sh --tier 3 --scenario all-software` | 300 minute timeout |
 | 90 | [idempotency](90-idempotency-test.md) | `./e2e/run.sh --tier 3 --scenario idempotency` | 300 minute timeout for two passes |
 
-Capabilities 10 and 20 are the two static tiers. They install nothing, start no scenario container, and are the only two that are cheap enough to run on every commit. Everything from 30 up runs the real playbook inside a throwaway container, on Arch unless `--os` names another distribution.
+Capabilities 10 and 20 are the two static tiers. They install nothing, start no scenario container, and are the only two that are cheap enough to run on every commit. Everything from 25 up runs the real playbook inside a throwaway container, on Arch unless `--os` names another distribution.
 
-Everything from 30 up is tier 3, and tier 3 never runs on the owner's computer, because its privileged scenario containers changed his kernel. The invocations above are what runs on a GitHub-hosted runner, where the workflows run them, and anywhere else, a virtual machine included, they exit 2 before any container starts. Each of those capabilities is dispatched to GitHub-hosted runners instead, with its scenario name and a distribution:
+Everything from 25 up is tier 3, and tier 3 never runs on the owner's computer, because its privileged scenario containers changed his kernel. The invocations above are what runs on a GitHub-hosted runner, where the workflows run them, and anywhere else, a virtual machine included, they exit 2 before any container starts. Each of those capabilities is dispatched to GitHub-hosted runners instead, with its scenario name and a distribution:
 
 ```bash
 gh workflow run e2e-matrix.yml -f scenario=forced-failure -f distro=debian
 ```
 
-Two of these numbers need a word of explanation.
+Three of these numbers need a word of explanation.
 
 Capability 30 was the smoke test until it was removed, because every toggle it enabled was already true in capability 60, which made it the same test with most of the toggles taken away. The number was left free rather than reused, and it is now the forced-failure capability, which is the cheapest container run in the suite and therefore belongs exactly where 30 sits. The four run records that already name 30 carry `30-smoke` in their filenames, so they still point unambiguously at the capability they were written against.
+
+Capability 25 is a picked-apps run, KiCad 9 alone, which pays the bootstrap and one download and none of the software set and SDKs that forced-failure installs around its injected failures. So it is expected to be the cheapest container run, and it took the free number between 20 and 30 rather than pushing 30 up. Its 90 minute ceiling is forced-failure's until a run measures its own.
 
 Capability 90 is the next free number after 80, and idempotency belongs at the end because it is the most expensive: it is capability 60's configuration applied twice.
 
@@ -69,7 +72,7 @@ Capability 90 is the next free number after 80, and idempotency belongs at the e
 
 Pass criteria are observable state only. The harness reads installed packages from `pacman -Qq` and `flatpak list --app --columns=application`, unit state from `systemctl is-enabled`, group membership from `id -nG`, and file existence with `stat`. A tail of `playbook.log` is the next diagnostic step after a failed assertion, never a pass criterion.
 
-Every capability runs inside the gate container, [../gate/Dockerfile](../gate/Dockerfile), which `e2e/run.sh` builds and enters by itself, and nothing runs on the machine that starts it. For capabilities 10 and 20 that machine needs a Docker daemon and nothing else: a Linux shell, Git Bash with Docker Desktop, or WSL with Docker Desktop integration enabled all start the same run. Capabilities 30 to 90 start only on a GitHub-hosted runner, as "Tier 3 runs only on a GitHub-hosted runner" in [../README_E2E.md](../README_E2E.md) describes, and no other virtual machine qualifies for them, a local one, WSL 2 and Docker Desktop alike.
+Every capability runs inside the gate container, [../gate/Dockerfile](../gate/Dockerfile), which `e2e/run.sh` builds and enters by itself, and nothing runs on the machine that starts it. For capabilities 10 and 20 that machine needs a Docker daemon and nothing else: a Linux shell, Git Bash with Docker Desktop, or WSL with Docker Desktop integration enabled all start the same run. Capabilities 25 to 90 start only on a GitHub-hosted runner, as "Tier 3 runs only on a GitHub-hosted runner" in [../README_E2E.md](../README_E2E.md) describes, and no other virtual machine qualifies for them, a local one, WSL 2 and Docker Desktop alike.
 
 Every container run writes a directory under `e2e/runs/`, which is gitignored, holding `effective-vars.yaml`, `playbook.log`, `verify.log` and `result.txt`. Keep that directory when reporting a failure. The effective variable file is the only record of what the run was actually asked for.
 
