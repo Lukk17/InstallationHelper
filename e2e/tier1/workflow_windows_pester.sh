@@ -19,9 +19,13 @@
 #     continue-on-error. That route proves order only: whether the install is skipped after a failed
 #     test is the decision of the jobs in between, as "Gate: checks passed" decides it in the sweep.
 #
-# And no workflow step and no other local action runs Invoke-Pester or New-PesterConfiguration itself,
+# And no workflow step and no other local action runs Invoke-Pester, New-PesterConfiguration or
+# e2e/tier1/windows_pester.ps1 itself,
 # so the suite has one way of running on Windows rather than a copy per workflow that can drift. The
-# shared action must still run WindowsSoftware.Tests.ps1 with the Slow and Network tags excluded.
+# shared action and the tier 1 check windows_pester.sh must both start e2e/tier1/windows_pester.ps1 and
+# run no Pester of their own, so the runner and the gate judge a run by one rule (docs/regression_ledger.md
+# 10.345), and that script must run WindowsSoftware.Tests.ps1 with exactly the Slow and Network tags
+# excluded.
 #
 # Before it reads the repository it runs its reader against planted workflows and requires it to name
 # exactly the six planted defects and none of the four sound jobs, so a reader that went blind fails
@@ -47,9 +51,13 @@ sys.path.insert(0, 'e2e/lib')
 from windows_wizard_jobs import SHARED_USES, code_lines, local_uses, starts_wizard, steps_of
 
 SHARED_FILE = pathlib.Path('.github/actions/windows-pester/action.yml')
-RUNS_PESTER = re.compile(r'\b(Invoke-Pester|New-PesterConfiguration)\b', re.IGNORECASE)
+SHARED_SCRIPT = pathlib.Path('e2e/tier1/windows_pester.ps1')
+LOCAL_CHECK = pathlib.Path('e2e/tier1/windows_pester.sh')
+INVOKES_PESTER = re.compile(r'\b(Invoke-Pester|New-PesterConfiguration)\b', re.IGNORECASE)
+RUNS_PESTER = re.compile(r'\b(Invoke-Pester|New-PesterConfiguration)\b|windows_pester\.ps1', re.IGNORECASE)
 OVERRIDES_FAILURE = re.compile(r'\b(always|failure|cancelled)\s*\(')
-EXCLUDE_TAG = re.compile(r'ExcludeTag\s*=\s*@\(([^)]*)\)')
+EXCLUDED_TAGS = re.compile(r'^\s*\$excludedTags\s*=\s*@\(([^)]*)\)', re.MULTILINE)
+FILTER_READS_TAGS = re.compile(r'\.Filter\.ExcludeTag\s*=\s*\$excludedTags\s*$', re.MULTILINE)
 
 
 def is_true(value):
@@ -194,20 +202,42 @@ if SHARED_FILE.exists():
 runs = (shared or {}).get('runs') if isinstance(shared, dict) else None
 bodies = '\n'.join('\n'.join(code_lines(step['run'])) for step in steps_of(runs)
                    if isinstance(step.get('run'), str))
-excluded = EXCLUDE_TAG.search(bodies)
 if not isinstance(runs, dict) or runs.get('using') != 'composite':
     lines.append('FAIL the shared action is not a composite action :: %s is missing or does not say '
                  'using: composite' % SHARED_FILE.as_posix())
-elif not RUNS_PESTER.search(bodies) or 'WindowsSoftware.Tests.ps1' not in bodies:
-    lines.append('FAIL the shared action does not run the Windows unit tests :: %s runs no Invoke-Pester '
-                 'over e2e/tier1/windows/WindowsSoftware.Tests.ps1' % SHARED_FILE.as_posix())
-elif not excluded or "'Slow'" not in excluded.group(1) or "'Network'" not in excluded.group(1):
-    lines.append('FAIL the shared action runs the tests that install something :: %s does not set '
-                 "ExcludeTag to @('Slow', 'Network'), so the Chocolatey bootstrap would run before the "
-                 'install it is meant to stop' % SHARED_FILE.as_posix())
+elif INVOKES_PESTER.search(bodies) or SHARED_SCRIPT.as_posix() not in bodies:
+    lines.append('FAIL the shared action does not hand the Windows unit tests to the one script the gate '
+                 'runs too :: %s must start %s and run no Invoke-Pester or New-PesterConfiguration of its '
+                 'own, so the runner and the gate cannot judge a run differently'
+                 % (SHARED_FILE.as_posix(), SHARED_SCRIPT.as_posix()))
+else:
+    lines.append('OK %s hands the Windows unit tests to %s' % (SHARED_FILE.as_posix(), SHARED_SCRIPT.as_posix()))
+
+local_check = '\n'.join(code_lines(LOCAL_CHECK.read_text(encoding='utf-8'))) if LOCAL_CHECK.exists() else ''
+if INVOKES_PESTER.search(local_check) or SHARED_SCRIPT.name not in local_check:
+    lines.append('FAIL the gate does not run the Windows unit tests through the script the shared action '
+                 'runs :: %s must start %s and run no Invoke-Pester or New-PesterConfiguration of its own'
+                 % (LOCAL_CHECK.as_posix(), SHARED_SCRIPT.name))
+else:
+    lines.append('OK %s runs the Windows unit tests through %s' % (LOCAL_CHECK.as_posix(), SHARED_SCRIPT.name))
+
+script = '\n'.join(code_lines(SHARED_SCRIPT.read_text(encoding='utf-8'))) if SHARED_SCRIPT.exists() else ''
+excluded = EXCLUDED_TAGS.search(script)
+excluded_names = sorted(re.findall(r"'([^']*)'", excluded.group(1))) if excluded else []
+if not INVOKES_PESTER.search(script) or "'WindowsSoftware.Tests.ps1'" not in script:
+    lines.append('FAIL the shared script does not run the Windows unit tests :: %s runs no Invoke-Pester '
+                 'over e2e/tier1/windows/WindowsSoftware.Tests.ps1' % SHARED_SCRIPT.as_posix())
+elif excluded_names != ['Network', 'Slow'] or not FILTER_READS_TAGS.search(script):
+    found = ('Filter.ExcludeTag is not set to $excludedTags alone' if excluded_names == ['Network', 'Slow']
+             else '$excludedTags holds %s' % (', '.join(excluded_names) or 'nothing it can read'))
+    lines.append("FAIL the shared script does not leave out exactly the Slow and Network tagged tests :: %s "
+                 "must set $excludedTags = @('Slow', 'Network') and hand Filter.ExcludeTag that variable, "
+                 'because the Chocolatey bootstrap would otherwise run before the install it is meant to '
+                 'stop, and any other tag would drop tests the verdict counts as left out by design, but %s'
+                 % (SHARED_SCRIPT.as_posix(), found))
 else:
     lines.append('OK %s runs WindowsSoftware.Tests.ps1 without the Slow and Network tagged tests'
-                 % SHARED_FILE.as_posix())
+                 % SHARED_SCRIPT.as_posix())
 
 workflows = {}
 for path in sorted(pathlib.Path('.github/workflows').glob('*.y*ml')):
