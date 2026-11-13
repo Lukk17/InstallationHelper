@@ -75,10 +75,12 @@
   when: zsh_config_dir != non_root_home
 
 # The checked-in .zshrc is one marked block at the top of the file rather than a copy of the whole
-# file. The NVM, SDKMAN and Pyenv blocks sdk_manager appends below it then survive every run, a line a
-# person adds outside the block survives too, and a later change to the checked-in file reaches a
-# machine that already has one. Until 2026-10-15 the file was copied whole, once, and a copy without
-# the markers made blockinfile insert its block again on every second run, see docs/regression_ledger.md.
+# file. The NVM, SDKMAN and Pyenv shell init blocks sdk_manager appends below it, through
+# interactive_rc_files, then survive every run (their environment variables go to dev_env_file, not
+# here), a line a person adds outside the block survives too, and a later change to the checked-in
+# file reaches a machine that already has one. Until 2026-10-15 the file was copied whole, once,
+# and a copy without the markers made blockinfile insert its block again on every second run, see
+# docs/regression_ledger.md.
 - name: Write the checked-in zsh configuration into $ZDOTDIR/.zshrc
   ansible.builtin.blockinfile:
     path: "{{ zsh_config_dir }}/.zshrc"

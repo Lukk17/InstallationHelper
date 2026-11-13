@@ -127,7 +127,7 @@
          | map('first')
          | list }}
 
-- name: Show NVRAM entries that will be deleted
+- name: Log which NVRAM entries will be deleted
   ansible.builtin.debug:
     msg: "Deleting NVRAM Boot{{ item }} (matched this distro's GRUB loader path)."
   loop: "{{ grub_nvram_ids }}"

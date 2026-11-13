@@ -12,7 +12,7 @@
 - name: Skip systemd-boot setup gracefully on BIOS / when toggle is off
   ansible.builtin.debug:
     msg: >-
-      Skipping systemd-boot: setup_systemd_boot={{ setup_systemd_boot | default(false) }},
+      [WARN] Skipping systemd-boot: setup_systemd_boot={{ setup_systemd_boot | default(false) }},
       uefi_present={{ efi_dir.stat.exists | default(false) }}.
   when: not (setup_systemd_boot | default(false) | bool) or not (efi_dir.stat.exists | default(false))
 

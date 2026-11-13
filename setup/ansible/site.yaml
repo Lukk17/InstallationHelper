@@ -142,7 +142,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role kde_plasma_setup failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role kde_plasma_setup failed. The failing task and its message are above in this log."
           when: "ansible_facts['system'] == 'Linux' and (install_kde_plasma | default(false) | bool or configure_kde_plasma | default(false) | bool)"
 
         - name: Run gnome_setup
@@ -154,7 +154,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role gnome_setup failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role gnome_setup failed. The failing task and its message are above in this log."
           when: "ansible_facts['system'] == 'Linux' and (install_gnome | default(false) | bool or configure_gnome | default(false) | bool)"
 
         # 3. Cross-Platform Settings (needed for SDK path resolution)
@@ -197,7 +197,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role shell_zsh failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role shell_zsh failed. The failing task and its message are above in this log."
           when: "setup_zsh | default(false) | bool and ih_family != 'Windows'"
 
         # 4. Universal Complex Roles (non-critical)
@@ -212,7 +212,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role sdk_manager failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role sdk_manager failed. The failing task and its message are above in this log."
           when: env_variables_available | default(true) | bool
 
         # One entry per block in roles/sdk_manager/tasks/main.yaml, and e2e/tier1/rescue_coverage.sh
@@ -246,7 +246,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role ai_tools failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role ai_tools failed. The failing task and its message are above in this log."
 
         - name: Run jetbrains_toolbox
           tags: [jetbrains]
@@ -257,7 +257,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role jetbrains_toolbox failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role jetbrains_toolbox failed. The failing task and its message are above in this log."
           when: "install_jetbrains_toolbox | default(false) | bool"
 
         # 5. Core Software Router (non-critical)
@@ -270,7 +270,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role software_installer failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role software_installer failed. The failing task and its message are above in this log."
 
         # 6. Linux Advanced Apps (non-critical)
         - name: Run waydroid
@@ -282,7 +282,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role waydroid failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role waydroid failed. The failing task and its message are above in this log."
           when: "ansible_facts['system'] == 'Linux' and install_waydroid | default(false) | bool"
 
         - name: Run linux_crypto_hardware
@@ -294,7 +294,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role linux_crypto_hardware failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role linux_crypto_hardware failed. The failing task and its message are above in this log."
           when: "ansible_facts['system'] == 'Linux' and (install_ledger_live | default(false) | bool or install_trezor_suite | default(false) | bool)"
 
         - name: Run linux_security
@@ -306,7 +306,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role linux_security failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role linux_security failed. The failing task and its message are above in this log."
           when: "ansible_facts['system'] == 'Linux' and setup_hibernate | default(false) | bool and not (ih_picked_apps_run | bool)"
 
         - name: Run snapper
@@ -318,7 +318,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role snapper failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role snapper failed. The failing task and its message are above in this log."
           when: "ansible_facts['system'] == 'Linux' and install_snapper | default(false) | bool"
 
         - name: Run virtualization_config
@@ -330,7 +330,7 @@
             - ansible.builtin.set_fact:
                 any_role_failed: true
             - ansible.builtin.debug:
-                msg: "Role virtualization_config failed. The failing task and its message are above in this log."
+                msg: "[ERROR] Role virtualization_config failed. The failing task and its message are above in this log."
           when: "ansible_facts['system'] == 'Linux' and (install_virt_manager | default(false) | bool or install_docker | default(false) | bool or install_virtualbox | default(false) | bool or install_vmware | default(false) | bool)"
       rescue:
         - name: Record that a role failed and stop running the rest of them

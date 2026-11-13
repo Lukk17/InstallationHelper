@@ -28,7 +28,7 @@
 - name: Warn if hibernation is requested but swap is unsuitable
   ansible.builtin.debug:
     msg: >-
-      Hibernation configuration skipped: swap_present={{ swap_present }},
+      [WARN] Hibernation configuration skipped: swap_present={{ swap_present }},
       swap_type={{ swap_type | default('none') }}. Hibernation requires a swap
       partition (not file/zram) at least as large as RAM.
   when: not (swap_present | bool) or swap_type != 'partition'

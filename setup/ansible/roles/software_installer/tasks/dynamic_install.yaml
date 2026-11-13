@@ -307,7 +307,7 @@
         - apt_consistency.rc | default(0) != 0
       tags: [apt_batch]
 
-    - name: Show last 30 lines of the apt install log (debug)
+    - name: Log the last 30 lines of the apt install log (debug)
       ansible.builtin.command: tail -30 /var/log/installation-packages.log
       become: true
       changed_when: false
@@ -1036,27 +1036,33 @@
     # committed is visible as an absence of any `installed <name>` line, and a partial transaction is
     # visible as an `upgraded`/`removed` pair without it.
     #
-    # `shell` rather than `debug` on purpose. When this was written the dual_logger callback rendered
-    # a command's stdout and no debug message on an ok task, which is why the three warnings above
-    # were invisible and why this took three runs to notice. It now writes the stdout of an ok task to
-    # ~/installation_full.log only, and shows a line on the terminal when it starts with [WARN],
-    # [ERROR] or [FATAL]. It must not fail the task either, or it would abandon the rest of the
-    # install, which is what `fail` or `assert` here would do.
-    - name: Show what pacman recorded for every AUR package that is absent
+    # Read by a command and printed by a debug task. The dual_logger callback writes the stdout of an
+    # ok command to ~/installation_full.log only, and shows a debug message on the terminal when it
+    # opens with [WARN], [ERROR] or [FATAL], so the stdout of the command alone never reached the
+    # owner (docs/regression_ledger.md 10.294). Neither task may fail, or it would abandon the rest of
+    # the install, which is what `fail` or `assert` here would do. The two tails add up to 28 lines,
+    # so with the separator and the [WARN] line the message fits the callback's 30 line budget whole.
+    - name: Read what pacman recorded for every AUR package that is absent
       ansible.builtin.shell:
         cmd: >-
           grep -aE '\[ALPM\] (installed|upgraded|removed) ({{ aur_absent_after_install | join('|') }})'
-          /var/log/pacman.log | tail -20;
-          echo "--- last 15 pacman transactions ---";
-          grep -aE '\[ALPM\] (installed|upgraded|removed)' /var/log/pacman.log | tail -15
-      # No register on purpose. The value of this task is its stdout, which the callback renders, and a
-      # registered result that nothing reads is the exact shape of the dead collector this file already
-      # got burnt by: e2e/tier1/tolerated_failures_read.sh now fails the gate for one.
+          /var/log/pacman.log | tail -14;
+          echo "--- last 14 pacman transactions ---";
+          grep -aE '\[ALPM\] (installed|upgraded|removed)' /var/log/pacman.log | tail -14
+      register: aur_absent_pacman_record
       changed_when: false
       failed_when: false
       when:
         - ih_family == 'Archlinux'
         - aur_absent_after_install | default([]) | length > 0
+      tags: [pacman_batch]
+
+    - name: Show what pacman recorded for every AUR package that is absent
+      ansible.builtin.debug:
+        msg: |-
+          [WARN] What pacman's own log says about {{ aur_absent_after_install | join(', ') }}. No line above the separator means pacman never recorded installing them:
+          {{ aur_absent_pacman_record.stdout }}
+      when: aur_absent_pacman_record.stdout | default('') | length > 0
       tags: [pacman_batch]
 
     # Reported separately because they need different responses. A failure means read the build
@@ -1301,12 +1307,23 @@
       when: flatpak_absent_after_install | default([]) | length > 0
       tags: [flatpak]
 
-    - name: Show the tail of the flatpak install log when something is missing
-      ansible.builtin.command: tail -40 /var/log/installation-packages.log
+    # Read by a command and printed by a debug task, for the reason given above the pacman record of
+    # the absent AUR packages. 29 lines and the [WARN] line fit the callback's 30 line budget whole.
+    - name: Read the tail of the flatpak install log when something is missing
+      ansible.builtin.command: tail -29 /var/log/installation-packages.log
       become: true
+      register: flatpak_missing_log_tail
       changed_when: false
       failed_when: false
       when: failed_flatpak_applications | default([]) | length > 0
+      tags: [flatpak]
+
+    - name: Show the tail of the flatpak install log when something is missing
+      ansible.builtin.debug:
+        msg: |-
+          [WARN] The last lines of /var/log/installation-packages.log, for {{ failed_flatpak_applications | join(', ') }}:
+          {{ flatpak_missing_log_tail.stdout }}
+      when: flatpak_missing_log_tail.stdout | default('') | length > 0
       tags: [flatpak]
 
     # An application the user asked for and did not get means the run did not succeed, so the exit
