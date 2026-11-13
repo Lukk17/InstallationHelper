@@ -9,6 +9,9 @@ openrazer_device_group: "openrazer"
 # project's own Arch container run log: "Creating group 'docker' with GID 946."
 docker_group: "docker"
 
+# The group whose members the hibernation PolicyKit rule of linux_security allows to hibernate.
+admin_group: "wheel"
+
 # The environment sdk_manager/tasks/pyenv_unix.yaml hands every pyenv Python build. core/openssl is
 # OpenSSL 4 since 4.1.0-1, and CPython's _ssl does not compile against it (docs/regression_ledger.md
 # 10.271). core/openssl-3, in companion_packages.python below, installs beside it with its own

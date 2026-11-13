@@ -855,9 +855,6 @@ class CallbackModule(CallbackBase):
     # ------------------------------------------------------------------
     def v2_playbook_on_start(self, playbook) -> None:
         self._open_logs()
-        name = playbook._entries[0].get_name() if playbook._entries else "unknown"
-        # Logged only, because v2_playbook_on_play_start prints the same PLAY line on the terminal.
-        self._display_and_log(f"PLAY [{name}]", "INFO", show=False)
 
     def v2_playbook_on_play_start(self, play) -> None:
         # Stop any heartbeat from the prior play before the next task starts.

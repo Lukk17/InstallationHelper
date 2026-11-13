@@ -9,6 +9,9 @@ openrazer_device_group: "plugdev"
 # container creates group 'docker' through its sysusers.d entry.
 docker_group: "docker"
 
+# The group whose members the hibernation PolicyKit rule of linux_security allows to hibernate.
+admin_group: "wheel"
+
 # Every third-party dnf repository software_installer/tasks/fedora_repos.yaml adds, keyed by the toggle
 # that asks for it, so install_<key> decides whether it is set up and the software_mapping entry of the
 # same key is the package that needs it. Docker has no mapping entry because virtualization_config

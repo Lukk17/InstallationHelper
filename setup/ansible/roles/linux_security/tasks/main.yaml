@@ -44,7 +44,7 @@
           if ((action.id == "org.freedesktop.upower.hibernate" ||
                action.id == "org.freedesktop.login1.hibernate" ||
                action.id == "org.freedesktop.login1.hibernate-multiple-sessions") &&
-              subject.isInGroup("sudo")) {
+              subject.isInGroup("{{ os_dict.admin_group }}")) {
               return polkit.Result.YES;
           }
           return polkit.Result.NOT_HANDLED;

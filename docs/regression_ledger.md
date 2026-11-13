@@ -8969,10 +8969,68 @@ Found with it, two stale documents:
 1. The comment above "Write the checked-in zsh configuration into $ZDOTDIR/.zshrc" in [setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml](../setup/ansible/roles/shell_zsh/tasks/oh_my_zsh.yaml). The report that sent this fix said sdk_manager no longer appends NVM, SDKMAN and Pyenv blocks to `.zshrc`. That was wrong. Read in [nvm_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/nvm_unix.yaml), [sdkman_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/sdkman_unix.yaml) and [pyenv_unix.yaml](../setup/ansible/roles/sdk_manager/tasks/pyenv_unix.yaml), it still appends their shell init blocks to every file in `interactive_rc_files`, `$ZDOTDIR/.zshrc` included, and only their environment variables moved to `dev_env_file`. The comment was right and vague, and now names the shell init blocks and says where the variables go.
 2. The playbook.log row of "Run records" in [e2e/README_E2E.md](../e2e/README_E2E.md) said it holds setup.sh's full output. Since 37aeb15 the ok, skipped, included and imported lines and the heartbeat go to `installation_full.log` in the run user's home only. The row now says so, and a row for `installation_full.log`, which the run directory has held since 10.291, was added.
 
-Found in passing and not fixed yet:
+Found in passing, and fixed later the same day in the entries named at the end of each item:
 
-1. The PolicyKit rule that linux_security writes for hibernation allows members of the group `sudo`, written into the task. Arch and Fedora have no such group: `/etc/group` in archlinux:latest and fedora:latest holds `wheel` and no `sudo`, measured on 2026-11-13, so on those families the rule never matches. The name belongs in `vars/<OS>.yaml`, rule 1 of [setup/ansible/AGENTS.md](../setup/ansible/AGENTS.md).
-2. `installation_full.log` holds the `PLAY [localhost]` line twice for one play, measured in the container run above. 10.291 fixed the terminal copy only.
-3. The "Run records" table has no row for `playbook2.log`, `installation_errors.log`, `host-isolation.log`, `host-state`, `installation-packages.log` or `installation-apt-upgrade.log`, which [e2e/tier3/container.sh](../e2e/tier3/container.sh) also writes into the run directory.
+1. The PolicyKit rule that linux_security writes for hibernation allows members of the group `sudo`, written into the task. Arch and Fedora have no such group: `/etc/group` in archlinux:latest and fedora:latest holds `wheel` and no `sudo`, measured on 2026-11-13, so on those families the rule never matches. The name belongs in `vars/<OS>.yaml`, rule 1 of [setup/ansible/AGENTS.md](../setup/ansible/AGENTS.md). Fixed in 10.295.
+2. `installation_full.log` holds the `PLAY [localhost]` line twice for one play, measured in the container run above. 10.291 fixed the terminal copy only. Fixed in 10.296.
+3. The "Run records" table has no row for `playbook2.log`, `installation_errors.log`, `host-isolation.log`, `host-state`, `installation-packages.log` or `installation-apt-upgrade.log`, which [e2e/tier3/container.sh](../e2e/tier3/container.sh) also writes into the run directory. Fixed in 10.297, where `host-state` turned out to be a folder.
 
 Mechanical check: [e2e/tier1/owner_facing_messages.sh](../e2e/tier1/owner_facing_messages.sh), item 80 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md). It fails a command, shell, raw or script task named Show, Print or Display, a debug task named Show, Print, Display, Surface or Warn without a marker, and a debug task in a rescue without a marker. Proven on 2026-11-13 in the whole gate against two full clones of the working tree, one with the pacman task put back as it was at `HEAD` and one with `[ERROR]` taken off the shell_zsh rescue, where it was the only check that failed, 1 of 1 each time. Against a clone of `HEAD` with only the check added it named 17 tasks: the pacman and Flatpak tasks, the twelve role rescues, the hibernation message, and the apt log and NVRAM tasks that were renamed. The systemd-boot message of effect 5 is named "Skip ..." and sits in no rescue, so the check does not see a message of that shape.
+
+### Found in passing during 10.294, fixed 2026-11-13
+
+#### 10.295 The hibernation PolicyKit rule allowed the group sudo, which Arch, CachyOS and Fedora do not have
+
+Status: fixed on 2026-11-13. Found in passing during 10.294, item 1 of its list. Written into the task in commit a62a151 of 2026-04-06, when linux_security was first added.
+
+Cause: "Create PolicyKit modern rule for hibernation" in [setup/ansible/roles/linux_security/tasks/main.yaml](../setup/ansible/roles/linux_security/tasks/main.yaml) wrote `subject.isInGroup("sudo")`, the Debian answer to a question each distribution answers differently, into the task, item 1 of the checklist above and rule 1 of [setup/ansible/AGENTS.md](../setup/ansible/AGENTS.md).
+
+Effect: on Arch, CachyOS and Fedora the rule in `/etc/polkit-1/rules.d/10-enable-hibernate.rules` names a group that does not exist, so it never returns `polkit.Result.YES` there and the distribution's own policy decides as if the rule were not there. Not seen on a real machine: no container run writes the rule, because [e2e/tier3/container_limits.yaml](../e2e/tier3/container_limits.yaml) turns `setup_hibernate` off.
+
+How it was proven: `getent group sudo wheel` in a throwaway container, with no network, of each base image the tier 3 Dockerfiles name, on 2026-11-13. debian:trixie answered `sudo:x:27:` and no wheel, ubuntu:26.04 `sudo:x:27:ubuntu` and no wheel, fedora:44 `wheel:x:10:` and no sudo, archlinux:base `wheel:x:998:` and no sudo, and cachyos/cachyos-v3:latest `wheel:x:998:` and no sudo. The images were removed afterwards. Pop!_OS has no image and was not measured. It is Ubuntu lineage and reads vars/Debian.yaml. The fixed task's `content` was then rendered with Jinja2 in the gate image against each family dictionary: `subject.isInGroup("sudo")` for Debian and `subject.isInGroup("wheel")` for RedHat and Archlinux.
+
+Fix: `admin_group` in [setup/ansible/vars/Debian.yaml](../setup/ansible/vars/Debian.yaml), `sudo`, and in [setup/ansible/vars/RedHat.yaml](../setup/ansible/vars/RedHat.yaml) and [setup/ansible/vars/Archlinux.yaml](../setup/ansible/vars/Archlinux.yaml), `wheel`, read by the rule as `{{ os_dict.admin_group }}`. Ubuntu, Debian and Pop!_OS read vars/Debian.yaml. CachyOS reads vars/Archlinux.yaml, because a file under `vars/derivatives/` may carry `software_mapping` and nothing else. Darwin.yaml has no entry, because site.yaml runs linux_security only when `ansible_facts['system'] == 'Linux'`. Before the key was added, `git grep` found no admin group variable anywhere: the only `wheel` under setup/ is the macOS group of gid 0 in software_installer, which is a different fact.
+
+Mechanical check: [e2e/tier1/polkit_admin_group.sh](../e2e/tier1/polkit_admin_group.sh), item 81 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md). It fails an `isInGroup(` call under setup/ansible whose argument is not `"{{ os_dict.<key> }}"`, a Linux family dictionary that does not define the key, and finding no `isInGroup(` call at all. Proven on 2026-11-13 in the gate image against a full clone of `HEAD` carrying only the new check, where it failed naming `setup/ansible/roles/linux_security/tasks/main.yaml:47 calls isInGroup("sudo")`, and against a full clone of the fixed tree with `admin_group` taken out of vars/Archlinux.yaml, where it failed naming that file. It does not prove the group named in a dictionary exists on that distribution. That was measured once, above, and no run writes the rule, so a real hibernation stays the manual row for `setup_hibernate` in [e2e/manual_test_matrix.md](../e2e/manual_test_matrix.md), which now also asks that the rule file names the group of that distribution.
+
+#### 10.296 installation_full.log held the PLAY line twice for one play
+
+Status: fixed on 2026-11-13. Found in passing during 10.294, item 2 of its list. Both lines date from commit 67322cb of 2026-05-21. 10.291 took the first one off the terminal with `show=False` and left it in the log.
+
+Cause: `v2_playbook_on_start` in [setup/ansible/callback_plugins/dual_logger.py](../setup/ansible/callback_plugins/dual_logger.py) logged `PLAY [<name of the first play>]`, and `v2_playbook_on_play_start` logged `PLAY [<name of the play>]` for the same play.
+
+Effect: `[10:41:01] PLAY [localhost]` on lines 7 and 8 of `installation_full.log` for a play of one task. site.yaml is one play, so every run's full log opened with the line twice.
+
+How it was proven: red, then green. ansible-core 2.21.5 ran a play of one task through the callback in a throwaway container from the gate image, with no network, and `grep -n "PLAY \["` over the full log printed lines 7 and 8 before the fix and line 7 alone after it. The new assertion in [e2e/tier1/ansible_static.sh](../e2e/tier1/ansible_static.sh) failed in the gate image against a full clone of `HEAD` carrying only it, with `installation_full.log holds the PLAY line 2 times, not once`, the one failure of 21, and passed on the fixed tree.
+
+Fix: `v2_playbook_on_start` only opens the logs. The PLAY line is written once, by `v2_playbook_on_play_start`, to the terminal and the full log.
+
+Mechanical check: "installation_full.log holds the PLAY line once for one play" in [e2e/tier1/ansible_static.sh](../e2e/tier1/ansible_static.sh), beside the terminal assertion of 10.291 that already counted the terminal's PLAY lines.
+
+#### 10.297 The Run records table named five of the files a tier 3 run directory holds
+
+Status: fixed on 2026-11-13. Found in passing during 10.294, item 3 of its list.
+
+Cause: rows were added to "Run records" in [e2e/README_E2E.md](../e2e/README_E2E.md) when a reader needed them, and nothing compared the table with what [e2e/tier3/container.sh](../e2e/tier3/container.sh) writes.
+
+Effect: a reader of a failed run had no description of `playbook2.log`, `installation_errors.log`, `installation-packages.log`, `installation-apt-upgrade.log`, `host-isolation.log` or `host-state`, nor of `meta.env`, `container-start.log`, `loop-nodes.log`, `sudo-preflight.log`, `copy.log`, `picked-apps-sentinel.log`, `galaxy.log` and `launch.log`, which container.sh writes there too and which 10.294 did not list.
+
+How it was proven: every `${RUN_DIR}/` path in container.sh was listed with grep and each one read where it is written and copied. All six names in 10.294 are real. `host-state` is a folder, the copy of `/var/lib/e2e-host-state` from the container, holding `host-state-<label>.txt` and `host-guard-<label>.txt` per record, as [e2e/tier3/host_state.sh](../e2e/tier3/host_state.sh) writes them. `installation_errors2.log`, the second pass's error log, is written in the container and never copied out, so it got no row. [e2e/run.sh](../e2e/run.sh) writes nothing into a run directory itself. It starts container.sh, and its `--queue` log is `e2e/runs/queue.log`, outside any run directory.
+
+Fix: one row for each of the fourteen in [e2e/README_E2E.md](../e2e/README_E2E.md), each saying where the file comes from, when it exists and what it holds when the step failed.
+
+Mechanical check: [e2e/tier1/run_records_table.sh](../e2e/tier1/run_records_table.sh), item 82 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md). It requires a row for every `${RUN_DIR}/` path container.sh writes, resolving `${remote_log}` through its `for` loop, and a written file for every row. Proven on 2026-11-13 in the gate image against a full clone of `HEAD` carrying only the new check, where it failed once for each of the fourteen files without a row, and against a full clone of the fixed tree with the `galaxy.log` row taken out and a row added for `installation_errors2.log`, where it failed naming exactly those two. What a row says about a file is prose, and no check reads it.
+
+#### 10.298 The first version of polkit_admin_group.sh carried a regular expression the pinned values check reads as a second resolver
+
+Status: introduced by the fix of 10.295, by the worker that wrote it, and fixed in the same change before it shipped. Found by the first whole gate run on 2026-11-13.
+
+Cause: [e2e/tier1/polkit_admin_group.sh](../e2e/tier1/polkit_admin_group.sh) took the key out of `"{{ os_dict.<key> }}"` with a regular expression that captured a name between escaped double braces. That is the shape `NEEDLE_REF_REGEX` in [e2e/tier1/pinned_values.sh](../e2e/tier1/pinned_values.sh) looks for in every script, because a pattern that captures a reference between braces is how the second parsers of the pinned values started.
+
+Effect: the gate exited 1 with `FAIL 1 second parser(s) of the pinned values, which is how the three the reader replaced started` and `e2e/tier1/polkit_admin_group.sh carries a reference-capturing regular expression`, the one failure of the run.
+
+How it was proven: that gate run, then `pinned_values` and `polkit_admin_group` run alone in the gate image against the working tree, both passing, and `polkit_admin_group` against the two clones of 10.295 again, failing on each as before.
+
+Fix: the check now takes the key with plain string operations, the quoted double braces at each end and the `os_dict.` prefix, and accepts it only when it is a Python identifier.
+
+Mechanical check: the gate itself, through `pinned_values`.

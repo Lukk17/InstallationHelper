@@ -685,6 +685,15 @@ if console.count("PLAY [Installation Helper]") != 1:
 report("ok and skipped results stay off the terminal, and so does a header with nothing shown under it",
        problems)
 
+# v2_playbook_on_start logged a PLAY line named after the first play, and v2_playbook_on_play_start
+# logged the same line again, so installation_full.log held it twice for one play, measured in a real
+# ansible-core 2.21.5 run (docs/regression_ledger.md 10.296).
+problems = []
+if full.count("PLAY [Installation Helper]") != 1:
+    problems.append("installation_full.log holds the PLAY line {} times, not once".format(
+        full.count("PLAY [Installation Helper]")))
+report("installation_full.log holds the PLAY line once for one play", problems)
+
 
 def in_order(text, needles):
     position = 0
