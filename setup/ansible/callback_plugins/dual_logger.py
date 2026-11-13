@@ -9,10 +9,13 @@ Writes four log files in the invoking user's home directory:
     installation_warnings.log  only WARNING-level entries
     installation_skipped.log   only skipped items (per-item disposition)
 
-Console output is condensed: one fixed-width status line per task with a
-duration suffix. Long stdout/stderr blocks (license dumps, multi-page
-installer chatter) are truncated to STDOUT_TRUNCATE_LINES before being
-written anywhere.
+Console output shows only what installs, changes or fails: a changed,
+failed or unreachable result, a retried attempt, a debug message opening
+with a level marker, the task header and phase banner above them, and the
+end-of-run summary. ok and skipped results go to the log files alone. Long
+stdout/stderr blocks (license dumps, multi-page installer chatter) are
+truncated to STDOUT_TRUNCATE_LINES before being written anywhere, keeping
+their head, their tail and the error lines between them.
 
 The end-of-run summary is appended to installation_full.log so that
 operators can `tail` one file and see grouped Installed / Already-present /
@@ -23,6 +26,7 @@ import datetime
 import os
 import pwd
 import re
+import shutil
 import sys
 import threading
 import time
@@ -65,7 +69,8 @@ DOCUMENTATION = """
         - Writes installation_full.log, installation_errors.log,
           installation_warnings.log, installation_skipped.log to the invoking
           user's home directory (SUDO_USER aware).
-        - Truncates very long stdout/stderr blocks per task.
+        - Shows on the terminal only what installs, changes or fails.
+        - Truncates very long stdout/stderr blocks per task, keeping their error lines.
         - Adds per-task duration ([+X.Xs]) and role-boundary phase separators.
         - Appends a grouped end-of-run summary to installation_full.log.
     options:
@@ -84,6 +89,15 @@ DOCUMENTATION = """
 
 STDOUT_TRUNCATE_LINES = 30  # max lines of captured stdout/stderr per task
 RETRY_STDERR_TAIL_LINES = 5  # stderr lines kept from each failed attempt of a retried task
+# Lines a truncation keeps from the part it drops, because a failed build says why in them: a
+# compiler's "error:", Gradle's "BUILD FAILED" and "FAILURE:", git's "fatal:", apt's "E: ".
+ERROR_LINE_REGEX = re.compile(r"(?i:\berror:|\bfatal:)|\bERROR\b|BUILD FAILED|FAILURE:|^\s*E: ")
+MAX_KEPT_ERROR_LINES = 10  # the earliest ones, where a cascade of errors starts
+PHASE_BAR = "=" * 70
+# What ansible-core 2.19 and later put in a failed result's `exception` when tracebacks are off.
+TRACEBACK_PLACEHOLDER = "(traceback unavailable)"
+# Return to the start of the line and erase it, which is how the live status line is replaced.
+ERASE_LINE = "\r\x1b[K"
 
 # Patterns that filter noise from BOTH console and log files.
 IGNORE_PATTERNS = [
@@ -214,7 +228,75 @@ ROLE_TOGGLE_MAPPING: Dict[str, List[str]] = {
     'jetbrains_toolbox':   ['install_jetbrains_toolbox'],
 }
 
-_TOGGLE_REGEX = re.compile(r'((?:install|configure|setup|enabl|set|use|allow)_[\w_]+)')
+# The group_vars beside this plugin. Whatever they declare as a boolean is a toggle, the same rule
+# e2e/tier1/toggle_coverage.sh reads them by.
+GROUP_VARS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "group_vars")
+OS_CONDITION_REGEX = re.compile(r"os_family|ansible_system|distribution|architecture|virtualization_role")
+_QUOTED_TEXT = re.compile(r"'[^']*'|\"[^\"]*\"")
+_FILTER_CALL = re.compile(r"\|\s*\w+(?:\([^()]*\))?")
+_IDENTIFIER = re.compile(r"(?<![\w.])[A-Za-z_]\w*")
+
+
+def _declared_toggles(group_vars_dir: str) -> frozenset:
+    names = set()
+    try:
+        entries = sorted(os.listdir(group_vars_dir))
+    except FileNotFoundError:
+        return frozenset()
+    for entry in entries:
+        if not entry.endswith((".yaml", ".yml")):
+            continue
+        with open(os.path.join(group_vars_dir, entry), encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+        if isinstance(data, dict):
+            names.update(key for key, value in data.items() if isinstance(value, bool))
+    return frozenset(names)
+
+
+def _sole_toggle(condition: str, toggles: frozenset) -> Optional[str]:
+    """Name the toggle a condition reads when it reads that toggle and nothing else.
+
+    Only then is the toggle being false the one way the condition can be false. A condition that
+    also reads a registered result or a fact, negates the toggle, or names a variable that is no
+    toggle at all, such as install_failures, says nothing about which part was false.
+    """
+    bare = _FILTER_CALL.sub(" ", _QUOTED_TEXT.sub(" ", condition))
+    names = set(_IDENTIFIER.findall(bare))
+    if len(names) != 1:
+        return None
+    name = names.pop()
+    return name if name in toggles else None
+
+
+def _gap_marker(omitted: int, omitted_errors: int) -> str:
+    beyond = (f", {omitted_errors} of them error lines beyond the first {MAX_KEPT_ERROR_LINES} kept"
+              if omitted_errors else "")
+    return f"... [truncated, {omitted} lines omitted{beyond}]"
+
+
+def _keep_ends_and_errors(lines: List[str], head: int, tail: int) -> List[str]:
+    """Keep the first `head` and last `tail` lines, the earliest MAX_KEPT_ERROR_LINES error lines
+    between them, and one marker for each run of dropped lines saying how many went."""
+    middle_end = len(lines) - tail
+    if middle_end <= head:
+        return lines
+    errors = [i for i in range(head, middle_end) if ERROR_LINE_REGEX.search(lines[i])]
+    kept = set(errors[:MAX_KEPT_ERROR_LINES])
+    beyond_cap = set(errors[MAX_KEPT_ERROR_LINES:])
+    out = lines[:head]
+    gap = gap_errors = 0
+    for i in range(head, middle_end):
+        if i in kept:
+            if gap:
+                out.append(_gap_marker(gap, gap_errors))
+                gap = gap_errors = 0
+            out.append(lines[i])
+            continue
+        gap += 1
+        gap_errors += i in beyond_cap
+    if gap:
+        out.append(_gap_marker(gap, gap_errors))
+    return out + lines[middle_end:]
 
 
 # --- Plugin ----------------------------------------------------------------
@@ -250,6 +332,11 @@ class CallbackModule(CallbackBase):
         # never have their TASK header or PHASE banner flushed.
         self._pending_phase: Optional[str] = None
         self._pending_task: Optional[str] = None
+        # The same two headers for the terminal, emitted only above a line the terminal shows, so a
+        # task or a role whose results were all ok or skipped leaves no header there.
+        self._console_phase: Optional[str] = None
+        self._console_task: Optional[str] = None
+        self._toggles = _declared_toggles(GROUP_VARS_DIR)
         # De-dup state for Ansible warnings/deprecations.
         self._seen_warnings: set = set()
 
@@ -280,6 +367,11 @@ class CallbackModule(CallbackBase):
         # Serialises writes to self.full_log + self._display from the main
         # thread (callback hooks) and the heartbeat daemon thread.
         self._emit_lock = threading.Lock()
+        # The heartbeat's live status line. Only a terminal can erase it again, so anything else,
+        # a pipe or a file, gets no status line at all and finds the heartbeat in the full log.
+        self._status_stream = sys.stdout
+        self._live_terminal = self._status_stream.isatty() and os.environ.get("TERM") != "dumb"
+        self._status_shown = False
         try:
             self._heartbeat_tick = int(os.environ.get("DUAL_LOGGER_HEARTBEAT_SEC", "5"))
         except ValueError:
@@ -389,15 +481,16 @@ class CallbackModule(CallbackBase):
         A third of the budget goes to the head, which is where a command names what it is doing, and
         the rest to the tail, which is where it fails. The marker in between says how many lines are
         gone so nobody reads the two halves as contiguous.
+
+        Every error line between them is kept as well, up to MAX_KEPT_ERROR_LINES, because a build
+        does not always fail last: the error-details budget of 10 kept 3 head and 6 tail lines of a
+        failed build and dropped the "error:" and "BUILD FAILED" lines that sat between them.
         """
         if len(lines) <= limit:
             return lines
         head = max(1, limit // 3)
         tail = max(1, limit - head - 1)
-        dropped = len(lines) - head - tail
-        return (lines[:head]
-                + [f"... [truncated, {dropped} lines omitted from the middle]"]
-                + lines[-tail:])
+        return _keep_ends_and_errors(lines, head, tail)
 
     def _extract_task_role(self, task_name: str) -> Optional[str]:
         if not task_name or not isinstance(task_name, str):
@@ -428,37 +521,6 @@ class CallbackModule(CallbackBase):
             return repr(item)
         return repr(item)
 
-    def _extract_skipped_toggles(self, result) -> List[str]:
-        """Best-effort extraction of which `install_*` / `setup_*` toggle caused a skip.
-
-        Only returns toggles when we can prove the skip was due to that toggle.
-        Reads the actual `false_condition` Ansible records, plus the
-        `skipped_reason` text. Never falls back to ROLE_TOGGLE_MAPPING — that
-        was a heuristic that mis-attributed every OS-conditional skip in a role
-        to the role's "owning" toggle (e.g. labelling a `Download Nerd Fonts
-        (macOS)` skip on Debian as `setup_zsh=false`, which is wrong).
-        """
-        try:
-            rd = result._result if hasattr(result, "_result") else {}
-        except (AttributeError, TypeError):
-            rd = {}
-        reason = rd.get("skipped_reason", "") or rd.get("skip_reason", "")
-        cond = rd.get("false_condition", "") or ""
-
-        # If the false condition obviously checks os_family / system / distro /
-        # architecture, this is an OS-mismatch skip, NOT a toggle skip.
-        if cond and re.search(r"os_family|ansible_system|distribution|architecture|virtualization_role", cond):
-            return []
-
-        # Prefer toggle names actually mentioned in the false_condition.
-        toggles = _TOGGLE_REGEX.findall(cond) if cond else []
-        if toggles:
-            return toggles
-        toggles = _TOGGLE_REGEX.findall(reason) if reason else []
-        if toggles:
-            return toggles
-        return []
-
     # ------------------------------------------------------------------
     # Output routing
     # ------------------------------------------------------------------
@@ -482,7 +544,7 @@ class CallbackModule(CallbackBase):
             try: self.warnings_log.write(line); self.warnings_log.flush()
             except (IOError, OSError): pass
 
-    def _render_message(self, blob, level: str) -> None:
+    def _render_message(self, blob, level: str, show: bool = True) -> None:
         """Display and log a debug task's `msg`, whatever shape it arrived in.
 
         A debug msg is a string, a list of strings, or a mapping, and the playbook uses the first
@@ -491,6 +553,10 @@ class CallbackModule(CallbackBase):
         something was lost. A message opening with [ERROR] therefore reaches installation_errors.log
         and one opening with [WARN], or matching the same keywords stderr is judged by, reaches
         installation_warnings.log.
+
+        A message the terminal would not show, because its task was ok, is shown all the same when
+        any of its lines opens with a level marker, since that marker is the playbook saying out
+        loud that something was lost or went wrong.
         """
         if isinstance(blob, str):
             lines = blob.strip().split("\n")
@@ -502,6 +568,7 @@ class CallbackModule(CallbackBase):
             return
 
         lines = [ln for ln in lines if ln.strip() and not self._should_skip_line(ln)]
+        visible = show or any(ln.strip().startswith(LEVEL_MARKERS) for ln in lines)
         for ln in self._truncate_lines(lines, STDOUT_TRUNCATE_LINES):
             stripped = ln.strip()
             if stripped.startswith("[ERROR]") or stripped.startswith("[FATAL]"):
@@ -510,13 +577,27 @@ class CallbackModule(CallbackBase):
                 line_lvl = "WARNING"
             else:
                 line_lvl = level
-            self._display.display(f"  {ln}")
+            if visible:
+                self._show(f"  {ln}")
             self._write_log(f"  {ln}", line_lvl)
 
+    def _show(self, text: str) -> None:
+        """Print a line on the terminal, after the phase banner and task header it belongs under
+        when they have not been printed yet, erasing the heartbeat's status line first."""
+        self._clear_status()
+        if self._console_phase is not None:
+            self._display.display(f"\n{PHASE_BAR}\n  PHASE: {self._console_phase}\n{PHASE_BAR}")
+            self._console_phase = None
+        if self._console_task is not None:
+            self._display.display(f"[{self._ts()}] TASK [{self._console_task}]")
+            self._console_task = None
+        self._display.display(text)
+
     def _display_and_log(self, msg: str, level: str = "INFO",
-                         include_output: bool = False, result=None) -> None:
-        console_msg = f"[{self._ts()}] {msg}"
-        self._display.display(console_msg)
+                         include_output: bool = False, result=None, show: bool = True) -> None:
+        """Log `msg`, and print it on the terminal too when `show` is true."""
+        if show:
+            self._show(f"[{self._ts()}] {msg}")
         self._write_log(msg, level)
         if include_output and result is not None:
             rd = result._result if hasattr(result, "_result") else {}
@@ -534,9 +615,8 @@ class CallbackModule(CallbackBase):
             # Restricted to the debug action on purpose. Many modules return an incidental `msg` on
             # success, get_url and apt among them, and rendering those for every ok task would bury
             # the deliberate messages this exists to surface.
-            task_action = getattr(getattr(result, "_task", None), "action", "") or ""
-            if task_action.split(".")[-1] == "debug":
-                self._render_message(rd.get("msg"), level)
+            if self._is_debug_task(result):
+                self._render_message(rd.get("msg"), level, show)
             # stdout stays at the task's level. stderr defaults to INFO and is
             # only promoted to WARNING for lines that actually look like warnings
             # (keeps curl/wget progress and git output out of the warnings log).
@@ -551,7 +631,8 @@ class CallbackModule(CallbackBase):
                     line_lvl = default_lvl
                     if key == "stderr" and WARNING_KEYWORDS.search(ln):
                         line_lvl = "WARNING"
-                    self._display.display(f"  {ln}")
+                    if show:
+                        self._show(f"  {ln}")
                     self._write_log(f"  {ln}", line_lvl)
             # Ansible's own warnings array (from module `warn:` outputs).
             # De-duplicate against entries we've already logged this run so
@@ -563,7 +644,8 @@ class CallbackModule(CallbackBase):
                 if w_text in self._seen_warnings:
                     continue
                 self._seen_warnings.add(w_text)
-                self._display.display(f"  [warning] {w_text}")
+                if show:
+                    self._show(f"  [warning] {w_text}")
                 self._write_log(f"  [warning] {w_text}", "WARNING")
             for d in rd.get("deprecations") or []:
                 d_text = d.get("msg", str(d)) if isinstance(d, dict) else str(d)
@@ -572,34 +654,42 @@ class CallbackModule(CallbackBase):
                 if d_text in self._seen_warnings:
                     continue
                 self._seen_warnings.add(d_text)
-                self._display.display(f"  [deprecation] {d_text}")
+                if show:
+                    self._show(f"  [deprecation] {d_text}")
                 self._write_log(f"  [deprecation] {d_text}", "WARNING")
 
-    def _emit_phase_separator(self, role: str) -> None:
-        bar = "=" * 70
-        msg = f"\n{bar}\n  PHASE: {role}\n{bar}"
-        self._display.display(msg)
+    def _log_phase_separator(self, role: str) -> None:
         if self.full_log:
-            try: self.full_log.write(f"\n{bar}\n[{self._ts()}]   PHASE: {role}\n{bar}\n\n"); self.full_log.flush()
+            try: self.full_log.write(f"\n{PHASE_BAR}\n[{self._ts()}]   PHASE: {role}\n{PHASE_BAR}\n\n"); self.full_log.flush()
             except (IOError, OSError): pass
 
     def _flush_pending(self) -> None:
-        """Emit any queued PHASE banner and TASK header. Called from result
+        """Write any queued PHASE banner and TASK header to the log. Called from result
         handlers right before they log their own line — so phases / tasks
         that are entirely skipped (e.g. every Fedora task while on Debian)
-        never produce visible output."""
+        never produce output. The terminal's copies are printed by _show."""
         if self._pending_phase is not None:
-            self._emit_phase_separator(self._pending_phase)
+            self._log_phase_separator(self._pending_phase)
             self._pending_phase = None
         if self._pending_task is not None:
-            self._display_and_log(f"TASK [{self._pending_task}]", "INFO")
+            self._write_log(f"TASK [{self._pending_task}]", "INFO")
             self._pending_task = None
 
     # ------------------------------------------------------------------
     # Skip categorisation
     # ------------------------------------------------------------------
-    def _categorise_skip(self, result, item_key: str) -> str:
-        """Return a short human-readable reason for a per-item skip."""
+    def _categorise_skip(self, result, item_key: Optional[str]) -> str:
+        """Return a short human-readable reason for the skip of one item, or of the whole task when
+        item_key is None.
+
+        A skip is called a disabled toggle only when the toggle is provably the reason: the
+        build-list task's own per-item condition, or a false condition that reads one declared toggle
+        and nothing else. The build-list shortcut was once applied to the task-level skip as well,
+        with the task name standing in for the item, which printed "toggle disabled
+        (install_software_installer : Build list of packages to dynamically install=false)". Any
+        other condition is named as it is, because the callback cannot tell which part of it was
+        false.
+        """
         try:
             task_name = result._task.get_name() if hasattr(result, "_task") else ""
         except (AttributeError, TypeError):
@@ -609,24 +699,27 @@ class CallbackModule(CallbackBase):
         false_cond = rd.get("false_condition", "") or ""
 
         # The build-list task per-item skip means the install_<key> toggle is false.
-        if BUILD_LIST_TASK_MARKER in task_name:
+        if item_key is not None and BUILD_LIST_TASK_MARKER in task_name:
             return f"toggle disabled (install_{item_key}=false)"
 
         # Inspect the recorded false_condition first — it's authoritative.
         if false_cond:
-            if re.search(r"os_family|ansible_system|distribution|architecture|virtualization_role", false_cond):
+            if OS_CONDITION_REGEX.search(false_cond):
                 return "not for this OS"
-            toggle_match = _TOGGLE_REGEX.search(false_cond)
-            if toggle_match:
-                return f"toggle disabled ({toggle_match.group(1)}=false)"
-
-        toggles = self._extract_skipped_toggles(result)
-        if toggles:
-            return "toggle disabled: " + ", ".join(f"{t}=false" for t in toggles)
+            toggle = _sole_toggle(false_cond, self._toggles)
+            if toggle:
+                return f"toggle disabled ({toggle}=false)"
 
         # Last-resort: task-name heuristic for OS-manager tasks.
         if any(k in task_name for k in OS_MANAGER_KEYWORDS):
             return "not for this OS"
+
+        if false_cond:
+            return "condition not met: " + " ".join(false_cond.split())
+
+        # A looped task whose every item was skipped. Each item carries its own reason.
+        if isinstance(rd.get("results"), list) and rd["results"]:
+            return "every item skipped"
 
         if "Conditional result was False" in str(skip_reason):
             return "condition not met"
@@ -669,9 +762,33 @@ class CallbackModule(CallbackBase):
                 if self.full_log:
                     self.full_log.write(f"[{self._ts()}] {line}\n")
                     self.full_log.flush()
-                self._display.display(line)
             except (IOError, OSError):
                 pass
+
+    def _show_status(self, text: str, stop: threading.Event) -> None:
+        """Replace the live status line on the terminal with `text`, cut to the terminal's width
+        because a line that wraps can no longer be erased."""
+        width = max(20, shutil.get_terminal_size((80, 24)).columns - 1)
+        with self._emit_lock:
+            if stop.is_set():
+                return
+            try:
+                self._status_stream.write(ERASE_LINE + text[:width])
+                self._status_stream.flush()
+                self._status_shown = True
+            except (IOError, OSError):
+                pass
+
+    def _clear_status(self) -> None:
+        with self._emit_lock:
+            if not self._status_shown:
+                return
+            try:
+                self._status_stream.write(ERASE_LINE)
+                self._status_stream.flush()
+            except (IOError, OSError):
+                pass
+            self._status_shown = False
 
     def _emit_running_header_once(self) -> None:
         if self._heartbeat_header_emitted:
@@ -681,8 +798,16 @@ class CallbackModule(CallbackBase):
         self._heartbeat_idle_emitted_at = time.monotonic()
 
     def _heartbeat_loop(self) -> None:
-        assert self._heartbeat_stop is not None
-        while not self._heartbeat_stop.wait(self._heartbeat_tick):
+        """Write the heartbeat to the full log, and keep one live status line on a terminal.
+
+        The heartbeat used to print its lines on the terminal as permanent lines, so every task
+        over two seconds left a "running:" line behind even when it then ended ok and nothing else
+        about it was shown. The status line is erased before any other terminal line and when the
+        task ends, so it says the run is alive without leaving anything behind.
+        """
+        stop = self._heartbeat_stop
+        assert stop is not None
+        while not stop.wait(self._heartbeat_tick):
             now = time.monotonic()
             elapsed = int(now - self._heartbeat_task_started)
             m, s = divmod(elapsed, 60)
@@ -693,15 +818,15 @@ class CallbackModule(CallbackBase):
                 self._emit_progress(f"  ↳ [{m:02d}m{s:02d}s] {last_line}")
                 self._heartbeat_last_line = last_line
                 self._heartbeat_idle_emitted_at = now
-                continue
-
-            if not self._heartbeat_header_emitted and elapsed >= 2:
+            elif not self._heartbeat_header_emitted and elapsed >= 2:
                 self._emit_running_header_once()
-                continue
-
-            if self._heartbeat_header_emitted and (now - self._heartbeat_idle_emitted_at) >= self._heartbeat_idle_ping:
+            elif self._heartbeat_header_emitted and (now - self._heartbeat_idle_emitted_at) >= self._heartbeat_idle_ping:
                 self._emit_progress(f"  ↳ [{m:02d}m{s:02d}s] still working… (log unchanged)")
                 self._heartbeat_idle_emitted_at = now
+
+            if self._live_terminal and self._heartbeat_header_emitted:
+                progress = f"  ↳ {self._heartbeat_last_line}" if self._heartbeat_last_line else ""
+                self._show_status(f"⏳ [{m:02d}m{s:02d}s] {self._heartbeat_task_name}{progress}", stop)
 
     def _start_heartbeat(self, task_name: str) -> None:
         self._stop_heartbeat()
@@ -723,6 +848,7 @@ class CallbackModule(CallbackBase):
         self._heartbeat_thread = None
         self._heartbeat_stop = None
         self._heartbeat_log_path = None
+        self._clear_status()
 
     # ------------------------------------------------------------------
     # Ansible callback hooks
@@ -730,11 +856,13 @@ class CallbackModule(CallbackBase):
     def v2_playbook_on_start(self, playbook) -> None:
         self._open_logs()
         name = playbook._entries[0].get_name() if playbook._entries else "unknown"
-        self._display_and_log(f"PLAY [{name}]", "INFO")
+        # Logged only, because v2_playbook_on_play_start prints the same PLAY line on the terminal.
+        self._display_and_log(f"PLAY [{name}]", "INFO", show=False)
 
     def v2_playbook_on_play_start(self, play) -> None:
         # Stop any heartbeat from the prior play before the next task starts.
         self._stop_heartbeat()
+        self._console_task = None
         self._display_and_log(f"PLAY [{play.get_name()}]", "INFO")
 
     def v2_playbook_on_task_start(self, task, is_conditional: bool = False) -> None:
@@ -746,13 +874,16 @@ class CallbackModule(CallbackBase):
         role = self._extract_task_role(name)
         if role and role != self._current_role:
             self._pending_phase = role
+            self._console_phase = role
             self._current_role = role
         self._pending_task = name
+        self._console_task = name
 
     def v2_playbook_on_handler_task_start(self, task) -> None:
         self._task_start_ts = datetime.datetime.now()
         self._start_heartbeat(task.get_name())
         self._pending_task = f"HANDLER: {task.get_name()}"
+        self._console_task = self._pending_task
 
     # --- task-level results ---
     def v2_runner_on_ok(self, result) -> None:
@@ -764,7 +895,7 @@ class CallbackModule(CallbackBase):
         dur = self._task_duration()
         prefix = f"{dur} " if dur else ""
         self._display_and_log(f"{prefix}{status}: [{host}]", "INFO",
-                              include_output=True, result=result)
+                              include_output=True, result=result, show=changed)
 
     def v2_runner_on_failed(self, result, ignore_errors: bool = False) -> None:
         """A task failed. `ignore_errors` says whether the playbook asked for that failure to be
@@ -784,8 +915,7 @@ class CallbackModule(CallbackBase):
         level = "WARNING" if ignore_errors else "ERROR"
         label = "TOLERATED FAILURE" if ignore_errors else "FAILED"
         self._display_and_log(f"{prefix}{label}: [{host}] => TASK: {task_name}", level)
-        for detail in self._extract_error_details(result):
-            self._display_and_log(detail, level)
+        self._report_error_details(result, level)
         # End-of-run bucket
         rd = result._result if hasattr(result, "_result") else {}
         short = rd.get("msg", rd.get("stderr", "unknown error"))
@@ -798,17 +928,19 @@ class CallbackModule(CallbackBase):
         self._stop_heartbeat()
         host = result._host.get_name()
         task_name = result._task.get_name() if hasattr(result, "_task") else ""
-        reason = self._categorise_skip(result, item_key=task_name)
+        reason = self._categorise_skip(result, item_key=None)
         # Don't log "not for this OS" task-level skips — drop the buffered
-        # TASK header AND the pending PHASE banner if this was the role's
-        # first task. Tasks/roles entirely composed of OS-mismatch skips
-        # never produce any output.
+        # TASK header. The PHASE banner stays queued for the role's first
+        # real result: dropping it here, as this once did, lost the banner of
+        # every role whose first task was for another OS. A role entirely
+        # composed of OS-mismatch skips still produces no output, because the
+        # next role's banner replaces its queued one.
         if reason == "not for this OS":
             self._pending_task = None
-            self._pending_phase = None
+            self._console_task = None
             return
         self._flush_pending()
-        self._display_and_log(f"skipping: [{host}] {task_name} [{reason}]", "INFO")
+        self._display_and_log(f"skipping: [{host}] {task_name} [{reason}]", "INFO", show=False)
 
     def v2_runner_on_unreachable(self, result) -> None:
         self._stop_heartbeat()
@@ -818,6 +950,7 @@ class CallbackModule(CallbackBase):
         dur = self._task_duration()
         prefix = f"{dur} " if dur else ""
         self._display_and_log(f"{prefix}unreachable: [{host}] TASK: {task_name}", "ERROR")
+        self._report_error_details(result, "ERROR")
 
     def v2_runner_retry(self, result) -> None:
         """An attempt of a task with `until` failed and Ansible is about to run it again.
@@ -852,8 +985,8 @@ class CallbackModule(CallbackBase):
         stderr = rd.get("stderr")
         if isinstance(stderr, str) and stderr.strip():
             lines = [ln for ln in stderr.strip().splitlines() if ln.strip()]
-            details.append(f"  stderr, last {min(len(lines), RETRY_STDERR_TAIL_LINES)} lines:")
-            details.extend(f"    {ln}" for ln in lines[-RETRY_STDERR_TAIL_LINES:])
+            details.append(f"  stderr, last {min(len(lines), RETRY_STDERR_TAIL_LINES)} lines and the error lines before them:")
+            details.extend(f"    {ln}" for ln in _keep_ends_and_errors(lines, 0, RETRY_STDERR_TAIL_LINES))
         return details
 
     # --- per-item (looped) results ---
@@ -934,7 +1067,10 @@ class CallbackModule(CallbackBase):
         if tolerated:
             suffix = f" -- rc {rc}" + (f", {self._informative_line(result._result)}"
                                        if self._informative_line(result._result) else "")
-        self._display_and_log(f"{status:>10}: [{host}] {display}{suffix}", level)
+        self._display_and_log(f"{status:>10}: [{host}] {display}{suffix}", level, show=tolerated or changed)
+        # A looped debug task carries its message on each item, and nothing rendered it.
+        if self._is_debug_task(result):
+            self._render_message(result._result.get("msg"), level, show=False)
         # End-of-run bucket — exclude enumeration tasks so they don't pollute
         # the "ALREADY PRESENT" count with items that were merely listed.
         task_name = result._task.get_name() if hasattr(result, "_task") else ""
@@ -956,6 +1092,11 @@ class CallbackModule(CallbackBase):
             self._record_tolerated_item(entry)
         else:
             self._record_succeeded_item(entry, changed)
+
+    @staticmethod
+    def _is_debug_task(result) -> bool:
+        task_action = getattr(getattr(result, "_task", None), "action", "") or ""
+        return task_action.split(".")[-1] == "debug"
 
     @staticmethod
     def _is_installer_task(task_name: str) -> bool:
@@ -999,8 +1140,7 @@ class CallbackModule(CallbackBase):
         level = "WARNING" if tolerated else "ERROR"
         label = "TOLERATED" if tolerated else "FAILED"
         self._display_and_log(f"{label:>10}: [{host}] {display} -- {short}", level)
-        for detail in self._extract_error_details(result):
-            self._display_and_log(detail, level)
+        self._report_error_details(result, level)
         entry = {"task": task_name, "name": self._item_key(item), "error": short}
         if not tolerated:
             self.failed.append(entry)
@@ -1043,7 +1183,7 @@ class CallbackModule(CallbackBase):
 
         # Real skip — flush the pending TASK header / PHASE banner.
         self._flush_pending()
-        self._display_and_log(f"{'skipped':>10}: [{host}] {qualified} [{reason}]", "INFO")
+        self._display_and_log(f"{'skipped':>10}: [{host}] {qualified} [{reason}]", "INFO", show=False)
         if not is_installer_task:
             return
         self.skipped_by_reason.setdefault(reason, []).append(qualified)
@@ -1060,11 +1200,11 @@ class CallbackModule(CallbackBase):
             self._display_and_log(f"diff: {result._result['diff']}", "INFO")
 
     def v2_playbook_on_include(self, included_file) -> None:
-        self._display_and_log(f"included: {included_file._filename}", "INFO")
+        self._display_and_log(f"included: {included_file._filename}", "INFO", show=False)
 
     def v2_playbook_on_import_for_host(self, result, imported_file: str) -> None:
         host = result._host.get_name()
-        self._display_and_log(f"imported: {imported_file} for host {host}", "INFO")
+        self._display_and_log(f"imported: {imported_file} for host {host}", "INFO", show=False)
 
     def v2_playbook_on_not_import_for_host(self, result, missing_file: str) -> None:
         host = result._host.get_name()
@@ -1077,7 +1217,7 @@ class CallbackModule(CallbackBase):
         self._display_and_log("NO MORE HOSTS LEFT", "ERROR")
 
     def v2_playbook_on_notify(self, handler, host) -> None:
-        self._display_and_log(f"NOTIFIED HANDLER {handler} for host {host}", "INFO")
+        self._display_and_log(f"NOTIFIED HANDLER {handler} for host {host}", "INFO", show=False)
 
     # ------------------------------------------------------------------
     # End-of-run recap + grouped summary
@@ -1095,6 +1235,8 @@ class CallbackModule(CallbackBase):
 
     def v2_playbook_on_stats(self, stats) -> None:
         self._stop_heartbeat()
+        self._console_phase = None
+        self._console_task = None
         bar = "═" * 70
         elapsed = datetime.datetime.now() - self._playbook_start_ts
         self._display_and_log("", "INFO")
@@ -1153,15 +1295,20 @@ class CallbackModule(CallbackBase):
         return f" (after {retries} {'retry' if retries == 1 else 'retries'})"
 
     def _emit_skipped_summary(self) -> None:
+        """List the skipped items in installation_full.log, and on the terminal only say how many
+        there were and where they are, so the terminal summary names only what the run was asked to
+        install and never the applications whose toggle is off."""
         if not self.skipped_by_reason:
             return
-        self._display_and_log("", "INFO")
+        self._display_and_log("", "INFO", show=False)
         total = sum(len(v) for v in self.skipped_by_reason.values())
-        self._display_and_log(f"═══ SKIPPED ({total}) ═══", "INFO")
+        self._display_and_log(f"═══ SKIPPED ({total}) ═══", "INFO", show=False)
         for reason, names in sorted(self.skipped_by_reason.items()):
             unique = sorted(set(names))
-            self._display_and_log(f"  [{reason}] ({len(unique)})", "INFO")
-            self._display_and_log(f"    {', '.join(unique)}", "INFO")
+            self._display_and_log(f"  [{reason}] ({len(unique)})", "INFO", show=False)
+            self._display_and_log(f"    {', '.join(unique)}", "INFO", show=False)
+        self._show(f"[{self._ts()}] ")
+        self._show(f"[{self._ts()}] ═══ SKIPPED ({total}), each with its reason in {self.skipped_log_path} ═══")
 
     def _emit_tolerated_summary(self) -> None:
         """Failures the playbook asked to absorb. Reported at WARNING, never at ERROR, because the
@@ -1201,15 +1348,31 @@ class CallbackModule(CallbackBase):
     # ------------------------------------------------------------------
     # Error detail extraction (preserved from the previous version)
     # ------------------------------------------------------------------
+    def _report_error_details(self, result, level: str) -> None:
+        """Show and log what a failed or unreachable result says went wrong, and write its traceback
+        to installation_full.log alone, because a traceback is for whoever debugs the callback or a
+        module, and ansible-core 2.19 and later send the placeholder "(traceback unavailable)" in its
+        place unless tracebacks are switched on, which printed "Exception (full):" over that
+        placeholder under every failure on the terminal."""
+        for detail in self._extract_error_details(result):
+            self._display_and_log(detail, level)
+        rd = result._result if hasattr(result, "_result") else {}
+        for line in self._traceback_lines(rd):
+            self._write_log(line, "INFO")
+
+    @staticmethod
+    def _traceback_lines(rd: dict) -> List[str]:
+        exception = rd.get("exception")
+        if not isinstance(exception, str) or exception.strip() in ("", TRACEBACK_PLACEHOLDER):
+            return []
+        exc_lines = [ln for ln in exception.strip().split("\n") if ln.strip()]
+        keep = exc_lines[-15:]
+        header = f"  Exception ({'last 15 lines' if len(exc_lines) > 15 else 'full'}):"
+        return [header] + [f"    {ln}" for ln in keep]
+
     def _extract_error_details(self, result) -> List[str]:
         details: List[str] = []
         rd = result._result if hasattr(result, "_result") else {}
-
-        if rd.get("exception"):
-            exc_lines = str(rd["exception"]).strip().split("\n")
-            keep = exc_lines[-15:] if len(exc_lines) > 15 else exc_lines
-            details.append(f"  Exception ({'last 15 lines' if len(exc_lines) > 15 else 'full'}):")
-            details.extend(f"    {ln}" for ln in keep if ln.strip())
 
         if "msg" in rd:
             details.append(f"  Error: {rd['msg']}")
@@ -1219,6 +1382,10 @@ class CallbackModule(CallbackBase):
         for field in ("stdout", "stderr", "stdout_lines", "stderr_lines"):
             data = rd.get(field)
             if not data:
+                continue
+            # ansible-core sends a command's output twice, as text and as its list of lines, and
+            # both used to be printed, so every failed command showed its output twice.
+            if field.endswith("_lines") and rd.get(field[:-len("_lines")]):
                 continue
             if isinstance(data, str):
                 lines = [ln for ln in data.strip().split("\n") if ln.strip()]
@@ -1240,9 +1407,13 @@ class CallbackModule(CallbackBase):
                 if bits:
                     details.append(f"  Args: {' '.join(bits)}")
 
-        if len(details) <= 2:
+        # Not when the result carries `exception`, placeholder included: ansible-core 2.19 and later
+        # always send one for a failed task, and its lines used to count here, so the dump never
+        # printed for a failure and now would for every one that has little else to say.
+        if len(details) <= 2 and "exception" not in rd:
             try:
-                dump = yaml.dump(rd, default_flow_style=False, sort_keys=False)
+                shown_fields = {key: value for key, value in rd.items() if key != "exception"}
+                dump = yaml.dump(shown_fields, default_flow_style=False, sort_keys=False)
                 if dump.strip():
                     snippet = dump[:500] + ("..." if len(dump) > 500 else "")
                     details.append(f"  Full result: {snippet}")
