@@ -7,14 +7,19 @@
     .github/actions/windows-pester/action.yml runs it on a Windows runner. Why it reads every Pester count
     is docs/regression_ledger.md 10.345.
 
+    It imports exactly the Pester that gate_pester_version pins, read through
+    setup/pinned_values/PinnedValues.psm1, the version the gate image carries and the shared action
+    installs on the runner, never the newest one it finds (owner decision 53, docs/regression_ledger.md
+    10.348). When that version is not installed here, nothing runs and the verdict is fail.
+
     Prints on standard output:
-      PESTER_ABSENT <reason>                  no Pester 5 or later is installed here, and nothing ran
-      PESTER version=<version>                the Pester that ran the suite
+      PESTER version=<version>                the Pester that ran the suite, always the pinned one
       TOTALS total=<n> passed=<n> failed=<n> skipped=<n> notrun=<n> inconclusive=<n> failedblocks=<n> failedcontainers=<n> notrunbytag=<n>
       FAILED, FAILEDBLOCK, FAILEDCONTAINER, NOTRUN or INCONCLUSIVE <path>[: <error>], one line for each test, block or file that did not pass
       PROBLEM <sentence>, one line for each reason the run did not pass
       VERDICT pass or VERDICT fail
-    Exits 0 after VERDICT pass and 1 otherwise, PESTER_ABSENT included.
+    Exits 0 after VERDICT pass and 1 otherwise. A pin that cannot be read and a pinned Pester that is
+    not installed are each a PROBLEM line.
 
 .PARAMETER Verbosity
     Pester's own output: None in the gate, Detailed on the runner.
@@ -27,6 +32,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $suite = Join-Path $PSScriptRoot 'windows' 'WindowsSoftware.Tests.ps1'
+$pinnedValues = Join-Path $PSScriptRoot '..' '..' 'setup' 'pinned_values' 'PinnedValues.psm1'
 $excludedTags = @('Slow', 'Network')
 $countProperties = [ordered]@{
     total            = 'TotalCount'
@@ -52,20 +58,31 @@ function Test-LeftOutByTag([object] $Test) {
     return (@($tags | Where-Object { $_ -in $excludedTags }).Count -gt 0)
 }
 
-$pester = Get-Module -ListAvailable -Name Pester |
-    Where-Object { $_.Version.Major -ge 5 } |
-    Sort-Object Version -Descending |
-    Select-Object -First 1
-if (-not $pester) {
-    Write-Output 'PESTER_ABSENT no Pester 5 or later is installed here, so no test ran'
-    exit 1
+$problems = [System.Collections.Generic.List[string]]::new()
+
+$wanted = $null
+try {
+    Import-Module $pinnedValues -Force
+    $wanted = [Version](Get-PinnedValue -Key gate_pester_version)
+} catch {
+    $problems.Add("the pinned Pester version gate_pester_version cannot be read through $pinnedValues, so no test ran: $(Format-OneLine $_)")
 }
 
-$problems = [System.Collections.Generic.List[string]]::new()
+if ($null -ne $wanted) {
+    $pester = Get-Module -ListAvailable -Name Pester |
+        Where-Object { $_.Version -eq [Version]$wanted } |
+        Select-Object -First 1
+    if (-not $pester) {
+        $installed = @(Get-Module -ListAvailable -Name Pester | ForEach-Object { "$($_.Version)" }) -join ', '
+        $problems.Add("Pester $wanted, the version gate_pester_version pins, is not installed here, so no test ran. Installed: $(if ($installed) { $installed } else { 'none' })")
+    }
+}
 
 if (-not (Test-Path -LiteralPath $suite -PathType Leaf)) {
     $problems.Add("the Pester suite is missing, so nothing can be proved: $suite")
-} else {
+}
+
+if ($problems.Count -eq 0) {
     Import-Module $pester.Path -Force
     Write-Output "PESTER version=$($pester.Version)"
 

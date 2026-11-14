@@ -27,11 +27,21 @@
 # 10.345), and that script must run WindowsSoftware.Tests.ps1 with exactly the Slow and Network tags
 # excluded.
 #
-# Before it reads the repository it runs its reader against planted workflows and requires it to name
-# exactly the six planted defects and none of the four sound jobs, so a reader that went blind fails
-# here instead of passing the real tree.
+# The runner and the gate also run one Pester, the one gate_pester_version pins (owner decision 53,
+# docs/regression_ledger.md 10.348). The shared action and the shared script must both read that pin
+# with Get-PinnedValue and pick Pester by an exact -eq match on it, the action must install it with
+# Install-Module -RequiredVersion, -Scope CurrentUser and -Force, neither may accept a newer or an older
+# Pester or write a version number of its own, the script may not answer a missing Pester with a skip,
+# and no other workflow step or local action installs Pester at all. The pin itself must name one
+# exact version.
+#
+# Before it reads the repository it runs its readers against planted workflows and planted action and
+# script bodies, and requires them to name exactly the seven planted workflow defects and none of the
+# four sound jobs, and every one of the four planted pin defects and nothing in the sound pair, so a
+# reader that went blind fails here instead of passing the real tree.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
 
 info "Tier 1: every job that installs with setup.ps1 runs the Windows unit tests first"
 
@@ -39,8 +49,18 @@ cd "${REPO_ROOT}" || { fail "cannot reach the repository root" "${REPO_ROOT}"; f
 
 require_python "every job that installs with setup.ps1 runs the Windows unit tests first" "Windows unit tests before the install"
 
+pin_status=0
+PINNED_PESTER_VERSION="$(pinned_value gate_pester_version)" || pin_status=$?
+if [[ "${pin_status}" -ne 0 ]]; then
+    fail "the pinned Pester version cannot be read, so nothing here can compare against it" \
+         "pinned_value gate_pester_version exited ${pin_status}"
+    finish "Windows unit tests before the install"
+fi
+export PINNED_PESTER_VERSION
+
 report_status=0
 report="$("${PYTHON}" - <<'PYEOF'
+import os
 import pathlib
 import re
 import sys
@@ -58,6 +78,17 @@ RUNS_PESTER = re.compile(r'\b(Invoke-Pester|New-PesterConfiguration)\b|windows_p
 OVERRIDES_FAILURE = re.compile(r'\b(always|failure|cancelled)\s*\(')
 EXCLUDED_TAGS = re.compile(r'^\s*\$excludedTags\s*=\s*@\(([^)]*)\)', re.MULTILINE)
 FILTER_READS_TAGS = re.compile(r'\.Filter\.ExcludeTag\s*=\s*\$excludedTags\s*$', re.MULTILINE)
+PESTER_PIN = 'gate_pester_version'
+PINNED_VERSION = os.environ.get('PINNED_PESTER_VERSION', '')
+EXACT_VERSION = re.compile(r'^\d+\.\d+\.\d+$')
+READS_PIN = re.compile(r'\bGet-PinnedValue\s+-Key\s+' + PESTER_PIN + r'\b')
+EXACT_SELECTION = re.compile(r'\.Version\s+-eq\s+\[[Vv]ersion\]\s*\$\w+')
+LOOSE_SELECTION = re.compile(r'-(Minimum|Maximum)Version\b|\.Major\b|-(ge|gt|le|lt)\s*\[[Vv]ersion\]'
+                             r'|Sort-Object\s+Version\s+-Descending', re.IGNORECASE)
+VERSION_LITERAL = re.compile(r'(?<![\w.])\d+\.\d+(?:\.\d+)*(?![\w.])')
+EXACT_INSTALL = [re.compile(pattern) for pattern in (
+    r'\bInstall-Module\b', r'-Name\s+Pester\b', r'-RequiredVersion\s+\$\w+', r'-Scope\s+CurrentUser\b', r'-Force\b')]
+INSTALLS_PESTER = re.compile(r'\b(Install|Save|Update)-(Module|PSResource)\b.*\bPester\b', re.IGNORECASE)
 
 
 def is_true(value):
@@ -67,6 +98,68 @@ def is_true(value):
 def runs_pester_inline(step):
     body = step.get('run')
     return isinstance(body, str) and any(RUNS_PESTER.search(line) for line in code_lines(body))
+
+
+def installs_pester_inline(step):
+    body = step.get('run')
+    return isinstance(body, str) and any(INSTALLS_PESTER.search(line) for line in code_lines(body))
+
+
+def powershell_code(text):
+    """A PowerShell file's lines with its block comments and full-line comments left out."""
+    return '\n'.join(code_lines(re.sub(r'<#.*?#>', '', text, flags=re.DOTALL)))
+
+
+def pester_pin_problems(action_code, script_code):
+    """Every way the shared action and the shared script stop running exactly the pinned Pester."""
+    problems = []
+    for label, code in (('the shared action', action_code), ('the shared script', script_code)):
+        if not READS_PIN.search(code):
+            problems.append('%s does not read the Pester version with Get-PinnedValue -Key %s' % (label, PESTER_PIN))
+        if not EXACT_SELECTION.search(code):
+            problems.append('%s does not pick Pester by an exact .Version -eq [Version]$<pin> match' % label)
+        loose = LOOSE_SELECTION.search(code)
+        if loose:
+            problems.append('%s accepts a Pester other than the pinned one through %s' % (label, loose.group(0)))
+        literal = VERSION_LITERAL.search(code)
+        if literal:
+            problems.append('%s writes the version %s itself, a second literal beside the pin'
+                            % (label, literal.group(0)))
+    if not any(all(pattern.search(line) for pattern in EXACT_INSTALL) for line in action_code.splitlines()):
+        problems.append('the shared action does not install Pester on one line with Install-Module -Name Pester '
+                        '-RequiredVersion $<pin> -Scope CurrentUser -Force')
+    if 'PESTER_ABSENT' in script_code:
+        problems.append('the shared script answers a missing Pester with PESTER_ABSENT, which the gate reads as a '
+                        'skip, where a missing pinned Pester must be a PROBLEM line and a failed verdict')
+    return problems
+
+
+def planted_pin_bodies():
+    sound_action = '\n'.join((
+        "Import-Module (Join-Path $env:GITHUB_WORKSPACE 'setup/pinned_values/PinnedValues.psm1')",
+        '$version = Get-PinnedValue -Key gate_pester_version',
+        '$present = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [Version]$version }',
+        'if (-not $present) { Install-Module -Name Pester -RequiredVersion $version -Scope CurrentUser -Force }',
+    ))
+    sound_script = '\n'.join((
+        '$wanted = Get-PinnedValue -Key gate_pester_version',
+        '$pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [Version]$wanted }',
+        'Write-Output "PESTER version=$($pester.Version)"',
+    ))
+    return {
+        'sound': (sound_action, sound_script),
+        'action-minimum': ('\n'.join((
+            "$mod = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [Version]'5.0.0' }",
+            'if (-not $mod) { Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser }',
+        )), sound_script),
+        'action-literal': (sound_action.replace('Get-PinnedValue -Key gate_pester_version', "'5.9.1'"), sound_script),
+        'script-newest': (sound_action, '\n'.join((
+            '$pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version.Major -ge 5 } |',
+            '    Sort-Object Version -Descending | Select-Object -First 1',
+            "if (-not $pester) { Write-Output 'PESTER_ABSENT none'; exit 1 }",
+        ))),
+        'script-literal': (sound_action, sound_script.replace('Get-PinnedValue -Key gate_pester_version', "'5.9.1'")),
+    }
 
 
 def needs_of(job):
@@ -142,6 +235,9 @@ def analyse(workflows, actions):
                 if runs_pester_inline(step):
                     problems.append((label, '%s job %s runs Pester itself at step %d instead of calling %s'
                                      % (label, name, index + 1, SHARED_USES)))
+                if installs_pester_inline(step):
+                    problems.append((label, '%s job %s installs Pester itself at step %d, beside the pinned one '
+                                     '%s installs' % (label, name, index + 1, SHARED_USES)))
     for uses, doc in sorted(actions.items()):
         if uses == SHARED_USES:
             continue
@@ -149,6 +245,9 @@ def analyse(workflows, actions):
             if runs_pester_inline(step):
                 problems.append((uses, 'the action %s runs Pester itself at step %d instead of calling %s'
                                  % (uses, index + 1, SHARED_USES)))
+            if installs_pester_inline(step):
+                problems.append((uses, 'the action %s installs Pester itself at step %d, beside the pinned one '
+                                 '%s installs' % (uses, index + 1, SHARED_USES)))
     return install_jobs, problems
 
 
@@ -167,6 +266,8 @@ def planted():
         'always.yml': one_job(checkout, tests, dict(wizard, **{'if': 'always()'})),
         'inline.yml': one_job(checkout, {'shell': 'pwsh', 'run': '$r = Invoke-Pester -Path x'}),
         'hidden.yml': one_job(checkout, {'uses': './.github/actions/wrapper'}),
+        'installs.yml': one_job(checkout, {'shell': 'pwsh',
+                                           'run': 'Install-Module -Name Pester -RequiredVersion 5.9.1 -Force'}),
         'sound-steps.yml': one_job(checkout, tests, wizard),
         'sound-needs.yml': {'jobs': {
             'unit': {'runs-on': 'windows-latest', 'steps': [checkout, tests]},
@@ -186,11 +287,11 @@ def planted():
 
 lines = []
 
-expected = {'no-tests.yml', 'late.yml', 'soft.yml', 'always.yml', 'inline.yml', 'hidden.yml'}
+expected = {'no-tests.yml', 'late.yml', 'soft.yml', 'always.yml', 'inline.yml', 'hidden.yml', 'installs.yml'}
 _, planted_problems = analyse(*planted())
 named = {label for label, _ in planted_problems}
 if named == expected and len(planted_problems) == len(expected):
-    lines.append('OK the reader names exactly the six planted defects and none of the four sound jobs')
+    lines.append('OK the reader names exactly the seven planted defects and none of the four sound jobs')
 else:
     lines.append('FAIL the reader misreads planted workflows, so nothing it says about the real ones '
                  'can be trusted :: expected one problem each in %s, got %s'
@@ -238,6 +339,29 @@ elif excluded_names != ['Network', 'Slow'] or not FILTER_READS_TAGS.search(scrip
 else:
     lines.append('OK %s runs WindowsSoftware.Tests.ps1 without the Slow and Network tagged tests'
                  % SHARED_SCRIPT.as_posix())
+
+pin_planted = planted_pin_bodies()
+pin_named = {label for label, pair in pin_planted.items() if pester_pin_problems(*pair)}
+if pin_named == set(pin_planted) - {'sound'}:
+    lines.append('OK the pin reader names every one of the %d planted pin defects and nothing in the sound pair'
+                 % len(pin_named))
+else:
+    lines.append('FAIL the pin reader misreads planted bodies, so nothing it says about the real ones can be '
+                 'trusted :: expected problems in %s and none in sound, got problems in %s'
+                 % (', '.join(sorted(set(pin_planted) - {'sound'})), ', '.join(sorted(pin_named)) or 'none'))
+
+if not EXACT_VERSION.match(PINNED_VERSION):
+    lines.append('FAIL %s does not name one exact Pester version, so the runner and the gate cannot be held to '
+                 "it :: it reads '%s'" % (PESTER_PIN, PINNED_VERSION))
+else:
+    script_text = SHARED_SCRIPT.read_text(encoding='utf-8') if SHARED_SCRIPT.exists() else ''
+    pin_problems = pester_pin_problems(bodies, powershell_code(script_text))
+    if pin_problems:
+        lines.append('FAIL the Windows runner or the gate can run a Pester other than the pinned %s :: %s'
+                     % (PINNED_VERSION, ' | '.join(pin_problems)))
+    else:
+        lines.append('OK %s installs and %s imports exactly Pester %s, read from %s, with no version of their own'
+                     % (SHARED_FILE.as_posix(), SHARED_SCRIPT.as_posix(), PINNED_VERSION, PESTER_PIN))
 
 workflows = {}
 for path in sorted(pathlib.Path('.github/workflows').glob('*.y*ml')):

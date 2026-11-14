@@ -10,22 +10,33 @@
 #
 # The run and the rule that decides whether it passed live in e2e/tier1/windows_pester.ps1, which the
 # tier 1 check windows_pester runs in the gate container as well.
+#
+# The runner runs the same Pester as the gate: the version gate_pester_version pins, read through
+# setup/pinned_values/PinnedValues.psm1, installed here only when that exact version is missing, and
+# imported by the script, which fails when it is missing (owner decision 53, docs/regression_ledger.md
+# 10.348). e2e/tier1/workflow_windows_pester.sh fails the gate when either one stops reading the pin
+# or writes a version of its own.
 name: Run the Windows unit tests
 description: Run the Pester suite over the Windows installer on this runner, without the Slow and Network tagged tests, and fail on any test, block or file that did not pass or skip, unless a Slow or Network tag left it out
 
 runs:
   using: composite
   steps:
-    - name: Ensure Pester 5 is available
+    - name: Install the Pester version the gate pins
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
-        $mod = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [Version]'5.0.0' } | Select-Object -First 1
-        if ($mod) {
-          Write-Host "Pester $($mod.Version) already available."
+        Import-Module (Join-Path $env:GITHUB_WORKSPACE 'setup' 'pinned_values' 'PinnedValues.psm1')
+        $version = [Version](Get-PinnedValue -Key gate_pester_version)
+        $present = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [Version]$version }
+        if ($present) {
+          Write-Host "Pester $version, the version gate_pester_version pins, is already installed."
         } else {
-          Write-Host 'Installing Pester 5, not found preinstalled on this runner image.'
-          Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Write-Host "Installing Pester $version, the version gate_pester_version pins, from the PowerShell Gallery."
+          Install-Module -Name Pester -RequiredVersion $version -Scope CurrentUser -Force -SkipPublisherCheck
+        }
+        if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [Version]$version })) {
+          throw "Pester $version is still not installed after Install-Module."
         }
 
     - name: Run the Pester suite, excluding the Slow and Network tagged Chocolatey bootstrap

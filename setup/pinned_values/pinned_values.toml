@@ -218,7 +218,9 @@ gate_pwsh_linux_x86_64_url = "{{ gate_pwsh_release_base }}/powershell-{{ gate_pw
 gate_pwsh_linux_x86_64_sha256 = "6896f9e3a6b0a354bf470835a96da76d2f801cd50dcf047ad7c4563bf93bf431"
 gate_pwsh_linux_aarch64_url = "{{ gate_pwsh_release_base }}/powershell-{{ gate_pwsh_version }}-linux-arm64.tar.gz"
 gate_pwsh_linux_aarch64_sha256 = "ba465efdfb0984c1c5dc5ed9eb0b79a7e91a1b52c45f99377058c0659b84d3f1"
-# Pester stays on major 5, which e2e/tier1/windows_pester.sh and the CI job both ask for. Verify the
+# Pester stays on major 5, the major the suite is written for. The gate image and the Windows runner
+# both run exactly this version: e2e/tier1/windows_pester.ps1 imports it and
+# .github/actions/windows-pester installs it, both reading this pin (owner decision 53). Verify the
 # newest 5.x on https://www.powershellgallery.com/packages/Pester, then measure the package with
 # sha256sum. 5.9.1 measured on 2026-10-15.
 gate_pester_version = "5.9.1"

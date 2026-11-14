@@ -14,12 +14,16 @@
 # file, which runs the suite with the Slow and Network tags excluded and decides whether the run
 # passed. e2e/tier1/workflow_windows_pester.sh fails the gate when either of them runs Pester itself.
 #
-# SKIP rather than pass when Pester or pwsh is missing, because a check that quietly proves nothing
-# is the thing this repository keeps paying for. The CI job stays as it is: it runs on a clean
-# Windows runner, which is a state this machine cannot reproduce.
+# SKIP rather than pass when pwsh is missing, because a check that quietly proves nothing is the thing
+# this repository keeps paying for. A missing Pester is a failure, not a skip: the script runs only the
+# Pester that gate_pester_version pins, the one the gate image carries, and this check passes only when
+# the version the script reports is that pin (owner decision 53, docs/regression_ledger.md 10.348). The
+# CI job stays as it is: it runs on a clean Windows runner, which is a state this machine cannot
+# reproduce.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/pwsh_probe.sh"
+source "${REPO_ROOT}/setup/pinned_values/pinned_values.sh"
 
 info "Tier 1: the Windows installer unit tests"
 
@@ -35,19 +39,18 @@ fi
 pester_status=0
 out="$("${PWSH}" -NoProfile -NonInteractive -File "${RUNNER}" -Verbosity None 2>&1 | tr -d '\r')" || pester_status=$?
 
-if grep -q '^PESTER_ABSENT' <<<"${out}"; then
-    skip "the Pester suite passes" "Pester 5 is not installed here, install it with: Install-Module Pester -Scope CurrentUser"
-    finish "Windows installer unit tests"
-    return 0 2>/dev/null || exit 0
-fi
-
+pinned="$(pinned_value gate_pester_version)" || pinned=""
+version="$(sed -n 's/^PESTER version=//p' <<<"${out}" | sed -n 1p)"
 counts="$(sed -n 's/^TOTALS //p' <<<"${out}" | sed -n 1p)"
 verdict="$(sed -n 's/^VERDICT //p' <<<"${out}" | sed -n 1p)"
 problems="$(sed -n 's/^PROBLEM \(.*\)$/\1 |/p' <<<"${out}" | tr '\n' ' ')"
 count_of() { sed -n "s/.*\<${1}=\([0-9][0-9]*\).*/\1/p" <<<"${counts}"; }
 
-if [[ "${verdict}" == pass && "${pester_status}" -eq 0 && -n "$(count_of notrunbytag)" ]]; then
-    pass "the Windows installer unit tests pass (${counts}, the $(count_of notrunbytag) not run are the Slow and Network tagged tests this check leaves out)"
+if [[ "${verdict}" == pass && ( -z "${pinned}" || "${version}" != "${pinned}" ) ]]; then
+    fail "the Windows installer unit tests ran under a Pester other than the pinned one, so they prove nothing about it" \
+         "the script printed PESTER version=${version:-nothing}, gate_pester_version pins '${pinned:-nothing readable}'"
+elif [[ "${verdict}" == pass && "${pester_status}" -eq 0 && -n "$(count_of notrunbytag)" ]]; then
+    pass "the Windows installer unit tests pass under Pester ${version}, the pinned version (${counts}, the $(count_of notrunbytag) not run are the Slow and Network tagged tests this check leaves out)"
 elif [[ "${verdict}" == fail ]]; then
     fail "the Windows installer unit tests did not all pass or skip" "${counts:-no totals} | ${problems}"
 else
