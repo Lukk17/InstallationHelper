@@ -397,16 +397,16 @@ function Invoke-AndShowDevEnvironment {
     .DESCRIPTION
         The Windows half of what roles/env_variables does on Linux and macOS. env_windows.yaml held
         these and could never run, because the playbook is invoked from inside WSL and reports
-        os_family Debian, so on Windows they were never written at all. Not gated on a toggle, for
-        the same reason the Unix role is not: the paths are where this project keeps tool state, and
-        a machine configured by either side should agree about them.
-
-        OnlyOwnerKey is empty in a full run, which writes every entry, and holds the picked keys in a
-        picked-apps run, which writes only the entries those keys own.
+        os_family Debian, so on Windows they were never written at all. Each variable is written only
+        when a toggle that owns it is on in this run, owner decision 49, read through the same
+        Get-WindowsGroupVarToggle every other phase reads, ToggleOverride included. A full run also
+        writes the shared entries, and a picked-apps run writes only the entries its picked apps own.
     #>
-    param([string[]] $OnlyOwnerKey)
+    param([hashtable] $ToggleOverride)
 
-    $r = Set-WindowsDevEnvironment -OnlyOwnerKey $OnlyOwnerKey
+    $toggles = Get-WindowsGroupVarToggle -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars -ToggleOverride $ToggleOverride
+    $enabled = @($toggles.Keys | Where-Object { $toggles[$_] })
+    $r = Set-WindowsDevEnvironment -OwnerKey $enabled -PickedAppsRun:$script:RunScope.PickedAppsRun
     $installed = @($r | Where-Object { $_.Status -eq 'installed' })
     $present   = @($r | Where-Object { $_.Status -eq 'present' })
     $failed    = @($r | Where-Object { $_.Status -eq 'failed' })
@@ -1416,7 +1416,7 @@ function Invoke-WindowsRun {
     # After the installs, because the Android variables point at what the Android SDK install just
     # wrote and JAVA_HOME is set by the Java install above.
     if ($script:RunScope.DevEnvironmentRun) {
-        $phases['Environment variables'] = Invoke-AndShowDevEnvironment -OnlyOwnerKey $script:RunScope.PickedKeys
+        $phases['Environment variables'] = Invoke-AndShowDevEnvironment -ToggleOverride $ToggleOverride
     } else {
         Write-Status 'Environment variables: not written, because no picked application needs them.'
     }
@@ -1541,11 +1541,12 @@ function Show-ResolvedPlan {
     }
     if (-not $RunScope.DevEnvironmentRun) {
         Write-Output '  Environment variables: skipped, because no picked application needs them.'
-    } elseif ($RunScope.PickedAppsRun) {
-        $owned = @(Get-WindowsDevEnvironmentEntry -OwnerKey $RunScope.PickedKeys | ForEach-Object { $_.Name } | Select-Object -Unique)
-        Write-Output "  Environment variables: only those the picked apps own, $(if ($owned.Count) { $owned -join ', ' } else { '(none)' }), at user scope."
     } else {
-        Write-Output '  Environment variables: the development variables and the Android PATH entries, at user scope.'
+        $enabledKeys = @($settingToggles.Keys | Where-Object { $settingToggles[$_] })
+        $owned = @(Get-WindowsDevEnvironmentEntry -OwnerKey $enabledKeys -IncludeShared:(-not $RunScope.PickedAppsRun) |
+                   Where-Object { $_.Kind -ne 'Directory' } | ForEach-Object { $_.Name } | Select-Object -Unique)
+        $scope = if ($RunScope.PickedAppsRun) { 'only those the picked apps own' } else { 'the shared ones and those the enabled apps own' }
+        Write-Output "  Environment variables: $scope, $(if ($owned.Count) { $owned -join ', ' } else { '(none)' }), at user scope."
     }
     if ($RunScope.PickedAppsRun) {
         Write-Output "  Ansible inside WSL: $skippedForPick"

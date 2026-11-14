@@ -18,8 +18,6 @@ role system_core | the temporary installation folder, flatpak, the base utilitie
 role software_installer | it is the install itself, and every package and custom install in it reads its own key
 task Remove temporary installation folder | the run's own folder, which system_core creates for this run
 env Ensure the environment.d directory exists (Linux/macOS) | the folder of dev_env_file_in_use, which the picked app's block goes into. It sets no mode, so a folder that exists keeps the mode it has, which config_backup_coverage.sh enforces
-env Set the Android SDK environment variables (Linux/macOS) | the Android SDK block, written only when install_android_sdk was picked
-env Set the Flutter environment variables (Linux/macOS) | the Flutter block, written only when install_flutter was picked
 env Ask whether each shell already imports environment.d (Linux/macOS) | reads the shell files and changes nothing, so the two imports below write only where none exists
 env Record which shells already import environment.d (Linux/macOS) | keeps what the task above found, and changes nothing
 env Ensure the zsh configuration directory exists (Linux/macOS) | the folder of the zsh import, made only when zsh imports environment.d nowhere yet. It sets no mode, so a folder that exists keeps the mode it has

@@ -50,7 +50,7 @@ Pass any of these to run a whole role.
 | `boot` | systemd-boot bootloader install + BLS entry generation |
 | `kde` | KDE Plasma install + configure |
 | `gnome` | GNOME install + configure |
-| `env` | Environment variables (PATH, JAVA_HOME, ANDROID_HOME, etc.) |
+| `env` | The environment.d import of every shell, `PROJECTS_DIR` and the migrations of older layouts. Each app's own variables, `JAVA_HOME` and `ANDROID_HOME` among them, come with the tag of the step that installs it, see "Shell and environment layout" in `setup/configuration.md` |
 | `shell` | ZSH + Oh-My-Zsh + Powerlevel10k |
 | `sdk` | All SDK managers (NVM + SDKMAN + Pyenv + FVM + Android) |
 | `ai` | All AI tools (Claude Code + Claude Desktop + OpenCode + OpenSpec + LM Studio + Stable Diffusion) |

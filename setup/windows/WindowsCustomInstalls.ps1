@@ -1093,21 +1093,27 @@ function Get-WindowsDevEnvironmentEntry {
         The one table of what Set-WindowsDevEnvironment writes, each entry with the toggle that owns it.
     .DESCRIPTION
         Kind is Directory, Variable or Path, where a Path entry is one directory added to the user PATH.
-        Owner is the toggle whose application needs the entry, the same blocks
-        roles/env_variables/tasks/env_unix.yaml writes on Linux and macOS: the Android block belongs to
-        install_android_sdk. An empty Owner is the shared block, the two directories and the five
-        apps_config and projects variables, which Linux writes only in a full run, and so does
-        Set-WindowsDevEnvironment. Owner decision 42, docs/regression_ledger.md 10.321.
+        Owner lists the toggles whose application needs the entry, the same blocks the install steps
+        write on Linux and macOS, owner decision 49: GRADLE_USER_HOME belongs to install_gradle,
+        DOCKER_CONFIG to install_docker, M2_HOME to install_maven, KUBECONFIG to every Kubernetes tool
+        and the Android block to install_android_sdk. An empty Owner is shared, the two directories
+        and PROJECTS_DIR, which Linux writes only in a full run, and so does Set-WindowsDevEnvironment.
+        Owner decision 42, docs/regression_ledger.md 10.321.
 
-        With -OwnerKey, only the entries those toggles own come back, and never a shared one.
+        With -OwnerKey, only the entries one of those toggles owns come back, and a shared one only
+        with -IncludeShared as well.
     #>
     [CmdletBinding()]
     [OutputType([PSCustomObject[]])]
-    param([string[]] $OwnerKey)
+    param(
+        [AllowEmptyCollection()] [string[]] $OwnerKey,
+        [switch] $IncludeShared
+    )
 
     $appsConfig = Join-Path $env:USERPROFILE 'apps_config'
     $sdk = $script:AndroidSdkRoot
-    $entry = { param($Kind, $Name, $Value, $Owner) [PSCustomObject]@{ Kind = $Kind; Name = $Name; Value = $Value; Owner = $Owner } }
+    $entry = { param($Kind, $Name, $Value, $Owner) [PSCustomObject]@{ Kind = $Kind; Name = $Name; Value = $Value; Owner = @($Owner | Where-Object { $_ }) } }
+    $kubernetes = @('install_kubectl', 'install_minikube', 'install_k3d', 'install_helm', 'install_lens')
 
     $table = @(
         & $entry 'Directory' 'apps_config'      $appsConfig ''
@@ -1118,12 +1124,12 @@ function Get-WindowsDevEnvironmentEntry {
         # default has the same shape as the other two families, a Projects folder in the profile. A
         # machine that keeps its code on another drive changes this one line.
         & $entry 'Directory' 'projects_dir'     (Join-Path $env:USERPROFILE 'Projects') ''
-        # The same five names and the same layout the Unix shell block writes, so a machine configured
-        # by either one keeps its tool state in the same place.
-        & $entry 'Variable'  'GRADLE_USER_HOME' (Join-Path $appsConfig '.gradle') ''
-        & $entry 'Variable'  'DOCKER_CONFIG'    (Join-Path $appsConfig '.docker') ''
-        & $entry 'Variable'  'M2_HOME'          (Join-Path $appsConfig '.m2') ''
-        & $entry 'Variable'  'KUBECONFIG'       (Join-Path $appsConfig '.kube\config') ''
+        # The same names and the same layout the Unix blocks write, so a machine configured by either
+        # one keeps its tool state in the same place.
+        & $entry 'Variable'  'GRADLE_USER_HOME' (Join-Path $appsConfig '.gradle') 'install_gradle'
+        & $entry 'Variable'  'DOCKER_CONFIG'    (Join-Path $appsConfig '.docker') 'install_docker'
+        & $entry 'Variable'  'M2_HOME'          (Join-Path $appsConfig '.m2') 'install_maven'
+        & $entry 'Variable'  'KUBECONFIG'       (Join-Path $appsConfig '.kube\config') $kubernetes
         & $entry 'Variable'  'PROJECTS_DIR'     (Join-Path $env:USERPROFILE 'Projects') ''
         # ANDROID_USER_HOME names the preferences directory. ANDROID_SDK_HOME is the legacy variable
         # Android Studio 4.3 and earlier read for the same purpose, and it names the PARENT the
@@ -1140,7 +1146,10 @@ function Get-WindowsDevEnvironmentEntry {
     )
 
     if ($PSBoundParameters.ContainsKey('OwnerKey')) {
-        return @($table | Where-Object { $_.Owner -and $_.Owner -in $OwnerKey })
+        $wanted = @($OwnerKey | Where-Object { $_ })
+        return @($table | Where-Object {
+            ($IncludeShared -and $_.Owner.Count -eq 0) -or @($_.Owner | Where-Object { $_ -in $wanted }).Count -gt 0
+        })
     }
     return $table
 }
@@ -1151,12 +1160,13 @@ function Set-WindowsDevEnvironment {
         Writes the development environment variables at user scope, the Windows half of what
         roles/env_variables does everywhere else.
     .DESCRIPTION
-        What it writes is the table of Get-WindowsDevEnvironmentEntry. A full run writes every entry.
-        A picked-apps run passes -OnlyOwnerKey with the picked keys and writes only the entries those
-        toggles own, and no shared entry and no directory, which is what env_unix.yaml does on Linux
-        in such a run, owner decision 42.
+        What it writes is the table of Get-WindowsDevEnvironmentEntry. -OwnerKey holds the toggles
+        that are on in this run, and only the entries one of them owns are written, so a variable of
+        an app this run does not install is never set, owner decision 49. A full run writes the shared
+        entries as well. A picked-apps run passes -PickedAppsRun and writes no shared entry and no
+        directory, which is what env_unix.yaml does on Linux in such a run, owner decision 42.
 
-        The five apps_config variables plus the Android ones and PROJECTS_DIR. env_windows.yaml held these and could
+        The four apps_config variables plus the Android ones and PROJECTS_DIR. env_windows.yaml held these and could
         never run, because the playbook is invoked from inside WSL and reports os_family Debian, so
         on Windows they were never written at all.
 
@@ -1174,14 +1184,13 @@ function Set-WindowsDevEnvironment {
         PATH that eventually stops working because it exceeded its limit.
     #>
     [CmdletBinding(SupportsShouldProcess)]
-    param([string[]] $OnlyOwnerKey)
+    param(
+        [AllowEmptyCollection()] [string[]] $OwnerKey = @(),
+        [switch] $PickedAppsRun
+    )
 
     $results = [System.Collections.Generic.List[object]]::new()
-    $table = if (@($OnlyOwnerKey | Where-Object { $_ }).Count -gt 0) {
-        @(Get-WindowsDevEnvironmentEntry -OwnerKey $OnlyOwnerKey)
-    } else {
-        @(Get-WindowsDevEnvironmentEntry)
-    }
+    $table = @(Get-WindowsDevEnvironmentEntry -OwnerKey $OwnerKey -IncludeShared:(-not $PickedAppsRun))
 
     foreach ($directory in @($table | Where-Object { $_.Kind -eq 'Directory' })) {
         if (-not $PSCmdlet.ShouldProcess($directory.Value, "create the $($directory.Name) directory")) { continue }

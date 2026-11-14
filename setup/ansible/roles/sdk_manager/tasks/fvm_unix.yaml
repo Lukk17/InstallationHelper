@@ -10,7 +10,7 @@
 # puts `dart pub global activate fvm` behind a warning reading "This is not recommended if you plan on
 # using FVM to manage your global Flutter install", which is exactly what the "Set FVM global version"
 # task below this file does with `fvm global`. One route means one place FVM's binary can land, which
-# is what lets env_variables' PATH construction name that single directory instead of guessing across
+# is what lets the Flutter environment block below name that single directory instead of guessing across
 # several. This is Linux and macOS only: Windows has no install script to fall back on (the same page's
 # OS support is macOS and Linux, nothing else), so it keeps `dart pub global activate fvm` from pub.dev
 # and the standalone Dart that route needs, in setup/windows/WindowsCustomInstalls.ps1, untouched by
@@ -37,6 +37,24 @@
   retries: 3
   delay: 10
   until: fvm_script_install is succeeded
+
+# Written here, by the install, so only a run with install_flutter on has it, owner decision 49. Until
+# 2026-11-14 env_variables wrote this block in every full run, whether or not Flutter was installed.
+- name: Set the Flutter environment variables (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file_in_use }}"
+    marker: "# {mark} ANSIBLE FLUTTER ENVIRONMENT"
+    create: yes
+    block: |
+      # Pub (Dart/Flutter) installs user-level executables into ${HOME}/.pub-cache/bin, on PATH below.
+      PUB_CACHE=${HOME}/.pub-cache
+      # ${HOME}/fvm/bin is FVM's own binary and ${HOME}/fvm/default/bin the SDK its `fvm global`
+      # symlink points at, both under FVM's default fvmDir (lib/src/utils/context.dart). The
+      # per-channel directory, ~/fvm/versions/<channel>/bin, carries the channel name and so cannot
+      # be a fixed entry. docs/regression_ledger.md has why ${HOME}/fvm/bin is here.
+      PATH="${HOME}/.pub-cache/bin:${HOME}/fvm/bin:${HOME}/fvm/default/bin:${PATH}"
+  become: yes
+  become_user: "{{ non_root_user }}"
 
 - name: Locate FVM binary after install
   ansible.builtin.shell: |

@@ -777,7 +777,7 @@
     # Arch, Debian, Fedora and macOS and removed from all four on 2026-09-18 in favour of FVM's own
     # install script everywhere, used to share the same shell_bin, "dart", and command -v dart could
     # not tell the two apart. FVM's own dart is the one meant to win on PATH by construction, since
-    # env_variables' PATH puts ~/fvm/default/bin ahead of everything else, so the row still asserts
+    # the Flutter block of fvm_unix.yaml puts ~/fvm/default/bin ahead of everything else, so the row still asserts
     # against its own exact path rather than trusting the name to resolve to it.
     #
     # Left empty for the rows above that check several candidate directories with no single path to
@@ -1174,26 +1174,38 @@
     # every distribution this project supports, and the fallback is the path all of them use. Linux
     # only: macOS has no systemd and its desktop does not read environment.d at all.
     #
-    # The variables and the two PATH entries env_variables writes are asked in a full run. A picked-apps
-    # run writes only the Android SDK and Flutter blocks of the apps it picked, and never the general
-    # block, see ih_env_variables_run in group_vars/all.yaml, so only those are asked there. The ones an
-    # SDK or JetBrains Toolbox writes are asked whenever that toggle is on.
+    # PROJECTS_DIR, which env_variables writes, is asked in a full run only, because a picked-apps run
+    # never writes it, see ih_env_variables_run in group_vars/all.yaml. Every other variable and PATH
+    # entry is written by the step that installs its app, owner decision 49, so it is asked whenever
+    # that toggle is on, which in a picked-apps run means picked. KUBECONFIG belongs to every
+    # Kubernetes tool, the same five toggles roles/software_installer/tasks/app_environment.yaml reads.
+    # Docker, kubectl, Helm and Lens count only while unavailable_repositories, asked above, does not name
+    # their repository, as there, because nothing installs them and nothing writes their variable then.
+    # Helm has such a repository on Debian only.
     - name: Define what the desktop session environment must carry
       ansible.builtin.set_fact:
         ih_session_env_vars: >-
-          {{ ([] if (ih_picked_apps_run | bool) else
-              ['GRADLE_USER_HOME', 'DOCKER_CONFIG', 'M2_HOME', 'KUBECONFIG', 'PROJECTS_DIR'])
+          {{ ([] if (ih_picked_apps_run | bool) else ['PROJECTS_DIR'])
+             + (['GRADLE_USER_HOME'] if (install_gradle | default(false) | bool) else [])
+             + (['DOCKER_CONFIG']
+                if (install_docker | default(false) | bool and 'docker' not in unavailable_repositories | default({}))
+                else [])
+             + (['M2_HOME'] if (install_maven | default(false) | bool) else [])
+             + (['KUBECONFIG']
+                if ((install_kubectl | default(false) | bool and 'kubectl' not in unavailable_repositories | default({}))
+                    or install_minikube | default(false) | bool or install_k3d | default(false) | bool
+                    or (install_helm | default(false) | bool and 'helm' not in unavailable_repositories | default({}))
+                    or (install_lens | default(false) | bool and 'lens' not in unavailable_repositories | default({})))
+                else [])
              + (['ANDROID_HOME', 'ANDROID_SDK_ROOT', 'ANDROID_USER_HOME', 'ANDROID_SDK_HOME']
-                if (not (ih_picked_apps_run | bool) or 'install_android_sdk' in ih_picked_toggles) else [])
-             + (['PUB_CACHE'] if (not (ih_picked_apps_run | bool) or 'install_flutter' in ih_picked_toggles) else [])
+                if (install_android_sdk | default(false) | bool) else [])
+             + (['PUB_CACHE'] if (install_flutter | default(false) | bool) else [])
              + (['NVM_DIR'] if (install_nodejs | default(false) | bool) else [])
              + (['SDKMAN_DIR', 'JAVA_HOME'] if (install_java | default(false) | bool) else [])
              + (['PYENV_ROOT'] if (install_python | default(false) | bool) else []) }}
         ih_session_path_entries: >-
-          {{ ([android_home ~ '/platform-tools']
-              if (not (ih_picked_apps_run | bool) or 'install_android_sdk' in ih_picked_toggles) else [])
-             + ([non_root_home ~ '/fvm/bin']
-                if (not (ih_picked_apps_run | bool) or 'install_flutter' in ih_picked_toggles) else [])
+          {{ ([android_home ~ '/platform-tools'] if (install_android_sdk | default(false) | bool) else [])
+             + ([non_root_home ~ '/fvm/bin'] if (install_flutter | default(false) | bool) else [])
              + ([non_root_home ~ '/.sdkman/candidates/java/current/bin'] if (install_java | default(false) | bool) else [])
              + ([non_root_home ~ '/.pyenv/bin'] if (install_python | default(false) | bool) else [])
              + ([jetbrains_toolbox_scripts_dir] if (install_jetbrains_toolbox | default(false) | bool) else []) }}
@@ -1643,7 +1655,7 @@
              if (ih_session_env.rc | default(1)) != 0
              else ('FAIL desktop session environment missing: ' ~ (ih_session_env_missing | join(', '))
                    ~ '. A desktop application started at the next login would not see these, even if every terminal does. '
-                   ~ 'They belong in ' ~ dev_env_file ~ ', which env_variables, nvm_unix.yaml, sdkman_unix.yaml and pyenv_unix.yaml write'
+                   ~ 'They belong in ' ~ dev_env_file ~ ', which env_variables and the step that installs each app write'
                    ~ ('' if (env_variables_available | default(true) | bool) else ', and that file is missing because env_variables failed')
                    ~ '.') }}
         quiet: true

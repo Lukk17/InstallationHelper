@@ -49,6 +49,31 @@
     creates: "{{ android_home }}/cmdline-tools/latest"
   when: not cmdline_tools_stat.stat.exists
 
+# Written here, by the install, so only a run with install_android_sdk on has it, owner decision 49.
+# Until 2026-11-14 env_variables wrote this block in every full run, whether or not the SDK was
+# installed.
+- name: Set the Android SDK environment variables (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file_in_use }}"
+    marker: "# {mark} ANSIBLE ANDROID SDK ENVIRONMENT"
+    create: yes
+    block: |
+      # The SDK location, from the same android_home the installer writes to. ANDROID_HOME is the
+      # current name and ANDROID_SDK_ROOT is the deprecated one, and both are set to the same path
+      # because Android Studio and the Gradle plugin check the two for consistency when the old one
+      # is present. https://developer.android.com/tools/variables
+      ANDROID_HOME="{{ android_home }}"
+      ANDROID_SDK_ROOT="{{ android_home }}"
+      # The user preferences directory, which is a different thing from the SDK. ANDROID_USER_HOME
+      # names it outright. ANDROID_SDK_HOME is the legacy variable Android Studio 4.3 and earlier
+      # read, and it names the PARENT the .android directory is created under, so it gets
+      # apps_config rather than apps_config/.android.
+      ANDROID_USER_HOME=${HOME}/apps_config/.android
+      ANDROID_SDK_HOME=${HOME}/apps_config
+      PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:${PATH}"
+  become: yes
+  become_user: "{{ non_root_user }}"
+
 # sdkmanager needs Java to run. We use SDKMAN's `current` Java symlink.
 # Under `--tags android` alone, the SDKMAN task (tagged `[sdkman]`) doesn't
 # fire — probe the symlink first and surface a clear error if missing.

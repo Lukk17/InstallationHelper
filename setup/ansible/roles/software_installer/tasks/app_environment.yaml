@@ -1,0 +1,66 @@
+---
+# The environment variable of each tool this role installs, written into dev_env_file_in_use only when
+# that tool's toggle is on, owner decision 49. Until 2026-11-14 env_variables wrote all four in one
+# block in every full run, whether or not the tool was installed, docs/regression_ledger.md. Each has a
+# marked block of its own, so a picked-apps run writes only the picked tool's, and the values are the
+# ones that block held. They point into ~/apps_config, which env_variables creates in a full run.
+#
+# Docker comes from virtualization_config on Linux and from Homebrew here on macOS, and Gradle from
+# SDKMAN on Debian and Fedora, which have no usable package, and from the OS package manager
+# elsewhere. The toggle is the same on every route, so each block is written once, here, after this
+# role's own installs. KUBECONFIG is the file every Kubernetes tool reads or writes its clusters into,
+# kubectl, minikube, k3d, Helm and Lens, so any one of them writes it, and verify_install.yaml asks
+# for it under the same five toggles.
+#
+# Docker, kubectl and Lens come from a third-party repository on Debian and Fedora, and Helm on
+# Debian, and a toggle whose repository could not be added installs nothing, so its variable is left
+# out too: each such toggle counts only while unavailable_repositories, from
+# tasks/repository_availability.yaml, does not name its repository. verify_install.yaml reads the
+# same fact, and e2e/tier1/app_env_owners.sh fails when the two name different repositories.
+- name: Set the Docker environment variable (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file_in_use }}"
+    marker: "# {mark} ANSIBLE DOCKER ENVIRONMENT"
+    create: yes
+    block: |
+      DOCKER_CONFIG=${HOME}/apps_config/.docker
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: install_docker | default(false) | bool and 'docker' not in unavailable_repositories | default({})
+
+- name: Set the Maven environment variable (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file_in_use }}"
+    marker: "# {mark} ANSIBLE MAVEN ENVIRONMENT"
+    create: yes
+    block: |
+      M2_HOME=${HOME}/apps_config/.m2
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: install_maven | default(false) | bool
+
+- name: Set the Gradle environment variable (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file_in_use }}"
+    marker: "# {mark} ANSIBLE GRADLE ENVIRONMENT"
+    create: yes
+    block: |
+      GRADLE_USER_HOME=${HOME}/apps_config/.gradle
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: install_gradle | default(false) | bool
+
+- name: Set the Kubernetes environment variable (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file_in_use }}"
+    marker: "# {mark} ANSIBLE KUBERNETES ENVIRONMENT"
+    create: yes
+    block: |
+      KUBECONFIG=${HOME}/apps_config/.kube/config
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: >-
+    (install_kubectl | default(false) | bool and 'kubectl' not in unavailable_repositories | default({}))
+    or install_minikube | default(false) | bool or install_k3d | default(false) | bool
+    or (install_helm | default(false) | bool and 'helm' not in unavailable_repositories | default({}))
+    or (install_lens | default(false) | bool and 'lens' not in unavailable_repositories | default({}))

@@ -4898,15 +4898,18 @@ Describe 'The user environment keeps what HKCU\Environment holds, %VAR% and the 
 
 Describe 'Set-WindowsDevEnvironment writes only what the picked apps own in a picked-apps run' {
 
-    # Owner decision 42, docs/regression_ledger.md 10.321. The writer is mocked, because a user
+    # Owner decision 42, docs/regression_ledger.md 10.321, and owner decision 49: a full run writes an
+    # app's variable only when a toggle that owns it is on. The writer is mocked, because a user
     # environment variable is the registry of the machine running the suite.
     BeforeAll {
         $script:SavedProfile = $env:USERPROFILE
         $script:SavedSdkRoot = $script:AndroidSdkRoot
         $env:USERPROFILE = Join-Path $TestDrive 'profile'
         $script:AndroidSdkRoot = Join-Path $TestDrive 'android'
-        $script:SharedVariables = @('GRADLE_USER_HOME', 'DOCKER_CONFIG', 'M2_HOME', 'KUBECONFIG', 'PROJECTS_DIR')
+        $script:SharedVariables = @('PROJECTS_DIR')
+        $script:AppVariables = @('GRADLE_USER_HOME', 'DOCKER_CONFIG', 'M2_HOME', 'KUBECONFIG')
         $script:AndroidVariables = @('ANDROID_USER_HOME', 'ANDROID_SDK_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT')
+        $script:EveryOwner = @(Get-WindowsDevEnvironmentEntry | ForEach-Object { $_.Owner } | Select-Object -Unique)
     }
 
     AfterAll {
@@ -4924,9 +4927,24 @@ Describe 'Set-WindowsDevEnvironment writes only what the picked apps own in a pi
 
     It 'gives every entry either no owner or an owner from env_variables_dependent_toggles' {
         $dependent = @(Get-WindowsGroupVarList -AllVarsPath (Join-Path $script:AnsibleDir 'group_vars\all.yaml') -Name 'env_variables_dependent_toggles')
-        $strays = @(Get-WindowsDevEnvironmentEntry | Where-Object { $_.Owner -and $_.Owner -notin $dependent } | ForEach-Object { "$($_.Name) $($_.Owner)" })
+        $strays = @(Get-WindowsDevEnvironmentEntry | ForEach-Object {
+            $name = $_.Name
+            $_.Owner | Where-Object { $_ -notin $dependent } | ForEach-Object { "$name $_" }
+        })
 
         $strays | Should -BeNullOrEmpty
+    }
+
+    It 'gives every app variable its owning toggles, owner decision 49, and leaves only PROJECTS_DIR and the two directories shared' {
+        $owners = @{}
+        foreach ($item in @(Get-WindowsDevEnvironmentEntry)) { $owners[$item.Name] = @($item.Owner) }
+
+        ($owners['GRADLE_USER_HOME'] -join ',') | Should -BeExactly 'install_gradle'
+        ($owners['DOCKER_CONFIG'] -join ',') | Should -BeExactly 'install_docker'
+        ($owners['M2_HOME'] -join ',') | Should -BeExactly 'install_maven'
+        (($owners['KUBECONFIG'] | Sort-Object) -join ',') | Should -BeExactly 'install_helm,install_k3d,install_kubectl,install_lens,install_minikube'
+        $shared = @(Get-WindowsDevEnvironmentEntry | Where-Object { $_.Owner.Count -eq 0 } | ForEach-Object { $_.Name })
+        ($shared -join ',') | Should -BeExactly 'apps_config,projects_dir,PROJECTS_DIR'
     }
 
     It 'names each variable and each directory once' {
@@ -4935,28 +4953,92 @@ Describe 'Set-WindowsDevEnvironment writes only what the picked apps own in a pi
         @($names | Select-Object -Unique).Count | Should -Be $names.Count
     }
 
-    It 'writes every variable and the PATH, and makes both directories, in a full run' {
-        Set-WindowsDevEnvironment | Out-Null
+    It 'writes every variable and the PATH, and makes both directories, in a full run with every owning app on' {
+        Set-WindowsDevEnvironment -OwnerKey $script:EveryOwner | Out-Null
 
-        foreach ($name in ($script:SharedVariables + $script:AndroidVariables + 'PATH')) {
+        foreach ($name in ($script:SharedVariables + $script:AppVariables + $script:AndroidVariables + 'PATH')) {
             @($global:EnvWrites) | Should -Contain $name
         }
         Test-Path -LiteralPath (Join-Path $env:USERPROFILE 'apps_config') | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $env:USERPROFILE 'Projects') | Should -BeTrue
     }
 
+    It 'writes only PROJECTS_DIR and makes both directories in a full run with every owning app off, owner decision 49' {
+        Set-WindowsDevEnvironment -OwnerKey @() | Out-Null
+
+        ($global:EnvWrites -join ',') | Should -BeExactly 'PROJECTS_DIR'
+        Test-Path -LiteralPath (Join-Path $env:USERPROFILE 'apps_config') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $env:USERPROFILE 'Projects') | Should -BeTrue
+    }
+
+    It 'writes <Variable> and the shared entries, and no other app variable, in a full run with only <Key> on' -ForEach @(
+        @{ Key = 'install_gradle'; Variable = 'GRADLE_USER_HOME' }
+        @{ Key = 'install_docker'; Variable = 'DOCKER_CONFIG' }
+        @{ Key = 'install_maven'; Variable = 'M2_HOME' }
+        @{ Key = 'install_kubectl'; Variable = 'KUBECONFIG' }
+        @{ Key = 'install_minikube'; Variable = 'KUBECONFIG' }
+        @{ Key = 'install_k3d'; Variable = 'KUBECONFIG' }
+        @{ Key = 'install_helm'; Variable = 'KUBECONFIG' }
+        @{ Key = 'install_lens'; Variable = 'KUBECONFIG' }
+    ) {
+        Set-WindowsDevEnvironment -OwnerKey @($Key, 'install_chrome') | Out-Null
+
+        @($global:EnvWrites | Sort-Object) | Should -Be @(($script:SharedVariables + $Variable) | Sort-Object)
+    }
+
     It 'writes only the Android variables and PATH, and makes no directory, in a picked-apps run of install_android_sdk' {
-        Set-WindowsDevEnvironment -OnlyOwnerKey @('install_android_sdk', 'install_kicad9') | Out-Null
+        Set-WindowsDevEnvironment -OwnerKey @('install_android_sdk', 'install_kicad9') -PickedAppsRun | Out-Null
 
         @($global:EnvWrites | Sort-Object) | Should -Be @(($script:AndroidVariables + 'PATH') | Sort-Object)
         Test-Path -LiteralPath $env:USERPROFILE | Should -BeFalse
     }
 
+    It 'writes only DOCKER_CONFIG, and makes no directory, in a picked-apps run of install_docker' {
+        Set-WindowsDevEnvironment -OwnerKey @('install_docker') -PickedAppsRun | Out-Null
+
+        ($global:EnvWrites -join ',') | Should -BeExactly 'DOCKER_CONFIG'
+        Test-Path -LiteralPath $env:USERPROFILE | Should -BeFalse
+    }
+
     It 'writes nothing in a picked-apps run whose keys own no entry' {
-        $r = @(Set-WindowsDevEnvironment -OnlyOwnerKey @('install_java'))
+        $r = @(Set-WindowsDevEnvironment -OwnerKey @('install_java') -PickedAppsRun)
 
         $r.Count | Should -Be 0
         $global:EnvWrites.Count | Should -Be 0
+    }
+}
+
+Describe 'Invoke-AndShowDevEnvironment in setup.ps1, which passes the enabled toggles to Set-WindowsDevEnvironment' {
+
+    # Owner decision 49: a variable is written only when a toggle that owns it is on. The function is
+    # read out of the syntax tree for the reason the Install-ConsoleGuiTools tests give, and checked
+    # for the toggles it reads and the call it makes.
+    BeforeAll {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+        $script:DevEnvironmentFunction = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-AndShowDevEnvironment'
+        }, $true))
+        $script:DevEnvironmentCalls = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Invoke-AndShowDevEnvironment'
+        }, $true))
+    }
+
+    It 'reads the toggles with the run''s ToggleOverride and hands only the enabled ones to Set-WindowsDevEnvironment' {
+        $script:DevEnvironmentFunction.Count | Should -Be 1
+        $body = $script:DevEnvironmentFunction[0].Body.Extent.Text
+
+        $body | Should -Match 'Get-WindowsGroupVarToggle -AllVarsPath \$AllVars -WindowsVarsPath \$WindowsVars -ToggleOverride \$ToggleOverride'
+        $body | Should -Match 'Set-WindowsDevEnvironment -OwnerKey \$enabled -PickedAppsRun:\$script:RunScope\.PickedAppsRun'
+    }
+
+    It 'is called with the ToggleOverride of the run, once' {
+        $script:DevEnvironmentCalls.Count | Should -Be 1
+        $script:DevEnvironmentCalls[0].Extent.Text | Should -Match '-ToggleOverride \$ToggleOverride\b'
     }
 }
 

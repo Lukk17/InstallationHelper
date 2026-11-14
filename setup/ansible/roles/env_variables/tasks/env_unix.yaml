@@ -2,8 +2,11 @@
 # Every static variable and every PATH entry a desktop application and a terminal both need lives in
 # one file, dev_env_file, ~/.config/environment.d/990-dev.conf. The systemd user manager reads it at
 # login, so an application Plasma or GNOME starts sees it, and every shell imports the same file at
-# start, so a terminal, an SSH login and a TTY login see it too. env_unix.yaml, nvm_unix.yaml,
-# sdkman_unix.yaml, pyenv_unix.yaml and local_llm.yaml each append their own marked block to it.
+# start, so a terminal, an SSH login and a TTY login see it too. This file writes only PROJECTS_DIR,
+# which the installer itself needs in every full run. Every app variable is written by the step that
+# installs the app, only when its toggle is on, owner decision 49: nvm_unix.yaml, sdkman_unix.yaml,
+# pyenv_unix.yaml, fvm_unix.yaml and android_sdk_unix.yaml of sdk_manager, app_environment.yaml of
+# software_installer, local_llm.yaml and jetbrains_toolbox each append their own marked block to it.
 #
 # Until 2026-10-15 these were export lines in ~/apps_config/env.sh, sourced only from ~/.zshrc and
 # ~/.bashrc. Plasma starts its session through a non-interactive login zsh, which never reads .zshrc,
@@ -11,12 +14,12 @@
 # ANDROID_HOME, JAVA_HOME or KUBECONFIG. See docs/regression_ledger.md and setup/configuration.md,
 # "Shell and environment layout".
 #
-# A picked-apps run, owner decision 42, runs only what the picked apps need: the Android SDK and
-# Flutter blocks when it picked them, and each shell import only where that shell imports nothing yet.
-# Every block goes into dev_env_file_in_use, which is 50-dev.conf on a machine that still keeps its
-# environment there and dev_env_file otherwise. The general block, the two directories and the
-# migrations at the end belong to the machine rather than to an app, so a picked-apps run leaves them
-# out. e2e/tier1/picked_apps_scope.sh fails when a task here runs in a picked-apps run and
+# A picked-apps run, owner decision 42, runs only what the picked apps need: each shell import only
+# where that shell imports nothing yet, so the picked app's own block reaches a terminal. Every block
+# goes into dev_env_file_in_use, which is 50-dev.conf on a machine that still keeps its environment
+# there and dev_env_file otherwise. The projects block, the two directories and the migrations at the
+# end belong to the machine rather than to an app, so a picked-apps run leaves them out.
+# e2e/tier1/picked_apps_scope.sh fails when a task here runs in a picked-apps run and
 # e2e/tier1/picked_apps_allowed.txt does not name it.
 - name: Ensure the apps_config directory the variables below point into exists (Linux/macOS)
   ansible.builtin.file:
@@ -46,66 +49,18 @@
 # KEY=VALUE lines only, because systemd reads this file as well as the shells: environment.d expands
 # ${HOME} and ${PATH} and strips a pair of double quotes, and a POSIX shell sourcing it under set -a
 # does the same, so one file serves both. No `export`, no `~`, no shell syntax beyond that.
-#
-# Three blocks rather than one, so a picked-apps run can write the Android SDK or Flutter half alone.
-# A full run writes all three, whatever the SDK toggles say, as it did when they were one block,
-# because Android Studio and a Flutter checkout read them without this project installing either SDK.
-- name: Set Dev Apps Environment Variables (Linux/macOS)
+- name: Set the projects directory variable (Linux/macOS)
   ansible.builtin.blockinfile:
     path: "{{ dev_env_file_in_use }}"
-    marker: "# {mark} ANSIBLE DEV APPS CONFIG"
+    marker: "{{ projects_dir_env_marker }}"
     create: yes
     block: |
-      GRADLE_USER_HOME=${HOME}/apps_config/.gradle
-      DOCKER_CONFIG=${HOME}/apps_config/.docker
-      M2_HOME=${HOME}/apps_config/.m2
-      KUBECONFIG=${HOME}/apps_config/.kube/config
       # Where source checkouts live, from projects_dir in group_vars/all.yaml. Quoted, so a path with
       # a space survives both systemd and the shell.
       PROJECTS_DIR="{{ projects_dir }}"
   become: yes
   become_user: "{{ non_root_user }}"
   when: not (ih_picked_apps_run | bool)
-
-- name: Set the Android SDK environment variables (Linux/macOS)
-  ansible.builtin.blockinfile:
-    path: "{{ dev_env_file_in_use }}"
-    marker: "# {mark} ANSIBLE ANDROID SDK ENVIRONMENT"
-    create: yes
-    block: |
-      # The SDK location, from the same android_home the installer writes to. ANDROID_HOME is the
-      # current name and ANDROID_SDK_ROOT is the deprecated one, and both are set to the same path
-      # because Android Studio and the Gradle plugin check the two for consistency when the old one
-      # is present. https://developer.android.com/tools/variables
-      ANDROID_HOME="{{ android_home }}"
-      ANDROID_SDK_ROOT="{{ android_home }}"
-      # The user preferences directory, which is a different thing from the SDK. ANDROID_USER_HOME
-      # names it outright. ANDROID_SDK_HOME is the legacy variable Android Studio 4.3 and earlier
-      # read, and it names the PARENT the .android directory is created under, so it gets
-      # apps_config rather than apps_config/.android.
-      ANDROID_USER_HOME=${HOME}/apps_config/.android
-      ANDROID_SDK_HOME=${HOME}/apps_config
-      PATH="{{ android_home }}/cmdline-tools/latest/bin:{{ android_home }}/platform-tools:{{ android_home }}/emulator:${PATH}"
-  become: yes
-  become_user: "{{ non_root_user }}"
-  when: not (ih_picked_apps_run | bool) or 'install_android_sdk' in ih_picked_toggles
-
-- name: Set the Flutter environment variables (Linux/macOS)
-  ansible.builtin.blockinfile:
-    path: "{{ dev_env_file_in_use }}"
-    marker: "# {mark} ANSIBLE FLUTTER ENVIRONMENT"
-    create: yes
-    block: |
-      # Pub (Dart/Flutter) installs user-level executables into ${HOME}/.pub-cache/bin, on PATH below.
-      PUB_CACHE=${HOME}/.pub-cache
-      # ${HOME}/fvm/bin is FVM's own binary and ${HOME}/fvm/default/bin the SDK its `fvm global`
-      # symlink points at, both under FVM's default fvmDir (lib/src/utils/context.dart). The
-      # per-channel directory, ~/fvm/versions/<channel>/bin, carries the channel name and so cannot
-      # be a fixed entry. docs/regression_ledger.md has why ${HOME}/fvm/bin is here.
-      PATH="${HOME}/.pub-cache/bin:${HOME}/fvm/bin:${HOME}/fvm/default/bin:${PATH}"
-  become: yes
-  become_user: "{{ non_root_user }}"
-  when: not (ih_picked_apps_run | bool) or 'install_flutter' in ih_picked_toggles
 
 # A picked-apps run writes a shell's import only where that shell imports nothing yet, so a machine
 # whose own layout already reads environment.d keeps it as it is. zsh imports from either .zshenv, so
@@ -240,6 +195,22 @@
 - name: Remove the retired ~/.config/environment.d/50-dev.conf, which the run's configuration backup holds (Linux/macOS)
   ansible.builtin.file:
     path: "{{ dev_env_file_retired }}"
+    state: absent
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when: not (ih_picked_apps_run | bool)
+
+# --- migration from the combined ANSIBLE DEV APPS CONFIG block -----------------------------------
+# Until 2026-11-14 a full run wrote GRADLE_USER_HOME, DOCKER_CONFIG, M2_HOME, KUBECONFIG and
+# PROJECTS_DIR in one block under this marker, whether or not the apps were installed. Each app now
+# writes its own block where it is installed, and PROJECTS_DIR has the block above, so a full run
+# removes the old one rather than leaving every variable in it twice. The pre_tasks of site.yaml
+# copied the file into the run's configuration backup before any role ran. A picked-apps run never
+# migrates, owner decision 42, so there the old block stays beside the picked app's own.
+- name: Remove the retired ANSIBLE DEV APPS CONFIG block, which the run's configuration backup holds (Linux/macOS)
+  ansible.builtin.blockinfile:
+    path: "{{ dev_env_file_in_use }}"
+    marker: "# {mark} ANSIBLE DEV APPS CONFIG"
     state: absent
   become: yes
   become_user: "{{ non_root_user }}"
