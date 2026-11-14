@@ -9777,6 +9777,26 @@ Fix: the action reads the version with `Get-PinnedValue -Key gate_pester_version
 
 Mechanical check: [e2e/tier1/workflow_windows_pester.sh](../e2e/tier1/workflow_windows_pester.sh), extended, fails when the action or the script does not read `gate_pester_version` with `Get-PinnedValue`, picks Pester by anything but `.Version -eq [Version]$<pin>`, accepts another version through `-MinimumVersion`, `-MaximumVersion`, `.Major`, `-ge`, `-gt`, `-le`, `-lt` or `Sort-Object Version -Descending`, or holds a version number in its code, when the action has no `Install-Module -Name Pester -RequiredVersion $<pin> -Scope CurrentUser -Force` line, when the script prints `PESTER_ABSENT`, when another workflow step or local action installs Pester, and when the pin is not one exact version. Its readers are proven first against planted bodies and workflows. `e2e/tier1/windows_pester.sh` fails a run that reports a version other than the pin.
 
+### Found while backing up the export section of the Konsave profile, owner decision 48.1, 2026-11-14
+
+#### 10.349 The backup before the Konsave profile left out its export section, so the themes, icons and wallpapers konsave overwrites had no copy
+
+Status: found while carrying out owner decision 48.1, and fixed in this change.
+
+Cause: "List the configuration files the Konsave profile writes" in [setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) read only the save section of `conf.yaml` inside [setup/config/lukk_desktop_profile.knsv](../setup/config/lukk_desktop_profile.knsv), on the belief written in its comment that the export section is files konsave adds beside what is there, while `konsave -i` copies every file of the export section over the file of the same name in `~/.local/share` and the home folder.
+
+Effect: the export section of the shipped profile holds 4425 files, cursors under `~/.icons`, icon themes, files under `~/.local/share/plasma`, Aurorae decorations, color schemes, a Konsole profile and wallpapers, and none of them was in the backup or in the end-of-run summary. A user's own file of the same name, an edited color scheme for example, was replaced with no copy and no notice, and on a fresh machine nothing konsave created there was listed as created.
+
+How it was proven: the new section 6 of `e2e/tier1/config_backup_coverage.sh` runs the listing task's own script on the shipped profile against throwaway home folders inside the gate container. Against a full clone of `HEAD` carrying only the new check it failed 2 of 2: in an empty home the listing left out 4425 of the 4425 files the export section writes, and in a home where every target held other bytes it left out the same 4425. The behaviour of konsave itself was not read from its source, because no web or documentation tool was open to this change. What it was based on: the kde-full cell of sweep 39850886667 logged `Konsave: Importing "plasma"...` up to `Importing ".icons"...` between `Importing profile` and `Profile successfully imported!`, so the export section is written by `konsave -i`, and konsave's copy routine as remembered, unverified, removes a file of the same name and copies the new one, leaving every other file of the folder in place. The change treats it as overwriting, as the brief asked when the source cannot be read.
+
+A wrong hypothesis kept: the old comment said the export section is not configuration and is only added beside what is there. Konsave does leave other files of those folders in place, as far as is known, but it replaces each file of the same name, which is what a backup is for.
+
+Confirmed later the same day: a research agent of this change read konsave 2.3.0 at https://raw.githubusercontent.com/Prayag2/konsave/v2.3.0/konsave/funcs.py, whose copy code is unchanged since 2.0.2. `konsave -i` writes the export section and `konsave -a` only the save section, and copy() never deletes a folder, removes each file of the same name and copies the new one there, so the remembered behaviour was right. The links it replaces are 10.357.
+
+Fix: the listing now reads both sections. An export file that exists is named unless it already holds exactly what konsave writes, the same bytes, and the mode, owner and group of the new file konsave makes, so a second run over the same profile adds no loop items for thousands of icon files that cannot change. For an export file that does not exist yet it names the first missing folder or file on the way to it, so the summary lists one created folder for everything konsave put in it. The task runs as the user konsave runs as, so the umask and owner it compares against are the ones konsave gets. [setup/README_SETUP.md](../setup/README_SETUP.md) no longer lists the export section among the files not copied.
+
+Mechanical check: section 6 of [e2e/tier1/config_backup_coverage.sh](../e2e/tier1/config_backup_coverage.sh). It finds the listing through the register that the include of `config_backup.yaml` reads, runs it on the shipped profile in an empty home, in a home where every save and export target holds other bytes, and in a home where every export target already holds what konsave writes, and fails when a save or export file is left out in the first two or when any export file is named in the third. Proven against the defect as above, and against a clone carrying the fixed listing with the unchanged-file test removed, where it failed 1 of 1 naming 4425 export files konsave rewrites with the same bytes. The same check's pattern for a configuration tool now matches `konsave -i` as well as `konsave -a`, so a task that imports a profile on its own is held to the backup too.
+
 ### Found while writing each app's environment variables where the app is installed, owner decision 49, 2026-11-14
 
 #### 10.350 A full run wrote the environment variables of apps it did not install
@@ -9848,3 +9868,61 @@ How it was proven: only that one failing run, whose log is the evidence. No loop
 Fix: none yet. The next step is the one 10.183 used: run that one test a few hundred times in the gate image, before and after a change, and read where `Invoke-ManagedTool` in [setup/windows/WindowsCustomInstalls.ps1](../setup/windows/WindowsCustomInstalls.ps1) reads the output files.
 
 Mechanical check: the test itself, which caught it once.
+
+### Found while proving the Konsave backup under --check and against konsave's source, owner decision 48.1, 2026-11-14
+
+#### 10.355 A KDE run under --check failed at the backup before the Konsave profile
+
+Status: found while carrying out owner decision 48.1, and fixed in this change. The listing it fails on is older than this change: 10.349 extended it but did not cause this.
+
+Cause: "List the configuration files the Konsave profile writes" in [setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) is a command task with neither `creates` nor `removes`, so under `--check` Ansible skips it and registers an empty stdout, and the include of [setup/ansible/tasks/config_backup.yaml](../setup/ansible/tasks/config_backup.yaml) after it reads that stdout through `from_json`.
+
+Effect: any run under `--check` that reaches the Konsave profile stopped there. Measured in the gate container with the shipped probe, listing and include, become taken off, on a fixture home: `[ERROR]: The filter plugin 'ansible.builtin.from_json' failed: Expecting value: line 1 column 1 (char 0)`, exit 2, and with the backup step of 10.357 in place `[ERROR]: Task failed: Finalization of task args for 'ansible.builtin.set_fact' failed: Error while resolving value for 'config_backup_new_paths': The filter plugin 'ansible.builtin.from_json' failed: Expecting value: line 1 column 1 (char 0)`. The same run without `--check` passed. A wrong first guess, kept: before the measurement this was only reasoned from how the command module treats check mode, and was reported as unproven.
+
+How it was proven: section 7 of `e2e/tier1/config_backup_coverage.sh`, run by the gate on the working tree before the fix, and again against a full clone carrying every other part of this change with only `check_mode: false` taken out, which failed 1 of 1 with the second error above.
+
+Fix: the listing task carries `check_mode: false`. It only reads the profile and the home folder, so it is safe to run under `--check`, and the backup include then gets its list and copies nothing, as every other step of the backup does under `--check`.
+
+Mechanical check: section 7 of [e2e/tier1/config_backup_coverage.sh](../e2e/tier1/config_backup_coverage.sh) runs the shipped probe, listing, backup and report with ansible-playbook on a fixture home, once without and once with `--check`, and fails when either run fails or when the run under `--check` writes a backup.
+
+#### 10.356 A konsave that failed halfway still passed the run
+
+Status: found while carrying out owner decision 48.1, and fixed in this change.
+
+Cause: konsave wraps every function in a handler that catches the exception, writes it to `~/.cache/konsave_log.txt`, prints `Konsave: <error>` and returns, so the command exits 0 after a permission refused or a missing parent folder, and can still print `Profile successfully imported!` or `Profile applied successfully!`. That is from its source, read by a research agent of this change at https://raw.githubusercontent.com/Prayag2/konsave/v2.3.0/konsave/funcs.py. "Import and apply Konsave profile" in [setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) looked at the exit code alone, and its script set `pipefail` without `-e`, so it also ran `konsave -a` after an import that exited non-zero and reported the status of the apply.
+
+Effect: a desktop half applied passed the run with no warning. Measured in the gate container with the shipped task run against a fake konsave that prints the lines a real one printed in the kde-full cell of sweep 39850886667 and exits 0: with `Konsave: [Errno 13] Permission denied: '/home/fixture/.local/share/icons/Dracula'` among them on stdout the task passed, exit 0, the same line on stderr passed too, and an import that exited 1 was followed by `konsave -a` and the task passed.
+
+How it was proven: `e2e/tier1/konsave_apply_errors.sh` against a full clone carrying every other part of this change with the old task put back failed 3 of 4, the three cases above, and passed the fourth, the real output alone.
+
+Fix: the script starts with `set -e -o pipefail`, and the task registers its result and fails when the exit code is not 0 or when a line on either stream starts with `Konsave: ` and is not one of the progress lines a real run printed. What it does not know: whether `konsave -i` reports an error when the profile was imported by an earlier run, which would now fail every second run. No rerun of the profile has been logged, see the report of this change.
+
+Mechanical check: [e2e/tier1/konsave_apply_errors.sh](../e2e/tier1/konsave_apply_errors.sh), new, item 89 of [e2e/testing/10-wizard-toggle-parse-test.md](../e2e/testing/10-wizard-toggle-parse-test.md).
+
+#### 10.357 The configuration backup followed every symbolic link, so a link a run replaced could not be put back
+
+Status: found while carrying out owner decision 48.1, and fixed in this change.
+
+Cause: [setup/ansible/tasks/config_backup.yaml](../setup/ansible/tasks/config_backup.yaml) and [setup/ansible/tasks/config_backup_report.yaml](../setup/ansible/tasks/config_backup_report.yaml) asked every path with `follow: true`, so a path that was a symbolic link was recorded and copied as the file it points to. konsave removes a link of the name of a file inside a folder and writes a regular file there, as its source says at https://raw.githubusercontent.com/Prayag2/konsave/v2.3.0/konsave/funcs.py, and a top-level plain-file entry writes through a link.
+
+Effect: measured in the gate container with the shipped probe, listing, backup and report on a fixture home where one export file held other bytes, one was a link into a dotfiles folder that the run replaced with a file, and one a link the run wrote through. The backup held the replaced link only as a copy of the file it had pointed to, so `cp -a` could not put the link back, the file the second link points to had no copy under its own path, and the summary listed `.../contents/lockscreen/config.xml`, the link, instead of `.../dotfiles-real/config.xml`, the file that changed. A link replaced by a file with the bytes and mode of its target was not listed at all, which was reasoned from the comparison and not measured.
+
+How it was proven: section 7 of `e2e/tier1/config_backup_coverage.sh` against a full clone carrying every other part of this change with `config_backup.yaml`, `config_backup_report.yaml` and `group_vars/all.yaml` of `HEAD` failed 1 of 1 with the three findings above.
+
+Fix: both files now ask without following a link. A path that is a link is kept in the backup as the link itself, the file it resolves to is tracked and copied under its own absolute path as well, and `ih_config_states` in [setup/ansible/group_vars/all.yaml](../setup/ansible/group_vars/all.yaml) records a link as `-><target>` with its mode and owner, so a link replaced by a file or pointed elsewhere counts as changed. [setup/README_SETUP.md](../setup/README_SETUP.md) says so.
+
+Mechanical check: section 7 of [e2e/tier1/config_backup_coverage.sh](../e2e/tier1/config_backup_coverage.sh), which fails when the replaced link is not kept as that link, when the file written through a link has no copy, or when the summary does not list exactly the file, the replaced link and the file written through.
+
+#### 10.358 Every run after the first applied the profile konsave stored on the first, and never copied the export section again
+
+Status: older than this change, found while carrying out owner decision 48.1, and fixed in this change. The first version of 10.356 in this change would have failed every run after the first instead, introduced by this change and caught before it was committed.
+
+Cause: `konsave -i` refuses a profile whose name it has stored under `~/.config/konsave/profiles` already, and "Import and apply Konsave profile" in [setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml](../setup/ansible/roles/kde_plasma_setup/tasks/configure_kde.yaml) ran `konsave -i` and `konsave -a` on every run with nothing in between.
+
+Effect: measured with konsave 2.3.0 installed by pip in a throwaway `--rm` container of the gate image, with a throwaway home that has a `~/.cache` folder, on the shipped profile. The first `konsave -i` printed `Konsave: Importing profile. It might take a minute or two...`, one `Importing "<entry>"...` per export entry and `Konsave: Profile successfully imported!`, exit 0. The second printed `Konsave: A profile with this name already exists` and `Please check the log at /tmp/h/.cache/konsave_log.txt for more details.` on stdout and exited 0, having copied nothing. `konsave -a` then printed `Konsave: copying files...` and `Konsave: Profile applied successfully! Please log-out and log-in to see the changes completely!`. So every run after the first applied the save section stored by the first, a changed `.knsv` never reached the machine, and the export section was never copied again. With the `failed_when` of 10.356 the same second run fails the task, which is what the first version of this change did. Measured in the same container: `konsave -r lukk_desktop_profile` prints `Konsave: removing profile...` and `Konsave: removed profile successfully`, and where nothing is stored `Konsave: No profile saved yet.`, or `Konsave: Profile not found.` when other profiles are stored, each followed by the log line, all with exit 0. Without a `~/.cache` folder the handler itself fails and konsave exits 1 with a traceback on stderr. The source is https://raw.githubusercontent.com/Prayag2/konsave/v2.3.0/konsave/funcs.py.
+
+How it was proven: `e2e/tier1/konsave_apply_errors.sh`, whose fake konsave now refuses a second import the same way, against a full clone carrying every other part of this change with the apply task of 10.356 failed 1 of 5: `run 2 called konsave with ['-i', '-a'] and failed, exit 2, where it should call ['-r', '-i', '-a']`. Against the same clone section 7 of `e2e/tier1/config_backup_coverage.sh` failed 1 of 1, the stored copy having no copy in the backup and the summary listing nothing as removed.
+
+Fix: before the backup the role asks whether `~/.config/konsave/profiles/lukk_desktop_profile` exists and lists its files, and the backup include takes them with the files the profile writes, so a profile of that name the user saved with `konsave -s` is backed up too. The apply runs `konsave -r lukk_desktop_profile` only when that folder exists, so its error forms never appear, then `-i` and `-a`, and its list of progress lines carries the two lines of `-r`. [setup/README_SETUP.md](../setup/README_SETUP.md) says so.
+
+Mechanical check: the two-run case of [e2e/tier1/konsave_apply_errors.sh](../e2e/tier1/konsave_apply_errors.sh), which runs the task twice on one home and requires both runs to pass, the second to call `-r`, `-i` and `-a`, and konsave to hold the second import, and section 7 of [e2e/tier1/config_backup_coverage.sh](../e2e/tier1/config_backup_coverage.sh), which requires the stored copy to be in the backup and in the summary as removed.

@@ -67,12 +67,27 @@
     path: "{{ playbook_dir }}/../config/lukk_desktop_profile.knsv"
   register: konsave_profile_file
 
-# Applying the profile copies every entry of its save section over the file of the same name, and
-# conf.yaml inside the profile names the folder each entry belongs in, so those are the files the run's
-# configuration backup takes first, together with every file already in a folder the profile writes,
-# so a file the profile replaces the folder around is in the backup too. Read with the interpreter
-# running Ansible, which always carries PyYAML. The export section is themes, icons and wallpapers
-# that konsave adds beside what is there, not configuration, and is left out.
+# What konsave writes, as its source says, konsave 2.3.0, whose copy code is unchanged since 2.0.2:
+# https://raw.githubusercontent.com/Prayag2/konsave/v2.3.0/konsave/funcs.py
+#   konsave -i copies the export section, the themes, icons and wallpapers, to the folders conf.yaml
+#   inside the profile names, and konsave -a copies only the save section.
+#   copy() never deletes a folder. For each file it removes the file of the same name and copies the
+#   new one there, a symbolic link of that name included, and leaves every other file alone.
+#   A top-level entry that is a plain file is copied over the old one in place, so it writes through
+#   a symbolic link.
+#   Each new file has the mode the umask gives, because it is copied from what ZipFile.extractall
+#   wrote, and each new folder 0777 less the umask.
+# So the run's configuration backup takes every file of both sections first. For the save section that
+# is every file it names, together with every file already in a folder it writes, which is more than
+# konsave touches. The export section holds thousands of icon files, and each path costs a loop item
+# in the backup and again in the end-of-run report, so it names an existing file only where konsave
+# changes it: other bytes, a mode, owner or group other than the new file of this user's that konsave
+# makes, or a symbolic link, which tasks/config_backup.yaml keeps as the link and as the file it points
+# to. Where a file does not exist yet it names the first missing folder or file on the way to it,
+# which the summary then lists as created. Run as the user konsave runs as, so the umask and the owner
+# are the same, with the interpreter running Ansible, which always carries PyYAML, and under --check
+# as well, because it only reads and the backup include needs its list.
+# e2e/tier1/config_backup_coverage.sh runs this listing, and the backup around it, on the shipped profile.
 - name: List the configuration files the Konsave profile writes
   ansible.builtin.command:
     argv:
@@ -80,24 +95,54 @@
       - -I
       - -c
       - |
-        import json, os, sys, zipfile
+        import json, os, stat, sys, zipfile
         import yaml
         profile, home = sys.argv[1], sys.argv[2]
         places = {'$CONFIG_DIR': home + '/.config', '$SHARE_DIR': home + '/.local/share',
                   '$BIN_DIR': home + '/.local/bin', '$HOME': home}
+        mask = os.umask(0)
+        os.umask(mask)
+
+        def resolve(section):
+            location = str(section.get('location', ''))
+            for placeholder, value in places.items():
+                location = location.replace(placeholder, value)
+            return os.path.normpath(location)
+
+        def holds(path, data):
+            info = os.lstat(path)
+            if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o666 & ~mask
+                    or (info.st_uid, info.st_gid) != (os.getuid(), os.getgid())):
+                return False
+            with open(path, 'rb') as handle:
+                return handle.read() == data
+
+        def first_missing(location, path):
+            current, parts = location, os.path.relpath(path, location).split(os.sep)
+            while os.path.lexists(current) and parts:
+                current = os.path.join(current, parts.pop(0))
+            return current
+
         with zipfile.ZipFile(profile) as archive:
-            save = (yaml.safe_load(archive.read('conf.yaml')) or {}).get('save') or {}
+            conf = yaml.safe_load(archive.read('conf.yaml')) or {}
+            save, export = conf.get('save') or {}, conf.get('export') or {}
             paths, folders = set(), set()
             for name in archive.namelist():
                 parts = name.split('/', 2)
-                if len(parts) != 3 or parts[0] != 'save' or not parts[2] or name.endswith('/') or parts[1] not in save:
+                if len(parts) != 3 or not parts[2] or name.endswith('/'):
                     continue
-                location = str(save[parts[1]].get('location', ''))
-                for placeholder, value in places.items():
-                    location = location.replace(placeholder, value)
-                paths.add(os.path.normpath(os.path.join(location, parts[2])))
-                if '/' in parts[2]:
-                    folders.add(os.path.normpath(os.path.join(location, parts[2].split('/', 1)[0])))
+                if parts[0] == 'save' and parts[1] in save:
+                    location = resolve(save[parts[1]])
+                    paths.add(os.path.normpath(os.path.join(location, parts[2])))
+                    if '/' in parts[2]:
+                        folders.add(os.path.normpath(os.path.join(location, parts[2].split('/', 1)[0])))
+                elif parts[0] == 'export' and parts[1] in export:
+                    location = resolve(export[parts[1]])
+                    path = os.path.normpath(os.path.join(location, parts[2]))
+                    if not os.path.lexists(path):
+                        paths.add(first_missing(location, path))
+                    elif not holds(path, archive.read(name)):
+                        paths.add(path)
         for folder in folders:
             for root, _, files in os.walk(folder):
                 paths.update(os.path.join(root, file) for file in files)
@@ -106,9 +151,41 @@
       - "{{ non_root_home }}"
   register: konsave_profile_targets
   changed_when: false
+  check_mode: false
+  become: yes
+  become_user: "{{ non_root_user }}"
   when:
     - konsave_profile_file.stat.exists
     - os_dict.software_mapping.pipx.package not in (role_packages_missing | default([]))
+
+# konsave -i refuses a profile of a name it has stored already, with "A profile with this name already
+# exists" and exit 0, so a second run would apply the copy stored by the first and never copy the
+# export section again. The apply below removes the stored copy with konsave -r first, so the profile
+# is imported fresh on every run, and these two ask what that copy holds, so the backup below takes it
+# before it goes, a profile of that name the user saved with konsave -s included.
+- name: Probe the copy of the profile konsave stored on an earlier run
+  ansible.builtin.stat:
+    path: "{{ non_root_home }}/.config/konsave/profiles/lukk_desktop_profile"
+  register: konsave_saved_profile
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - konsave_profile_file.stat.exists
+    - os_dict.software_mapping.pipx.package not in (role_packages_missing | default([]))
+
+- name: List the files of the copy of the profile konsave stored on an earlier run
+  ansible.builtin.find:
+    paths: "{{ non_root_home }}/.config/konsave/profiles/lukk_desktop_profile"
+    recurse: true
+    file_type: any
+    hidden: true
+  register: konsave_saved_profile_files
+  become: yes
+  become_user: "{{ non_root_user }}"
+  when:
+    - konsave_profile_file.stat.exists
+    - os_dict.software_mapping.pipx.package not in (role_packages_missing | default([]))
+    - konsave_saved_profile.stat.isdir | default(false)
 
 - name: Back up the configuration files the Konsave profile writes, before it writes them
   ansible.builtin.include_tasks:
@@ -116,20 +193,44 @@
     apply:
       tags: [always]
   vars:
-    config_backup_paths: "{{ konsave_profile_targets.stdout | from_json }}"
+    config_backup_paths: >-
+      {{ (konsave_profile_targets.stdout | from_json)
+         + (konsave_saved_profile_files.files | default([]) | rejectattr('isdir') | map(attribute='path') | list) }}
   when:
     - konsave_profile_file.stat.exists
     - os_dict.software_mapping.pipx.package not in (role_packages_missing | default([]))
   tags: [always]
 
+# konsave catches every error inside itself, prints it as "Konsave: <error>" on stdout, writes it to
+# ~/.cache/konsave_log.txt and exits 0, so a profile half applied still ends with "Profile applied
+# successfully!". So the task fails on every "Konsave: " line, on either stream, that is not one of the
+# progress lines konsave 2.3.0 printed for -r, -i and -a in a throwaway container on 2026-11-14, the
+# same lines the kde-full cell of sweep 39850886667 logged for -i and -a. set -e stops the run when a
+# step exits non-zero, as konsave does when even its handler fails, for one when ~/.cache is missing.
+# konsave -r runs only where the stored copy exists, because elsewhere it reports "No profile saved
+# yet." or "Profile not found.". e2e/tier1/konsave_apply_errors.sh runs this task against a fake
+# konsave.
 - name: Import and apply Konsave profile
   ansible.builtin.shell: |
-    set -o pipefail
+    set -e -o pipefail
     export PATH="$HOME/.local/bin:$PATH"
+    if [[ -d "$HOME/.config/konsave/profiles/lukk_desktop_profile" ]]; then
+        konsave -r lukk_desktop_profile
+    fi
     konsave -i {{ playbook_dir }}/../config/lukk_desktop_profile.knsv
     konsave -a lukk_desktop_profile
   args:
     executable: /bin/bash
+  register: konsave_apply
+  failed_when: >-
+    konsave_apply.rc != 0
+    or (konsave_apply.stdout_lines + konsave_apply.stderr_lines)
+       | select('match', '^Konsave: ') | reject('match', konsave_progress_line) | list | length > 0
+  vars:
+    konsave_progress_line: >-
+      ^Konsave: (removing profile\.\.\.|removed profile successfully|Importing profile\. It might take a minute or
+      two\.\.\.|Importing "[^"]*"\.\.\.|Profile successfully imported!|copying files\.\.\.|Profile applied
+      successfully! Please log-out and log-in to see the changes completely!)$
   become: yes
   become_user: "{{ non_root_user }}"
   when:

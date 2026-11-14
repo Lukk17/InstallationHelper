@@ -1,6 +1,7 @@
 ---
 # The end of the configuration backup that tasks/config_backup.yaml starts. Every path it tracked is
-# asked again and sorted by what this run did to it: changed in content, changed in mode or owner
+# asked again, without following a link, the way that file asked it, and sorted by what this run did
+# to it: changed in content or link target, changed in mode or owner
 # alone, created, removed, or left as it was. The backup of a file left as it was is deleted, so the
 # backup folder ends up holding exactly the files this run changed or removed, and is deleted itself
 # when that is none of them. The lists reach the end-of-run summary of callback_plugins/dual_logger.py
@@ -10,7 +11,7 @@
 - name: Ask what each configuration file holds at the end of this run
   ansible.builtin.stat:
     path: "{{ item }}"
-    follow: true
+    follow: false
     get_checksum: true
     checksum_algorithm: sha256
   loop: "{{ ih_config_tracked | default({}) | list }}"

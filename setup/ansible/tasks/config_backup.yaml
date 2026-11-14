@@ -9,27 +9,55 @@
 # The site.yaml pre_tasks call this with ih_config_files_all from group_vars/all.yaml before any role
 # runs. A role that learns a path only while it runs calls it again before it writes.
 # tasks/config_backup_report.yaml compares what each path holds at the end with what this recorded:
-# its content, mode, owner and group, read through ih_config_states in group_vars/all.yaml.
+# its content, or the target of a symbolic link, its mode, owner and group, read through
+# ih_config_states in group_vars/all.yaml.
 #
 # Each copy keeps the owner, group and mode of its original, and every folder of the backup belongs
 # to the user with mode 0700, so a copy of a root-only file stays unreadable to anybody else and the
-# user can still delete the whole backup. stat and copy follow a symbolic link, so a dotfile kept as a
-# link into a dotfiles repository is backed up by its content. Nothing here tolerates a failure: a
-# backup that cannot be written stops the run here, before the change it was meant to protect.
+# user can still delete the whole backup. A path that is a symbolic link is backed up as the link
+# itself, and the file it resolves to is tracked and copied under its own absolute path as well. So a
+# dotfile kept as a link into a dotfiles repository is restored whichever way the run changes it: a
+# tool that removes the link and writes a file in its place, as konsave does inside a folder, shows as
+# the link changed, and a tool that writes through the link shows as the file it points to changed.
+# Nothing here tolerates a failure: a backup that cannot be written stops the run here, before the
+# change it was meant to protect.
 #
 # The folders and copies are the run's own records in its own state folder, not a change to the
 # machine, so they report ok, and a second run that changes nothing reports no change here. What the
 # run changed is what the end-of-run summary lists. A run under --check changes nothing, so it copies
 # nothing either.
+- name: Pick the configuration files no earlier backup in this run has seen
+  ansible.builtin.set_fact:
+    config_backup_new_paths: >-
+      {{ config_backup_paths | map('trim') | unique | difference(ih_config_tracked | default({}) | list) | list }}
+
+- name: Ask which of them are symbolic links
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+  loop: "{{ config_backup_new_paths }}"
+  register: config_link_probe
+  become: true
+
 - name: Ask which configuration files exist before this run changes them
   ansible.builtin.stat:
     path: "{{ item }}"
-    follow: true
+    follow: false
     get_checksum: true
     checksum_algorithm: sha256
-  loop: "{{ config_backup_paths | map('trim') | unique | difference(ih_config_tracked | default({}) | list) | list }}"
+  loop: >-
+    {{ (config_backup_new_paths
+        + (config_link_probe.results | selectattr('stat.islnk', 'defined') | selectattr('stat.islnk')
+           | map(attribute='stat.lnk_source') | list))
+       | unique | difference(ih_config_tracked | default({}) | list) | list }}
   register: config_state_probe
   become: true
+
+- name: Sort what exists into files and symbolic links
+  ansible.builtin.set_fact:
+    config_backup_files: "{{ config_state_probe.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg') | list }}"
+    config_backup_links: "{{ config_state_probe.results | selectattr('stat.islnk', 'defined') | selectattr('stat.islnk') | list }}"
 
 - name: Create the folder that holds the state of Installation Helper
   ansible.builtin.file:
@@ -39,7 +67,7 @@
   become_user: "{{ non_root_user }}"
   when:
     - not ansible_check_mode
-    - config_state_probe.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg') | list | length > 0
+    - (config_backup_files + config_backup_links) | length > 0
 
 - name: Create the folders of this run's configuration backup
   ansible.builtin.file:
@@ -47,14 +75,13 @@
     state: directory
     mode: '0700'
   loop: >-
-    {{ [''] + (config_state_probe.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg')
-               | map(attribute='item') | map('dirname') | unique | list) }}
+    {{ [''] + ((config_backup_files + config_backup_links) | map(attribute='item') | map('dirname') | unique | list) }}
   changed_when: false
   become: true
   become_user: "{{ non_root_user }}"
   when:
     - not ansible_check_mode
-    - config_state_probe.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg') | list | length > 0
+    - (config_backup_files + config_backup_links) | length > 0
 
 - name: Back up each configuration file before this run changes it
   ansible.builtin.copy:
@@ -65,7 +92,25 @@
     owner: "{{ item.stat.uid }}"
     group: "{{ item.stat.gid }}"
     mode: preserve
-  loop: "{{ config_state_probe.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg') | list }}"
+  loop: "{{ config_backup_files }}"
+  loop_control:
+    label: "{{ item.item }}"
+  changed_when: false
+  become: true
+  when: not ansible_check_mode
+
+# force is what lets a link whose target is gone be copied too. The folder is this run's own, so
+# there is nothing earlier in it to replace.
+- name: Back up each configuration file that is a symbolic link as the link itself
+  ansible.builtin.file:
+    src: "{{ item.stat.lnk_target }}"
+    dest: "{{ ih_config_backup_dir ~ item.item }}"
+    state: link
+    force: true
+    follow: false
+    owner: "{{ item.stat.uid }}"
+    group: "{{ item.stat.gid }}"
+  loop: "{{ config_backup_links }}"
   loop_control:
     label: "{{ item.item }}"
   changed_when: false

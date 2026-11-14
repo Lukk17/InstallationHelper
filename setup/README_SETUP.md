@@ -364,11 +364,30 @@ A run that stops before its end prints a warning naming the backup folder instea
 copied. Put a file back with `cp -a`. The files are listed in `ih_config_files` in
 [ansible/group_vars/all.yaml](ansible/group_vars/all.yaml), and a role that learns a path only while it runs, the
 Konsave profile, the systemd-boot files on the EFI partition and the GRUB EFI folder, backs it up through the same
-[ansible/tasks/config_backup.yaml](ansible/tasks/config_backup.yaml) before it writes. Not copied: the theme, icon and
-wallpaper files of the Konsave profile's export section, the user and group account files, which `useradd` and
-`usermod` on Linux back up themselves as `/etc/passwd-` and the like, and the files packages install under `/etc`.
-`e2e/tier1/config_backup_coverage.sh` fails when a task writes a file in a home directory or under `/etc` that nothing
-backs up, when a task forces a mode in the home directory, and when a task ends the play before the summary.
+[ansible/tasks/config_backup.yaml](ansible/tasks/config_backup.yaml) before it writes. A path that is a symbolic link
+is kept in the backup as the link itself, and the file it points to is kept under its own absolute path, so the
+summary names the link when a tool replaces it with a file and names the file it points to when a tool writes through
+it. For the Konsave profile the backup takes every file of both sections of its `conf.yaml`. What konsave does with
+them is read from its source, konsave 2.3.0, whose copy code is unchanged since 2.0.2,
+https://raw.githubusercontent.com/Prayag2/konsave/v2.3.0/konsave/funcs.py:
+
+1. `konsave -i` copies the export section, the theme, icon and wallpaper files, into `~/.local/share` and the home
+   folder, and `konsave -a` copies only the save section, the configuration files.
+2. It never deletes a folder. Each file replaces the file of the same name, which konsave removes first, and every
+   other file in the folder stays as it was.
+3. A top-level entry that is a plain file is copied over the old one in place, so it writes through a symbolic link.
+4. A symbolic link with the name of a file inside a folder is removed and replaced by a regular file.
+5. Each new file gets the mode your umask gives, and each new folder 0777 less the umask.
+
+A file of the export section that already holds exactly what konsave writes, the same bytes, that mode and your owner
+and group, is left out, because konsave cannot change it and the profile carries thousands of icon files. Where an
+export file does not exist yet, the summary lists the first folder or file on the way to it that the run created, so
+one created folder stands for every file konsave put in it. Not copied: the user and group account files, which
+`useradd` and `usermod` on Linux back up themselves as `/etc/passwd-` and the like, and the files packages install
+under `/etc`. `e2e/tier1/config_backup_coverage.sh` fails when a task writes a file in a home directory or under
+`/etc` that nothing backs up, when the Konsave listing leaves out a file either section of the profile writes, when
+the backup loses a link or fails under `--check`, when a task forces a mode in the home directory, and when a task
+ends the play before the summary.
 
 #### Watching progress live
 
@@ -529,7 +548,9 @@ set in one of those files is gone afterwards, with no warning and no backup, whi
 configured never to lock its screen quietly went back to Plasma's five minute default. The screen
 locker and session manager settings were removed from the shipped profile on 2026-08-28 for exactly
 that reason. If you re-export your own profile, check what `conf.yaml` inside the `.knsv` lists before
-committing it.
+committing it. Importing a profile with `konsave -i` also copies the themes, icons and wallpapers of its export
+section over the files of the same name. Run by hand, neither command keeps a copy. When the playbook applies the
+profile it backs up every file of both sections first, as "Configuration file backup" above describes. konsave reports its own errors as a `Konsave: ` line and still exits 0, so the playbook fails the run on any such line that is not one of its progress lines, rather than passing with a profile half applied. `konsave -i` also refuses a profile whose name it has stored already, with `Konsave: A profile with this name already exists` and exit 0, so on every run after the first the playbook backs up the copy stored in `~/.config/konsave/profiles/lukk_desktop_profile`, a profile of that name you saved with `konsave -s` included, removes it with `konsave -r lukk_desktop_profile` and imports the profile fresh. Until 2026-11-14 a second run applied the stored copy and never copied the export section again.
 
 ### Complex roles
 
