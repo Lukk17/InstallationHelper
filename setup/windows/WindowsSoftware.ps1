@@ -886,6 +886,31 @@ function Wait-BoundedProcess {
     return $true
 }
 
+function Get-StandardInputRedirection {
+    <#
+    .SYNOPSIS
+        The Start-Process parameters that give a program a file as its standard input, to splat.
+    .DESCRIPTION
+        Every caller that hands a program a file as its input splats this into Start-Process, so the
+        rule lives in one place. On Windows, Start-Process hands the file itself to the program, so
+        the answer is RedirectStandardInput set to Path. On Linux and macOS, Start-Process connects
+        the input to a pipe and writes the file and a line feed into it after the program has
+        started, so a program that has already exited makes Start-Process throw "Broken pipe" and
+        the caller never gets the process. So there the answer is empty and the program inherits
+        this process's input. Entry 10.354 of docs/regression_ledger.md.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Path
+    )
+
+    if ($IsWindows) {
+        return @{ RedirectStandardInput = $Path }
+    }
+    return @{}
+}
+
 function Invoke-BoundedWinget {
     <#
     .SYNOPSIS

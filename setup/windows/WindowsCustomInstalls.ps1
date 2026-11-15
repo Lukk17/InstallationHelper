@@ -343,7 +343,7 @@ function Invoke-ManagedTool {
         Runs one command of a version manager and returns a result object.
     .DESCRIPTION
         Shared by the Node and Flutter paths, which are the same shape: install a manager through
-        Chocolatey, then drive it. stdin is redirected from an empty file, so a prompt reads
+        Chocolatey, then drive it. On Windows stdin is redirected from an empty file, so a prompt reads
         immediate EOF instead of blocking, and a timeout is enforced on top of that, because an
         interactive prompt inside one of these is exactly what stalled the Unix FVM path for eight
         hours with no signal. See docs/regression_ledger.md.
@@ -377,8 +377,9 @@ function Invoke-ManagedTool {
     $stdout = New-TemporaryFile
     $stderr = New-TemporaryFile
     try {
+        $stdinRedirection = Get-StandardInputRedirection -Path $stdin
         $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -NoNewWindow -PassThru `
-            -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr @stdinRedirection
         if (-not (Wait-BoundedProcess -Process $p -TimeoutMilliseconds ($TimeoutMinutes * 60 * 1000))) {
             try { $p.Kill($true) } catch { Write-Verbose "could not kill $($p.Id): $($_.Exception.Message)" }
             return [PSCustomObject]@{ Key = $Key; Package = $label; Status = 'failed'; Final = $true
@@ -1066,8 +1067,9 @@ function Invoke-AndroidSdkManager {
             # stops reading when it has asked its last question, so a surplus costs nothing.
             Set-Content -LiteralPath $stdin -Value ((1..50 | ForEach-Object { 'y' }) -join "`n") -NoNewline:$false
         }
+        $stdinRedirection = Get-StandardInputRedirection -Path $stdin
         $p = Start-Process -FilePath $sdkmanager -ArgumentList $Arguments -NoNewWindow -PassThru `
-            -RedirectStandardInput $stdin -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr @stdinRedirection
         if (-not (Wait-BoundedProcess -Process $p -TimeoutMilliseconds ($TimeoutMinutes * 60 * 1000))) {
             try { $p.Kill($true) } catch { Write-Verbose "could not kill $($p.Id): $($_.Exception.Message)" }
             return [PSCustomObject]@{ Key = 'android_sdk'; Package = $label; Status = 'failed'; Final = $true

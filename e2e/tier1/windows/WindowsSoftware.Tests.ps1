@@ -1214,6 +1214,54 @@ exit 1
 }
 
 
+Describe 'Every program handed a file as its input gets it through Get-StandardInputRedirection' {
+
+    # On Linux and macOS, Start-Process -RedirectStandardInput writes the file into a pipe after the
+    # program has started, so a program that has already exited makes it throw "Broken pipe" and the
+    # caller never gets the process. It failed the Invoke-ManagedTool late-writer test above now and
+    # then, entry 10.354 of docs/regression_ledger.md, and no stub can make that race happen on
+    # demand, so these read the rule and the code instead of waiting for the race.
+    It 'hands the file to Start-Process on Windows and nothing to it anywhere else' {
+        $redirection = Get-StandardInputRedirection -Path 'input.txt'
+
+        if ($IsWindows) {
+            $redirection.Keys | Should -Be @('RedirectStandardInput')
+            $redirection.RedirectStandardInput | Should -Be 'input.txt'
+        } else {
+            $redirection.Count | Should -Be 0
+        }
+    }
+
+    # Read from the syntax tree, so a new Start-Process that redirects its input itself fails here by
+    # name rather than now and then in the gate.
+    It 'never passes -RedirectStandardInput to Start-Process itself' {
+        $files = @(
+            (Join-Path $script:RepoRoot 'setup\setup.ps1')
+            @(Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'setup\windows') -Filter '*.ps1' | ForEach-Object FullName)
+        )
+        $calls = foreach ($file in $files) {
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors)
+            if ($errors) { throw "$file does not parse: $($errors[0].Message)" }
+            foreach ($function in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+                $starts = $function.Body.FindAll({ param($n)
+                    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Start-Process' }, $true)
+                foreach ($start in $starts) {
+                    $parameters = @($start.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] } | ForEach-Object ParameterName)
+                    $splats = @($start.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.VariableExpressionAst] -and $_.Splatted } | ForEach-Object { $_.VariablePath.UserPath })
+                    [PSCustomObject]@{ Name = $function.Name; RedirectsInput = $parameters -contains 'RedirectStandardInput'; Splats = $splats }
+                }
+            }
+        }
+
+        @($calls).Count | Should -BeGreaterThan 0
+        @($calls | Where-Object { 'stdinRedirection' -in $_.Splats } | ForEach-Object Name) | Should -Contain 'Invoke-ManagedTool'
+        @($calls | Where-Object { 'stdinRedirection' -in $_.Splats } | ForEach-Object Name) | Should -Contain 'Invoke-AndroidSdkManager'
+        @($calls | Where-Object RedirectsInput | ForEach-Object Name) | Should -BeNullOrEmpty
+    }
+}
+
+
 Describe 'Get-CommandOutputTail' {
 
     # On Windows, Out-String and the file Start-Process redirects into end each line with a carriage
