@@ -11,33 +11,64 @@
 # The run and the rule that decides whether it passed live in e2e/tier1/windows_pester.ps1, which the
 # tier 1 check windows_pester runs in the gate container as well.
 #
-# The runner runs the same Pester as the gate: the version gate_pester_version pins, read through
-# setup/pinned_values/PinnedValues.psm1, installed here only when that exact version is missing, and
-# imported by the script, which fails when it is missing (owner decision 53, docs/regression_ledger.md
-# 10.348). e2e/tier1/workflow_windows_pester.sh fails the gate when either one stops reading the pin
-# or writes a version of its own.
+# The runner runs the same Pester file as the gate image: the package gate_pester_url names, checked
+# against gate_pester_sha256 before anything reads it, and unpacked into Pester/<gate_pester_version>
+# on the CurrentUser module path, the way e2e/gate/provision.sh lays it out in the image. All three are
+# read through setup/pinned_values/PinnedValues.psm1. The download is skipped when that folder already
+# holds the module, and the script imports exactly that version and fails when it is missing (owner
+# decisions 53 and 54, docs/regression_ledger.md 10.348 and 10.359). e2e/tier1/workflow_windows_pester.sh
+# fails the gate when either one stops reading the pins, installs Pester any other way, skips the hash
+# check or writes a version, an address or a hash of its own.
 name: Run the Windows unit tests
 description: Run the Pester suite over the Windows installer on this runner, without the Slow and Network tagged tests, and fail on any test, block or file that did not pass or skip, unless a Slow or Network tag left it out
 
 runs:
   using: composite
   steps:
-    - name: Install the Pester version the gate pins
+    - name: Install the Pester package the gate pins, checked by its SHA-256
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
         Import-Module (Join-Path $env:GITHUB_WORKSPACE 'setup' 'pinned_values' 'PinnedValues.psm1')
         $version = [Version](Get-PinnedValue -Key gate_pester_version)
-        $present = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [Version]$version }
-        if ($present) {
-          Write-Host "Pester $version, the version gate_pester_version pins, is already installed."
+        $url = Get-PinnedValue -Key gate_pester_url
+        $expected = Get-PinnedValue -Key gate_pester_sha256
+        $modules = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell' 'Modules'
+        $target = Join-Path $modules 'Pester' "$version"
+        if (Test-Path -LiteralPath (Join-Path $target 'Pester.psd1') -PathType Leaf) {
+          Write-Host "Pester $version, the version gate_pester_version pins, is already in $target, so nothing is downloaded."
         } else {
-          Write-Host "Installing Pester $version, the version gate_pester_version pins, from the PowerShell Gallery."
-          Install-Module -Name Pester -RequiredVersion $version -Scope CurrentUser -Force -SkipPublisherCheck
+          $package = Join-Path $env:RUNNER_TEMP "Pester.$version.zip"
+          Write-Host "Downloading Pester $version from $url, the package gate_pester_url pins."
+          Invoke-WebRequest -Uri $url -OutFile $package -MaximumRetryCount 5 -RetryIntervalSec 10
+          $actual = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            Remove-Item -LiteralPath $package -Force
+            throw "The Pester package from $url does not match gate_pester_sha256, so nothing was installed. Expected SHA-256 $expected, actual SHA-256 $actual."
+          }
+          Write-Host "The Pester package matches gate_pester_sha256, SHA-256 $actual."
+          if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Recurse -Force
+          }
+          Expand-Archive -LiteralPath $package -DestinationPath $target -Force
+          Remove-Item -LiteralPath $package -Force
+          foreach ($name in @('_rels', 'package', '[Content_Types].xml', 'Pester.nuspec')) {
+            $leftover = Join-Path $target $name
+            if (Test-Path -LiteralPath $leftover) {
+              Remove-Item -LiteralPath $leftover -Recurse -Force
+            }
+          }
+          Write-Host "Pester $version unpacked into $target."
         }
-        if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [Version]$version })) {
-          throw "Pester $version is still not installed after Install-Module."
+        $first = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [Version]$version } | Select-Object -First 1
+        if (-not $first -or $first.ModuleBase -ne $target) {
+          throw "The first Pester $version on the module path is $(if ($first) { $first.ModuleBase } else { 'nothing' }), not $target, so e2e/tier1/windows_pester.ps1 would not import the checked package."
         }
+        $imported = Import-Module -Name (Join-Path $target 'Pester.psd1') -Force -PassThru
+        if ($imported.Version -ne $version) {
+          throw "Importing $target loaded Pester $($imported.Version), where gate_pester_version pins $version."
+        }
+        Write-Host "Pester $($imported.Version) imports from $($imported.ModuleBase), the folder e2e/tier1/windows_pester.ps1 imports."
 
     - name: Run the Pester suite, excluding the Slow and Network tagged Chocolatey bootstrap
       shell: pwsh
