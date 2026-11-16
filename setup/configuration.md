@@ -205,7 +205,7 @@ Each block of `990-dev.conf`, the toggle that turns it on and the task file that
 | `ANSIBLE ANDROID SDK ENVIRONMENT` | `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_USER_HOME`, `ANDROID_SDK_HOME`, and the Android SDK tools on PATH | `install_android_sdk` | `sdk_manager/tasks/android_sdk_unix.yaml` |
 | `ANSIBLE FLUTTER ENVIRONMENT` | `PUB_CACHE`, and pub, FVM and the FVM global SDK on PATH | `install_flutter` | `sdk_manager/tasks/fvm_unix.yaml` |
 | `ANSIBLE NVM ENVIRONMENT` | `NVM_DIR` | `install_nodejs` | `sdk_manager/tasks/nvm_unix.yaml` |
-| `ANSIBLE SDKMAN ENVIRONMENT` | `SDKMAN_DIR`, `JAVA_HOME`, and SDKMAN's Java on PATH | `install_java` | `sdk_manager/tasks/sdkman_unix.yaml` |
+| `ANSIBLE SDKMAN ENVIRONMENT` | `SDKMAN_DIR`, `JAVA_HOME`, and SDKMAN's Java on PATH | `install_java`, or `install_gradle` on Debian, Ubuntu and Fedora, where Gradle comes from SDKMAN and brings in SDKMAN and the default Java, owner decision 55 | `sdk_manager/tasks/sdkman_unix.yaml` |
 | `ANSIBLE PYENV ENVIRONMENT` | `PYENV_ROOT`, and Pyenv on PATH | `install_python` | `sdk_manager/tasks/pyenv_unix.yaml` |
 | `ANSIBLE LM STUDIO ENVIRONMENT` | the LM Studio command line on PATH, Linux only | `install_lm_studio` | `ai_tools/tasks/local_llm.yaml` |
 | `ANSIBLE JETBRAINS TOOLBOX ENVIRONMENT` | the JetBrains Toolbox launchers on PATH, Linux only | `install_jetbrains_toolbox` | `jetbrains_toolbox/tasks/main.yaml` |

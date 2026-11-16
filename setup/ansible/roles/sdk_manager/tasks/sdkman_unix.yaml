@@ -100,6 +100,9 @@
 # ~/.sdkman/candidates/java/X.Y-tem/ may succeed but `sdk default java X.Y-tem`
 # still reports "is not installed on your system". Stay serial. `sdk` is a
 # shell function so the timeout wrapper uses bash -c to find it.
+#
+# Every version under install_java. When only Gradle brought install_java in, owner decision 55, the
+# default_java pin alone, because Gradle needs one JDK and nothing asked for the others.
 - name: Install all Java Temurin versions via SDKMAN (Linux/Mac)
   ansible.builtin.shell: |
     set -o pipefail
@@ -108,11 +111,9 @@
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  loop:
-    - "{{ java11_id }}"
-    - "{{ java17_id }}"
-    - "{{ java21_id }}"
-    - "{{ java25_id }}"
+  loop: >-
+    {{ [java11_id, java17_id, java21_id, java25_id] if (install_java | default(false) | bool)
+       else [default_java] }}
   loop_control:
     label: "{{ item }}"
   register: sdk_java_install

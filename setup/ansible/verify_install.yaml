@@ -108,6 +108,11 @@
     - name: Load the OS translation dictionary
       ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/load_os_dict.yaml"
 
+    # The same file site.yaml reads, so SDKMAN and the default Java are expected here exactly where a
+    # requested app brought install_java in.
+    - name: Ask which toggles a requested app brings in, the same way the playbook asks
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/toggle_prerequisites.yaml"
+
   tasks:
     # --- what the toggles asked for -----------------------------------------
     # One list of manager names, read twice below, because a manager that installs a package but is
@@ -711,6 +716,15 @@
       ansible.builtin.set_fact:
         ih_yay_applies: "{{ (install_yay | default(false) | bool) and (ih_family == 'Archlinux') }}"
 
+    # SDKMAN and the default Java are installed under install_java, and also where a requested app brought
+    # install_java in, Gradle on Debian, Ubuntu and Fedora, tasks/toggle_prerequisites.yaml. The other Java
+    # versions are installed under install_java alone. Gradle comes from SDKMAN where vars/<OS>.yaml maps
+    # no gradle package, which no package manager knows about, so it is asked about here.
+    - name: Decide whether SDKMAN, the default Java and an SDKMAN Gradle were asked for on this machine
+      ansible.builtin.set_fact:
+        ih_sdkman_applies: "{{ install_java | default(false) | bool or 'install_java' in ih_toggles_brought_in | default([]) }}"
+        ih_gradle_sdkman_applies: "{{ (install_gradle | default(false) | bool) and os_dict.software_mapping.gradle is not defined }}"
+
     # uv is a package where vars/<OS>.yaml maps it, and checked above with the rest of the packages.
     # Where the mapping is absent, Debian and Ubuntu today, custom_installs.yaml runs Astral's
     # installer, and no package manager knows about the result, so it is asked about here instead.
@@ -911,14 +925,16 @@
               [ -x "{{ non_root_home }}/.pyenv/versions/{{ python313_id }}/bin/python" ]
               && "{{ non_root_home }}/.pyenv/versions/{{ python313_id }}/bin/python" -c 'import ssl'
           - key: sdk
-            toggle: install_java
+            toggle: ih_sdkman_applies
+            sdk: true
             shell_bin: sdk
             how: "SDKMAN is a shell function sourced from ~/.sdkman/bin/sdkman-init.sh, not a binary on PATH"
             expected_path: ""
             disk_cmd: >-
               [ -f "{{ non_root_home }}/.sdkman/bin/sdkman-init.sh" ]
           - key: java
-            toggle: install_java
+            toggle: ih_sdkman_applies
+            sdk: true
             shell_bin: java
             how: "~/.sdkman/candidates/java/current, SDKMAN's default-version symlink"
             expected_path: "{{ non_root_home }}/.sdkman/candidates/java/current/bin/java"
@@ -952,6 +968,14 @@
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.sdkman/candidates/java/{{ java25_id }}/bin/java" ]
+          - key: "gradle (via SDKMAN)"
+            toggle: ih_gradle_sdkman_applies
+            sdk: true
+            shell_bin: gradle
+            how: "~/.sdkman/candidates/gradle/{{ gradle_id }}, which SDKMAN installs where vars/<OS>.yaml maps no gradle package, on PATH through SDKMAN's current link"
+            expected_path: "{{ non_root_home }}/.sdkman/candidates/gradle/{{ gradle_id }}/bin/gradle"
+            disk_cmd: >-
+              [ -x "{{ non_root_home }}/.sdkman/candidates/gradle/{{ gradle_id }}/bin/gradle" ]
           - key: fvm
             toggle: install_flutter
             shell_bin: fvm
@@ -1181,7 +1205,8 @@
     # Kubernetes tool, the same five toggles roles/software_installer/tasks/app_environment.yaml reads.
     # Docker, kubectl, Helm and Lens count only while unavailable_repositories, asked above, does not name
     # their repository, as there, because nothing installs them and nothing writes their variable then.
-    # Helm has such a repository on Debian only.
+    # Helm has such a repository on Debian only. SDKMAN's variables and its Java on PATH are asked as well
+    # where a requested app brought install_java in, the condition sdk_manager installs them under.
     - name: Define what the desktop session environment must carry
       ansible.builtin.set_fact:
         ih_session_env_vars: >-
@@ -1201,12 +1226,12 @@
                 if (install_android_sdk | default(false) | bool) else [])
              + (['PUB_CACHE'] if (install_flutter | default(false) | bool) else [])
              + (['NVM_DIR'] if (install_nodejs | default(false) | bool) else [])
-             + (['SDKMAN_DIR', 'JAVA_HOME'] if (install_java | default(false) | bool) else [])
+             + (['SDKMAN_DIR', 'JAVA_HOME'] if (install_java | default(false) | bool or 'install_java' in ih_toggles_brought_in | default([])) else [])
              + (['PYENV_ROOT'] if (install_python | default(false) | bool) else []) }}
         ih_session_path_entries: >-
           {{ ([android_home ~ '/platform-tools'] if (install_android_sdk | default(false) | bool) else [])
              + ([non_root_home ~ '/fvm/bin'] if (install_flutter | default(false) | bool) else [])
-             + ([non_root_home ~ '/.sdkman/candidates/java/current/bin'] if (install_java | default(false) | bool) else [])
+             + ([non_root_home ~ '/.sdkman/candidates/java/current/bin'] if (install_java | default(false) | bool or 'install_java' in ih_toggles_brought_in | default([])) else [])
              + ([non_root_home ~ '/.pyenv/bin'] if (install_python | default(false) | bool) else [])
              + ([jetbrains_toolbox_scripts_dir] if (install_jetbrains_toolbox | default(false) | bool) else []) }}
       when: ansible_facts['system'] == 'Linux'
@@ -1281,7 +1306,7 @@
         ih_full_row:
           key: "{{ item.key }}"
           how: "{{ item.how }}"
-          sdk: "{{ item.toggle in ih_sdk_toggles }}"
+          sdk: "{{ item.toggle in ih_sdk_toggles or item.sdk | default(false) | bool }}"
           verdict: >-
             {{ 'not requested' if not (lookup('vars', item.toggle, default=false) | bool)
                else 'installed' if (ih_enabled_row.on_disk and ih_enabled_row.in_shell)

@@ -1204,12 +1204,10 @@ pick_review_mode() {
     SCREEN_RESULT="${SCREEN_RESULT%% *}"
 }
 
-# The toggles whose mapping installs through snap on this machine, one install_<key> per line. Read from
+# Every software_mapping entry on this machine, one "<key> <manager>" line each. Read from
 # vars/<family>.yaml with the entries of vars/derivatives/<os-release ID>.yaml replacing the family's of
-# the same key, the merge setup/ansible/tasks/load_os_dict.yaml does, so this names exactly what
-# setup/ansible/tasks/snap_availability.yaml skips when install_snapd is off, everywhere but Ubuntu
-# itself, where it skips nothing.
-snap_dependents() {
+# the same key, the merge setup/ansible/tasks/load_os_dict.yaml does. Nothing when the family has no file.
+software_mapping_managers() {
     local family_file="${ANSIBLE_DIR}/vars/${OS_FAMILY}.yaml"
     local derivative_file="${ANSIBLE_DIR}/vars/derivatives/${OS_RELEASE_ID:-none}.yaml"
     [[ -f "${family_file}" ]] || return 0
@@ -1218,8 +1216,82 @@ snap_dependents() {
         if [[ -f "${derivative_file}" ]]; then grep -E '^  [a-z0-9_]+: \{' "${derivative_file}" || true; fi
     } | tr -d '\r' \
         | sed -nE 's/^  ([a-z0-9_]+): \{.*manager: *"([a-z_]+)".*/\1 \2/p' \
-        | awk '{ manager[$1] = $2 } END { for (key in manager) if (manager[key] == "snap") print "install_" key }' \
+        | awk '{ manager[$1] = $2 } END { for (key in manager) print key, manager[key] }' \
         | sort
+}
+
+# The toggles whose mapping installs through snap on this machine, one install_<key> per line, so this
+# names exactly what setup/ansible/tasks/snap_availability.yaml skips when install_snapd is off,
+# everywhere but Ubuntu itself, where it skips nothing.
+snap_dependents() {
+    software_mapping_managers | awk '$2 == "snap" { print "install_" $1 }' | sort
+}
+
+# unmapped_toggle_prerequisites in group_vars/all.yaml, one "<toggle> <needs> <brings>" line each, tab
+# separated.
+toggle_prerequisite_entries() {
+    tr -d '\r' <"${ALL_VARS}" \
+        | awk '/^unmapped_toggle_prerequisites:/ { inside = 1; next } /^[^[:space:]#]/ { inside = 0 } inside' \
+        | sed -nE 's/^  ([a-z0-9_]+): \{ *needs: *([a-z0-9_]+), *brings: *"([^"]*)" *\}.*/\1\t\2\t\3/p'
+}
+
+# The value a toggle has in this run, true or false. The key=value lines passed in win, then the
+# profile, then the state the checklist preloaded from group_vars, the precedence the playbook gives
+# its extra variables, the profile and group_vars.
+effective_toggle() {
+    local key="$1"; shift
+    local line value="" i
+    for line in "$@"; do
+        [[ "${line%%=*}" == "${key}" ]] && value="${line#*=}"
+    done
+    if [[ -z "${value}" && -n "${OPT_PROFILE}" ]]; then
+        line="$(grep -m1 -E "^${key} " <<<"$(read_boolean_toggles "${ANSIBLE_DIR}/profiles/${OPT_PROFILE}.yaml")" || true)"
+        [[ -n "${line}" ]] && value="$([[ "${line##* }" == ON ]] && echo true || echo false)"
+    fi
+    if [[ -z "${value}" ]]; then
+        for (( i=0; i<${#PRELOADED_KEYS[@]}; i++ )); do
+            [[ "${PRELOADED_KEYS[$i]}" == "${key}" ]] || continue
+            value="$([[ "${PRELOADED_ITEMS[$((i*3+2))]}" == ON ]] && echo true || echo false)"
+        done
+    fi
+    printf '%s\n' "${value:-false}"
+}
+
+# The toggles a requested app brings in on this machine, owner decision 55, one "<toggle> <needs>
+# <brings>" line each, tab separated: an entry of unmapped_toggle_prerequisites whose toggle is on in
+# this run, whose needs is off, and whose key has no mapping on this machine. The arguments are the
+# run's key=value lines. setup/ansible/tasks/toggle_prerequisites.yaml gives the playbook the same
+# answer from the same list.
+brought_in_entries() {
+    local mapped toggle needs brings
+    [[ -f "${ANSIBLE_DIR}/vars/${OS_FAMILY}.yaml" ]] || return 0
+    mapped="$(software_mapping_managers | awk '{ print "install_" $1 }')"
+    while IFS=$'\t' read -r toggle needs brings; do
+        [[ -n "${toggle}" ]] || continue
+        grep -qx -- "${toggle}" <<<"${mapped}" && continue
+        [[ "$(effective_toggle "${toggle}" "$@")" == true ]] || continue
+        [[ "$(effective_toggle "${needs}" "$@")" == true ]] && continue
+        printf '%s\t%s\t%s\n' "${toggle}" "${needs}" "${brings}"
+    done < <(toggle_prerequisite_entries)
+}
+
+# The plan's line for each toggle this run brings in, said before the run starts, so a person learns why
+# Java is installed on a run that turned it off. The arguments are the run's key=value lines.
+prerequisite_notes() {
+    local toggle needs brings
+    while IFS=$'\t' read -r toggle needs brings; do
+        [[ -n "${toggle}" ]] || continue
+        printf '%s: brought in by %s, which needs it on this machine, so this run also installs %s.\n' \
+            "$(format_label "${needs}")" "$(format_label "${toggle}")" "${brings}"
+    done < <(brought_in_entries "$@")
+}
+
+# The same lines through say, for the two paths that print the plan as text.
+say_prerequisite_notes() {
+    local note
+    while IFS= read -r note; do
+        [[ -n "${note}" ]] && say "${note}"
+    done < <(prerequisite_notes "$@")
 }
 
 # The checklist header line that says what turning Snapd off skips on this machine, empty when the
@@ -1319,10 +1391,14 @@ pick_profile() {
 }
 
 confirm_run() {
-    local display_cmd="$1"
+    local display_cmd="$1" notes="${2:-}"
     banner "Step 3/3 - Ready to run"
     gum style --foreground 7 "${display_cmd}"
     echo
+    if [[ -n "${notes}" ]]; then
+        gum style --foreground 10 "${notes}"
+        echo
+    fi
     if gum confirm "Run the playbook now?"; then
         SCREEN_RESULT="run"
     else
@@ -1423,10 +1499,11 @@ main_interactive() {
                 build_playbook_args "${all_extra[@]+"${all_extra[@]}"}"
                 local -a ansible_args=("${PLAYBOOK_ARGS[@]}")
 
-                local display_cmd
+                local display_cmd notes
                 display_cmd=$(printf 'ansible-playbook'; printf ' %q' "${ansible_args[@]}")
+                notes="$(prerequisite_notes "${all_extra[@]+"${all_extra[@]}"}")"
 
-                confirm_run "${display_cmd}"
+                confirm_run "${display_cmd}" "${notes}"
                 if [[ -z "${SCREEN_RESULT}" ]]; then
                     state=$([[ "${have_pkg_vars}" == true ]] && echo "checklist" || echo "review")
                     continue
@@ -1448,6 +1525,7 @@ run_non_interactive() {
     resolve_overrides
     build_playbook_args "${OVERRIDE_VARS[@]+"${OVERRIDE_VARS[@]}"}"
     export ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg"
+    say_prerequisite_notes "${OVERRIDE_VARS[@]+"${OVERRIDE_VARS[@]}"}"
     echo "Running: ansible-playbook $(printf '%q ' "${PLAYBOOK_ARGS[@]}")"
     # `|| playbook_rc=$?` rather than a bare call, so a failed playbook reaches the verification
     # instead of ending the script through set -e. A failed run still put software on the machine,
@@ -1611,6 +1689,7 @@ validate_selection_options
 if [[ "${OPT_PRINT_COMMAND}" == true ]]; then
     resolve_overrides
     build_playbook_args "${OVERRIDE_VARS[@]+"${OVERRIDE_VARS[@]}"}"
+    say_prerequisite_notes "${OVERRIDE_VARS[@]+"${OVERRIDE_VARS[@]}"}"
     printf 'ansible-playbook'
     printf ' %q' "${PLAYBOOK_ARGS[@]}"
     printf '\n'

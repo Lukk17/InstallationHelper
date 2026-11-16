@@ -32,6 +32,12 @@
       ansible.builtin.import_tasks: tasks/load_os_dict.yaml
       tags: always
 
+    # After the dictionary, because a toggle is brought in only where the app that needs it has no
+    # mapping. See unmapped_toggle_prerequisites in group_vars/all.yaml.
+    - name: Decide which toggles a requested app brings in on this machine
+      ansible.builtin.import_tasks: tasks/toggle_prerequisites.yaml
+      tags: always
+
     # Asked once, before any role reads zsh_config_dir in group_vars/all.yaml, so a run with setup_zsh
     # off still writes zsh files where an earlier run's ~/.zshenv stub sends zsh.
     - name: Ask whether ~/.zshenv already points zsh at its configuration directory
@@ -284,7 +290,7 @@
             label: "{{ item.name }}"
           when:
             - not (env_variables_available | default(true) | bool)
-            - lookup('vars', item.toggle, default=false) | bool
+            - lookup('vars', item.toggle, default=false) | bool or item.toggle in ih_toggles_brought_in | default([])
 
         - name: Run ai_tools
           tags: [ai]

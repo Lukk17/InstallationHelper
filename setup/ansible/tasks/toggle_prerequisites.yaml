@@ -1,0 +1,36 @@
+---
+# The toggles a requested app brings in on this machine, owner decision 55, decided once from
+# unmapped_toggle_prerequisites in group_vars/all.yaml and read by every task that needs the answer.
+#
+# ih_toggles_brought_in: each toggle that is off and that a requested app needs here, because the app's key
+# has no mapping in os_dict and the app installs through that toggle's tool instead. install_java is
+# the one today, brought in by install_gradle on Debian, Ubuntu and Fedora. roles/sdk_manager installs
+# SDKMAN and the default Java for it, site.yaml names it when env_variables failed, and
+# verify_install.yaml asks for SDKMAN and the default Java.
+#
+# ih_brought_in: the same answer with the toggle that brought each one in, as items of
+# unmapped_toggle_prerequisites, key the requested toggle and value its needs and brings.
+#
+# setup/setup.sh reads the same list and the same dictionaries and prints each one in its plan before
+# the run, so a person learns before the run why Java is installed. e2e/tier1/toggle_prerequisites.sh
+# holds both to this file.
+- name: Decide which toggles a requested app brings in on this machine
+  ansible.builtin.set_fact:
+    ih_brought_in: "{{ ih_prerequisites_needed }}"
+    ih_toggles_brought_in: "{{ ih_prerequisites_needed | map(attribute='value.needs') | unique | list }}"
+  vars:
+    ih_mapped_toggles: >-
+      {{ os_dict.software_mapping | default({}) | list | map('regex_replace', '^', 'install_') | list }}
+    ih_prerequisites_unmapped: >-
+      {{ unmapped_toggle_prerequisites | default({}) | dict2items
+         | rejectattr('key', 'in', ih_mapped_toggles) | list }}
+    ih_prerequisites_requested: >-
+      {{ ih_prerequisites_unmapped
+         | zip(query('ansible.builtin.vars', *(ih_prerequisites_unmapped | map(attribute='key')),
+                     default=false) | map('bool'))
+         | selectattr('1') | map(attribute='0') | list }}
+    ih_prerequisites_needed: >-
+      {{ ih_prerequisites_requested
+         | zip(query('ansible.builtin.vars', *(ih_prerequisites_requested | map(attribute='value.needs')),
+                     default=false) | map('bool'))
+         | rejectattr('1') | map(attribute='0') | list }}

@@ -36,9 +36,11 @@
           NVM and Node.js are NOT installed, and the npm-installed AI tools that need them will say so
           themselves. Every other SDK continues, and the run is marked failed.
 
+# Also when a requested app brings install_java in, Gradle on Debian, Ubuntu and Fedora, see
+# tasks/toggle_prerequisites.yaml. sdkman_unix.yaml then installs the default Java alone.
 - name: Setup SDKMAN and Java
   tags: [sdkman]
-  when: install_java | default(false) | bool
+  when: install_java | default(false) | bool or 'install_java' in ih_toggles_brought_in | default([])
   block:
     - name: Include the SDKMAN and Java tasks
       ansible.builtin.include_tasks:

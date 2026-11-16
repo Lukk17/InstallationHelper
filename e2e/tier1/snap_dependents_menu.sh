@@ -38,10 +38,10 @@ info "Tier 1: the wizard names what turning Snapd off skips"
 
 require_python "the checklist names what turning Snapd off skips" "snap dependents menu"
 
-functions_text="$(sed -n '/^format_label()/,/^}/p;/^debian_lineage()/,/^}/p;/^snap_dependents()/,/^}/p;/^snapd_note()/,/^}/p' "${SETUP_SH}")"
+functions_text="$(sed -n '/^format_label()/,/^}/p;/^debian_lineage()/,/^}/p;/^software_mapping_managers()/,/^}/p;/^snap_dependents()/,/^}/p;/^snapd_note()/,/^}/p' "${SETUP_SH}")"
 labels_text="$(sed -n '/^declare -A LABEL_OVERRIDES=(/,/^)$/p' "${SETUP_SH}")"
 picker_text="$(sed -n '/^pick_software()/,/^}/p' "${SETUP_SH}")"
-for name in format_label debian_lineage snap_dependents snapd_note; do
+for name in format_label debian_lineage software_mapping_managers snap_dependents snapd_note; do
     if ! grep -q "^${name}() {" <<<"${functions_text}"; then
         fail "setup.sh defines ${name}" "it was not found, so the checklist cannot name what turning Snapd off skips"
         finish "snap dependents menu"
