@@ -8,7 +8,7 @@
 # 10.351. Owner decision 55: on those systems install_gradle brings in SDKMAN and the default Java, and
 # the plan setup.sh prints before the run names Java as brought in by Gradle. So this asserts:
 #
-#   1. unmapped_toggle_prerequisites in group_vars/all.yaml gives install_gradle the needs
+#   1. toggle_prerequisites in group_vars/all.yaml gives install_gradle the needs
 #      install_java, and every toggle it names is a toggle all.yaml declares.
 #   2. site.yaml imports tasks/toggle_prerequisites.yaml in its pre_tasks after the OS dictionary and
 #      under tag always, verify_install.yaml includes it after its own dictionary, the SDKMAN block of
@@ -62,11 +62,11 @@ lines = []
 
 all_vars = yaml.safe_load((ANSIBLE / 'group_vars' / 'all.yaml').read_text(encoding='utf-8')) or {}
 declared = {k for k, v in all_vars.items() if isinstance(v, bool)}
-data = all_vars.get('unmapped_toggle_prerequisites')
+data = all_vars.get('toggle_prerequisites')
 
 # --- 1. the data ---------------------------------------------------------------------------------
 if not isinstance(data, dict) or (data.get('install_gradle') or {}).get('needs') != 'install_java':
-    lines.append('FAIL group_vars/all.yaml has no unmapped_toggle_prerequisites entry giving install_gradle the '
+    lines.append('FAIL group_vars/all.yaml has no toggle_prerequisites entry giving install_gradle the '
                  'needs install_java, so Gradle on Debian, Ubuntu and Fedora installs through an SDKMAN nothing '
                  'installs, docs/regression_ledger.md 10.351')
     data = {}
@@ -74,11 +74,11 @@ else:
     unknown = sorted({t for k, v in data.items() for t in (k, (v or {}).get('needs'))} - declared)
     unbrought = sorted(k for k, v in data.items() if not str((v or {}).get('brings', '')).strip())
     if unknown or unbrought:
-        lines.append('FAIL unmapped_toggle_prerequisites names %s, which group_vars/all.yaml does not declare, or '
+        lines.append('FAIL toggle_prerequisites names %s, which group_vars/all.yaml does not declare, or '
                      'gives %s no brings for the plan to print'
                      % (', '.join(unknown) or 'no unknown toggle', ', '.join(unbrought) or 'every entry'))
     else:
-        lines.append('OK unmapped_toggle_prerequisites gives install_gradle the needs install_java, and names only '
+        lines.append('OK toggle_prerequisites gives install_gradle the needs install_java, and names only '
                      'declared toggles')
 
 

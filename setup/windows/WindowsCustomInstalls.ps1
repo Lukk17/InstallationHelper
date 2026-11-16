@@ -9,7 +9,8 @@
     because the playbook is invoked from inside WSL and reports os_family Debian. See
     docs/regression_ledger.md. pipx never had one.
 
-      install_java          four JDKs plus JAVA_HOME, not one package
+      install_java          four JDKs plus JAVA_HOME, not one package, and the default JDK alone
+                            when Gradle brings Java in
       install_nodejs        a version manager, then a Node version inside it
       install_flutter       a version manager, then a channel inside it, then a global pin
       install_android_sdk   the command line tools zip, then sdkmanager, beside the Studio package
@@ -117,7 +118,11 @@ function Get-WindowsCustomInstallProof {
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
-    param([Parameter(Mandatory)] [hashtable] $Versions)
+    param(
+        [Parameter(Mandatory)] [hashtable] $Versions,
+        # Gradle brought Java in, so the run installed the default_java pin alone, see Install-TemurinJdk.
+        [switch] $DefaultJavaOnly
+    )
 
     $adoptium = Join-Path $env:ProgramFiles 'Eclipse Adoptium'
 
@@ -125,7 +130,7 @@ function Get-WindowsCustomInstallProof {
     # reports an entry with nothing to look for as unverifiable, which is the honest answer: the
     # same broken pin also stopped the install from happening.
     $jdkPaths = [System.Collections.Generic.List[string]]::new()
-    foreach ($key in $script:JavaPinKeys) {
+    foreach ($key in @(Get-TemurinPinKey -DefaultOnly:$DefaultJavaOnly)) {
         if (-not $Versions.ContainsKey($key)) { continue }
         try {
             $jdkPaths.Add((Join-Path $adoptium "jdk-$(Get-TemurinMajor -SdkmanId $Versions[$key])*"))
@@ -141,7 +146,7 @@ function Get-WindowsCustomInstallProof {
         java = [PSCustomObject]@{
             Path        = $jdkPaths.ToArray()
             Mode        = 'All'
-            Description = "the pinned Temurin JDKs under $adoptium"
+            Description = $(if ($DefaultJavaOnly) { "the default Temurin JDK under $adoptium, which Gradle needs" } else { "the pinned Temurin JDKs under $adoptium" })
         }
         nodejs = [PSCustomObject]@{
             Path        = @((Join-Path $nvmHome 'nvm.exe'), (Join-Path $env:APPDATA 'nvm\nvm.exe'))
@@ -199,6 +204,24 @@ function Get-TemurinMajor {
     return $Matches['major']
 }
 
+function Get-TemurinPinKey {
+    <#
+    .SYNOPSIS
+        The pins that name the JDKs a run installs: the four of $script:JavaPinKeys, or default_java alone with -DefaultOnly.
+    .DESCRIPTION
+        Read by Install-TemurinJdk for the packages and by Get-WindowsCustomInstallProof for the
+        directories they leave, so the install and the verification ask about the same JDKs.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([switch] $DefaultOnly)
+
+    if ($DefaultOnly) {
+        return @('default_java')
+    }
+    return $script:JavaPinKeys
+}
+
 function Install-TemurinJdk {
     <#
     .SYNOPSIS
@@ -215,11 +238,18 @@ function Install-TemurinJdk {
         by looking for the directory the install actually produced.
 
         JAVA_HOME is set for the user, not the machine, because setup.ps1 refuses to run elevated
-        and a machine-level environment variable needs administrator rights.
+        and a machine-level environment variable needs administrator rights. It is written once: a
+        JAVA_HOME that already names the JDK found is reported present and not written again.
+
+        -DefaultOnly installs the default_java pin alone, for a run where Gradle brought Java in,
+        owner decision 61: the Chocolatey gradle package brings no JDK. Such a run leaves alone a
+        JAVA_HOME that already names a directory on this machine, because the person did not ask for
+        Java and a JDK of their own already serves Gradle.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
-        [Parameter(Mandatory)] [hashtable] $Versions
+        [Parameter(Mandatory)] [hashtable] $Versions,
+        [switch] $DefaultOnly
     )
 
     $results = [System.Collections.Generic.List[object]]::new()
@@ -233,7 +263,7 @@ function Install-TemurinJdk {
     # playbook ran. The reader now refuses to hand out an unresolved reference, so that exact shape
     # cannot arrive any more, but a pin bumped to anything a major version cannot be read out of
     # still lands here, and it must not take the other four items down with it.
-    foreach ($key in $script:JavaPinKeys) {
+    foreach ($key in @(Get-TemurinPinKey -DefaultOnly:$DefaultOnly)) {
         if (-not $Versions.ContainsKey($key)) {
             $results.Add([PSCustomObject]@{ Key = 'java'; Package = $key; Status = 'failed'
                                             Detail = "nothing pins $key, so no Temurin package could be derived" })
@@ -300,6 +330,17 @@ function Install-TemurinJdk {
         }
         $results.Add([PSCustomObject]@{ Key = 'java'; Package = 'JAVA_HOME'; Status = 'failed'
                                         Detail = "no jdk-$defaultMajor* directory under $adoptium, so JAVA_HOME was left alone rather than pointed at nothing" })
+        return $results
+    }
+
+    $current = (Get-WindowsUserEnvironmentValue -Name 'JAVA_HOME').Value
+    if ($current -eq $jdkDir.FullName) {
+        $results.Add([PSCustomObject]@{ Key = 'java'; Package = 'JAVA_HOME'; Status = 'present'; Detail = $jdkDir.FullName })
+        return $results
+    }
+    if ($DefaultOnly -and $current -and (Test-Path -LiteralPath ([Environment]::ExpandEnvironmentVariables($current)) -PathType Container)) {
+        $results.Add([PSCustomObject]@{ Key = 'java'; Package = 'JAVA_HOME'; Status = 'present'
+                                        Detail = "JAVA_HOME already names $current, so this run, which installs Java only because Gradle needs it, left it as it was" })
         return $results
     }
 
@@ -1330,11 +1371,15 @@ function Invoke-WindowsCustomInstall {
         Takes the already-resolved toggle map from Get-WindowsSoftwareToggle, so the toggle source
         of truth stays in one place. Never throws for one item: the others still run and the summary
         names every failure.
+
+        Prerequisite is Get-WindowsTogglePrerequisite of group_vars/all.yaml. When it brings
+        install_java in, Gradle on and Java off, the default Java alone is installed, owner decision 61.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)] [hashtable] $Toggles,
-        [string[]] $OnlyKeys
+        [string[]] $OnlyKeys,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [PSCustomObject[]] $Prerequisite
     )
 
     $results = [System.Collections.Generic.List[object]]::new()
@@ -1356,10 +1401,10 @@ function Invoke-WindowsCustomInstall {
 
     $wanted = {
         param([string] $key)
-        if (-not ($Toggles.ContainsKey($key) -and $Toggles[$key])) { return $false }
-        if ($OnlyKeys -and $key -notin $OnlyKeys) { return $false }
-        return $true
+        Test-WindowsToggleWanted -Toggles $Toggles -OnlyKeys $OnlyKeys -Key $key
     }
+    $broughtIn = @(Resolve-WindowsBroughtInToggle -Prerequisite $Prerequisite -Toggles $Toggles -OnlyKeys $OnlyKeys |
+                   ForEach-Object { $_.Needs })
 
     # The paths an install has to leave behind, held in one table so the proof this phase demands and
     # the proof the verification looks for after the run are the same paths.
@@ -1374,6 +1419,7 @@ function Invoke-WindowsCustomInstall {
     # and Gridcoin included, never ran. The array subexpression makes one object and many behave the
     # same way.
     if (& $wanted 'java')   { $results.AddRange([object[]]@(Install-TemurinJdk   -Versions $versions)) }
+    elseif ('install_java' -in $broughtIn) { $results.AddRange([object[]]@(Install-TemurinJdk -Versions $versions -DefaultOnly)) }
     if (& $wanted 'nodejs') { $results.AddRange([object[]]@(Install-NodeViaNvm)) }
     if (& $wanted 'flutter'){ $results.AddRange([object[]]@(Install-FlutterViaFvm -Versions $versions)) }
     if (& $wanted 'pipx')   { $results.AddRange([object[]]@(Install-PipxWithPip -ProofPath (@($proofs['pipx'].Path)[0]))) }

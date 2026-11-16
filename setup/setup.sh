@@ -1227,12 +1227,12 @@ snap_dependents() {
     software_mapping_managers | awk '$2 == "snap" { print "install_" $1 }' | sort
 }
 
-# unmapped_toggle_prerequisites in group_vars/all.yaml, one "<toggle> <needs> <brings>" line each, tab
-# separated.
+# toggle_prerequisites in group_vars/all.yaml, one "<toggle> <needs> <brings>" line each, tab
+# separated. windows_brings is setup.ps1's and is passed over.
 toggle_prerequisite_entries() {
     tr -d '\r' <"${ALL_VARS}" \
-        | awk '/^unmapped_toggle_prerequisites:/ { inside = 1; next } /^[^[:space:]#]/ { inside = 0 } inside' \
-        | sed -nE 's/^  ([a-z0-9_]+): \{ *needs: *([a-z0-9_]+), *brings: *"([^"]*)" *\}.*/\1\t\2\t\3/p'
+        | awk '/^toggle_prerequisites:/ { inside = 1; next } /^[^[:space:]#]/ { inside = 0 } inside' \
+        | sed -nE 's/^  ([a-z0-9_]+): \{ *needs: *([a-z0-9_]+), *brings: *"([^"]*)" *(, *windows_brings: *"[^"]*" *)?\}.*/\1\t\2\t\3/p'
 }
 
 # The value a toggle has in this run, true or false. The key=value lines passed in win, then the
@@ -1258,7 +1258,7 @@ effective_toggle() {
 }
 
 # The toggles a requested app brings in on this machine, owner decision 55, one "<toggle> <needs>
-# <brings>" line each, tab separated: an entry of unmapped_toggle_prerequisites whose toggle is on in
+# <brings>" line each, tab separated: an entry of toggle_prerequisites whose toggle is on in
 # this run, whose needs is off, and whose key has no mapping on this machine. The arguments are the
 # run's key=value lines. setup/ansible/tasks/toggle_prerequisites.yaml gives the playbook the same
 # answer from the same list.

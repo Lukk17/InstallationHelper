@@ -168,17 +168,21 @@ ih_env_variables_run: >-
   {{ not (ih_picked_apps_run | bool)
      or (ih_picked_toggles | intersect(env_variables_dependent_toggles) | length > 0) }}
 
-# A toggle whose app installs through another toggle's tool on a system whose dictionary, vars/<family>.yaml
-# with its derivative merged over it, has no package mapping for the app, owner decision 55. Debian, Ubuntu
-# and Fedora package no usable Gradle, so sdk_manager installs it through SDKMAN, and Gradle needs a JDK, so
-# there install_gradle brings in SDKMAN and the default Java even with install_java off. Where the
-# dictionary maps gradle to a package, Arch, CachyOS and macOS today, nothing is brought in. needs names the
-# toggle brought in, and brings says what of it is installed, which is less than the toggle installs on its
-# own: SDKMAN and the default_java pin, not every Java version. setup.sh names each one in the plan it prints
-# before the run, and tasks/toggle_prerequisites.yaml gives the playbook and verify_install.yaml the same
-# answer from this one list. e2e/tier1/toggle_prerequisites.sh runs both.
-unmapped_toggle_prerequisites:
-  install_gradle: { needs: install_java, brings: "SDKMAN and the default Java" }
+# A toggle whose app needs another toggle's tool and does not get it from its own install. On Linux and
+# macOS the need applies on a system whose dictionary, vars/<family>.yaml with its derivative merged over it,
+# has no package mapping for the app, owner decision 55. Debian, Ubuntu and Fedora package no usable Gradle,
+# so sdk_manager installs it through SDKMAN, and Gradle needs a JDK, so there install_gradle brings in SDKMAN
+# and the default Java even with install_java off. Where the dictionary maps gradle to a package, Arch,
+# CachyOS and macOS today, nothing is brought in. needs names the toggle brought in, and brings says what of
+# it is installed, which is less than the toggle installs on its own: SDKMAN and the default_java pin, not
+# every Java version. windows_brings says that the need applies on Windows as well, whatever vars/Windows.yaml
+# maps, and what is installed there, owner decision 61: the Chocolatey gradle package declares no dependency
+# and brings no JDK, so setup.ps1 installs the default_java pin alone and points JAVA_HOME at it. setup.sh
+# and setup.ps1 name each one in the plan they print before the run, tasks/toggle_prerequisites.yaml gives
+# the playbook and verify_install.yaml the same answer, and setup/windows/WindowsSoftware.ps1 reads it for
+# the Windows installs and verification. e2e/tier1/toggle_prerequisites.sh and the Pester suite run them.
+toggle_prerequisites:
+  install_gradle: { needs: install_java, brings: "SDKMAN and the default Java", windows_brings: "the default Java" }
 
 # Logging configuration
 # Set to true to allow playbook to continue if log file creation fails

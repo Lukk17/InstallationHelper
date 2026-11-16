@@ -48,7 +48,8 @@
     run would be wrong as often as right.
 
     Depends on Get-WindowsSoftwareToggle, Get-WindowsSoftwareMapping, Get-WingetPath,
-    Get-WingetInstallVerdict, Get-ChocolateyInstalledPackage and Get-ChocolateyInstallVerdict from WindowsSoftware.ps1,
+    Get-WingetInstallVerdict, Get-ChocolateyInstalledPackage, Get-ChocolateyInstallVerdict, Test-WindowsToggleWanted,
+    Get-WindowsTogglePrerequisite and Resolve-WindowsBroughtInToggle from WindowsSoftware.ps1,
     Get-NpmToolPackage from WindowsNpmTools.ps1, and Get-WindowsCustomInstallKey and
     Get-WindowsCustomInstallProof from WindowsCustomInstalls.ps1. setup.ps1 dot-sources all three
     before this one.
@@ -300,10 +301,14 @@ function Invoke-WindowsVerification {
     # heard that the user unticked it.
     $wanted = {
         param([string] $key)
-        if (-not ($toggles.ContainsKey($key) -and $toggles[$key])) { return $false }
-        if ($OnlyKeys -and $key -notin $OnlyKeys) { return $false }
-        return $true
+        Test-WindowsToggleWanted -Toggles $toggles -OnlyKeys $OnlyKeys -Key $key
     }
+
+    # What a requested app brought in, asked of the function the install asked, so the JDK Gradle
+    # brought in is checked rather than reported as not requested, owner decision 61.
+    $broughtIn = @(Resolve-WindowsBroughtInToggle -Toggles $toggles -OnlyKeys $OnlyKeys `
+        -Prerequisite @(Get-WindowsTogglePrerequisite -AllVarsPath (Join-Path $AnsibleDir 'group_vars\all.yaml')) |
+        ForEach-Object { $_.Needs -replace '^install_', '' })
 
     # --- the mapped software ------------------------------------------------
     # An empty mapping table would make every comparison below pass while examining nothing, which
@@ -455,10 +460,10 @@ function Invoke-WindowsVerification {
     } catch {
         $pinsWhy = $_.Exception.Message
     }
-    $proofs = Get-WindowsCustomInstallProof -Versions $versions
+    $proofs = Get-WindowsCustomInstallProof -Versions $versions -DefaultJavaOnly:('java' -in $broughtIn)
 
     foreach ($key in (Get-WindowsCustomInstallKey)) {
-        if (-not (& $wanted $key)) {
+        if (-not (& $wanted $key) -and $key -notin $broughtIn) {
             & $add $key 'custom' 'installed by setup/windows/WindowsCustomInstalls.ps1' $script:VerdictNotRequested ''
             continue
         }

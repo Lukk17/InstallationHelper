@@ -33,7 +33,7 @@
       tags: always
 
     # After the dictionary, because a toggle is brought in only where the app that needs it has no
-    # mapping. See unmapped_toggle_prerequisites in group_vars/all.yaml.
+    # mapping. See toggle_prerequisites in group_vars/all.yaml.
     - name: Decide which toggles a requested app brings in on this machine
       ansible.builtin.import_tasks: tasks/toggle_prerequisites.yaml
       tags: always

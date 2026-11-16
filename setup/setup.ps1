@@ -343,7 +343,8 @@ function Invoke-AndShowCustomInstalls {
         -WindowsVarsPath (Join-Path $AnsibleDir 'group_vars\windows.yaml') `
         -ToggleOverride  $ToggleOverride
 
-    $r = Invoke-WindowsCustomInstall -Toggles $toggles -OnlyKeys $OnlyKeys
+    $r = Invoke-WindowsCustomInstall -Toggles $toggles -OnlyKeys $OnlyKeys `
+        -Prerequisite @(Get-WindowsTogglePrerequisite -AllVarsPath (Join-Path $AnsibleDir 'group_vars\all.yaml'))
 
     if ($r.Results.Count -eq 0) {
         Write-Status 'SDKs and standalone installers: none enabled'
@@ -1436,6 +1437,52 @@ function Invoke-WindowsRun {
     return $phases
 }
 
+function Get-PrerequisiteNote {
+    <#
+    .SYNOPSIS
+        The plan's line for each toggle this run brings in, the sentence setup.sh prints, owner decision 61.
+    .DESCRIPTION
+        Asked of Resolve-WindowsBroughtInToggle, which the custom installs and the verification ask too,
+        so the plan names what the run installs. The labels are the checklist's with the first letter
+        raised, as format_label in setup.sh does, so both wizards print the same sentence. Only what is
+        brought in differs, windows_brings in group_vars/all.yaml rather than brings.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [hashtable] $ToggleOverride,
+        [string[]] $OnlyKeys
+    )
+
+    $toggles = Get-WindowsSoftwareToggle -AllVarsPath $AllVars -WindowsVarsPath $WindowsVars -ToggleOverride $ToggleOverride
+    $broughtIn = @(Resolve-WindowsBroughtInToggle -Prerequisite @(Get-WindowsTogglePrerequisite -AllVarsPath $AllVars) `
+        -Toggles $toggles -OnlyKeys $OnlyKeys)
+    $label = {
+        param([string] $Key)
+        $text = Get-ToggleLabel -Key $Key
+        $text.Substring(0, 1).ToUpperInvariant() + $text.Substring(1)
+    }
+    return @($broughtIn | ForEach-Object {
+        '{0}: brought in by {1}, which needs it on this machine, so this run also installs {2}.' -f (& $label $_.Needs), (& $label $_.Toggle), $_.Brings
+    })
+}
+
+function Write-PrerequisiteNote {
+    <#
+    .SYNOPSIS
+        Prints the lines of Get-PrerequisiteNote before the run starts, as setup.sh does before ansible-playbook.
+    #>
+    [CmdletBinding()]
+    param(
+        [hashtable] $ToggleOverride,
+        [string[]] $OnlyKeys
+    )
+
+    foreach ($note in @(Get-PrerequisiteNote -ToggleOverride $ToggleOverride -OnlyKeys $OnlyKeys)) {
+        Write-Status $note
+    }
+}
+
 function Show-ResolvedPlan {
     <#
     .SYNOPSIS
@@ -1486,6 +1533,10 @@ function Show-ResolvedPlan {
         Write-Output "  -Profile '$Profile' selects nothing here: the profiles are Ansible variable overrides for the Linux side."
     }
     Write-Output ''
+
+    $notes = @(Get-PrerequisiteNote -ToggleOverride $ToggleOverride)
+    foreach ($note in $notes) { Write-Output "  $note" }
+    if ($notes.Count -gt 0) { Write-Output '' }
 
     Write-Output "  Windows packages, winget and Chocolatey ($($plan.Planned.Count)):"
     if ($plan.Planned.Count -eq 0) { Write-Output '    (none)' }
@@ -1622,6 +1673,7 @@ function Invoke-Main {
         if ($Profile) {
             Write-Hint "  -Profile '$Profile' selects nothing here. The profiles are Ansible variable overrides for the Linux side, this wizard configures Windows, and it is accepted only so the documented command still runs."
         }
+        Write-PrerequisiteNote -ToggleOverride $toggleOverride -OnlyKeys $selectedSoftwareKeys
     } else {
         # Without the picker module there is nothing to choose with, so the selection stays null, which
         # means the group_vars defaults exactly as on the -NonInteractive path. The confirmation below
@@ -1639,6 +1691,7 @@ function Invoke-Main {
         Write-Section 'Step 2/2 — Confirm and Run'
         Write-Hint '  Windows software is installed natively with winget and Chocolatey.'
         Write-Hint '  Then the three Windows system settings, and Ansible inside WSL.'
+        Write-PrerequisiteNote -ToggleOverride $toggleOverride -OnlyKeys $selectedSoftwareKeys
         $confirmed = Show-YesNo `
             -Title  'Confirm' `
             -Prompt 'Configure Windows now. Proceed?' `

@@ -5310,3 +5310,406 @@ Describe 'Every configuration file and registry value the Windows wizard writes 
         @($loose) | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Get-WindowsTogglePrerequisite reads toggle_prerequisites out of group_vars/all.yaml, owner decision 61' {
+
+    # vars/Windows.yaml maps gradle to the Chocolatey package gradle, which declares no dependency and only
+    # unzips Gradle, so on Windows Gradle needs the default Java whatever install_java says. The entry is the
+    # one setup.sh and the playbook read on Linux and macOS, docs/regression_ledger.md 10.360.
+    It 'reads that install_gradle needs install_java on Windows and brings the default Java, from the real group_vars/all.yaml' {
+        $entries = @(Get-WindowsTogglePrerequisite -AllVarsPath (Join-Path $script:AnsibleDir 'group_vars\all.yaml'))
+
+        $gradle = @($entries | Where-Object { $_.Toggle -eq 'install_gradle' })
+        $gradle.Count | Should -Be 1
+        $gradle[0].Needs | Should -BeExactly 'install_java'
+        $gradle[0].Brings | Should -BeExactly 'the default Java'
+    }
+
+    It 'leaves out an entry with no windows_brings, which applies on Linux and macOS alone, and stops at the next key' {
+        $vars = Join-Path $TestDrive 'prerequisites.yaml'
+        @('---', 'toggle_prerequisites:',
+          '  install_a: { needs: install_b, brings: "B on Linux", windows_brings: "B on Windows" }  # the reason',
+          '',
+          '  install_c: { needs: install_d, brings: "D on Linux" }',
+          'next_key: true',
+          '  install_e: { needs: install_f, brings: "F", windows_brings: "F" }') | Set-Content -LiteralPath $vars
+
+        $entries = @(Get-WindowsTogglePrerequisite -AllVarsPath $vars)
+
+        $entries.Count | Should -Be 1
+        $entries[0].Toggle | Should -BeExactly 'install_a'
+        $entries[0].Needs | Should -BeExactly 'install_b'
+        $entries[0].Brings | Should -BeExactly 'B on Windows'
+    }
+
+    It 'throws when the file names no such list, or a line of the list does not parse' {
+        $absent = Join-Path $TestDrive 'absent.yaml'
+        @('---', 'other_list:', '  - install_a') | Set-Content -LiteralPath $absent
+        $broken = Join-Path $TestDrive 'broken.yaml'
+        @('---', 'toggle_prerequisites:', '  install_a: { needs: install_b }') | Set-Content -LiteralPath $broken
+
+        { Get-WindowsTogglePrerequisite -AllVarsPath $absent } | Should -Throw -ExpectedMessage '*toggle_prerequisites*'
+        { Get-WindowsTogglePrerequisite -AllVarsPath $broken } | Should -Throw -ExpectedMessage '*install_a: { needs: install_b }*'
+    }
+}
+
+Describe 'Resolve-WindowsBroughtInToggle, the one answer the install, the verification and the plan read' {
+
+    BeforeAll {
+        $script:GradlePrerequisite = @([PSCustomObject]@{ Toggle = 'install_gradle'; Needs = 'install_java'; Brings = 'the default Java' })
+    }
+
+    It 'brings install_java in with <Case>' -ForEach @(
+        @{ Case = 'Gradle on and Java off'; Toggles = @{ gradle = $true; java = $false }; OnlyKeys = @() }
+        @{ Case = 'a picked-apps run of Gradle alone, with Java on in group_vars'; Toggles = @{ gradle = $true; java = $true }; OnlyKeys = @('gradle') }
+    ) {
+        $r = @(Resolve-WindowsBroughtInToggle -Prerequisite $script:GradlePrerequisite -Toggles $Toggles -OnlyKeys $OnlyKeys)
+
+        $r.Count | Should -Be 1
+        $r[0].Toggle | Should -BeExactly 'install_gradle'
+        $r[0].Needs | Should -BeExactly 'install_java'
+    }
+
+    It 'brings nothing in with <Case>' -ForEach @(
+        @{ Case = 'Java on'; Toggles = @{ gradle = $true; java = $true }; OnlyKeys = @(); NoEntry = $false }
+        @{ Case = 'both off'; Toggles = @{ gradle = $false; java = $false }; OnlyKeys = @(); NoEntry = $false }
+        @{ Case = 'Gradle left out of a picked-apps run'; Toggles = @{ gradle = $true; java = $false }; OnlyKeys = @('kicad9'); NoEntry = $false }
+        @{ Case = 'no entry that applies on Windows'; Toggles = @{ gradle = $true; java = $false }; OnlyKeys = @(); NoEntry = $true }
+    ) {
+        $prerequisite = @(if (-not $NoEntry) { $script:GradlePrerequisite })
+
+        $r = @(Resolve-WindowsBroughtInToggle -Prerequisite $prerequisite -Toggles $Toggles -OnlyKeys $OnlyKeys)
+
+        $r.Count | Should -Be 0
+    }
+}
+
+Describe 'Invoke-WindowsCustomInstall installs the default Java alone when Gradle needs it, owner decision 61' {
+
+    # A run with Gradle on and Java off installed the Chocolatey Gradle and no JDK to run it,
+    # docs/regression_ledger.md 10.360. winget and the user environment are mocked, because the packages
+    # and the registry are those of the machine running the suite. Each JDK install leaves the directory a
+    # Temurin package leaves, so JAVA_HOME is discovered the way a real run discovers it.
+    BeforeAll {
+        $script:Prerequisites = @(Get-WindowsTogglePrerequisite -AllVarsPath (Join-Path $script:AnsibleDir 'group_vars\all.yaml'))
+        $script:Pins = Get-PinnedValueMap
+        $script:DefaultMajor = Get-TemurinMajor -SdkmanId $script:Pins['default_java']
+        $script:EveryMajor = @(@('java11_id', 'java17_id', 'java21_id', 'java25_id') | ForEach-Object { Get-TemurinMajor -SdkmanId $script:Pins[$_] })
+    }
+
+    BeforeEach {
+        $script:SavedProgramFiles = $env:ProgramFiles
+        $env:ProgramFiles = Join-Path $TestDrive 'Program Files'
+        Remove-Item -LiteralPath $env:ProgramFiles -Recurse -Force -ErrorAction SilentlyContinue
+        $script:Adoptium = Join-Path $env:ProgramFiles 'Eclipse Adoptium'
+        $global:WingetInstalls = [System.Collections.Generic.List[string]]::new()
+        $global:EnvWrites = [System.Collections.Generic.List[string]]::new()
+        $global:PresentJavaHome = $null
+        Mock Get-WingetPath { 'winget.exe' }
+        Mock Install-WingetPackage {
+            $global:WingetInstalls.Add($PackageId)
+            if ($PackageId -match '^EclipseAdoptium\.Temurin\.(\d+)\.JDK$') {
+                New-Item -ItemType Directory -Path (Join-Path (Join-Path $env:ProgramFiles 'Eclipse Adoptium') "jdk-$($Matches[1]).0.0.1-hotspot") -Force | Out-Null
+            }
+            [PSCustomObject]@{ Package = $PackageId; Status = 'installed'; Detail = '' }
+        }
+        Mock Set-WindowsUserEnvironmentVariable { $global:EnvWrites.Add("$Name=$Value") }
+        Mock Get-WindowsUserEnvironmentValue { [PSCustomObject]@{ Value = $global:PresentJavaHome; Kind = $(if ($global:PresentJavaHome) { 'String' } else { $null }) } }
+        Mock Get-WindowsCustomInstallProof { [ordered]@{} }
+    }
+
+    AfterEach {
+        $env:ProgramFiles = $script:SavedProgramFiles
+    }
+
+    AfterAll {
+        Remove-Variable -Name WingetInstalls, EnvWrites, PresentJavaHome -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    It 'installs only the JDK of the default_java pin and points JAVA_HOME at it, in <Case>' -ForEach @(
+        @{ Case = 'a full run with Gradle on and Java off'; Toggles = @{ gradle = $true; java = $false }; OnlyKeys = @() }
+        @{ Case = 'a picked-apps run of Gradle alone'; Toggles = @{ gradle = $true; java = $false }; OnlyKeys = @('gradle') }
+    ) {
+        $r = Invoke-WindowsCustomInstall -Toggles $Toggles -OnlyKeys $OnlyKeys -Prerequisite $script:Prerequisites
+
+        @($global:WingetInstalls) | Should -Be @("EclipseAdoptium.Temurin.$($script:DefaultMajor).JDK")
+        @($global:EnvWrites) | Should -Be @("JAVA_HOME=$(Join-Path $script:Adoptium "jdk-$($script:DefaultMajor).0.0.1-hotspot")")
+        @($r.Failed).Count | Should -Be 0
+        @($r.Results | Where-Object { $_.Key -ne 'java' }).Count | Should -Be 0
+    }
+
+    It 'installs all four pinned JDKs and points JAVA_HOME at the default one with Java on' {
+        $r = Invoke-WindowsCustomInstall -Toggles @{ gradle = $true; java = $true } -Prerequisite $script:Prerequisites
+
+        @($global:WingetInstalls) | Should -Be @($script:EveryMajor | ForEach-Object { "EclipseAdoptium.Temurin.$_.JDK" })
+        @($global:EnvWrites) | Should -Be @("JAVA_HOME=$(Join-Path $script:Adoptium "jdk-$($script:DefaultMajor).0.0.1-hotspot")")
+        @($r.Failed).Count | Should -Be 0
+    }
+
+    It 'installs no JDK and writes no JAVA_HOME with Gradle and Java both off' {
+        $r = Invoke-WindowsCustomInstall -Toggles @{ gradle = $false; java = $false } -Prerequisite $script:Prerequisites
+
+        $global:WingetInstalls.Count | Should -Be 0
+        $global:EnvWrites.Count | Should -Be 0
+        @($r.Results).Count | Should -Be 0
+    }
+
+    It 'writes JAVA_HOME once: a run that finds it naming that JDK already reports it present and writes nothing' {
+        $global:PresentJavaHome = Join-Path $script:Adoptium "jdk-$($script:DefaultMajor).0.0.1-hotspot"
+
+        $r = Invoke-WindowsCustomInstall -Toggles @{ gradle = $true; java = $false } -Prerequisite $script:Prerequisites
+
+        $global:EnvWrites.Count | Should -Be 0
+        $row = @($r.Results | Where-Object { $_.Package -eq 'JAVA_HOME' })
+        $row.Count | Should -Be 1
+        $row[0].Status | Should -Be 'present'
+    }
+
+    It 'leaves a JAVA_HOME that names another JDK on this machine, in a run that installs Java only because Gradle needs it' {
+        $global:PresentJavaHome = Join-Path $TestDrive 'own-jdk'
+        New-Item -ItemType Directory -Path $global:PresentJavaHome -Force | Out-Null
+
+        $r = Invoke-WindowsCustomInstall -Toggles @{ gradle = $true; java = $false } -Prerequisite $script:Prerequisites
+
+        @($global:WingetInstalls) | Should -Be @("EclipseAdoptium.Temurin.$($script:DefaultMajor).JDK")
+        $global:EnvWrites.Count | Should -Be 0
+        $row = @($r.Results | Where-Object { $_.Package -eq 'JAVA_HOME' })
+        $row.Count | Should -Be 1
+        $row[0].Status | Should -Be 'present'
+        $row[0].Detail | Should -BeLike "*$([WildcardPattern]::Escape($global:PresentJavaHome))*"
+    }
+
+    It 'points JAVA_HOME at the default JDK with Java on, whatever it named before, as it always has' {
+        $global:PresentJavaHome = Join-Path $TestDrive 'own-jdk'
+        New-Item -ItemType Directory -Path $global:PresentJavaHome -Force | Out-Null
+
+        Invoke-WindowsCustomInstall -Toggles @{ gradle = $false; java = $true } -Prerequisite $script:Prerequisites | Out-Null
+
+        @($global:EnvWrites) | Should -Be @("JAVA_HOME=$(Join-Path $script:Adoptium "jdk-$($script:DefaultMajor).0.0.1-hotspot")")
+    }
+
+    It 'is handed the prerequisites by setup.ps1, read from group_vars/all.yaml' {
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$null)
+        $calls = @($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Invoke-WindowsCustomInstall'
+        }, $true))
+
+        $calls.Count | Should -Be 1
+        $calls[0].Extent.Text | Should -Match '-Prerequisite @\(Get-WindowsTogglePrerequisite -AllVarsPath '
+    }
+}
+
+Describe 'Get-WindowsCustomInstallProof asks for the default JDK alone when Gradle brought Java in' {
+
+    BeforeEach {
+        $script:SavedEnvironment = @{}
+        foreach ($name in @('ProgramFiles', 'ProgramData', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE')) {
+            $script:SavedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+            [Environment]::SetEnvironmentVariable($name, (Join-Path $TestDrive $name))
+        }
+        $script:SavedSdkRoot = $script:AndroidSdkRoot
+        $script:AndroidSdkRoot = Join-Path $TestDrive 'android'
+        $script:Pins = Get-PinnedValueMap
+    }
+
+    AfterEach {
+        foreach ($name in $script:SavedEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $script:SavedEnvironment[$name])
+        }
+        $script:AndroidSdkRoot = $script:SavedSdkRoot
+    }
+
+    It 'gives Java the one directory of the default_java pin with -DefaultJavaOnly, and the four pinned ones without it' {
+        $default = @((Get-WindowsCustomInstallProof -Versions $script:Pins -DefaultJavaOnly)['java'].Path)
+        $every = @((Get-WindowsCustomInstallProof -Versions $script:Pins)['java'].Path)
+
+        $default.Count | Should -Be 1
+        Split-Path -Leaf $default[0] | Should -BeExactly "jdk-$(Get-TemurinMajor -SdkmanId $script:Pins['default_java'])*"
+        $every.Count | Should -Be 4
+    }
+}
+
+Describe 'Invoke-WindowsVerification asks for the JDK Gradle brought in, owner decision 61' {
+
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsNpmTools.ps1')
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsVerify.ps1')
+    }
+
+    BeforeEach {
+        Mock Get-Command { [PSCustomObject]@{ Source = 'choco.exe' } } -ParameterFilter { $Name -contains 'choco' }
+        Mock Get-ChocolateyInstalledPackage { @('gradle') }
+        Mock Get-WindowsMachineFact { [PSCustomObject]@{ InstallationType = 'Client'; IsElevated = $false; NvidiaAdapters = @() } }
+        $global:DefaultJdk = Join-Path $TestDrive 'jdk-default'
+        $global:EveryJdk = @((Join-Path $TestDrive 'jdk-a'), (Join-Path $TestDrive 'jdk-b'))
+        Remove-Item -LiteralPath (@($global:DefaultJdk) + $global:EveryJdk) -Recurse -Force -ErrorAction SilentlyContinue
+        Mock Get-WindowsCustomInstallProof {
+            $paths = if ($DefaultJavaOnly) { @($global:DefaultJdk) } else { $global:EveryJdk }
+            [ordered]@{ java = [PSCustomObject]@{ Path = $paths; Mode = 'All'; Description = 'the Temurin JDKs' } }
+        }
+    }
+
+    AfterAll {
+        Remove-Variable -Name DefaultJdk, EveryJdk -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    It 'reports the default JDK installed, and asks for it alone, in a picked-apps run of Gradle' {
+        New-Item -ItemType Directory -Path $global:DefaultJdk -Force | Out-Null
+
+        $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('gradle') `
+            -ToggleOverride @{ install_gradle = $true; install_java = $false } -LogPath (Join-Path $TestDrive 'verify.log')
+
+        @($r.Results | Where-Object { $_.Key -eq 'java' })[0].Verdict | Should -Be 'installed'
+        @($r.Results | Where-Object { $_.Key -eq 'gradle' })[0].Verdict | Should -Be 'installed'
+        @($r.Failed).Count | Should -Be 0
+        Should -Invoke Get-WindowsCustomInstallProof -ParameterFilter { $DefaultJavaOnly }
+    }
+
+    It 'reports the default JDK MISSING when Gradle brought Java in and it is not there' {
+        $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('gradle') `
+            -ToggleOverride @{ install_gradle = $true; install_java = $false } -LogPath (Join-Path $TestDrive 'verify.log')
+
+        @($r.Results | Where-Object { $_.Key -eq 'java' })[0].Verdict | Should -Be 'MISSING'
+        @($r.Failed | Where-Object { $_.Key -eq 'java' }).Count | Should -Be 1
+    }
+
+    It 'asks for every pinned JDK with Java on' {
+        foreach ($jdk in $global:EveryJdk) { New-Item -ItemType Directory -Path $jdk -Force | Out-Null }
+
+        $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('gradle', 'java') `
+            -ToggleOverride @{ install_gradle = $true; install_java = $true } -LogPath (Join-Path $TestDrive 'verify.log')
+
+        @($r.Results | Where-Object { $_.Key -eq 'java' })[0].Verdict | Should -Be 'installed'
+        Should -Invoke Get-WindowsCustomInstallProof -Times 1 -Exactly
+        Should -Invoke Get-WindowsCustomInstallProof -Times 0 -Exactly -ParameterFilter { $DefaultJavaOnly }
+    }
+}
+
+Describe 'The plan of setup.ps1 names Java as brought in by Gradle with the sentence setup.sh prints, owner decision 61' {
+
+    # Lifted out of the syntax tree for the reason the Install-ConsoleGuiTools tests give: setup.ps1 runs
+    # Invoke-Main when it is loaded. The sentence is compared with the printf format of prerequisite_notes
+    # in setup.sh, so the two wizards cannot drift apart, docs/regression_ledger.md 10.360.
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsNpmTools.ps1')
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsSettings.ps1')
+        $setupScript = Join-Path $script:RepoRoot 'setup\setup.ps1'
+        $parseErrors = $null
+        $script:PlanAst = [System.Management.Automation.Language.Parser]::ParseFile($setupScript, [ref]$null, [ref]$parseErrors)
+        if ($parseErrors) { throw "setup.ps1 does not parse: $($parseErrors[0].Message)" }
+        $wanted = @('Get-PrerequisiteNote', 'Write-PrerequisiteNote', 'Get-ToggleLabel', 'Show-ResolvedPlan', 'Split-KeyList', 'Write-Status')
+        $definitions = @($script:PlanAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $node.Name
+        }, $true))
+        if ($definitions.Count -ne $wanted.Count) {
+            throw "Expected $($wanted.Count) function definitions in setup.ps1 and found $($definitions.Count)."
+        }
+        foreach ($definition in $definitions) {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        $labels = @($script:PlanAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$LabelOverrides'
+        }, $false))
+        $script:LabelOverrides = & ([scriptblock]::Create($labels[0].Right.Extent.Text))
+        $script:AllVars = Join-Path $script:AnsibleDir 'group_vars\all.yaml'
+        $script:WindowsVars = Join-Path $script:AnsibleDir 'group_vars\windows.yaml'
+
+        $format = [regex]::Match((Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'setup\setup.sh')),
+            "printf '(?<format>%s: brought in by %s[^']*)\\n'").Groups['format'].Value
+        $parts = @($format -split '%s')
+        $script:BashSentence = if ($parts.Count -eq 4) {
+            $parts[0] + 'Java' + $parts[1] + 'Gradle' + $parts[2] + 'the default Java' + $parts[3]
+        } else { '' }
+        $script:Expected = 'Java: brought in by Gradle, which needs it on this machine, so this run also installs the default Java.'
+
+        $script:EveryOff = @{}
+        $toggles = Get-WindowsGroupVarToggle -AllVarsPath $script:AllVars -WindowsVarsPath $script:WindowsVars
+        foreach ($key in $toggles.Keys) { $script:EveryOff[$key] = $false }
+    }
+
+    BeforeEach {
+        $script:SavedProfileDir = $env:USERPROFILE
+        $env:USERPROFILE = Join-Path $TestDrive 'profile'
+        $script:SavedSdkRoot = $script:AndroidSdkRoot
+        $script:AndroidSdkRoot = Join-Path $TestDrive 'android'
+        $script:Software = 'none'
+        $script:EnableKey = @('install_gradle')
+        $script:DisableKey = @()
+        $script:Profile = ''
+        $script:SkipSystemUpgrade = $true
+    }
+
+    AfterEach {
+        $env:USERPROFILE = $script:SavedProfileDir
+        $script:AndroidSdkRoot = $script:SavedSdkRoot
+    }
+
+    AfterAll {
+        foreach ($name in @('Software', 'EnableKey', 'DisableKey', 'Profile', 'SkipSystemUpgrade', 'LabelOverrides', 'AllVars', 'WindowsVars')) {
+            Remove-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'says what setup.sh says, with the Windows words for what is brought in' {
+        $notes = @(Get-PrerequisiteNote -ToggleOverride @{ install_gradle = $true; install_java = $false })
+
+        $script:BashSentence | Should -BeExactly $script:Expected
+        $notes | Should -Be @($script:Expected)
+    }
+
+    It 'says nothing with <Case>' -ForEach @(
+        @{ Case = 'Java on'; Override = @{ install_gradle = $true; install_java = $true }; OnlyKeys = @() }
+        @{ Case = 'both off'; Override = @{ install_gradle = $false; install_java = $false }; OnlyKeys = @() }
+        @{ Case = 'Gradle and Java picked together'; Override = @{ install_gradle = $true; install_java = $true }; OnlyKeys = @('gradle', 'java') }
+    ) {
+        @(Get-PrerequisiteNote -ToggleOverride $Override -OnlyKeys $OnlyKeys).Count | Should -Be 0
+    }
+
+    It 'prints the sentence in -PrintPlan for -Software none -EnableKey install_gradle, and not when Java is picked too' {
+        $gradleOnly = $script:EveryOff.Clone()
+        $gradleOnly['install_gradle'] = $true
+        $both = $gradleOnly.Clone()
+        $both['install_java'] = $true
+        $scope = [PSCustomObject]@{ PickedAppsRun = $true; PickedKeys = @('install_gradle'); DevEnvironmentRun = $true }
+
+        $plan = @(Show-ResolvedPlan -ToggleOverride $gradleOnly -RunScope $scope)
+        $planBoth = @(Show-ResolvedPlan -ToggleOverride $both -RunScope $scope)
+
+        @($plan | Where-Object { $_ -eq "  $($script:Expected)" }).Count | Should -Be 1
+        @($planBoth | Where-Object { $_ -like '*brought in by*' }).Count | Should -Be 0
+    }
+
+    It 'prints the sentence before the run starts, on the scripted path and before the confirmation question alike' {
+        $main = @($script:PlanAst.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-Main'
+        }, $true))[0]
+        $calls = @($main.Body.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))
+        $notes = @($calls | Where-Object { $_.GetCommandName() -eq 'Write-PrerequisiteNote' })
+        $confirm = @($calls | Where-Object { $_.GetCommandName() -eq 'Show-YesNo' })
+        $run = @($calls | Where-Object { $_.GetCommandName() -eq 'Invoke-WindowsRun' })
+
+        $confirm.Count | Should -Be 1
+        $run.Count | Should -Be 1
+        $notes.Count | Should -Be 2
+        foreach ($note in $notes) {
+            $note.Extent.Text | Should -Match '-ToggleOverride \$toggleOverride -OnlyKeys \$selectedSoftwareKeys$'
+            $note.Extent.StartOffset | Should -BeLessThan $run[0].Extent.StartOffset
+        }
+        # The interactive branch is the statement block of the if that holds the confirmation question.
+        $branch = $confirm[0].Parent
+        while ($branch -and -not ($branch -is [System.Management.Automation.Language.StatementBlockAst] -and
+                                  $branch.Parent -is [System.Management.Automation.Language.IfStatementAst])) {
+            $branch = $branch.Parent
+        }
+        $inBranch = @($notes | Where-Object {
+            $_.Extent.StartOffset -gt $branch.Extent.StartOffset -and $_.Extent.EndOffset -lt $branch.Extent.EndOffset
+        })
+        $inBranch.Count | Should -Be 1
+        $inBranch[0].Extent.StartOffset | Should -BeLessThan $confirm[0].Extent.StartOffset
+    }
+}

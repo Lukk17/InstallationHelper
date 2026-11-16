@@ -50,6 +50,10 @@ $script:PackageRetryDelaySeconds = 20
 # bash wizard shipped for months.
 $script:ToggleLinePattern = '^(?<key>[a-z0-9_]+):\s*(?<value>true|false)\s*(#.*)?$'
 
+# Reading one entry of toggle_prerequisites out of group_vars/all.yaml, the line toggle_prerequisite_entries
+# in setup.sh reads. windows_brings is optional, and only an entry that carries it applies on Windows.
+$script:PrerequisiteLinePattern = '^\s{2}(?<toggle>[a-z0-9_]+):\s*\{\s*needs:\s*(?<needs>[a-z0-9_]+)\s*,\s*brings:\s*"(?<brings>[^"]*)"\s*(,\s*windows_brings:\s*"(?<windows>[^"]*)"\s*)?\}\s*(#.*)?$'
+
 # Reading one mapping entry out of vars/Windows.yaml. All 83 entries are single-line and
 # uniform, verified by checking that no line matching the key pattern fails this one.
 # scope is optional and only winget reads it. It exists because a winget manifest can carry several
@@ -202,6 +206,101 @@ function Get-WindowsGroupVarList {
         throw "$Name in $AllVarsPath holds no item"
     }
     return $items.ToArray()
+}
+
+function Get-WindowsTogglePrerequisite {
+    <#
+    .SYNOPSIS
+        The entries of toggle_prerequisites in group_vars/all.yaml that apply on Windows, as Toggle, Needs and Brings rows.
+    .DESCRIPTION
+        The list setup.sh and setup/ansible/tasks/toggle_prerequisites.yaml read on Linux and macOS, read
+        here from the same file, owner decision 61. An entry applies on Windows when it carries
+        windows_brings, and Brings is that text, what of the needed toggle a run installs here. Reads the
+        one-line form `  install_x: { needs: install_y, brings: "...", windows_brings: "..." }` up to the
+        next top-level key, and throws when the file names no such list or a line inside it does not
+        parse, because an entry skipped quietly is a tool the app needs and nothing installs.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject[]])]
+    param([Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $AllVarsPath)
+
+    if (-not (Test-Path -LiteralPath $AllVarsPath)) {
+        throw "Toggle file not found: $AllVarsPath"
+    }
+
+    $entries = [System.Collections.Generic.List[object]]::new()
+    $inList = $false
+    $found = $false
+    $lineNumber = 0
+    foreach ($line in (Get-Content -LiteralPath $AllVarsPath)) {
+        $lineNumber++
+        if (-not $inList) {
+            if ($line -match '^toggle_prerequisites:\s*(#.*)?$') {
+                $inList = $true
+                $found = $true
+            }
+            continue
+        }
+        if ($line -match '^\s*(#.*)?$') { continue }
+        if ($line -notmatch '^\s') { break }
+        if ($line -notmatch $script:PrerequisiteLinePattern) {
+            throw "$AllVarsPath line ${lineNumber} is in toggle_prerequisites and does not parse, so it would be silently skipped: $line"
+        }
+        if ($Matches['windows']) {
+            $entries.Add([PSCustomObject]@{ Toggle = $Matches['toggle']; Needs = $Matches['needs']; Brings = $Matches['windows'] })
+        }
+    }
+
+    if (-not $found) {
+        throw "$AllVarsPath names no list called toggle_prerequisites"
+    }
+    return $entries.ToArray()
+}
+
+function Test-WindowsToggleWanted {
+    <#
+    .SYNOPSIS
+        Whether a run asks for one key: on in Toggles and, when OnlyKeys narrows the run, named there.
+    .DESCRIPTION
+        Toggles is the map of Get-WindowsSoftwareToggle, keyed without the install_ prefix. The custom
+        installs, the verification and Resolve-WindowsBroughtInToggle all decide by this, so they cannot
+        disagree about what a run asked for.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)] [hashtable] $Toggles,
+        [string[]] $OnlyKeys,
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $Key
+    )
+
+    if (-not ($Toggles.ContainsKey($Key) -and $Toggles[$Key])) { return $false }
+    if ($OnlyKeys -and $Key -notin $OnlyKeys) { return $false }
+    return $true
+}
+
+function Resolve-WindowsBroughtInToggle {
+    <#
+    .SYNOPSIS
+        The entries of Get-WindowsTogglePrerequisite this run brings in: its toggle is asked for and the toggle it needs is not.
+    .DESCRIPTION
+        The one answer the custom installs, the verification and the plan read, so what the plan says is
+        brought in, what is installed and what is checked afterwards cannot differ. brought_in_entries in
+        setup.sh answers the same question on Linux and macOS.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject[]])]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [PSCustomObject[]] $Prerequisite,
+        [Parameter(Mandatory)] [hashtable] $Toggles,
+        [string[]] $OnlyKeys
+    )
+
+    $isWanted = {
+        param([string] $Toggle)
+        Test-WindowsToggleWanted -Toggles $Toggles -OnlyKeys $OnlyKeys -Key ($Toggle -replace '^install_', '')
+    }
+    return @($Prerequisite | Where-Object { (& $isWanted $_.Toggle) -and -not (& $isWanted $_.Needs) })
 }
 
 function Get-WindowsSoftwareMapping {

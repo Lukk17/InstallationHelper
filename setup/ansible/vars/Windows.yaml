@@ -35,7 +35,7 @@ software_mapping:
   # Dev Tools
   git: { manager: "winget", package: "Git.Git", scope: "machine", installer_type: "inno" }   # Manifest 2.55.0.5, read 2026-10-11: user and machine inno.
   maven: { manager: "choco", package: "maven" }       # No winget manifest under Apache/; Chocolatey carries Maven (verified Apache Maven 3.9.x).
-  gradle: { manager: "choco", package: "gradle" }     # No Gradle publisher in winget-pkgs; Chocolatey carries Gradle (verified 9.x).
+  gradle: { manager: "choco", package: "gradle" }     # No Gradle publisher in winget-pkgs; Chocolatey carries Gradle (verified 9.x). It declares no dependency and brings no JDK, so toggle_prerequisites in group_vars/all.yaml brings in the default Java.
   # Windows has no Pyenv equivalent worth carrying: pyenv-win exists on Chocolatey but installing it
   # leaves no Python behind, so the toggle would still install nothing usable. A single interpreter
   # matching default_python is the honest translation. e2e/tier1/windows_mapping.sh asserts the minor
