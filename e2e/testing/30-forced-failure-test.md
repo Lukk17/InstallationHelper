@@ -147,8 +147,9 @@ The verify log's own assertions, in the order the play runs them. Every containe
 11. `Assert the temporary passwordless sudoers entry was removed` is not reached by the verify play, and the state it checks is still worth reading out of the report block above it, because the sudoers removal sits in an `always` section precisely so that a failed run cannot skip it. The report block prints before any assertion for exactly this reason.
 12. `Assert the expected desktop environment is installed` does not run at all, reached or otherwise. The scenario declares `e2e_expect_desktop: none`.
 13. `Assert every enabled outside-package-manager tool is installed and reachable from a plain interactive shell` is not reached, for the same reason.
-14. `Assert the desktop session environment carries every development variable` is not reached, for the same reason.
-15. `Assert the command line package @opencode/cli replaces is gone` is not reached, for the same reason.
+14. `Assert Gradle starts and names its version and the JVM it runs on` is not reached, for the same reason.
+15. `Assert the desktop session environment carries every development variable` is not reached, for the same reason.
+16. `Assert the command line package @opencode/cli replaces is gone` is not reached, for the same reason.
 
 What this capability deliberately does not assert mechanically. The rescue in `dynamic_install.yaml` lists every application in the failed batch, and the injected batch holds one synthetic name, so on this scenario that list is one line long and proves nothing about the real behaviour. Read the `[ERROR] Install step ... failed` line in the log and confirm it names the batch and says a batch is one call, then record that as a judgement in the Result summary rather than ticking an assertion box for it. Asserting the wording of a message is how a test starts failing on a rewording rather than on a defect.
 

@@ -15,13 +15,17 @@
     to the console: the caller renders, which is the same contract the other four Windows modules
     keep and what makes this testable.
 
-    It reads, and only reads. Four questions, one per way this wizard installs something.
+    It reads, and only reads. Four questions, one per way this wizard installs something, and a fifth
+    for Gradle.
 
       winget mappings   winget list --exact --id <id>, whose exit status is the answer, or the
                         verify_path on disk when the mapping carries one
       choco mappings    the ids Chocolatey itself reports as installed locally
       npm CLI tools     npm ls -g --depth=0 --json, one call for the whole set
       custom installs   the paths on disk that the install has to have produced
+      Gradle            gradle --version in a new process with the user's environment, because
+                        Gradle that Chocolatey lists still cannot start without a Java runtime,
+                        docs/regression_ledger.md 10.368
 
     The winget question is asked once per package rather than by matching one `winget list` dump,
     which costs about two seconds each and is worth it: the dump is a column-formatted table that
@@ -49,10 +53,10 @@
 
     Depends on Get-WindowsSoftwareToggle, Get-WindowsSoftwareMapping, Get-WingetPath,
     Get-WingetInstallVerdict, Get-ChocolateyInstalledPackage, Get-ChocolateyInstallVerdict, Test-WindowsToggleWanted,
-    Get-WindowsTogglePrerequisite and Resolve-WindowsBroughtInToggle from WindowsSoftware.ps1,
-    Get-NpmToolPackage from WindowsNpmTools.ps1, and Get-WindowsCustomInstallKey and
-    Get-WindowsCustomInstallProof from WindowsCustomInstalls.ps1. setup.ps1 dot-sources all three
-    before this one.
+    Get-WindowsTogglePrerequisite, Resolve-WindowsBroughtInToggle and Get-CommandOutputTail from
+    WindowsSoftware.ps1, Get-NpmToolPackage from WindowsNpmTools.ps1, and Get-WindowsCustomInstallKey,
+    Get-WindowsCustomInstallProof and Get-WindowsUserEnvironment from WindowsCustomInstalls.ps1.
+    setup.ps1 dot-sources all three before this one.
 #>
 
 Set-StrictMode -Version Latest
@@ -76,6 +80,9 @@ $script:VerdictNotApplicable = 'not applicable'
 # STILL THERE fails the run like MISSING does, and is spelled differently because the fix is a removal.
 $script:VerdictAbsent     = 'absent'
 $script:VerdictStillThere = 'STILL THERE'
+# Installed, and it does not run: Gradle whose gradle --version fails or names no version and no JVM.
+# It fails the run like MISSING does, and is spelled differently because the fix is the Java beside it.
+$script:VerdictDoesNotStart = 'DOES NOT START'
 
 function Get-NpmGlobalPackage {
     <#
@@ -147,6 +154,134 @@ function Get-NpmGlobalPackage {
     return $names
 }
 
+function Invoke-UserEnvironmentCommand {
+    <#
+    .SYNOPSIS
+        Runs one program in a new process with exactly the environment it is given, with a deadline.
+    .DESCRIPTION
+        The new process gets the variables handed to it and none of this process's own. Its input is
+        closed at once, so a prompt reads the end of input instead of waiting, and both output streams
+        are read while it runs, so a program that writes more than a pipe holds cannot stall. A process
+        still running at the deadline is ended together with every process it started.
+
+        Returns Started, false when the program could not be started at all, Output, the standard
+        output followed by the standard error, ExitCode, -1 when it was not started or was ended, and
+        TimedOut.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [string] $FilePath,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $ArgumentList,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Environment,
+        [ValidateRange(1, 3600)] [int] $TimeoutSeconds = 120
+    )
+
+    $info = [System.Diagnostics.ProcessStartInfo]::new($FilePath)
+    foreach ($argument in $ArgumentList) {
+        $info.ArgumentList.Add($argument)
+    }
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardInput = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $info.Environment.Clear()
+    foreach ($name in @($Environment.Keys)) {
+        $info.Environment[[string] $name] = [string] $Environment[$name]
+    }
+
+    try {
+        $process = [System.Diagnostics.Process]::Start($info)
+    } catch {
+        return [PSCustomObject]@{ Started = $false; Output = $_.Exception.Message; ExitCode = -1; TimedOut = $false }
+    }
+
+    try {
+        $process.StandardInput.Close()
+        $readers = @($process.StandardOutput.ReadToEndAsync(), $process.StandardError.ReadToEndAsync())
+        $timedOut = -not $process.WaitForExit($TimeoutSeconds * 1000)
+        if ($timedOut) {
+            try { $process.Kill($true) } catch { Write-Verbose "could not end $($process.Id): $($_.Exception.Message)" }
+            $null = $process.WaitForExit(30000)
+        } else {
+            $process.WaitForExit()
+        }
+
+        $text = @(foreach ($reader in $readers) { if ($reader.Wait(30000)) { $reader.Result } }) -join "`n"
+
+        return [PSCustomObject]@{
+            Started  = $true
+            Output   = $text
+            ExitCode = $(if ($timedOut) { -1 } else { $process.ExitCode })
+            TimedOut = $timedOut
+        }
+    } finally {
+        $process.Dispose()
+    }
+}
+
+function ConvertFrom-GradleVersionOutput {
+    <#
+    .SYNOPSIS
+        Decides from one run of gradle --version whether Gradle started, and the Gradle version and JVM it named.
+    .DESCRIPTION
+        Gradle started when the run exited 0 and its output holds a line "Gradle <version>" and a line
+        naming the JVM it runs on, "Launcher JVM:" from Gradle 9 and "JVM:" before it. The rule and
+        the wording of Note are the ones the task "Read whether Gradle started" in
+        setup/ansible/verify_install.yaml uses, and e2e/tier1/gradle_version_fixtures feeds both the
+        same outputs. The lines are split on '\r?\n', because on Windows every line ends in both.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [Parameter(Mandatory)] [ValidateNotNull()] [PSCustomObject] $Run,
+        [Parameter(Mandatory)] [ValidateRange(1, 3600)] [int] $TimeoutSeconds
+    )
+
+    $version = ''
+    $jvm = ''
+    foreach ($line in @(([string] $Run.Output) -split '\r?\n')) {
+        if (-not $version -and $line -cmatch '^Gradle\s+(\S+)\s*$') { $version = $Matches[1] }
+        if (-not $jvm -and $line -cmatch '^(?:Launcher )?JVM:\s+(\S.*?)\s*$') { $jvm = $Matches[1] }
+    }
+
+    $started = $Run.Started -and -not $Run.TimedOut -and $Run.ExitCode -eq 0 -and $version -and $jvm
+    $tail = Get-CommandOutputTail -Text ([string] $Run.Output)
+    $note = if ($started) { "gradle --version: Gradle $version, JVM $jvm" }
+            elseif (-not $Run.Started) { "gradle --version could not be started: $($Run.Output)" }
+            elseif ($Run.TimedOut) { "gradle --version did not finish within $TimeoutSeconds seconds and was stopped" }
+            elseif ($Run.ExitCode -ne 0) { "gradle --version exited $($Run.ExitCode): $(if ($tail) { $tail } else { 'and printed nothing' })" }
+            elseif (-not $version) { 'gradle --version exited 0 and named no Gradle version' }
+            else { 'gradle --version exited 0 and named no JVM' }
+
+    return [PSCustomObject]@{ Started = [bool] $started; Gradle = $version; Jvm = $jvm; Note = $note }
+}
+
+function Get-GradleStartVerdict {
+    <#
+    .SYNOPSIS
+        Starts gradle --version the way the user's terminal would, and says whether Gradle started.
+    .DESCRIPTION
+        Chocolatey listing gradle says only that the package unzipped. Gradle needs a Java runtime,
+        from JAVA_HOME or a java on PATH, and the installs write both into the registry, which this
+        process does not read again. So the command runs through cmd in a new process with the
+        environment Get-WindowsUserEnvironment builds, which is what a new terminal gets, and the
+        answer comes from ConvertFrom-GradleVersionOutput. TimeoutSeconds bounds a JVM that hangs.
+    #>
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param(
+        [ValidateRange(1, 3600)] [int] $TimeoutSeconds = 120
+    )
+
+    $environment = Get-WindowsUserEnvironment
+    $shell = if ($environment.ContainsKey('ComSpec') -and $environment['ComSpec']) { $environment['ComSpec'] } else { 'cmd.exe' }
+    $run = Invoke-UserEnvironmentCommand -FilePath $shell -ArgumentList @('/d', '/c', 'gradle', '--version') `
+        -Environment $environment -TimeoutSeconds $TimeoutSeconds
+    return ConvertFrom-GradleVersionOutput -Run $run -TimeoutSeconds $TimeoutSeconds
+}
+
 function Format-WindowsVerificationReport {
     <#
     .SYNOPSIS
@@ -181,13 +316,16 @@ function Format-WindowsVerificationReport {
     # the last item, and every count below it then measured a single row while the report above it
     # looked perfectly correct. Measured, not theorised: it read "requested 0 of 1 known items" under
     # a run that had just listed a hundred.
+    # Note is what a row learned beyond the package being there, the Gradle and JVM gradle --version
+    # named, and a row built without one prints none.
     foreach ($entry in $Row) {
-        $lines.Add(('{0,-30} {1,-14} {2}' -f $entry.Key, $entry.Verdict, "$($entry.Source): $($entry.Package)"))
+        $note = if ($entry.PSObject.Properties['Note'] -and $entry.Note) { " ($($entry.Note))" } else { '' }
+        $lines.Add(('{0,-30} {1,-14} {2}' -f $entry.Key, $entry.Verdict, "$($entry.Source): $($entry.Package)$note"))
     }
 
     $requested = @($Row | Where-Object { $_.Verdict -notin @($script:VerdictNotRequested, $script:VerdictNotMapped, $script:VerdictNotApplicable, $script:VerdictAbsent, $script:VerdictStillThere) })
     $notHere   = @($Row | Where-Object { $_.Verdict -eq $script:VerdictNotApplicable })
-    $missing   = @($Row | Where-Object { $_.Verdict -eq $script:VerdictMissing })
+    $missing   = @($Row | Where-Object { $_.Verdict -in @($script:VerdictMissing, $script:VerdictDoesNotStart) })
     $unknown   = @($Row | Where-Object { $_.Verdict -eq $script:VerdictUnverifiable })
     $unmapped  = @($Row | Where-Object { $_.Verdict -eq $script:VerdictNotMapped })
     $stillHere = @($Row | Where-Object { $_.Verdict -eq $script:VerdictStillThere })
@@ -241,7 +379,8 @@ function Invoke-WindowsVerification {
         winget, Chocolatey or npm is not on this machine. The second is a failure for the reason the
         Ansible play gives for its own unreadable checks: an unverifiable claim is not a verified
         one, and a verification that quietly passes what it could not look at is the defect this
-        whole harness exists to prevent.
+        whole harness exists to prevent. DOES NOT START fails the run as well: Gradle is installed and
+        gradle --version did not name a Gradle version and a JVM.
 
     .PARAMETER AnsibleDir
         setup/ansible, from which the toggles and the Windows package mappings are read. The same
@@ -291,7 +430,7 @@ function Invoke-WindowsVerification {
     $add = {
         param([string] $Key, [string] $Source, [string] $Package, [string] $Verdict, [string] $Detail)
         $rows.Add([PSCustomObject]@{
-            Key = $Key; Source = $Source; Package = $Package; Verdict = $Verdict; Detail = $Detail
+            Key = $Key; Source = $Source; Package = $Package; Verdict = $Verdict; Detail = $Detail; Note = ''
         })
     }
 
@@ -416,6 +555,20 @@ function Invoke-WindowsVerification {
         Write-Verbose "asked about $key ($label)"
     }
 
+    # --- Gradle has to start --------------------------------------------------
+    # Chocolatey listing gradle says the package unzipped, and that Gradle cannot start without a Java
+    # runtime, docs/regression_ledger.md 10.360 and 10.368. So the row counts as installed only when
+    # gradle --version starts, and it names the Gradle and the JVM either way.
+    $gradleRows = @($rows | Where-Object { $_.Key -eq 'gradle' -and $_.Verdict -eq $script:VerdictInstalled })
+    if ($gradleRows.Count -eq 1) {
+        $gradleStart = Get-GradleStartVerdict
+        $gradleRows[0].Note = $gradleStart.Note
+        if (-not $gradleStart.Started) {
+            $gradleRows[0].Verdict = $script:VerdictDoesNotStart
+            $gradleRows[0].Detail = $gradleStart.Note
+        }
+    }
+
     # --- the npm CLI tools ---------------------------------------------------
     $npmPackages = Get-NpmToolPackage
     $npmKeys     = @(@($npmPackages.Keys) | Where-Object { & $wanted $_ })
@@ -516,7 +669,7 @@ function Invoke-WindowsVerification {
 
     # --- the verdict the caller acts on --------------------------------------
     $all     = $rows.ToArray()
-    $missing = @($all | Where-Object { $_.Verdict -in @($script:VerdictMissing, $script:VerdictStillThere) })
+    $missing = @($all | Where-Object { $_.Verdict -in @($script:VerdictMissing, $script:VerdictStillThere, $script:VerdictDoesNotStart) })
     $unknown = @($all | Where-Object { $_.Verdict -eq $script:VerdictUnverifiable })
 
     # Shaped like the Key, Package and Detail rows every install phase returns for its failures, so

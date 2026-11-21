@@ -19,9 +19,11 @@
 #      the two verification facts of verify_install.yaml. With install_gradle on and install_java off,
 #      in a full run and in a picked-apps run, Debian, Ubuntu and Fedora install the default Java
 #      alone, then Gradle, set the default Java, write the SDKMAN block with JAVA_HOME, the Gradle
-#      block and the SDKMAN shell init, and the verification expects SDKMAN, Java and Gradle. Arch,
-#      CachyOS and macOS bring nothing in and SDKMAN does nothing. install_java on installs every
-#      Java version, and both toggles off install nothing.
+#      block and the SDKMAN shell init, and the verification expects SDKMAN, Java and Gradle, and of
+#      its four per-version Java rows the one of the default_java pin alone, docs/regression_ledger.md
+#      10.367. Arch, CachyOS and macOS bring nothing in and SDKMAN does nothing. install_java on
+#      installs every Java version and the verification asks for all four rows, and both toggles off
+#      install nothing and ask for none.
 #   4. the plan: setup.sh's own functions, under each family and os-release ID, name Java as brought
 #      in by Gradle on Debian, Ubuntu and Fedora alone, and only with install_gradle on and
 #      install_java off. A real setup.sh --print-command --software none --enable install_gradle in
@@ -170,6 +172,14 @@ for task in walk(verify.get('tasks')):
 rows = [r for t in walk(verify.get('tasks')) for r in ((t.get('ansible.builtin.set_fact') or {}).get('ih_outside_pm_tools') or [])
         if isinstance(r, dict)]
 row_toggles = {str(r.get('key')): str(r.get('toggle')) for r in rows}
+# The four per-version Java rows and the task that decides which rows a run asks for, lifted as shipped,
+# so the run below shows which of them a run asks for, docs/regression_ledger.md 10.367.
+java_rows = [r for r in rows if str(r.get('key', '')).startswith('java ')]
+enabling = [t for t in walk(verify.get('tasks'))
+            if 'ih_outside_pm_enabled' in ((t.get('ansible.builtin.set_fact') or {}) if isinstance(t.get('ansible.builtin.set_fact'), dict) else {})]
+if len(java_rows) != 4 or len(enabling) != 1:
+    lines.append('FAIL verify_install.yaml should hold four per-version Java rows in ih_outside_pm_tools and one task '
+                 'setting ih_outside_pm_enabled, and %d and %d were found' % (len(java_rows), len(enabling)))
 if len(lifted) != 2:
     lines.append('FAIL verify_install.yaml should set ih_sdkman_applies and ih_session_env_vars in one task each, '
                  'and %d tasks were found' % len(lifted))
@@ -209,14 +219,16 @@ if resolved != str(fake_bin / 'curl'):
 play = [{
     'hosts': 'localhost', 'connection': 'local', 'gather_facts': True, 'gather_subset': ['min'],
     'vars_files': ['group_vars/all.yaml'],
+    'vars': {'ih_outside_pm_tools': java_rows},
     'tasks': [
         {'name': 'Load the dictionary', 'ansible.builtin.include_tasks': 'tasks/load_os_dict.yaml'},
         {'name': 'Decide what is brought in', 'ansible.builtin.include_tasks': 'tasks/toggle_prerequisites.yaml'},
         {'name': 'Run sdk_manager', 'ansible.builtin.include_role': {'name': 'sdk_manager'}},
         {'name': 'Run the app environment', 'ansible.builtin.include_tasks': 'roles/software_installer/tasks/app_environment.yaml'},
-    ] + lifted + [
+    ] + lifted + enabling[:1] + [
         {'name': 'Record the answers', 'ansible.builtin.copy': {'dest': '{{ ih_case_dir }}/facts.json', 'content': (
             '{{ {"brought_in": ih_toggles_brought_in, "picked": ih_picked_apps_run | bool,'
+            ' "java_rows": ih_outside_pm_enabled | default([]) | map(attribute="key") | list,'
             ' "env_run": ih_env_variables_run | bool, "sdkman": ih_sdkman_applies | bool,'
             ' "gradle": ih_gradle_sdkman_applies | bool, "session": ih_session_env_vars,'
             ' "path": ih_session_path_entries, "failed": any_role_failed | default(false),'
@@ -324,6 +336,10 @@ for name, family, os_id, base, java, gradle, picked, brought in CASES:
     if facts['sdkman'] != sdkman_on or facts['gradle'] != (gradle and family in ('Debian', 'RedHat')):
         problems.append('the verification expects SDKMAN and Java %s and an SDKMAN Gradle %s'
                         % (facts['sdkman'], facts['gradle']))
+    expected_rows = ['java %s' % j for j in (facts['every_java'] if java else [facts['default_java']] if brought else [])]
+    if sorted(facts['java_rows']) != sorted(expected_rows):
+        problems.append('the verification asks for the Java rows %s where %s were expected'
+                        % (facts['java_rows'] or 'none', expected_rows or 'none'))
     for variable in ('SDKMAN_DIR', 'JAVA_HOME'):
         if (variable in facts['session']) != sdkman_on:
             problems.append('the desktop session check asks for %s: %s' % (variable, variable in facts['session']))
@@ -337,7 +353,8 @@ for name, family, os_id, base, java, gradle, picked, brought in CASES:
                      % (name, str(java).lower(), str(gradle).lower(),
                         ('brings in install_java, installs %s, sets it as default, writes JAVA_HOME and '
                          'GRADLE_USER_HOME and the SDKMAN shell init, and the verification expects SDKMAN, '
-                         'Java and Gradle' % ', '.join(l.split()[-1] for l in log if l.startswith('install')))
+                         'Java, Gradle and the Java row of %s alone'
+                         % (', '.join(l.split()[-1] for l in log if l.startswith('install')), facts['default_java']))
                         if brought else ('SDKMAN asked for %s' % (', '.join(log) or 'nothing'))))
 
 print('\n'.join(lines))

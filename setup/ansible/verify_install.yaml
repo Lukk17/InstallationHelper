@@ -723,7 +723,9 @@
 
     # SDKMAN and the default Java are installed under install_java, and also where a requested app brought
     # install_java in, Gradle on Debian, Ubuntu and Fedora, tasks/toggle_prerequisites.yaml. The other Java
-    # versions are installed under install_java alone. Gradle comes from SDKMAN where vars/<OS>.yaml maps
+    # versions are installed under install_java alone, so of the four per-version rows below the one of the
+    # default_java pin is asked under ih_sdkman_applies and the other three under install_java,
+    # docs/regression_ledger.md 10.367. Gradle comes from SDKMAN where vars/<OS>.yaml maps
     # no gradle package, which no package manager knows about, so it is asked about here.
     - name: Decide whether SDKMAN, the default Java and an SDKMAN Gradle were asked for on this machine
       ansible.builtin.set_fact:
@@ -946,36 +948,41 @@
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.sdkman/candidates/java/current/bin/java" ]
           - key: "java {{ java11_id }}"
-            toggle: install_java
+            toggle: "{{ 'ih_sdkman_applies' if java11_id == default_java else 'install_java' }}"
+            sdk: true
             shell_bin: ""
-            how: "~/.sdkman/candidates/java/{{ java11_id }}, one of the four Temurin majors SDKMAN was asked to install"
+            how: "~/.sdkman/candidates/java/{{ java11_id }}, {{ 'the default_java pin, which SDKMAN installs alone where Gradle brought Java in, and ' if java11_id == default_java else '' }}one of the four Temurin majors SDKMAN installs under install_java"
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.sdkman/candidates/java/{{ java11_id }}/bin/java" ]
           - key: "java {{ java17_id }}"
-            toggle: install_java
+            toggle: "{{ 'ih_sdkman_applies' if java17_id == default_java else 'install_java' }}"
+            sdk: true
             shell_bin: ""
-            how: "~/.sdkman/candidates/java/{{ java17_id }}, one of the four Temurin majors SDKMAN was asked to install"
+            how: "~/.sdkman/candidates/java/{{ java17_id }}, {{ 'the default_java pin, which SDKMAN installs alone where Gradle brought Java in, and ' if java17_id == default_java else '' }}one of the four Temurin majors SDKMAN installs under install_java"
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.sdkman/candidates/java/{{ java17_id }}/bin/java" ]
           - key: "java {{ java21_id }}"
-            toggle: install_java
+            toggle: "{{ 'ih_sdkman_applies' if java21_id == default_java else 'install_java' }}"
+            sdk: true
             shell_bin: ""
-            how: "~/.sdkman/candidates/java/{{ java21_id }}, one of the four Temurin majors SDKMAN was asked to install"
+            how: "~/.sdkman/candidates/java/{{ java21_id }}, {{ 'the default_java pin, which SDKMAN installs alone where Gradle brought Java in, and ' if java21_id == default_java else '' }}one of the four Temurin majors SDKMAN installs under install_java"
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.sdkman/candidates/java/{{ java21_id }}/bin/java" ]
           - key: "java {{ java25_id }}"
-            toggle: install_java
+            toggle: "{{ 'ih_sdkman_applies' if java25_id == default_java else 'install_java' }}"
+            sdk: true
             shell_bin: ""
-            how: "~/.sdkman/candidates/java/{{ java25_id }}, one of the four Temurin majors SDKMAN was asked to install"
+            how: "~/.sdkman/candidates/java/{{ java25_id }}, {{ 'the default_java pin, which SDKMAN installs alone where Gradle brought Java in, and ' if java25_id == default_java else '' }}one of the four Temurin majors SDKMAN installs under install_java"
             expected_path: ""
             disk_cmd: >-
               [ -x "{{ non_root_home }}/.sdkman/candidates/java/{{ java25_id }}/bin/java" ]
           - key: "gradle (via SDKMAN)"
             toggle: ih_gradle_sdkman_applies
             sdk: true
+            start_check: gradle
             shell_bin: gradle
             how: "~/.sdkman/candidates/gradle/{{ gradle_id }}, which SDKMAN installs where vars/<OS>.yaml maps no gradle package, on PATH through SDKMAN's current link"
             expected_path: "{{ non_root_home }}/.sdkman/candidates/gradle/{{ gradle_id }}/bin/gradle"
@@ -1188,6 +1195,61 @@
       ignore_errors: true
       when: item.shell_bin | length > 0
 
+    # --- Gradle has to start ---------------------------------------------------------------------
+    # A Gradle with no usable Java is on disk, resolves on PATH and is in the package database, and it
+    # cannot run, docs/regression_ledger.md 10.351, 10.360 and 10.368. So Gradle counts as installed only
+    # when `gradle --version` exits 0 and names a Gradle version and the JVM it runs on, started as the
+    # user from a login shell, which reads the startup files that import the environment.d file and
+    # initialize SDKMAN. This applies to every way Gradle is installed here: SDKMAN on Debian, Ubuntu and
+    # Fedora, and the package on Arch, CachyOS and macOS. exec hands the shell's process to the Gradle
+    # launcher, which execs the JVM, so the signal of the timeout reaches the JVM itself, and --kill-after
+    # ends a JVM that ignores it. Gradle 9 calls that line "Launcher JVM:", older releases "JVM:".
+    # ih_start_checks holds the answer by application key, read by the gradle row of the table, the
+    # gradle (via SDKMAN) row through its start_check, the summary line and the assertion.
+    - name: Decide how long gradle --version may run before it counts as hung
+      ansible.builtin.set_fact:
+        ih_gradle_start_timeout_seconds: 120
+      when: install_gradle | default(false) | bool
+
+    - name: Ask Gradle to start as the user, from a login shell
+      ansible.builtin.shell: |
+        {{ ih_timeout }} --kill-after=10 {{ ih_gradle_start_timeout_seconds }} {{ ih_user_shell }} -lic 'exec gradle --version' </dev/null 2>&1
+      args:
+        executable: /bin/bash
+      become: yes
+      become_user: "{{ non_root_user }}"
+      register: ih_gradle_start_run
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+      when: install_gradle | default(false) | bool
+
+    - name: Read whether Gradle started, and the Gradle version and the JVM it named
+      ansible.builtin.set_fact:
+        ih_start_checks:
+          gradle:
+            ok: "{{ ih_gradle_ok | bool }}"
+            note: >-
+              {{ ('gradle --version: Gradle ' ~ ih_gradle_version ~ ', JVM ' ~ ih_gradle_jvm) if ih_gradle_ok | bool
+                 else ('gradle --version could not be started: ' ~ (ih_gradle_start_run.msg | default('no reason given')))
+                 if ih_gradle_start_run.rc is not defined
+                 else ('gradle --version did not finish within ' ~ ih_gradle_start_timeout_seconds ~ ' seconds and was stopped')
+                 if ih_gradle_start_run.rc in [124, 137]
+                 else ('gradle --version exited ' ~ ih_gradle_start_run.rc ~ ': ' ~ (ih_gradle_lines[-2:] | join(' ') | default('and printed nothing', true)))
+                 if ih_gradle_start_run.rc != 0
+                 else 'gradle --version exited 0 and named no Gradle version' if ih_gradle_version | length == 0
+                 else 'gradle --version exited 0 and named no JVM' }}
+      vars:
+        ih_gradle_output: "{{ ih_gradle_start_run.stdout | default('') }}"
+        ih_gradle_lines: "{{ ih_gradle_output.split('\n') | reject('match', '^\\s*$') | list }}"
+        ih_gradle_version: >-
+          {{ (ih_gradle_output | regex_search('(?m)^Gradle\s+(\S+)\s*$', '\1') or ['']) | first }}
+        ih_gradle_jvm: >-
+          {{ (ih_gradle_output | regex_search('(?m)^(?:Launcher )?JVM:\s+(\S.*?)\s*$', '\1') or ['']) | first }}
+        ih_gradle_ok: >-
+          {{ (ih_gradle_start_run.rc | default(1)) == 0 and ih_gradle_version | length > 0 and ih_gradle_jvm | length > 0 }}
+      when: install_gradle | default(false) | bool
+
     # --- the environment a desktop session gets --------------------------------------------------
     # The probes above open a shell, and a shell is not what starts a desktop application. Plasma and
     # GNOME take their environment from the systemd user manager, which builds it at login by running
@@ -1308,13 +1370,15 @@
         label: "{{ item.key }}"
       vars:
         ih_enabled_row: "{{ (ih_outside_pm_report | default([]) | selectattr('key', 'equalto', item.key) | list | first) | default({}, true) }}"
+        ih_start_row: "{{ (ih_start_checks | default({}))[item.start_check | default('')] | default({}, true) }}"
         ih_full_row:
           key: "{{ item.key }}"
-          how: "{{ item.how }}"
+          how: "{{ item.how ~ ((' (' ~ ih_start_row.note ~ ')') if (ih_start_row and ih_enabled_row) else '') }}"
           sdk: "{{ item.toggle in ih_sdk_toggles or item.sdk | default(false) | bool }}"
           verdict: >-
             {{ 'not requested' if not (lookup('vars', item.toggle, default=false) | bool)
-               else 'installed' if (ih_enabled_row.on_disk and ih_enabled_row.in_shell)
+               else 'installed' if (ih_enabled_row.on_disk and ih_enabled_row.in_shell and (not ih_start_row or ih_start_row.ok | bool))
+               else 'DOES NOT START' if (ih_enabled_row.on_disk and ih_enabled_row.in_shell)
                else 'UNREACHABLE (login shell only)' if (ih_enabled_row.on_disk and ih_enabled_row.in_shell_login_only | default(false))
                else 'UNREACHABLE' if ih_enabled_row.on_disk
                else 'MISSING' }}
@@ -1365,11 +1429,14 @@
           {% for key in ih_all_keys %}
           {% set skipped_why = (ih_architecture_skipped | default({}))[key] | default((ih_snap_skipped | default({}))[key] | default('')) %}
           {% set verdict = 'MISSING' if key in ih_missing_keys else 'installed' if key in (enabled_mapped | default([])) else 'skipped' if skipped_why else 'not requested' %}
+          {% set start = (ih_start_checks | default({}))[key] | default({}, true) %}
+          {% set verdict = 'DOES NOT START' if (verdict == 'installed' and start and not (start.ok | bool)) else verdict %}
+          {% set started = ' (' ~ start.note ~ ')' if (start and verdict in ['installed', 'DOES NOT START']) else '' %}
           {% set reason = ih_aur_missing_reason if (os_dict.software_mapping[key].manager == 'aur' and ih_aur_missing_reason) else (ih_missing_reasons | default({}))[key] | default('') %}
           {% set why = ' (NOT installed: ' ~ reason ~ ')' if (verdict == 'MISSING' and reason) else ' (not installed on purpose: ' ~ skipped_why ~ ')' if verdict == 'skipped' else '' %}
           {% set companions = (ih_companions_by_key | default({}))[key] | default([]) %}
           {% set companions_why = ' (beside it NOT installed: ' ~ ((ih_companions_missing | default({}))[key] | join(', ')) ~ ')' if key in (ih_companions_missing | default({})) else '' %}
-          [verify] {{ '%-30s %-14s %s' | format(key, verdict, os_dict.software_mapping[key].manager ~ ': ' ~ ih_package_by_key[key] ~ ((' + ' ~ (companions | join(', '))) if companions else '') ~ why ~ companions_why) }}
+          [verify] {{ '%-30s %-14s %s' | format(key, verdict, os_dict.software_mapping[key].manager ~ ': ' ~ ih_package_by_key[key] ~ ((' + ' ~ (companions | join(', '))) if companions else '') ~ started ~ why ~ companions_why) }}
           {% endfor %}
           {% for row in ih_role_aur_packages | default([]) %}
           {% set requested = row.key in (ih_role_aur_enabled | default([]) | map(attribute='key') | list) %}
@@ -1440,6 +1507,9 @@
           [verify] outside-package-manager tools probed via {{ ih_user_shell }} as an interactive shell for {{ non_root_user }}, the shell a plain terminal opens, with a login-shell probe kept as a secondary, non-failing check{{ '' if ih_user_shell_known | default(false) else ' (login shell unknown, /bin/bash assumed)' }}
           [verify] outside-package-manager tools requested {{ (ih_outside_pm_report_all | default([]) | rejectattr('verdict', 'equalto', 'not requested') | list) | length }}, missing or unreachable {{ (ih_outside_pm_missing | default([])) | length }}
           [verify] outside-package-manager tools missing or unreachable: {{ (ih_outside_pm_missing | default([])) | join(', ') | default('none', true) }}
+          {% if ih_start_checks.gradle is defined %}
+          [verify] gradle --version as {{ non_root_user }} from a login {{ ih_user_shell }}: {{ 'started' if ih_start_checks.gradle.ok | bool else 'DOES NOT START' }}, {{ ih_start_checks.gradle.note }}
+          {% endif %}
           {% if ansible_facts['system'] == 'Linux' %}
           [verify] desktop session environment, from ~/.config/environment.d through the systemd user environment generator: {{ 'UNREADABLE (' ~ (ih_session_env.stderr | default('no answer') | trim) ~ ')' if (ih_session_env.rc | default(1)) != 0 else ('missing ' ~ (ih_session_env_missing | join(', ')) if ih_session_env_missing | length > 0 else 'all ' ~ (ih_session_env_vars | length) ~ ' variables and ' ~ (ih_session_path_entries | length) ~ ' PATH entries present') }}
           {% endif %}
@@ -1666,6 +1736,22 @@
           marked MISSING never reached disk, and the install task that was supposed to put it there is
           what to look at.
         quiet: true
+
+    # Gradle on disk, on PATH and in the package database still cannot run without a Java runtime,
+    # docs/regression_ledger.md 10.368. The gradle row of the table above says what gradle --version
+    # answered.
+    - name: Assert Gradle starts and names its version and the JVM it runs on
+      ansible.builtin.assert:
+        that: ih_start_checks.gradle.ok | bool
+        success_msg: "PASS Gradle starts for {{ non_root_user }}: {{ ih_start_checks.gradle.note }}"
+        fail_msg: >-
+          FAIL Gradle does not start for {{ non_root_user }} from a login {{ ih_user_shell }}:
+          {{ ih_start_checks.gradle.note }}. Gradle needs a Java runtime, which it finds through
+          JAVA_HOME or a java on PATH. On Debian, Ubuntu and Fedora that is the default Java SDKMAN
+          installs, with JAVA_HOME in the environment.d file the shell imports, and on Arch, CachyOS and
+          macOS the Java the gradle package depends on.
+        quiet: true
+      when: install_gradle | default(false) | bool
 
     # The shell probes above cannot see this one. A tool can be reachable from every terminal and its
     # variables still absent from every application the desktop starts, which is what the owner's

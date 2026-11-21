@@ -1,0 +1,18 @@
+# What gradle --version printed and how it exited, and what the verification must read out of it.
+# Read by e2e/tier1/gradle_starts.sh, which hands each output to the task "Read whether Gradle
+# started" of setup/ansible/verify_install.yaml through a fake gradle, and by the Pester tests of
+# ConvertFrom-GradleVersionOutput in e2e/tier1/windows/WindowsSoftware.Tests.ps1, so the Linux and the
+# Windows reader are held to the same answers, docs/regression_ledger.md 10.368.
+#
+# <output file> | <exit code> | <Gradle version it names, or -> | <JVM it names, or ->
+#
+# Gradle started only when the exit code is 0 and both a version and a JVM are named. The outputs
+# are written from the layout of Gradle's launcher, its banner, then one "Name: value" line each,
+# "Launcher JVM:" in Gradle 9 and "JVM:" before it, and the error the launcher script prints when it
+# finds no Java. They were not captured from a run: no Gradle may run on the owner's computer and the
+# gate image has none. The tier 3 runs named in 10.368 are what hold them to a real Gradle 9.7.0.
+gradle9.out | 0 | 9.7.0 | 21.0.11 (Eclipse Adoptium 21.0.11+10-LTS)
+gradle8.out | 0 | 8.5 | 17.0.13 (Eclipse Adoptium 17.0.13+11)
+gradle9.out | 3 | 9.7.0 | 21.0.11 (Eclipse Adoptium 21.0.11+10-LTS)
+no_java.out | 1 | - | -
+no_jvm.out | 0 | 9.7.0 | -

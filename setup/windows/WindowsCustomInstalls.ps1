@@ -474,6 +474,71 @@ function Update-ProcessEnvironment {
     Update-ProcessPath
 }
 
+function Get-WindowsEnvironmentScope {
+    <#
+    .SYNOPSIS
+        The variables of one scope, Process, Machine or User, as names and values.
+    .DESCRIPTION
+        The one place Get-WindowsUserEnvironment reads a scope, so the Pester suite can hand it a fake
+        machine and user. Machine and User come from the registry, with each %VARIABLE% this process
+        knows already expanded, and are empty on Linux and macOS.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.IDictionary])]
+    param(
+        [Parameter(Mandatory)] [ValidateSet('Process', 'Machine', 'User')] [string] $Scope
+    )
+
+    return [Environment]::GetEnvironmentVariables($Scope)
+}
+
+function Get-WindowsUserEnvironment {
+    <#
+    .SYNOPSIS
+        The environment a program started now from the desktop would get, built without changing this process.
+    .DESCRIPTION
+        A program the wizard starts inherits the environment the wizard itself started with, and the
+        installs write JAVA_HOME, GRADLE_HOME and PATH into the registry only, so a program started
+        from here does not see them while a new terminal does. This builds what the new terminal
+        gets: this process's variables, the machine variables over them and the user variables over
+        those, which is the order Windows applies at sign-in, and PATH as the machine PATH followed by
+        the user PATH. A %VARIABLE% the registry read could not expand, because this process has never
+        heard of it, is expanded from the variables built here, the shape nvm-windows writes, see
+        Update-ProcessEnvironment, which applies the same to this process.
+
+        A variable that only this process holds is passed on as well, because the per sign-in values
+        such as USERPROFILE and APPDATA live nowhere else.
+
+        The verification reads it to start gradle --version the way the user's terminal would.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Generic.Dictionary[string, string]])]
+    param()
+
+    $environment = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $registryPath = [System.Collections.Generic.List[string]]::new()
+    foreach ($scope in @('Process', 'Machine', 'User')) {
+        $values = Get-WindowsEnvironmentScope -Scope $scope
+        foreach ($name in @($values.Keys)) {
+            if ([string] $name -eq 'PATH' -and $scope -ne 'Process') {
+                if ($values[$name]) { $registryPath.Add(([string] $values[$name]).TrimEnd(';')) }
+                continue
+            }
+            $environment[[string] $name] = [string] $values[$name]
+        }
+    }
+
+    if ($registryPath.Count -gt 0) {
+        $environment['PATH'] = ($registryPath -join ';') -replace '%([^%;]+)%', {
+            $referenced = $_.Groups[1].Value
+            if ($environment.ContainsKey($referenced)) { $environment[$referenced] } else { $_.Value }
+        }
+    }
+
+    # The comma keeps the pipeline from unrolling the dictionary into its entries.
+    return , $environment
+}
+
 function Resolve-NvmExecutable {
     <#
     .SYNOPSIS

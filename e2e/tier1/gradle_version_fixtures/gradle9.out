@@ -1,0 +1,11 @@
+
+------------------------------------------------------------
+Gradle 9.7.0
+------------------------------------------------------------
+
+Kotlin:        2.2.20
+Groovy:        4.0.28
+Launcher JVM:  21.0.11 (Eclipse Adoptium 21.0.11+10-LTS)
+Daemon JVM:    /home/user/.sdkman/candidates/java/21.0.11-tem (no JDK specified, using current Java home)
+OS:            Linux 6.12.0 amd64
+

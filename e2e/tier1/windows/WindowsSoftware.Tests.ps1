@@ -5549,6 +5549,8 @@ Describe 'Invoke-WindowsVerification asks for the JDK Gradle brought in, owner d
             $paths = if ($DefaultJavaOnly) { @($global:DefaultJdk) } else { $global:EveryJdk }
             [ordered]@{ java = [PSCustomObject]@{ Path = $paths; Mode = 'All'; Description = 'the Temurin JDKs' } }
         }
+        # An installed Gradle is also asked to start, 10.368, which the Describe after this one tests.
+        Mock Get-GradleStartVerdict { [PSCustomObject]@{ Started = $true; Gradle = '9.7.0'; Jvm = '21'; Note = 'gradle --version: Gradle 9.7.0, JVM 21' } }
     }
 
     AfterAll {
@@ -5584,6 +5586,268 @@ Describe 'Invoke-WindowsVerification asks for the JDK Gradle brought in, owner d
         @($r.Results | Where-Object { $_.Key -eq 'java' })[0].Verdict | Should -Be 'installed'
         Should -Invoke Get-WindowsCustomInstallProof -Times 1 -Exactly
         Should -Invoke Get-WindowsCustomInstallProof -Times 0 -Exactly -ParameterFilter { $DefaultJavaOnly }
+    }
+}
+
+# Chocolatey listing gradle says the package unzipped, and Gradle cannot run without a Java runtime,
+# docs/regression_ledger.md 10.368. Owner decision of 2026-11-21: the verification starts gradle --version
+# in a new process with the user's environment, with a timeout, and counts Gradle installed only when it
+# exits 0 and names a Gradle version and a JVM. The cases are the ones e2e/tier1/gradle_starts.sh hands
+# the Ansible reader, so both readers are held to the same answers.
+Describe 'Gradle counts as installed on Windows only when gradle --version starts, 10.368' {
+
+    BeforeDiscovery {
+        $discoveryRoot = if ($env:E2E_REPO_ROOT) { $env:E2E_REPO_ROOT } else { Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) }
+        $fixtureDir = Join-Path $discoveryRoot 'e2e\tier1\gradle_version_fixtures'
+        $gradleCases = @(foreach ($raw in Get-Content -LiteralPath (Join-Path $fixtureDir 'cases.txt')) {
+            $text = $raw.Trim()
+            if (-not $text -or $text.StartsWith('#')) { continue }
+            $parts = @($text -split '\|' | ForEach-Object { $_.Trim() })
+            @{ File = $parts[0]; Code = [int] $parts[1]; Version = $parts[2]; Jvm = $parts[3]; Fixture = (Join-Path $fixtureDir $parts[0]) }
+        })
+    }
+
+    BeforeAll {
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsNpmTools.ps1')
+        . (Join-Path $script:RepoRoot 'setup\windows\WindowsVerify.ps1')
+    }
+
+    Context 'ConvertFrom-GradleVersionOutput' {
+
+        It 'reads all of gradle_version_fixtures/cases.txt, at least the five cases it was written with' -ForEach @(@{ Count = $gradleCases.Count }) {
+            $Count | Should -BeGreaterOrEqual 5
+        }
+
+        It 'reads <File> exiting <Code> as Gradle <Version> on JVM <Jvm>, with LF and with CRLF line ends' -ForEach $gradleCases {
+            $lf = (Get-Content -LiteralPath $Fixture -Raw) -replace '\r\n', "`n"
+            $started = $Code -eq 0 -and $Version -ne '-' -and $Jvm -ne '-'
+            $lastTwo = @(@($lf -split "`n" | Where-Object { $_.Trim() }) | Select-Object -Last 2) -join ' '
+            $note = if ($started) { "gradle --version: Gradle $Version, JVM $Jvm" }
+                    elseif ($Code -ne 0) { "gradle --version exited ${Code}: $lastTwo" }
+                    elseif ($Version -eq '-') { 'gradle --version exited 0 and named no Gradle version' }
+                    else { 'gradle --version exited 0 and named no JVM' }
+
+            foreach ($output in @($lf, ($lf -replace "`n", "`r`n"))) {
+                $r = ConvertFrom-GradleVersionOutput -TimeoutSeconds 120 `
+                    -Run ([PSCustomObject]@{ Started = $true; Output = $output; ExitCode = $Code; TimedOut = $false })
+
+                $r.Started | Should -Be $started
+                $r.Gradle | Should -BeExactly $(if ($Version -eq '-') { '' } else { $Version })
+                $r.Jvm | Should -BeExactly $(if ($Jvm -eq '-') { '' } else { $Jvm })
+                $r.Note | Should -BeExactly $note
+            }
+        }
+
+        It 'names the last two lines a failing gradle printed, or that it printed nothing' {
+            $printed = ConvertFrom-GradleVersionOutput -TimeoutSeconds 120 `
+                -Run ([PSCustomObject]@{ Started = $true; Output = "first`r`n`r`nsecond  `r`nthird`r`n"; ExitCode = 1; TimedOut = $false })
+            $silent = ConvertFrom-GradleVersionOutput -TimeoutSeconds 120 `
+                -Run ([PSCustomObject]@{ Started = $true; Output = ''; ExitCode = 1; TimedOut = $false })
+
+            $printed.Note | Should -BeExactly 'gradle --version exited 1: second   third'
+            $silent.Note | Should -BeExactly 'gradle --version exited 1: and printed nothing'
+        }
+
+        It 'does not count a gradle --version that was stopped at the deadline, even when it had printed both lines' {
+            $r = ConvertFrom-GradleVersionOutput -TimeoutSeconds 7 `
+                -Run ([PSCustomObject]@{ Started = $true; Output = "Gradle 9.7.0`nLauncher JVM:  21.0.11"; ExitCode = -1; TimedOut = $true })
+
+            $r.Started | Should -BeFalse
+            $r.Note | Should -BeExactly 'gradle --version did not finish within 7 seconds and was stopped'
+        }
+
+        It 'does not count a gradle --version that could not be started, and says why' {
+            $r = ConvertFrom-GradleVersionOutput -TimeoutSeconds 120 `
+                -Run ([PSCustomObject]@{ Started = $false; Output = 'The system cannot find the file specified.'; ExitCode = -1; TimedOut = $false })
+
+            $r.Started | Should -BeFalse
+            $r.Note | Should -BeExactly 'gradle --version could not be started: The system cannot find the file specified.'
+        }
+
+        It 'does not read a Daemon JVM line or a lower-case gradle line as the answer' {
+            $r = ConvertFrom-GradleVersionOutput -TimeoutSeconds 120 `
+                -Run ([PSCustomObject]@{ Started = $true; Output = "gradle 9.7.0`nDaemon JVM:   21.0.11"; ExitCode = 0; TimedOut = $false })
+
+            $r.Started | Should -BeFalse
+            $r.Gradle | Should -BeExactly ''
+            $r.Jvm | Should -BeExactly ''
+        }
+    }
+
+    Context 'Get-WindowsUserEnvironment' {
+
+        It 'puts the user variables over the machine ones over the process ones, and PATH as the machine PATH then the user PATH' {
+            Mock Get-WindowsEnvironmentScope { @{ PATH = 'C:\process-only'; ProcessOnly = 'kept'; Shared = 'process' } } -ParameterFilter { $Scope -eq 'Process' }
+            Mock Get-WindowsEnvironmentScope { @{ Path = 'C:\Windows;%JAVA_HOME%\bin;'; Shared = 'machine'; JAVA_HOME = 'C:\jdk-21' } } -ParameterFilter { $Scope -eq 'Machine' }
+            Mock Get-WindowsEnvironmentScope { @{ Path = 'C:\Users\me\bin;%NEVER_SET%'; Shared = 'user' } } -ParameterFilter { $Scope -eq 'User' }
+
+            $r = Get-WindowsUserEnvironment
+
+            $r -is [System.Collections.Generic.Dictionary[string, string]] | Should -BeTrue
+            $r['path'] | Should -BeExactly 'C:\Windows;C:\jdk-21\bin;C:\Users\me\bin;%NEVER_SET%'
+            $r['Shared'] | Should -BeExactly 'user'
+            $r['JAVA_HOME'] | Should -BeExactly 'C:\jdk-21'
+            $r['ProcessOnly'] | Should -BeExactly 'kept'
+            @($r.Keys | Where-Object { $_ -eq 'PATH' }).Count | Should -Be 1
+        }
+
+        It 'keeps the process PATH where the registry holds none, as on Linux and macOS' {
+            Mock Get-WindowsEnvironmentScope { @{ PATH = '/usr/bin:/bin' } } -ParameterFilter { $Scope -eq 'Process' }
+            Mock Get-WindowsEnvironmentScope { @{} } -ParameterFilter { $Scope -ne 'Process' }
+
+            (Get-WindowsUserEnvironment)['PATH'] | Should -BeExactly '/usr/bin:/bin'
+        }
+    }
+
+    Context 'Invoke-UserEnvironmentCommand, on a real child PowerShell' {
+
+        BeforeAll {
+            $script:ChildShell = (Get-Process -Id $PID).Path
+        }
+
+        BeforeEach {
+            $env:IH_PESTER_NOT_GIVEN = 'leaked'
+            $script:Given = [System.Collections.Generic.Dictionary[string, string]]::new()
+            foreach ($entry in [Environment]::GetEnvironmentVariables().GetEnumerator()) {
+                if ($entry.Key -ne 'IH_PESTER_NOT_GIVEN') { $script:Given[[string] $entry.Key] = [string] $entry.Value }
+            }
+            $script:Given['IH_PESTER_GIVEN'] = 'given'
+        }
+
+        AfterEach {
+            Remove-Item -LiteralPath Env:\IH_PESTER_NOT_GIVEN -ErrorAction SilentlyContinue
+        }
+
+        It 'gives the program the environment it was handed and none of this process''s own, and its exit code' {
+            $r = Invoke-UserEnvironmentCommand -FilePath $script:ChildShell -Environment $script:Given -TimeoutSeconds 120 -ArgumentList @(
+                '-NoProfile', '-NonInteractive', '-Command',
+                '[Console]::Out.WriteLine("$env:IH_PESTER_GIVEN|$env:IH_PESTER_NOT_GIVEN|" + [Console]::In.ReadToEnd().Length); exit 7')
+
+            $r.Started | Should -BeTrue
+            $r.TimedOut | Should -BeFalse
+            $r.ExitCode | Should -Be 7
+            @($r.Output -split '\r?\n')[0] | Should -BeExactly 'given||0'
+        }
+
+        It 'ends a program still running at the deadline, and says so' {
+            $clock = [System.Diagnostics.Stopwatch]::StartNew()
+            $r = Invoke-UserEnvironmentCommand -FilePath $script:ChildShell -Environment $script:Given -TimeoutSeconds 2 `
+                -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 60')
+            $clock.Stop()
+
+            $r.Started | Should -BeTrue
+            $r.TimedOut | Should -BeTrue
+            $r.ExitCode | Should -Be -1
+            $clock.Elapsed.TotalSeconds | Should -BeLessThan 45
+        }
+
+        It 'reports a program that does not exist as not started, without throwing' {
+            $r = Invoke-UserEnvironmentCommand -FilePath 'ih-pester-no-such-program' -ArgumentList @('--version') -Environment $script:Given
+
+            $r.Started | Should -BeFalse
+            $r.ExitCode | Should -Be -1
+            $r.Output | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context 'Get-GradleStartVerdict' {
+
+        BeforeEach {
+            Mock Invoke-UserEnvironmentCommand { [PSCustomObject]@{ Started = $true; Output = "Gradle 9.7.0`r`nLauncher JVM:  21.0.11 (Eclipse Adoptium 21.0.11+10-LTS)`r`n"; ExitCode = 0; TimedOut = $false } }
+        }
+
+        It 'runs gradle --version through the ComSpec of the user environment, with that environment and the deadline' {
+            Mock Get-WindowsUserEnvironment {
+                $built = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                $built['ComSpec'] = 'C:\Windows\system32\cmd.exe'
+                $built['JAVA_HOME'] = 'C:\jdk-21'
+                return , $built
+            }
+
+            $r = Get-GradleStartVerdict -TimeoutSeconds 9
+
+            $r.Started | Should -BeTrue
+            $r.Note | Should -BeExactly 'gradle --version: Gradle 9.7.0, JVM 21.0.11 (Eclipse Adoptium 21.0.11+10-LTS)'
+            Should -Invoke Invoke-UserEnvironmentCommand -Times 1 -Exactly -ParameterFilter {
+                $FilePath -eq 'C:\Windows\system32\cmd.exe' -and ($ArgumentList -join ' ') -eq '/d /c gradle --version' -and
+                $Environment['JAVA_HOME'] -eq 'C:\jdk-21' -and $TimeoutSeconds -eq 9
+            }
+        }
+
+        It 'falls back to cmd.exe where the user environment names no ComSpec' {
+            Mock Get-WindowsUserEnvironment {
+                return , [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            }
+
+            $null = Get-GradleStartVerdict
+
+            Should -Invoke Invoke-UserEnvironmentCommand -Times 1 -Exactly -ParameterFilter { $FilePath -eq 'cmd.exe' -and $TimeoutSeconds -eq 120 }
+        }
+    }
+
+    Context 'Invoke-WindowsVerification' {
+
+        BeforeEach {
+            Mock Get-Command { [PSCustomObject]@{ Source = 'choco.exe' } } -ParameterFilter { $Name -contains 'choco' }
+            Mock Get-ChocolateyInstalledPackage { @('gradle') }
+            Mock Get-WindowsMachineFact { [PSCustomObject]@{ InstallationType = 'Client'; IsElevated = $false; NvidiaAdapters = @() } }
+            $global:GradleJdk = Join-Path $TestDrive 'jdk-default'
+            New-Item -ItemType Directory -Path $global:GradleJdk -Force | Out-Null
+            Mock Get-WindowsCustomInstallProof {
+                [ordered]@{ java = [PSCustomObject]@{ Path = @($global:GradleJdk); Mode = 'All'; Description = 'the Temurin JDKs' } }
+            }
+        }
+
+        AfterAll {
+            Remove-Variable -Name GradleJdk -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It 'reports Gradle DOES NOT START with what gradle --version answered, and fails the run' {
+            Mock Get-GradleStartVerdict { [PSCustomObject]@{ Started = $false; Gradle = ''; Jvm = ''; Note = 'gradle --version exited 1: ERROR: JAVA_HOME is not set' } }
+
+            $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('gradle') `
+                -ToggleOverride @{ install_gradle = $true; install_java = $false } -LogPath (Join-Path $TestDrive 'verify.log')
+
+            $row = @($r.Results | Where-Object { $_.Key -eq 'gradle' })
+            $row.Count | Should -Be 1
+            $row[0].Verdict | Should -BeExactly 'DOES NOT START'
+            @($r.Installed | Where-Object { $_.Key -eq 'gradle' }).Count | Should -Be 0
+            @($r.Failed | Where-Object { $_.Key -eq 'gradle' })[0].Detail | Should -BeExactly 'gradle --version exited 1: ERROR: JAVA_HOME is not set'
+            ($r.Report -join "`n") | Should -BeLike '*gradle*DOES NOT START*gradle (gradle --version exited 1: ERROR: JAVA_HOME is not set)*'
+        }
+
+        It 'reports Gradle installed with the Gradle and JVM it named when it starts' {
+            Mock Get-GradleStartVerdict { [PSCustomObject]@{ Started = $true; Gradle = '9.7.0'; Jvm = '21.0.11'; Note = 'gradle --version: Gradle 9.7.0, JVM 21.0.11' } }
+
+            $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('gradle') `
+                -ToggleOverride @{ install_gradle = $true; install_java = $false } -LogPath (Join-Path $TestDrive 'verify.log')
+
+            @($r.Results | Where-Object { $_.Key -eq 'gradle' })[0].Verdict | Should -BeExactly 'installed'
+            @($r.Failed).Count | Should -Be 0
+            ($r.Report -join "`n") | Should -BeLike '*gradle*installed*gradle (gradle --version: Gradle 9.7.0, JVM 21.0.11)*'
+            Should -Invoke Get-GradleStartVerdict -Times 1 -Exactly
+        }
+
+        It 'does not start Gradle when Chocolatey does not list it, and reports it MISSING' {
+            Mock Get-ChocolateyInstalledPackage { @() }
+            Mock Get-GradleStartVerdict { throw 'must not be asked' }
+
+            $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('gradle') `
+                -ToggleOverride @{ install_gradle = $true; install_java = $false } -LogPath (Join-Path $TestDrive 'verify.log')
+
+            @($r.Results | Where-Object { $_.Key -eq 'gradle' })[0].Verdict | Should -BeExactly 'MISSING'
+            Should -Invoke Get-GradleStartVerdict -Times 0 -Exactly
+        }
+
+        It 'does not start Gradle when Gradle was not asked for' {
+            Mock Get-GradleStartVerdict { throw 'must not be asked' }
+
+            $r = Invoke-WindowsVerification -AnsibleDir $script:AnsibleDir -OnlyKeys @('gradle') `
+                -ToggleOverride @{ install_gradle = $false; install_java = $false } -LogPath (Join-Path $TestDrive 'verify.log')
+
+            @($r.Results | Where-Object { $_.Key -eq 'gradle' -and $_.Verdict -in @('installed', 'DOES NOT START') }).Count | Should -Be 0
+            Should -Invoke Get-GradleStartVerdict -Times 0 -Exactly
+        }
     }
 }
 
