@@ -144,9 +144,9 @@
   ansible.builtin.set_fact:
     grub_nvram_ids: >-
       {{ efibootmgr_verbose.stdout_lines
-         | select('search', '^Boot[0-9A-Fa-f]{4}\\*?')
-         | select('search', '\\\\EFI\\\\' ~ distro_grub_efi_dir ~ '\\\\')
-         | map('regex_search', '^Boot([0-9A-Fa-f]{4})', '\\1')
+         | select('search', '^Boot[0-9A-Fa-f]{4}\*?')
+         | select('search', '\\EFI\\' ~ distro_grub_efi_dir ~ '\\')
+         | map('regex_search', '^Boot([0-9A-Fa-f]{4})', '\1')
          | map('first')
          | list }}
 

@@ -5699,6 +5699,62 @@ Describe 'Gradle counts as installed on Windows only when gradle --version start
         }
     }
 
+    Context 'Get-WindowsSignInPath, the one PATH rule of this process and of a program started from the desktop' {
+
+        BeforeEach {
+            $script:PathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Process')
+        }
+
+        AfterEach {
+            [Environment]::SetEnvironmentVariable('PATH', $script:PathBefore, 'Process')
+            foreach ($name in @('IH_PESTER_PROCESS_HOME', 'IH_PESTER_MACHINE_ONLY', 'IH_PESTER_NVM_HOME', 'IH_PESTER_NVM_SYMLINK')) {
+                [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+            }
+        }
+
+        It 'joins the machine PATH and the user PATH without their trailing semicolons, and leaves out an empty one' {
+            Get-WindowsSignInPath -Machine @{ Path = 'C:\Windows;;' } -User @{ PATH = '' } -Environment @{} |
+                Should -BeExactly 'C:\Windows'
+            Get-WindowsSignInPath -Machine @{} -User @{ path = 'C:\Users\me\bin;' } -Environment @{} |
+                Should -BeExactly 'C:\Users\me\bin'
+        }
+
+        It 'answers $null where neither scope holds a PATH' {
+            $null -eq (Get-WindowsSignInPath -Machine @{ Other = 'x' } -User @{} -Environment @{ PATH = 'C:\process' }) | Should -BeTrue
+        }
+
+        It 'takes a %VARIABLE% the registry read left from the environment it is handed, by any case, and keeps one it does not hold' {
+            Get-WindowsSignInPath -Machine @{ Path = '%java_home%\bin' } -User @{ Path = '%NEVER_SET%' } -Environment @{ JAVA_HOME = 'C:\jdk-21' } |
+                Should -BeExactly 'C:\jdk-21\bin;%NEVER_SET%'
+        }
+
+        It 'gives this process through Update-ProcessPath the PATH Get-WindowsUserEnvironment builds, for the same machine and user values' {
+            [Environment]::SetEnvironmentVariable('IH_PESTER_PROCESS_HOME', 'C:\process-home', 'Process')
+            Mock Get-WindowsEnvironmentScope { @{ Path = 'C:\Windows;%IH_PESTER_PROCESS_HOME%\bin;'; IH_PESTER_MACHINE_ONLY = 'C:\machine' } } -ParameterFilter { $Scope -eq 'Machine' }
+            Mock Get-WindowsEnvironmentScope { @{ Path = 'C:\Users\me\bin;%IH_PESTER_NEVER_SET%;' } } -ParameterFilter { $Scope -eq 'User' }
+
+            $desktop = (Get-WindowsUserEnvironment)['PATH']
+            Update-ProcessPath
+            $process = [Environment]::GetEnvironmentVariable('PATH', 'Process')
+
+            $desktop | Should -BeExactly 'C:\Windows;C:\process-home\bin;C:\Users\me\bin;%IH_PESTER_NEVER_SET%'
+            $process | Should -BeExactly $desktop
+        }
+
+        It 'gives this process through Update-ProcessEnvironment the same PATH where it names variables only the user scope holds, the shape nvm-windows writes' {
+            Mock Get-WindowsEnvironmentScope { @{ Path = 'C:\Windows;' } } -ParameterFilter { $Scope -eq 'Machine' }
+            Mock Get-WindowsEnvironmentScope { @{ Path = '%IH_PESTER_NVM_HOME%;%IH_PESTER_NVM_SYMLINK%'; IH_PESTER_NVM_HOME = 'C:\nvm'; IH_PESTER_NVM_SYMLINK = 'C:\nodejs' } } -ParameterFilter { $Scope -eq 'User' }
+
+            $desktop = (Get-WindowsUserEnvironment)['PATH']
+            Update-ProcessEnvironment
+            $process = [Environment]::GetEnvironmentVariable('PATH', 'Process')
+
+            $desktop | Should -BeExactly 'C:\Windows;C:\nvm;C:\nodejs'
+            $process | Should -BeExactly $desktop
+            [Environment]::GetEnvironmentVariable('IH_PESTER_NVM_HOME', 'Process') | Should -BeExactly 'C:\nvm'
+        }
+    }
+
     Context 'Invoke-UserEnvironmentCommand, on a real child PowerShell' {
 
         BeforeAll {

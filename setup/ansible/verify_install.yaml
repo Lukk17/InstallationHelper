@@ -1330,7 +1330,7 @@
              | list
              + (ih_session_path_entries
                 | reject('in', (ih_session_env.stdout_lines | default([]) | select('match', '^PATH=') | first | default('PATH='))
-                                 | regex_replace('^PATH=', '') | regex_replace('^"(.*)"$', '\\1') | split(':'))
+                                 | regex_replace('^PATH=', '') | regex_replace('^"(.*)"$', '\1') | split(':'))
                 | map('regex_replace', '^', 'PATH entry ')
                 | list) }}
       when: ansible_facts['system'] == 'Linux'

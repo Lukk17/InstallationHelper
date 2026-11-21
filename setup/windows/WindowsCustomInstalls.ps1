@@ -354,6 +354,45 @@ function Install-TemurinJdk {
     return $results
 }
 
+function Get-WindowsSignInPath {
+    <#
+    .SYNOPSIS
+        The PATH a new sign-in gets from the machine and user scopes, or $null when neither holds one.
+    .DESCRIPTION
+        The machine PATH followed by the user PATH, each without its trailing semicolons, the order
+        Windows applies at sign-in. A %VARIABLE% the registry read left as it was, because the process
+        that read it has never heard of it, is taken from Environment, and one Environment does not
+        hold either stays as written, the shape nvm-windows writes. The one place this rule lives:
+        Update-ProcessPath applies it to this process and Get-WindowsUserEnvironment to the environment
+        it builds for a program started from the desktop.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.IDictionary] $Machine,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.IDictionary] $User,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [System.Collections.IDictionary] $Environment
+    )
+
+    $parts = [System.Collections.Generic.List[string]]::new()
+    foreach ($scope in @($Machine, $User)) {
+        foreach ($name in @($scope.Keys)) {
+            if ([string] $name -eq 'PATH' -and $scope[$name]) { $parts.Add(([string] $scope[$name]).TrimEnd(';')) }
+        }
+    }
+    if ($parts.Count -eq 0) {
+        return $null
+    }
+
+    $known = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @($Environment.Keys)) { $known[[string] $name] = [string] $Environment[$name] }
+
+    return ($parts -join ';') -replace '%([^%;]+)%', {
+        $referenced = $_.Groups[1].Value
+        if ($known.ContainsKey($referenced)) { $known[$referenced] } else { $_.Value }
+    }
+}
+
 function Update-ProcessPath {
     <#
     .SYNOPSIS
@@ -366,16 +405,16 @@ function Update-ProcessPath {
         does, minus needing a new shell.
 
         The process value is rebuilt rather than appended to, because appending on every call grows
-        PATH without bound across a long wizard run.
+        PATH without bound across a long wizard run. The value is the one Get-WindowsSignInPath
+        builds, with this process's variables for any %VARIABLE% in it.
     #>
     [CmdletBinding()]
     param()
 
-    $machine = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
-    $user    = [Environment]::GetEnvironmentVariable('PATH', 'User')
-    $combined = @($machine, $user) | Where-Object { $_ } | ForEach-Object { $_.TrimEnd(';') }
-    [Environment]::SetEnvironmentVariable('PATH', ($combined -join ';'), 'Process')
-    Write-Verbose "PATH refreshed from the registry, $((($combined -join ';') -split ';').Count) entries"
+    $path = [string] (Get-WindowsSignInPath -Machine (Get-WindowsEnvironmentScope -Scope Machine) `
+            -User (Get-WindowsEnvironmentScope -Scope User) -Environment (Get-WindowsEnvironmentScope -Scope Process))
+    [Environment]::SetEnvironmentVariable('PATH', $path, 'Process')
+    Write-Verbose "PATH refreshed from the registry, $(($path -split ';').Count) entries"
 }
 
 function Invoke-ManagedTool {
@@ -462,8 +501,8 @@ function Update-ProcessEnvironment {
     param()
 
     foreach ($scope in @('Machine', 'User')) {
-        $values = [Environment]::GetEnvironmentVariables($scope)
-        foreach ($name in $values.Keys) {
+        $values = Get-WindowsEnvironmentScope -Scope $scope
+        foreach ($name in @($values.Keys)) {
             # PATH is the union of the two scopes rather than the last one written, so it is rebuilt
             # separately below instead of being overwritten here.
             if ($name -eq 'PATH') { continue }
@@ -479,9 +518,10 @@ function Get-WindowsEnvironmentScope {
     .SYNOPSIS
         The variables of one scope, Process, Machine or User, as names and values.
     .DESCRIPTION
-        The one place Get-WindowsUserEnvironment reads a scope, so the Pester suite can hand it a fake
-        machine and user. Machine and User come from the registry, with each %VARIABLE% this process
-        knows already expanded, and are empty on Linux and macOS.
+        The one place Get-WindowsUserEnvironment, Update-ProcessEnvironment and Update-ProcessPath read
+        a scope, so the Pester suite can hand them a fake machine and user. Machine and User come from
+        the registry, with each %VARIABLE% this process knows already expanded, and are empty on Linux
+        and macOS.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.IDictionary])]
@@ -501,10 +541,10 @@ function Get-WindowsUserEnvironment {
         installs write JAVA_HOME, GRADLE_HOME and PATH into the registry only, so a program started
         from here does not see them while a new terminal does. This builds what the new terminal
         gets: this process's variables, the machine variables over them and the user variables over
-        those, which is the order Windows applies at sign-in, and PATH as the machine PATH followed by
-        the user PATH. A %VARIABLE% the registry read could not expand, because this process has never
-        heard of it, is expanded from the variables built here, the shape nvm-windows writes, see
-        Update-ProcessEnvironment, which applies the same to this process.
+        those, which is the order Windows applies at sign-in, and PATH as Get-WindowsSignInPath builds
+        it, with a %VARIABLE% the registry read could not expand taken from the variables built here,
+        the shape nvm-windows writes, see Update-ProcessEnvironment, which applies the same to this
+        process.
 
         A variable that only this process holds is passed on as well, because the per sign-in values
         such as USERPROFILE and APPDATA live nowhere else.
@@ -516,23 +556,18 @@ function Get-WindowsUserEnvironment {
     param()
 
     $environment = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $registryPath = [System.Collections.Generic.List[string]]::new()
+    $scopes = @{}
     foreach ($scope in @('Process', 'Machine', 'User')) {
-        $values = Get-WindowsEnvironmentScope -Scope $scope
-        foreach ($name in @($values.Keys)) {
-            if ([string] $name -eq 'PATH' -and $scope -ne 'Process') {
-                if ($values[$name]) { $registryPath.Add(([string] $values[$name]).TrimEnd(';')) }
-                continue
-            }
-            $environment[[string] $name] = [string] $values[$name]
+        $scopes[$scope] = Get-WindowsEnvironmentScope -Scope $scope
+        foreach ($name in @($scopes[$scope].Keys)) {
+            if ([string] $name -eq 'PATH' -and $scope -ne 'Process') { continue }
+            $environment[[string] $name] = [string] $scopes[$scope][$name]
         }
     }
 
-    if ($registryPath.Count -gt 0) {
-        $environment['PATH'] = ($registryPath -join ';') -replace '%([^%;]+)%', {
-            $referenced = $_.Groups[1].Value
-            if ($environment.ContainsKey($referenced)) { $environment[$referenced] } else { $_.Value }
-        }
+    $signInPath = Get-WindowsSignInPath -Machine $scopes['Machine'] -User $scopes['User'] -Environment $environment
+    if ($null -ne $signInPath) {
+        $environment['PATH'] = $signInPath
     }
 
     # The comma keeps the pipeline from unrolling the dictionary into its entries.

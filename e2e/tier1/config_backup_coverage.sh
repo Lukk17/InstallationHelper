@@ -47,13 +47,15 @@
 #   7. the probe, the listing and the backup include before the Konsave profile, lifted out of
 #      configure_kde.yaml with become taken off, and config_backup_report.yaml, run with
 #      ansible-playbook on a fixture home. Without --check, where one export file holds other bytes,
-#      one is a symbolic link the run replaces with a file, as konsave does inside a folder, and one is
-#      a link the run writes through, the backup keeps the file, the replaced link as a link and the
-#      file written through the other, and the summary names exactly those three as changed. Under
-#      --check the run succeeds and copies nothing. Until 2026-11-14 the listing did not run under
-#      --check, so the include failed on an empty list, docs/regression_ledger.md 10.355, and the
-#      backup followed every link, so it kept a replaced link only as a copy of what it pointed to and
-#      named the link, not the file, when a run wrote through one, 10.357.
+#      one is a symbolic link the run replaces with a file, as konsave does inside a folder, one is a
+#      link the run writes through and one is a link the run points at another file, the backup keeps
+#      the file, the replaced link as a link, the file written through the second and the third link as
+#      it pointed before, and the summary names exactly those four as changed. Under --check the run
+#      succeeds and copies nothing. Until 2026-11-14 the listing did not run under --check, so the
+#      include failed on an empty list, docs/regression_ledger.md 10.355, and the backup followed every
+#      link, so it kept a replaced link only as a copy of what it pointed to and named the link, not the
+#      file, when a run wrote through one, 10.357. Until 2026-11-21 ih_config_states recorded every link
+#      as `->\1`, so a link pointed elsewhere read as unchanged and its backup was deleted, 10.372.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -618,9 +620,9 @@ in_folders = [member for member in members if member[0] == 'export' and '/' in m
 konsave_runs = 0
 if shutil.which('ansible-playbook') is None:
     lines.append('FAIL ansible-playbook is not on PATH in the gate, so the backup before the Konsave profile is not run')
-elif not (listing_task and probe_task and backup_include and len(in_folders) >= 3):
+elif not (listing_task and probe_task and backup_include and len(in_folders) >= 4):
     lines.append('FAIL %s holds no profile probe, listing and backup include this check can lift and run, or %s '
-                 'holds fewer than three export files inside a folder, so the backup before the Konsave profile '
+                 'holds fewer than four export files inside a folder, so the backup before the Konsave profile '
                  'is not run' % (KDE_TASKS.as_posix(), PROFILE.as_posix()))
 else:
     with tempfile.TemporaryDirectory() as work:
@@ -637,11 +639,13 @@ else:
             'hosts': 'localhost', 'connection': 'local', 'gather_facts': False, 'vars_files': ['backup_vars.yaml'],
             'tasks': [
                 {'name': 'The shipped backup before the Konsave profile', 'ansible.builtin.include_tasks': 'konsave.yaml'},
-                {'name': 'Do what konsave does inside a folder to one link, and write through another',
+                {'name': 'Do what konsave does inside a folder to one link, write through another and point a third elsewhere',
                  'ansible.builtin.shell': 'rm -f -- "$REPLACED" && printf "konsave wrote this\\n" > "$REPLACED" && '
                                           'printf "written through the link\\n" > "$THROUGH" && '
+                                          'ln -sfn -- "$ELSEWHERE" "$REPOINTED" && '
                                           'printf "konsave wrote this\\n" > "$PLAIN"',
-                 'environment': {'REPLACED': '{{ replaced }}', 'THROUGH': '{{ through }}', 'PLAIN': '{{ plain }}'}},
+                 'environment': {'REPLACED': '{{ replaced }}', 'THROUGH': '{{ through }}', 'PLAIN': '{{ plain }}',
+                                 'REPOINTED': '{{ repointed }}', 'ELSEWHERE': '{{ elsewhere }}'}},
                 {'name': 'Do what konsave -r does to the copy it stored', 'ansible.builtin.file': {
                     'path': '{{ saved }}', 'state': 'absent'}},
                 {'name': 'The shipped report', 'ansible.builtin.include_tasks': 'tasks/' + REPORT_FILE},
@@ -654,17 +658,20 @@ else:
             os.makedirs(os.path.join(home, '.config'))
             os.makedirs(os.path.join(home, '.local', 'share'))
             os.makedirs(dotfiles)
-            plain, replaced, through = (target_of(home, member[2], member[3]) for member in in_folders[:3])
-            for path in (plain, replaced, through):
+            plain, replaced, through, repointed = (target_of(home, member[2], member[3]) for member in in_folders[:4])
+            for path in (plain, replaced, through, repointed):
                 os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(plain, 'wb') as handle:
                 handle.write(OTHER_BYTES)
             pointed = {}
-            for link in (replaced, through):
-                pointed[link] = os.path.join(dotfiles, os.path.basename(link))
+            for number, link in enumerate((replaced, through, repointed)):
+                pointed[link] = os.path.join(dotfiles, '%d-%s' % (number, os.path.basename(link)))
                 with open(pointed[link], 'wb') as handle:
                     handle.write(OTHER_BYTES)
                 os.symlink(pointed[link], link)
+            elsewhere = os.path.join(dotfiles, 'elsewhere')
+            with open(elsewhere, 'wb') as handle:
+                handle.write(OTHER_BYTES)
             saved = os.path.join(home, '.config', 'konsave', 'profiles', 'lukk_desktop_profile')
             saved_file = os.path.join(saved, 'conf.yaml')
             os.makedirs(saved)
@@ -672,7 +679,8 @@ else:
                 handle.write(OTHER_BYTES)
             report_file = os.path.join(work, 'report-%s.json' % os.path.basename(home))
             status, first_error = run_konsave_backup(work, home, {'plain': plain, 'replaced': replaced,
-                                                                  'through': through, 'saved': saved,
+                                                                  'through': through, 'repointed': repointed,
+                                                                  'elsewhere': elsewhere, 'saved': saved,
                                                                   'report_file': report_file}, check)
             backup = os.path.join(home, '.local', 'state', 'installation-helper', 'backup', FIXTURE_STAMP)
             if status != 0:
@@ -697,19 +705,23 @@ else:
             if not os.path.isfile(backup + pointed[through]) or os.path.islink(backup + pointed[through]):
                 problems.append('%s, which konsave wrote through the link %s, has no copy in the backup'
                                 % (pointed[through], through))
+            if not os.path.islink(backup + repointed) or os.readlink(backup + repointed) != pointed[repointed]:
+                problems.append('%s, a link into %s that the run points at %s, is not kept in the backup as the link '
+                                'it was' % (repointed, dotfiles, elsewhere))
             if not os.path.isfile(backup + saved_file):
                 problems.append('%s, the copy of the profile konsave -r removes, has no copy in the backup' % saved_file)
             if set(report_found.get('removed') or []) != {saved_file}:
                 problems.append('the summary lists as removed %s where it should list exactly %s'
                                 % (sorted(report_found.get('removed') or []), [saved_file]))
-            expected = {plain, replaced, pointed[through]}
+            expected = {plain, replaced, pointed[through], repointed}
             if set(report_found.get('changed') or []) != expected:
                 problems.append('the summary lists as changed %s where it should list exactly %s'
                                 % (sorted(report_found.get('changed') or []), sorted(expected)))
             if problems:
                 lines.append('FAIL the backup before the Konsave profile, run without --check on a home where one '
-                             'export file holds other bytes, one is a link konsave replaces and one a link written '
-                             'through, with a copy of the profile konsave stored on an earlier run: %s' % '. '.join(problems))
+                             'export file holds other bytes, one is a link konsave replaces, one a link written '
+                             'through and one a link pointed elsewhere, with a copy of the profile konsave stored on an '
+                             'earlier run: %s' % '. '.join(problems))
             else:
                 konsave_runs += 1
 
@@ -720,7 +732,7 @@ if not lines:
                  'directory forces a mode on what may exist already, nothing ends the play early, and the '
                  'Konsave listing names each of the %d files the save and export sections of the profile write, '
                  'in %d paths for an empty home, and the backup and report around it passed %d of 2 fixture runs, '
-                 'keeping a file and two links and naming each change without --check and copying nothing under --check'
+                 'keeping a file and three links and naming each change without --check and copying nothing under --check'
                  % (examined, len(registry), len(include_literals), len(repository_files),
                     sum(len(v) for v in entries.values()), TARGETS.as_posix(), home_tasks, konsave_written,
                     konsave_fresh, konsave_runs))

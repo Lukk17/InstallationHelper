@@ -363,7 +363,7 @@ ih_config_states: >-
   {{ dict(config_state_probe.results | map(attribute='item')
           | zip(config_state_probe.results | map(attribute='stat') | map(attribute='checksum', default='')
                 | zip(config_state_probe.results | map(attribute='stat') | map(attribute='lnk_target', default='')
-                      | map('urlencode') | map('regex_replace', '^(.+)$', '->\\1'))
+                      | map('urlencode') | map('regex_replace', '^(.+)$', '->\1'))
                 | map('join', '') | list
                 | zip(config_state_probe.results | map(attribute='stat') | map(attribute='mode', default=''),
                       config_state_probe.results | map(attribute='stat') | map(attribute='uid', default=''),
