@@ -479,10 +479,22 @@
         - name: Clean the package caches
           when: not (ih_picked_apps_run | bool)
           block:
+            # Removing a runtime changes what is installed, so it reports a change when the installed refs
+            # differ afterwards, docs/regression_ledger.md 10.364.
             - name: Clean Flatpak unused runtimes
-              ansible.builtin.command: flatpak uninstall --unused -y
+              ansible.builtin.shell: |
+                set -e
+                before="$(flatpak list --columns=ref)"
+                flatpak uninstall --unused -y
+                after="$(flatpak list --columns=ref)"
+                if [ "${before}" != "${after}" ]; then
+                  printf 'ih_changed=flatpak runtimes removed\n'
+                fi
+              args:
+                executable: /bin/bash
               become: yes
-              changed_when: false
+              register: flatpak_unused_clean
+              changed_when: "'ih_changed=' in (flatpak_unused_clean.stdout | default(''))"
               ignore_errors: yes
               when:
                 - playbook_succeeded | bool
@@ -504,10 +516,12 @@
               ansible.builtin.shell: |
                 snap list --all 2>/dev/null | awk '/disabled/{print $1, $3}' |
                 while read snap_name snap_revision; do
-                  snap remove "$snap_name" --revision="$snap_revision"
+                  snap remove "$snap_name" --revision="$snap_revision" &&
+                    printf 'ih_changed=%s revision %s removed\n' "$snap_name" "$snap_revision"
                 done || true
               become: yes
-              changed_when: false
+              register: snap_revisions_clean
+              changed_when: "'ih_changed=' in (snap_revisions_clean.stdout | default(''))"
               ignore_errors: yes
               when:
                 - playbook_succeeded | bool
@@ -525,9 +539,23 @@
                 - ansible_facts['system'] == 'Linux'
                 - snap_check.rc == 0
 
+            # brew cleanup also removes the older installed versions in the Cellar and the Caskroom, which
+            # changes what is installed, so it reports a change when those folders differ afterwards. The
+            # download cache it empties is an act rather than a state, as for apt and pacman below.
             - name: Cleanup Homebrew cache (macOS)
-              ansible.builtin.command: brew cleanup --prune=all
-              changed_when: false
+              ansible.builtin.shell: |
+                set -e
+                prefix="$(brew --prefix)"
+                before="$(find "${prefix}/Cellar" "${prefix}/Caskroom" -mindepth 2 -maxdepth 2 2>/dev/null | sort)"
+                brew cleanup --prune=all
+                after="$(find "${prefix}/Cellar" "${prefix}/Caskroom" -mindepth 2 -maxdepth 2 2>/dev/null | sort)"
+                if [ "${before}" != "${after}" ]; then
+                  printf 'ih_changed=older Homebrew versions removed\n'
+                fi
+              args:
+                executable: /bin/bash
+              register: homebrew_cleanup
+              changed_when: "'ih_changed=' in (homebrew_cleanup.stdout | default(''))"
               ignore_errors: yes
               when:
                 - playbook_succeeded | bool
@@ -581,10 +609,30 @@
                 - playbook_succeeded | bool
                 - ih_family == 'Archlinux'
 
-            - name: Clean DNF cache (Fedora)
+            # Removing orphaned packages changes what is installed, so it reports a change when the
+            # installed set differs afterwards, docs/regression_ledger.md 10.364. Emptying the cache below is
+            # an act rather than a state, as for apt and pacman above.
+            - name: Remove orphaned packages (Fedora)
               ansible.builtin.shell: |
+                set -e
+                before="$(rpm -qa | sort)"
                 dnf autoremove -y
-                dnf clean all
+                after="$(rpm -qa | sort)"
+                if [ "${before}" != "${after}" ]; then
+                  printf 'ih_changed=orphaned packages removed\n'
+                fi
+              args:
+                executable: /bin/bash
+              become: yes
+              register: autoremove_dnf
+              changed_when: "'ih_changed=' in (autoremove_dnf.stdout | default(''))"
+              ignore_errors: yes
+              when:
+                - playbook_succeeded | bool
+                - ih_family == 'RedHat'
+
+            - name: Clean DNF cache (Fedora)
+              ansible.builtin.command: dnf clean all
               become: yes
               changed_when: false
               ignore_errors: yes

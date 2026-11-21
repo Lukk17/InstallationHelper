@@ -95,8 +95,20 @@
   become: yes
   become_user: "{{ non_root_user }}"
 
+# This task, Enable Dash to Dock and Disable Ubuntu Dock, and Set Gnome Screenshot Shortcut read what they
+# set before and after, and report a change when the two differ, docs/regression_ledger.md 10.364.
 - name: Set Default Apps via xdg-mime
-  ansible.builtin.command: "xdg-mime default {{ item.app }} {{ item.mime }}"
+  ansible.builtin.shell: |
+    set -e
+    before="$(xdg-mime query default {{ item.mime | quote }} || true)"
+    xdg-mime default {{ item.app | quote }} {{ item.mime | quote }}
+    after="$(xdg-mime query default {{ item.mime | quote }} || true)"
+    if [ "${before}" != "${after}" ]; then
+      printf 'ih_changed=%s now opens %s\n' {{ item.app | quote }} {{ item.mime | quote }}
+    fi
+  args:
+    executable: /bin/bash
+  register: gnome_default_apps
   loop:
     - { app: "{{ default_word_app }}", mime: "application/msword" }
     - { app: "{{ default_excel_app }}", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }
@@ -106,7 +118,7 @@
     - { app: "{{ default_video_app }}", mime: "video/mp4" }
   become: yes
   become_user: "{{ non_root_user }}"
-  changed_when: false
+  changed_when: "'ih_changed=' in (gnome_default_apps.stdout | default(''))"
   when: gnome_session_active | default(false)
 
 - name: Setup Dash-to-Dock
@@ -124,19 +136,42 @@
 
 - name: Enable Dash to Dock and Disable Ubuntu Dock
   ansible.builtin.shell: |
+    read_extensions() {
+      gsettings get org.gnome.shell enabled-extensions
+      gsettings get org.gnome.shell disabled-extensions
+    }
+    before="$(read_extensions)"
     gnome-extensions enable dash-to-dock@micxgx.gmail.com
-    gnome-extensions disable ubuntu-dock@ubuntu.com
+    status=0
+    gnome-extensions disable ubuntu-dock@ubuntu.com || status=$?
+    after="$(read_extensions)"
+    if [ "${before}" != "${after}" ]; then
+      printf 'ih_changed=GNOME extensions switched\n'
+    fi
+    exit "${status}"
+  args:
+    executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  changed_when: false
+  register: gnome_dock_extensions
+  changed_when: "'ih_changed=' in (gnome_dock_extensions.stdout | default(''))"
   when:
     - dash_dock_disable_ubuntu_dock | bool
     - gnome_session_active | default(false)
 
 - name: Set Gnome Screenshot Shortcut
   ansible.builtin.shell: |
+    set -e
+    before="$(gsettings get org.gnome.shell.keybindings show-screenshot-ui || true)"
     gsettings set org.gnome.shell.keybindings show-screenshot-ui "['<Shift><Super>s', 'Print']"
+    after="$(gsettings get org.gnome.shell.keybindings show-screenshot-ui || true)"
+    if [ "${before}" != "${after}" ]; then
+      printf 'ih_changed=screenshot shortcut set\n'
+    fi
+  args:
+    executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  changed_when: false
+  register: gnome_screenshot_shortcut
+  changed_when: "'ih_changed=' in (gnome_screenshot_shortcut.stdout | default(''))"
   when: gnome_session_active | default(false)

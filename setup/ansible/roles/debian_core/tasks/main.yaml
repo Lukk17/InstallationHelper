@@ -22,7 +22,9 @@
     content: |
       deb https://deb.debian.org/debian {{ ih_apt_codename }} contrib non-free non-free-firmware
     mode: '0644'
-  when: ansible_facts['distribution'] == 'Debian'
+  when:
+    - ansible_facts['distribution'] == 'Debian'
+    - "'contrib-non-free' in ih_base_needed"
 
 # site.yaml runs this role without a rescue, on purpose, because it is the bootstrap
 # everything later depends on. So one transient failure reaching a mirror aborts the whole
@@ -40,7 +42,9 @@
   retries: 3
   delay: 10
   until: apt_cache_contrib is succeeded
-  when: ansible_facts['distribution'] == 'Debian'
+  when:
+    - ansible_facts['distribution'] == 'Debian'
+    - "'contrib-non-free' in ih_base_needed"
 
 # curl and gpg, for the whole Debian family, before anything reaches for them.
 #
@@ -60,19 +64,44 @@
 # ca-certificates joins them because a curl over https with no trust store fails the same way, later
 # and less clearly.
 # One package per call through tasks/install_role_packages.yaml, so one that cannot install costs only
-# itself and is named.
-- name: Install curl, gpg and certificates before any repository key is fetched (Debian family)
+# itself and is named. One include per package, because a picked-apps run installs only those a requested
+# app needs, ih_base_needed in group_vars/all.yaml, docs/regression_ledger.md 10.363, and each list stays
+# literal for e2e/tier2/resolve_role_packages.sh.
+- name: Install curl before any repository key is fetched (Debian family)
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - curl
-      - gnupg
-      - ca-certificates
-    role_packages_purpose: the tools a repository key is fetched with
-  when: ih_family == 'Debian'
+    role_packages: [curl]
+    role_packages_purpose: the tool vendor installers are fetched with
+  when:
+    - ih_family == 'Debian'
+    - "'curl' in ih_base_needed"
+
+- name: Install gpg before any repository key is fetched (Debian family)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [gnupg]
+    role_packages_purpose: the tool a repository key is read with
+  when:
+    - ih_family == 'Debian'
+    - "'gnupg' in ih_base_needed"
+
+- name: Install certificates before anything is fetched over HTTPS (Debian family)
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [ca-certificates]
+    role_packages_purpose: the certificates an HTTPS download is checked with
+  when:
+    - ih_family == 'Debian'
+    - "'ca-certificates' in ih_base_needed"
 
 # Through tasks/install_role_packages.yaml, the retry rule every package manager follows, and the
 # tasks that need snapd skip when it did not install, because the shared file has already named it. The

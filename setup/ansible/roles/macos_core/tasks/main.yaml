@@ -117,8 +117,19 @@
   become: yes
   when: set_custom_wallpaper | bool
 
+# The picture of every desktop is read before and after, and the task reports a change when the two
+# differ, docs/regression_ledger.md 10.364.
 - name: Set macOS Wallpaper
   ansible.builtin.shell: |
+    set -e
+    before="$(osascript -e 'tell application "System Events" to get picture of every desktop' || true)"
     osascript -e "tell application \"System Events\" to tell every desktop to set picture to \"/Library/Desktop Pictures/wallpapers/{{ default_wallpaper }}\""
+    after="$(osascript -e 'tell application "System Events" to get picture of every desktop' || true)"
+    if [ "${before}" != "${after}" ]; then
+      printf 'ih_changed=wallpaper set\n'
+    fi
+  args:
+    executable: /bin/bash
+  register: macos_wallpaper
   when: set_custom_wallpaper | bool
-  changed_when: false
+  changed_when: "'ih_changed=' in (macos_wallpaper.stdout | default(''))"

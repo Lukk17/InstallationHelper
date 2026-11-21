@@ -5,17 +5,32 @@
 # the KDE path survived a missing session and the GNOME path failed the whole run. A terminal
 # profile preference is not worth losing a run over, and it can be set at the next login.
 # See docs/regression_ledger.md.
+#
+# The two keys are read before and after, and the task reports a change when they differ,
+# docs/regression_ledger.md 10.364.
 - name: Configure GNOME Terminal to use ZSH
   ansible.builtin.shell: |
     PROFILE=$(gsettings get org.gnome.Terminal.ProfilesList default | tr -d "'")
-    gsettings set org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles/:${PROFILE}/ custom-command 'zsh'
-    gsettings set org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles/:${PROFILE}/ use-custom-command true
+    schema="org.gnome.Terminal.Legacy.Profile:/org/gnome/terminal/legacy/profiles/:${PROFILE}/"
+    read_profile() {
+      gsettings get "${schema}" custom-command
+      gsettings get "${schema}" use-custom-command
+    }
+    before="$(read_profile)"
+    gsettings set "${schema}" custom-command 'zsh'
+    gsettings set "${schema}" use-custom-command true
+    status=$?
+    after="$(read_profile)"
+    if [ "${before}" != "${after}" ]; then
+      printf 'ih_changed=GNOME Terminal starts zsh\n'
+    fi
+    exit "${status}"
   args:
     executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
   register: gnome_terminal_zsh
-  changed_when: false
+  changed_when: "'ih_changed=' in (gnome_terminal_zsh.stdout | default(''))"
   failed_when: false
   when: install_gnome | default(false) | bool or configure_gnome | default(false) | bool
 

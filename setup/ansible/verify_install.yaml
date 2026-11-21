@@ -265,7 +265,9 @@
       ansible.builtin.set_fact:
         ih_companions_all: >-
           {{ (os_dict.companion_packages | default({}))
-             | combine({'openrazer': dkms_header_packages | default([])} if ih_family == 'Archlinux' else {}) }}
+             | combine({'openrazer': dkms_header_packages | default([])} if ih_family == 'Archlinux' else {})
+             | combine({'system_core': os_dict.companion_packages.system_core | select('in', ih_base_needed) | list}
+                       if 'system_core' in (os_dict.companion_packages | default({})) else {}) }}
         ih_role_only_keys: >-
           {{ (os_dict.companion_packages | default({})) | list
              | reject('in', os_dict.software_mapping | list) | sort }}
@@ -570,7 +572,9 @@
     # system_core installs flatpak and adds the Flathub remote on every Linux, so both are
     # asserted whenever that role ran. This is the check that would have caught flatpak never
     # being installed on Arch: the remote-add shelled out to a missing binary and the play
-    # died, but nothing downstream ever asserted the remote existed.
+    # died, but nothing downstream ever asserted the remote existed. A picked-apps run does both
+    # only when a requested app needs flatpak, ih_base_needed in group_vars/all.yaml, so both
+    # are asserted then.
     - name: List the configured flatpak remotes
       ansible.builtin.command: flatpak remotes --columns=name
       register: flatpak_remotes
@@ -587,6 +591,7 @@
       when:
         - install_system_core | default(false) | bool
         - ih_family != 'Darwin'
+        - "'flatpak' in ih_base_needed"
 
     # --- group membership ----------------------------------------------------
     # The OpenRazer group is the regression that started this harness: the name is a
@@ -1613,6 +1618,7 @@
       when:
         - install_system_core | default(false) | bool
         - ih_family != 'Darwin'
+        - "'flatpak' in ih_base_needed"
 
     # Three outcomes, not two. The file being absent is the pass, the file being present is the
     # failure everybody expects, and not having been able to look is also a failure, because a

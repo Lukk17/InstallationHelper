@@ -29,6 +29,10 @@
 #      nothing with every toggle off, writes only the variables of the apps still installed with
 #      every toggle on and every repository it reads unavailable, and a second run with every toggle
 #      on changes nothing.
+#   7. "Ask whether each shell already imports environment.d" of env_unix.yaml, run with the task after
+#      it in a picked-apps run, asks zsh about each of ~/.zshenv and zsh_config_dir/.zshenv once, both
+#      where zsh_config_dir is the home directory and the two are one file, and where it is
+#      ~/.config/zsh, and finds the import there, docs/regression_ledger.md 10.365.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -428,7 +432,42 @@ if app_tasks:
                              'variable is not there exactly once')
             else:
                 lines.append('OK a second run of app_environment.yaml with every toggle on changed nothing')
-if runs < 12:
+
+# --- 7. each shell's import is asked of each file once ----------------------------------------------
+ASK_NAME = 'Ask whether each shell already imports environment.d (Linux/macOS)'
+RECORD_NAME = 'Record which shells already import environment.d (Linux/macOS)'
+env_by_name = {t.get('name'): t for t in load(ENV_UNIX) if isinstance(t, dict)}
+import_marker = (load(ROLES / 'env_variables' / 'defaults' / 'main.yaml') or {}).get('env_variables_import_marker')
+if ASK_NAME not in env_by_name or RECORD_NAME not in env_by_name or not import_marker:
+    lines.append('FAIL %s has no task "%s" and "%s", or the defaults of env_variables name no '
+                 'env_variables_import_marker, so the files each shell is asked about cannot be run'
+                 % (ENV_UNIX.relative_to(ANSIBLE).as_posix(), ASK_NAME, RECORD_NAME))
+for layout in ('home', 'config') if ASK_NAME in env_by_name and RECORD_NAME in env_by_name and import_marker else ():
+    home = WORK / ('ask-%s' % layout)
+    zsh_dir = home if layout == 'home' else home / '.config' / 'zsh'
+    zsh_dir.mkdir(parents=True)
+    (zsh_dir / '.zshenv').write_text(import_marker.replace('{mark}', 'BEGIN') + '\n', encoding='utf-8')
+    record = {'name': 'Record the files each shell was asked about', 'ansible.builtin.copy': {
+        'dest': str(home / 'asked.json'),
+        'content': '{{ {"asked": env_variables_import_lookup.results | map(attribute="cmd") | list,'
+                   ' "shells": env_variables_import_lookup.results | map(attribute="item.shell") | list,'
+                   ' "imported": env_variables_imported_by} | to_json }}'}}
+    extra = dict(base, non_root_home=str(home), zsh_config_dir=str(zsh_dir), ih_picked_apps_run=True,
+                 env_variables_import_marker=import_marker)
+    label = 'the shell import question with zsh_config_dir %s' % ('the home directory' if layout == 'home' else '~/.config/zsh')
+    if not run([env_by_name[ASK_NAME], env_by_name[RECORD_NAME], record], extra, label):
+        continue
+    runs += 1
+    answer = json.loads((home / 'asked.json').read_text(encoding='utf-8'))
+    asked = dict(zip(answer['shells'], answer['asked']))
+    zsh_files = [a for a in asked.get('zsh', []) if a.endswith('.zshenv')]
+    expected = sorted({str(zsh_dir / '.zshenv'), str(home / '.zshenv')})
+    if sorted(zsh_files) != expected or 'zsh' not in answer['imported']:
+        lines.append('FAIL %s asks zsh about %s, expected each of %s once, and records %s as importing '
+                     'environment.d, docs/regression_ledger.md 10.365' % (label, zsh_files, expected, answer['imported']))
+    else:
+        lines.append('OK %s asks zsh about %s, each once, and finds the import' % (label, ', '.join(zsh_files)))
+if runs < 14:
     lines.append('FAIL only %d runs of the shipped tasks were made, so nothing about them is proven' % runs)
 print('\n'.join(line for line in lines if line))
 PYEOF

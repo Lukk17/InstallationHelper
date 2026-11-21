@@ -1,0 +1,35 @@
+# The tasks with changed_when: false that run a command or a module which can change the machine, and
+# why the claim that they changed nothing is true. e2e/tier1/changed_when_truth.sh reads this file and
+# fails a task it does not name, and a line whose task no longer exists or no longer carries
+# changed_when: false.
+#
+# Format: <file under setup/ansible> | <task name> | <reason>
+#
+# The reasons the playbook accepts, docs/regression_ledger.md 10.364:
+#   a cache refresh or a cache clean, which is an act rather than a state of the machine,
+#   the run's own bookkeeping, which it undoes or nets to nothing before it ends,
+#   an async start, whose change is reported by the task that collects it,
+#   a command that only reads, where the word that looked like a change is part of what it reads.
+
+site.yaml | Clean Flatpak per-user app caches | a cache clean, the per-user Flatpak caches the next run fills again
+site.yaml | Clean APT cache (Debian) | a cache clean, the downloaded .deb files apt keeps
+site.yaml | Clean Pacman package cache (Arch, keeps latest version) | a cache clean, the downloaded packages pacman keeps
+site.yaml | Clean DNF cache (Fedora) | a cache clean, the metadata and packages dnf keeps
+tasks/apt_cache_refresh.yaml | Fetch each sources file this project does not manage on its own | a cache refresh of the package lists, which the next task reads to set aside a repository that does not answer
+tasks/apt_cache_refresh.yaml | Refresh the apt cache from every sources file that answers | a cache refresh of the package lists
+tasks/config_backup.yaml | Create the folders of this run's configuration backup | the run's own bookkeeping, the backup folder under the run's log
+tasks/config_backup.yaml | Back up each configuration file before this run changes it | the run's own bookkeeping, a copy into the run's backup folder, and the report deletes every copy of a file the run left as it was
+tasks/config_backup.yaml | Back up each configuration file that is a symbolic link as the link itself | the run's own bookkeeping, as the copy above
+tasks/config_backup_report.yaml | Delete the backup of each configuration file this run left as it was | the run's own bookkeeping, which removes only copies this run made
+tasks/config_backup_report.yaml | Delete the folders of the configuration backup that hold nothing now | the run's own bookkeeping, which removes only empty folders of this run's backup
+roles/arch_core/tasks/main.yaml | Sync the package database (Arch) | a cache refresh, pacman -Sy of the package database, and the upgrade after it reports its own change
+roles/debian_core/tasks/main.yaml | Update APT cache after enabling contrib/non-free | a cache refresh of the package lists
+roles/kde_plasma_setup/tasks/configure_kde.yaml | List the configuration files the Konsave profile writes | a command that only reads, the profile archive and the files it names, and update is a Python dictionary call in it
+roles/sdk_manager/tasks/fvm_unix.yaml | Fire Flutter install via FVM ({{ flutter_channel }}) | an async start, whose change the async_status task that collects it reports
+roles/sdk_manager/tasks/pyenv_unix.yaml | Fire all Python builds via Pyenv (parallel) | an async start, whose change the async_status task that collects it reports
+roles/software_installer/tasks/debian_repos.yaml | Refresh apt cache after repo changes | a cache refresh of the package lists
+roles/software_installer/tasks/debian_repository_check.yaml | Fetch the package lists of one third-party repository on their own | a cache refresh of the package lists of one repository
+roles/software_installer/tasks/fedora_repository_check.yaml | Fetch the metadata of one third-party repository on its own | a cache refresh, dnf makecache of one repository
+roles/software_installer/tasks/dynamic_install.yaml | Ask dpkg which vendor packages actually installed | a command that only reads, and install is part of the dpkg status text it counts
+roles/software_installer/tasks/dynamic_install.yaml | Ask pacman whether the installed set is consistent | a command that only reads, and its cp and -delete work on a copy of the package database in a temporary folder it removes
+roles/software_installer/tasks/macos_install.yaml | Check whether Razer Synapse is already installed | a command that only reads, and install is part of the package receipt name it asks pkgutil about

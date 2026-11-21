@@ -64,12 +64,13 @@
 
 # A picked-apps run writes a shell's import only where that shell imports nothing yet, so a machine
 # whose own layout already reads environment.d keeps it as it is. zsh imports from either .zshenv, so
-# both are asked, and bash from ~/.bashrc.
+# both are asked, each once, because where zsh is not set up zsh_config_dir is the home directory and the
+# two are one file, docs/regression_ledger.md 10.365. bash imports from ~/.bashrc.
 - name: Ask whether each shell already imports environment.d (Linux/macOS)
   ansible.builtin.command:
     argv: "{{ ['grep', '-qsxF', '--', env_variables_import_marker | replace('{mark}', 'BEGIN')] + item.files }}"
   loop:
-    - { shell: zsh, files: ["{{ zsh_config_dir }}/.zshenv", "{{ non_root_home }}/.zshenv"] }
+    - { shell: zsh, files: "{{ [zsh_config_dir ~ '/.zshenv', non_root_home ~ '/.zshenv'] | unique }}" }
     - { shell: bash, files: ["{{ non_root_home }}/.bashrc"] }
   loop_control:
     label: "{{ item.shell }}"

@@ -88,7 +88,7 @@
 - name: Reload udev rules
   ansible.builtin.command: udevadm control --reload-rules
   become: yes
-  changed_when: false
+  changed_when: udev_reload.rc | default(1) == 0
   register: udev_reload
   failed_when: false
   when: >-
@@ -100,7 +100,7 @@
 - name: Trigger udev for currently-connected devices
   ansible.builtin.command: udevadm trigger
   become: yes
-  changed_when: false
+  changed_when: udev_trigger.rc | default(1) == 0
   register: udev_trigger
   failed_when: false
   when: >-

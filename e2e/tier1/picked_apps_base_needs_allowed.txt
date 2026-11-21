@@ -1,0 +1,12 @@
+# The tasks that call git, curl, gpg, unzip or zip in a picked-apps run under no toggle that
+# picked_apps_base_needs in setup/ansible/group_vars/all.yaml names for that tool, and why the tool is
+# there anyway. e2e/tier1/picked_apps_base_needs.sh reads this file and fails a line no task needs.
+#
+# Format: <git, curl, gnupg, unzip or zip> | <task name> | <reason>
+#
+# docs/regression_ledger.md 10.363 has why this list exists.
+
+git | Clone yay AUR helper repository | runs only under install_yay, after "Install yay build dependencies" installed git
+git | Clone paru AUR helper repository | runs only when ih_base_needed holds paru, after "Install paru build dependencies" installed git
+curl | Install Homebrew (non-interactive) | macOS ships curl with the system, and no base list installs it there
+gnupg | Read the fingerprint of the Tailscale signing key | runs only on Fedora, which ships gpg with the system, and gnupg is a base package of the Debian family alone

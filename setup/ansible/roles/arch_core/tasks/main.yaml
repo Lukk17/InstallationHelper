@@ -48,7 +48,9 @@
       [multilib]
       Include = /etc/pacman.d/mirrorlist
   register: multilib_enabled
-  when: multilib_already_enabled.rc != 0
+  when:
+    - multilib_already_enabled.rc != 0
+    - "'multilib' in ih_base_needed"
 
 # Always do a full sync + upgrade. Partial upgrades on rolling-release Arch
 # are unsupported and cause download 404s when the local db is stale.
@@ -77,18 +79,32 @@
     upgrade: yes
 
 # One package per call through tasks/install_role_packages.yaml, so one that cannot install costs only
-# itself and is named. The same for every package list in this file.
-- name: Install unzip and zip
+# itself and is named. The same for every package list in this file. One include per package, because a
+# picked-apps run installs only those a requested app needs, ih_base_needed in group_vars/all.yaml,
+# docs/regression_ledger.md 10.363, and each list stays literal for e2e/tier2/resolve_role_packages.sh.
+- name: Install unzip
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages:
-      - unzip
-      - zip
+    role_packages: [unzip]
     role_packages_purpose: the archive tools
-  when: ih_family == 'Archlinux'
+  when:
+    - ih_family == 'Archlinux'
+    - "'unzip' in ih_base_needed"
+
+- name: Install zip
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
+    apply:
+      tags: [always]
+  vars:
+    role_packages: [zip]
+    role_packages_purpose: the archive tools
+  when:
+    - ih_family == 'Archlinux'
+    - "'zip' in ih_base_needed"
 
 # Nothing in this playbook calls yay after building it: every Arch User Repository consumer goes
 # through paru. So yay is built only when install_yay in group_vars/linux.yaml asks for it, off by
@@ -229,7 +245,11 @@
 # the step is in ~/installation_errors.log and in the terminal summary. What changes is the cost:
 # every consumer reads paru_available, skips its Arch User Repository package, and names it as NOT
 # installed in the summary and in the verification, and everything else carries on.
+#
+# A picked-apps run builds paru only when a requested app installs through it, ih_base_needed in
+# group_vars/all.yaml, docs/regression_ledger.md 10.363.
 - name: Build and install paru
+  when: "'paru' in ih_base_needed"
   block:
     - name: Check if rustup already provides cargo
       ansible.builtin.command: pacman -Q rustup

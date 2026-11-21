@@ -261,8 +261,22 @@
   become_user: "{{ non_root_user }}"
   when: set_custom_wallpaper | bool
 
+# Plasma is asked which wallpaper each desktop shows before and after, and the task reports a change when
+# the answers differ, or when the answer after names no image wallpaper at all and so proves nothing,
+# docs/regression_ledger.md 10.364. The first line of each reply carries a serial number, so it is dropped.
 - name: Set KDE Wallpaper
   ansible.builtin.shell: |
+    set -eo pipefail
+    read_wallpapers() {
+      dbus-send --session --dest=org.kde.plasmashell --type=method_call --print-reply /PlasmaShell org.kde.PlasmaShell.evaluateScript 'string:
+      var Desktops = desktops();
+      for (i=0;i<Desktops.length;i++) {
+              d = Desktops[i];
+              d.currentConfigGroup = Array("Wallpaper", "org.kde.image", "General");
+              print(d.wallpaperPlugin + " " + d.readConfig("Image") + "\n");
+      }' | sed -n '2,$p'
+    }
+    before="$(read_wallpapers || true)"
     dbus-send --session --dest=org.kde.plasmashell --type=method_call /PlasmaShell org.kde.PlasmaShell.evaluateScript 'string:
     var Desktops = desktops();
     for (i=0;i<Desktops.length;i++) {
@@ -271,7 +285,14 @@
             d.currentConfigGroup = Array("Wallpaper", "org.kde.image", "General");
             d.writeConfig("Image", "file:///usr/share/backgrounds/wallpapers/{{ default_wallpaper }}");
     }'
-  changed_when: false
+    after="$(read_wallpapers || true)"
+    if ! grep -q 'org.kde.image' <<<"${after}" || [ "${before}" != "${after}" ]; then
+      printf 'ih_changed=wallpaper set\n'
+    fi
+  args:
+    executable: /bin/bash
+  register: kde_wallpaper
+  changed_when: "'ih_changed=' in (kde_wallpaper.stdout | default(''))"
   become: yes
   become_user: "{{ non_root_user }}"
   when:
@@ -399,11 +420,24 @@
 # kwriteconfig5 was dropped with Frameworks 5. Arch's kconfig package ships only
 # kwriteconfig6 and kreadconfig6, so this failed with command not found on every Arch run that
 # reached it, and changed_when: false does not stop Ansible failing a non-zero command.
+#
+# The key is read before and after the write, and the task reports a change when the two differ,
+# docs/regression_ledger.md 10.364.
 - name: Set Spectacle Shortcut
-  ansible.builtin.command: kwriteconfig6 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot "Meta+Shift+S,Meta+Shift+Print,Capture Rectangular Region"
+  ansible.builtin.shell: |
+    set -e
+    before="$(kreadconfig6 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot || true)"
+    kwriteconfig6 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot "Meta+Shift+S,Meta+Shift+Print,Capture Rectangular Region"
+    after="$(kreadconfig6 --file kglobalshortcutsrc --group spectacle --key RectangularRegionScreenShot || true)"
+    if [ "${before}" != "${after}" ]; then
+      printf 'ih_changed=Spectacle shortcut set\n'
+    fi
+  args:
+    executable: /bin/bash
   become: yes
   become_user: "{{ non_root_user }}"
-  changed_when: false
+  register: spectacle_shortcut
+  changed_when: "'ih_changed=' in (spectacle_shortcut.stdout | default(''))"
 
 # Probe whether the non-root user has an ACTIVE login session (graphical or
 # otherwise). Without this gate, `systemctl --user restart` on a headless box

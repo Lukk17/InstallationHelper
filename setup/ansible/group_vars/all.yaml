@@ -184,6 +184,49 @@ ih_env_variables_run: >-
 toggle_prerequisites:
   install_gradle: { needs: install_java, brings: "SDKMAN and the default Java", windows_brings: "the default Java" }
 
+# The base work of system_core, debian_core and arch_core, and what needs each piece in a picked-apps run,
+# owner decision 42: a picked-apps run installs only the picked apps and what they truly need. Each key is a
+# package of companion_packages.system_core in vars/<family>.yaml, a package of the curl and gpg list of
+# debian_core, or contrib-non-free, multilib or paru. A piece is needed when a requested toggle, picked or
+# brought in by toggle_prerequisites, is in its toggles, or when the os_dict mapping of a requested toggle
+# installs through one of its managers. Two managers are not package managers: repository, a requested key
+# with an entry in os_dict.third_party_repositories, and custom, a requested toggle with no mapping, which a
+# role or a custom install sets up. A piece with no toggle and no manager is for a full run only. A full run
+# and a configure-only run do all of it. ih_base_needed is the answer, and the tasks of those three roles and
+# verify_install.yaml read nothing else. e2e/tier1/picked_apps_base_needs.sh runs it, and fails a task that
+# calls git, curl, gpg, unzip or zip under no toggle of that tool here and no toggle whose companion_packages
+# install it. setup/README_SETUP.md, "Picking single apps", says what it does.
+picked_apps_base_needs:
+  flatpak: { managers: [flatpak], toggles: [install_gridcoin] }
+  git: { toggles: [install_python, install_flutter, install_stable_diffusion, configure_kde_plasma] }
+  unzip: { toggles: [install_java, install_android_sdk, install_gputest] }
+  zip: { toggles: [install_java] }
+  patch: { toggles: [] }
+  iptables-nft: { toggles: [install_tailscale, install_virt_manager, install_docker] }
+  locales: { toggles: [] }
+  glibc-langpack-pl: { toggles: [] }
+  curl: { toggles: [install_java, install_nodejs, install_flutter, install_lm_studio, install_k3d, install_uv, install_waydroid] }
+  gnupg: { toggles: [install_chrome, install_vscode, install_sublime, install_kubectl, install_helm, install_terraform, install_openrazer, install_lens, install_antigravity, install_docker, install_claude_desktop, install_waydroid] }
+  ca-certificates: { managers: [apt_url, flatpak, repository, custom] }
+  contrib-non-free: { toggles: [] }
+  multilib: { toggles: [install_steam] }
+  paru: { managers: [aur], toggles: [install_snapd, install_claude_desktop] }
+ih_requested_toggles: "{{ (ih_picked_toggles + (ih_toggles_brought_in | default([]))) | unique }}"
+ih_requested_keys: "{{ ih_requested_toggles | map('regex_replace', '^install_', '') | list }}"
+ih_requested_managers: >-
+  {{ ((os_dict.software_mapping | default({}) | dict2items | selectattr('key', 'in', ih_requested_keys)
+       | map(attribute='value.manager') | list)
+      + (['repository'] if (ih_requested_keys | select('in', os_dict.third_party_repositories | default({})) | list) else [])
+      + (['custom'] if (ih_requested_keys | reject('in', os_dict.software_mapping | default({})) | list) else []))
+     | unique }}
+ih_base_needed: >-
+  {{ (picked_apps_base_needs | list) if not (ih_picked_apps_run | bool) else
+     ((picked_apps_base_needs | dict2items | subelements('value.toggles', skip_missing=true)
+       | selectattr('1', 'in', ih_requested_toggles) | map(attribute='0.key') | list)
+      + (picked_apps_base_needs | dict2items | subelements('value.managers', skip_missing=true)
+         | selectattr('1', 'in', ih_requested_managers) | map(attribute='0.key') | list))
+     | unique }}
+
 # Logging configuration
 # Set to true to allow playbook to continue if log file creation fails
 # Default: false (playbook fails if cannot write logs)

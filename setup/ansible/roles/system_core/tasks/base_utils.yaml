@@ -25,13 +25,16 @@
 # Debian, so a minimal Debian or Ubuntu install died with "Is the package locales installed?" two minutes
 # into every run. Found by the first e2e smoke run on debian:trixie and ubuntu:26.04. See
 # docs/regression_ledger.md.
+#
+# A picked-apps run installs only the packages of this list that a requested app needs, ih_base_needed in
+# group_vars/all.yaml, docs/regression_ledger.md 10.363.
 - name: Install flatpak and the base utilities
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/tasks/install_role_packages.yaml"
     apply:
       tags: [always]
   vars:
-    role_packages: "{{ os_dict.companion_packages.system_core }}"
+    role_packages: "{{ os_dict.companion_packages.system_core | select('in', ih_base_needed) | list }}"
     role_packages_purpose: flatpak and the base utilities
   when: ih_family in ['Debian', 'RedHat', 'Archlinux']
 
@@ -60,18 +63,35 @@
 # explanatory task below never printed anything: it sat after a task that had already
 # aborted the play. Capturing the result and deciding in the next task is what makes the
 # real error reachable. `until` still retries a genuine network blip.
+#
+# --if-not-exists answers the same whether it added the remote or found it, so the remotes are asked first
+# and the add reports a change only when flathub was not among them, docs/regression_ledger.md 10.364.
+- name: Ask which flatpak remotes exist before Flathub is added (Linux)
+  ansible.builtin.command: flatpak remotes --columns=name
+  become: yes
+  register: flathub_remotes_before
+  changed_when: false
+  failed_when: false
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - "'flatpak' in ih_base_needed"
+
 - name: Add Flathub repository (Linux)
   ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
   become: yes
   register: flathub_remote_add
-  changed_when: false
+  changed_when: >-
+    flathub_remote_add.rc | default(1) == 0 and
+    'flathub' not in (flathub_remotes_before.stdout_lines | default([]) | map('trim') | list)
   failed_when: false
   retries: 3
   delay: 10
   until: >
     flathub_remote_add.rc | default(1) == 0 or
     'already exists' in (flathub_remote_add.stderr | default(''))
-  when: ansible_facts['system'] == 'Linux'
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - "'flatpak' in ih_base_needed"
 
 # The original failure reported only "Error executing command." with no stderr and no return
 # code, so nobody could tell that flatpak simply was not installed. Ansible does not surface

@@ -265,7 +265,8 @@ fi
 #   1. every role include of install_role_packages.yaml whose conditions name a toggle takes its list
 #      from companion_packages.<key> of a toggle among those conditions, optionally after that toggle's
 #      own mapped package, or from one fact the play also reads into its companion set, or is named with
-#      its reason in unverified_role_installs.txt, never a literal list nobody verifies;
+#      its reason in unverified_role_installs.txt, never a literal list nobody verifies. A list narrowed
+#      to ih_base_needed, the base work of a picked-apps run, is narrowed the same way in the play;
 #   2. every companion_packages entry names a toggle its family loads, install_<key> or <key> itself, is
 #      a list of literal names without the mapped package, and is read by some role include on its
 #      family, so it is installed by something;
@@ -459,7 +460,9 @@ for path in sorted((ANSIBLE / 'roles').glob('*/tasks/*.yaml')):
         visit(path, '', frozenset())
 
 COMPANION = re.compile(r'^\{\{\s*(?:\[os_dict\.software_mapping\.(\w+)\.package\]\s*\+\s*)?'
-                       r'os_dict\.companion_packages\.(\w+)\s*\}\}$')
+                       r'os_dict\.companion_packages\.(\w+)'
+                       r'(\s*\|\s*select\(\s*\'in\'\s*,\s*ih_base_needed\s*\)\s*\|\s*list)?\s*\}\}$')
+BASE_FILTER = "os_dict.companion_packages.%s | select('in', ih_base_needed) | list"
 under_toggle = 0
 read_keys = set()
 seen_messages = set()
@@ -487,6 +490,10 @@ for path, task, cond in installs:
                            'conditions it runs under, so the verification expects it under a different '
                            'switch than the one that installs it' % (where, key, family))
             read_keys.add((family, key))
+        if match.group(3) and (BASE_FILTER % key) not in verified_text:
+            message = ('FAIL %s installs only the packages of companion_packages.%s that ih_base_needed names, '
+                       'and setup/ansible/verify_install.yaml does not narrow its expected set the same way, so '
+                       'a picked-apps run is failed for packages it rightly left out' % (where, key))
     elif (rel, name) in allowed:
         allowed[(rel, name)] = True
     else:
