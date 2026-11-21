@@ -111,12 +111,6 @@ IGNORE_PATTERNS = [
     "Use `llmster --trace-warnings",
     "Use `node --trace-warnings",
     "(Use `node --trace-warnings",
-    # Ansible 2.20+ deprecation that fires on EVERY task using top-level fact
-    # vars (ansible_os_family etc.). Informational, not user-actionable here,
-    # and our playbook already uses the new ansible_facts['...'] form where it
-    # matters. The deprecation will be flipped to default-off in a future
-    # Ansible release; until then, drop the spam.
-    "INJECT_FACTS_AS_VARS default to `True` is deprecated",
     # makepkg notice when reusing a previous build tree — fine, not actionable.
     "==> WARNING: Using existing $srcdir",
     # glibc warning emitted by Go's cgo build when statically linking yay/paru
@@ -205,7 +199,7 @@ OS_MANAGER_KEYWORDS = [
 # The group_vars beside this plugin. Whatever they declare as a boolean is a toggle, the same rule
 # e2e/tier1/toggle_coverage.sh reads them by.
 GROUP_VARS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "group_vars")
-OS_CONDITION_REGEX = re.compile(r"os_family|ansible_system|distribution|architecture|virtualization_role")
+OS_CONDITION_REGEX = re.compile(r"distribution|architecture|virtualization_role")
 _QUOTED_TEXT = re.compile(r"'[^']*'|\"[^\"]*\"")
 _FILTER_CALL = re.compile(r"\|\s*\w+(?:\([^()]*\))?")
 _IDENTIFIER = re.compile(r"(?<![\w.])[A-Za-z_]\w*")

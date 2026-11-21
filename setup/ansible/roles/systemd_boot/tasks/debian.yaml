@@ -79,9 +79,9 @@
 - name: "Fallback — create boot entry manually (Debian, /boot IS ESP)"
   become: yes
   ansible.builtin.copy:
-    dest: "{{ esp_path }}/loader/entries/{{ ansible_distribution | lower }}.conf"
+    dest: "{{ esp_path }}/loader/entries/{{ ansible_facts['distribution'] | lower }}.conf"
     content: |
-      title   {{ ansible_distribution }} {{ ansible_distribution_version }}
+      title   {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}
       linux   /vmlinuz-{{ kernel_version.stdout }}
       initrd  /initrd.img-{{ kernel_version.stdout }}
       options {{ boot_options }}
@@ -95,9 +95,9 @@
 - name: "Fallback — create boot entry manually (Debian, separate ESP)"
   become: yes
   ansible.builtin.copy:
-    dest: "{{ esp_path }}/loader/entries/{{ ansible_distribution | lower }}.conf"
+    dest: "{{ esp_path }}/loader/entries/{{ ansible_facts['distribution'] | lower }}.conf"
     content: |
-      title   {{ ansible_distribution }} {{ ansible_distribution_version }}
+      title   {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}
       linux   /{{ machine_id }}/vmlinuz-{{ kernel_version.stdout }}
       initrd  /{{ machine_id }}/initrd.img-{{ kernel_version.stdout }}
       options {{ boot_options }}

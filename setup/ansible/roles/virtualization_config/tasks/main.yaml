@@ -38,7 +38,7 @@
   vars:
     role_packages: [spice-vdagent]
     role_packages_purpose: the SPICE guest agent
-  when: ih_family == 'Debian' and ansible_virtualization_role == 'guest'
+  when: ih_family == 'Debian' and ansible_facts['virtualization_role'] == 'guest'
   tags: [libvirt]
 
 - name: Install spice-vdagent (Arch guest)
@@ -49,7 +49,7 @@
   vars:
     role_packages: [spice-vdagent]
     role_packages_purpose: the SPICE guest agent
-  when: ih_family == 'Archlinux' and ansible_virtualization_role == 'guest'
+  when: ih_family == 'Archlinux' and ansible_facts['virtualization_role'] == 'guest'
   tags: [libvirt]
 
 - name: Install spice-vdagent (Fedora guest)
@@ -60,7 +60,7 @@
   vars:
     role_packages: [spice-vdagent]
     role_packages_purpose: the SPICE guest agent
-  when: ih_family == 'RedHat' and ansible_virtualization_role == 'guest'
+  when: ih_family == 'RedHat' and ansible_facts['virtualization_role'] == 'guest'
   tags: [libvirt]
 
 # This used to be one task asking for libvirtd.service to be both enabled and started, and it

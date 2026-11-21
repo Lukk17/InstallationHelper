@@ -96,7 +96,7 @@ def main():
     role_defaults = {}
     for path in sorted(ansible_dir.glob("roles/*/defaults/main.yaml")):
         role_defaults.update(load(path))
-    context = {**pins, **role_defaults, **toggles, "ih_family": "RedHat", "ansible_architecture": "x86_64",
+    context = {**pins, **role_defaults, **toggles, "ih_family": "RedHat",
                "ansible_facts": {"architecture": "x86_64", "system": "Linux"}}
     environment = jinja2.Environment(undefined=jinja2.StrictUndefined)
 

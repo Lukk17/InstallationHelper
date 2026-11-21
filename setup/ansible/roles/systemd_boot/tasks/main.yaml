@@ -58,7 +58,7 @@
       - "{{ esp_path }}/loader/loader.conf"
       - "{{ esp_path }}/loader/entries/arch.conf"
       - "{{ esp_path }}/loader/entries/arch-fallback.conf"
-      - "{{ esp_path }}/loader/entries/{{ ansible_distribution | lower }}.conf"
+      - "{{ esp_path }}/loader/entries/{{ ansible_facts['distribution'] | lower }}.conf"
   tags: [always]
 
 - name: Verify ESP is a vfat filesystem

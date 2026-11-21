@@ -27,19 +27,18 @@ Rules for the test harness and for deciding which run a change owes. The harness
    gh workflow run e2e-manual.yaml -f target_platform=debian -f software_mode=defaults
    ```
 
-6. No workflow may start on push or on any other automatic event. Every file under `.github/workflows/` stays dispatch-only or call-only.
-7. Before dispatching the sweep, check whether one is already open, because a second dispatch queues behind it and sits at `pending`:
+6. Before dispatching the sweep, check whether one is already open, because a second dispatch queues behind it and sits at `pending`:
 
    ```bash
    gh run list --workflow e2e-matrix.yml --limit 5
    ```
 
-8. Watch anything long every ten minutes, and check progress rather than presence. The same status ten minutes later is a stall. The commands are in "Watching a run, every ten minutes" in [README_E2E.md](README_E2E.md).
-9. A queued run must be removed before the next one starts:
+7. Watch anything long every ten minutes, and check progress rather than presence. The same status ten minutes later is a stall. The commands are in "Watching a run, every ten minutes" in [README_E2E.md](README_E2E.md).
+8. A queued run must be removed before the next one starts:
 
    ```bash
    docker rm e2e-queue
    ```
 
-10. A fixture that puts fake commands on `PATH` must prove every command resolves to its fake before anything runs, defect class 16 in [../docs/regression_ledger.md](../docs/regression_ledger.md).
-11. If a toggle intentionally does nothing on some OS, list it with the reason in [tier1/documented_no_ops.txt](tier1/documented_no_ops.txt). The gate fails otherwise, on purpose.
+9. A fixture that puts fake commands on `PATH` must prove every command resolves to its fake before anything runs, defect class 16 in [../docs/regression_ledger.md](../docs/regression_ledger.md).
+10. If a toggle intentionally does nothing on some OS, list it with the reason in [tier1/documented_no_ops.txt](tier1/documented_no_ops.txt). The gate fails otherwise, on purpose.

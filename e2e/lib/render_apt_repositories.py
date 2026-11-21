@@ -143,8 +143,6 @@ def context_of(case, repo_root):
         "ih_os_release_id": case.get("ih_os_release_id", ""),
         "os_dict": {"third_party_repositories": family_repositories(repo_root, case.get("ih_family", ""))},
         "ansible_facts": facts,
-        "ansible_architecture": facts["architecture"],
-        "ansible_distribution_release": release,
     }
 
 

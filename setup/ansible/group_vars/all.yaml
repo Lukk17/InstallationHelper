@@ -237,9 +237,9 @@ set_custom_wallpaper: true
 default_wallpaper: "forest-house.jpg"
 
 # User Identity for privilege-safe operations
-# ansible_env.SUDO_USER captures who ran `sudo ansible-playbook`.
-# Falls back to ansible_user_id if not using sudo.
-non_root_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
+# ansible_facts['env'].SUDO_USER captures who ran `sudo ansible-playbook`.
+# Falls back to ansible_facts['user_id'] if not using sudo.
+non_root_user: "{{ ansible_facts['env'].SUDO_USER | default(ansible_facts['user_id']) }}"
 
 # Android SDK location. Not a pinned value, and deliberately not in setup/pinned_values/pinned_values.toml:
 # non_root_home comes from linux.yaml or macos.yaml and resolves non_root_user above, so only lazy

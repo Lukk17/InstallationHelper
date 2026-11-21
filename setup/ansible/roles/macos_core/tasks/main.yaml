@@ -23,20 +23,6 @@
   retries: 3
   delay: 15
 
-- name: Add Homebrew to PATH for current play (Apple Silicon)
-  ansible.builtin.set_fact:
-    ansible_env: "{{ ansible_env | combine({'PATH': '/opt/homebrew/bin:/opt/homebrew/sbin:' + ansible_env.PATH}) }}"
-  when:
-    - ansible_facts['architecture'] == 'arm64'
-    - brew_check.rc != 0
-
-- name: Add Homebrew to PATH for current play (Intel)
-  ansible.builtin.set_fact:
-    ansible_env: "{{ ansible_env | combine({'PATH': '/usr/local/bin:/usr/local/sbin:' + ansible_env.PATH}) }}"
-  when:
-    - ansible_facts['architecture'] == 'x86_64'
-    - brew_check.rc != 0
-
 # gtimeout, which is what ih_timeout resolves to on macOS. Every long-running shell task in this
 # playbook bounds itself with a timeout, and macOS ships none: it is GNU coreutils and the BSD
 # userland does not have it. Without this the SDK phase dies at its first task with "timeout: command
@@ -57,7 +43,7 @@
 - name: Refresh Homebrew and its formula definitions before the first install of the run
   ansible.builtin.command: brew update
   environment:
-    PATH: "/opt/homebrew/bin:/usr/local/bin:{{ ansible_env.PATH }}"
+    PATH: "/opt/homebrew/bin:/usr/local/bin:{{ ansible_facts['env'].PATH }}"
   register: homebrew_update
   changed_when: "'Already up-to-date' not in (homebrew_update.stdout | default(''))"
   # Retried four times twenty seconds apart, the retry rule's numbers, because a dropped connection

@@ -26,7 +26,7 @@
 
 setup/ansible/roles/debian_core/tasks/main.yaml :: ansible_facts['distribution'] == 'Debian'
 setup/ansible/roles/software_installer/tasks/custom_installs.yaml :: does not exist on {{ ansible_facts['distribution'] }}
-setup/ansible/roles/systemd_boot/tasks/debian.yaml :: {{ ansible_distribution | lower }}.conf
-setup/ansible/roles/systemd_boot/tasks/debian.yaml :: title   {{ ansible_distribution }} {{ ansible_distribution_version }}
-setup/ansible/roles/systemd_boot/tasks/main.yaml :: entries/{{ ansible_distribution | lower }}.conf
+setup/ansible/roles/systemd_boot/tasks/debian.yaml :: {{ ansible_facts['distribution'] | lower }}.conf
+setup/ansible/roles/systemd_boot/tasks/debian.yaml :: title   {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}
+setup/ansible/roles/systemd_boot/tasks/main.yaml :: entries/{{ ansible_facts['distribution'] | lower }}.conf
 setup/ansible/roles/systemd_boot/tasks/remove_grub.yaml :: }[ansible_facts['distribution']] | default(ansible_facts['distribution'] | lower)

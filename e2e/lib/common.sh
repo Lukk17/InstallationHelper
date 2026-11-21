@@ -35,6 +35,13 @@ ANSIBLE_DIR="${REPO_ROOT}/setup/ansible"
 # shellcheck disable=SC2034
 RUNS_DIR="${E2E_ROOT}/runs"
 
+# Every ansible-playbook a check starts reads the facts the way ansible-core gives them once
+# INJECT_FACTS_AS_VARS is off, so a lifted task that reads a top-level ansible_<fact> fails here rather
+# than on a machine. setup/ansible/ansible.cfg sets the same for every run setup.sh starts, but most
+# checks run their lifted tasks under an empty config of their own or from a work folder, where that
+# file is not read. top_level_facts.sh proves both are in force, docs/regression_ledger.md 10.379.
+export ANSIBLE_INJECT_FACT_VARS=False
+
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
     C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
     C_BLUE=$'\033[34m'; C_DIM=$'\033[2m'; C_OFF=$'\033[0m'

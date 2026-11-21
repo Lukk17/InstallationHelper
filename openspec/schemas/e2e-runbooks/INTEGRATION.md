@@ -124,8 +124,6 @@ routing, not just MCP-protocol mechanics.
 name: e2e-sweep
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 * * *"   # daily sweep
 jobs:
   sweep:
     runs-on: ubuntu-latest
