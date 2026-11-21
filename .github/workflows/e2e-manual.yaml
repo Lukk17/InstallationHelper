@@ -189,7 +189,7 @@ jobs:
       disable_keys: ${{ steps.plan.outputs.disable_keys }}
       skip_system_upgrade: ${{ steps.plan.outputs.skip_system_upgrade }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate the form and resolve the execution plan
         id: plan
@@ -313,7 +313,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Both of these are copied verbatim from e2e-linux-cell.yml, which is what the sweep runs,
       # and neither was here until 2026-08-25. Without the first, this job builds container images
@@ -548,7 +548,7 @@ jobs:
 
       - name: Upload e2e run artefacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-run-${{ needs.plan.outputs.linux_os }}-manual-dispatch-${{ github.run_id }}
           # e2e/run.sh writes one directory per run under e2e/runs/, each holding
@@ -577,7 +577,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # macOS ships bash 3.2, because bash 4 went GPLv3 and Apple stopped shipping it. setup/setup.sh
       # needs bash 4 and refuses on its first line without it, which is how run 32872500799 failed in
@@ -639,7 +639,7 @@ jobs:
 
       - name: Upload wizard log artefacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wizard-run-macos-${{ github.run_id }}
           path: /tmp/wizard-logs/
@@ -668,7 +668,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: ./.github/actions/windows-pester
 
@@ -728,6 +728,8 @@ jobs:
             }
           }
           Show-Free 'after'
+
+      - uses: ./.github/actions/remove-runner-gradle-java
 
       # Taken verbatim from every Windows cell in e2e-matrix.yml. Not strictly required today,
       # because the windows-latest image happens to ship a registered distribution called Ubuntu and
@@ -874,7 +876,7 @@ jobs:
       - name: Upload wizard log artefacts
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-manual-windows-${{ github.run_id }}
           path: ${{ runner.temp }}/wizard-logs/

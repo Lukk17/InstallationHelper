@@ -107,7 +107,7 @@ def planted():
     copy_body = ("$dest = Join-Path $env:RUNNER_TEMP 'wizard-logs'\n"
                  "Copy-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'installation-helper\\backup') -Destination $dest -Recurse")
     copy = {'if': 'always()', 'shell': 'pwsh', 'run': copy_body}
-    upload = {'if': 'always()', 'uses': 'actions/upload-artifact@v4', 'with': {'path': '${{ runner.temp }}/wizard-logs/'}}
+    upload = {'if': 'always()', 'uses': 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9', 'with': {'path': '${{ runner.temp }}/wizard-logs/'}}
 
     def one_job(*steps):
         return {'jobs': {'install': {'runs-on': 'windows-latest', 'steps': list(steps)}}}

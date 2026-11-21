@@ -448,7 +448,7 @@ def analyse(workflows, actions):
 def planted():
     wizard = {'shell': 'pwsh', 'run': '& ./setup/setup.ps1 -NonInteractive -Software all'}
     tests = {'uses': SHARED_USES}
-    checkout = {'uses': 'actions/checkout@v4'}
+    checkout = {'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'}
 
     def one_job(*steps, **extra):
         return {'jobs': {'install': dict({'runs-on': 'windows-latest', 'steps': list(steps)}, **extra)}}

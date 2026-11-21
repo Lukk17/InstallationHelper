@@ -1,7 +1,8 @@
 """Which workflow steps start setup.ps1 to install, read one way by every check that asks.
 
-Used by e2e/tier1/workflow_windows_pester.sh and e2e/tier1/workflow_windows_backup_artefact.sh, which
-import it from e2e/lib with the repository root as the working directory.
+Used by e2e/tier1/workflow_windows_pester.sh, e2e/tier1/workflow_windows_backup_artefact.sh and
+e2e/tier1/workflow_windows_runner_gradle.sh, which import it from e2e/lib with the repository root as the
+working directory.
 """
 import re
 

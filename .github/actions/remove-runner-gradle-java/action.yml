@@ -1,0 +1,113 @@
+# Takes every Gradle and every Java the Windows runner image ships off the runner before setup.ps1 runs,
+# so a run that asks for Gradle installs Gradle itself and a run that asks for Gradle without Java
+# proves that the wizard brought the Java in. Every Windows job that installs with setup.ps1 calls it,
+# and e2e/tier1/workflow_windows_runner_gradle.sh fails the gate when one does not, or calls it after
+# the wizard, under continue-on-error or under an if. Why, measured on run 44334176847, is
+# docs/regression_ledger.md 10.377.
+name: Remove the Gradle and the Java the runner image ships
+description: Uninstall the Chocolatey gradle package, delete the JDK folders JAVA_HOME and JAVA_HOME_*_X64 name, remove those variables, GRADLE_HOME and their PATH entries from the machine and the user, then fail unless neither gradle nor java can be found
+
+runs:
+  using: composite
+  steps:
+    - name: Remove the Gradle and the Java the runner image ships, and prove neither is left
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $PSNativeCommandUseErrorActionPreference = $true
+        $variableName = '^(JAVA_HOME(_\w+)?|GRADLE_HOME)$'
+        $launchers = @('java.exe', 'gradle', 'gradle.bat', 'gradle.cmd', 'gradle.exe')
+        function Get-ChocolateyGradle {
+          $PSNativeCommandUseErrorActionPreference = $false
+          $output = @(choco list gradle --exact --limit-output)
+          if ($LASTEXITCODE -notin @(0, 2)) {
+            throw "choco list gradle --exact --limit-output exited $LASTEXITCODE`: $($output -join ' ')"
+          }
+          @($output | Where-Object { $_ -like 'gradle|*' })
+        }
+        $hives = @(
+          @{ Scope = 'Machine'; Key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment', $true) },
+          @{ Scope = 'User'; Key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true) }
+        )
+
+        $folders = [System.Collections.Generic.List[string]]::new()
+        $folders.Add((Join-Path $env:ChocolateyInstall 'lib\gradle'))
+        foreach ($scope in @('Process', 'Machine', 'User')) {
+          $values = [Environment]::GetEnvironmentVariables($scope)
+          foreach ($name in @($values.Keys | Where-Object { $_ -match $variableName })) {
+            Write-Host "found $scope $name = $($values[$name])"
+            if ($values[$name]) { $folders.Add(([string] $values[$name]).TrimEnd('\')) }
+          }
+        }
+
+        $listed = @(Get-ChocolateyGradle)
+        if ($listed.Count -gt 0) {
+          Write-Host "Chocolatey lists $($listed -join ', '), the package the runner image installs with Install-ChocoPackage gradle, so it is uninstalled."
+          choco uninstall gradle --yes --no-progress
+        } else {
+          Write-Host 'Chocolatey lists no gradle package.'
+        }
+
+        foreach ($hive in $hives) {
+          $raw = $hive.Key.GetValue('Path', $null, 'DoNotExpandEnvironmentNames')
+          if ($null -ne $raw) {
+            $removed = 0
+            $kept = foreach ($entry in @(([string] $raw) -split ';' | Where-Object { $_ })) {
+              $expanded = [Environment]::ExpandEnvironmentVariables($entry).TrimEnd('\')
+              $holdsLauncher = @($launchers | Where-Object { Test-Path -LiteralPath (Join-Path $expanded $_) -PathType Leaf })
+              $insideFolder = @($folders | Where-Object { $expanded -eq $_ -or $expanded.StartsWith("$_\", [StringComparison]::OrdinalIgnoreCase) })
+              if ($holdsLauncher.Count -gt 0 -or $insideFolder.Count -gt 0) {
+                Write-Host "  removed from the $($hive.Scope) PATH: $entry"
+                $removed++
+              } else {
+                $entry
+              }
+            }
+            if ($removed -gt 0) {
+              $hive.Key.SetValue('Path', (@($kept) -join ';'), $hive.Key.GetValueKind('Path'))
+            }
+          }
+          foreach ($name in @($hive.Key.GetValueNames() | Where-Object { $_ -match $variableName })) {
+            $hive.Key.DeleteValue($name)
+            Write-Host "  removed the $($hive.Scope) variable $name"
+          }
+        }
+
+        foreach ($folder in @($folders | Sort-Object -Unique)) {
+          if (Test-Path -LiteralPath $folder) {
+            Remove-Item -LiteralPath $folder -Recurse -Force
+            Write-Host "  deleted $folder"
+          }
+        }
+
+        $left = [System.Collections.Generic.List[string]]::new()
+        if (@(Get-ChocolateyGradle).Count -gt 0) {
+          $left.Add('Chocolatey still lists gradle')
+        }
+        foreach ($hive in $hives) {
+          foreach ($name in @($hive.Key.GetValueNames() | Where-Object { $_ -match $variableName })) { $left.Add("the $($hive.Scope) variable $name") }
+        }
+        foreach ($name in @([Environment]::GetEnvironmentVariables('Process').Keys | Where-Object { $_ -match $variableName })) {
+          $value = [Environment]::GetEnvironmentVariable($name, 'Process')
+          if ($value -and (Test-Path -LiteralPath $value)) { $left.Add("$name, which the next step inherits, names $value, which still exists") }
+        }
+        $views = [ordered]@{
+          'the PATH the next step inherits' = $env:PATH
+          'the PATH the machine and the user hold' = (@([Environment]::GetEnvironmentVariable('Path', 'Machine'), [Environment]::GetEnvironmentVariable('Path', 'User')) | Where-Object { $_ }) -join ';'
+        }
+        $inherited = $env:PATH
+        try {
+          foreach ($view in $views.Keys) {
+            $env:PATH = $views[$view]
+            foreach ($found in @(@(Get-Command gradle -ErrorAction SilentlyContinue) + @(Get-Command java -ErrorAction SilentlyContinue))) {
+              $left.Add("$view finds $($found.Source)")
+            }
+          }
+        } finally {
+          $env:PATH = $inherited
+        }
+
+        if ($left.Count -gt 0) {
+          throw "The runner still has a Gradle or a Java of its own, so the run cannot prove what setup.ps1 installs: $($left -join '; ')"
+        }
+        Write-Host 'No gradle and no java is found on either PATH, Chocolatey lists no gradle, and no JAVA_HOME, JAVA_HOME_*_X64 or GRADLE_HOME names a folder that exists.'
