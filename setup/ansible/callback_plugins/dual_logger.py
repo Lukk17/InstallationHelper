@@ -23,6 +23,7 @@ Skipped / Failed sections.
 """
 
 import datetime
+import functools
 import os
 import pwd
 import re
@@ -30,9 +31,12 @@ import shutil
 import sys
 import threading
 import time
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
+import jinja2
 import yaml
 from ansible.plugins.callback import CallbackBase
+from jinja2 import nodes
+from jinja2.sandbox import SandboxedEnvironment
 
 
 # Long-running tasks write to known log paths; the heartbeat tails the last
@@ -188,21 +192,14 @@ ENUMERATION_TASK_MARKERS = [
 # task's arguments between its own attempts (setup/ansible/tasks/install_role_packages.yaml).
 INSTALLER_TASK_KEYWORDS = ("Install", "Download", "Add ", "Retry")
 
-# Task name keywords that mean "this is an OS-specific manager task".
-# A skipped item here usually means "we're not on that OS" — we now SHOW
-# those entries with a clear label (was: suppress).
-OS_MANAGER_KEYWORDS = [
-    "APT ", "DNF ", "Pacman", "Snap ", "Flatpak", "Homebrew",
-    "brew_cask", "AUR", "Chocolatey", "Winget", "Windows_",
-]
-
 # The group_vars beside this plugin. Whatever they declare as a boolean is a toggle, the same rule
 # e2e/tier1/toggle_coverage.sh reads them by.
 GROUP_VARS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "group_vars")
-OS_CONDITION_REGEX = re.compile(r"distribution|architecture|virtualization_role")
-_QUOTED_TEXT = re.compile(r"'[^']*'|\"[^\"]*\"")
-_FILTER_CALL = re.compile(r"\|\s*\w+(?:\([^()]*\))?")
-_IDENTIFIER = re.compile(r"(?<![\w.])[A-Za-z_]\w*")
+OS_VARIABLES = frozenset({"ih_family", "ih_base", "ih_os_release_id", "ih_supported_families"})
+OS_FACT_KEYS = frozenset({"system", "distribution", "distribution_version", "architecture", "virtualization_role"})
+NOT_FOR_THIS_OS = "not for this OS"
+TOGGLE_FILTERS = ("default", "bool")
+_CONDITIONS = SandboxedEnvironment(undefined=jinja2.StrictUndefined)
 
 
 def _declared_toggles(group_vars_dir: str) -> frozenset:
@@ -221,19 +218,61 @@ def _declared_toggles(group_vars_dir: str) -> frozenset:
     return frozenset(names)
 
 
-def _sole_toggle(condition: str, toggles: frozenset) -> Optional[str]:
-    """Name the toggle a condition reads when it reads that toggle and nothing else.
+def _condition_text(false_condition) -> str:
+    """The false condition of a skip as one expression, or empty when it is not text."""
+    if isinstance(false_condition, str):
+        return false_condition
+    if isinstance(false_condition, (list, tuple)) and false_condition \
+            and all(isinstance(item, str) and item.strip() for item in false_condition):
+        return " and ".join(f"({item})" for item in false_condition)
+    return ""
 
-    Only then is the toggle being false the one way the condition can be false. A condition that
-    also reads a registered result or a fact, negates the toggle, or names a variable that is no
-    toggle at all, such as install_failures, says nothing about which part was false.
-    """
-    bare = _FILTER_CALL.sub(" ", _QUOTED_TEXT.sub(" ", condition))
-    names = set(_IDENTIFIER.findall(bare))
-    if len(names) != 1:
+
+def _and_operands(node) -> List:
+    if isinstance(node, nodes.And):
+        return _and_operands(node.left) + _and_operands(node.right)
+    return [node]
+
+
+@functools.lru_cache(maxsize=None)
+def _condition_parts(condition: str) -> Tuple:
+    """The expressions a condition is the AND of, or none when it does not parse as one expression."""
+    try:
+        body = _CONDITIONS.parse("{{ " + condition + " }}").body
+    except jinja2.TemplateSyntaxError:
+        return ()
+    if len(body) != 1 or not isinstance(body[0], nodes.Output) or len(body[0].nodes) != 1:
+        return ()
+    return tuple(_and_operands(body[0].nodes[0]))
+
+
+def _constant_key(node) -> Optional[str]:
+    if isinstance(node, nodes.Getattr):
+        return node.attr
+    if isinstance(node.arg, nodes.Const) and isinstance(node.arg.value, str):
+        return node.arg.value
+    return None
+
+
+def _os_reads(node) -> Optional[Tuple[frozenset, frozenset]]:
+    """The OS variables and ansible_facts keys an expression reads, or None when it reads anything else."""
+    names = [name.name for name in node.find_all(nodes.Name)]
+    variables = frozenset(name for name in names if name != "ansible_facts")
+    keys = [_constant_key(read) for read in node.find_all((nodes.Getitem, nodes.Getattr))
+            if isinstance(read.node, nodes.Name) and read.node.name == "ansible_facts"]
+    if not names or not variables <= OS_VARIABLES or len(keys) != names.count("ansible_facts") \
+            or not set(keys) <= OS_FACT_KEYS:
         return None
-    name = names.pop()
-    return name if name in toggles else None
+    return variables, frozenset(keys)
+
+
+def _sole_toggle(node, toggles: frozenset) -> Optional[str]:
+    """Name the toggle an expression is, through default() and bool alone, so that it is false only
+    when that toggle is."""
+    while isinstance(node, nodes.Filter) and node.name in TOGGLE_FILTERS and node.node is not None \
+            and all(isinstance(arg, nodes.Const) for arg in node.args) and not node.kwargs:
+        node = node.node
+    return node.name if isinstance(node, nodes.Name) and node.name in toggles else None
 
 
 def _gap_marker(omitted: int, omitted_errors: int) -> str:
@@ -305,6 +344,7 @@ class CallbackModule(CallbackBase):
         self._console_phase: Optional[str] = None
         self._console_task: Optional[str] = None
         self._toggles = _declared_toggles(GROUP_VARS_DIR)
+        self._os_values: Dict[str, dict] = {}
         # De-dup state for Ansible warnings/deprecations.
         self._seen_warnings: set = set()
 
@@ -651,48 +691,83 @@ class CallbackModule(CallbackBase):
         item_key is None.
 
         A skip is called a disabled toggle only when the toggle is provably the reason: the
-        build-list task's own per-item condition, or a false condition that reads one declared toggle
-        and nothing else. The build-list shortcut was once applied to the task-level skip as well,
+        build-list task's own per-item condition, or a false condition whose part that was false is
+        one declared toggle. The build-list shortcut was once applied to the task-level skip as well,
         with the task name standing in for the item, which printed "toggle disabled
-        (install_software_installer : Build list of packages to dynamically install=false)". Any
-        other condition is named as it is, because the callback cannot tell which part of it was
-        false.
+        (install_software_installer : Build list of packages to dynamically install=false)". A skip is
+        not for this OS when its false condition reads only OS names, or a part of it that reads only
+        OS names was false on this host. Any other condition is named as it is, because the callback
+        cannot tell which part of it was false.
         """
         try:
             task_name = result._task.get_name() if hasattr(result, "_task") else ""
         except (AttributeError, TypeError):
             task_name = ""
         rd = result._result if hasattr(result, "_result") else {}
+        host = result._host.get_name() if hasattr(result, "_host") else ""
         skip_reason = rd.get("skipped_reason", "") or rd.get("skip_reason", "")
-        false_cond = rd.get("false_condition", "") or ""
+        false_cond = _condition_text(rd.get("false_condition"))
 
         # The build-list task per-item skip means the install_<key> toggle is false.
         if item_key is not None and BUILD_LIST_TASK_MARKER in task_name:
             return f"toggle disabled (install_{item_key}=false)"
 
-        # Inspect the recorded false_condition first — it's authoritative.
         if false_cond:
-            if OS_CONDITION_REGEX.search(false_cond):
-                return "not for this OS"
-            toggle = _sole_toggle(false_cond, self._toggles)
-            if toggle:
-                return f"toggle disabled ({toggle}=false)"
-
-        # Last-resort: task-name heuristic for OS-manager tasks.
-        if any(k in task_name for k in OS_MANAGER_KEYWORDS):
-            return "not for this OS"
-
-        if false_cond:
-            return "condition not met: " + " ".join(false_cond.split())
+            return self._judge_condition(host, false_cond) or "condition not met: " + " ".join(false_cond.split())
 
         # A looped task whose every item was skipped. Each item carries its own reason.
         if isinstance(rd.get("results"), list) and rd["results"]:
+            if all(isinstance(item, dict) and self._judge_condition(
+                    host, _condition_text(item.get("false_condition"))) == NOT_FOR_THIS_OS
+                   for item in rd["results"]):
+                return NOT_FOR_THIS_OS
             return "every item skipped"
 
         if "Conditional result was False" in str(skip_reason):
             return "condition not met"
 
         return skip_reason or "condition not met"
+
+    def _judge_condition(self, host: str, condition: str) -> Optional[str]:
+        """Say why a false condition was false: not for this OS when a part reading only OS names
+        was false on this host or no other part exists, a disabled toggle when every OS part held and
+        the one other part is a toggle, and None when the parts this run knows do not say."""
+        parts = _condition_parts(condition)
+        if not parts:
+            return None
+        other = [part for part in parts if _os_reads(part) is None]
+        if not other:
+            return NOT_FOR_THIS_OS
+        holds = [self._os_part_holds(host, part) for part in parts if _os_reads(part) is not None]
+        if False in holds:
+            return NOT_FOR_THIS_OS
+        if None in holds or len(other) != 1:
+            return None
+        toggle = _sole_toggle(other[0], self._toggles)
+        return f"toggle disabled ({toggle}=false)" if toggle else None
+
+    def _os_part_holds(self, host: str, node) -> Optional[bool]:
+        """Evaluate an expression that reads only OS names against the values this run reported for
+        the host, or None when it reported one of them not yet."""
+        known = self._os_values.get(host)
+        variables, keys = _os_reads(node)
+        if known is None or not variables <= known.keys() or not keys <= known["ansible_facts"].keys():
+            return None
+        try:
+            verdict = _CONDITIONS.from_string(nodes.Template([nodes.Output([node], lineno=1)], lineno=1)).render(known)
+        except (jinja2.TemplateError, TypeError, ValueError):
+            return None
+        return {"True": True, "False": False}.get(verdict)
+
+    def _learn_os_values(self, result) -> None:
+        """Keep the OS variables a set_fact reported and the OS facts the fact gathering reported,
+        which carry the ansible_ prefix there."""
+        facts = result._result.get("ansible_facts") if hasattr(result, "_result") else None
+        if not isinstance(facts, dict):
+            return
+        known = self._os_values.setdefault(result._host.get_name(), {"ansible_facts": {}})
+        known.update({name: facts[name] for name in OS_VARIABLES if name in facts})
+        known["ansible_facts"].update({key: facts["ansible_" + key] for key in OS_FACT_KEYS if "ansible_" + key in facts})
 
     # ------------------------------------------------------------------
     # Progress reporter for long-blocking tasks
@@ -853,6 +928,7 @@ class CallbackModule(CallbackBase):
     # --- task-level results ---
     def v2_runner_on_ok(self, result) -> None:
         self._stop_heartbeat()
+        self._learn_os_values(result)
         self._flush_pending()
         host = result._host.get_name()
         changed = bool(result._result.get("changed", False)) if hasattr(result, "_result") else False
@@ -900,7 +976,7 @@ class CallbackModule(CallbackBase):
         # every role whose first task was for another OS. A role entirely
         # composed of OS-mismatch skips still produces no output, because the
         # next role's banner replaces its queued one.
-        if reason == "not for this OS":
+        if reason == NOT_FOR_THIS_OS:
             self._pending_task = None
             self._console_task = None
             return
@@ -1131,7 +1207,7 @@ class CallbackModule(CallbackBase):
 
         # Drop OS-mismatch noise entirely. When running on Debian we don't
         # need to see every macOS / Arch / Fedora task's per-item skips.
-        if reason == "not for this OS":
+        if reason == NOT_FOR_THIS_OS:
             return
 
         task_name = result._task.get_name() if hasattr(result, "_task") else ""

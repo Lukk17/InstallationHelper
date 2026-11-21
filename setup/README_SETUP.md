@@ -314,7 +314,7 @@ Every run writes four log files in your home directory:
 | `~/installation_full.log` | Complete playbook output, phase separators, per-task duration, and an end-of-run grouped summary (installed, already-present, skipped, tolerated failures, failed). A package whose first attempt failed and a retry installed is listed once, under installed, as `docker (after 2 retries)`. A package that failed every attempt stays a failure. |
 | `~/installation_errors.log` | Only FAILED tasks and `unreachable` hosts. |
 | `~/installation_warnings.log` | Only WARNING-level entries (deprecations, captured stderr, etc.). |
-| `~/installation_skipped.log` | Per-item skips with the reason category (toggle disabled, not for this OS, ...). |
+| `~/installation_skipped.log` | Per-item skips with the reason category (toggle disabled, condition not met, ...). A skip that only the operating system decided, such as a Fedora task on Debian, is left out of this file and of `~/installation_full.log`. A skip where a toggle or another choice of yours was false, on a machine the task is written for, is always listed, even when the same condition also tests the operating system. |
 
 All four files are overwritten on each run. Captured stdout / stderr from any single task is truncated after 30 lines
 so license dumps and verbose installer chatter don't bloat the log. A truncated block keeps its first and last lines and
@@ -323,9 +323,9 @@ apt's `E: `), so a failed build still says why.
 
 The terminal shows only what installs, changes or fails: a changed, failed or unreachable task with its reason, a retried
 attempt, a `[WARN]` or `[ERROR]` message from the playbook, the task and phase headers above them, and the end-of-run
-summary. Tasks that were already done or were skipped are written to `~/installation_full.log` alone. The terminal
-summary lists only what the run was asked to install, and says how many items were skipped and that each is listed with
-its reason in `~/installation_skipped.log`.
+summary. Tasks that were already done or were skipped are written to `~/installation_full.log` alone, except the skips
+for another operating system, which no log keeps. The terminal summary lists only what the run was asked to install,
+and says how many items were skipped and that each is listed with its reason in `~/installation_skipped.log`.
 
 #### Configuration file backup
 

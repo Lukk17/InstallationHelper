@@ -618,7 +618,7 @@ callback.v2_playbook_on_start(type("Playbook", (), {"_entries": [Named("Installa
 callback.v2_playbook_on_play_start(Named("Installation Helper"))
 start(callback, "linux_security : Install ClamAV (Fedora)")
 callback.v2_runner_on_skipped(result("linux_security : Install ClamAV (Fedora)", changed=False,
-                                     false_condition="ansible_facts['os_family'] == 'RedHat'",
+                                     false_condition="ih_family == 'RedHat'",
                                      skip_reason="Conditional result was False"))
 start(callback, ENABLE)
 callback.v2_runner_on_ok(result(ENABLE, "ansible.builtin.systemd", changed=True))
@@ -724,6 +724,8 @@ for where, text in (("the terminal", console_run), ("installation_full.log", ful
     missing = in_order(text, ("PHASE: linux_security", ENABLE))
     if missing:
         problems.append("{} lacks {!r} before the first result of the role".format(where, missing))
+    if "Install ClamAV (Fedora)" in text:
+        problems.append("{} holds the skip of the Fedora task, so the probe never drove a skip for another OS".format(where))
 report("a role whose first task does not apply to this OS keeps its phase banner", problems)
 
 problems = []

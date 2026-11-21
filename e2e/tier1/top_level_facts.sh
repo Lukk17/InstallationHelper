@@ -26,11 +26,13 @@
 # of the installed ansible-core, and ansible_failed_task and ansible_failed_result, which the strategy
 # plugin sets for a rescue. Before it reads the repository it runs its reader against planted files and
 # requires it to name exactly the planted reads, and it fails when it reads fewer files or fewer reads
-# of ansible_facts than it was written against. It also reads OS_CONDITION_REGEX out of
-# setup/ansible/callback_plugins/dual_logger.py and fails a name in it that no when condition of the
-# playbook holds, because the callback hides a skip as "not for this OS" by those names, and
-# ansible_system and os_family stayed in it long after the conditions stopped reading them,
-# docs/regression_ledger.md 10.384.
+# of ansible_facts than it was written against. It also reads OS_VARIABLES and OS_FACT_KEYS out of
+# setup/ansible/callback_plugins/dual_logger.py, the names the callback hides a skip as "not for this
+# OS" by, and fails a name no when condition of the playbook reads, a variable that
+# setup/ansible/tasks/derive_os_facts.yaml does not set, a variable that file sets and a condition
+# reads which OS_VARIABLES lacks, and an ansible_facts key a condition reads which OS_FACT_KEYS lacks,
+# because ansible_system and os_family stayed in the old pattern long after the conditions stopped
+# reading them and ih_family never reached it, docs/regression_ledger.md 10.384 and 10.385.
 #
 # The runtime half runs ansible-playbook on this machine's own facts with the facts not injected,
 # which e2e/lib/common.sh sets for every check, so every lifted task any check runs reads them the way
@@ -311,29 +313,58 @@ if not sink['problems']:
           'ansible_facts, and the reader named the %d planted reads' % (sink['expressions'], files, shipped_reads, len(wanted)))
 
 CALLBACK = 'setup/ansible/callback_plugins/dual_logger.py'
-os_pattern = None
+DERIVATION = 'setup/ansible/tasks/derive_os_facts.yaml'
+declared = {}
 for node in ast.walk(ast.parse((REPO / CALLBACK).read_text(encoding='utf-8'))):
-    if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'OS_CONDITION_REGEX' for t in node.targets) \
-            and isinstance(node.value, ast.Call) and node.value.args and isinstance(node.value.args[0], ast.Constant) \
-            and isinstance(node.value.args[0].value, str):
-        os_pattern = node.value.args[0].value
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+            and node.targets[0].id in ('OS_VARIABLES', 'OS_FACT_KEYS') and isinstance(node.value, ast.Call) \
+            and isinstance(node.value.func, ast.Name) and node.value.func.id == 'frozenset' \
+            and len(node.value.args) == 1 and isinstance(node.value.args[0], ast.Set):
+        try:
+            value = ast.literal_eval(node.value.args[0])
+        except ValueError:
+            continue
+        if value and all(isinstance(name, str) for name in value):
+            declared[node.targets[0].id] = value
+derived = set()
+for task in yaml.safe_load((REPO / DERIVATION).read_text(encoding='utf-8')) or []:
+    for module_name in SET_FACT & set(task if isinstance(task, dict) else ()):
+        derived.update(task[module_name] if isinstance(task[module_name], dict) else ())
+condition_names, condition_keys = set(), set()
 shipped_conditions = [text for rel, text in sink['conditions'] if rel.startswith('setup/ansible/')]
-if os_pattern is None or re.search(r'[\\()\[\]?*+{}^$.]', os_pattern):
-    print('CALLBACK_FAIL OS_CONDITION_REGEX in %s is not a literal string of names joined by |, so the names it '
-          'hides a skip by cannot be read: %r' % (CALLBACK, os_pattern))
-elif len(shipped_conditions) < 500:
-    print('CALLBACK_FAIL the reader collected %d when conditions under setup/ansible/, fewer than it was written '
-          'against, so nothing is proven about OS_CONDITION_REGEX' % len(shipped_conditions))
+for text in shipped_conditions:
+    try:
+        tree = ENVIRONMENT.parse('{{ ' + text + ' }}')
+    except jinja2.TemplateSyntaxError:
+        continue
+    condition_names.update(node.name for node in tree.find_all(nodes.Name))
+    condition_keys.update(expression_reads(tree)[1])
+if set(declared) != {'OS_VARIABLES', 'OS_FACT_KEYS'}:
+    print('CALLBACK_FAIL %s does not declare both OS_VARIABLES and OS_FACT_KEYS as frozenset({...}) of names, so the '
+          'names it hides a skip by cannot be read: found %s' % (CALLBACK, sorted(declared) or 'neither'))
+elif len(shipped_conditions) < 500 or not derived:
+    print('CALLBACK_FAIL the reader collected %d when conditions under setup/ansible/ and %d names %s sets, fewer than '
+          'it was written against, so nothing is proven about the OS names' % (len(shipped_conditions), len(derived), DERIVATION))
 else:
-    names = os_pattern.split('|')
-    dead = [name for name in names if not any(name in text for text in shipped_conditions)]
-    for name in dead:
-        print('CALLBACK_FAIL OS_CONDITION_REGEX in %s names %s, which no when condition under setup/ansible/ '
-              'holds, so the callback can never hide a skip by it and the condition it was meant for reads '
-              'another name' % (CALLBACK, name))
-    if not dead:
-        print('CALLBACK_OK every one of the %d names of OS_CONDITION_REGEX in %s is in a when condition of the '
-              'playbook, of the %d read' % (len(names), CALLBACK, len(shipped_conditions)))
+    os_variables, os_keys = declared['OS_VARIABLES'], declared['OS_FACT_KEYS']
+    callback_problems = (
+        ['OS_VARIABLES names %s, which no when condition under setup/ansible/ reads, so the callback hides no skip by it '
+         'and the condition it was meant for reads another name' % name for name in sorted(os_variables - condition_names)]
+        + ['OS_FACT_KEYS names %s, which no when condition under setup/ansible/ reads through ansible_facts' % key
+           for key in sorted(os_keys - condition_keys)]
+        + ['OS_VARIABLES names %s, which %s does not set, so it is no derived OS name' % (name, DERIVATION)
+           for name in sorted(os_variables - derived)]
+        + ['%s sets %s and a when condition reads it, and OS_VARIABLES lacks it, so a skip it decides is logged as '
+           'if the person had caused it' % (DERIVATION, name) for name in sorted((derived & condition_names) - os_variables)]
+        + ['a when condition reads ansible_facts[%r] and OS_FACT_KEYS lacks it: declare it there when it describes the '
+           'system or the machine, or teach this check that it is a fact the person decides' % key
+           for key in sorted(condition_keys - os_keys)])
+    for problem in callback_problems:
+        print('CALLBACK_FAIL %s %s' % (CALLBACK, problem))
+    if not callback_problems:
+        print('CALLBACK_OK the %d OS_VARIABLES and %d OS_FACT_KEYS of %s are each read by a when condition, the '
+              'variables are the ones %s sets and conditions read, and the keys every ansible_facts key the %d '
+              'conditions read' % (len(os_variables), len(os_keys), CALLBACK, DERIVATION, len(shipped_conditions)))
 READS_OUT.write_text(json.dumps({'ih_fact_keys': sorted(shipped_keys | {'env'}),
                                  'ih_top_level_names': sorted(sink['top'])}), encoding='utf-8')
 PYEOF
@@ -343,7 +374,7 @@ assert_python_ran "${report_status}" "${LABEL}"
 while IFS= read -r line; do
     case "${line}" in
         CALLBACK_OK*)   pass "${line#CALLBACK_OK }" ;;
-        CALLBACK_FAIL*) fail "the callback hides a skip as not for this OS only by names a condition holds" "${line#CALLBACK_FAIL }" ;;
+        CALLBACK_FAIL*) fail "the callback hides a skip as not for this OS only by the OS names the conditions read" "${line#CALLBACK_FAIL }" ;;
         OK*)   pass "${line#OK }" ;;
         FAIL*) fail "the playbook reads facts only through ansible_facts" "${line#FAIL }" ;;
         *)     [[ -n "${line}" ]] && fail "the top-level fact reader printed something unexpected" "${line}" ;;
